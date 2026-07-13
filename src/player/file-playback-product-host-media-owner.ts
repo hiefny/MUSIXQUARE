@@ -13,10 +13,13 @@ import {
   type FileMediaSourceOfferV2,
 } from './file-media-source-offer.ts';
 import type {
+  HostPreparedLocalTrack,
+  HostPreparedRemoteParticipant,
   HostPeerPlaybackPublication,
   HostPeerRangeSource,
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
+  ResolvePreparedHostPeerRangeSourceOptions,
   ResolveHostPeerRangeSourceOptions,
 } from './file-playback-host-first-file-engine.ts';
 import { FilePlaybackR2WholeBlobPublisher } from './file-playback-r2-whole-blob-publisher.ts';
@@ -29,6 +32,12 @@ import type {
   FilePlaybackProductSessionRouterHostMediaOwnerPort,
 } from './file-playback-product-session-router.ts';
 import type { HostRendezvousAttempt } from './rendezvous-coordinator.ts';
+import {
+  createFilePlaybackTimelineUpdateV2,
+  timelineFromFilePlaybackTimelineUpdateV2,
+  type FilePlaybackTimelineUpdateV2,
+} from './file-playback-timeline-update.ts';
+import type { PlaybackTimelineSnapshot } from './playback-timeline.ts';
 import { RemoteRendezvousParticipant } from './remote-rendezvous-participant.ts';
 import {
   ParticipantHealthMonitor,
@@ -61,11 +70,14 @@ const OPTION_KEYS = Object.freeze([
   'hostRoom',
   'onHealthSystemMessage',
   'publisher',
+  'resolvePreparedPeerRangeSource',
   'runtimeForTests',
   'sendRequired',
   'sendWire',
 ] as const);
-const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter((key) => key !== 'runtimeForTests');
+const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
+  (key) => key !== 'resolvePreparedPeerRangeSource' && key !== 'runtimeForTests',
+);
 const RUNTIME_KEYS = Object.freeze([
   'cancelIntervalForTests',
   'createMediaIdForTests',
@@ -112,6 +124,7 @@ const READY_KEYS = Object.freeze([
   'schemaVersion',
   'sessionId',
 ] as const);
+const ACTIVATE_PREPARED_KEYS = Object.freeze(['prepared', 'timeline'] as const);
 const PEER_RANGE_BUFFERED_AMOUNT_LIMIT = 256 * 1024;
 const PUBLICATION_LIFETIME_MS = 15 * 60 * 1_000;
 const HEALTH_LEASE_MS = 2_000;
@@ -158,6 +171,10 @@ export interface FilePlaybackProductHostMediaOwnerOptions {
   readonly onHealthSystemMessage: (
     message: Readonly<FilePlaybackProductHostHealthSystemMessage>,
   ) => void;
+  /** Exact room/engine resolver for an opaque prepared candidate capability. */
+  readonly resolvePreparedPeerRangeSource?: (
+    options: ResolvePreparedHostPeerRangeSourceOptions,
+  ) => Promise<HostPeerRangeSource>;
   readonly runtimeForTests?: FilePlaybackProductHostMediaOwnerRuntimeForTests;
 }
 
@@ -166,6 +183,19 @@ export interface FilePlaybackProductHostPublicationCommit {
   readonly publication: Readonly<HostPeerPlaybackPublication>;
   readonly offer: Readonly<FileMediaSourceOfferV2>;
   readonly binding: Readonly<FilePlaybackRunBindingV2>;
+}
+
+/** Body-free result after one prepared candidate has been offered but not committed. */
+export interface FilePlaybackProductHostPreparedPublicationCommit {
+  readonly schemaVersion: 1;
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly offer: Readonly<FileMediaSourceOfferV2>;
+  readonly binding: Readonly<FilePlaybackRunBindingV2>;
+}
+
+export interface ActivateFilePlaybackProductHostPreparedOptions {
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly timeline: Readonly<PlaybackTimelineSnapshot>;
 }
 
 interface RuntimeSnapshot {
@@ -185,16 +215,49 @@ interface PublicationRecord {
   readonly commit: Readonly<FilePlaybackProductHostPublicationCommit>;
   participant: RemoteRendezvousParticipant | null;
   status: 'publishing' | 'published';
+  readonly preparedSource: CandidateSourceRecord | null;
+}
+
+interface CandidateSourceRecord {
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly resolve: NonNullable<
+    FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']
+  >;
+}
+
+interface PreparedPublicationRecord {
+  readonly epoch: number;
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly offer: Readonly<FileMediaSourceOfferV2>;
+  readonly binding: Readonly<FilePlaybackRunBindingV2>;
+  readonly stateLease: FilePlaybackWireStateLease;
+  readonly handleId: string | null;
+  readonly source: CandidateSourceRecord;
+  readonly commit: Readonly<FilePlaybackProductHostPreparedPublicationCommit>;
+  readonly ready: Promise<Readonly<HostPreparedRemoteParticipant>>;
+  readonly resolveReady: (value: Readonly<HostPreparedRemoteParticipant>) => void;
+  readonly rejectReady: (error: Error) => void;
+  participant: RemoteRendezvousParticipant | null;
+  capability: Readonly<HostPreparedRemoteParticipant> | null;
+  status: 'publishing' | 'published' | 'activated' | 'retired';
 }
 
 interface AttemptRecord {
+  readonly mode: 'prepared' | 'recovery';
   readonly publicationEpoch: number;
   readonly participant: RemoteRendezvousParticipant;
   readonly attempt: HostRendezvousAttempt;
   readonly lease: FilePlaybackWireAttemptLease;
+  readonly stateLease: FilePlaybackWireStateLease;
+  readonly state: Readonly<HostPreparedLocalTrack['state']>;
+  readonly sourceIdentity: string;
+  readonly transferSessionId: string;
   readonly evidence: Promise<void>;
   readonly resolveEvidence: () => void;
   readonly rejectEvidence: (error: Error) => void;
+  readonly preparedRecord: PreparedPublicationRecord | null;
+  outcome: 'pending' | 'succeeded' | 'failed';
+  stateCommitted: boolean;
   status: 'candidate' | 'current' | 'retired';
 }
 
@@ -214,8 +277,10 @@ const trustedChannelQuality = FilePlaybackConnectionChannel.prototype.quality;
 const trustedChannelClockReady = FilePlaybackConnectionChannel.prototype.clockReady;
 const trustedChannelBootstrapCurrent =
   FilePlaybackConnectionChannel.prototype.bootstrapCurrentMedia;
+const trustedChannelBootstrapStopped = FilePlaybackConnectionChannel.prototype.bootstrapStopped;
 const trustedChannelStageMedia = FilePlaybackConnectionChannel.prototype.stageMedia;
 const trustedChannelCommitMedia = FilePlaybackConnectionChannel.prototype.commitMedia;
+const trustedChannelRetireMedia = FilePlaybackConnectionChannel.prototype.retireMedia;
 const trustedChannelStageAttempt = FilePlaybackConnectionChannel.prototype.stageAttempt;
 const trustedChannelCommitAttempt = FilePlaybackConnectionChannel.prototype.commitAttempt;
 const trustedChannelRetireAttempt = FilePlaybackConnectionChannel.prototype.retireAttempt;
@@ -363,6 +428,32 @@ function deferredEvidence(): Readonly<{
   return freezeCanonical({ promise, resolve, reject });
 }
 
+function deferredReadyCapability(): Readonly<{
+  promise: Promise<Readonly<HostPreparedRemoteParticipant>>;
+  resolve: (value: Readonly<HostPreparedRemoteParticipant>) => void;
+  reject: (error: Error) => void;
+}> {
+  let resolve!: (value: Readonly<HostPreparedRemoteParticipant>) => void;
+  let reject!: (error: Error) => void;
+  let settled = false;
+  const promise = new Promise<Readonly<HostPreparedRemoteParticipant>>(
+    (resolvePromise, rejectPromise) => {
+      resolve = (value) => {
+        if (settled) return;
+        settled = true;
+        resolvePromise(value);
+      };
+      reject = (error) => {
+        if (settled) return;
+        settled = true;
+        rejectPromise(error);
+      };
+    },
+  );
+  observe(promise);
+  return freezeCanonical({ promise, resolve, reject });
+}
+
 /**
  * One exact host->guest media owner. Room media and R2 lifetimes are injected;
  * revoking this owner can therefore isolate one peer without stopping either.
@@ -375,6 +466,9 @@ export class FilePlaybackProductHostMediaOwner {
   readonly #sendWire: FilePlaybackProductHostMediaOwnerOptions['sendWire'];
   readonly #closeConnection: FilePlaybackProductHostMediaOwnerOptions['closeConnection'];
   readonly #onHealthSystemMessage: FilePlaybackProductHostMediaOwnerOptions['onHealthSystemMessage'];
+  readonly #resolvePreparedPeerRangeSource: NonNullable<
+    FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']
+  > | null;
   readonly #runtime: RuntimeSnapshot;
   readonly #port: Readonly<FilePlaybackProductSessionRouterHostMediaOwnerPort>;
   readonly #health: ParticipantHealthMonitor;
@@ -387,6 +481,11 @@ export class FilePlaybackProductHostMediaOwner {
   #publication: PublicationRecord | null = null;
   #publicationTask: Promise<Readonly<FilePlaybackProductHostPublicationCommit>> | null = null;
   #publicationTaskIdentity: Readonly<HostPeerPlaybackPublication> | null = null;
+  #candidateEpoch = 0;
+  #candidateController = new AbortController();
+  #candidate: PreparedPublicationRecord | null = null;
+  #candidateTask: Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> | null = null;
+  #candidateTaskIdentity: Readonly<HostPreparedLocalTrack> | null = null;
   #attempt: AttemptRecord | null = null;
   readonly #attemptsById = new Map<string, AttemptRecord>();
   #closed = false;
@@ -427,7 +526,9 @@ export class FilePlaybackProductHostMediaOwner {
       typeof input.sendRequired !== 'function' ||
       typeof input.sendWire !== 'function' ||
       typeof input.closeConnection !== 'function' ||
-      typeof input.onHealthSystemMessage !== 'function'
+      typeof input.onHealthSystemMessage !== 'function' ||
+      (input.resolvePreparedPeerRangeSource !== undefined &&
+        typeof input.resolvePreparedPeerRangeSource !== 'function')
     ) {
       throw new TypeError('File playback product host media owner options are invalid');
     }
@@ -456,6 +557,10 @@ export class FilePlaybackProductHostMediaOwner {
       input.closeConnection as FilePlaybackProductHostMediaOwnerOptions['closeConnection'];
     this.#onHealthSystemMessage =
       input.onHealthSystemMessage as FilePlaybackProductHostMediaOwnerOptions['onHealthSystemMessage'];
+    this.#resolvePreparedPeerRangeSource =
+      (input.resolvePreparedPeerRangeSource as
+        | NonNullable<FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']>
+        | undefined) ?? null;
     this.#runtime = runtime;
 
     const now = this.#nowRoomTimeMs();
@@ -525,6 +630,136 @@ export class FilePlaybackProductHostMediaOwner {
     this.#publicationTask = task;
     this.#publicationTaskIdentity = publication;
     return task;
+  }
+
+  /** Publishes one exact silent candidate without changing current wire truth. */
+  publishPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> {
+    if (this.#closed) return Promise.reject(new Error('Host media owner is closed'));
+    if (!this.#resolvePreparedPeerRangeSource) {
+      return Promise.reject(new Error('Host prepared source resolver is unavailable'));
+    }
+    if (this.#candidate?.prepared === prepared && this.#candidate.status !== 'retired') {
+      return Promise.resolve(this.#candidate.commit);
+    }
+    if (this.#candidateTask && this.#candidateTaskIdentity === prepared) {
+      return this.#candidateTask;
+    }
+    if (this.#candidate || this.#candidateTask) {
+      return Promise.reject(new Error('Host prepared publication already has exact authority'));
+    }
+    this.#candidateEpoch += 1;
+    const epoch = this.#candidateEpoch;
+    this.#candidateController.abort(new Error('Host prepared publication was superseded'));
+    this.#candidateController = new AbortController();
+    const task = this.#publishPrepared(prepared, epoch).finally(() => {
+      if (this.#candidateTask === task) {
+        this.#candidateTask = null;
+        this.#candidateTaskIdentity = null;
+      }
+    });
+    this.#candidateTask = task;
+    this.#candidateTaskIdentity = prepared;
+    return task;
+  }
+
+  /** Stable per-candidate readiness capability; a slow peer remains locally pending. */
+  whenPreparedRemoteReady(
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): Promise<Readonly<HostPreparedRemoteParticipant>> {
+    const record = this.#candidate;
+    if (!record || record.prepared !== prepared || record.status === 'retired') {
+      return Promise.reject(new Error('Host prepared publication authority is stale'));
+    }
+    return record.ready;
+  }
+
+  /**
+   * Promotes the exact candidate after the host has committed canonical truth.
+   * Remote renderer acceptance is deliberately settled independently.
+   */
+  activatePrepared(
+    options: ActivateFilePlaybackProductHostPreparedOptions,
+  ): Readonly<FilePlaybackProductHostPublicationCommit> {
+    const input = snapshotExactRecord(options, ACTIVATE_PREPARED_KEYS);
+    const record = this.#candidate;
+    if (!input || !record || input.prepared !== record.prepared) {
+      throw new Error('Host prepared activation authority is stale');
+    }
+    this.#assertCandidateRecord(record);
+    if (record.status !== 'published') {
+      throw new Error('Host prepared publication is not activatable');
+    }
+    const publication = this.#hostRoom.currentPeerPublication();
+    if (
+      !publication ||
+      publication.roomGeneration !== record.prepared.roomGeneration ||
+      publication.backend !== record.prepared.backend ||
+      publication.state.queueItemId !== record.prepared.state.queueItemId ||
+      publication.state.runId !== record.prepared.state.runId ||
+      publication.state.revision !== record.prepared.state.revision ||
+      publication.timeline !== input.timeline ||
+      publication.asset.binding.queueItemId !== record.prepared.asset.binding.queueItemId ||
+      publication.asset.binding.sourceIdentity !== record.prepared.asset.binding.sourceIdentity ||
+      publication.asset.binding.transferSessionId !==
+        record.prepared.asset.binding.transferSessionId ||
+      publication.asset.kind !== record.prepared.asset.kind ||
+      publication.asset.metadata.name !== record.prepared.asset.metadata.name ||
+      publication.asset.metadata.mime !== record.prepared.asset.metadata.mime ||
+      publication.asset.encodedSize !== record.prepared.asset.encodedSize
+    ) {
+      throw new Error('Host room did not commit the exact prepared publication');
+    }
+    const update = createFilePlaybackTimelineUpdateV2({
+      sessionId: this.#context.sessionId,
+      connectionId: this.#context.connectionId,
+      roomGeneration: record.prepared.roomGeneration,
+      timeline: publication.timeline,
+    });
+    this.#assertTimelineMatchesPrepared(update, record.prepared);
+    const timeline = timelineFromFilePlaybackTimelineUpdateV2(update);
+    if (!timeline) throw new Error('Host prepared committed timeline is invalid');
+
+    Reflect.apply(trustedChannelCommitMedia, this.#context.channel, [record.stateLease]);
+    this.#revokePublishedHandle(new Error('Host current publication was superseded'));
+    this.#publicationEpoch += 1;
+    this.#publicationController.abort(new Error('Host current publication was superseded'));
+    this.#publicationController = new AbortController();
+    if (timeline.revision !== publication.timeline.revision) {
+      throw new Error('Host prepared committed timeline changed during activation');
+    }
+    const commit = freezeCanonical({
+      schemaVersion: 1 as const,
+      publication,
+      offer: record.offer,
+      binding: record.binding,
+    });
+    const publicationRecord: PublicationRecord = {
+      epoch: this.#publicationEpoch,
+      publication,
+      offer: record.offer,
+      binding: record.binding,
+      stateLease: record.stateLease,
+      handleId: record.handleId,
+      commit,
+      participant: record.participant,
+      status: 'published',
+      preparedSource: record.source,
+    };
+    if (!record.capability) {
+      record.rejectReady(new Error('Host committed before this remote candidate became ready'));
+    }
+    record.status = 'activated';
+    this.#publication = publicationRecord;
+    this.#candidate = null;
+    this.#sendRequiredFrame(update);
+    const attempt = this.#attempt;
+    if (attempt?.mode === 'prepared' && attempt.preparedRecord === record) {
+      attempt.stateCommitted = true;
+      this.#settlePreparedAttempt(attempt);
+    }
+    return commit;
   }
 
   setDocumentHidden(hidden: boolean): void {
@@ -655,6 +890,7 @@ export class FilePlaybackProductHostMediaOwner {
       commit,
       participant: null,
       status: 'publishing',
+      preparedSource: null,
     };
     this.#publication = record;
     await Promise.resolve();
@@ -664,6 +900,152 @@ export class FilePlaybackProductHostMediaOwner {
     this.#assertRecord(record);
     this.#sendRequiredFrame(binding);
     this.#assertRecord(record);
+    record.status = 'published';
+    return commit;
+  }
+
+  async #publishPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    epoch: number,
+  ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> {
+    await Promise.resolve();
+    this.#assertPreparedCandidateAuthority(prepared, epoch);
+    const resolve = this.#resolvePreparedPeerRangeSource;
+    if (!resolve) throw new Error('Host prepared source resolver is unavailable');
+    const prepareRevision = this.#nextPrepareRevision();
+    const prepareId = this.#freshMediaId([
+      prepared.state.queueItemId,
+      prepared.state.runId,
+      prepared.asset.binding.sourceIdentity,
+      prepared.asset.binding.transferSessionId,
+    ]);
+    const base = {
+      sessionId: this.#context.sessionId,
+      connectionId: this.#context.connectionId,
+      prepareId,
+      prepareRevision,
+      queueItemId: prepared.state.queueItemId,
+      sourceIdentity: prepared.asset.binding.sourceIdentity,
+      transferSessionId: prepared.asset.binding.transferSessionId,
+      encodedSize: prepared.asset.encodedSize,
+      name: prepared.asset.metadata.name,
+      mime: prepared.asset.metadata.mime,
+    } as const;
+    const exactSource = await resolve({
+      prepared,
+      sourceIdentity: prepared.asset.binding.sourceIdentity,
+      signal: this.#candidateSignal(epoch),
+    });
+    try {
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+    } catch (error) {
+      if (isEncodedSource(exactSource)) await exactSource.close().catch(() => undefined);
+      throw error;
+    }
+    if (
+      exactSource.size !== prepared.asset.encodedSize ||
+      (isEncodedSource(exactSource) &&
+        (exactSource.identity !== prepared.asset.binding.sourceIdentity ||
+          exactSource.metadata.name !== prepared.asset.metadata.name ||
+          exactSource.metadata.mime !== prepared.asset.metadata.mime))
+    ) {
+      if (isEncodedSource(exactSource)) await exactSource.close().catch(() => undefined);
+      throw new Error('Host prepared source changed its exact candidate binding');
+    }
+    let handleId: string | null = null;
+    let offer: Readonly<FileMediaSourceOfferV2>;
+    if (prepared.backend === 'streaming-flac') {
+      if (!isEncodedSource(exactSource)) {
+        throw new Error('Streaming prepared publication requires its exact encoded source');
+      }
+      await exactSource.close();
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+      handleId = this.#freshMediaId([
+        prepareId,
+        prepared.state.queueItemId,
+        prepared.asset.binding.sourceIdentity,
+        prepared.asset.binding.transferSessionId,
+      ]);
+      offer = createPeerRangeFileMediaSourceOfferV2({
+        ...base,
+        handleId,
+        expiresAtRoomTimeMs: this.#nowRoomTimeMs() + PUBLICATION_LIFETIME_MS,
+      });
+    } else {
+      if (!(exactSource instanceof Blob)) {
+        await exactSource.close().catch(() => undefined);
+        throw new Error('Ordinary prepared publication requires its exact Blob source');
+      }
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+      const published = await this.#publisher.publish({
+        queueItemId: prepared.state.queueItemId,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        transferSessionId: prepared.asset.binding.transferSessionId,
+        blob: exactSource,
+        name: prepared.asset.metadata.name,
+        mime: prepared.asset.metadata.mime,
+      });
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+      const epochNow = this.#runtime.nowEpochMs();
+      if (!Number.isFinite(epochNow) || epochNow < 0) {
+        throw new Error('Host media owner epoch clock is invalid');
+      }
+      offer = createR2WholeBlobFileMediaSourceOfferV2({
+        ...base,
+        storageRoomId: published.storageRoomId,
+        objectId: published.objectId,
+        encryptedSize: published.encryptedSize,
+        keyB64: published.keyB64,
+        ivB64: published.ivB64,
+        expiresAtRoomTimeMs:
+          this.#nowRoomTimeMs() + Math.max(0, published.expiresAtEpochMs - epochNow),
+      });
+    }
+    this.#assertPreparedCandidateAuthority(prepared, epoch);
+    const binding = createFilePlaybackRunBindingV2({
+      sessionId: this.#context.sessionId,
+      connectionId: this.#context.connectionId,
+      prepareId: offer.prepareId,
+      prepareRevision: offer.prepareRevision,
+      queueItemId: offer.queueItemId,
+      sourceIdentity: offer.sourceIdentity,
+      transferSessionId: offer.transferSessionId,
+      runId: prepared.state.runId,
+      playbackRevision: prepared.state.revision,
+    });
+    this.#retireAttempt(new Error('Host prepared candidate superseded current recovery'));
+    const stateLease = this.#installCandidateState(prepared);
+    const ready = deferredReadyCapability();
+    const commit = freezeCanonical({
+      schemaVersion: 1 as const,
+      prepared,
+      offer,
+      binding,
+    });
+    const record: PreparedPublicationRecord = {
+      epoch,
+      prepared,
+      offer,
+      binding,
+      stateLease,
+      handleId,
+      source: freezeCanonical({ prepared, resolve }),
+      commit,
+      ready: ready.promise,
+      resolveReady: ready.resolve,
+      rejectReady: ready.reject,
+      participant: null,
+      capability: null,
+      status: 'publishing',
+    };
+    this.#candidate = record;
+    await Promise.resolve();
+    this.#assertCandidateRecord(record);
+    this.#sendRequiredFrame(offer);
+    await Promise.resolve();
+    this.#assertCandidateRecord(record);
+    this.#sendRequiredFrame(binding);
+    this.#assertCandidateRecord(record);
     record.status = 'published';
     return commit;
   }
@@ -686,6 +1068,21 @@ export class FilePlaybackProductHostMediaOwner {
     return lease;
   }
 
+  #installCandidateState(prepared: Readonly<HostPreparedLocalTrack>): FilePlaybackWireStateLease {
+    const binding = freezeCanonical({
+      run: prepared.state,
+      sourceIdentity: prepared.asset.binding.sourceIdentity,
+      transferSessionId: prepared.asset.binding.transferSessionId,
+    });
+    if (!this.#wireBootstrapped) {
+      Reflect.apply(trustedChannelBootstrapStopped, this.#context.channel, [
+        prepared.state.revision - 1,
+      ]);
+      this.#wireBootstrapped = true;
+    }
+    return Reflect.apply(trustedChannelStageMedia, this.#context.channel, [binding]);
+  }
+
   #adoptWireMessage(value: Readonly<FilePlaybackWireAdoptionEvent>, acknowledge: () => void): void {
     const event = snapshotExactRecord(value, WIRE_EVENT_KEYS);
     if (!event || typeof acknowledge !== 'function') {
@@ -693,12 +1090,49 @@ export class FilePlaybackProductHostMediaOwner {
     }
     this.#assertEventConnection(event);
     const message = event.message as FilePlaybackWireAdoptionEvent['message'];
+    const candidate = this.#candidate;
     const record = this.#publication;
-    if (!record || record.status !== 'published') {
-      throw new Error('Host media owner received wire before publication');
-    }
 
     if (message.kind === 'source-ready' || message.kind === 'source-not-ready') {
+      if (candidate && event.stateLease === candidate.stateLease) {
+        if (event.attemptLease !== null || candidate.status !== 'published') {
+          acknowledge();
+          return;
+        }
+        this.#assertMessageState(
+          message,
+          candidate.prepared.state,
+          candidate.prepared.asset.binding.sourceIdentity,
+          candidate.prepared.asset.binding.transferSessionId,
+        );
+        if (message.kind === 'source-not-ready') {
+          candidate.rejectReady(new Error(`Guest source is not ready: ${message.reasonCode}`));
+          this.#reportHealth({
+            dimension: 'media-readiness',
+            value: 'unhealthy',
+            observedAtMs: message.observedAtRoomTimeMs,
+            leaseUntilMs: message.observedAtRoomTimeMs,
+            reasonCode: message.reasonCode,
+          });
+          acknowledge();
+          return;
+        }
+        if (message.backend !== candidate.prepared.backend) {
+          throw new Error('Guest SOURCE_READY backend does not match host candidate');
+        }
+        this.#reportHealth({
+          dimension: 'media-readiness',
+          value: 'healthy',
+          observedAtMs: message.observedAtRoomTimeMs,
+          leaseUntilMs: message.readyLeaseUntilRoomTimeMs,
+        });
+        acknowledge();
+        this.#publishPreparedRemoteCapability(candidate);
+        return;
+      }
+      if (!record || record.status !== 'published') {
+        throw new Error('Host media owner received wire before publication');
+      }
       if (event.stateLease !== record.stateLease || event.attemptLease !== null) {
         acknowledge();
         return;
@@ -737,13 +1171,18 @@ export class FilePlaybackProductHostMediaOwner {
     const attempt = this.#attempt;
     if (
       !attempt ||
-      event.stateLease !== record.stateLease ||
+      event.stateLease !== attempt.stateLease ||
       event.attemptLease !== attempt.lease
     ) {
       acknowledge();
       return;
     }
-    this.#assertMessagePublication(message, record.publication);
+    this.#assertMessageState(
+      message,
+      attempt.state,
+      attempt.sourceIdentity,
+      attempt.transferSessionId,
+    );
     if (!('rendezvousId' in message) || message.rendezvousId !== attempt.attempt.rendezvousId) {
       acknowledge();
       return;
@@ -820,25 +1259,198 @@ export class FilePlaybackProductHostMediaOwner {
     if (event.role !== 'host' || event.lane !== 'control') {
       throw new Error('Host media owner received the wrong peer-range lane');
     }
-    const record = this.#publication;
-    if (
-      !record ||
-      record.status !== 'published' ||
-      !record.handleId ||
-      record.offer.transport !== 'peer-range'
-    ) {
-      throw new Error('Host media owner has no peer-range publication');
-    }
     const frame = parsePeerRangeControlFrame(event.frame);
+    const candidate = this.#candidate;
+    const current = this.#publication;
+    const authority =
+      candidate?.status === 'published' &&
+      candidate.handleId === frame.handleId &&
+      candidate.offer.transport === 'peer-range'
+        ? {
+            handleId: candidate.handleId,
+            sourceIdentity: candidate.prepared.asset.binding.sourceIdentity,
+          }
+        : current?.status === 'published' &&
+            current.handleId === frame.handleId &&
+            current.offer.transport === 'peer-range'
+          ? {
+              handleId: current.handleId,
+              sourceIdentity: current.publication.asset.binding.sourceIdentity,
+            }
+          : null;
     if (
+      !authority ||
       frame.connectionId !== this.#context.connectionId ||
-      frame.sourceIdentity !== record.publication.asset.binding.sourceIdentity ||
-      frame.handleId !== record.handleId
+      frame.sourceIdentity !== authority.sourceIdentity ||
+      frame.handleId !== authority.handleId
     ) {
       throw new Error('Peer-range request does not match the current publication');
     }
     this.#responder.acceptControl(this.#context.connectionToken, frame);
     acknowledge();
+  }
+
+  #createRemoteParticipant(
+    state: Readonly<HostPreparedLocalTrack['state']>,
+    sourceIdentity: string,
+    transferSessionId: string,
+  ): RemoteRendezvousParticipant {
+    return new RemoteRendezvousParticipant({
+      participantId: this.#context.guestParticipantId,
+      rendererEvidenceScope: freezeCanonical({
+        sessionId: this.#context.sessionId,
+        connectionId: this.#context.connectionId,
+        recipientParticipantId: this.#context.hostParticipantId,
+        sourceIdentity,
+        transferSessionId,
+      }),
+      rttP95Ms: () => Reflect.apply(trustedChannelQuality, this.#context.channel, []).rttP95Ms,
+      armP95Ms: 0,
+      nowRoomTimeMs: () => this.#nowRoomTimeMs(),
+      dispatchArm: (intent) => {
+        if (
+          intent.queueItemId !== state.queueItemId ||
+          intent.runId !== state.runId ||
+          intent.revision !== state.revision
+        ) {
+          return Promise.reject(new Error('Host remote ARM state authority is stale'));
+        }
+        return this.#dispatchAttemptWire('rendezvous-arm', intent.rendezvousId, {
+          kind: 'rendezvous-arm',
+          rendezvousId: intent.rendezvousId,
+          positionSeconds: intent.positionSeconds,
+          playbackRate: intent.playbackRate,
+          startAtRoomTimeMs: intent.startAtRoomTimeMs,
+          finalizeByRoomTimeMs: intent.finalizeByRoomTimeMs,
+        });
+      },
+      dispatchFinalize: (intent) =>
+        this.#dispatchAttemptWire('rendezvous-finalize', intent.rendezvousId, {
+          kind: 'rendezvous-finalize',
+          rendezvousId: intent.rendezvousId,
+          startAtRoomTimeMs: intent.startAtRoomTimeMs,
+          finalizedAtRoomTimeMs: intent.finalizedAtRoomTimeMs,
+        }),
+      dispatchCancel: (intent) =>
+        this.#dispatchAttemptWire('file-playback-cancel', intent.rendezvousId, {
+          kind: 'file-playback-cancel',
+          rendezvousId: intent.rendezvousId,
+          reasonCode: intent.reasonCode,
+        }),
+    });
+  }
+
+  #publishPreparedRemoteCapability(record: PreparedPublicationRecord): void {
+    if (record.capability) return;
+    const participant = this.#createRemoteParticipant(
+      record.prepared.state,
+      record.prepared.asset.binding.sourceIdentity,
+      record.prepared.asset.binding.transferSessionId,
+    );
+    const capability = freezeCanonical({
+      participant,
+      bindAttempt: (attempt: HostRendezvousAttempt) => this.#bindPreparedAttempt(record, attempt),
+    }) satisfies Readonly<HostPreparedRemoteParticipant>;
+    record.participant = participant;
+    record.capability = capability;
+    record.resolveReady(capability);
+  }
+
+  #bindPreparedAttempt(
+    record: PreparedPublicationRecord,
+    attempt: HostRendezvousAttempt,
+  ): Promise<void> {
+    if (
+      this.#closed ||
+      this.#candidate !== record ||
+      record.status !== 'published' ||
+      !record.participant ||
+      typeof attempt?.rendezvousId !== 'string' ||
+      typeof attempt.whenParticipantAccepted !== 'function'
+    ) {
+      return Promise.reject(new Error('Host prepared attempt authority is stale'));
+    }
+    if (this.#attempt?.preparedRecord === record) {
+      if (this.#attempt.attempt === attempt) return this.#attempt.evidence;
+      return Promise.reject(new Error('Host prepared candidate is already attempt-bound'));
+    }
+    const evidence = deferredEvidence();
+    let lease: FilePlaybackWireAttemptLease;
+    try {
+      lease = Reflect.apply(trustedChannelStageAttempt, this.#context.channel, [
+        record.stateLease,
+        attempt.rendezvousId,
+      ]);
+    } catch (error) {
+      evidence.reject(asError(error, 'Host prepared attempt staging failed'));
+      return evidence.promise;
+    }
+    const previous = this.#attempt;
+    if (previous?.status === 'candidate') this.#retireAttemptLease(previous);
+    const attemptRecord: AttemptRecord = {
+      mode: 'prepared',
+      publicationEpoch: record.epoch,
+      participant: record.participant,
+      attempt,
+      lease,
+      stateLease: record.stateLease,
+      state: record.prepared.state,
+      sourceIdentity: record.prepared.asset.binding.sourceIdentity,
+      transferSessionId: record.prepared.asset.binding.transferSessionId,
+      evidence: evidence.promise,
+      resolveEvidence: evidence.resolve,
+      rejectEvidence: evidence.reject,
+      preparedRecord: record,
+      outcome: 'pending',
+      stateCommitted: false,
+      status: 'candidate',
+    };
+    this.#attempt = attemptRecord;
+    this.#attemptsById.set(attempt.rendezvousId, attemptRecord);
+    let accepted: Promise<unknown>;
+    try {
+      accepted = attempt.whenParticipantAccepted(record.participant.participantId);
+    } catch (error) {
+      this.#failPreparedAttempt(attemptRecord, error);
+      return evidence.promise;
+    }
+    observe(
+      Promise.all([accepted, evidence.promise]).then(
+        () => {
+          if (attemptRecord.status === 'retired') return;
+          attemptRecord.outcome = 'succeeded';
+          this.#settlePreparedAttempt(attemptRecord);
+        },
+        (error) => this.#failPreparedAttempt(attemptRecord, error),
+      ),
+    );
+    return evidence.promise;
+  }
+
+  #settlePreparedAttempt(attempt: AttemptRecord): void {
+    if (
+      attempt.mode !== 'prepared' ||
+      !attempt.stateCommitted ||
+      attempt.outcome !== 'succeeded' ||
+      attempt.status !== 'candidate' ||
+      this.#attempt !== attempt
+    ) {
+      return;
+    }
+    try {
+      Reflect.apply(trustedChannelCommitAttempt, this.#context.channel, [attempt.lease]);
+      attempt.status = 'current';
+    } catch (error) {
+      this.#failConnection(error);
+    }
+  }
+
+  #failPreparedAttempt(attempt: AttemptRecord, error: unknown): void {
+    if (attempt.mode !== 'prepared' || attempt.status === 'retired') return;
+    attempt.outcome = 'failed';
+    attempt.rejectEvidence(asError(error, 'Host prepared remote attempt failed'));
+    this.#retireAttemptLease(attempt);
+    if (this.#attempt === attempt) this.#attempt = null;
   }
 
   #beginRecovery(record: PublicationRecord, force = false): void {
@@ -851,41 +1463,11 @@ export class FilePlaybackProductHostMediaOwner {
     }
     const participant =
       record.participant ??
-      new RemoteRendezvousParticipant({
-        participantId: this.#context.guestParticipantId,
-        rendererEvidenceScope: freezeCanonical({
-          sessionId: this.#context.sessionId,
-          connectionId: this.#context.connectionId,
-          recipientParticipantId: this.#context.hostParticipantId,
-          sourceIdentity: record.publication.asset.binding.sourceIdentity,
-          transferSessionId: record.publication.asset.binding.transferSessionId,
-        }),
-        rttP95Ms: () => Reflect.apply(trustedChannelQuality, this.#context.channel, []).rttP95Ms,
-        armP95Ms: 0,
-        nowRoomTimeMs: () => this.#nowRoomTimeMs(),
-        dispatchArm: (intent) =>
-          this.#dispatchAttemptWire('rendezvous-arm', intent.rendezvousId, {
-            kind: 'rendezvous-arm',
-            rendezvousId: intent.rendezvousId,
-            positionSeconds: intent.positionSeconds,
-            playbackRate: intent.playbackRate,
-            startAtRoomTimeMs: intent.startAtRoomTimeMs,
-            finalizeByRoomTimeMs: intent.finalizeByRoomTimeMs,
-          }),
-        dispatchFinalize: (intent) =>
-          this.#dispatchAttemptWire('rendezvous-finalize', intent.rendezvousId, {
-            kind: 'rendezvous-finalize',
-            rendezvousId: intent.rendezvousId,
-            startAtRoomTimeMs: intent.startAtRoomTimeMs,
-            finalizedAtRoomTimeMs: intent.finalizedAtRoomTimeMs,
-          }),
-        dispatchCancel: (intent) =>
-          this.#dispatchAttemptWire('file-playback-cancel', intent.rendezvousId, {
-            kind: 'file-playback-cancel',
-            rendezvousId: intent.rendezvousId,
-            reasonCode: intent.reasonCode,
-          }),
-      });
+      this.#createRemoteParticipant(
+        record.publication.state,
+        record.publication.asset.binding.sourceIdentity,
+        record.publication.asset.binding.transferSessionId,
+      );
     record.participant = participant;
     const evidence = deferredEvidence();
     const recovery = this.#hostRoom.recoverRemoteParticipant({
@@ -903,13 +1485,21 @@ export class FilePlaybackProductHostMediaOwner {
         const previous = this.#attempt;
         if (previous?.status === 'candidate') this.#retireAttemptLease(previous);
         this.#attempt = {
+          mode: 'recovery',
           publicationEpoch: record.epoch,
           participant,
           attempt,
           lease,
+          stateLease: record.stateLease,
+          state: record.publication.state,
+          sourceIdentity: record.publication.asset.binding.sourceIdentity,
+          transferSessionId: record.publication.asset.binding.transferSessionId,
           evidence: evidence.promise,
           resolveEvidence: evidence.resolve,
           rejectEvidence: evidence.reject,
+          preparedRecord: null,
+          outcome: 'pending',
+          stateCommitted: true,
           status: 'candidate',
         };
         this.#attemptsById.set(attempt.rendezvousId, this.#attempt);
@@ -998,25 +1588,47 @@ export class FilePlaybackProductHostMediaOwner {
     sourceIdentity: string,
     signal: AbortSignal,
   ): Promise<HostPeerRangeSource | null> {
+    const candidate = this.#candidate;
+    if (
+      candidate?.status === 'published' &&
+      candidate.offer.transport === 'peer-range' &&
+      sourceIdentity === candidate.prepared.asset.binding.sourceIdentity
+    ) {
+      const source = await candidate.source.resolve({
+        prepared: candidate.prepared,
+        sourceIdentity,
+        signal,
+      });
+      if (this.#closed || this.#candidate !== candidate || candidate.status !== 'published') {
+        if (isEncodedSource(source)) await source.close().catch(() => undefined);
+        return null;
+      }
+      return source;
+    }
     const record = this.#publication;
     if (
       !record ||
       record.offer.transport !== 'peer-range' ||
-      sourceIdentity !== record.publication.asset.binding.sourceIdentity ||
-      this.#hostRoom.currentPeerPublication() !== record.publication
+      sourceIdentity !== record.publication.asset.binding.sourceIdentity
     ) {
       return null;
     }
-    const source = await this.#hostRoom.resolveCurrentPeerRangeSource({
-      publication: record.publication,
-      sourceIdentity,
-      signal,
-    });
-    if (
-      this.#closed ||
-      this.#publication !== record ||
-      this.#hostRoom.currentPeerPublication() !== record.publication
-    ) {
+    const source = record.preparedSource
+      ? await record.preparedSource.resolve({
+          prepared: record.preparedSource.prepared,
+          sourceIdentity,
+          signal,
+        })
+      : await this.#hostRoom.resolveCurrentPeerRangeSource({
+          publication: record.publication,
+          sourceIdentity,
+          signal,
+        });
+    if (this.#closed || this.#publication !== record) {
+      if (isEncodedSource(source)) await source.close().catch(() => undefined);
+      return null;
+    }
+    if (!record.preparedSource && this.#hostRoom.currentPeerPublication() !== record.publication) {
       if (isEncodedSource(source)) await source.close().catch(() => undefined);
       return null;
     }
@@ -1151,14 +1763,19 @@ export class FilePlaybackProductHostMediaOwner {
     if (this.#closed) return;
     this.#closed = true;
     this.#publicationEpoch += 1;
+    this.#candidateEpoch += 1;
     this.#publicationController.abort(reason);
+    this.#candidateController.abort(reason);
     this.#runtime.cancelInterval(this.#healthTimer);
     this.#retireAttempt(reason);
+    this.#retirePreparedCandidate(reason);
     this.#revokePublishedHandle(reason);
     this.#responder.close(reason);
     this.#publication = null;
     this.#publicationTask = null;
     this.#publicationTaskIdentity = null;
+    this.#candidateTask = null;
+    this.#candidateTaskIdentity = null;
     this.#attemptsById.clear();
     if (closeConnection) {
       try {
@@ -1201,6 +1818,68 @@ export class FilePlaybackProductHostMediaOwner {
       );
     } catch {
       // Responder close remains the terminal ownership fence.
+    }
+  }
+
+  #retirePreparedCandidate(reason: Error): void {
+    const record = this.#candidate;
+    if (!record) return;
+    record.rejectReady(reason);
+    if (this.#attempt?.preparedRecord === record) this.#retireAttempt(reason);
+    if (record.handleId) {
+      try {
+        this.#responder.revokeHandle(
+          this.#context.connectionToken,
+          record.handleId,
+          record.prepared.asset.binding.sourceIdentity,
+          reason,
+        );
+      } catch {
+        // Responder close remains the terminal ownership fence.
+      }
+    }
+    if (record.status === 'publishing' || record.status === 'published') {
+      try {
+        Reflect.apply(trustedChannelRetireMedia, this.#context.channel, [record.stateLease]);
+      } catch {
+        // A closing channel has already revoked this exact lease.
+      }
+    }
+    record.status = 'retired';
+    this.#candidate = null;
+  }
+
+  #candidateSignal(epoch: number): AbortSignal {
+    if (this.#closed || this.#candidateEpoch !== epoch) {
+      const stale = new AbortController();
+      stale.abort(new Error('Host prepared publication is stale'));
+      return stale.signal;
+    }
+    return this.#candidateController.signal;
+  }
+
+  #assertPreparedCandidateAuthority(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    epoch: number,
+  ): void {
+    this.#assertConnection();
+    if (
+      this.#candidateEpoch !== epoch ||
+      !prepared ||
+      typeof prepared !== 'object' ||
+      prepared.schemaVersion !== 1 ||
+      !Number.isSafeInteger(prepared.roomGeneration) ||
+      prepared.roomGeneration <= 0 ||
+      (prepared.backend !== 'audio-buffer' && prepared.backend !== 'streaming-flac')
+    ) {
+      throw new Error('Host prepared publication authority is stale');
+    }
+  }
+
+  #assertCandidateRecord(record: PreparedPublicationRecord): void {
+    this.#assertPreparedCandidateAuthority(record.prepared, record.epoch);
+    if (this.#candidate !== record || record.status === 'retired') {
+      throw new Error('Host prepared publication was superseded');
     }
   }
 
@@ -1258,18 +1937,51 @@ export class FilePlaybackProductHostMediaOwner {
     message: FilePlaybackWireAdoptionEvent['message'],
     publication: Readonly<HostPeerPlaybackPublication>,
   ): void {
+    this.#assertMessageState(
+      message,
+      publication.state,
+      publication.asset.binding.sourceIdentity,
+      publication.asset.binding.transferSessionId,
+    );
+  }
+
+  #assertMessageState(
+    message: FilePlaybackWireAdoptionEvent['message'],
+    state: Readonly<HostPreparedLocalTrack['state']>,
+    sourceIdentity: string,
+    transferSessionId: string,
+  ): void {
     if (
       message.sessionId !== this.#context.sessionId ||
       message.connectionId !== this.#context.connectionId ||
       message.senderParticipantId !== this.#context.guestParticipantId ||
       message.recipientParticipantId !== this.#context.hostParticipantId ||
-      message.queueItemId !== publication.state.queueItemId ||
-      message.runId !== publication.state.runId ||
-      message.revision !== publication.state.revision ||
-      message.sourceIdentity !== publication.asset.binding.sourceIdentity ||
-      message.transferSessionId !== publication.asset.binding.transferSessionId
+      message.queueItemId !== state.queueItemId ||
+      message.runId !== state.runId ||
+      message.revision !== state.revision ||
+      message.sourceIdentity !== sourceIdentity ||
+      message.transferSessionId !== transferSessionId
     ) {
       throw new Error('Host media wire does not match the current publication');
+    }
+  }
+
+  #assertTimelineMatchesPrepared(
+    update: Readonly<FilePlaybackTimelineUpdateV2>,
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): void {
+    if (
+      update.sessionId !== this.#context.sessionId ||
+      update.connectionId !== this.#context.connectionId ||
+      update.roomGeneration !== prepared.roomGeneration ||
+      update.phase !== 'playing' ||
+      update.queueItemId !== prepared.state.queueItemId ||
+      update.runId !== prepared.state.runId ||
+      update.revision !== prepared.state.revision ||
+      update.positionSeconds !== prepared.positionSeconds ||
+      update.rate !== prepared.playbackRate
+    ) {
+      throw new Error('Host committed timeline does not match the exact prepared candidate');
     }
   }
 

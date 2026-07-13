@@ -49,6 +49,9 @@ import {
 import { isSystemAudioOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 import { resolveDecodeMemoryBudget } from '../player/decode-admission.ts';
 import { selectNextPreloadableLocalFile } from '../player/next-preloadable-local-file.ts';
+import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
+
+const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -256,6 +259,11 @@ export function cancelPreloadTransfer(): void {
   // serialized transfer — it will notice the generation mismatch after its
   // await and exit instead of starting a new (unwanted) transfer.
   _preloadGeneration++;
+  if (filePlaybackProductRuntime.enabled()) {
+    void filePlaybackProductRuntime.clearNextLocalTrackWarm().catch((error) => {
+      log.warn('[Preload] V2 next-track warm clear failed:', error);
+    });
+  }
 
   // Notify receivers of in-flight transfers BEFORE disposing scopes.
   const sid = getState('preload.sessionId') as number;
@@ -361,6 +369,17 @@ function clearPreloadCacheState(): void {
   setState('preload.activeTarget', null);
 }
 
+async function clearV2NextLocalTrackWarm(expectedGeneration: number): Promise<void> {
+  if (_preloadGeneration !== expectedGeneration) return;
+  try {
+    await filePlaybackProductRuntime.clearNextLocalTrackWarm();
+  } catch (error) {
+    if (_preloadGeneration === expectedGeneration) {
+      log.warn('[Preload] V2 next-track warm clear failed:', error);
+    }
+  }
+}
+
 /**
  * Preload the next track in the playlist (host-only).
  *
@@ -370,13 +389,20 @@ function clearPreloadCacheState(): void {
  */
 async function preloadNextTrack(): Promise<void> {
   const myGeneration = _preloadGeneration;
+  const v2Enabled = filePlaybackProductRuntime.enabled();
 
   const playlist = getState('playlist.items');
-  if (playlist.length <= 1) return;
+  if (playlist.length <= 1) {
+    if (v2Enabled) await clearV2NextLocalTrackWarm(myGeneration);
+    return;
+  }
 
   const currentQueueItemId = getState('playlist.currentQueueItemId');
   const currentTrackIndex = playlist.findIndex((item) => item.queueItemId === currentQueueItemId);
-  if (currentTrackIndex < 0) return;
+  if (currentTrackIndex < 0) {
+    if (v2Enabled) await clearV2NextLocalTrackWarm(myGeneration);
+    return;
+  }
   const repeatMode = getState('playlist.repeatMode');
   const isShuffle = getState('playlist.isShuffle');
 
@@ -405,14 +431,34 @@ async function preloadNextTrack(): Promise<void> {
   // Clear stale preload state before the serialization await when there is no
   // legitimate next local occurrence.
   if (!selection) {
-    clearPreloadCacheState();
+    if (v2Enabled) await clearV2NextLocalTrackWarm(myGeneration);
+    else clearPreloadCacheState();
     return;
   }
 
   const { item } = selection;
   const file = item.file as File;
-  if (!file) return;
+  if (!file) {
+    if (v2Enabled) await clearV2NextLocalTrackWarm(myGeneration);
+    return;
+  }
   const queueItemId = item.queueItemId;
+
+  if (v2Enabled) {
+    if (_preloadGeneration !== myGeneration) return;
+    const stillExact = getState('playlist.items').some(
+      (candidate) => candidate.queueItemId === queueItemId && candidate.file === file,
+    );
+    if (!stillExact) return;
+    try {
+      await filePlaybackProductRuntime.warmNextLocalTrack({ queueItemId, file });
+    } catch (error) {
+      if (_preloadGeneration === myGeneration) {
+        log.warn('[Preload] V2 next-track warm failed:', error);
+      }
+    }
+    return;
+  }
 
   // A reorder can move rows without changing the actual next occurrence.
   // Keep the completed resident and its transfer session in that case: the

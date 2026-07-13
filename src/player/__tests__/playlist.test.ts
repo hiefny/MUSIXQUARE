@@ -48,6 +48,8 @@ const decodeMocks = vi.hoisted(() => ({
 
 const productRuntimeMocks = vi.hoisted(() => ({
   enabled: vi.fn(() => false),
+  warmNextLocalTrack: vi.fn(),
+  clearNextLocalTrackWarm: vi.fn(),
   currentHostRendererSnapshot: vi.fn(),
   replayCurrent: vi.fn(),
   startLocalTrack: vi.fn(),
@@ -73,6 +75,10 @@ beforeEach(() => {
   decodeMocks.loadAndBroadcastFile.mockReset();
   productRuntimeMocks.enabled.mockReset();
   productRuntimeMocks.enabled.mockReturnValue(false);
+  productRuntimeMocks.warmNextLocalTrack.mockReset();
+  productRuntimeMocks.warmNextLocalTrack.mockResolvedValue(false);
+  productRuntimeMocks.clearNextLocalTrackWarm.mockReset();
+  productRuntimeMocks.clearNextLocalTrackWarm.mockResolvedValue(false);
   productRuntimeMocks.currentHostRendererSnapshot.mockReset();
   productRuntimeMocks.currentHostRendererSnapshot.mockReturnValue(null);
   productRuntimeMocks.replayCurrent.mockReset();
@@ -431,6 +437,31 @@ describe('playTrack V2 host-local cutover', () => {
     expect(loopStart).toHaveBeenCalledOnce();
     expect(tab).toHaveBeenCalledOnce();
     expect(tab).toHaveBeenCalledWith('play');
+  });
+
+  it('warms the exact next local occurrence after a V2 commit', async () => {
+    vi.useFakeTimers();
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    productRuntimeMocks.warmNextLocalTrack.mockResolvedValueOnce(true);
+    const currentFile = new File(['current'], 'current.wav', { type: 'audio/wav' });
+    const nextFile = new File(['next'], 'next.aiff', { type: 'audio/aiff' });
+    const current = fileItem('current.wav', currentFile);
+    const next = fileItem('next.aiff', nextFile);
+    setState('playlist.items', [current, next]);
+    productRuntimeMocks.startLocalTrack.mockResolvedValueOnce(v2TrackCommit(current.queueItemId));
+
+    await playTrack(current.queueItemId);
+    expect(productRuntimeMocks.warmNextLocalTrack).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenCalledOnce();
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenCalledWith({
+      queueItemId: next.queueItemId,
+      file: nextFile,
+    });
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.ready')).toBeNull();
   });
 
   it('replays the selected current file without starting another track', async () => {

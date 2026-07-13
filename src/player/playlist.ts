@@ -214,6 +214,10 @@ async function playV2HostLocalFile(
     showToast(t('toast.file_ready'));
   }
   if (v2PlaylistIntent === intent) v2PlaylistIntent = null;
+  // The committed occurrence is now the stable anchor for the shared
+  // sequential/repeat/shuffle selector. V2 schedules only bounded local warm;
+  // the legacy byte-transfer state remains untouched by the gated branch.
+  schedulePreload();
 }
 
 function getLocalFileHostPlayAt(): number {

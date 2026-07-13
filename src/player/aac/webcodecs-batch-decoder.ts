@@ -25,6 +25,13 @@ const AAC_LC_CODEC = 'mp4a.40.2' as const;
 const FLOAT32_BYTES = 4;
 /** Native implementations normally emit one callback per AU; this also permits heavy splitting. */
 export const AAC_WEB_CODECS_MAX_OUTPUT_CALLBACKS_PER_BATCH = 64;
+/**
+ * Chromium can quantize an exact rational AAC boundary one microsecond below
+ * the submitted timestamp. One microsecond remains far below the shortest
+ * admitted AAC-LC access unit (over 10 ms at 96 kHz), so it cannot make a
+ * stale or reordered neighbouring access unit valid.
+ */
+export const AAC_WEB_CODECS_TIMESTAMP_TOLERANCE_MICROSECONDS = 1;
 
 export interface AacWebCodecsBatchDecoderConfig {
   readonly codec: typeof AAC_LC_CODEC;
@@ -612,12 +619,21 @@ function outputTimestampIntervalMicroseconds(
   const denominator = BigInt(coreSampleRateHz);
   const floor = numerator / denominator;
   const ceil = (numerator + denominator - 1n) / denominator;
-  if (ceil > BigInt(Number.MAX_SAFE_INTEGER)) {
+  const maximumSafeInteger = BigInt(Number.MAX_SAFE_INTEGER);
+  if (ceil > maximumSafeInteger) {
     throw new AacDecoderBackendIntegrityError(
       'WebCodecs output timestamp exceeds the generation safe-integer range',
     );
   }
-  return Object.freeze([Number(floor), Number(ceil)]);
+  const maximum =
+    ceil < maximumSafeInteger
+      ? ceil + BigInt(AAC_WEB_CODECS_TIMESTAMP_TOLERANCE_MICROSECONDS)
+      : maximumSafeInteger;
+  const minimum =
+    floor > BigInt(AAC_WEB_CODECS_TIMESTAMP_TOLERANCE_MICROSECONDS)
+      ? floor - BigInt(AAC_WEB_CODECS_TIMESTAMP_TOLERANCE_MICROSECONDS)
+      : 0n;
+  return Object.freeze([Number(minimum), Number(maximum)]);
 }
 
 class WebCodecsAacBatchDecoder implements AacDecoderBackend {
@@ -1027,7 +1043,7 @@ class WebCodecsAacBatchDecoder implements AacDecoderBackend {
       );
       if (timestamp < minimumTimestamp || timestamp > maximumTimestamp) {
         throw new AacDecoderBackendIntegrityError(
-          'WebCodecs output timestamp is stale, reordered, or outside its AAC core interval',
+          `WebCodecs output timestamp ${timestamp} is stale, reordered, or outside its AAC core interval ${minimumTimestamp}-${maximumTimestamp} after ${active.writtenFrames} written frames and ${active.submittedAccessUnits} submitted access units`,
         );
       }
       if (

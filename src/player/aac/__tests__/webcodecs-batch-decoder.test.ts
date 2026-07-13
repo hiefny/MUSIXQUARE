@@ -11,6 +11,7 @@ import {
 } from '../decoder-backend.ts';
 import {
   AAC_WEB_CODECS_MAX_OUTPUT_CALLBACKS_PER_BATCH,
+  AAC_WEB_CODECS_TIMESTAMP_TOLERANCE_MICROSECONDS,
   createAacWebCodecsBatchDecoder,
   type AacWebCodecsBatchAudioData,
   type AacWebCodecsBatchAudioDataCopyOptions,
@@ -693,6 +694,42 @@ describe('WebCodecs AAC batch decoder', () => {
 
     expect(second.frameCount).toBe(1_024);
     expect(harness.chunks.map((chunk) => chunk.timestamp)).toEqual([0, 23_219]);
+  });
+
+  it('accepts Chromium one-microsecond boundary quantization without admitting two', async () => {
+    const core48k = Object.freeze({
+      ...STEREO_44K,
+      sampleRateIndex: 3,
+    });
+    const frame48k = (): Uint8Array => makeFrame({ sampleRateIndex: 3 });
+    const decodeBoundary = async (boundaryTimestamp: number) => {
+      const harness = createHarness();
+      harness.decoder.flush
+        .mockImplementationOnce(() => {
+          harness.emit(fakeAudioData({ frames: 8_192, sampleRate: 48_000, timestamp: 0 }).data);
+          return Promise.resolve();
+        })
+        .mockImplementationOnce(() => {
+          harness.emit(fakeAudioData({ sampleRate: 48_000, timestamp: 170_666 }).data);
+          harness.emit(fakeAudioData({ sampleRate: 48_000, timestamp: boundaryTimestamp }).data);
+          return Promise.resolve();
+        });
+      const backend = await createBackend(harness, { coreConfiguration: core48k });
+      await backend.decodeBatch(
+        Array.from({ length: 8 }, (_unused, ordinal) => accessUnit(ordinal, frame48k())),
+        new AbortController().signal,
+      );
+      return backend.decodeBatch(
+        [accessUnit(8, frame48k()), accessUnit(9, frame48k())],
+        new AbortController().signal,
+      );
+    };
+
+    await expect(decodeBoundary(191_999)).resolves.toMatchObject({ frameCount: 2_048 });
+    await expect(decodeBoundary(192_001)).resolves.toMatchObject({ frameCount: 2_048 });
+    await expect(decodeBoundary(191_998)).rejects.toThrow(/stale|reordered/i);
+    await expect(decodeBoundary(192_002)).rejects.toThrow(/stale|reordered/i);
+    expect(AAC_WEB_CODECS_TIMESTAMP_TOLERANCE_MICROSECONDS).toBe(1);
   });
 
   it('rejects stale prior-batch and reversed current-batch output timestamps', async () => {

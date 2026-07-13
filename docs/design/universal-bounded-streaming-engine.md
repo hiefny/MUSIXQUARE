@@ -83,20 +83,41 @@ receipts, but it must not expose a codec descriptor to the common renderer.
 
 ## Format rollout
 
-| Phase | Containers/codecs | Initial supported subset | Seek model |
-| --- | --- | --- | --- |
-| 1 | Native FLAC | Existing bounded libFLAC path | verified frame anchors and sparse index |
-| 2 | RIFF/RF64/BW64 WAVE | PCM u8/s16/s24/s32, IEEE float32/64, extensible PCM/float | O(1) from `dataOffset + frame * blockAlign` |
-| 3 | AIFF/AIFC | NONE/twos/sowt/fl32/fl64 | O(1) PCM frame addressing |
-| 4 | CAF | LPCM first | O(1) fixed-packet addressing |
-| 5 | MP3 | MPEG audio with Xing/Info/VBRI support | sparse frame index plus reservoir preroll |
-| 6 | raw AAC | ADTS first | sparse access-unit index plus priming |
-| 7 | M4A/MP4 | AAC first; ALAC is a separate codec capability | ISO BMFF sample tables and edit/gapless mapping |
+| Phase | Containers/codecs   | Initial supported subset                                  | Seek model                                      |
+| ----- | ------------------- | --------------------------------------------------------- | ----------------------------------------------- |
+| 1     | Native FLAC         | Existing bounded libFLAC path                             | verified frame anchors and sparse index         |
+| 2     | RIFF/RF64/BW64 WAVE | PCM u8/s16/s24/s32, IEEE float32/64, extensible PCM/float | O(1) from `dataOffset + frame * blockAlign`     |
+| 3     | AIFF/AIFC           | NONE/twos/sowt/fl32/fl64                                  | O(1) PCM frame addressing                       |
+| 4     | CAF                 | LPCM first                                                | O(1) fixed-packet addressing                    |
+| 5     | MP3                 | MPEG audio with Xing/Info/VBRI support                    | sparse frame index plus reservoir preroll       |
+| 6     | raw AAC             | ADTS first                                                | sparse access-unit index plus priming           |
+| 7     | M4A/MP4             | AAC first; ALAC is a separate codec capability            | ISO BMFF sample tables and edit/gapless mapping |
 
 File extensions are hints only. Selection is content-first, and container and
 codec are reported separately. Unsupported compressed WAVE/CAF, ADIF,
 LATM/LOAS, fragmented MP4, or ALAC must fail explicitly until their adapter
 capability exists; they must not silently fall back into an unbounded path.
+
+## Implementation status
+
+This table records implementation progress, not production availability. The
+V2 product gate remains off for every row until the release gate below is
+satisfied.
+
+| Capability                                                              | Status                                                    | Product route |
+| ----------------------------------------------------------------------- | --------------------------------------------------------- | ------------- |
+| Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                         | gated off     |
+| Native FLAC                                                             | implemented on the common renderer                        | gated off     |
+| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker               | gated off     |
+| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker               | gated off     |
+| CAF LPCM                                                                | implemented on the shared linear-PCM worker               | gated off     |
+| MP3                                                                     | strict ID3/frame/VBR/gapless/index foundation in progress | unavailable   |
+| ADTS AAC                                                                | design in progress                                        | unavailable   |
+| M4A/MP4 AAC                                                             | design in progress                                        | unavailable   |
+
+WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
+metadata readers normalize verified byte geometry into one linear-PCM decoder,
+one Worker protocol, and the same bounded renderer used by the room timeline.
 
 ## Memory model
 
@@ -120,6 +141,13 @@ WebCodecs adapter after `AudioDecoder.isConfigSupported` proves the exact codec
 configuration. Platforms without the required decoder use a pinned,
 format-specific WASM implementation. Both routes emit the same canonical PCM
 messages and are tested against the same timeline fixtures.
+
+A compressed-audio dependency is not admitted merely because it decodes a
+whole file. Before adoption it must pass full-versus-sliced PCM equivalence,
+seek/preroll, gapless-frame-count, corruption fail-closed, repeated lifecycle,
+bounded-heap, and iOS Worker tests. A wrapper that cannot prove safe ownership
+or exact sample mapping is replaced or patched behind a repository-owned
+runtime boundary before any factory route can select it.
 
 Container demux and codec decode remain separate. A browser decoder accepting
 AAC does not imply that it can parse M4A, and a file extension does not prove

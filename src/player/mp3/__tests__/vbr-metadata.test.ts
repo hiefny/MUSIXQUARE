@@ -31,6 +31,7 @@ interface XingFixtureOptions {
   readonly encoderTag?: string;
   readonly encoderDelaySamples?: number;
   readonly endPaddingSamples?: number;
+  readonly crcStyle?: 'prefix' | 'ffmpeg-fixed-190';
 }
 
 interface VbriFixtureOptions {
@@ -104,10 +105,16 @@ function xingOffset(header: MpegLayer3FrameHeader): number {
   return 4 + header.sideInfoBytes;
 }
 
-function lameInfoTagCrc16(bytes: Uint8Array, endOffset: number): number {
+function lameInfoTagCrc16(
+  bytes: Uint8Array,
+  endOffset: number,
+  zeroRangeOffset = -1,
+  zeroRangeBytes = 0,
+): number {
   let crc = 0;
   for (let offset = 0; offset < endOffset; offset += 1) {
-    crc ^= bytes[offset] ?? 0;
+    const insideZeroRange = offset >= zeroRangeOffset && offset < zeroRangeOffset + zeroRangeBytes;
+    crc ^= insideZeroRange ? 0 : (bytes[offset] ?? 0);
     for (let bit = 0; bit < 8; bit += 1) {
       crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xa001);
     }
@@ -153,7 +160,11 @@ function writeXing(fixture: FrameFixture, options: XingFixtureOptions = {}): num
     }
     const crcOffset = cursor + 34;
     if (crcOffset + 2 <= fixture.bytes.byteLength) {
-      setUint16(fixture.bytes, crcOffset, lameInfoTagCrc16(fixture.bytes, crcOffset));
+      const crc =
+        options.crcStyle === 'ffmpeg-fixed-190'
+          ? lameInfoTagCrc16(fixture.bytes, 190, crcOffset, 2)
+          : lameInfoTagCrc16(fixture.bytes, crcOffset);
+      setUint16(fixture.bytes, crcOffset, crc);
     }
   }
   return cursor;
@@ -330,6 +341,48 @@ describe('parseMp3FirstFrameVbrMetadata Xing and Info', () => {
         endPaddingSamples: 1_071,
       },
     });
+  });
+
+  it('accepts FFmpeg fixed-190 CRCs across shorter side-info layouts', () => {
+    const cases: readonly HeaderOptions[] = [
+      { channelModeBits: 3 },
+      { versionBits: 2 },
+      { versionBits: 2, channelModeBits: 3 },
+      { versionBits: 0 },
+      { versionBits: 0, channelModeBits: 3 },
+    ];
+
+    for (const options of cases) {
+      const fixture = makeFrame(options);
+      writeXing(fixture, {
+        identifier: 'Info',
+        flags: 0x0f,
+        frameCount: 10,
+        encoderTag: 'Lavc62.11',
+        crcStyle: 'ffmpeg-fixed-190',
+      });
+
+      expect(parseFixture(fixture)).toMatchObject({
+        identifier: 'Info',
+        gapless: {
+          encoderFamily: 'Lavc',
+          encoderDelaySamples: 576,
+          endPaddingSamples: 1_100,
+        },
+      });
+    }
+  });
+
+  it('does not extend the FFmpeg fixed-190 compatibility CRC to LAME tags', () => {
+    const fixture = makeFrame({ versionBits: 2, channelModeBits: 3 });
+    writeXing(fixture, {
+      flags: 0x0f,
+      frameCount: 10,
+      encoderTag: 'LAME3.100',
+      crcStyle: 'ffmpeg-fixed-190',
+    });
+
+    expect(parseFixture(fixture)).toMatchObject({ frameCount: 10, gapless: null });
   });
 
   it('keeps Xing metadata but omits gapless trim on CRC mismatch or incomplete extension', () => {

@@ -10,6 +10,7 @@ const XING_MAX_QUALITY = 100;
 const XING_ENCODER_FIELD_BYTES = 9;
 const LAME_EXTENSION_CRC_OFFSET = 34;
 const LAME_EXTENSION_BYTES = 36;
+const FFMPEG_INFO_TAG_CRC_BYTES = 190;
 const VBRI_MAX_QUALITY = 100;
 const VBRI_OFFSET = 36 as const;
 const VBRI_FIXED_BYTES = 26;
@@ -206,10 +207,16 @@ function canonicalEncoderTag(bytes: Uint8Array, offset: number): string | null {
   return tag;
 }
 
-function lameInfoTagCrc16(bytes: Uint8Array, endOffset: number): number {
+function lameInfoTagCrc16(
+  bytes: Uint8Array,
+  endOffset: number,
+  zeroRangeOffset = -1,
+  zeroRangeBytes = 0,
+): number {
   let crc = 0;
   for (let offset = 0; offset < endOffset; offset += 1) {
-    crc ^= bytes[offset] ?? 0;
+    const insideZeroRange = offset >= zeroRangeOffset && offset < zeroRangeOffset + zeroRangeBytes;
+    crc ^= insideZeroRange ? 0 : (bytes[offset] ?? 0);
     for (let bit = 0; bit < 8; bit += 1) {
       crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xa001);
     }
@@ -234,7 +241,18 @@ function readProvenGapless(
 
   const crcOffset = encoderOffset + LAME_EXTENSION_CRC_OFFSET;
   const storedCrc = (bytes[crcOffset] ?? 0) * 0x100 + (bytes[crcOffset + 1] ?? 0);
-  if (lameInfoTagCrc16(bytes, crcOffset) !== storedCrc) return null;
+  const prefixCrcMatches = lameInfoTagCrc16(bytes, crcOffset) === storedCrc;
+  // FFmpeg's MP3 muxer writes a fixed 190-byte Info Tag CRC. In layouts
+  // whose side-info span is shorter than MPEG-1 stereo, that coverage crosses
+  // the stored CRC field, which was still zero when the muxer calculated it.
+  // Keep this compatibility path restricted to FFmpeg encoder families; LAME
+  // and L3.99 must continue to prove their canonical prefix CRC.
+  const ffmpegFixedCrcMatches =
+    (encoderFamily === 'Lavc' || encoderFamily === 'Lavf') &&
+    bytes.byteLength >= FFMPEG_INFO_TAG_CRC_BYTES &&
+    crcOffset <= FFMPEG_INFO_TAG_CRC_BYTES &&
+    lameInfoTagCrc16(bytes, FFMPEG_INFO_TAG_CRC_BYTES, crcOffset, 2) === storedCrc;
+  if (!prefixCrcMatches && !ffmpegFixedCrcMatches) return null;
 
   const packed =
     (bytes[delayOffset] ?? 0) * 0x1_00_00 +

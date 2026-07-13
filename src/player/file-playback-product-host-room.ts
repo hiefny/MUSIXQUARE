@@ -16,6 +16,7 @@ import {
   type HostCurrentPlaybackTransitionCommit,
   type ClearHostLocalTrackWarmOptions,
   type HostFirstLocalFilePlaybackCommit,
+  type HostLocalTrackSourceLease,
   type HostLocalTrackWarmResult,
   type HostPeerPlaybackPublication,
   type HostPeerRangeSource,
@@ -25,6 +26,7 @@ import {
   type RecoverHostRemoteParticipantOptions,
   type ResolvePreparedHostPeerRangeSourceOptions,
   type ResolveHostPeerRangeSourceOptions,
+  type ResolveWarmHostPeerRangeSourceOptions,
   type SeekHostPausedOptions,
   type SeekHostPlayingOptions,
   type StartPreparedHostLocalTrackOptions,
@@ -58,6 +60,7 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
 );
 const FIRST_FILE_KEYS = Object.freeze(['file', 'queueItemId', 'signal'] as const);
 const CLEAR_WARM_TRACK_KEYS = Object.freeze(['queueItemId', 'signal'] as const);
+const CLEAR_WARM_TRACK_BY_LEASE_KEYS = Object.freeze(['signal', 'sourceLease'] as const);
 const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'signal'] as const);
 const COHORT_TRACK_KEYS = Object.freeze([...TRACK_KEYS, 'prepareRemoteParticipants'] as const);
 const CURRENT_KEYS = Object.freeze(['signal'] as const);
@@ -66,6 +69,11 @@ const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
   'publication',
   'signal',
   'sourceIdentity',
+] as const);
+const RESOLVE_WARM_PEER_SOURCE_KEYS = Object.freeze([
+  'signal',
+  'sourceIdentity',
+  'sourceLease',
 ] as const);
 const RECOVER_REMOTE_KEYS = Object.freeze([
   'bindAttempt',
@@ -96,6 +104,9 @@ type ExactRecord = Readonly<Record<string, unknown>>;
 export interface FilePlaybackProductHostFirstEnginePort {
   warmLocalTrack(options: WarmHostLocalTrackOptions): Promise<Readonly<HostLocalTrackWarmResult>>;
   clearWarmLocalTrack(options: ClearHostLocalTrackWarmOptions): Promise<boolean>;
+  resolveWarmPeerRangeSource(
+    options: ResolveWarmHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource>;
   startFirstLocalFile(
     options: StartHostFirstLocalFileOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
@@ -213,6 +224,12 @@ export interface ClearFilePlaybackProductHostLocalTrackWarmOptions {
   readonly signal: AbortSignal;
 }
 
+/** Local-only exact capability clear; callers must retain the issued object identity. */
+export interface ClearFilePlaybackProductHostLocalTrackWarmByLeaseOptions {
+  readonly sourceLease: HostLocalTrackSourceLease;
+  readonly signal: AbortSignal;
+}
+
 export interface StartFilePlaybackProductHostLocalTrackOptions extends StartFilePlaybackProductHostFirstLocalFileOptions {
   readonly positionSeconds: number;
 }
@@ -260,6 +277,8 @@ export interface FilePlaybackProductHostLocalTrackCommit extends HostFirstLocalF
 export interface FilePlaybackProductHostLocalTrackWarmResult extends HostLocalTrackWarmResult {
   readonly applicationSessionId: string;
   readonly hostParticipantId: string;
+  /** Opaque local capability. It must never be serialized or structurally copied. */
+  readonly sourceLease: HostLocalTrackSourceLease | null;
 }
 
 export interface FilePlaybackProductHostTransitionCommit extends HostCurrentPlaybackTransitionCommit {
@@ -583,6 +602,7 @@ function isEnginePort(
     typeof candidate.startFirstLocalFile === 'function' &&
     typeof candidate.warmLocalTrack === 'function' &&
     typeof candidate.clearWarmLocalTrack === 'function' &&
+    typeof candidate.resolveWarmPeerRangeSource === 'function' &&
     typeof candidate.startLocalTrack === 'function' &&
     typeof candidate.prepareLocalTrack === 'function' &&
     typeof candidate.startPreparedLocalTrack === 'function' &&
@@ -724,6 +744,7 @@ export class FilePlaybackProductHostRoom {
     | null;
   readonly #runtime: RuntimeSnapshot;
   readonly #operations = new Set<RoomOperation>();
+  readonly #issuedWarmSourceLeases = new WeakSet<object>();
   #engineRecord: EngineRecord | null = null;
   #initPromise: Promise<void> | null = null;
   #graphPromise: Promise<AudioRuntime> | null = null;
@@ -838,6 +859,81 @@ export class FilePlaybackProductHostRoom {
       }
       return cleared;
     });
+  }
+
+  clearWarmLocalTrackByLease(
+    options: ClearFilePlaybackProductHostLocalTrackWarmByLeaseOptions,
+  ): Promise<boolean> {
+    const input = snapshotExactRecord(options, CLEAR_WARM_TRACK_BY_LEASE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      input.sourceLease === null ||
+      typeof input.sourceLease !== 'object'
+    ) {
+      return Promise.reject(
+        new TypeError('Product exact local track warm clear options are invalid'),
+      );
+    }
+    const sourceLease = input.sourceLease as HostLocalTrackSourceLease;
+    if (!this.#issuedWarmSourceLeases.has(sourceLease)) {
+      return Promise.reject(new Error('Product warm source lease was not issued by this room'));
+    }
+    return this.#enqueuePeer(input.signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      const cleared = await record.engine.clearWarmLocalTrack({ sourceLease });
+      this.#assertOperationReady(operation);
+      if (typeof cleared !== 'boolean') {
+        throw new TypeError('File playback product host engine returned an invalid warm clear');
+      }
+      return cleared;
+    });
+  }
+
+  resolveWarmPeerRangeSource(
+    options: ResolveWarmHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    const input = snapshotExactRecord(options, RESOLVE_WARM_PEER_SOURCE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      typeof input.sourceIdentity !== 'string' ||
+      input.sourceLease === null ||
+      typeof input.sourceLease !== 'object'
+    ) {
+      return Promise.reject(new TypeError('Product warm peer-range source options are invalid'));
+    }
+    const sourceLease = input.sourceLease as HostLocalTrackSourceLease;
+    if (!this.#issuedWarmSourceLeases.has(sourceLease)) {
+      return Promise.reject(new Error('Product warm source lease was not issued by this room'));
+    }
+    const record = this.#engineRecord;
+    if (!record) {
+      return Promise.reject(new Error('File playback product host renderer is unavailable'));
+    }
+    const signal = input.signal;
+    const sourceIdentity = input.sourceIdentity;
+    return (async () => {
+      this.#assertWarmSourceRoomReady(record, signal);
+      const source = await record.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity,
+        signal,
+      });
+      try {
+        this.#assertWarmSourceRoomReady(record, signal);
+        return source;
+      } catch (error) {
+        if (!(source instanceof Blob)) {
+          try {
+            await source.close();
+          } catch {
+            // The stale room/peer authority remains the primary rejection.
+          }
+        }
+        throw error;
+      }
+    })();
   }
 
   startFirstLocalFile(
@@ -1599,6 +1695,13 @@ export class FilePlaybackProductHostRoom {
     intent: FileIntent,
   ): Readonly<FilePlaybackProductHostLocalTrackWarmResult> {
     const expectedMime = intent.mime.trim().length === 0 ? 'application/octet-stream' : intent.mime;
+    const sourceLeaseDescriptor =
+      result && typeof result === 'object'
+        ? Object.getOwnPropertyDescriptor(result, 'sourceLease')
+        : undefined;
+    const hasExactSourceLease =
+      sourceLeaseDescriptor?.enumerable === true && Object.hasOwn(sourceLeaseDescriptor, 'value');
+    const sourceLease = hasExactSourceLease ? sourceLeaseDescriptor.value : undefined;
     if (
       !result ||
       typeof result !== 'object' ||
@@ -1606,6 +1709,11 @@ export class FilePlaybackProductHostRoom {
       result.roomGeneration !== this.#hostRoom.roomGeneration ||
       (result.status !== 'warmed' && result.status !== 'skipped-non-bounded') ||
       (result.status === 'warmed' && result.backend !== 'bounded-stream') ||
+      (result.status === 'skipped-non-bounded' && result.backend === 'bounded-stream') ||
+      !hasExactSourceLease ||
+      (result.status === 'warmed'
+        ? sourceLease === null || typeof sourceLease !== 'object'
+        : sourceLease !== null) ||
       result.asset?.binding?.queueItemId !== intent.queueItemId ||
       result.asset?.metadata?.name !== intent.name ||
       result.asset?.metadata?.mime !== expectedMime ||
@@ -1622,9 +1730,11 @@ export class FilePlaybackProductHostRoom {
       backend: result.backend,
       asset: result.asset,
       readiness: result.readiness,
+      sourceLease: sourceLease as HostLocalTrackSourceLease | null,
     });
     assertBodyFree(projected);
     this.#assertRoomAuthority();
+    if (projected.sourceLease) this.#issuedWarmSourceLeases.add(projected.sourceLease);
     return projected;
   }
 
@@ -1683,6 +1793,18 @@ export class FilePlaybackProductHostRoom {
     throwIfAborted(signal);
     if (this.#closed || this.#engineRecord !== record) {
       throw this.#fatalError ?? new Error('File playback product prepared source room changed');
+    }
+  }
+
+  #assertWarmSourceRoomReady(record: EngineRecord, signal: AbortSignal): void {
+    throwIfAborted(signal);
+    if (this.#closed || this.#engineRecord !== record) {
+      throw this.#fatalError ?? new Error('File playback product warm source room is stale');
+    }
+    this.#assertRoomAuthority();
+    throwIfAborted(signal);
+    if (this.#closed || this.#engineRecord !== record) {
+      throw this.#fatalError ?? new Error('File playback product warm source room changed');
     }
   }
 

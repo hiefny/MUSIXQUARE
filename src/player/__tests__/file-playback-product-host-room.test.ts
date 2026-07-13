@@ -19,6 +19,7 @@ import type {
   HostCurrentPlaybackOperationOptions,
   HostCurrentPlaybackTransitionCommit,
   HostFirstLocalFilePlaybackCommit,
+  HostLocalTrackSourceLease,
   HostLocalTrackWarmResult,
   HostCurrentPlaybackTimelineCommittedEvent,
   HostCurrentPlaybackTransitionScheduledEvent,
@@ -30,6 +31,7 @@ import type {
   RecoverHostRemoteParticipantOptions,
   ResolvePreparedHostPeerRangeSourceOptions,
   ResolveHostPeerRangeSourceOptions,
+  ResolveWarmHostPeerRangeSourceOptions,
   SeekHostPausedOptions,
   SeekHostPlayingOptions,
   StartPreparedHostLocalTrackOptions,
@@ -155,6 +157,9 @@ interface EnginePlan {
   readonly candidates?: OperationPlan[];
   readonly transitions?: OperationPlan[];
   readonly warmBackend?: FilePlaybackBackend;
+  readonly warmResultTransform?: (
+    result: Readonly<HostLocalTrackWarmResult>,
+  ) => Readonly<HostLocalTrackWarmResult>;
   readonly closeGate?: ReturnType<typeof deferred<void>>;
   readonly closeFailure?: Error;
   readonly onClose?: () => void;
@@ -194,7 +199,14 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       const sourceSequence = ++this.sequence;
       const mime = input.mime.trim().length === 0 ? 'application/octet-stream' : input.mime;
       this.warmQueueItemId = backend === 'bounded-stream' ? input.queueItemId : null;
-      return freezeCanonical({
+      this.warmSourceLease =
+        backend === 'bounded-stream'
+          ? (freezeCanonical({}) as unknown as HostLocalTrackSourceLease)
+          : null;
+      this.warmBlob = backend === 'bounded-stream' ? input.blob : null;
+      this.warmSourceIdentity =
+        backend === 'bounded-stream' ? `fixture-warm-source-${sourceSequence}` : null;
+      const result = freezeCanonical({
         schemaVersion: 1 as const,
         roomGeneration: this.options.roomGeneration,
         status:
@@ -216,14 +228,49 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
           outputSampleRateHz: 48_000,
           channelCount: 2,
         }),
+        sourceLease: this.warmSourceLease,
       });
+      return this.plan.warmResultTransform?.(result) ?? result;
     },
   );
   readonly clearWarmLocalTrack = vi.fn(
     async (input: ClearHostLocalTrackWarmOptions): Promise<boolean> => {
-      if (this.warmQueueItemId !== input.queueItemId) return false;
+      const matches =
+        'sourceLease' in input
+          ? this.warmSourceLease !== null && input.sourceLease === this.warmSourceLease
+          : this.warmQueueItemId === input.queueItemId;
+      if (!matches) return false;
       this.warmQueueItemId = null;
+      this.warmSourceLease = null;
+      this.warmBlob = null;
+      this.warmSourceIdentity = null;
       return true;
+    },
+  );
+  readonly resolveWarmPeerRangeSource = vi.fn(
+    async (input: ResolveWarmHostPeerRangeSourceOptions): Promise<HostPeerRangeSource> => {
+      input.signal.throwIfAborted();
+      const lease = this.warmSourceLease;
+      const blob = this.warmBlob;
+      const sourceIdentity = this.warmSourceIdentity;
+      if (
+        !lease ||
+        !blob ||
+        input.sourceLease !== lease ||
+        input.sourceIdentity !== sourceIdentity
+      ) {
+        throw new Error('Fixture warm source lease is stale');
+      }
+      await Promise.resolve();
+      input.signal.throwIfAborted();
+      if (
+        this.warmSourceLease !== lease ||
+        this.warmBlob !== blob ||
+        this.warmSourceIdentity !== sourceIdentity
+      ) {
+        throw new Error('Fixture warm source lease changed');
+      }
+      return blob;
     },
   );
   readonly startFirstLocalFile = vi.fn(
@@ -376,6 +423,9 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   private sequence = 0;
   private readonly preparedInputs = new WeakMap<object, StartHostLocalTrackOptions>();
   private warmQueueItemId: QueueItemId | null = null;
+  private warmSourceLease: HostLocalTrackSourceLease | null = null;
+  private warmBlob: Blob | null = null;
+  private warmSourceIdentity: string | null = null;
 
   constructor(
     readonly options: Readonly<FilePlaybackHostFirstFileEngineOptions>,
@@ -880,6 +930,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     const result = await warm(setup.room, Q1, media, external.signal);
     const engine = setup.engines[0]!;
     const warmInput = engine.warmLocalTrack.mock.calls[0]?.[0];
+    const engineResult = await engine.warmLocalTrack.mock.results[0]!.value;
 
     expect(result).toMatchObject({
       schemaVersion: 1,
@@ -901,6 +952,8 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       },
     });
     expect(Object.isFrozen(result)).toBe(true);
+    expect(result.sourceLease).not.toBeNull();
+    expect(result.sourceLease).toBe(engineResult.sourceLease);
     expect(containsBody(result)).toBe(false);
     expect(setup.controller.timelineSnapshot()).toBe(before);
     expect(warmInput).toEqual({
@@ -927,6 +980,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     ['WAV', 'long-session.wav', 'audio/wav'],
     ['AIFF', 'long-session.aiff', 'audio/aiff'],
     ['CAF', 'long-session.caf', 'audio/x-caf'],
+    ['FLAC', 'long-session.flac', 'audio/flac'],
     ['MP3', 'long-session.mp3', 'audio/mpeg'],
     ['AAC', 'long-session.aac', 'audio/aac'],
     ['M4A', 'long-session.m4a', 'audio/mp4'],
@@ -949,6 +1003,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         },
       });
       expect(containsBody(result)).toBe(false);
+      expect(result.sourceLease).not.toBeNull();
       expect(engine.warmLocalTrack).toHaveBeenCalledOnce();
       expect(engine.warmLocalTrack).toHaveBeenCalledWith(
         expect.objectContaining({ queueItemId: Q1, blob: media, name, mime }),
@@ -957,6 +1012,173 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       await setup.room.close();
     },
   );
+
+  it('projects skipped non-bounded warm truth with an explicit null lease', async () => {
+    const setup = makeHarness({ enginePlan: { warmBackend: 'audio-buffer' } });
+    const result = await warm(setup.room, Q1, file('ordinary.wav', 'audio/wav'));
+    const engineResult = await setup.engines[0]!.warmLocalTrack.mock.results[0]!.value;
+
+    expect(result).toMatchObject({
+      status: 'skipped-non-bounded',
+      backend: 'audio-buffer',
+      sourceLease: null,
+    });
+    expect(Object.hasOwn(result, 'sourceLease')).toBe(true);
+    expect(result.sourceLease).toBe(engineResult.sourceLease);
+  });
+
+  it('resolves and clears only the exact issued warm lease without weakening engine races', async () => {
+    const setup = makeHarness({ enginePlan: { warmBackend: 'bounded-stream' } });
+    const media = file('exact-warm.flac', 'audio/flac');
+    const result = await warm(setup.room, Q1, media);
+    const sourceLease = result.sourceLease;
+    if (!sourceLease) throw new Error('Fixture exact warm lease is unavailable');
+    const sourceIdentity = result.asset.binding.sourceIdentity;
+    const peerAuthority = new AbortController();
+
+    await expect(
+      setup.room.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity,
+        signal: peerAuthority.signal,
+      }),
+    ).resolves.toBe(media);
+    expect(setup.engines[0]?.resolveWarmPeerRangeSource).toHaveBeenCalledWith({
+      sourceLease,
+      sourceIdentity,
+      signal: peerAuthority.signal,
+    });
+
+    setup.engines[0]?.clearWarmLocalTrack.mockResolvedValueOnce(false);
+    await expect(
+      setup.room.clearWarmLocalTrackByLease({
+        sourceLease,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      setup.room.clearWarmLocalTrackByLease({
+        sourceLease,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      setup.room.clearWarmLocalTrackByLease({
+        sourceLease,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      setup.room.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/stale/u);
+  });
+
+  it('rejects copied and cross-room warm lease identities before engine authority', async () => {
+    const firstRoom = makeHarness({ enginePlan: { warmBackend: 'bounded-stream' } });
+    const secondRoom = makeHarness({ enginePlan: { warmBackend: 'bounded-stream' } });
+    const result = await warm(firstRoom.room, Q1, file('lease-owner.flac', 'audio/flac'));
+    const sourceLease = result.sourceLease;
+    if (!sourceLease) throw new Error('Fixture exact warm lease is unavailable');
+    const copiedLease = freezeCanonical({
+      ...(sourceLease as unknown as Record<string, never>),
+    }) as unknown as HostLocalTrackSourceLease;
+    const options = (lease: HostLocalTrackSourceLease) => ({
+      sourceLease: lease,
+      sourceIdentity: result.asset.binding.sourceIdentity,
+      signal: new AbortController().signal,
+    });
+
+    await expect(firstRoom.room.resolveWarmPeerRangeSource(options(copiedLease))).rejects.toThrow(
+      /not issued/u,
+    );
+    await expect(
+      firstRoom.room.clearWarmLocalTrackByLease({
+        sourceLease: copiedLease,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/not issued/u);
+    await expect(secondRoom.room.resolveWarmPeerRangeSource(options(sourceLease))).rejects.toThrow(
+      /not issued/u,
+    );
+    await expect(
+      secondRoom.room.clearWarmLocalTrackByLease({
+        sourceLease,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/not issued/u);
+    expect(firstRoom.engines[0]?.resolveWarmPeerRangeSource).not.toHaveBeenCalled();
+    expect(firstRoom.engines[0]?.clearWarmLocalTrack).not.toHaveBeenCalled();
+    expect(secondRoom.engines).toHaveLength(0);
+  });
+
+  it('closes a late encoded warm source after its peer authority aborts', async () => {
+    const setup = makeHarness({ enginePlan: { warmBackend: 'bounded-stream' } });
+    const result = await warm(setup.room, Q1, file('late-warm.flac', 'audio/flac'));
+    const sourceLease = result.sourceLease;
+    if (!sourceLease) throw new Error('Fixture exact warm lease is unavailable');
+    const sourceGate = deferred<HostPeerRangeSource>();
+    const closeSource = vi.fn(async () => undefined);
+    setup.engines[0]?.resolveWarmPeerRangeSource.mockImplementationOnce(
+      async () => sourceGate.promise,
+    );
+    const peerAuthority = new AbortController();
+    const pending = setup.room.resolveWarmPeerRangeSource({
+      sourceLease,
+      sourceIdentity: result.asset.binding.sourceIdentity,
+      signal: peerAuthority.signal,
+    });
+    await drainMicrotasks();
+
+    peerAuthority.abort(new Error('warm peer retired'));
+    sourceGate.resolve({ close: closeSource } as unknown as HostPeerRangeSource);
+
+    await expect(pending).rejects.toThrow('warm peer retired');
+    expect(closeSource).toHaveBeenCalledOnce();
+  });
+
+  it('rejects missing or contradictory warm lease projections', async () => {
+    const withoutLease = makeHarness({
+      enginePlan: {
+        warmBackend: 'bounded-stream',
+        warmResultTransform: (result) => {
+          const copy = Object.assign(Object.create(null), result) as Record<string, unknown>;
+          Reflect.deleteProperty(copy, 'sourceLease');
+          return Object.freeze(copy) as unknown as Readonly<HostLocalTrackWarmResult>;
+        },
+      },
+    });
+    await expect(warm(withoutLease.room, Q1, file('missing.flac', 'audio/flac'))).rejects.toThrow(
+      /warm result/u,
+    );
+
+    const warmedWithoutAuthority = makeHarness({
+      enginePlan: {
+        warmBackend: 'bounded-stream',
+        warmResultTransform: (result) => freezeCanonical({ ...result, sourceLease: null }),
+      },
+    });
+    await expect(
+      warm(warmedWithoutAuthority.room, Q1, file('null.flac', 'audio/flac')),
+    ).rejects.toThrow(/warm result/u);
+
+    const skippedWithAuthority = makeHarness({
+      enginePlan: {
+        warmBackend: 'audio-buffer',
+        warmResultTransform: (result) =>
+          freezeCanonical({
+            ...result,
+            sourceLease: freezeCanonical({}) as unknown as HostLocalTrackSourceLease,
+          }),
+      },
+    });
+    await expect(
+      warm(skippedWithAuthority.room, Q1, file('contradiction.wav', 'audio/wav')),
+    ).rejects.toThrow(/warm result/u);
+  });
 
   it('clears an absent warm slot without initializing the graph or engine', async () => {
     const setup = makeHarness();

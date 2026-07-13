@@ -101,7 +101,18 @@ function setVariableUint(
 }
 
 function xingOffset(header: MpegLayer3FrameHeader): number {
-  return 4 + (header.hasCrc ? 2 : 0) + header.sideInfoBytes;
+  return 4 + header.sideInfoBytes;
+}
+
+function lameInfoTagCrc16(bytes: Uint8Array, endOffset: number): number {
+  let crc = 0;
+  for (let offset = 0; offset < endOffset; offset += 1) {
+    crc ^= bytes[offset] ?? 0;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xa001);
+    }
+  }
+  return crc & 0xffff;
 }
 
 function writeXing(fixture: FrameFixture, options: XingFixtureOptions = {}): number {
@@ -130,7 +141,7 @@ function writeXing(fixture: FrameFixture, options: XingFixtureOptions = {}): num
   }
 
   if (options.encoderTag !== undefined) {
-    setAscii(fixture.bytes, cursor, options.encoderTag);
+    setAscii(fixture.bytes, cursor, options.encoderTag.slice(0, 9));
     const delay = options.encoderDelaySamples ?? 576;
     const padding = options.endPaddingSamples ?? 1_100;
     const packed = delay * 0x1000 + padding;
@@ -139,6 +150,10 @@ function writeXing(fixture: FrameFixture, options: XingFixtureOptions = {}): num
       fixture.bytes[delayOffset] = Math.floor(packed / 0x1_00_00) & 0xff;
       fixture.bytes[delayOffset + 1] = Math.floor(packed / 0x100) & 0xff;
       fixture.bytes[delayOffset + 2] = packed & 0xff;
+    }
+    const crcOffset = cursor + 34;
+    if (crcOffset + 2 <= fixture.bytes.byteLength) {
+      setUint16(fixture.bytes, crcOffset, lameInfoTagCrc16(fixture.bytes, crcOffset));
     }
   }
   return cursor;
@@ -213,17 +228,17 @@ describe('parseMp3FirstFrameVbrMetadata Xing and Info', () => {
     expect(metadata?.kind === 'xing' && Object.isFrozen(metadata.gapless)).toBe(true);
   });
 
-  it('uses CRC- and generation-aware Xing offsets', () => {
+  it('uses the fixed side-info Xing offset even for CRC-protected frames', () => {
     const cases: ReadonlyArray<{
       readonly options: HeaderOptions;
       readonly expectedOffset: number;
     }> = [
       { options: {}, expectedOffset: 36 },
-      { options: { protectionBit: 0 }, expectedOffset: 38 },
+      { options: { protectionBit: 0 }, expectedOffset: 36 },
       { options: { channelModeBits: 3 }, expectedOffset: 21 },
       { options: { versionBits: 2 }, expectedOffset: 21 },
       { options: { versionBits: 2, channelModeBits: 3 }, expectedOffset: 13 },
-      { options: { versionBits: 0, protectionBit: 0, channelModeBits: 3 }, expectedOffset: 15 },
+      { options: { versionBits: 0, protectionBit: 0, channelModeBits: 3 }, expectedOffset: 13 },
     ];
 
     for (const { options, expectedOffset } of cases) {
@@ -275,6 +290,63 @@ describe('parseMp3FirstFrameVbrMetadata Xing and Info', () => {
     },
   );
 
+  it.each([
+    ['LAME\0\0\0\0\0', 'LAME', 'LAME'],
+    ['L3.99\0\0\0\0', 'L3.99', 'L3.99'],
+    ['Lavf\0\0\0\0\0', 'Lavf', 'Lavf'],
+    ['Lavc1\0\0\0\0', 'Lavc', 'Lavc1'],
+  ] as const)('canonicalizes trailing NUL padding in %j', (field, encoderFamily, encoderTag) => {
+    const fixture = makeFrame();
+    writeXing(fixture, { flags: 0x01, frameCount: 10, encoderTag: field });
+
+    expect(parseFixture(fixture)).toMatchObject({
+      gapless: { encoderFamily, encoderTag },
+    });
+  });
+
+  it('validates a real FFmpeg/Lavc Info Tag CRC', () => {
+    // First complete 128-kbit MPEG-1 Layer III frame emitted by FFmpeg 8.0.1
+    // (`libmp3lame`, stereo 44.1 kHz). Its stored Info Tag CRC is 0x3487.
+    const firstFrame = Uint8Array.from(
+      atob(
+        '//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAALAAATlgAqKioqKioqKio/Pz8/Pz8/Pz9VVVVV' +
+          'VVVVVVVqampqampqamp/f39/f39/f3+VlZWVlZWVlZWqqqqqqqqqqqq/v7+/v7+/v7/V1dXV1dXV1dXq6urq6urq6ur/////////' +
+          '//8AAAAATGF2YzYyLjExAAAAAAAAAAAAAAAAJAQvAAAAAAAAE5bd3jSHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      ),
+      (character) => character.charCodeAt(0),
+    );
+    const header = parseMpegLayer3FrameHeader(firstFrame.subarray(0, 4));
+
+    expect(parseMp3FirstFrameVbrMetadata(firstFrame, header)).toMatchObject({
+      identifier: 'Info',
+      frameCount: 11,
+      gapless: {
+        encoderFamily: 'Lavc',
+        encoderTag: 'Lavc62.11',
+        encoderDelaySamples: 576,
+        endPaddingSamples: 1_071,
+      },
+    });
+  });
+
+  it('keeps Xing metadata but omits gapless trim on CRC mismatch or incomplete extension', () => {
+    const mismatch = makeFrame();
+    const mismatchEncoderOffset = writeXing(mismatch, {
+      flags: 0x01,
+      frameCount: 10,
+      encoderTag: 'LAME3.100',
+    });
+    mismatch.bytes[mismatchEncoderOffset + 21] ^= 1;
+    expect(parseFixture(mismatch)).toMatchObject({ frameCount: 10, gapless: null });
+
+    const truncated = makeFrame({ versionBits: 2, bitrateIndex: 2, sampleRateIndex: 1 });
+    writeXing(truncated, { flags: 0x01, frameCount: 10, encoderTag: 'LAME3.100' });
+    expect(parseFixture(truncated)).toMatchObject({ frameCount: 10, gapless: null });
+  });
+
   it('omits unproven gapless data instead of trimming playback', () => {
     const noFrameCount = makeFrame();
     writeXing(noFrameCount, { flags: 0, encoderTag: 'LAME3.100' });
@@ -284,13 +356,18 @@ describe('parseMp3FirstFrameVbrMetadata Xing and Info', () => {
     writeXing(unrecognized, { flags: 0x01, encoderTag: 'Other3.10' });
     expect(parseFixture(unrecognized)).toMatchObject({ gapless: null });
 
-    const unprintable = makeFrame();
-    const encoderOffset = writeXing(unprintable, {
+    const embeddedNul = makeFrame();
+    const encoderOffset = writeXing(embeddedNul, {
       flags: 0x01,
       encoderTag: 'LAME3.100',
     });
-    unprintable.bytes[encoderOffset + 8] = 0;
-    expect(parseFixture(unprintable)).toMatchObject({ gapless: null });
+    embeddedNul.bytes[encoderOffset + 4] = 0;
+    setUint16(
+      embeddedNul.bytes,
+      encoderOffset + 34,
+      lameInfoTagCrc16(embeddedNul.bytes, encoderOffset + 34),
+    );
+    expect(parseFixture(embeddedNul)).toMatchObject({ gapless: null });
 
     const sentinel = makeFrame();
     writeXing(sentinel, {

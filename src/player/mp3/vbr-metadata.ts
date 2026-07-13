@@ -7,6 +7,9 @@ const XING_TOC_FLAG = 0x04;
 const XING_QUALITY_FLAG = 0x08;
 const XING_TOC_ENTRIES = 100;
 const XING_MAX_QUALITY = 100;
+const XING_ENCODER_FIELD_BYTES = 9;
+const LAME_EXTENSION_CRC_OFFSET = 34;
+const LAME_EXTENSION_BYTES = 36;
 const VBRI_MAX_QUALITY = 100;
 const VBRI_OFFSET = 36 as const;
 const VBRI_FIXED_BYTES = 26;
@@ -17,7 +20,7 @@ export type VbriTocEntryBytes = 1 | 2 | 3 | 4;
 
 export interface Mp3GaplessMetadata {
   readonly encoderFamily: LameEncoderFamily;
-  /** The exact printable nine-byte encoder field following the Xing payload. */
+  /** Printable encoder field with canonical trailing NUL padding removed. */
   readonly encoderTag: string;
   /** Raw 12-bit encoder delay. Decoder-specific delay is deliberately excluded. */
   readonly encoderDelaySamples: number;
@@ -175,23 +178,43 @@ function readXingToc(bytes: Uint8Array, offset: number): readonly number[] {
   return Object.freeze(toc);
 }
 
-function encoderFamilyAt(bytes: Uint8Array, offset: number): LameEncoderFamily | null {
-  if (markerAt(bytes, offset, 'LAME')) return 'LAME';
-  if (markerAt(bytes, offset, 'L3.99')) return 'L3.99';
-  if (markerAt(bytes, offset, 'Lavf')) return 'Lavf';
-  if (markerAt(bytes, offset, 'Lavc')) return 'Lavc';
+function encoderFamilyForTag(tag: string): LameEncoderFamily | null {
+  if (tag.startsWith('LAME')) return 'LAME';
+  if (tag.startsWith('L3.99')) return 'L3.99';
+  if (tag.startsWith('Lavf')) return 'Lavf';
+  if (tag.startsWith('Lavc')) return 'Lavc';
   return null;
 }
 
-function printableEncoderTag(bytes: Uint8Array, offset: number): string | null {
-  if (offset + 9 > bytes.byteLength) return null;
+function canonicalEncoderTag(bytes: Uint8Array, offset: number): string | null {
+  if (offset + XING_ENCODER_FIELD_BYTES > bytes.byteLength) return null;
   let tag = '';
-  for (let index = 0; index < 9; index += 1) {
+  let reachedPadding = false;
+  for (let index = 0; index < XING_ENCODER_FIELD_BYTES; index += 1) {
     const value = bytes[offset + index] ?? 0;
+    if (value === 0) {
+      reachedPadding = true;
+      continue;
+    }
+    // NUL is padding only when every remaining field byte is also NUL. This
+    // prevents a damaged field from being canonicalized across an embedded
+    // terminator (for example, `LAME\0junk`).
+    if (reachedPadding) return null;
     if (value < 0x20 || value > 0x7e) return null;
     tag += String.fromCharCode(value);
   }
   return tag;
+}
+
+function lameInfoTagCrc16(bytes: Uint8Array, endOffset: number): number {
+  let crc = 0;
+  for (let offset = 0; offset < endOffset; offset += 1) {
+    crc ^= bytes[offset] ?? 0;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xa001);
+    }
+  }
+  return crc & 0xffff;
 }
 
 function readProvenGapless(
@@ -200,14 +223,18 @@ function readProvenGapless(
   frameCount: number | null,
   samplesPerFrame: number,
 ): Mp3GaplessMetadata | null {
-  const encoderFamily = encoderFamilyAt(bytes, encoderOffset);
-  if (encoderFamily === null || frameCount === null) return null;
+  if (frameCount === null || encoderOffset + LAME_EXTENSION_BYTES > bytes.byteLength) return null;
+  const encoderTag = canonicalEncoderTag(bytes, encoderOffset);
+  const encoderFamily = encoderTag === null ? null : encoderFamilyForTag(encoderTag);
+  if (encoderTag === null || encoderFamily === null) return null;
 
-  const encoderTag = printableEncoderTag(bytes, encoderOffset);
   const delayOffset = encoderOffset + 21;
-  if (encoderTag === null || delayOffset + 3 > bytes.byteLength) return null;
   const tagRevision = (bytes[encoderOffset + 9] ?? 0) >>> 4;
   if (tagRevision !== 0) return null;
+
+  const crcOffset = encoderOffset + LAME_EXTENSION_CRC_OFFSET;
+  const storedCrc = (bytes[crcOffset] ?? 0) * 0x100 + (bytes[crcOffset + 1] ?? 0);
+  if (lameInfoTagCrc16(bytes, crcOffset) !== storedCrc) return null;
 
   const packed =
     (bytes[delayOffset] ?? 0) * 0x1_00_00 +
@@ -388,7 +415,9 @@ export function parseMp3FirstFrameVbrMetadata(
   header: MpegLayer3FrameHeader,
 ): Mp3FirstFrameVbrMetadata | null {
   const parsedHeader = validateInput(firstFrame, header);
-  const xingOffset = 4 + (parsedHeader.hasCrc ? 2 : 0) + parsedHeader.sideInfoBytes;
+  // LAME/FFmpeg place Xing/Info after the version/channel side-info span. The
+  // protected-frame CRC does not shift this fixed first-frame metadata slot.
+  const xingOffset = 4 + parsedHeader.sideInfoBytes;
   const hasXing =
     markerAt(firstFrame, xingOffset, 'Xing') || markerAt(firstFrame, xingOffset, 'Info');
   const hasVbri = markerAt(firstFrame, VBRI_OFFSET, 'VBRI');

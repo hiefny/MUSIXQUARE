@@ -14,7 +14,9 @@ import {
   type HostCurrentPlaybackTimelineCommittedEvent,
   type HostCurrentPlaybackTransitionScheduledEvent,
   type HostCurrentPlaybackTransitionCommit,
+  type ClearHostLocalTrackWarmOptions,
   type HostFirstLocalFilePlaybackCommit,
+  type HostLocalTrackWarmResult,
   type HostPeerPlaybackPublication,
   type HostPeerRangeSource,
   type HostPreparedLocalTrack,
@@ -28,6 +30,7 @@ import {
   type StartPreparedHostLocalTrackOptions,
   type StartHostFirstLocalFileOptions,
   type StartHostLocalTrackOptions,
+  type WarmHostLocalTrackOptions,
 } from './file-playback-host-first-file-engine.ts';
 import { FilePlaybackRoomClock, getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
@@ -54,6 +57,7 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
     key !== 'runtimeForTests',
 );
 const FIRST_FILE_KEYS = Object.freeze(['file', 'queueItemId', 'signal'] as const);
+const CLEAR_WARM_TRACK_KEYS = Object.freeze(['queueItemId', 'signal'] as const);
 const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'signal'] as const);
 const COHORT_TRACK_KEYS = Object.freeze([...TRACK_KEYS, 'prepareRemoteParticipants'] as const);
 const CURRENT_KEYS = Object.freeze(['signal'] as const);
@@ -90,6 +94,8 @@ type ExactRecord = Readonly<Record<string, unknown>>;
 
 /** Narrow private capability retained by the room facade. */
 export interface FilePlaybackProductHostFirstEnginePort {
+  warmLocalTrack(options: WarmHostLocalTrackOptions): Promise<Readonly<HostLocalTrackWarmResult>>;
+  clearWarmLocalTrack(options: ClearHostLocalTrackWarmOptions): Promise<boolean>;
   startFirstLocalFile(
     options: StartHostFirstLocalFileOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
@@ -197,6 +203,16 @@ export interface StartFilePlaybackProductHostFirstLocalFileOptions {
   readonly signal: AbortSignal;
 }
 
+/** Revision-free intent for warming one bounded local source. */
+export type WarmFilePlaybackProductHostLocalTrackOptions =
+  StartFilePlaybackProductHostFirstLocalFileOptions;
+
+/** Exact queue-scoped retirement for the room's retained warm source. */
+export interface ClearFilePlaybackProductHostLocalTrackWarmOptions {
+  readonly queueItemId: QueueItemId;
+  readonly signal: AbortSignal;
+}
+
 export interface StartFilePlaybackProductHostLocalTrackOptions extends StartFilePlaybackProductHostFirstLocalFileOptions {
   readonly positionSeconds: number;
 }
@@ -233,6 +249,12 @@ export interface FilePlaybackProductHostSeekOptions extends FilePlaybackProductH
 /** Frozen, serializable control result. Encoded bodies and native graph objects stay private. */
 export interface FilePlaybackProductHostLocalTrackCommit extends HostFirstLocalFilePlaybackCommit {
   readonly status: 'committed';
+  readonly applicationSessionId: string;
+  readonly hostParticipantId: string;
+}
+
+/** Frozen, body-free observation of one revision-free local warm result. */
+export interface FilePlaybackProductHostLocalTrackWarmResult extends HostLocalTrackWarmResult {
   readonly applicationSessionId: string;
   readonly hostParticipantId: string;
 }
@@ -556,6 +578,8 @@ function isEnginePort(
   const candidate = value as Partial<FilePlaybackProductHostFirstEnginePort>;
   return (
     typeof candidate.startFirstLocalFile === 'function' &&
+    typeof candidate.warmLocalTrack === 'function' &&
+    typeof candidate.clearWarmLocalTrack === 'function' &&
     typeof candidate.startLocalTrack === 'function' &&
     typeof candidate.prepareLocalTrack === 'function' &&
     typeof candidate.startPreparedLocalTrack === 'function' &&
@@ -761,6 +785,56 @@ export class FilePlaybackProductHostRoom {
     if (timeline.phase !== 'stopped' || timeline.run !== null) {
       throw new Error('File playback product host room requires stopped initial authority');
     }
+  }
+
+  warmLocalTrack(
+    options: WarmFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackWarmResult>> {
+    let intent: FileIntent;
+    try {
+      intent = readFileIntent(options, FIRST_FILE_KEYS, 0);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueuePeer(intent.signal, async (operation) => {
+      const audioRuntime = await this.#prepareGraph(operation);
+      this.#assertOperationReady(operation);
+      const record = await this.#getOrCreateEngine(operation);
+      this.#assertOperationReady(operation);
+      const result = await record.engine.warmLocalTrack({
+        queueItemId: intent.queueItemId,
+        blob: intent.file,
+        name: intent.name,
+        mime: intent.mime,
+        audioContext: audioRuntime.audioContext,
+        decodeOrdinaryAudio: this.#runtime.decodeOrdinaryAudio,
+        signal: operation.controller.signal,
+      });
+      this.#assertOperationReady(operation);
+      return this.#projectWarmResult(result, intent);
+    });
+  }
+
+  clearWarmLocalTrack(
+    options: ClearFilePlaybackProductHostLocalTrackWarmOptions,
+  ): Promise<boolean> {
+    const input = snapshotExactRecord(options, CLEAR_WARM_TRACK_KEYS);
+    if (!input || !isQueueItemId(input.queueItemId) || !(input.signal instanceof AbortSignal)) {
+      return Promise.reject(new TypeError('Product local track warm clear options are invalid'));
+    }
+    return this.#enqueuePeer(input.signal, async (operation) => {
+      this.#assertOperationReady(operation);
+      const record = this.#engineRecord;
+      if (!record) return false;
+      const cleared = await record.engine.clearWarmLocalTrack({
+        queueItemId: input.queueItemId as QueueItemId,
+      });
+      this.#assertOperationReady(operation);
+      if (typeof cleared !== 'boolean') {
+        throw new TypeError('File playback product host engine returned an invalid warm clear');
+      }
+      return cleared;
+    });
   }
 
   startFirstLocalFile(
@@ -1512,6 +1586,40 @@ export class FilePlaybackProductHostRoom {
     assertBodyFree(result);
     this.#assertRoomAuthority(true);
     return result;
+  }
+
+  #projectWarmResult(
+    result: Readonly<HostLocalTrackWarmResult>,
+    intent: FileIntent,
+  ): Readonly<FilePlaybackProductHostLocalTrackWarmResult> {
+    const expectedMime = intent.mime.trim().length === 0 ? 'application/octet-stream' : intent.mime;
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      result.schemaVersion !== 1 ||
+      result.roomGeneration !== this.#hostRoom.roomGeneration ||
+      (result.status !== 'warmed' && result.status !== 'skipped-non-bounded') ||
+      (result.status === 'warmed' && result.backend !== 'bounded-stream') ||
+      result.asset?.binding?.queueItemId !== intent.queueItemId ||
+      result.asset?.metadata?.name !== intent.name ||
+      result.asset?.metadata?.mime !== expectedMime ||
+      result.asset?.encodedSize !== intent.size
+    ) {
+      throw new Error('File playback product host warm result did not match room intent');
+    }
+    const projected = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: result.roomGeneration,
+      applicationSessionId: this.#hostRoom.applicationSessionId,
+      hostParticipantId: this.#hostRoom.hostParticipantId,
+      status: result.status,
+      backend: result.backend,
+      asset: result.asset,
+      readiness: result.readiness,
+    });
+    assertBodyFree(projected);
+    this.#assertRoomAuthority();
+    return projected;
   }
 
   #projectTransitionCommit(

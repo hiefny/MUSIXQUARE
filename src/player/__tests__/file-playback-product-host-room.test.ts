@@ -14,10 +14,12 @@ import {
 } from '../file-playback-bounded-route-policy.ts';
 import { FilePlaybackClock } from '../file-playback-clock.ts';
 import type {
+  ClearHostLocalTrackWarmOptions,
   FilePlaybackHostFirstFileEngineOptions,
   HostCurrentPlaybackOperationOptions,
   HostCurrentPlaybackTransitionCommit,
   HostFirstLocalFilePlaybackCommit,
+  HostLocalTrackWarmResult,
   HostCurrentPlaybackTimelineCommittedEvent,
   HostCurrentPlaybackTransitionScheduledEvent,
   HostPeerPlaybackPublication,
@@ -33,6 +35,7 @@ import type {
   StartPreparedHostLocalTrackOptions,
   StartHostFirstLocalFileOptions,
   StartHostLocalTrackOptions,
+  WarmHostLocalTrackOptions,
 } from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
 import {
@@ -183,6 +186,48 @@ async function waitForPlanGate(
 type FixtureAsset = HostFirstLocalFilePlaybackCommit['asset'];
 
 class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
+  readonly warmLocalTrack = vi.fn(
+    async (input: WarmHostLocalTrackOptions): Promise<Readonly<HostLocalTrackWarmResult>> => {
+      input.signal.throwIfAborted();
+      const backend: FilePlaybackBackend =
+        input.mime === 'audio/flac' || input.name.toLowerCase().endsWith('.flac')
+          ? 'bounded-stream'
+          : 'audio-buffer';
+      const sourceSequence = ++this.sequence;
+      const mime = input.mime.trim().length === 0 ? 'application/octet-stream' : input.mime;
+      this.warmQueueItemId = backend === 'bounded-stream' ? input.queueItemId : null;
+      return freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.options.roomGeneration,
+        status:
+          backend === 'bounded-stream' ? ('warmed' as const) : ('skipped-non-bounded' as const),
+        backend,
+        asset: freezeCanonical({
+          kind: 'blob' as const,
+          binding: freezeCanonical({
+            queueItemId: input.queueItemId,
+            sourceIdentity: `fixture-warm-source-${sourceSequence}`,
+            transferSessionId: `fixture-warm-transfer-${sourceSequence}`,
+          }),
+          metadata: freezeCanonical({ name: input.name, mime }),
+          encodedSize: input.blob.size,
+        }),
+        readiness: freezeCanonical({
+          durationSeconds: 180,
+          bufferedAheadSeconds: 8,
+          outputSampleRateHz: 48_000,
+          channelCount: 2,
+        }),
+      });
+    },
+  );
+  readonly clearWarmLocalTrack = vi.fn(
+    async (input: ClearHostLocalTrackWarmOptions): Promise<boolean> => {
+      if (this.warmQueueItemId !== input.queueItemId) return false;
+      this.warmQueueItemId = null;
+      return true;
+    },
+  );
   readonly startFirstLocalFile = vi.fn(
     (input: StartHostFirstLocalFileOptions): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> =>
       this.#commitFileCandidate(input, 0),
@@ -332,6 +377,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   private audioContext: AudioContext | null = null;
   private sequence = 0;
   private readonly preparedInputs = new WeakMap<object, StartHostLocalTrackOptions>();
+  private warmQueueItemId: QueueItemId | null = null;
 
   constructor(
     readonly options: Readonly<FilePlaybackHostFirstFileEngineOptions>,
@@ -764,6 +810,23 @@ function first(
   return room.startFirstLocalFile({ queueItemId, file: value, signal });
 }
 
+function warm(
+  room: FilePlaybackProductHostRoom,
+  queueItemId: QueueItemId,
+  value: File,
+  signal = new AbortController().signal,
+) {
+  return room.warmLocalTrack({ queueItemId, file: value, signal });
+}
+
+function clearWarm(
+  room: FilePlaybackProductHostRoom,
+  queueItemId: QueueItemId,
+  signal = new AbortController().signal,
+) {
+  return room.clearWarmLocalTrack({ queueItemId, signal });
+}
+
 function track(
   room: FilePlaybackProductHostRoom,
   queueItemId: QueueItemId,
@@ -810,6 +873,93 @@ function containsBody(value: unknown, seen = new Set<object>()): boolean {
 }
 
 describe('FilePlaybackProductHostRoom stable facade', () => {
+  it('warms and clears one exact bounded source without allocating timeline authority', async () => {
+    const setup = makeHarness();
+    const media = file('warm.flac', 'audio/flac');
+    const external = new AbortController();
+    const before = setup.controller.timelineSnapshot();
+
+    const result = await warm(setup.room, Q1, media, external.signal);
+    const engine = setup.engines[0]!;
+    const warmInput = engine.warmLocalTrack.mock.calls[0]?.[0];
+
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      roomGeneration: setup.controller.snapshot().roomGeneration,
+      applicationSessionId: expect.any(String),
+      hostParticipantId: expect.any(String),
+      status: 'warmed',
+      backend: 'bounded-stream',
+      asset: {
+        binding: { queueItemId: Q1 },
+        metadata: { name: media.name, mime: media.type },
+        encodedSize: media.size,
+      },
+      readiness: {
+        durationSeconds: 180,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      },
+    });
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(containsBody(result)).toBe(false);
+    expect(setup.controller.timelineSnapshot()).toBe(before);
+    expect(warmInput).toEqual({
+      queueItemId: Q1,
+      blob: media,
+      name: media.name,
+      mime: media.type,
+      audioContext: setup.context,
+      decodeOrdinaryAudio: setup.decoder,
+      signal: expect.any(AbortSignal),
+    });
+    expect(warmInput?.signal).not.toBe(external.signal);
+    expect(engine.prepareLocalTrack).not.toHaveBeenCalled();
+    expect(engine.startPreparedLocalTrack).not.toHaveBeenCalled();
+
+    await expect(clearWarm(setup.room, Q2)).resolves.toBe(false);
+    await expect(clearWarm(setup.room, Q1)).resolves.toBe(true);
+    expect(engine.clearWarmLocalTrack).toHaveBeenLastCalledWith({ queueItemId: Q1 });
+    expect(setup.controller.timelineSnapshot()).toBe(before);
+    await setup.room.close();
+  });
+
+  it('clears an absent warm slot without initializing the graph or engine', async () => {
+    const setup = makeHarness();
+
+    await expect(clearWarm(setup.room, Q1)).resolves.toBe(false);
+
+    expect(setup.initAudio).not.toHaveBeenCalled();
+    expect(setup.ensureRunning).not.toHaveBeenCalled();
+    expect(setup.getAudioContext).not.toHaveBeenCalled();
+    expect(setup.getDestination).not.toHaveBeenCalled();
+    expect(setup.engines).toHaveLength(0);
+  });
+
+  it('rejects non-exact warm options before touching the audio graph', async () => {
+    const setup = makeHarness();
+
+    await expect(
+      setup.room.warmLocalTrack({
+        queueItemId: Q1,
+        file: file('invalid.flac', 'audio/flac'),
+        signal: new AbortController().signal,
+        extra: true,
+      } as never),
+    ).rejects.toThrow(/options are invalid/u);
+    await expect(
+      setup.room.clearWarmLocalTrack({
+        queueItemId: Q1,
+        signal: new AbortController().signal,
+        extra: true,
+      } as never),
+    ).rejects.toThrow(/options are invalid/u);
+
+    expect(setup.initAudio).not.toHaveBeenCalled();
+    expect(setup.engines).toHaveLength(0);
+  });
+
   it('preserves policy omission and forwards one canonical universal-v1 policy to its engine', async () => {
     const omitted = makeHarness();
     await track(omitted.room, Q1, file('policy-omitted.mp3'));

@@ -10,9 +10,8 @@ import {
   FLAC_STREAM_PROTOCOL_VERSION,
   type FlacDecoderCommand,
   type FlacDecoderEvent,
-  type PcmRingCommand,
-  type PcmRingEvent,
 } from '../flac/stream-protocol.ts';
+import type { PcmRingCommand, PcmRingEvent } from '../streaming/pcm-stream-protocol.ts';
 import type { RendezvousArmIntent, RendezvousFinalizeIntent } from '../rendezvous-contract.ts';
 import type {
   FilePlaybackPauseTransitionIntent,

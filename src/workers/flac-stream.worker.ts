@@ -20,8 +20,6 @@ import {
 } from '../player/flac/decoder-helpers.js';
 import {
   FLAC_STREAM_INPUT_CHUNK_BYTES,
-  FLAC_STREAM_MAX_CHANNELS,
-  FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES,
   FLAC_STREAM_PROTOCOL_VERSION,
   isFlacDecoderGeneration,
   isFlacSourceIdentity,
@@ -33,8 +31,13 @@ import {
   type FlacSourceCloseMessage,
   type FlacSourceOpenMessage,
   type FlacStreamDescriptor,
-  type PcmSupplyMessage,
 } from '../player/flac/stream-protocol.js';
+import {
+  PCM_STREAM_MAX_CHANNELS,
+  PCM_STREAM_MAX_MESSAGE_FRAMES,
+  PCM_STREAM_PROTOCOL_VERSION,
+  type PcmSupplyMessage,
+} from '../player/streaming/pcm-stream-protocol.js';
 import {
   EncodedSourcePortClient,
   EncodedSourcePortError,
@@ -281,7 +284,7 @@ function failSession(session: DecoderSession, error: unknown): void {
   const code = errorCode(error);
   try {
     const supply: PcmSupplyMessage = {
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'source-error',
       generation: session.decoderGeneration,
       code,
@@ -323,7 +326,7 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
   }
   if (!sentFinalPcm) {
     const supply: PcmSupplyMessage = {
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'eof',
       generation: session.decoderGeneration,
     };
@@ -464,7 +467,7 @@ function validateDecodedFrame(
       'Decoded FLAC sample rate, bit depth, or channel count differs from STREAMINFO',
     );
   }
-  if (result.channelData.length < 1 || result.channelData.length > FLAC_STREAM_MAX_CHANNELS) {
+  if (result.channelData.length < 1 || result.channelData.length > PCM_STREAM_MAX_CHANNELS) {
     throw new FlacWorkerError('unsupported-channels', 'Decoded FLAC channel count is unsupported');
   }
   for (const channel of result.channelData) {
@@ -697,7 +700,7 @@ function accountProducedFrames(session: DecoderSession, frames: number): void {
 function createDirectSegment(session: DecoderSession): PcmSegment | null {
   const carry = session.sourceCarry;
   if (!carry) return null;
-  const frames = Math.min(carry.frames, FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES);
+  const frames = Math.min(carry.frames, PCM_STREAM_MAX_MESSAGE_FRAMES);
   const channels = consumeSourceCarry(session, frames);
   accountProducedFrames(session, frames);
   return { channels, frames, offset: 0 };
@@ -713,7 +716,7 @@ function createNormalResampledSegment(session: DecoderSession): PcmSegment | nul
   const plan = planBoundedLanczosChunk({
     ...rates,
     remainingSourceFrames: carry.frames,
-    maxOutputFrames: FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES,
+    maxOutputFrames: PCM_STREAM_MAX_MESSAGE_FRAMES,
   });
   if (!plan) return null;
 
@@ -801,7 +804,7 @@ async function ensureOutputSegment(session: DecoderSession): Promise<void> {
 function validateDemand(session: DecoderSession, value: unknown): number | null {
   if (!isRecord(value)) return null;
   if (
-    value.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION ||
+    value.protocolVersion !== PCM_STREAM_PROTOCOL_VERSION ||
     value.type !== 'need' ||
     value.generation !== session.decoderGeneration
   ) {
@@ -816,7 +819,7 @@ function validateDemand(session: DecoderSession, value: unknown): number | null 
   ) {
     throw new FlacWorkerError('invalid-demand', 'PCM demand has an invalid frame count');
   }
-  return Math.min(maxFrames, FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES);
+  return Math.min(maxFrames, PCM_STREAM_MAX_MESSAGE_FRAMES);
 }
 
 async function handleDemand(session: DecoderSession, maxFrames: number): Promise<void> {
@@ -866,7 +869,7 @@ async function handleDemand(session: DecoderSession, maxFrames: number): Promise
     session.outputSegment === null &&
     session.producedOutputFrames === session.expectedFrames;
   const supply: PcmSupplyMessage = {
-    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
     type: 'pcm',
     generation: session.decoderGeneration,
     frames: collectedFrames,

@@ -28,7 +28,7 @@ import {
 import type { LocalFilePlaybackSchedule } from './file-playback-local-start-coordinator.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
-  createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   isConsecutiveFilePlaybackTransition,
   readFilePlaybackTransitionEvidence,
   readFilePlaybackTransitionIntent,
@@ -483,7 +483,7 @@ function canonicalStartEvidence(value: unknown): Readonly<FilePlaybackStartEvide
   const streaming = snapshotExactRecord(value, STREAMING_START_EVIDENCE_KEYS);
   if (streaming?.kind === 'worklet-observed') {
     try {
-      return createStreamingFlacPlaybackStartEvidence(
+      return createStreamingPlaybackStartEvidence(
         streaming.targetFrame as number,
         streaming.actualStartFrame as number,
       );

@@ -8,6 +8,7 @@ import {
   createFilePlaybackSourceSnapshot,
   createFilePlaybackTransitionEvidence,
   createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   isFilePlaybackSourceSnapshot,
   readFilePlaybackCutoverTarget,
   readFilePlaybackCancelIntent,
@@ -344,13 +345,14 @@ describe('file playback source contract', () => {
 
   it('keeps AudioBuffer and streaming start evidence exact and distinguishable', () => {
     const audioBuffer = createAudioBufferPlaybackStartEvidence(96_000);
-    const streaming = createStreamingFlacPlaybackStartEvidence(96_000, 96_000);
+    const streaming = createStreamingPlaybackStartEvidence(96_000, 96_000);
 
     expect(readFilePlaybackStartEvidence(audioBuffer, 96_000)).toEqual(audioBuffer);
     expect(readFilePlaybackStartEvidence(streaming, 96_000)).toEqual(streaming);
     expect(readFilePlaybackStartEvidence(audioBuffer, 96_001)).toBeNull();
     expect(readFilePlaybackStartEvidence({ ...streaming, extra: true }, 96_000)).toBeNull();
     expect(() => createStreamingFlacPlaybackStartEvidence(96_000, 96_001)).toThrow(TypeError);
+    expect(createStreamingFlacPlaybackStartEvidence).toBe(createStreamingPlaybackStartEvidence);
     expect(Object.getPrototypeOf(audioBuffer)).toBeNull();
     expect(Object.getPrototypeOf(streaming)).toBeNull();
     expect(Object.isFrozen(audioBuffer)).toBe(true);

@@ -7,7 +7,7 @@ import {
   createFilePlaybackScheduledTransitionResult,
   createFilePlaybackSourceSnapshot,
   createFilePlaybackTransitionEvidence,
-  createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   isConsecutiveFilePlaybackTransition,
   readFilePlaybackCancelIntent,
   readFilePlaybackPauseIntent,
@@ -30,12 +30,11 @@ import {
   type FilePlaybackTransitionIntent,
   type FilePlaybackTransitionRejectReason,
   type FilePlaybackTransitionResult,
-  type StreamingFlacPlaybackStartEvidence,
+  type StreamingPlaybackStartEvidence,
 } from '../file-playback-source.ts';
 import type { FlacMetadata } from '../flac/metadata.ts';
 import { expectedOutputFrames } from '../flac/decoder-helpers.ts';
 import {
-  FLAC_STREAM_MAX_CHANNELS,
   FLAC_STREAM_PROTOCOL_VERSION,
   isFlacDecoderGeneration,
   isFlacSourceIdentity,
@@ -43,10 +42,14 @@ import {
   isFlacSourceSize,
   type FlacDecoderCommand,
   type FlacStreamDescriptor,
-  type FlacStreamRunIdentity,
+} from '../flac/stream-protocol.ts';
+import {
+  PCM_STREAM_MAX_CHANNELS,
+  PCM_STREAM_PROTOCOL_VERSION,
   type PcmRingCommand,
   type PcmRingEvent,
-} from '../flac/stream-protocol.ts';
+  type PcmStreamRunIdentity,
+} from '../streaming/pcm-stream-protocol.ts';
 import { FlacSeekIndex } from '../flac/seek-index.ts';
 import { type EncodedAudioSource, validateExactRead } from '../sources/encoded-audio-source.ts';
 import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
@@ -135,7 +138,7 @@ interface SourceOpenReadiness {
 
 interface PendingAck {
   readonly generation: number;
-  readonly identity: FlacStreamRunIdentity;
+  readonly identity: PcmStreamRunIdentity;
   readonly expectedType: 'armed' | 'finalized';
   readonly expectedTargetFrame: number;
   readonly promise: Promise<PcmRingEvent>;
@@ -164,8 +167,8 @@ type ArmPreflightResult =
   | { readonly ok: false; readonly result: FilePlaybackCutoverArmResult };
 
 interface StartEvidenceDeferred {
-  readonly promise: Promise<StreamingFlacPlaybackStartEvidence>;
-  readonly resolve: (evidence: StreamingFlacPlaybackStartEvidence) => void;
+  readonly promise: Promise<StreamingPlaybackStartEvidence>;
+  readonly resolve: (evidence: StreamingPlaybackStartEvidence) => void;
   readonly reject: (error: Error) => void;
   settled: boolean;
 }
@@ -201,7 +204,7 @@ interface PendingFinalizeOperation {
 interface PendingPause {
   readonly targetFrame: number;
   readonly mediaFrame: number;
-  readonly identity: FlacStreamRunIdentity;
+  readonly identity: PcmStreamRunIdentity;
 }
 
 interface PendingPauseWait {
@@ -224,7 +227,7 @@ interface PendingRevisionTransition {
   readonly visibleSnapshot: FilePlaybackSourceSnapshot;
   readonly evidence: TransitionEvidenceDeferred;
   readonly result: Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }>;
-  readonly pauseIdentity: FlacStreamRunIdentity | null;
+  readonly pauseIdentity: PcmStreamRunIdentity | null;
   stage: 'scheduled' | 'applying-seek' | 'awaiting-seek-status';
   expectedGeneration: number | null;
   controlOperation: ControlOperation | null;
@@ -303,7 +306,7 @@ function isFrame(value: unknown): value is number {
 
 function hasStreamIdentity(
   value: unknown,
-): value is Record<string, unknown> & FlacStreamRunIdentity {
+): value is Record<string, unknown> & PcmStreamRunIdentity {
   if (!isRecord(value)) return false;
   return (
     isPlaybackRevision(value.revision) &&
@@ -320,7 +323,7 @@ function hasOptionalStreamIdentity(value: Record<string, unknown>): boolean {
 
 function isPcmRingEventBoundary(value: unknown): value is PcmRingEvent {
   if (!isRecord(value) || !isBoundedIdentifier(value.type)) return false;
-  if (value.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION || !isFrame(value.generation)) {
+  if (value.protocolVersion !== PCM_STREAM_PROTOCOL_VERSION || !isFrame(value.generation)) {
     return false;
   }
   switch (value.type) {
@@ -331,7 +334,7 @@ function isPcmRingEventBoundary(value: unknown): value is PcmRingEvent {
         (value.sampleRate as number) > 0 &&
         isFrame(value.channels) &&
         (value.channels as number) >= 1 &&
-        (value.channels as number) <= FLAC_STREAM_MAX_CHANNELS
+        (value.channels as number) <= PCM_STREAM_MAX_CHANNELS
       );
     case 'armed':
     case 'finalized':
@@ -410,7 +413,7 @@ function runIdentity(
     runId: string;
     rendezvousId: string;
   }>,
-): FlacStreamRunIdentity {
+): PcmStreamRunIdentity {
   return Object.freeze({
     revision: intent.revision,
     runId: intent.runId,
@@ -419,8 +422,8 @@ function runIdentity(
 }
 
 function sameStreamIdentity(
-  left: FlacStreamRunIdentity | null | undefined,
-  right: FlacStreamRunIdentity | null | undefined,
+  left: PcmStreamRunIdentity | null | undefined,
+  right: PcmStreamRunIdentity | null | undefined,
 ): boolean {
   return (
     !!left &&
@@ -568,10 +571,10 @@ function startEvidenceError(code: string): Error {
 }
 
 function createStartEvidenceDeferred(): StartEvidenceDeferred {
-  let resolvePromise!: (evidence: StreamingFlacPlaybackStartEvidence) => void;
+  let resolvePromise!: (evidence: StreamingPlaybackStartEvidence) => void;
   let rejectPromise!: (error: Error) => void;
   const deferred: StartEvidenceDeferred = {
-    promise: new Promise<StreamingFlacPlaybackStartEvidence>((resolve, reject) => {
+    promise: new Promise<StreamingPlaybackStartEvidence>((resolve, reject) => {
       resolvePromise = resolve;
       rejectPromise = reject;
     }),
@@ -631,7 +634,7 @@ function rejectedCutoverResult(
 function armedCutoverResult(
   receipt: RendezvousArmReceipt,
   target: FilePlaybackCutoverTarget,
-  started: Promise<StreamingFlacPlaybackStartEvidence>,
+  started: Promise<StreamingPlaybackStartEvidence>,
 ): Extract<FilePlaybackCutoverArmResult, { readonly status: 'armed' }> {
   return freezeLocalRecord({ status: 'armed' as const, receipt, target, started });
 }
@@ -720,7 +723,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       info.sampleRate <= 0 ||
       !Number.isSafeInteger(info.channels) ||
       info.channels < 1 ||
-      info.channels > FLAC_STREAM_MAX_CHANNELS ||
+      info.channels > PCM_STREAM_MAX_CHANNELS ||
       !Number.isSafeInteger(info.bitDepth) ||
       info.bitDepth < 4 ||
       info.bitDepth > 32 ||
@@ -1098,7 +1101,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       ),
     );
     this.#postWorklet({
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'arm',
       generation: this.#generation,
       ...identity,
@@ -1360,7 +1363,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     // `started` event.
     active.finalizeIssuedIntent = intent;
     this.#postWorklet({
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'finalize',
       generation: this.#generation,
       ...identity,
@@ -1768,7 +1771,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
         identity: pauseIdentity,
       };
       this.#postWorklet({
-        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
         type: 'pause',
         generation: this.#generation,
         ...pauseIdentity,
@@ -1983,7 +1986,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     this.#generation += 1;
     const generation = this.#generation;
     this.#postWorklet({
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'reset',
       generation: this.#generation,
       mediaFrame,
@@ -2032,7 +2035,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     try {
       node.port.postMessage(
         {
-          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
           type: 'bind-pcm-port',
           generation,
           port: channel.port2,
@@ -2285,7 +2288,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   #handleWorkletEvent(value: unknown): void {
     if (
       !isRecord(value) ||
-      value.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION ||
+      value.protocolVersion !== PCM_STREAM_PROTOCOL_VERSION ||
       value.generation !== this.#generation
     ) {
       return;
@@ -2366,7 +2369,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
           this.#pendingPause = null;
           this.#resolveStartEvidence(
             active,
-            createStreamingFlacPlaybackStartEvidence(active.targetFrame, value.actualStartFrame),
+            createStreamingPlaybackStartEvidence(active.targetFrame, value.actualStartFrame),
           );
         }
         break;
@@ -2498,7 +2501,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
   #createAck(
     kind: 'arm' | 'finalize',
-    identity: FlacStreamRunIdentity,
+    identity: PcmStreamRunIdentity,
     expectedTargetFrame: number,
     timeoutMs: number,
   ): PendingAck {
@@ -2571,11 +2574,11 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
   #syntheticRejection(
     generation: number,
-    identity: FlacStreamRunIdentity,
+    identity: PcmStreamRunIdentity,
     code: string,
   ): PcmRingEvent {
     return {
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'rejected',
       generation,
       ...identity,
@@ -2842,7 +2845,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
   #schedulePause(
     atRoomTimeMs: number,
-    identity: FlacStreamRunIdentity,
+    identity: PcmStreamRunIdentity,
     ingressEpoch?: number,
   ): number | null {
     if (!this.#isContextRunning()) return null;
@@ -2853,7 +2856,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     const current = this.#viewAtRenderFrame(targetFrame);
     this.#pendingPause = { targetFrame, mediaFrame: current.mediaFrame, identity };
     this.#postWorklet({
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'pause',
       generation: this.#generation,
       ...identity,
@@ -2979,7 +2982,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     }, delayMs);
   }
 
-  #resolveStartEvidence(active: ActiveArm, evidence: StreamingFlacPlaybackStartEvidence): void {
+  #resolveStartEvidence(active: ActiveArm, evidence: StreamingPlaybackStartEvidence): void {
     this.#clearStartEvidenceTimer(active);
     active.startEvidence.resolve(evidence);
   }
@@ -2995,10 +2998,10 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     active.startEvidenceTimerHandle = null;
   }
 
-  #postCancel(identity?: FlacStreamRunIdentity): void {
+  #postCancel(identity?: PcmStreamRunIdentity): void {
     if (!this.#node || this.#generation <= 0) return;
     this.#postWorklet({
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
       type: 'cancel',
       generation: this.#generation,
       ...identity,
@@ -3273,7 +3276,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     if (node) {
       try {
         node.port.postMessage({
-          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
           type: 'stop',
           generation: this.#generation,
         } satisfies PcmRingCommand);

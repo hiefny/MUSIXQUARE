@@ -19,7 +19,7 @@ import {
 } from './file-playback-manager.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
-  createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   type FilePlaybackBackend,
   type FilePlaybackCancelIntent,
   type FilePlaybackStartEvidence,
@@ -590,7 +590,7 @@ function canonicalStartEvidence(value: unknown): Readonly<FilePlaybackStartEvide
     if (kind === 'worklet-observed') {
       const snapshot = snapshotExactRecord(value, ['kind', 'targetFrame', 'actualStartFrame']);
       return snapshot
-        ? createStreamingFlacPlaybackStartEvidence(
+        ? createStreamingPlaybackStartEvidence(
             snapshot.targetFrame as number,
             snapshot.actualStartFrame as number,
           )

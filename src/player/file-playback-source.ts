@@ -185,15 +185,19 @@ export interface AudioBufferPlaybackStartEvidence {
   readonly targetFrame: number;
 }
 
-export interface StreamingFlacPlaybackStartEvidence {
+/** Native start observation produced by any bounded PCM AudioWorklet backend. */
+export interface StreamingPlaybackStartEvidence {
   readonly kind: 'worklet-observed';
   readonly targetFrame: number;
   readonly actualStartFrame: number;
 }
 
+/** @deprecated Use StreamingPlaybackStartEvidence. */
+export type StreamingFlacPlaybackStartEvidence = StreamingPlaybackStartEvidence;
+
 export type FilePlaybackStartEvidence =
   | AudioBufferPlaybackStartEvidence
-  | StreamingFlacPlaybackStartEvidence;
+  | StreamingPlaybackStartEvidence;
 
 export type FilePlaybackCutoverArmResult =
   | Readonly<{
@@ -487,19 +491,22 @@ export function createAudioBufferPlaybackStartEvidence(
   return freezeControlIntent({ kind: 'webaudio-schedule-passed' as const, targetFrame });
 }
 
-export function createStreamingFlacPlaybackStartEvidence(
+export function createStreamingPlaybackStartEvidence(
   targetFrame: number,
   actualStartFrame: number,
-): StreamingFlacPlaybackStartEvidence {
+): StreamingPlaybackStartEvidence {
   if (
     !isSafeNonNegativeInteger(targetFrame) ||
     !isSafeNonNegativeInteger(actualStartFrame) ||
     actualStartFrame !== targetFrame
   ) {
-    throw new TypeError('Streaming FLAC playback start evidence is invalid');
+    throw new TypeError('Streaming playback start evidence is invalid');
   }
   return freezeControlIntent({ kind: 'worklet-observed' as const, targetFrame, actualStartFrame });
 }
+
+/** @deprecated Use createStreamingPlaybackStartEvidence. */
+export const createStreamingFlacPlaybackStartEvidence = createStreamingPlaybackStartEvidence;
 
 /** Canonicalizes exact backend evidence without invoking application accessors. */
 export function readFilePlaybackStartEvidence(
@@ -549,7 +556,7 @@ export function readFilePlaybackStartEvidence(
       return null;
     }
     try {
-      return createStreamingFlacPlaybackStartEvidence(
+      return createStreamingPlaybackStartEvidence(
         candidate.targetFrame as number,
         candidate.actualStartFrame as number,
       );

@@ -1,26 +1,39 @@
-// Keep this worker-facing protocol on leaf primitives. PlaybackRevision is a
-// JSON-safe non-negative number; importing the full playback timeline here
-// would pull DOM-only application types into the isolated WebWorker build.
-type PlaybackRevision = number;
+import {
+  PCM_STREAM_MAX_CHANNELS,
+  PCM_STREAM_MAX_MESSAGE_FRAMES,
+  PCM_STREAM_PROTOCOL_VERSION,
+  isPcmStreamGeneration,
+  type PcmStreamGeneration,
+  type PcmStreamRunIdentity,
+} from '../streaming/pcm-stream-protocol.ts';
 
-export const FLAC_STREAM_PROTOCOL_VERSION = 2 as const;
-export const FLAC_STREAM_MAX_CHANNELS = 8;
+export {
+  PCM_STREAM_MAX_CHANNELS,
+  PCM_STREAM_MAX_MESSAGE_FRAMES,
+  PCM_STREAM_PROTOCOL_VERSION,
+  isPcmStreamGeneration,
+  type PcmRingCommand,
+  type PcmRingEvent,
+  type PcmRingState,
+  type PcmStreamGeneration,
+  type PcmStreamRunIdentity,
+  type PcmSupplyMessage,
+} from '../streaming/pcm-stream-protocol.ts';
+
+export const FLAC_STREAM_PROTOCOL_VERSION = PCM_STREAM_PROTOCOL_VERSION;
+export const FLAC_STREAM_MAX_CHANNELS = PCM_STREAM_MAX_CHANNELS;
 export const FLAC_STREAM_MAX_SOURCE_IDENTITY_LENGTH = 512;
 export const FLAC_STREAM_INPUT_CHUNK_BYTES = 64 * 1024;
-export const FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES = 32_768;
+export const FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES = PCM_STREAM_MAX_MESSAGE_FRAMES;
 
 /** One immutable encoded-source bridge for the whole playback-source lifetime. */
 export type FlacSourceLifetimeGeneration = number;
 /** One decoder/ring incarnation; seeks advance this without replacing the source bridge. */
-export type FlacDecoderGeneration = number;
+export type FlacDecoderGeneration = PcmStreamGeneration;
 /** AudioWorklet-facing alias; every ring generation is one decoder generation. */
 export type FlacStreamGeneration = FlacDecoderGeneration;
 
-export interface FlacStreamRunIdentity {
-  readonly revision: PlaybackRevision;
-  readonly runId: string;
-  readonly rendezvousId: string;
-}
+export type FlacStreamRunIdentity = PcmStreamRunIdentity;
 
 export interface FlacStreamDescriptor {
   readonly sourceSampleRate: number;
@@ -159,133 +172,8 @@ export type FlacDecoderEvent =
       readonly message: string;
     };
 
-export type PcmSupplyMessage =
-  | {
-      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-      readonly type: 'pcm';
-      readonly generation: FlacStreamGeneration;
-      readonly frames: number;
-      readonly channels: ArrayBuffer[];
-      readonly final: boolean;
-    }
-  | {
-      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-      readonly type: 'eof';
-      readonly generation: FlacStreamGeneration;
-    }
-  | {
-      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-      readonly type: 'source-error';
-      readonly generation: FlacStreamGeneration;
-      readonly code: string;
-    };
-
-export type PcmRingState =
-  | 'priming'
-  | 'ready'
-  | 'armed'
-  | 'playing'
-  | 'paused'
-  | 'finished'
-  | 'interrupted'
-  | 'stopped';
-
-interface PcmRingGenerationCommand {
-  readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-  readonly generation: FlacStreamGeneration;
-}
-
-export type PcmRingCommand =
-  | (PcmRingGenerationCommand & {
-      readonly type: 'bind-pcm-port';
-      readonly port: MessagePort;
-    })
-  | (PcmRingGenerationCommand & {
-      readonly type: 'reset';
-      readonly mediaFrame: number;
-    })
-  | (PcmRingGenerationCommand &
-      FlacStreamRunIdentity & {
-        readonly type: 'arm';
-        readonly targetFrame: number;
-        readonly fadeInFrames: number;
-      })
-  | (PcmRingGenerationCommand &
-      FlacStreamRunIdentity & {
-        readonly type: 'finalize';
-      })
-  | (PcmRingGenerationCommand & {
-      readonly type: 'cancel';
-      readonly revision?: PlaybackRevision;
-      readonly runId?: string;
-      readonly rendezvousId?: string;
-    })
-  | (PcmRingGenerationCommand &
-      FlacStreamRunIdentity & {
-        readonly type: 'pause';
-        readonly targetFrame: number;
-      })
-  | (PcmRingGenerationCommand & { readonly type: 'stop' });
-
-interface PcmRingGenerationEvent {
-  readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-  readonly generation: FlacStreamGeneration;
-}
-
-export type PcmRingEvent =
-  | (PcmRingGenerationEvent & {
-      readonly type: 'primed';
-      readonly bufferedFrames: number;
-      readonly sampleRate: number;
-      readonly channels: number;
-    })
-  | (PcmRingGenerationEvent &
-      FlacStreamRunIdentity & {
-        readonly type: 'armed';
-        readonly targetFrame: number;
-      })
-  | (PcmRingGenerationEvent &
-      FlacStreamRunIdentity & {
-        readonly type: 'finalized';
-        readonly targetFrame: number;
-      })
-  | (PcmRingGenerationEvent &
-      FlacStreamRunIdentity & {
-        readonly type: 'started';
-        readonly targetFrame: number;
-        readonly actualStartFrame: number;
-        readonly mediaFrame: number;
-      })
-  | (PcmRingGenerationEvent &
-      FlacStreamRunIdentity & {
-        readonly type: 'paused';
-        readonly targetFrame: number;
-        readonly actualPauseFrame: number;
-        readonly mediaFrame: number;
-      })
-  | (PcmRingGenerationEvent & {
-      readonly type: 'finished';
-      readonly mediaFrame: number;
-    })
-  | (PcmRingGenerationEvent & {
-      readonly type: 'status';
-      readonly state: PcmRingState;
-      readonly bufferedFrames: number;
-      readonly mediaFrame: number;
-      readonly renderFrame: number;
-      readonly underruns: number;
-      readonly overflows: number;
-    })
-  | (PcmRingGenerationEvent & {
-      readonly type: 'rejected' | 'interrupted';
-      readonly code: string;
-      readonly revision?: PlaybackRevision;
-      readonly runId?: string;
-      readonly rendezvousId?: string;
-    });
-
 export function isFlacStreamGeneration(value: unknown): value is FlacStreamGeneration {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+  return isPcmStreamGeneration(value);
 }
 
 export const isFlacDecoderGeneration = isFlacStreamGeneration;

@@ -12,6 +12,9 @@ import {
   M4A_MAX_CHUNKS,
   readM4aChunkIndex,
   readM4aChunkOffsetAt,
+  rehydrateM4aChunkIndex,
+  snapshotM4aChunkIndex,
+  validateM4aChunkIndexSnapshot,
 } from '../chunk-index.ts';
 import { readM4aContainerLayout, type M4aContainerLayout } from '../container-layout.ts';
 import {
@@ -276,6 +279,13 @@ async function buildIndex(fixture: IndexedFixture) {
     fixture.chunkOffsets,
     signal(),
   );
+}
+
+function sourceBinding(fixture: IndexedFixture) {
+  return Object.freeze({
+    sourceSize: fixture.reader.sourceSize,
+    sourceIdentity: fixture.reader.sourceIdentity,
+  });
 }
 
 describe('bounded M4A chunk geometry', () => {
@@ -623,6 +633,246 @@ describe('M4A chunk-index authority and bounded lookup', () => {
         readM4aChunkOffsetAt(fixture.reader, index, 1, signal()),
       ]),
     ).resolves.toEqual([fixture.mediaDataRanges[0]!.start, fixture.mediaDataRanges[0]!.start + 3]);
+  });
+});
+
+describe('transferable M4A chunk-index snapshots', () => {
+  it('round-trips structured-clone evidence and keeps first, middle, and last pages lazy', async () => {
+    const count = 20_000;
+    const fixture = await indexedFixture({
+      sizes: Array(count).fill(1),
+      fixedSampleSize: 1,
+      runs: [[1, 1, 1]],
+      width: 8,
+      chunkCount: count,
+      mdatLengths: [count],
+      offsetValues: ([range]) =>
+        Array.from({ length: count }, (_, ordinal) => range!.start + ordinal),
+    });
+    const original = await buildIndex(fixture);
+    const transferred = structuredClone(snapshotM4aChunkIndex(fixture.reader, original, signal()));
+    const validated = validateM4aChunkIndexSnapshot(transferred);
+    expect(Object.isFrozen(validated)).toBe(true);
+    expect(Object.isFrozen(validated.runs)).toBe(true);
+    expect(validated.runs.every(Object.isFrozen)).toBe(true);
+    expect(Object.isFrozen(validated.mediaDataRanges)).toBe(true);
+    expect(validated.mediaDataRanges.every(Object.isFrozen)).toBe(true);
+    expect(Object.isFrozen(validated.pages)).toBe(true);
+    expect(validated.pages.every(Object.isFrozen)).toBe(true);
+
+    fixture.source.reads.length = 0;
+    const reopened = await rehydrateM4aChunkIndex(
+      fixture.reader,
+      transferred,
+      fixture.stsz,
+      structuredClone(sourceBinding(fixture)),
+      signal(),
+    );
+    expect(fixture.source.reads).toEqual([
+      { offset: validated.chunkOffsetTableStart - 8, length: 8 },
+    ]);
+    expect(Object.isFrozen(reopened)).toBe(true);
+
+    fixture.source.reads.length = 0;
+    const ordinals = [0, Math.floor(count / 2), count - 1];
+    await expect(
+      Promise.all(
+        ordinals.map((ordinal) =>
+          readM4aChunkOffsetAt(fixture.reader, reopened, ordinal, signal()),
+        ),
+      ),
+    ).resolves.toEqual(ordinals.map((ordinal) => fixture.mediaDataRanges[0]!.start + ordinal));
+    expect(fixture.source.reads).toHaveLength(3);
+    expect(fixture.source.reads.every((read) => read.length <= 64 * 1_024)).toBe(true);
+    await expect(
+      readM4aChunkOffsetAt(fixture.reader, { ...reopened }, 0, signal()),
+    ).rejects.toThrow(/provenance/);
+  });
+
+  it('authenticates and reparses the exact eight-byte FullBox header', async () => {
+    const fixture = await indexedFixture({
+      sizes: [3, 5],
+      runs: [[1, 1, 1]],
+      chunkCount: 2,
+      offsetValues: ([range]) => [range!.start, range!.start + 3],
+    });
+    const index = await buildIndex(fixture);
+    const snapshot = structuredClone(snapshotM4aChunkIndex(fixture.reader, index, signal()));
+    fixture.source.bytes[snapshot.chunkOffsetTableStart - 1]! ^= 1;
+
+    fixture.source.reads.length = 0;
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        snapshot,
+        fixture.stsz,
+        sourceBinding(fixture),
+        signal(),
+      ),
+    ).rejects.toThrow(/header changed/);
+    expect(fixture.source.reads).toEqual([
+      { offset: snapshot.chunkOffsetTableStart - 8, length: 8 },
+    ]);
+  });
+
+  it('strictly rejects malformed objects, nested records, arrays, bounds, and digests', async () => {
+    const fixture = await indexedFixture({
+      sizes: [3, 5],
+      runs: [[1, 2, 1]],
+      chunkCount: 1,
+      offsetValues: ([range]) => [range!.start],
+    });
+    const index = await buildIndex(fixture);
+    const snapshot = structuredClone(snapshotM4aChunkIndex(fixture.reader, index, signal()));
+
+    const accessor = { ...snapshot };
+    Object.defineProperty(accessor, 'chunkCount', {
+      enumerable: true,
+      get() {
+        throw new Error('snapshot getter must not execute');
+      },
+    });
+    const withSymbol = Object.assign({ ...snapshot }, { [Symbol('extra')]: true });
+    class SnapshotRecord {}
+    const classInstance = Object.assign(new SnapshotRecord(), snapshot);
+    const sparsePages: unknown[] = [];
+    sparsePages.length = snapshot.pages.length;
+    const nonEnumerable = { ...snapshot };
+    Object.defineProperty(nonEnumerable, 'chunkCount', {
+      enumerable: false,
+      value: snapshot.chunkCount,
+    });
+
+    const malformed: readonly unknown[] = [
+      null,
+      { ...snapshot, extra: true },
+      accessor,
+      withSymbol,
+      classInstance,
+      nonEnumerable,
+      { ...snapshot, chunkOffsetWidthBytes: 5 },
+      { ...snapshot, chunkOffsetTableStart: Number.MAX_SAFE_INTEGER },
+      { ...snapshot, headerSha256: snapshot.headerSha256.toUpperCase() },
+      { ...snapshot, runs: [{ ...snapshot.runs[0]!, extra: true }] },
+      { ...snapshot, runs: [{ ...snapshot.runs[0]!, firstSampleOrdinal: 1 }] },
+      { ...snapshot, runs: [{ ...snapshot.runs[0]!, samplesPerChunk: 1 }] },
+      {
+        ...snapshot,
+        mediaDataRanges: [snapshot.mediaDataRanges[0]!, { ...snapshot.mediaDataRanges[0]! }],
+      },
+      { ...snapshot, pages: sparsePages },
+      { ...snapshot, pages: [{ ...snapshot.pages[0]!, extra: true }] },
+      { ...snapshot, pages: [{ ...snapshot.pages[0]!, entryCount: 0 }] },
+      { ...snapshot, pages: [{ ...snapshot.pages[0]!, sha256: 'A'.repeat(64) }] },
+    ];
+    for (const candidate of malformed) {
+      expect(() => validateM4aChunkIndexSnapshot(candidate)).toThrow();
+    }
+  });
+
+  it('binds source geometry and the authentic same-reader sample-size authority', async () => {
+    const fixture = await indexedFixture({
+      sizes: [3, 5],
+      runs: [[1, 2, 1]],
+      chunkCount: 1,
+      offsetValues: ([range]) => [range!.start],
+    });
+    const index = await buildIndex(fixture);
+    const snapshot = structuredClone(snapshotM4aChunkIndex(fixture.reader, index, signal()));
+
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        snapshot,
+        fixture.stsz,
+        { ...sourceBinding(fixture), sourceIdentity: 'foreign-m4a-source' },
+        signal(),
+      ),
+    ).rejects.toThrow(/source binding/);
+
+    const sameSourceForeignReader = new IsoBmffBoxReader(fixture.source);
+    await expect(
+      rehydrateM4aChunkIndex(
+        sameSourceForeignReader,
+        snapshot,
+        fixture.stsz,
+        sourceBinding(fixture),
+        signal(),
+      ),
+    ).rejects.toThrow(/different source reader/);
+
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        {
+          ...snapshot,
+          mediaDataRanges: [{ start: 0, end: fixture.reader.sourceSize + 1 }],
+        },
+        fixture.stsz,
+        sourceBinding(fixture),
+        signal(),
+      ),
+    ).rejects.toThrow(/range exceeds/);
+
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        { ...snapshot, mediaDataRanges: [{ start: 0, end: 1 }] },
+        fixture.stsz,
+        sourceBinding(fixture),
+        signal(),
+      ),
+    ).rejects.toThrow(/physical mdat payload capacity/);
+
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        { ...snapshot, chunkOffsetTableStart: fixture.reader.sourceSize },
+        fixture.stsz,
+        sourceBinding(fixture),
+        signal(),
+      ),
+    ).rejects.toThrow(/table exceeds/);
+  });
+
+  it('preserves abort reasons before and during rehydration', async () => {
+    const fixture = await indexedFixture({
+      sizes: [3],
+      runs: [[1, 1, 1]],
+      chunkCount: 1,
+      offsetValues: ([range]) => [range!.start],
+    });
+    const index = await buildIndex(fixture);
+    const snapshot = structuredClone(snapshotM4aChunkIndex(fixture.reader, index, signal()));
+
+    const before = new AbortController();
+    const beforeReason = Object.freeze({ phase: 'chunk-rehydrate-before' });
+    before.abort(beforeReason);
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        snapshot,
+        fixture.stsz,
+        sourceBinding(fixture),
+        before.signal,
+      ),
+    ).rejects.toBe(beforeReason);
+
+    fixture.source.blockNextRead = true;
+    const during = new AbortController();
+    const duringReason = Object.freeze({ phase: 'chunk-rehydrate-during' });
+    const interrupted = rehydrateM4aChunkIndex(
+      fixture.reader,
+      snapshot,
+      fixture.stsz,
+      sourceBinding(fixture),
+      during.signal,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    during.abort(duringReason);
+    fixture.source.releaseRead();
+    await expect(interrupted).rejects.toBe(duringReason);
   });
 });
 

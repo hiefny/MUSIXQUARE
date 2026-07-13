@@ -3,22 +3,31 @@ import { ISO_BMFF_MAX_BOUNDED_READ_BYTES, IsoBmffBoxReader } from '../mp4/box-re
 import { EncodedSourceIntegrityError } from '../sources/encoded-audio-source.ts';
 import {
   assertM4aContainerLayoutProvenance,
+  M4A_MAX_MDAT_BOXES,
   type M4aContainerLayout,
   type M4aMediaDataRange,
 } from './container-layout.ts';
 import {
   assertM4aSampleToChunkRunTableProvenance,
   createM4aSampleSizeSequence,
+  type M4aIndexSourceBinding,
   type M4aSampleSizeIndex,
   type M4aSampleToChunkRunTable,
   readM4aSamplePrefixBytes,
   readM4aSampleSizeAt,
+  snapshotM4aSampleSizeIndex,
+  validateM4aIndexSourceBinding,
 } from './sample-size-index.ts';
 import { digestM4aMetadataPage } from './page-auth.ts';
+import { M4A_AAC_MAX_ACCESS_UNITS } from './timeline.ts';
 
 const CHUNK_OFFSET_FULL_BOX_HEADER_BYTES = 8;
+const STSC_MAX_ENTRIES = 2_048;
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 export const M4A_MAX_CHUNKS = 1_048_576;
+const M4A_MAX_CHUNK_OFFSET_PAGES = Math.ceil(
+  M4A_MAX_CHUNKS / Math.floor(ISO_BMFF_MAX_BOUNDED_READ_BYTES / 8),
+);
 
 export interface M4aNormalizedChunkRun {
   /** One-based first chunk, as encoded by `stsc`. */
@@ -47,10 +56,21 @@ export interface M4aAacAccessUnitLocation {
   readonly byteLength: number;
 }
 
-interface ChunkOffsetPageEvidence {
+export interface M4aChunkOffsetPageEvidence {
   readonly firstChunkOrdinal: number;
   readonly entryCount: number;
   readonly sha256: string;
+}
+
+export interface M4aChunkIndexSnapshot {
+  readonly sampleCount: number;
+  readonly chunkCount: number;
+  readonly chunkOffsetWidthBytes: 4 | 8;
+  readonly chunkOffsetTableStart: number;
+  readonly headerSha256: string;
+  readonly runs: readonly Readonly<M4aNormalizedChunkRun>[];
+  readonly mediaDataRanges: readonly Readonly<M4aMediaDataRange>[];
+  readonly pages: readonly Readonly<M4aChunkOffsetPageEvidence>[];
 }
 
 interface ChunkIndexAuthority {
@@ -60,10 +80,11 @@ interface ChunkIndexAuthority {
   readonly chunkCount: number;
   readonly chunkOffsetWidthBytes: 4 | 8;
   readonly chunkOffsetTableStart: number;
+  readonly headerSha256: string;
   readonly entriesPerPage: number;
   readonly runs: readonly Readonly<M4aNormalizedChunkRun>[];
   readonly mediaDataRanges: readonly Readonly<M4aMediaDataRange>[];
-  readonly pages: readonly Readonly<ChunkOffsetPageEvidence>[];
+  readonly pages: readonly Readonly<M4aChunkOffsetPageEvidence>[];
 }
 
 const chunkIndexAuthorities = new WeakMap<object, ChunkIndexAuthority>();
@@ -205,6 +226,327 @@ function requireMediaDataSpan(
 const createChunkIndexError = (message: string, cause?: unknown): M4aChunkIndexError =>
   new M4aChunkIndexError(message, cause);
 
+const SNAPSHOT_KEYS = Object.freeze([
+  'sampleCount',
+  'chunkCount',
+  'chunkOffsetWidthBytes',
+  'chunkOffsetTableStart',
+  'headerSha256',
+  'runs',
+  'mediaDataRanges',
+  'pages',
+] as const);
+const RUN_KEYS = Object.freeze([
+  'firstChunk',
+  'endChunkExclusive',
+  'firstSampleOrdinal',
+  'samplesPerChunk',
+] as const);
+const MEDIA_DATA_RANGE_KEYS = Object.freeze(['start', 'end'] as const);
+const PAGE_EVIDENCE_KEYS = Object.freeze(['firstChunkOrdinal', 'entryCount', 'sha256'] as const);
+const SHA256_LOWER_HEX = /^[0-9a-f]{64}$/;
+
+function requireExactDataRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+  label: string,
+): Readonly<Record<string, unknown>> {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw createChunkIndexError(`${label} must be a plain data object`);
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw createChunkIndexError(`${label} must not be a class instance`);
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length !== expectedKeys.length ||
+      ownKeys.some((key) => typeof key !== 'string' || !expectedKeys.includes(key))
+    ) {
+      throw createChunkIndexError(`${label} must contain exactly its canonical keys`);
+    }
+    const result: Record<string, unknown> = {};
+    for (const key of expectedKeys) {
+      const descriptor = descriptors[key];
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+        throw createChunkIndexError(`${label}.${key} must be own enumerable data`);
+      }
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof M4aChunkIndexError) throw error;
+    throw createChunkIndexError(`${label} could not be inspected as data`, error);
+  }
+}
+
+function requireDenseDataArray(
+  value: unknown,
+  maximumLength: number,
+  label: string,
+): readonly unknown[] {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) {
+      throw createChunkIndexError(`${label} must be a plain array`);
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+    const lengthValue: unknown = lengthDescriptor?.value;
+    if (
+      lengthDescriptor === undefined ||
+      !('value' in lengthDescriptor) ||
+      typeof lengthValue !== 'number' ||
+      !Number.isSafeInteger(lengthValue) ||
+      lengthValue < 0 ||
+      lengthValue > maximumLength
+    ) {
+      throw createChunkIndexError(`${label} length exceeds its proven bound`);
+    }
+    const length = lengthValue;
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length !== length + 1 ||
+      ownKeys.some(
+        (key) =>
+          typeof key !== 'string' ||
+          (key !== 'length' &&
+            (!/^(0|[1-9]\d*)$/.test(key) || Number(key) < 0 || Number(key) >= length)),
+      )
+    ) {
+      throw createChunkIndexError(`${label} must be dense and contain no extra properties`);
+    }
+    const result: unknown[] = [];
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+        throw createChunkIndexError(`${label}[${index}] must be own enumerable data`);
+      }
+      result.push(descriptor.value);
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof M4aChunkIndexError) throw error;
+    throw createChunkIndexError(`${label} could not be inspected as data`, error);
+  }
+}
+
+function requireSnapshotInteger(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  label: string,
+): number {
+  try {
+    return requireInteger(value, minimum, maximum, label);
+  } catch (error) {
+    throw createChunkIndexError(`${label} is outside its canonical integer range`, error);
+  }
+}
+
+function requireSha256(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !SHA256_LOWER_HEX.test(value)) {
+    throw createChunkIndexError(`${label} must be a lowercase 64-character SHA-256 digest`);
+  }
+  return value;
+}
+
+/** Strictly validate and deeply canonicalize an untrusted transferable snapshot. */
+export function validateM4aChunkIndexSnapshot(value: unknown): Readonly<M4aChunkIndexSnapshot> {
+  const record = requireExactDataRecord(value, SNAPSHOT_KEYS, 'M4A chunk-index snapshot');
+  const sampleCount = requireSnapshotInteger(
+    record.sampleCount,
+    1,
+    M4A_AAC_MAX_ACCESS_UNITS,
+    'M4A chunk-index snapshot sample count',
+  );
+  const chunkCount = requireSnapshotInteger(
+    record.chunkCount,
+    1,
+    Math.min(M4A_MAX_CHUNKS, sampleCount),
+    'M4A chunk-index snapshot chunk count',
+  );
+  const chunkOffsetWidthBytes = requireSnapshotInteger(
+    record.chunkOffsetWidthBytes,
+    4,
+    8,
+    'M4A chunk-index snapshot offset width',
+  );
+  if (chunkOffsetWidthBytes !== 4 && chunkOffsetWidthBytes !== 8) {
+    throw createChunkIndexError('M4A chunk-index snapshot offset width must be 4 or 8 bytes');
+  }
+  const chunkOffsetTableStart = requireSnapshotInteger(
+    record.chunkOffsetTableStart,
+    CHUNK_OFFSET_FULL_BOX_HEADER_BYTES,
+    Number.MAX_SAFE_INTEGER,
+    'M4A chunk-index snapshot table start',
+  );
+  safeAdd(
+    chunkOffsetTableStart,
+    safeMultiply(chunkCount, chunkOffsetWidthBytes, 'M4A snapshot chunk-offset table size'),
+    'M4A snapshot chunk-offset table end',
+  );
+  const headerSha256 = requireSha256(record.headerSha256, 'M4A chunk-index snapshot header digest');
+
+  const runValues = requireDenseDataArray(
+    record.runs,
+    STSC_MAX_ENTRIES,
+    'M4A chunk-index snapshot runs',
+  );
+  if (runValues.length < 1) {
+    throw createChunkIndexError('M4A chunk-index snapshot must contain at least one run');
+  }
+  let coveredSamples = 0;
+  let previousRunEndChunkExclusive = 1;
+  const runs = runValues.map((candidate, index) => {
+    const item = requireExactDataRecord(candidate, RUN_KEYS, `M4A chunk-index run ${index}`);
+    const firstChunk = requireSnapshotInteger(
+      item.firstChunk,
+      1,
+      chunkCount,
+      `M4A chunk-index run ${index} first chunk`,
+    );
+    const endChunkExclusive = requireSnapshotInteger(
+      item.endChunkExclusive,
+      2,
+      chunkCount + 1,
+      `M4A chunk-index run ${index} exclusive end`,
+    );
+    const firstSampleOrdinal = requireSnapshotInteger(
+      item.firstSampleOrdinal,
+      0,
+      sampleCount - 1,
+      `M4A chunk-index run ${index} first sample ordinal`,
+    );
+    const samplesPerChunk = requireSnapshotInteger(
+      item.samplesPerChunk,
+      1,
+      sampleCount,
+      `M4A chunk-index run ${index} samples per chunk`,
+    );
+    if (
+      firstChunk !== previousRunEndChunkExclusive ||
+      endChunkExclusive <= firstChunk ||
+      firstSampleOrdinal !== coveredSamples
+    ) {
+      throw createChunkIndexError('M4A chunk-index snapshot run coverage is inconsistent');
+    }
+    coveredSamples = safeAdd(
+      coveredSamples,
+      safeMultiply(
+        endChunkExclusive - firstChunk,
+        samplesPerChunk,
+        'M4A snapshot run sample count',
+      ),
+      'M4A snapshot covered sample count',
+    );
+    if (coveredSamples > sampleCount) {
+      throw createChunkIndexError('M4A chunk-index snapshot runs cover too many samples');
+    }
+    previousRunEndChunkExclusive = endChunkExclusive;
+    return Object.freeze({
+      firstChunk,
+      endChunkExclusive,
+      firstSampleOrdinal,
+      samplesPerChunk,
+    });
+  });
+  if (runs.at(-1)!.endChunkExclusive !== chunkCount + 1 || coveredSamples !== sampleCount) {
+    throw createChunkIndexError('M4A chunk-index snapshot run coverage is incomplete');
+  }
+
+  const mediaRangeValues = requireDenseDataArray(
+    record.mediaDataRanges,
+    M4A_MAX_MDAT_BOXES,
+    'M4A chunk-index snapshot media-data ranges',
+  );
+  if (mediaRangeValues.length < 1) {
+    throw createChunkIndexError('M4A chunk-index snapshot must contain an mdat range');
+  }
+  let previousRangeEnd = 0;
+  let nonEmptyMediaRange = false;
+  const mediaDataRanges = mediaRangeValues.map((candidate, index) => {
+    const item = requireExactDataRecord(
+      candidate,
+      MEDIA_DATA_RANGE_KEYS,
+      `M4A chunk-index mdat range ${index}`,
+    );
+    const start = requireSnapshotInteger(
+      item.start,
+      0,
+      Number.MAX_SAFE_INTEGER,
+      `M4A chunk-index mdat range ${index} start`,
+    );
+    const end = requireSnapshotInteger(
+      item.end,
+      start,
+      Number.MAX_SAFE_INTEGER,
+      `M4A chunk-index mdat range ${index} end`,
+    );
+    if (index > 0 && start < previousRangeEnd) {
+      throw createChunkIndexError('M4A chunk-index mdat ranges must be sorted and nonoverlapping');
+    }
+    previousRangeEnd = end;
+    nonEmptyMediaRange ||= end > start;
+    return Object.freeze({ start, end });
+  });
+  if (!nonEmptyMediaRange) {
+    throw createChunkIndexError('M4A chunk-index snapshot has no non-empty mdat payload');
+  }
+
+  const entriesPerPage = Math.floor(ISO_BMFF_MAX_BOUNDED_READ_BYTES / chunkOffsetWidthBytes);
+  const pageValues = requireDenseDataArray(
+    record.pages,
+    M4A_MAX_CHUNK_OFFSET_PAGES,
+    'M4A chunk-index snapshot pages',
+  );
+  const expectedPageCount = Math.ceil(chunkCount / entriesPerPage);
+  if (pageValues.length !== expectedPageCount) {
+    throw createChunkIndexError('M4A chunk-index snapshot page coverage is inconsistent');
+  }
+  const pages = pageValues.map((candidate, index) => {
+    const item = requireExactDataRecord(
+      candidate,
+      PAGE_EVIDENCE_KEYS,
+      `M4A chunk-index page ${index}`,
+    );
+    const expectedFirstChunkOrdinal = index * entriesPerPage;
+    const expectedEntryCount = Math.min(entriesPerPage, chunkCount - expectedFirstChunkOrdinal);
+    const firstChunkOrdinal = requireSnapshotInteger(
+      item.firstChunkOrdinal,
+      0,
+      chunkCount - 1,
+      `M4A chunk-index page ${index} first chunk ordinal`,
+    );
+    const entryCount = requireSnapshotInteger(
+      item.entryCount,
+      1,
+      entriesPerPage,
+      `M4A chunk-index page ${index} entry count`,
+    );
+    if (firstChunkOrdinal !== expectedFirstChunkOrdinal || entryCount !== expectedEntryCount) {
+      throw createChunkIndexError('M4A chunk-index snapshot page evidence is inconsistent');
+    }
+    return Object.freeze({
+      firstChunkOrdinal,
+      entryCount,
+      sha256: requireSha256(item.sha256, `M4A chunk-index page ${index} digest`),
+    });
+  });
+
+  return Object.freeze({
+    sampleCount,
+    chunkCount,
+    chunkOffsetWidthBytes,
+    chunkOffsetTableStart,
+    headerSha256,
+    runs: Object.freeze(runs),
+    mediaDataRanges: Object.freeze(mediaDataRanges),
+    pages: Object.freeze(pages),
+  });
+}
+
 function requireChunkIndexAuthority(
   reader: IsoBmffBoxReader,
   index: unknown,
@@ -222,6 +564,160 @@ function requireChunkIndexAuthority(
     throw new M4aChunkIndexError('M4A chunk index belongs to a different source reader');
   }
   return authority;
+}
+
+/** Copy one issued index into bounded structured-clone data for a decoder Worker. */
+export function snapshotM4aChunkIndex(
+  reader: IsoBmffBoxReader,
+  index: Readonly<M4aChunkIndex>,
+  signal: AbortSignal,
+): Readonly<M4aChunkIndexSnapshot> {
+  requireReaderAndSignal(reader, signal, 'M4A chunk-index snapshot');
+  const authority = requireChunkIndexAuthority(reader, index, signal);
+  const runs = Object.freeze(
+    authority.runs.map((run) =>
+      Object.freeze({
+        firstChunk: run.firstChunk,
+        endChunkExclusive: run.endChunkExclusive,
+        firstSampleOrdinal: run.firstSampleOrdinal,
+        samplesPerChunk: run.samplesPerChunk,
+      }),
+    ),
+  );
+  const mediaDataRanges = Object.freeze(
+    authority.mediaDataRanges.map((range) => Object.freeze({ start: range.start, end: range.end })),
+  );
+  const pages = Object.freeze(
+    authority.pages.map((page) =>
+      Object.freeze({
+        firstChunkOrdinal: page.firstChunkOrdinal,
+        entryCount: page.entryCount,
+        sha256: page.sha256,
+      }),
+    ),
+  );
+  reader.assertReadable(signal);
+  return Object.freeze({
+    sampleCount: authority.sampleCount,
+    chunkCount: authority.chunkCount,
+    chunkOffsetWidthBytes: authority.chunkOffsetWidthBytes,
+    chunkOffsetTableStart: authority.chunkOffsetTableStart,
+    headerSha256: authority.headerSha256,
+    runs,
+    mediaDataRanges,
+    pages,
+  });
+}
+
+/**
+ * Reopen untrusted transferable chunk evidence against its exact source and
+ * one already-authenticated same-reader sample-size index. Only the eight-byte
+ * `stco`/`co64` FullBox header is reread here; offset pages stay lazy.
+ */
+export async function rehydrateM4aChunkIndex(
+  reader: IsoBmffBoxReader,
+  snapshotValue: unknown,
+  sampleSizes: Readonly<M4aSampleSizeIndex>,
+  expectedSourceValue: unknown,
+  signal: AbortSignal,
+): Promise<Readonly<M4aChunkIndex>> {
+  requireReaderAndSignal(reader, signal, 'M4A chunk-index snapshot rehydration');
+  reader.assertReadable(signal);
+  const expectedSource: Readonly<M4aIndexSourceBinding> =
+    validateM4aIndexSourceBinding(expectedSourceValue);
+  if (
+    reader.sourceSize !== expectedSource.sourceSize ||
+    reader.sourceIdentity !== expectedSource.sourceIdentity
+  ) {
+    throw createChunkIndexError(
+      'M4A chunk-index snapshot source binding does not match its reader',
+    );
+  }
+  const snapshot = validateM4aChunkIndexSnapshot(snapshotValue);
+  const sampleSizeSnapshot = snapshotM4aSampleSizeIndex(reader, sampleSizes, signal);
+  if (sampleSizeSnapshot.sampleCount !== snapshot.sampleCount) {
+    throw createChunkIndexError('M4A chunk and sample-size snapshot counts do not match');
+  }
+
+  const tableBytes = safeMultiply(
+    snapshot.chunkCount,
+    snapshot.chunkOffsetWidthBytes,
+    'M4A rehydrated chunk-offset table size',
+  );
+  const tableEnd = safeAdd(
+    snapshot.chunkOffsetTableStart,
+    tableBytes,
+    'M4A rehydrated chunk-offset table end',
+  );
+  if (tableEnd > expectedSource.sourceSize) {
+    throw createChunkIndexError('M4A chunk-index snapshot table exceeds its bound source');
+  }
+
+  let mediaDataPayloadBytes = 0;
+  for (const range of snapshot.mediaDataRanges) {
+    if (range.end > expectedSource.sourceSize) {
+      throw createChunkIndexError('M4A chunk-index mdat range exceeds its bound source');
+    }
+    mediaDataPayloadBytes = safeAdd(
+      mediaDataPayloadBytes,
+      range.end - range.start,
+      'M4A rehydrated aggregate mdat payload size',
+    );
+  }
+  if (sampleSizeSnapshot.totalEncodedBytes > mediaDataPayloadBytes) {
+    throw createChunkIndexError(
+      'M4A logical sample bytes exceed the aggregate physical mdat payload capacity',
+    );
+  }
+
+  const header = await reader.readBytes(
+    snapshot.chunkOffsetTableStart - CHUNK_OFFSET_FULL_BOX_HEADER_BYTES,
+    CHUNK_OFFSET_FULL_BOX_HEADER_BYTES,
+    signal,
+  );
+  const headerSha256 = await digestM4aMetadataPage(
+    reader,
+    header,
+    signal,
+    'M4A chunk-offset FullBox header',
+    createChunkIndexError,
+  );
+  if (headerSha256 !== snapshot.headerSha256) {
+    throw createChunkIndexError('M4A chunk-offset header changed after the snapshot was built');
+  }
+  if (header[0] !== 0 || header[1] !== 0 || header[2] !== 0 || header[3] !== 0) {
+    throw createChunkIndexError('M4A chunk-offset FullBox version and flags must be zero');
+  }
+  if (readUint32(header, 4) !== snapshot.chunkCount) {
+    throw createChunkIndexError('M4A chunk-offset header does not match its snapshot geometry');
+  }
+
+  reader.assertReadable(signal);
+  const index = Object.freeze({
+    sampleCount: snapshot.sampleCount,
+    chunkCount: snapshot.chunkCount,
+    chunkOffsetWidthBytes: snapshot.chunkOffsetWidthBytes,
+    chunkOffsetTableStart: snapshot.chunkOffsetTableStart,
+    runs: snapshot.runs,
+    mediaDataRanges: snapshot.mediaDataRanges,
+  });
+  chunkIndexAuthorities.set(
+    index,
+    Object.freeze({
+      reader,
+      sampleSizes,
+      sampleCount: snapshot.sampleCount,
+      chunkCount: snapshot.chunkCount,
+      chunkOffsetWidthBytes: snapshot.chunkOffsetWidthBytes,
+      chunkOffsetTableStart: snapshot.chunkOffsetTableStart,
+      headerSha256: snapshot.headerSha256,
+      entriesPerPage: Math.floor(ISO_BMFF_MAX_BOUNDED_READ_BYTES / snapshot.chunkOffsetWidthBytes),
+      runs: snapshot.runs,
+      mediaDataRanges: snapshot.mediaDataRanges,
+      pages: snapshot.pages,
+    }),
+  );
+  return index;
 }
 
 /**
@@ -259,6 +755,13 @@ export async function readM4aChunkIndex(
     throw new M4aChunkIndexError('M4A chunk-offset FullBox header is truncated');
   }
   const header = await reader.readBytes(body.start, CHUNK_OFFSET_FULL_BOX_HEADER_BYTES, signal);
+  const headerSha256 = await digestM4aMetadataPage(
+    reader,
+    header,
+    signal,
+    'M4A chunk-offset FullBox header',
+    createChunkIndexError,
+  );
   if (header[0] !== 0 || header[1] !== 0 || header[2] !== 0 || header[3] !== 0) {
     throw new M4aChunkIndexError('M4A chunk-offset FullBox version and flags must be zero');
   }
@@ -300,7 +803,7 @@ export async function readM4aChunkIndex(
   }
   const chunkOffsetTableStart = body.start + CHUNK_OFFSET_FULL_BOX_HEADER_BYTES;
   const entriesPerPage = Math.floor(ISO_BMFF_MAX_BOUNDED_READ_BYTES / chunkOffsetWidthBytes);
-  const pages: Readonly<ChunkOffsetPageEvidence>[] = [];
+  const pages: Readonly<M4aChunkOffsetPageEvidence>[] = [];
   let parsedChunks = 0;
   let runIndex = 0;
   let totalChunkBytes = 0;
@@ -370,6 +873,7 @@ export async function readM4aChunkIndex(
       chunkCount,
       chunkOffsetWidthBytes,
       chunkOffsetTableStart,
+      headerSha256,
       entriesPerPage,
       runs,
       mediaDataRanges,

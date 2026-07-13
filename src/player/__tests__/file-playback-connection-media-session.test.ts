@@ -335,6 +335,55 @@ function admitRemoteRendezvousSuccessor(
   };
 }
 
+function stagePreparedNewRunSuccessor(h: Harness) {
+  const current = commitBaseline(h);
+  const offer = offerFor(h, 1, QIDS[1]);
+  admitOffer(h, offer);
+  const binding = bindingFor(offer, 2, RUN_IDS[1]);
+  const operation = h.session.stageRunBinding(binding, expectedFor(binding), 'successor');
+  return { current, offer, binding, operation };
+}
+
+function admitRemotePreparedRunAttempt(
+  h: Harness,
+  currentBinding: Readonly<FilePlaybackRunBindingV2>,
+  preparedBinding: Readonly<FilePlaybackRunBindingV2>,
+  rendezvousId: string,
+): Readonly<{
+  stateLease: FilePlaybackWireStateLease;
+  attemptLease: FilePlaybackWireAttemptLease;
+}> {
+  h.hostChannel.bootstrapCurrentMedia({
+    run: expectedFor(currentBinding),
+    sourceIdentity: currentBinding.sourceIdentity,
+    transferSessionId: currentBinding.transferSessionId,
+  });
+  const stateLease = h.hostChannel.stageMedia({
+    run: expectedFor(preparedBinding),
+    sourceIdentity: preparedBinding.sourceIdentity,
+    transferSessionId: preparedBinding.transferSessionId,
+  });
+  const attemptLease = h.hostChannel.stageAttempt(stateLease, rendezvousId);
+  const message = h.hostChannel.createWire(attemptLease, {
+    kind: 'rendezvous-arm',
+    rendezvousId,
+    positionSeconds: 0,
+    playbackRate: 1,
+    startAtRoomTimeMs: 1_500,
+    finalizeByRoomTimeMs: 1_500,
+  });
+  const received = h.channel.receive(message, h.token);
+  if (
+    !received.accepted ||
+    received.frame !== 'wire' ||
+    received.message.kind !== 'rendezvous-arm' ||
+    !received.attemptLease
+  ) {
+    throw new Error('Guest did not admit the prepared-run rendezvous attempt');
+  }
+  return { stateLease: received.stateLease, attemptLease: received.attemptLease };
+}
+
 describe('FilePlaybackConnectionMediaSession', () => {
   it('binds an active baseline to one exact APPLIED guest channel and commits only after start', () => {
     const h = harness();
@@ -2020,6 +2069,336 @@ describe('FilePlaybackConnectionMediaSession', () => {
       candidateState: null,
       currentState: null,
     });
+  });
+
+  it('adopts a prepared new-run ARM and commits attempt, run, and media after start evidence', () => {
+    const h = harness(true);
+    const prepared = stagePreparedNewRunSuccessor(h);
+    const admitted = admitRemotePreparedRunAttempt(
+      h,
+      prepared.current.binding,
+      prepared.binding,
+      'rendezvous:prepared-successor',
+    );
+    channelFault.failStageAttempt = true;
+
+    const attempt = h.session.adoptAdmittedPreparedRunAttempt(
+      prepared.operation,
+      expectedFor(prepared.binding),
+      'rendezvous:prepared-successor',
+      admitted.stateLease,
+      admitted.attemptLease,
+    );
+    const replay = h.session.adoptAdmittedPreparedRunAttempt(
+      prepared.operation,
+      expectedFor(prepared.binding),
+      'rendezvous:prepared-successor',
+      admitted.stateLease,
+      admitted.attemptLease,
+    );
+
+    expect(replay).toBe(attempt);
+    expect(attempt).toMatchObject({
+      state: expectedFor(prepared.binding),
+      rendezvousId: 'rendezvous:prepared-successor',
+    });
+    expect(attempt.fence.isCurrent()).toBe(true);
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'candidate',
+      current: { binding: { playbackRevision: 1 } },
+      candidate: { binding: { playbackRevision: 2 } },
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+    expect(() =>
+      h.session.commitStarted(prepared.operation, expectedFor(prepared.binding), () => true),
+    ).toThrow(/exact attempt/u);
+
+    const armed = h.session.createPreparedRunAttemptWire(attempt, {
+      kind: 'rendezvous-armed',
+      rendezvousId: 'rendezvous:prepared-successor',
+      status: 'armed',
+      observedAtRoomTimeMs: 1_450,
+      bufferedAheadSeconds: 4,
+      reasonCode: null,
+    });
+    const finalizedBeforeCommit = h.session.createPreparedRunAttemptWire(attempt, {
+      kind: 'rendezvous-finalized',
+      rendezvousId: 'rendezvous:prepared-successor',
+      status: 'accepted',
+      observedAtRoomTimeMs: 1_451,
+      reasonCode: null,
+    });
+    expect(armed).toMatchObject({
+      kind: 'rendezvous-armed',
+      queueItemId: prepared.binding.queueItemId,
+      runId: prepared.binding.runId,
+      revision: prepared.binding.playbackRevision,
+    });
+    expect(finalizedBeforeCommit.controlSequence).toBe(armed.controlSequence + 1);
+    expect(() =>
+      h.session.createPreparedRunAttemptWire(attempt, {
+        kind: 'renderer-health',
+        rendezvousId: 'rendezvous:prepared-successor',
+        value: 'healthy',
+        observedAtRoomTimeMs: 1_452,
+        leaseUntilRoomTimeMs: 2_000,
+        renderedFrame: 1,
+        underrunCount: 0,
+        reasonCode: null,
+      }),
+    ).toThrow(/invalid for its status/u);
+
+    let evidenceReads = 0;
+    expect(
+      h.session.commitPreparedRunAttemptStarted(attempt, expectedFor(prepared.binding), () => {
+        evidenceReads += 1;
+        expect(attempt.fence.isCurrent()).toBe(true);
+        expect(prepared.operation.fence.isCurrent()).toBe(true);
+        return true;
+      }),
+    ).toMatchObject({
+      status: 'active',
+      candidate: null,
+      current: { binding: { playbackRevision: 2 } },
+      currentState: expectedFor(prepared.binding),
+      committedRevisionWatermark: 2,
+      admittedRevisionWatermark: 2,
+    });
+    expect(evidenceReads).toBe(2);
+    expect(
+      h.session.commitPreparedRunAttemptStarted(
+        attempt,
+        expectedFor(prepared.binding),
+        () => false,
+      ),
+    ).toMatchObject({ status: 'active', committedRevisionWatermark: 2 });
+
+    const finalizedRetry = h.session.createPreparedRunAttemptWire(attempt, {
+      kind: 'rendezvous-finalized',
+      rendezvousId: 'rendezvous:prepared-successor',
+      status: 'accepted',
+      observedAtRoomTimeMs: 1_453,
+      reasonCode: null,
+    });
+    const health = h.session.createPreparedRunAttemptWire(attempt, {
+      kind: 'renderer-health',
+      rendezvousId: 'rendezvous:prepared-successor',
+      value: 'healthy',
+      observedAtRoomTimeMs: 1_454,
+      leaseUntilRoomTimeMs: 2_000,
+      renderedFrame: 2,
+      underrunCount: 0,
+      reasonCode: null,
+    });
+    expect(finalizedRetry.controlSequence).toBe(finalizedBeforeCommit.controlSequence + 1);
+    expect(health.controlSequence).toBe(finalizedRetry.controlSequence + 1);
+    expect(() =>
+      h.session.createPreparedRunAttemptWire(attempt, {
+        kind: 'rendezvous-armed',
+        rendezvousId: 'rendezvous:prepared-successor',
+        status: 'armed',
+        observedAtRoomTimeMs: 1_455,
+        bufferedAheadSeconds: 4,
+        reasonCode: null,
+      }),
+    ).toThrow(/invalid for its status/u);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('keeps prepared-run attempt leases private and makes retired candidates inert', () => {
+    const h = harness(true);
+    const prepared = stagePreparedNewRunSuccessor(h);
+    const admitted = admitRemotePreparedRunAttempt(
+      h,
+      prepared.current.binding,
+      prepared.binding,
+      'rendezvous:prepared-retire',
+    );
+    const attempt = h.session.adoptAdmittedPreparedRunAttempt(
+      prepared.operation,
+      expectedFor(prepared.binding),
+      'rendezvous:prepared-retire',
+      admitted.stateLease,
+      admitted.attemptLease,
+    );
+
+    expect(Object.getPrototypeOf(attempt)).toBeNull();
+    expect(Object.isFrozen(attempt)).toBe(true);
+    expect(Reflect.has(attempt, 'stateLease')).toBe(false);
+    expect(Reflect.has(attempt, 'attemptLease')).toBe(false);
+    expect(Reflect.has(attempt, 'prepared')).toBe(false);
+    expect(JSON.stringify({ attempt, snapshot: h.session.snapshot() })).not.toMatch(
+      /stateLease|attemptLease|connectionToken|mediaBody|Blob|ArrayBuffer/iu,
+    );
+
+    h.session.retirePreparedRunAttempt(attempt);
+    expect(attempt.fence.signal.aborted).toBe(true);
+    expect(attempt.fence.isCurrent()).toBe(false);
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(() =>
+      h.session.createPreparedRunAttemptWire(attempt, {
+        kind: 'rendezvous-finalized',
+        rendezvousId: 'rendezvous:prepared-retire',
+        status: 'rejected',
+        observedAtRoomTimeMs: 1_450,
+        reasonCode: 'retired',
+      }),
+    ).toThrow(/retired/u);
+    expect(() =>
+      h.session.adoptAdmittedPreparedRunAttempt(
+        prepared.operation,
+        expectedFor(prepared.binding),
+        'rendezvous:prepared-retire',
+        admitted.stateLease,
+        admitted.attemptLease,
+      ),
+    ).toThrow(/retired/u);
+
+    expect(
+      h.session.commitStarted(prepared.operation, expectedFor(prepared.binding), () => true),
+    ).toMatchObject({ status: 'active', committedRevisionWatermark: 2 });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('fail-closes mismatched, foreign, forged, and re-entered prepared-run attempt authority', () => {
+    const mismatch = harness(true);
+    const mismatchPrepared = stagePreparedNewRunSuccessor(mismatch);
+    const mismatchAdmitted = admitRemotePreparedRunAttempt(
+      mismatch,
+      mismatchPrepared.current.binding,
+      mismatchPrepared.binding,
+      'rendezvous:prepared-mismatch',
+    );
+    const foreignStateLease = Object.freeze(Object.create(null)) as FilePlaybackWireStateLease;
+    expect(() =>
+      mismatch.session.adoptAdmittedPreparedRunAttempt(
+        mismatchPrepared.operation,
+        expectedFor(mismatchPrepared.binding),
+        'rendezvous:prepared-mismatch',
+        foreignStateLease,
+        mismatchAdmitted.attemptLease,
+      ),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(mismatch.fatal).toHaveBeenCalledOnce();
+
+    const foreign = harness(true);
+    const foreignPrepared = stagePreparedNewRunSuccessor(foreign);
+    const foreignAdmitted = admitRemotePreparedRunAttempt(
+      foreign,
+      foreignPrepared.current.binding,
+      foreignPrepared.binding,
+      'rendezvous:prepared-foreign',
+    );
+    const forgedOperation = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackConnectionMediaOperation;
+    expect(() =>
+      foreign.session.adoptAdmittedPreparedRunAttempt(
+        forgedOperation,
+        expectedFor(foreignPrepared.binding),
+        'rendezvous:prepared-foreign',
+        foreignAdmitted.stateLease,
+        foreignAdmitted.attemptLease,
+      ),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(foreign.fatal).toHaveBeenCalledOnce();
+
+    const forged = harness(true);
+    const forgedPrepared = stagePreparedNewRunSuccessor(forged);
+    const forgedAdmitted = admitRemotePreparedRunAttempt(
+      forged,
+      forgedPrepared.current.binding,
+      forgedPrepared.binding,
+      'rendezvous:prepared-forged',
+    );
+    const forgedAttemptLease = Object.freeze(Object.create(null)) as FilePlaybackWireAttemptLease;
+    const forgedAttempt = forged.session.adoptAdmittedPreparedRunAttempt(
+      forgedPrepared.operation,
+      expectedFor(forgedPrepared.binding),
+      'rendezvous:prepared-forged',
+      forgedAdmitted.stateLease,
+      forgedAttemptLease,
+    );
+    expect(() =>
+      forged.session.createPreparedRunAttemptWire(forgedAttempt, {
+        kind: 'rendezvous-armed',
+        rendezvousId: 'rendezvous:prepared-forged',
+        status: 'armed',
+        observedAtRoomTimeMs: 1_450,
+        bufferedAheadSeconds: 4,
+        reasonCode: null,
+      }),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(forged.fatal).toHaveBeenCalledOnce();
+
+    const reentered = harness(true);
+    const reenteredPrepared = stagePreparedNewRunSuccessor(reentered);
+    const reenteredAdmitted = admitRemotePreparedRunAttempt(
+      reentered,
+      reenteredPrepared.current.binding,
+      reenteredPrepared.binding,
+      'rendezvous:prepared-reentry',
+    );
+    const reenteredAttempt = reentered.session.adoptAdmittedPreparedRunAttempt(
+      reenteredPrepared.operation,
+      expectedFor(reenteredPrepared.binding),
+      'rendezvous:prepared-reentry',
+      reenteredAdmitted.stateLease,
+      reenteredAdmitted.attemptLease,
+    );
+    expect(() =>
+      reentered.session.commitPreparedRunAttemptStarted(
+        reenteredAttempt,
+        expectedFor(reenteredPrepared.binding),
+        () => {
+          reentered.session.snapshot();
+          return true;
+        },
+      ),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(reenteredAttempt.fence.signal.aborted).toBe(true);
+    expect(reenteredPrepared.operation.fence.signal.aborted).toBe(true);
+    expect(reentered.fatal).toHaveBeenCalledOnce();
+  });
+
+  it('retires a prepared-run ARM when physical start evidence is rejected', () => {
+    const h = harness(true);
+    const prepared = stagePreparedNewRunSuccessor(h);
+    const admitted = admitRemotePreparedRunAttempt(
+      h,
+      prepared.current.binding,
+      prepared.binding,
+      'rendezvous:prepared-rejected',
+    );
+    const attempt = h.session.adoptAdmittedPreparedRunAttempt(
+      prepared.operation,
+      expectedFor(prepared.binding),
+      'rendezvous:prepared-rejected',
+      admitted.stateLease,
+      admitted.attemptLease,
+    );
+
+    expect(() =>
+      h.session.commitPreparedRunAttemptStarted(
+        attempt,
+        expectedFor(prepared.binding),
+        () => false,
+      ),
+    ).toThrow(/controller.?current/u);
+    expect(attempt.fence.signal.aborted).toBe(true);
+    expect(attempt.fence.isCurrent()).toBe(false);
+    expect(prepared.operation.fence.signal.aborted).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      candidate: null,
+      current: { binding: { playbackRevision: 1 } },
+      currentState: expectedFor(prepared.current.binding),
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
   });
 
   it('claims one exact APPLIED guest channel for its process-local lifetime', () => {

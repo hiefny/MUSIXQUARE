@@ -115,6 +115,17 @@ function deferred<T>(): {
 }
 
 describe('ISO BMFF source-bound box reader', () => {
+  it('exposes the immutable size and identity captured at construction', () => {
+    const source = sourceFrom(standardHeader('free', 8));
+    const reader = new IsoBmffBoxReader(source);
+
+    source.size = 16;
+    source.identity = 'mutated-source-identity';
+
+    expect(reader.sourceSize).toBe(8);
+    expect(reader.sourceIdentity).toBe('iso-bmff-sparse-fixture');
+  });
+
   it('walks ordinary siblings without reading any body bytes', async () => {
     const bytes = concatenate(
       standardHeader('ftyp', 12),

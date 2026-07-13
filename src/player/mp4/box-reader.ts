@@ -257,6 +257,11 @@ export class IsoBmffBoxReader {
     return this.#source.size;
   }
 
+  /** Immutable identity captured with the exact random-access source facade. */
+  get sourceIdentity(): string {
+    return this.#source.identity;
+  }
+
   createCursor(options: IsoBmffBoxCursorOptions = {}): IsoBmffBoxCursor {
     if (!options || typeof options !== 'object') {
       throw new TypeError('ISO BMFF cursor options must be an object');

@@ -12,6 +12,7 @@ import {
   type FilePlaybackAssetLease,
   type FilePlaybackAssetMetadata,
   type FilePlaybackAssetSnapshot,
+  type FilePlaybackProvisionalAssetLease,
 } from './file-playback-asset-registry.ts';
 import type { FilePlaybackClockBindings } from './file-playback-clock.ts';
 import type {
@@ -471,6 +472,8 @@ interface AdmittedLocalFile {
   readonly mime: string;
   readonly binding: Readonly<FilePlaybackAssetBinding>;
   readonly lease: FilePlaybackAssetLease;
+  ownership: 'provisional' | 'live' | 'discarding' | 'discarded';
+  discardPromise: Promise<void> | null;
 }
 
 type CandidateAction = 'first' | 'track' | 'resume' | 'playing-seek' | 'replay';
@@ -523,7 +526,7 @@ interface BeginCandidateOperationInput extends CandidateAudioRuntime {
   readonly action: CandidateAction;
   readonly previousTimeline: PlaybackTimelineSnapshot;
   readonly expectedCurrentPort: FilePlaybackCutoverCandidatePort | null;
-  readonly asset: AdmittedLocalFile;
+  asset: AdmittedLocalFile;
   readonly runId: string;
   readonly positionSeconds: number;
   readonly playbackRate: number;
@@ -589,7 +592,9 @@ interface PreparedTrackAuthority {
 
 interface WarmTrackOperation {
   readonly epoch: number;
-  readonly asset: AdmittedLocalFile;
+  readonly queueItemId: QueueItemId;
+  input: Readonly<CanonicalFileWarmInput> | null;
+  asset: AdmittedLocalFile | null;
   readonly controller: AbortController;
   readonly removeExternalAbort: () => void;
   task: Promise<Readonly<HostLocalTrackWarmResult>> | null;
@@ -598,6 +603,7 @@ interface WarmTrackOperation {
   claimed: boolean;
   claimedBy: ActiveStartOperation | null;
   handoffBarrier: WarmTrackHandoffBarrier | null;
+  assetRetirementPromise: Promise<void> | null;
   retirementPromise: Promise<void> | null;
 }
 
@@ -1243,13 +1249,15 @@ export class FilePlaybackHostFirstFileEngine {
       const input = this.#readWarmFileInput(options);
       const timeline = this.#captureWarmRoomTimeline();
       const runtime = this.#bindWarmAudioRuntime(input, timeline);
-      const asset = this.#admitAsset(input, timeline);
       this.#assertTimelineAuthority(timeline, false);
-      return this.#beginWarmTrack(input, asset, runtime);
+      return this.#beginWarmTrack(input, runtime);
     });
   }
 
-  /** Retires the exact queued warm source without touching the admitted asset lease. */
+  /**
+   * Retires the exact queued warm source. A provisional-only asset is discarded;
+   * an exact live room asset remains admitted for repeat or shuffle playback.
+   */
   clearWarmLocalTrack(options: ClearHostLocalTrackWarmOptions): Promise<boolean> {
     try {
       const byLease = snapshotExactRecord(options, CLEAR_WARM_LOCAL_TRACK_BY_LEASE_KEYS);
@@ -1267,7 +1275,7 @@ export class FilePlaybackHostFirstFileEngine {
         ? leaseAuthority?.operation === operation &&
           leaseAuthority.lease === byLease.sourceLease &&
           operation?.sourceLease === byLease.sourceLease
-        : operation?.asset.queueItemId === byQueue?.queueItemId;
+        : operation?.queueItemId === byQueue?.queueItemId;
       if (!operation || operation.claimed || !matches) {
         return Promise.resolve(false);
       }
@@ -1702,6 +1710,9 @@ export class FilePlaybackHostFirstFileEngine {
     const authority = this.#requireWarmSourceLeaseAuthority(input.sourceLease);
     this.#assertWarmSourceLeaseAuthority(authority);
     const admitted = authority.operation.asset;
+    if (!admitted) {
+      throw new Error('Host warm peer-range source lost its admitted asset');
+    }
     const asset = authority.asset;
     if (input.sourceIdentity !== asset.sourceIdentity) {
       throw new Error('Host warm peer-range source identity is not the exact lease');
@@ -2503,7 +2514,6 @@ export class FilePlaybackHostFirstFileEngine {
 
   #beginWarmTrack(
     input: Readonly<CanonicalFileWarmInput>,
-    asset: AdmittedLocalFile,
     runtime: Readonly<WarmAudioRuntime>,
   ): Promise<Readonly<HostLocalTrackWarmResult>> {
     throwIfAborted(input.signal);
@@ -2511,29 +2521,32 @@ export class FilePlaybackHostFirstFileEngine {
     this.#warmEpoch += 1;
     const epoch = this.#warmEpoch;
     const controller = new AbortController();
+    const externalSignal = input.signal;
     let operation: WarmTrackOperation | null = null;
     const forwardExternalAbort = () => {
-      controller.abort(input.signal.reason);
+      controller.abort(externalSignal.reason);
       const current = operation;
       if (current && !current.claimed) {
         this.#observeDetachedWarmRetirement(
           this.#retireWarmTrackOperation(
             current,
-            asError(input.signal.reason, 'Host local file warm source was aborted'),
+            asError(externalSignal.reason, 'Host local file warm source was aborted'),
           ),
         );
       }
     };
     let listening = true;
-    input.signal.addEventListener('abort', forwardExternalAbort, { once: true });
+    externalSignal.addEventListener('abort', forwardExternalAbort, { once: true });
     const removeExternalAbort = () => {
       if (!listening) return;
       listening = false;
-      input.signal.removeEventListener('abort', forwardExternalAbort);
+      externalSignal.removeEventListener('abort', forwardExternalAbort);
     };
     operation = {
       epoch,
-      asset,
+      queueItemId: input.queueItemId,
+      input,
+      asset: null,
       controller,
       removeExternalAbort,
       task: null,
@@ -2542,13 +2555,14 @@ export class FilePlaybackHostFirstFileEngine {
       claimed: false,
       claimedBy: null,
       handoffBarrier: null,
+      assetRetirementPromise: null,
       retirementPromise: null,
     };
     this.#warmTrackOperation = operation;
     if (previous && !previous.claimed) {
       previous.controller.abort(new Error('Host local file warm source was superseded'));
     }
-    if (input.signal.aborted) forwardExternalAbort();
+    if (externalSignal.aborted) forwardExternalAbort();
     const task = this.#executeWarmTrack(operation, previous, runtime);
     operation.task = task;
     return task;
@@ -2566,12 +2580,15 @@ export class FilePlaybackHostFirstFileEngine {
           new Error('Host local file warm source was replaced'),
         );
       }
+      this.#assertWarmOperationFence(operation);
+      operation.asset = this.#admitWarmOperationAsset(operation);
       this.#assertWarmTrackAuthority(operation);
+      const asset = operation.asset;
       const authority = await prepareFilePlaybackAssetSourceWarm({
         registry: this.#registry,
         roomToken: this.#roomToken,
-        assetLease: operation.asset.lease,
-        expectedBinding: operation.asset.binding,
+        assetLease: asset.lease,
+        expectedBinding: asset.binding,
         audioContext: runtime.audioContext,
         clockBindings: runtime.clockBindings,
         signal: operation.controller.signal,
@@ -2600,27 +2617,55 @@ export class FilePlaybackHostFirstFileEngine {
           throw failure;
         }
         operation.authority = null;
+        const discard = this.#discardProvisionalAsset(asset);
+        this.#releaseRetiredWarmOperationReferences(operation);
+        if (discard) {
+          try {
+            await discard;
+          } catch (cleanupError) {
+            const failure = new HostFirstFileCleanupError(
+              'Host non-bounded warm asset discard failed',
+              cleanupError,
+            );
+            this.#recordWarmCleanupFailure(failure);
+            throw failure;
+          }
+        }
         if (this.#warmTrackOperation === operation) this.#warmTrackOperation = null;
         operation.removeExternalAbort();
       }
       return result;
     } catch (error) {
       const authority = operation.authority;
+      const asset = operation.asset;
       operation.authority = null;
+      let cleanupFailure: unknown = null;
       if (authority) {
         try {
           await retireFilePlaybackAssetSourceWarm(authority);
         } catch (cleanupError) {
-          const failure = new HostFirstFileCleanupError(
-            'Host local file warm source cleanup failed',
-            new AggregateError([error, cleanupError]),
-          );
-          this.#recordWarmCleanupFailure(failure);
-          throw failure;
+          cleanupFailure = mergeCleanupFailure(cleanupFailure, cleanupError);
+        }
+      }
+      const discard = asset ? this.#discardProvisionalAsset(asset) : null;
+      this.#releaseRetiredWarmOperationReferences(operation);
+      if (discard) {
+        try {
+          await discard;
+        } catch (cleanupError) {
+          cleanupFailure = mergeCleanupFailure(cleanupFailure, cleanupError);
         }
       }
       operation.removeExternalAbort();
       if (this.#warmTrackOperation === operation) this.#warmTrackOperation = null;
+      if (cleanupFailure !== null) {
+        const failure = new HostFirstFileCleanupError(
+          'Host local file warm source cleanup failed',
+          new AggregateError([error, cleanupFailure]),
+        );
+        this.#recordWarmCleanupFailure(failure);
+        throw failure;
+      }
       throw error;
     }
   }
@@ -2663,7 +2708,7 @@ export class FilePlaybackHostFirstFileEngine {
     });
   }
 
-  #assertWarmTrackAuthority(operation: WarmTrackOperation): void {
+  #assertWarmOperationFence(operation: WarmTrackOperation): void {
     throwIfAborted(operation.controller.signal);
     const warmCleanupError = this.#warmCleanupAuthorityError();
     if (
@@ -2684,19 +2729,34 @@ export class FilePlaybackHostFirstFileEngine {
     this.#assertRoomClockAuthority();
     const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
     const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
-    const asset = this.#registry.snapshotForLease(this.#roomToken, operation.asset.lease);
     if (
       snapshot.roomGeneration !== this.#roomGeneration ||
       snapshot.roomRole !== 'host' ||
-      snapshot.timeline !== timeline ||
+      snapshot.timeline !== timeline
+    ) {
+      throw new Error('Host local file warm room authority changed');
+    }
+    throwIfAborted(operation.controller.signal);
+  }
+
+  #assertWarmTrackAuthority(operation: WarmTrackOperation): void {
+    this.#assertWarmOperationFence(operation);
+    const admitted = operation.asset;
+    const asset = admitted
+      ? this.#registry.snapshotForLease(this.#roomToken, admitted.lease)
+      : null;
+    if (
+      !admitted ||
       !asset ||
-      asset.queueItemId !== operation.asset.binding.queueItemId ||
-      asset.sourceIdentity !== operation.asset.binding.sourceIdentity ||
-      asset.transferSessionId !== operation.asset.binding.transferSessionId ||
+      (admitted.ownership !== 'provisional' && admitted.ownership !== 'live') ||
+      this.#assets.get(admitted.queueItemId) !== admitted ||
+      asset.queueItemId !== admitted.binding.queueItemId ||
+      asset.sourceIdentity !== admitted.binding.sourceIdentity ||
+      asset.transferSessionId !== admitted.binding.transferSessionId ||
       asset.kind !== 'blob' ||
-      asset.size !== operation.asset.blob.size ||
-      asset.name !== operation.asset.name ||
-      asset.mime !== operation.asset.mime
+      asset.size !== admitted.blob.size ||
+      asset.name !== admitted.name ||
+      asset.mime !== admitted.mime
     ) {
       throw new Error('Host local file warm source authority changed');
     }
@@ -2719,7 +2779,13 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   #retireWarmTrackOperation(operation: WarmTrackOperation, reason: Error): Promise<void> {
-    if (!operation.claimed) this.#retireWarmSourceLeaseAuthority(operation);
+    if (!operation.claimed) {
+      const asset = operation.asset;
+      this.#retireWarmSourceLeaseAuthority(operation);
+      if (asset && !operation.assetRetirementPromise) {
+        operation.assetRetirementPromise = this.#discardProvisionalAsset(asset);
+      }
+    }
     if (operation.retirementPromise) return operation.retirementPromise;
     const retirement = this.#executeWarmTrackRetirement(operation, reason);
     operation.retirementPromise = retirement;
@@ -2756,6 +2822,14 @@ export class FilePlaybackHostFirstFileEngine {
     if (authority && authority !== authorityAtStart && !operation.claimed) {
       try {
         await retireFilePlaybackAssetSourceWarm(authority);
+      } catch (error) {
+        failure = mergeCleanupFailure(failure, error);
+      }
+    }
+    const assetRetirement = operation.assetRetirementPromise;
+    if (assetRetirement) {
+      try {
+        await assetRetirement;
       } catch (error) {
         failure = mergeCleanupFailure(failure, error);
       }
@@ -2859,13 +2933,6 @@ export class FilePlaybackHostFirstFileEngine {
       this.#assertOperationFence(operation);
       const warm = this.#warmTrackOperation;
       if (!warm) return null;
-      if (warm.asset !== asset) {
-        await this.#retireWarmTrackOperation(
-          warm,
-          new Error('Host local file candidate replaced a different warm source'),
-        );
-        continue;
-      }
       try {
         if (warm.task) await warm.task;
       } catch (error) {
@@ -2873,6 +2940,13 @@ export class FilePlaybackHostFirstFileEngine {
       }
       this.#assertOperationFence(operation);
       if (this.#warmTrackOperation !== warm) continue;
+      if (warm.asset !== asset) {
+        await this.#retireWarmTrackOperation(
+          warm,
+          new Error('Host local file candidate replaced a different warm source'),
+        );
+        continue;
+      }
       const authority = warm.authority;
       if (!authority || authority.backend !== 'bounded-stream' || warm.claimed) {
         await this.#retireWarmTrackOperation(
@@ -3084,6 +3158,12 @@ export class FilePlaybackHostFirstFileEngine {
       ) {
         throw new Error('Host queue item asset binding cannot change during a room');
       }
+      if (existing.ownership === 'provisional' && this.#warmTrackOperation?.asset !== existing) {
+        throw new Error('Host queue item provisional asset already belongs to a candidate');
+      }
+      if (existing.ownership === 'discarding' || existing.ownership === 'discarded') {
+        throw new Error('Host queue item provisional asset cleanup is pending');
+      }
       return existing;
     }
     this.#assertTimelineAuthority(previousTimeline, false);
@@ -3096,19 +3176,184 @@ export class FilePlaybackHostFirstFileEngine {
       input.blob,
       freezeCanonical({ name: input.name, mime: input.mime }),
     ]);
-    const admitted = Object.freeze({
+    const admitted: AdmittedLocalFile = {
       queueItemId: input.queueItemId,
       blob: input.blob,
       name: input.name,
       mime: input.mime,
       binding,
       lease,
-    });
+      ownership: 'live',
+      discardPromise: null,
+    };
     this.#assets.set(input.queueItemId, admitted);
     if (this.#runtime.fatalAfterAdmission) {
       this.#handleRegistryFatal(new Error('Fixture registry fatal after admission'));
     }
     return admitted;
+  }
+
+  #admitWarmOperationAsset(operation: WarmTrackOperation): AdmittedLocalFile {
+    const input = operation.input;
+    operation.input = null;
+    if (!input || input.queueItemId !== operation.queueItemId) {
+      throw new Error('Host local file warm admission input is stale');
+    }
+    return this.#admitWarmAsset(input);
+  }
+
+  #admitWarmAsset(input: Readonly<CanonicalFileWarmInput>): AdmittedLocalFile {
+    const existing = this.#assets.get(input.queueItemId);
+    if (existing) {
+      if (
+        existing.blob !== input.blob ||
+        existing.name !== input.name ||
+        existing.mime !== input.mime
+      ) {
+        throw new Error('Host queue item asset binding cannot change during warm admission');
+      }
+      if (existing.ownership !== 'live') {
+        throw new Error('Host queue item already has provisional warm asset authority');
+      }
+      return existing;
+    }
+    this.#assertRoomClockAuthority();
+    const scope = createFilePlaybackMediaScope(this.#applicationScopeId, input.queueItemId);
+    const binding = freezeCanonical({ queueItemId: input.queueItemId, ...scope });
+    const lease = this.#registry.admitProvisionalBlobAsset(
+      this.#roomToken,
+      binding,
+      input.blob,
+      freezeCanonical({ name: input.name, mime: input.mime }),
+    );
+    const admitted: AdmittedLocalFile = {
+      queueItemId: input.queueItemId,
+      blob: input.blob,
+      name: input.name,
+      mime: input.mime,
+      binding,
+      lease,
+      ownership: 'provisional',
+      discardPromise: null,
+    };
+    this.#assets.set(input.queueItemId, admitted);
+    if (this.#runtime.fatalAfterAdmission) {
+      this.#handleRegistryFatal(new Error('Fixture registry fatal after admission'));
+    }
+    return admitted;
+  }
+
+  #ensureColdCandidateAsset(
+    operation: ActiveStartOperation,
+    input: BeginCandidateOperationInput,
+  ): Promise<void> | null {
+    const previous = input.asset;
+    if (previous.ownership === 'live') return null;
+    return this.#replaceDiscardedCandidateAsset(operation, input, previous);
+  }
+
+  async #replaceDiscardedCandidateAsset(
+    operation: ActiveStartOperation,
+    input: BeginCandidateOperationInput,
+    previous: AdmittedLocalFile,
+  ): Promise<void> {
+    const discard = this.#discardProvisionalAsset(previous) ?? previous.discardPromise;
+    if (discard) await discard;
+    this.#assertOperationFence(operation);
+
+    const current = this.#assets.get(previous.queueItemId);
+    if (current?.ownership === 'provisional') {
+      throw new Error('Host candidate cold fallback conflicts with a newer warm source');
+    }
+    const admitted = this.#admitAsset(
+      {
+        queueItemId: previous.queueItemId,
+        blob: previous.blob,
+        name: previous.name,
+        mime: previous.mime,
+        audioContext: input.audioContext,
+        decodeOrdinaryAudio: input.decodeOrdinaryAudio,
+        signal: operation.controller.signal,
+      },
+      operation.previousTimeline,
+    );
+    if (admitted.ownership !== 'live') {
+      throw new Error('Host candidate cold fallback did not acquire live asset authority');
+    }
+    input.asset = admitted;
+  }
+
+  async #joinCandidateProvisionalCleanup(
+    cause: unknown,
+    tasks: readonly (Promise<void> | null)[],
+    message: string,
+  ): Promise<void> {
+    let cleanupFailure: unknown = null;
+    for (const task of new Set(tasks.filter((task): task is Promise<void> => task !== null))) {
+      try {
+        await task;
+      } catch (error) {
+        cleanupFailure = mergeCleanupFailure(cleanupFailure, error);
+      }
+    }
+    if (cleanupFailure === null) return;
+    const failure = new HostFirstFileCleanupError(
+      message,
+      new AggregateError([cause, cleanupFailure]),
+    );
+    this.#recordWarmCleanupFailure(failure);
+    throw failure;
+  }
+
+  #discardProvisionalAsset(asset: AdmittedLocalFile): Promise<void> | null {
+    if (asset.ownership === 'live' || asset.ownership === 'discarded') return null;
+    if (asset.discardPromise) return asset.discardPromise;
+    asset.ownership = 'discarding';
+    if (this.#assets.get(asset.queueItemId) === asset) this.#assets.delete(asset.queueItemId);
+
+    let resolveDiscard!: () => void;
+    let rejectDiscard!: (reason: unknown) => void;
+    const task = new Promise<void>((resolve, reject) => {
+      resolveDiscard = resolve;
+      rejectDiscard = reject;
+    });
+    asset.discardPromise = task;
+    try {
+      const discard = this.#registry.discardProvisionalAsset(
+        this.#roomToken,
+        asset.lease as FilePlaybackProvisionalAssetLease,
+      );
+      void discard.then((discarded) => {
+        if (!discarded) {
+          rejectDiscard(new Error('Host provisional asset lost exact discard authority'));
+          return;
+        }
+        asset.ownership = 'discarded';
+        resolveDiscard();
+      }, rejectDiscard);
+    } catch (error) {
+      rejectDiscard(error);
+    }
+    return task;
+  }
+
+  #promoteProvisionalAsset(asset: AdmittedLocalFile): void {
+    if (asset.ownership === 'live') return;
+    if (
+      asset.ownership !== 'provisional' ||
+      asset.discardPromise !== null ||
+      this.#assets.get(asset.queueItemId) !== asset
+    ) {
+      throw new Error('Host provisional asset promotion authority is stale');
+    }
+    const promoted = this.#registry.promoteProvisionalAsset(
+      this.#roomToken,
+      asset.lease as FilePlaybackProvisionalAssetLease,
+    );
+    if (promoted !== asset.lease) {
+      throw new Error('Host provisional asset promotion changed exact lease identity');
+    }
+    asset.ownership = 'live';
   }
 
   #newRunId(
@@ -3193,7 +3438,7 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   #beginCandidateOperation(
-    input: Readonly<BeginCandidateOperationInput>,
+    input: BeginCandidateOperationInput,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     return this.#beginCandidatePreparation(input).then((prepared) =>
       this.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
@@ -3201,7 +3446,7 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   #beginCandidatePreparation(
-    input: Readonly<BeginCandidateOperationInput>,
+    input: BeginCandidateOperationInput,
   ): Promise<Readonly<HostPreparedLocalTrack>> {
     const previousOperation = this.#activeOperation;
     if (previousOperation?.kind === 'transition') {
@@ -3214,14 +3459,15 @@ export class FilePlaybackHostFirstFileEngine {
     this.#retireCandidateSourceAuthority();
     this.#operationEpoch += 1;
     const operationController = new AbortController();
+    const externalSignal = input.signal;
     const forwardExternalAbort = () => {
-      operationController.abort(input.signal.reason);
+      operationController.abort(externalSignal.reason);
       const sourceAuthority = this.#preparedSourceAuthority;
       if (sourceAuthority?.operation === operation) {
         this.#retirePreparedSourceAuthority(sourceAuthority);
       }
     };
-    input.signal.addEventListener('abort', forwardExternalAbort, { once: true });
+    externalSignal.addEventListener('abort', forwardExternalAbort, { once: true });
     const operation: ActiveStartOperation = {
       kind: 'candidate',
       epoch: this.#operationEpoch,
@@ -3229,8 +3475,8 @@ export class FilePlaybackHostFirstFileEngine {
       previousTimeline: input.previousTimeline,
       expectedCurrentPort: input.expectedCurrentPort,
       controller: operationController,
-      externalSignal: input.signal,
-      removeExternalAbort: () => input.signal.removeEventListener('abort', forwardExternalAbort),
+      externalSignal,
+      removeExternalAbort: () => externalSignal.removeEventListener('abort', forwardExternalAbort),
       commitDominant: false,
       published: false,
       task: null,
@@ -3240,7 +3486,16 @@ export class FilePlaybackHostFirstFileEngine {
     this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-renderer-candidate');
     previousOperation?.controller.abort(new Error('Host local file candidate was superseded'));
-    if (input.signal.aborted) forwardExternalAbort();
+    const warm = this.#warmTrackOperation;
+    if (
+      (operation.action === 'first' || operation.action === 'track') &&
+      warm &&
+      !warm.claimed &&
+      warm.queueItemId !== input.asset.queueItemId
+    ) {
+      warm.controller.abort(new Error('Host local file warm source was replaced by a candidate'));
+    }
+    if (externalSignal.aborted) forwardExternalAbort();
     const task = this.#executeCandidatePreparation(operation, input);
     operation.task = task;
     return task;
@@ -3248,7 +3503,7 @@ export class FilePlaybackHostFirstFileEngine {
 
   async #executeCandidatePreparation(
     operation: ActiveStartOperation,
-    input: Readonly<BeginCandidateOperationInput>,
+    input: BeginCandidateOperationInput,
   ): Promise<Readonly<HostPreparedLocalTrack>> {
     let staged: Readonly<StagedLocalFilePlaybackParticipant> | null = null;
     let claimedWarm: Readonly<ClaimedWarmTrackSource> | null = null;
@@ -3268,6 +3523,10 @@ export class FilePlaybackHostFirstFileEngine {
           ? this.#claimMatchingWarmSource(input.asset, operation)
           : null;
       claimedWarm = warmClaim instanceof Promise ? await warmClaim : warmClaim;
+      if (!claimedWarm) {
+        const refresh = this.#ensureColdCandidateAsset(operation, input);
+        if (refresh) await refresh;
+      }
       const participantOptions = {
         manager: this.#manager,
         destination: input.destination,
@@ -3367,33 +3626,48 @@ export class FilePlaybackHostFirstFileEngine {
       this.#assertPreparedTrackAuthority(authority);
       return prepared;
     } catch (error) {
+      const joinsProvisionalCleanup = input.asset.ownership !== 'live';
+      let participantRetirement: Promise<void> | null = null;
       if (staged) {
-        observe(
-          retireLocalFilePlaybackParticipant(
-            staged,
-            operation.controller.signal.aborted
-              ? 'host-candidate-aborted'
-              : 'host-candidate-failed',
-          ),
+        participantRetirement = retireLocalFilePlaybackParticipant(
+          staged,
+          operation.controller.signal.aborted ? 'host-candidate-aborted' : 'host-candidate-failed',
         );
       } else if (claimedWarm) {
-        try {
-          await retireFilePlaybackAssetSourceWarm(claimedWarm.authority);
-        } catch (cleanupError) {
-          const failure = new HostFirstFileCleanupError(
-            'Host claimed warm source cleanup failed',
-            new AggregateError([error, cleanupError]),
-          );
-          this.#recordWarmCleanupFailure(failure);
-          throw failure;
-        }
+        this.#retireWarmSourceLeaseAuthority(claimedWarm.operation);
+        participantRetirement = retireFilePlaybackAssetSourceWarm(claimedWarm.authority).then(
+          () => undefined,
+        );
       }
       const sourceAuthority = this.#preparedSourceAuthority;
       if (sourceAuthority?.operation === operation) {
         this.#retirePreparedSourceAuthority(sourceAuthority);
+      } else if (claimedSourceLease) {
+        const leaseAuthority = this.#warmSourceLeaseAuthorities.get(claimedSourceLease);
+        if (leaseAuthority?.preparedAuthority === null) {
+          leaseAuthority.retired = true;
+          leaseAuthority.preparedAuthority = null;
+          this.#releaseRetiredWarmOperationReferences(leaseAuthority.operation);
+        }
+      }
+      const discard = this.#discardProvisionalAsset(input.asset);
+      let cleanupFailure: unknown = null;
+      try {
+        if (joinsProvisionalCleanup) {
+          await this.#joinCandidateProvisionalCleanup(
+            error,
+            [participantRetirement, discard],
+            'Host failed candidate cleanup did not complete safely',
+          );
+        } else if (participantRetirement) {
+          observe(participantRetirement);
+        }
+      } catch (cleanupError) {
+        cleanupFailure = cleanupError;
       }
       operation.removeExternalAbort();
       if (this.#activeOperation === operation) this.#activeOperation = null;
+      if (cleanupFailure) throw cleanupFailure;
       throw error;
     } finally {
       if (claimedWarm) this.#settleClaimedWarmTrack(claimedWarm);
@@ -3511,6 +3785,7 @@ export class FilePlaybackHostFirstFileEngine {
       ) {
         throw new Error('Host local file timeline commit did not match rendezvous acceptance');
       }
+      this.#promoteProvisionalAsset(input.asset);
       operation.published = true;
       if (this.#preparedSourceAuthority === authority) this.#retireCurrentSourceAuthority();
       if (
@@ -3551,6 +3826,8 @@ export class FilePlaybackHostFirstFileEngine {
       for (const { deferred } of deferredRemotes) {
         deferred.reject(asError(error, 'Host prepared cohort failed'));
       }
+      const joinsProvisionalCleanup = !operation.published && input.asset.ownership !== 'live';
+      let participantRetirement: Promise<void> | null = null;
       if (!operation.published) {
         try {
           attempt?.cancel(
@@ -3561,13 +3838,9 @@ export class FilePlaybackHostFirstFileEngine {
         } catch {
           // Exact local-port retirement remains the cleanup fence.
         }
-        observe(
-          retireLocalFilePlaybackParticipant(
-            staged,
-            operation.controller.signal.aborted
-              ? 'host-candidate-aborted'
-              : 'host-candidate-failed',
-          ),
+        participantRetirement = retireLocalFilePlaybackParticipant(
+          staged,
+          operation.controller.signal.aborted ? 'host-candidate-aborted' : 'host-candidate-failed',
         );
       }
       if (operation.commitDominant && !operation.published) {
@@ -3578,6 +3851,15 @@ export class FilePlaybackHostFirstFileEngine {
         this.#currentSourceAuthority === authority
       ) {
         this.#retirePreparedSourceAuthority(authority);
+      }
+      if (joinsProvisionalCleanup && !operation.commitDominant) {
+        await this.#joinCandidateProvisionalCleanup(
+          error,
+          [participantRetirement, this.#discardProvisionalAsset(input.asset)],
+          'Host failed prepared candidate cleanup did not complete safely',
+        );
+      } else if (participantRetirement) {
+        observe(participantRetirement);
       }
       throw error;
     } finally {
@@ -3628,22 +3910,37 @@ export class FilePlaybackHostFirstFileEngine {
 
   #retireWarmSourceLeaseAuthority(operation: WarmTrackOperation): void {
     const sourceLease = operation.sourceLease;
-    if (!sourceLease) return;
-    const authority = this.#warmSourceLeaseAuthorities.get(sourceLease);
-    if (authority?.operation === operation && authority.lease === sourceLease) {
-      authority.retired = true;
+    if (sourceLease) {
+      const authority = this.#warmSourceLeaseAuthorities.get(sourceLease);
+      if (authority?.operation === operation && authority.lease === sourceLease) {
+        authority.retired = true;
+        authority.preparedAuthority = null;
+      }
     }
+    this.#releaseRetiredWarmOperationReferences(operation);
+  }
+
+  #releaseRetiredWarmOperationReferences(operation: WarmTrackOperation): void {
+    operation.input = null;
+    operation.asset = null;
+    operation.claimedBy = null;
   }
 
   #retirePreparedSourceAuthority(authority: PreparedTrackAuthority): void {
     authority.sourcePhase = 'retired';
     if (this.#preparedSourceAuthority === authority) this.#preparedSourceAuthority = null;
     if (this.#currentSourceAuthority === authority) this.#currentSourceAuthority = null;
+    if (!authority.operation.commitDominant) {
+      const discard = this.#discardProvisionalAsset(authority.input.asset);
+      if (discard) this.#observeDetachedWarmRetirement(discard);
+    }
     const sourceLease = authority.sourceLease;
     if (!sourceLease) return;
     const leaseAuthority = this.#warmSourceLeaseAuthorities.get(sourceLease);
     if (leaseAuthority?.lease === sourceLease && leaseAuthority.preparedAuthority === authority) {
       leaseAuthority.retired = true;
+      leaseAuthority.preparedAuthority = null;
+      this.#releaseRetiredWarmOperationReferences(leaseAuthority.operation);
     }
   }
 
@@ -3675,17 +3972,21 @@ export class FilePlaybackHostFirstFileEngine {
 
   #assertWarmSourceLeaseAuthority(authority: WarmSourceLeaseAuthority): void {
     const { lease, operation, asset } = authority;
+    const admitted = operation.asset;
     if (authority.retired) {
       throw new Error('Host warm source lease authority was retired');
     }
     if (
+      !admitted ||
       operation.sourceLease !== lease ||
-      operation.asset.binding.queueItemId !== asset.queueItemId ||
-      operation.asset.binding.sourceIdentity !== asset.sourceIdentity ||
-      operation.asset.binding.transferSessionId !== asset.transferSessionId ||
-      operation.asset.blob.size !== asset.size ||
-      operation.asset.name !== asset.name ||
-      operation.asset.mime !== asset.mime
+      (admitted.ownership !== 'provisional' && admitted.ownership !== 'live') ||
+      this.#assets.get(admitted.queueItemId) !== admitted ||
+      admitted.binding.queueItemId !== asset.queueItemId ||
+      admitted.binding.sourceIdentity !== asset.sourceIdentity ||
+      admitted.binding.transferSessionId !== asset.transferSessionId ||
+      admitted.blob.size !== asset.size ||
+      admitted.name !== asset.name ||
+      admitted.mime !== asset.mime
     ) {
       throw new Error('Host warm source lease binding changed');
     }
@@ -3711,7 +4012,7 @@ export class FilePlaybackHostFirstFileEngine {
         throw new Error('Host warm source lease is not backed by the exact bounded source');
       }
     }
-    const currentAsset = this.#registry.snapshotForLease(this.#roomToken, operation.asset.lease);
+    const currentAsset = this.#registry.snapshotForLease(this.#roomToken, admitted.lease);
     if (!currentAsset || !this.#samePeerAsset(currentAsset, asset)) {
       throw new Error('Host warm source lease asset authority changed');
     }
@@ -3764,7 +4065,8 @@ export class FilePlaybackHostFirstFileEngine {
       prepared.asset.encodedSize !== staged.asset.size ||
       prepared.asset.metadata.name !== staged.asset.name ||
       prepared.asset.metadata.mime !== staged.asset.mime ||
-      this.#assets.get(staged.asset.queueItemId)?.lease !== input.asset.lease
+      (input.asset.ownership !== 'provisional' && input.asset.ownership !== 'live') ||
+      this.#assets.get(staged.asset.queueItemId) !== input.asset
     ) {
       throw this.#fatalError ?? new Error('Host prepared peer source authority is stale');
     }

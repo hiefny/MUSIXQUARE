@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FilePlaybackConnectionChannel } from '../../network/file-playback-connection-channel.ts';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../../network/file-playback-session-handshake.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
+import { FilePlaybackAssetRegistry } from '../file-playback-asset-registry.ts';
 import {
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
   type FilePlaybackBoundedRoutePolicy,
@@ -73,6 +74,8 @@ const RUN_3 = '96000000-0000-4000-8000-000000000103';
 const APPLICATION_SCOPE = '96000000-0000-4000-8000-000000000201';
 const ROOM_TOKEN = Object.freeze({ room: 'host-first-file-engine' });
 let connectionSequence = 0;
+
+afterEach(() => vi.restoreAllMocks());
 
 function establishHostChannel(): {
   readonly connection: DataConnection;
@@ -1086,6 +1089,239 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await harness.engine.close();
   });
 
+  it('admits a new warm Blob provisionally and promotes its exact registry lease only at commit', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const liveAdmission = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'admitBlob');
+    const promotion = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'promoteProvisionalAsset');
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([51, 52, 53])], { type: 'audio/flac' });
+
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const provisionalLease = provisionalAdmission.mock.results[0]?.value;
+    expect(provisionalLease).toBeTruthy();
+    expect(provisionalAdmission).toHaveBeenCalledOnce();
+    expect(liveAdmission).not.toHaveBeenCalled();
+    expect(promotion).not.toHaveBeenCalled();
+
+    const source = await harness.engine.resolveWarmPeerRangeSource({
+      sourceLease: warm.sourceLease!,
+      sourceIdentity: warm.asset.binding.sourceIdentity,
+      signal: new AbortController().signal,
+    });
+    expect(source).toBe(blob);
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    expect(promotion).not.toHaveBeenCalled();
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+
+    expect(promotion).toHaveBeenCalledOnce();
+    expect(promotion).toHaveBeenCalledWith(ROOM_TOKEN, provisionalLease);
+    expect(discard).not.toHaveBeenCalled();
+    await harness.engine.close();
+    expect(discard).not.toHaveBeenCalled();
+  });
+
+  it('keeps a direct non-warm start on live admission without provisional promotion', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const liveAdmission = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'admitBlob');
+    const promotion = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'promoteProvisionalAsset');
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([54])], { type: 'audio/flac' });
+
+    const pending = harness.start(blob);
+    await resolveLatestStart(harness, pending);
+
+    expect(liveAdmission).toHaveBeenCalledOnce();
+    expect(provisionalAdmission).not.toHaveBeenCalled();
+    expect(promotion).not.toHaveBeenCalled();
+    await harness.engine.close();
+  });
+
+  it('reuses an exact live asset through repeat warm handoff without a second admission', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const liveAdmission = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'admitBlob');
+    const promotion = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'promoteProvisionalAsset');
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([55, 56])], { type: 'audio/flac' });
+
+    await resolveLatestStart(harness, harness.start(blob));
+    harness.setRoomTime(2_000);
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    expect(prepared.sourceLease).toBe(warm.sourceLease);
+    await resolveLatestStart(
+      harness,
+      harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+
+    expect(liveAdmission).toHaveBeenCalledOnce();
+    expect(provisionalAdmission).not.toHaveBeenCalled();
+    expect(promotion).not.toHaveBeenCalled();
+    expect(discard).not.toHaveBeenCalled();
+    await harness.engine.close();
+  });
+
+  it('clears a live-backed warm renderer without retiring its registry asset', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const liveAdmission = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'admitBlob');
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const harness = makeHarness([
+      { backend: 'bounded-stream' },
+      { backend: 'bounded-stream' },
+      { backend: 'bounded-stream' },
+    ]);
+    const blob = new Blob([new Uint8Array([57, 58])], { type: 'audio/flac' });
+
+    await resolveLatestStart(harness, harness.start(blob));
+    harness.setRoomTime(2_000);
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q1 })).resolves.toBe(true);
+    expect(discard).not.toHaveBeenCalled();
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    await resolveLatestStart(
+      harness,
+      harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+    expect(liveAdmission).toHaveBeenCalledOnce();
+    expect(provisionalAdmission).not.toHaveBeenCalled();
+    expect(discard).not.toHaveBeenCalled();
+    await harness.engine.close();
+  });
+
+  it('discards skipped provisional ordinary warm assets before resolving', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const harness = makeHarness([{ backend: 'audio-buffer' }]);
+    const blob = new Blob([new Uint8Array([59])], { type: 'audio/mpeg' });
+
+    await expect(
+      harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob)),
+    ).resolves.toMatchObject({ status: 'skipped-non-bounded' });
+    expect(provisionalAdmission).toHaveBeenCalledOnce();
+    expect(discard).toHaveBeenCalledOnce();
+    expect(discard.mock.calls[0]?.[1]).toBe(provisionalAdmission.mock.results[0]?.value);
+    await harness.engine.close();
+    expect(discard).toHaveBeenCalledOnce();
+  });
+
+  it('supports more than 128 identical provisional warm-clear cycles without tombstone exhaustion', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const cycleCount = 130;
+    const harness = makeHarness(
+      Array.from({ length: cycleCount }, () => ({ backend: 'bounded-stream' as const })),
+    );
+    const blob = new Blob([new Uint8Array([60])], { type: 'audio/flac' });
+
+    for (let index = 0; index < cycleCount; index += 1) {
+      await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+      await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q1 })).resolves.toBe(true);
+    }
+
+    expect(provisionalAdmission).toHaveBeenCalledTimes(cycleCount);
+    expect(discard).toHaveBeenCalledTimes(cycleCount);
+    expect(harness.fatal).not.toHaveBeenCalled();
+    await harness.engine.close();
+  });
+
+  it('discards the exact provisional lease before admitting a replacement warm asset', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
+    const firstBlob = new Blob([new Uint8Array([62])], { type: 'audio/flac' });
+    const replacementBlob = new Blob([new Uint8Array([63])], { type: 'audio/flac' });
+
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, firstBlob));
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, replacementBlob));
+
+    expect(provisionalAdmission).toHaveBeenCalledTimes(2);
+    expect(discard).toHaveBeenCalledOnce();
+    expect(discard.mock.calls[0]?.[1]).toBe(provisionalAdmission.mock.results[0]?.value);
+    await harness.engine.close();
+    expect(discard).toHaveBeenCalledTimes(2);
+    expect(discard.mock.calls[1]?.[1]).toBe(provisionalAdmission.mock.results[1]?.value);
+  });
+
+  it('discards a ready provisional warm asset exactly once when its caller aborts', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const controller = new AbortController();
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([64])], { type: 'audio/flac' });
+
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob, controller.signal));
+    controller.abort(new Error('fixture ready warm abort'));
+    await drainMicrotasks(128);
+
+    expect(discard).toHaveBeenCalledOnce();
+    expect(discard.mock.calls[0]?.[1]).toBe(provisionalAdmission.mock.results[0]?.value);
+    await harness.engine.close();
+    expect(discard).toHaveBeenCalledOnce();
+  });
+
+  it('coalesces failed candidate, abort, and close disposal of one claimed provisional lease', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const promotion = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'promoteProvisionalAsset');
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const candidateAbort = new AbortController();
+    const harness = makeHarness([{ backend: 'bounded-stream', rejectArm: true }]);
+    const blob = new Blob([new Uint8Array([61])], { type: 'audio/flac' });
+
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const prepared = await harness.engine.prepareLocalTrack({
+      ...localTrackOptions(harness, Q1, blob, 0),
+      signal: candidateAbort.signal,
+    });
+    const failed = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    candidateAbort.abort(new Error('fixture candidate abort raced failure'));
+    const closing = harness.engine.close();
+
+    await expect(failed).rejects.toThrow();
+    await closing;
+    expect(provisionalAdmission).toHaveBeenCalledOnce();
+    expect(promotion).not.toHaveBeenCalled();
+    expect(discard).toHaveBeenCalledOnce();
+    expect(discard.mock.calls[0]?.[1]).toBe(provisionalAdmission.mock.results[0]?.value);
+    expect(harness.fatal).not.toHaveBeenCalled();
+  });
+
   it('does not retain an AudioBuffer warm result and falls back to the ordinary cold path', async () => {
     const harness = makeHarness([{ backend: 'audio-buffer' }, { backend: 'audio-buffer' }]);
     const blob = new Blob([new Uint8Array([4, 5, 6])], { type: 'audio/mpeg' });
@@ -1110,7 +1346,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await harness.engine.close();
   });
 
-  it('explicitly clears only the matching warm renderer while preserving its room asset', async () => {
+  it('clears only the matching provisional warm renderer and permits a fresh cold admission', async () => {
     const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
     const blob = new Blob([new Uint8Array([6, 7])], { type: 'audio/flac' });
     await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));

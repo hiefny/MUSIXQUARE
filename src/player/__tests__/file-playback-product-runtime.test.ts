@@ -1178,6 +1178,7 @@ describe('FilePlaybackProductRuntime', () => {
           enabled: false,
           boundedRoutePolicy: {
             mode: 'universal-v1',
+            aacBackendId: 'webcodecs',
             m4aBackendId: 'symphonia-wasm',
           } as unknown as FilePlaybackBoundedRoutePolicy,
         }),

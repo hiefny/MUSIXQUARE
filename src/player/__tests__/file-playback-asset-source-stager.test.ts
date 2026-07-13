@@ -404,6 +404,7 @@ describe('stageFilePlaybackAssetSource', () => {
         baseOptions(setup.registry, setup.lease, h.runtime, {
           boundedRoutePolicy: {
             mode: 'universal-v1',
+            aacBackendId: 'webcodecs',
             m4aBackendId: 'symphonia-wasm',
           } as unknown as FilePlaybackBoundedRoutePolicy,
         }),

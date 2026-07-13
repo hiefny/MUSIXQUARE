@@ -11,6 +11,7 @@ describe('file playback bounded route policy', () => {
     expect(FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY).toEqual({ mode: 'current' });
     expect(FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY).toEqual({
       mode: 'universal-v1',
+      aacBackendId: 'webcodecs',
       m4aBackendId: 'webcodecs',
     });
     expect(Object.isFrozen(FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY)).toBe(true);
@@ -33,12 +34,14 @@ describe('file playback bounded route policy', () => {
     expect(
       snapshotFilePlaybackBoundedRoutePolicy({
         mode: 'universal-v1',
+        aacBackendId: 'webcodecs',
         m4aBackendId: 'webcodecs',
       }),
     ).toBe(FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY);
 
     const nullPrototype = Object.assign(Object.create(null), {
       mode: 'universal-v1',
+      aacBackendId: 'webcodecs',
       m4aBackendId: 'webcodecs',
     });
     expect(snapshotFilePlaybackBoundedRoutePolicy(nullPrototype)).toBe(
@@ -66,9 +69,15 @@ describe('file playback bounded route policy', () => {
     { mode: 'current', extra: true },
     { mode: 'current', m4aBackendId: 'webcodecs' },
     { mode: 'universal-v1' },
-    { mode: 'universal-v1', m4aBackendId: 'symphonia-wasm' },
-    { mode: 'universal-v1', m4aBackendId: undefined },
-    { mode: 'universal-v1', m4aBackendId: 'webcodecs', extra: true },
+    { mode: 'universal-v1', aacBackendId: 'webcodecs', m4aBackendId: 'symphonia-wasm' },
+    { mode: 'universal-v1', aacBackendId: 'symphonia-wasm', m4aBackendId: 'webcodecs' },
+    { mode: 'universal-v1', aacBackendId: 'webcodecs', m4aBackendId: undefined },
+    {
+      mode: 'universal-v1',
+      aacBackendId: 'webcodecs',
+      m4aBackendId: 'webcodecs',
+      extra: true,
+    },
   ])('rejects a noncanonical policy record %#', (value) => {
     expect(() => snapshotFilePlaybackBoundedRoutePolicy(value)).toThrow(TypeError);
   });

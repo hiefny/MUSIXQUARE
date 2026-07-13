@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
+import type { StreamingAacPlaybackSourceOptions } from '../backends/streaming-aac-playback-source.ts';
 import type { StreamingM4aAacPlaybackSourceOptions } from '../backends/streaming-m4a-aac-playback-source.ts';
 import type { StreamingMp3PlaybackSourceOptions } from '../backends/streaming-mp3-playback-source.ts';
 import {
@@ -69,10 +70,67 @@ function m4aFile(name = 'fixture.m4a', mime = 'audio/mp4'): File {
   return new File([buildM4aAacFixture().bytes], name, { type: mime });
 }
 
+function makeAdtsFrame(frameLengthBytes: number, payloadByte: number): Uint8Array {
+  const bytes = new Uint8Array(frameLengthBytes).fill(payloadByte);
+  const profile = 1;
+  const sampleRateIndex = 4;
+  const channelConfiguration = 2;
+
+  bytes[0] = 0xff;
+  bytes[1] = 0xf1;
+  bytes[2] = (profile << 6) | (sampleRateIndex << 2) | ((channelConfiguration >>> 2) & 1);
+  bytes[3] = ((channelConfiguration & 0b11) << 6) | ((frameLengthBytes >>> 11) & 0b11);
+  bytes[4] = (frameLengthBytes >>> 3) & 0xff;
+  bytes[5] = ((frameLengthBytes & 0b111) << 5) | 0b1_1111;
+  bytes[6] = 0b1111_1100;
+  return bytes;
+}
+
+function aacBytes(): Uint8Array {
+  return concatenate(makeAdtsFrame(19, 0x11), makeAdtsFrame(41, 0x22), makeAdtsFrame(83, 0x33));
+}
+
+function aacFile(name = 'fixture.aac', mime = 'audio/aac'): File {
+  return new File([aacBytes()], name, { type: mime });
+}
+
+function expectedAdtsScan(sourceIdentity: string) {
+  return {
+    sourceIdentity,
+    sourceSize: 143,
+    coreConfiguration: {
+      mpegId: 0,
+      profile: 1,
+      coreAudioObjectType: 2,
+      sampleRateIndex: 4,
+      channelConfiguration: 2,
+      protectionAbsent: true,
+      rawDataBlocks: 1,
+    },
+    coreSampleRateHz: 44_100,
+    coreChannelCount: 2,
+    samplesPerFrame: 1_024,
+    frameCount: 3,
+    totalCoreSamples: 3_072,
+    audioEndByteOffset: 143,
+    seekPoints: [
+      { frameOrdinal: 0, byteOffset: 0 },
+      { frameOrdinal: 1, byteOffset: 19 },
+      { frameOrdinal: 2, byteOffset: 60 },
+    ],
+    fullyVerifiedFrameSpan: true,
+  };
+}
+
 function id3PrefixedAacFile(): File {
   const emptyId3v24 = Uint8Array.of(0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0);
   const adtsAac = Uint8Array.of(0xff, 0xf1, 0x50, 0x80, 0, 0x1f, 0xfc, 0, 0, 0, 0, 0);
   return new File([emptyId3v24, adtsAac], 'fixture.aac', { type: 'audio/aac' });
+}
+
+function id3PrefixedMp3File(name = 'fixture.aac', mime = 'audio/aac'): File {
+  const emptyId3v24 = Uint8Array.of(0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0);
+  return new File([emptyId3v24, mp3Bytes()], name, { type: mime });
 }
 
 function blobOptions(
@@ -153,6 +211,7 @@ function memorySource(
 describe('default-off universal bounded audio routes', () => {
   it.each([
     ['MP3', () => mp3File()],
+    ['raw ADTS AAC', () => aacFile()],
     ['M4A', () => m4aFile()],
   ])('keeps valid %s on the ordinary Blob route when policy is omitted', async (_label, file) => {
     const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
@@ -217,14 +276,136 @@ describe('default-off universal bounded audio routes', () => {
     });
   });
 
+  it('routes verified raw ADTS AAC before contradictory MP3/M4A claims', async () => {
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const aacRuntime: Partial<BoundedStreamingCodecRuntime> = {};
+    const createStreamingAacSource = vi.fn((options: StreamingAacPlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
+    const createStreamingMp3Source = vi.fn();
+    const createStreamingM4aAacSource = vi.fn();
+    const result = await createBlobFilePlaybackSource(
+      blobOptions(aacFile('misnamed.mp3', 'audio/mp4'), {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        decodeOrdinaryAudio,
+        aacRuntime,
+        backendFactories: {
+          createStreamingAacSource,
+          createStreamingMp3Source:
+            createStreamingMp3Source as BlobFilePlaybackBackendFactories['createStreamingMp3Source'],
+          createStreamingM4aAacSource:
+            createStreamingM4aAacSource as BlobFilePlaybackBackendFactories['createStreamingM4aAacSource'],
+        },
+      }),
+    );
+
+    expect(result.backend).toBe('bounded-stream');
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    expect(createStreamingAacSource).toHaveBeenCalledOnce();
+    expect(createStreamingMp3Source).not.toHaveBeenCalled();
+    expect(createStreamingM4aAacSource).not.toHaveBeenCalled();
+    const received = createStreamingAacSource.mock.calls[0]![0];
+    expect(received.queueItemId).toBe(QUEUE_ITEM_ID);
+    expect(received.backendId).toBe('webcodecs');
+    expect(received.runtime).toBe(aacRuntime);
+    expect(received.scan).toEqual(expectedAdtsScan(received.encodedSource.identity));
+  });
+
+  it('routes verified raw MP3 content despite a contradictory raw AAC claim', async () => {
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const createStreamingAacSource = vi.fn();
+    const createStreamingMp3Source = vi.fn((options: StreamingMp3PlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
+    const result = await createBlobFilePlaybackSource(
+      blobOptions(mp3File('misnamed.aac', 'audio/aac'), {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        decodeOrdinaryAudio,
+        backendFactories: {
+          createStreamingAacSource:
+            createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+          createStreamingMp3Source,
+        },
+      }),
+    );
+
+    expect(result.backend).toBe('bounded-stream');
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(createStreamingMp3Source).toHaveBeenCalledOnce();
+    expect(createStreamingMp3Source.mock.calls[0]![0].metadata).toMatchObject({ format: 'mp3' });
+  });
+
+  it('routes a verified ID3-prefixed MP3 despite a contradictory raw AAC claim', async () => {
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const createStreamingAacSource = vi.fn();
+    const createStreamingMp3Source = vi.fn((options: StreamingMp3PlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
+    const result = await createBlobFilePlaybackSource(
+      blobOptions(id3PrefixedMp3File(), {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        decodeOrdinaryAudio,
+        backendFactories: {
+          createStreamingAacSource:
+            createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+          createStreamingMp3Source,
+        },
+      }),
+    );
+
+    expect(result.backend).toBe('bounded-stream');
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(createStreamingMp3Source).toHaveBeenCalledOnce();
+    expect(createStreamingMp3Source.mock.calls[0]![0].metadata).toMatchObject({ format: 'mp3' });
+  });
+
+  it.each([
+    [
+      'a truncated second frame',
+      () => concatenate(makeAdtsFrame(19, 0x11), makeAdtsFrame(41, 0x22).slice(0, 6)),
+    ],
+    [
+      'a corrupt second frame',
+      () => {
+        const corrupt = makeAdtsFrame(41, 0x22);
+        corrupt[0] = 0;
+        return concatenate(makeAdtsFrame(19, 0x11), corrupt);
+      },
+    ],
+    ['trailing junk', () => concatenate(makeAdtsFrame(19, 0x11), Uint8Array.of(1, 2, 3))],
+  ])('fails closed when a verified first ADTS frame is followed by %s', async (_label, bytes) => {
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const createStreamingAacSource = vi.fn();
+    await expect(
+      createBlobFilePlaybackSource(
+        blobOptions(new File([bytes()], 'partial.aac', { type: 'audio/aac' }), {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          decodeOrdinaryAudio,
+          backendFactories: {
+            createStreamingAacSource:
+              createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+  });
+
   it('does not treat an unclaimed ID3-prefixed AAC file as MP3 authority', async () => {
     const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const createStreamingAacSource = vi.fn();
     const createStreamingMp3Source = vi.fn();
     const result = await createBlobFilePlaybackSource(
       blobOptions(id3PrefixedAacFile(), {
         boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
         decodeOrdinaryAudio,
         backendFactories: {
+          createStreamingAacSource:
+            createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
           createStreamingMp3Source:
             createStreamingMp3Source as BlobFilePlaybackBackendFactories['createStreamingMp3Source'],
         },
@@ -233,11 +414,13 @@ describe('default-off universal bounded audio routes', () => {
 
     expect(result.backend).toBe('audio-buffer');
     expect(decodeOrdinaryAudio).toHaveBeenCalledOnce();
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
     expect(createStreamingMp3Source).not.toHaveBeenCalled();
   });
 
   it.each([
     ['MP3', 'broken.mp3', 'audio/mpeg'],
+    ['raw ADTS AAC', 'broken.aac', 'audio/aac'],
     ['M4A', 'broken.m4a', 'audio/mp4'],
   ])('fails closed for a malformed claimed %s Blob', async (_label, name, mime) => {
     const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
@@ -280,6 +463,42 @@ describe('default-off universal bounded audio routes', () => {
     expect(memory.close).toHaveBeenCalledOnce();
   });
 
+  it('routes a generic raw ADTS AAC source with its exact scan, backend, runtime, and lease', async () => {
+    const bytes = aacBytes();
+    const memory = memorySource(bytes, {
+      name: 'remote.aac',
+      mime: 'audio/aac',
+      identity: 'peer-range:universal-aac',
+    });
+    const aacRuntime: Partial<BoundedStreamingCodecRuntime> = {};
+    const createStreamingAacSource = vi.fn((options: StreamingAacPlaybackSourceOptions) => {
+      let closePromise: Promise<void> | null = null;
+      return boundedSource(
+        options.queueItemId,
+        vi.fn(() => (closePromise ??= options.encodedSource.close())),
+      );
+    });
+    const result = await createEncodedFilePlaybackSource(
+      encodedOptions(memory.source, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        aacRuntime,
+        backendFactories: { createStreamingAacSource },
+      }),
+    );
+
+    expect(result.backend).toBe('bounded-stream');
+    expect(createStreamingAacSource).toHaveBeenCalledOnce();
+    const received = createStreamingAacSource.mock.calls[0]![0];
+    expect(received.queueItemId).toBe(QUEUE_ITEM_ID);
+    expect(received.backendId).toBe('webcodecs');
+    expect(received.runtime).toBe(aacRuntime);
+    expect(received.scan).toEqual(expectedAdtsScan(memory.source.identity));
+    expect(memory.close).not.toHaveBeenCalled();
+    await result.source.destroy();
+    await result.source.destroy();
+    expect(memory.close).toHaveBeenCalledOnce();
+  });
+
   it('rejects an invalid policy before reading a generic source and closes it once', async () => {
     const memory = memorySource(mp3Bytes(), {
       name: 'remote.mp3',
@@ -291,6 +510,7 @@ describe('default-off universal bounded audio routes', () => {
         encodedOptions(memory.source, {
           boundedRoutePolicy: {
             mode: 'universal-v1',
+            aacBackendId: 'webcodecs',
             m4aBackendId: 'symphonia-wasm',
           } as unknown as FilePlaybackBoundedRoutePolicy,
         }),
@@ -323,5 +543,70 @@ describe('default-off universal bounded audio routes', () => {
     ).rejects.toThrow('constructor failed');
 
     expect(memory.close).toHaveBeenCalledOnce();
+  });
+
+  it('closes a generic raw ADTS AAC lease once when its backend constructor throws', async () => {
+    const memory = memorySource(aacBytes(), {
+      name: 'remote.aac',
+      mime: 'audio/aac',
+      identity: 'peer-range:aac-constructor-failure',
+    });
+    const createStreamingAacSource = vi.fn(() => {
+      throw new Error('AAC constructor failed');
+    });
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(memory.source, {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          backendFactories: {
+            createStreamingAacSource:
+              createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+          },
+        }),
+      ),
+    ).rejects.toThrow('AAC constructor failed');
+
+    expect(memory.close).toHaveBeenCalledOnce();
+  });
+
+  it('closes a generic raw ADTS AAC source once when its full scan is aborted', async () => {
+    const bytes = aacBytes();
+    const controller = new AbortController();
+    const reason = new Error('abort during ADTS scan');
+    let readCount = 0;
+    const readAt = vi.fn(async (offset: number, length: number, signal: AbortSignal) => {
+      signal.throwIfAborted();
+      const end = validateExactRead(bytes.byteLength, offset, length);
+      readCount += 1;
+      if (readCount === 2) controller.abort(reason);
+      return bytes.slice(offset, end);
+    });
+    const close = vi.fn(async () => undefined);
+    const encodedSource: EncodedAudioSource = {
+      kind: 'peer-range',
+      size: bytes.byteLength,
+      identity: 'peer-range:aac-scan-abort',
+      metadata: { name: 'remote.aac', mime: 'audio/aac' },
+      readAt,
+      close,
+    };
+    const createStreamingAacSource = vi.fn();
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(encodedSource, {
+          signal: controller.signal,
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          backendFactories: {
+            createStreamingAacSource:
+              createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+          },
+        }),
+      ),
+    ).rejects.toBe(reason);
+
+    expect(readAt).toHaveBeenCalledTimes(2);
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
   });
 });

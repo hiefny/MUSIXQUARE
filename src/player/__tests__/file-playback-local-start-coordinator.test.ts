@@ -524,9 +524,7 @@ describe('split local rendezvous participant lifecycle', () => {
       runtimeForTests: { stageAssetSourceForTests },
     });
 
-    expect(stageAssetSourceForTests.mock.calls[0]?.[0]).not.toHaveProperty(
-      'boundedRoutePolicy',
-    );
+    expect(stageAssetSourceForTests.mock.calls[0]?.[0]).not.toHaveProperty('boundedRoutePolicy');
     await retireLocalFilePlaybackParticipant(staged, 'policy-omitted-cleanup');
   });
 
@@ -541,6 +539,7 @@ describe('split local rendezvous participant lifecycle', () => {
         ...splitStageOptions(fixture.options),
         boundedRoutePolicy: Object.freeze({
           mode: 'universal-v1',
+          aacBackendId: 'webcodecs',
           m4aBackendId: 'automatic',
         }) as unknown as Readonly<FilePlaybackBoundedRoutePolicy>,
         runtimeForTests: { stageAssetSourceForTests },
@@ -901,6 +900,7 @@ describe('startLocalFilePlayback', () => {
     );
     const requested = Object.freeze({
       mode: 'universal-v1' as const,
+      aacBackendId: 'webcodecs' as const,
       m4aBackendId: 'webcodecs' as const,
     });
     const pending = startLocalFilePlayback({

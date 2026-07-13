@@ -817,6 +817,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
 
     const requested = Object.freeze({
       mode: 'universal-v1' as const,
+      aacBackendId: 'webcodecs' as const,
       m4aBackendId: 'webcodecs' as const,
     });
     const optedIn = makeHarness({ boundedRoutePolicy: requested });
@@ -835,6 +836,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       makeHarness({
         boundedRoutePolicy: Object.freeze({
           mode: 'universal-v1',
+          aacBackendId: 'webcodecs',
           m4aBackendId: 'automatic',
         }) as unknown as Readonly<FilePlaybackBoundedRoutePolicy>,
         onCreateEngine,

@@ -4,6 +4,10 @@ import {
   type AudioBufferPlaybackSourceOptions,
 } from './backends/audio-buffer-playback-source.ts';
 import {
+  StreamingAacPlaybackSource,
+  type StreamingAacPlaybackSourceOptions,
+} from './backends/streaming-aac-playback-source.ts';
+import {
   StreamingFlacPlaybackSource,
   type StreamingFlacPlaybackSourceOptions,
 } from './backends/streaming-flac-playback-source.ts';
@@ -24,6 +28,8 @@ import {
   snapshotFilePlaybackBoundedRoutePolicy,
   type FilePlaybackBoundedRoutePolicy,
 } from './file-playback-bounded-route-policy.ts';
+import { AdtsHeaderError, parseAdtsHeader } from './aac/adts-header.ts';
+import { scanAdtsFrames } from './aac/frame-scanner.ts';
 import { readAiffPcmMetadata } from './aiff/metadata.ts';
 import { readCafLinearPcmMetadata } from './caf/metadata.ts';
 import { readFlacMetadata } from './flac/metadata.ts';
@@ -110,6 +116,9 @@ export interface BlobFilePlaybackBackendFactories {
   readonly createStreamingFlacSource: (
     options: StreamingFlacPlaybackSourceOptions,
   ) => BoundedStreamSource;
+  readonly createStreamingAacSource: (
+    options: StreamingAacPlaybackSourceOptions,
+  ) => BoundedStreamSource;
   readonly createStreamingLinearPcmSource: (
     options: StreamingLinearPcmPlaybackSourceOptions,
   ) => BoundedStreamSource;
@@ -128,12 +137,13 @@ interface FilePlaybackSourceFactoryCommonOptions {
   readonly roomTimeMsToContextTime: (roomTimeMs: number) => number;
   readonly localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
   readonly signal: AbortSignal;
-  /** Decoder-specific Worker seams; neither runtime is started here. */
+  /** Decoder-specific Worker seams; no runtime is started here. */
   readonly flacRuntime?: Partial<BoundedStreamingCodecRuntime>;
   readonly linearPcmRuntime?: Partial<BoundedStreamingCodecRuntime>;
   readonly mp3Runtime?: Partial<BoundedStreamingCodecRuntime>;
+  readonly aacRuntime?: Partial<BoundedStreamingCodecRuntime>;
   readonly m4aRuntime?: Partial<BoundedStreamingCodecRuntime>;
-  /** MP3/M4A remain ordinary AudioBuffer routes unless explicitly opted in. */
+  /** MP3/raw AAC/M4A remain ordinary AudioBuffer routes unless explicitly opted in. */
   readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
 }
 
@@ -165,6 +175,7 @@ export interface CreateEncodedFilePlaybackSourceOptions extends FilePlaybackSour
     Pick<
       BlobFilePlaybackBackendFactories,
       | 'createStreamingFlacSource'
+      | 'createStreamingAacSource'
       | 'createStreamingLinearPcmSource'
       | 'createStreamingMp3Source'
       | 'createStreamingM4aAacSource'
@@ -283,6 +294,7 @@ export class UnsupportedOrdinaryEncodedSourceError extends EncodedSourceIntegrit
 const defaultBackendFactories: BlobFilePlaybackBackendFactories = {
   createAudioBufferSource: (options) => new AudioBufferPlaybackSource(options),
   createStreamingFlacSource: (options) => new StreamingFlacPlaybackSource(options),
+  createStreamingAacSource: (options) => new StreamingAacPlaybackSource(options),
   createStreamingLinearPcmSource: (options) => new StreamingLinearPcmPlaybackSource(options),
   createStreamingMp3Source: (options) => new StreamingMp3PlaybackSource(options),
   createStreamingM4aAacSource: (options) => new StreamingM4aAacPlaybackSource(options),
@@ -351,6 +363,18 @@ function claimsMp3(name: string, mime: string): boolean {
   );
 }
 
+function claimsRawAac(name: string, mime: string): boolean {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedMime = mimeEssence(mime);
+  return (
+    normalizedName.endsWith('.aac') ||
+    normalizedName.endsWith('.adts') ||
+    normalizedMime === 'audio/aac' ||
+    normalizedMime === 'audio/x-aac' ||
+    normalizedMime === 'audio/adts'
+  );
+}
+
 function claimsM4a(name: string, mime: string): boolean {
   const normalizedName = name.trim().toLowerCase();
   const normalizedMime = mimeEssence(mime);
@@ -397,6 +421,25 @@ function isRawMp3FrameStart(bytes: Uint8Array): boolean {
     return true;
   } catch (error) {
     if (error instanceof MpegLayer3FrameHeaderError) return false;
+    throw error;
+  }
+}
+
+function isRawAdtsFrameStart(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 7) return false;
+  const headerBytes = (bytes[1]! & 1) === 1 ? 7 : 9;
+  if (bytes.byteLength < headerBytes) return false;
+  try {
+    parseAdtsHeader(bytes.subarray(0, headerBytes));
+    return true;
+  } catch (error) {
+    if (
+      error instanceof AdtsHeaderError ||
+      error instanceof RangeError ||
+      error instanceof TypeError
+    ) {
+      return false;
+    }
     throw error;
   }
 }
@@ -688,6 +731,9 @@ async function createOwnedEncodedFilePlaybackSource(
       createStreamingFlacSource:
         options.backendFactories?.createStreamingFlacSource ??
         defaultBackendFactories.createStreamingFlacSource,
+      createStreamingAacSource:
+        options.backendFactories?.createStreamingAacSource ??
+        defaultBackendFactories.createStreamingAacSource,
       createStreamingLinearPcmSource:
         options.backendFactories?.createStreamingLinearPcmSource ??
         defaultBackendFactories.createStreamingLinearPcmSource,
@@ -779,16 +825,58 @@ async function createOwnedEncodedFilePlaybackSource(
     }
 
     const universalRoute = boundedRoutePolicy.mode === 'universal-v1';
+    const aacContentCandidate = universalRoute && isRawAdtsFrameStart(marker);
     const m4aContentCandidate = universalRoute && isIsoBmffFileType(marker);
+    const aacClaim =
+      universalRoute && claimsRawAac(encodedSource.metadata.name, encodedSource.metadata.mime);
     const m4aClaim =
       universalRoute && claimsM4a(encodedSource.metadata.name, encodedSource.metadata.mime);
     const mp3Claim =
       universalRoute && claimsMp3(encodedSource.metadata.name, encodedSource.metadata.mime);
     const mp3ContentCandidate =
       universalRoute &&
-      (mp3Claim || (await isVerifiedMp3ContentCandidate(encodedSource, marker, options.signal)));
+      (await isVerifiedMp3ContentCandidate(encodedSource, marker, options.signal));
 
-    if (universalRoute && (m4aContentCandidate || (!mp3ContentCandidate && m4aClaim))) {
+    if (
+      universalRoute &&
+      (aacContentCandidate ||
+        (!m4aContentCandidate &&
+          !mp3ContentCandidate &&
+          aacClaim &&
+          !hasMarker(marker, ID3_MARKER)))
+    ) {
+      const scan = await scanAdtsFrames(encodedSource, options.signal);
+      throwIfAborted(options.signal);
+      const returnedSource = factories.createStreamingAacSource({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        scan,
+        backendId: boundedRoutePolicy.aacBackendId,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: options.aacRuntime,
+      });
+      const inspected = inspectCreatedSource(returnedSource);
+      destroyCreatedSource = inspected.destroy;
+      streamingOwnsEncodedSource = true;
+      assertCreatedSource(inspected, 'bounded-stream', options.queueItemId);
+      throwIfAborted(options.signal);
+      const result = Object.freeze({
+        backend: 'bounded-stream' as const,
+        source: inspected.source as BoundedStreamSource,
+        sourceIdentity: encodedSource.identity,
+        releaseConstructionLease: releaseNoConstructionLease,
+      });
+      completed = true;
+      return result;
+    }
+
+    if (
+      universalRoute &&
+      (m4aContentCandidate || (!aacContentCandidate && !mp3ContentCandidate && m4aClaim))
+    ) {
       const manifest = await readM4aAacLcMetadata(encodedSource, options.signal);
       throwIfAborted(options.signal);
       const returnedSource = factories.createStreamingM4aAacSource({
@@ -817,7 +905,10 @@ async function createOwnedEncodedFilePlaybackSource(
       return result;
     }
 
-    if (universalRoute && (mp3ContentCandidate || (!m4aContentCandidate && mp3Claim))) {
+    if (
+      universalRoute &&
+      (mp3ContentCandidate || (!aacContentCandidate && !m4aContentCandidate && mp3Claim))
+    ) {
       const metadata = await readMp3Metadata(encodedSource, options.signal);
       throwIfAborted(options.signal);
       const returnedSource = factories.createStreamingMp3Source({
@@ -969,6 +1060,7 @@ export async function createBlobFilePlaybackSource(
       flacRuntime: options.flacRuntime,
       linearPcmRuntime: options.linearPcmRuntime,
       mp3Runtime: options.mp3Runtime,
+      aacRuntime: options.aacRuntime,
       m4aRuntime: options.m4aRuntime,
       boundedRoutePolicy: options.boundedRoutePolicy,
       backendFactories: options.backendFactories,

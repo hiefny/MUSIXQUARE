@@ -4,6 +4,8 @@ export interface CurrentFilePlaybackBoundedRoutePolicy {
 
 export interface UniversalV1FilePlaybackBoundedRoutePolicy {
   readonly mode: 'universal-v1';
+  /** Raw ADTS AAC is admitted only into the native WebCodecs cohort. */
+  readonly aacBackendId: 'webcodecs';
   /** The only M4A cohort admitted by this opt-in checkpoint. */
   readonly m4aBackendId: 'webcodecs';
 }
@@ -16,10 +18,14 @@ export const FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY: Readonly<CurrentFilePla
   Object.freeze({ mode: 'current' });
 
 export const FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY: Readonly<UniversalV1FilePlaybackBoundedRoutePolicy> =
-  Object.freeze({ mode: 'universal-v1', m4aBackendId: 'webcodecs' });
+  Object.freeze({
+    mode: 'universal-v1',
+    aacBackendId: 'webcodecs',
+    m4aBackendId: 'webcodecs',
+  });
 
 const CURRENT_KEYS = Object.freeze(['mode'] as const);
-const UNIVERSAL_V1_KEYS = Object.freeze(['mode', 'm4aBackendId'] as const);
+const UNIVERSAL_V1_KEYS = Object.freeze(['mode', 'aacBackendId', 'm4aBackendId'] as const);
 
 type PolicyRecord = Readonly<Record<string, unknown>>;
 
@@ -82,6 +88,9 @@ export function snapshotFilePlaybackBoundedRoutePolicy(
   if (record.mode === 'universal-v1') {
     if (!hasExactKeys(record, UNIVERSAL_V1_KEYS)) {
       throw new TypeError('Universal-v1 file playback bounded route policy has invalid fields');
+    }
+    if (record.aacBackendId !== 'webcodecs') {
+      throw new TypeError('Universal-v1 raw AAC backend must be exactly webcodecs');
     }
     if (record.m4aBackendId !== 'webcodecs') {
       throw new TypeError('Universal-v1 M4A backend must be exactly webcodecs');

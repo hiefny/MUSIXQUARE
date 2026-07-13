@@ -930,7 +930,11 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       },
     });
     const invalidPolicies: readonly unknown[] = [
-      { mode: 'universal-v1', m4aBackendId: 'symphonia-wasm' },
+      {
+        mode: 'universal-v1',
+        aacBackendId: 'webcodecs',
+        m4aBackendId: 'symphonia-wasm',
+      },
       accessorPolicy,
       throwingPolicy,
     ];
@@ -1119,6 +1123,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
   it('pins one opt-in route policy across initial and same-state recovery staging', async () => {
     const requestedPolicy = {
       mode: 'universal-v1' as const,
+      aacBackendId: 'webcodecs' as const,
       m4aBackendId: 'webcodecs' as const,
     };
     const h = setup({ boundedRoutePolicy: requestedPolicy });

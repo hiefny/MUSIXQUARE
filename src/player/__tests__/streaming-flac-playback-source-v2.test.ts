@@ -504,6 +504,30 @@ describe('StreamingFlacPlaybackSource v2', () => {
     await h.source.destroy();
   });
 
+  it('keeps the prime barrier pending after decoder readiness and rejects a subsequent stop', async () => {
+    const h = harness();
+    const { preparing } = await beginPrepare(h.source, h.worker);
+    const init = lastWorkerInit(h.worker);
+    emitDecoderReady(h.worker);
+    await Promise.resolve();
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-stopped',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+    });
+
+    await expect(preparing).rejects.toThrow(/stopped before priming/i);
+    expect(h.source.getSnapshot()).toMatchObject({
+      phase: 'failed',
+      errorCode: 'prepare-failed',
+    });
+    expect(h.worker.terminateCount).toBe(1);
+    await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
+    await h.source.destroy();
+  });
+
   it('keeps stale decoder events inert while the current generation awaits decoder readiness', async () => {
     const h = harness();
     await prepare(h.source, h.worker, h.node);

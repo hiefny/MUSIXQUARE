@@ -33,15 +33,7 @@ import {
   type StreamingPlaybackStartEvidence,
 } from '../file-playback-source.ts';
 import type { FlacMetadata } from '../flac/metadata.ts';
-import {
-  FLAC_STREAM_PROTOCOL_VERSION,
-  isFlacDecoderGeneration,
-  isFlacSourceIdentity,
-  isFlacSourceLifetimeGeneration,
-  isFlacSourceSize,
-  type FlacDecoderCommand,
-  type FlacStreamDescriptor,
-} from '../flac/stream-protocol.ts';
+import { FlacDecoderAdapter } from '../flac/flac-decoder-adapter.ts';
 import {
   PCM_STREAM_MAX_CHANNELS,
   PCM_STREAM_PROTOCOL_VERSION,
@@ -56,9 +48,8 @@ import {
   outputFrameAtPosition,
   type StreamingMediaTimeline,
 } from '../streaming/media-timeline.ts';
-import { FlacSeekIndex } from '../flac/seek-index.ts';
-import { type EncodedAudioSource, validateExactRead } from '../sources/encoded-audio-source.ts';
-import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
+import type { StreamingDecoderAdapter } from '../streaming/decoder-adapter.ts';
+import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 import { isPlaybackRevision } from '../playback-identity.ts';
 import {
   readRendezvousArmIntent,
@@ -78,21 +69,6 @@ const START_EVIDENCE_GRACE_MS = 2_500;
 const RING_CAPACITY_SECONDS = 12;
 const RING_PRIME_SECONDS = 4;
 const MAX_IDENTIFIER_LENGTH = 256;
-const DESCRIPTOR_KEYS = [
-  'sourceSampleRate',
-  'outputSampleRate',
-  'channels',
-  'bitDepth',
-  'totalSourceSamples',
-  'firstAudioFrameOffset',
-  'targetSourceSample',
-  'decodeAnchorByteOffset',
-  'decodeAnchorSourceSample',
-  'minBlockSize',
-  'maxBlockSize',
-  'minFrameSize',
-  'maxFrameSize',
-] as const satisfies readonly (keyof FlacStreamDescriptor)[];
 
 type WorkerFactory = () => Worker;
 type WorkletNodeFactory = (
@@ -108,6 +84,11 @@ export interface StreamingFlacPlaybackRuntime {
   readonly createWorkletNode: WorkletNodeFactory;
   readonly createMessageChannel: MessageChannelFactory;
 }
+
+type StreamingFlacPlaybackRendererRuntime = Pick<
+  StreamingFlacPlaybackRuntime,
+  'loadWorklet' | 'createWorkletNode' | 'createMessageChannel'
+>;
 
 export interface StreamingFlacPlaybackSourceOptions {
   readonly queueItemId: QueueItemId;
@@ -129,13 +110,6 @@ interface GenerationReadiness {
   readonly generation: number;
   decoderReady: boolean;
   primed: boolean;
-  settled: boolean;
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-  readonly reject: (error: unknown) => void;
-}
-
-interface SourceOpenReadiness {
   settled: boolean;
   readonly promise: Promise<void>;
   readonly resolve: () => void;
@@ -266,46 +240,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
-function snapshotExactRecord(value: unknown): Readonly<Record<string, unknown>> | null {
-  if (typeof value !== 'object' || value === null) return null;
-  let prototype: object | null;
-  let keys: readonly PropertyKey[];
-  try {
-    prototype = Reflect.getPrototypeOf(value);
-    keys = Reflect.ownKeys(value);
-  } catch {
-    return null;
-  }
-  if (prototype !== null && prototype !== Object.prototype) return null;
-  const record = Object.create(null) as Record<string, unknown>;
-  for (const key of keys) {
-    if (typeof key !== 'string' || Object.prototype.hasOwnProperty.call(record, key)) return null;
-    let descriptor: PropertyDescriptor | undefined;
-    try {
-      descriptor = Reflect.getOwnPropertyDescriptor(value, key);
-    } catch {
-      return null;
-    }
-    if (
-      !descriptor ||
-      descriptor.enumerable !== true ||
-      !Object.prototype.hasOwnProperty.call(descriptor, 'value')
-    ) {
-      return null;
-    }
-    record[key] = descriptor.value;
-  }
-  return Object.freeze(record);
-}
-
-function hasExactKeys(record: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
-  const actual = Object.keys(record);
-  return (
-    actual.length === keys.length &&
-    keys.every((key) => Object.prototype.hasOwnProperty.call(record, key))
-  );
-}
-
 function isFrame(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
 }
@@ -383,10 +317,6 @@ function isPcmRingEventBoundary(value: unknown): value is PcmRingEvent {
     default:
       return false;
   }
-}
-
-function sameDescriptor(actual: Record<string, unknown>, expected: FlacStreamDescriptor): boolean {
-  return DESCRIPTOR_KEYS.every((key) => actual[key] === expected[key]);
 }
 
 function immutableRun(run: RevisionedPlaybackRun): RevisionedPlaybackRun {
@@ -534,30 +464,6 @@ function createReadiness(generation: number): GenerationReadiness {
   return readiness;
 }
 
-function createSourceOpenReadiness(): SourceOpenReadiness {
-  let resolvePromise!: () => void;
-  let rejectPromise!: (error: unknown) => void;
-  const promise = new Promise<void>((resolve, reject) => {
-    resolvePromise = resolve;
-    rejectPromise = reject;
-  });
-  const readiness: SourceOpenReadiness = {
-    settled: false,
-    promise,
-    resolve: () => {
-      if (readiness.settled) return;
-      readiness.settled = true;
-      resolvePromise();
-    },
-    reject: (error: unknown) => {
-      if (readiness.settled) return;
-      readiness.settled = true;
-      rejectPromise(error);
-    },
-  };
-  return readiness;
-}
-
 class SupersededPlaybackOperationError extends Error {
   constructor() {
     super('Playback operation was superseded');
@@ -657,17 +563,14 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   readonly queueItemId: QueueItemId;
   readonly backend = 'streaming-flac' as const;
 
-  readonly #encodedSource: EncodedAudioSource;
-  readonly #sourceLifetimeGeneration: number;
-  readonly #metadata: FlacMetadata;
+  readonly #decoder: StreamingDecoderAdapter;
   readonly #audioContext: AudioContext;
   readonly #nowRoomTimeMs: () => number;
   readonly #roomTimeMsToContextTime: (roomTimeMs: number) => number;
   readonly #localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
   readonly #prepareTimeoutMs: number;
   readonly #commandTimeoutMs: number;
-  readonly #runtime: StreamingFlacPlaybackRuntime;
-  readonly #seekIndex: FlacSeekIndex;
+  readonly #runtime: StreamingFlacPlaybackRendererRuntime;
   readonly #timeline: StreamingMediaTimeline;
   readonly #lifetimeAbort = new AbortController();
   readonly #timerPrefix: string;
@@ -679,11 +582,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   #currentRendezvousId: string | null = null;
   #errorCode: string | null = null;
   #destination: AudioNode | null = null;
-  #worker: Worker | null = null;
   #node: AudioWorkletNode | null = null;
-  #sourceBroker: EncodedSourcePortBroker | null = null;
-  #sourceOpenReadiness: SourceOpenReadiness | null = null;
-  #sourceClosePromise: Promise<void> | null = null;
   #teardownPromise: Promise<void> | null = null;
   #generation = 0;
   #readiness: GenerationReadiness | null = null;
@@ -704,7 +603,6 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   #statusRenderFrame = 0;
   #bufferedFrames = 0;
   #underrunCount = 0;
-  #currentDescriptor: FlacStreamDescriptor | null = null;
   #cancelRequested = false;
   #timerSerial = 0;
 
@@ -712,37 +610,17 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     if (!isBoundedIdentifier(options.queueItemId)) {
       throw new TypeError('Streaming FLAC queue item ID is invalid');
     }
-    if (
-      !options.encodedSource ||
-      typeof options.encodedSource.readAt !== 'function' ||
-      typeof options.encodedSource.close !== 'function' ||
-      !isFlacSourceSize(options.encodedSource.size) ||
-      !isFlacSourceIdentity(options.encodedSource.identity)
-    ) {
-      throw new TypeError('Streaming FLAC requires a valid non-empty encoded source');
-    }
-    validateExactRead(options.encodedSource.size, 0, 0);
-    const info = options.metadata?.streamInfo;
-    if (
-      !info ||
-      !Number.isSafeInteger(info.sampleRate) ||
-      info.sampleRate <= 0 ||
-      !Number.isSafeInteger(info.channels) ||
-      info.channels < 1 ||
-      info.channels > PCM_STREAM_MAX_CHANNELS ||
-      !Number.isSafeInteger(info.bitDepth) ||
-      info.bitDepth < 4 ||
-      info.bitDepth > 32 ||
-      !Number.isSafeInteger(info.totalSamples) ||
-      info.totalSamples <= 0 ||
-      !Number.isFinite(info.duration) ||
-      info.duration <= 0 ||
-      !Number.isSafeInteger(options.metadata.firstAudioFrameOffset) ||
-      options.metadata.firstAudioFrameOffset < 4 ||
-      options.metadata.firstAudioFrameOffset >= options.encodedSource.size
-    ) {
-      throw new TypeError('Streaming FLAC metadata is invalid');
-    }
+    const createMessageChannel =
+      options.runtime?.createMessageChannel ?? defaultRuntime.createMessageChannel;
+    const decoder = new FlacDecoderAdapter({
+      encodedSource: options.encodedSource,
+      metadata: options.metadata,
+      runtime: {
+        createWorker: options.runtime?.createWorker ?? defaultRuntime.createWorker,
+        createMessageChannel,
+      },
+    });
+    const info = decoder.info;
     if (
       !Number.isFinite(options.audioContext.sampleRate) ||
       !Number.isSafeInteger(options.audioContext.sampleRate) ||
@@ -760,20 +638,17 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
     this.queueItemId = options.queueItemId;
     sourceInstanceCounter += 1;
-    if (!isFlacSourceLifetimeGeneration(sourceInstanceCounter)) {
+    if (!Number.isSafeInteger(sourceInstanceCounter) || sourceInstanceCounter <= 0) {
       throw new RangeError('Streaming FLAC source lifetime generation is exhausted');
     }
-    this.#sourceLifetimeGeneration = sourceInstanceCounter;
     this.#timerPrefix = `streaming-flac-${sourceInstanceCounter.toString(36)}`;
-    this.#encodedSource = options.encodedSource;
-    this.#metadata = options.metadata;
-    this.#seekIndex = new FlacSeekIndex(options.metadata, options.encodedSource.size);
+    this.#decoder = decoder;
     this.#audioContext = options.audioContext;
     this.#nowRoomTimeMs = options.nowRoomTimeMs;
     this.#timeline = createStreamingMediaTimeline({
-      mediaSampleRateHz: info.sampleRate,
+      mediaSampleRateHz: info.mediaSampleRateHz,
       outputSampleRateHz: options.audioContext.sampleRate,
-      totalMediaFrames: info.totalSamples,
+      totalMediaFrames: info.totalMediaFrames,
     });
     this.#roomTimeMsToContextTime = options.roomTimeMsToContextTime;
     this.#localPerformanceMsToContextTime = options.localPerformanceMsToContextTime;
@@ -789,10 +664,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     );
     this.#runtime = {
       loadWorklet: options.runtime?.loadWorklet ?? defaultRuntime.loadWorklet,
-      createWorker: options.runtime?.createWorker ?? defaultRuntime.createWorker,
       createWorkletNode: options.runtime?.createWorkletNode ?? defaultRuntime.createWorkletNode,
-      createMessageChannel:
-        options.runtime?.createMessageChannel ?? defaultRuntime.createMessageChannel,
+      createMessageChannel,
     };
   }
 
@@ -965,7 +838,9 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     }
     if (!this.#isContextRunning()) return reject('audio-context-not-running');
     if (roomNow === null) return reject('clock-unavailable');
-    if (!this.#destination || !this.#node || !this.#worker) return reject('source-not-connected');
+    if (!this.#destination || !this.#node || !this.#decoder.opened) {
+      return reject('source-not-connected');
+    }
 
     const targetFrame = this.#roomTimeToRenderFrame(intent.startAtRoomTimeMs);
     if (targetFrame === null || targetFrame <= this.#currentRenderFrame) {
@@ -1535,6 +1410,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     this.#cancelRequested = true;
     const identity = runIdentity((matchingActive ?? matchingPending)?.intent ?? canonicalIntent);
     this.#postCancel(identity);
+    this.#decoder.stopGeneration(this.#generation);
     if (!stillOwnsAttempt()) return this.#snapshotWithoutReconciliation();
 
     this.#rejectRevisionTransition('attempt-cancelled');
@@ -1866,7 +1742,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       positionSeconds: view.mediaFrame / this.#audioContext.sampleRate,
       bufferedAheadSeconds: view.bufferedFrames / this.#audioContext.sampleRate,
       outputSampleRateHz: this.#audioContext.sampleRate,
-      channelCount: this.#metadata.streamInfo.channels,
+      channelCount: this.#decoder.info.channelCount,
       underrunCount: this.#underrunCount,
       errorCode: this.#errorCode,
     });
@@ -1904,55 +1780,31 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     try {
       await this.#raceAbort(this.#runtime.loadWorklet(this.#audioContext), operation.signal);
       this.#assertOperationOpen(operation.signal);
-      this.#worker = this.#runtime.createWorker();
-      this.#worker.onmessage = (event: MessageEvent<unknown>) =>
-        this.#handleWorkerEvent(event.data);
-      this.#worker.onerror = () => this.#fail('decoder-worker-error');
-      this.#worker.onmessageerror = () => this.#fail('decoder-message-error');
-
-      const sourceChannel = this.#runtime.createMessageChannel();
-      const sourceOpenReadiness = createSourceOpenReadiness();
-      this.#sourceOpenReadiness = sourceOpenReadiness;
-      try {
-        this.#sourceBroker = new EncodedSourcePortBroker({
-          source: this.#encodedSource,
-          port: sourceChannel.port1,
-          generation: this.#sourceLifetimeGeneration,
+      await this.#raceAbort(
+        this.#decoder.open({
+          signal: operation.signal,
           lifetimeSignal: this.#lifetimeAbort.signal,
-        });
-        this.#worker.postMessage(
-          {
-            protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-            type: 'open-source',
-            sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
-            sourceSize: this.#encodedSource.size,
-            sourceIdentity: this.#encodedSource.identity,
-            sourcePort: sourceChannel.port2,
-          } satisfies FlacDecoderCommand,
-          [sourceChannel.port2],
-        );
-        await this.#raceAbort(sourceOpenReadiness.promise, operation.signal);
-      } catch (error) {
-        safeClosePort(sourceChannel.port1);
-        safeClosePort(sourceChannel.port2);
-        throw error;
-      } finally {
-        if (this.#sourceOpenReadiness === sourceOpenReadiness) {
-          this.#sourceOpenReadiness = null;
-        }
-      }
+          onFatal: (code, cause) => this.#fail(code, cause),
+          onGenerationStopped: (generation, cause) => {
+            if (this.#readiness?.generation === generation) {
+              this.#readiness.reject(cause);
+            }
+          },
+        }),
+        operation.signal,
+      );
       this.#assertOperationOpen(operation.signal);
 
       this.#generation = 1;
       this.#node = this.#runtime.createWorkletNode(this.#audioContext, PROCESSOR_NAME, {
         numberOfInputs: 0,
         numberOfOutputs: 1,
-        outputChannelCount: [this.#metadata.streamInfo.channels],
-        channelCount: this.#metadata.streamInfo.channels,
+        outputChannelCount: [this.#decoder.info.channelCount],
+        channelCount: this.#decoder.info.channelCount,
         channelCountMode: 'explicit',
         channelInterpretation: 'discrete',
         processorOptions: {
-          channels: this.#metadata.streamInfo.channels,
+          channels: this.#decoder.info.channelCount,
           generation: this.#generation,
           mediaFrame: 0,
           capacitySeconds: RING_CAPACITY_SECONDS,
@@ -1982,12 +1834,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     this.#retireActiveArm('generation-reset');
     this.#pendingPause = null;
     this.#clearAcks('generation-reset');
-    this.#postWorker({
-      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-      type: 'stop-decoder',
-      sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
-      decoderGeneration: oldGeneration,
-    });
+    this.#decoder.stopGeneration(oldGeneration);
     const sourceSample = this.#positionToMediaFrame(positionSeconds);
     const mediaFrame = outputFrameAtMediaFrame(this.#timeline, sourceSample);
     this.#generation += 1;
@@ -2025,9 +1872,10 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     generation: number,
     signal: AbortSignal,
   ): Promise<void> {
-    const worker = this.#worker;
     const node = this.#node;
-    if (!worker || !node) throw new Error('FLAC streaming runtime is not initialized');
+    if (!this.#decoder.opened || !node) {
+      throw new Error('FLAC streaming runtime is not initialized');
+    }
     this.#assertOperationOpen(signal);
     const readiness = createReadiness(generation);
     this.#readiness = readiness;
@@ -2037,8 +1885,6 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     this.#underrunCount = 0;
 
     const channel = this.#runtime.createMessageChannel();
-    const descriptor = this.#descriptorForSourceSample(startSourceSample);
-    this.#currentDescriptor = descriptor;
     try {
       node.port.postMessage(
         {
@@ -2049,29 +1895,24 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
         } satisfies PcmRingCommand,
         [channel.port2],
       );
-      worker.postMessage(
-        {
-          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-          type: 'init-decoder',
-          sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
-          decoderGeneration: generation,
-          descriptor,
-          pcmPort: channel.port1,
-        } satisfies FlacDecoderCommand,
-        [channel.port1],
+      const decoderReady = this.#decoder.startGeneration({
+        generation,
+        targetMediaFrame: startSourceSample,
+        outputSampleRateHz: this.#audioContext.sampleRate,
+        pcmPort: channel.port1,
+        signal,
+      });
+      void decoderReady.then(
+        () => {
+          if (this.#readiness !== readiness || readiness.generation !== generation) return;
+          readiness.decoderReady = true;
+          this.#resolveReadiness();
+        },
+        (error: unknown) => readiness.reject(error),
       );
       await this.#raceAbort(readiness.promise, signal);
     } catch (error) {
-      try {
-        worker.postMessage({
-          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-          type: 'stop-decoder',
-          sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
-          decoderGeneration: generation,
-        } satisfies FlacDecoderCommand);
-      } catch {
-        // A superseded generation may already have lost its worker ownership.
-      }
+      this.#decoder.stopGeneration(generation);
       // Closing a successfully transferred port is harmless in the sender;
       // closing an untransferred port prevents partial initialization leaks.
       safeClosePort(channel.port1);
@@ -2079,216 +1920,6 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       throw error;
     } finally {
       if (this.#readiness === readiness) this.#readiness = null;
-    }
-  }
-
-  #descriptorForSourceSample(startSourceSample: number): FlacStreamDescriptor {
-    const info = this.#metadata.streamInfo;
-    const anchor = this.#seekIndex.nearestBefore(startSourceSample);
-    return Object.freeze({
-      sourceSampleRate: info.sampleRate,
-      outputSampleRate: this.#audioContext.sampleRate,
-      channels: info.channels,
-      bitDepth: info.bitDepth,
-      totalSourceSamples: info.totalSamples,
-      firstAudioFrameOffset: this.#metadata.firstAudioFrameOffset,
-      targetSourceSample: startSourceSample,
-      decodeAnchorByteOffset: anchor.byteOffset,
-      decodeAnchorSourceSample: anchor.sourceSample,
-      minBlockSize: info.minBlockSize,
-      maxBlockSize: info.maxBlockSize,
-      minFrameSize: info.minFrameSize,
-      maxFrameSize: info.maxFrameSize,
-    });
-  }
-
-  #handleWorkerEvent(value: unknown): void {
-    const event = snapshotExactRecord(value);
-    if (!event || event.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION) {
-      if (this.#phase !== 'destroyed' && this.#phase !== 'failed') {
-        this.#fail('decoder-invalid-event');
-      }
-      return;
-    }
-    if (event.type === 'source-opened') {
-      const valid =
-        hasExactKeys(event, [
-          'protocolVersion',
-          'type',
-          'sourceLifetimeGeneration',
-          'sourceSize',
-          'sourceIdentity',
-        ]) &&
-        event.sourceLifetimeGeneration === this.#sourceLifetimeGeneration &&
-        event.sourceSize === this.#encodedSource.size &&
-        event.sourceIdentity === this.#encodedSource.identity;
-      if (!valid || !this.#sourceOpenReadiness) {
-        this.#sourceOpenReadiness?.reject(new Error('FLAC source-open acknowledgement mismatch'));
-        this.#fail('decoder-source-open-mismatch');
-        return;
-      }
-      this.#sourceOpenReadiness.resolve();
-      return;
-    }
-    if (event.type === 'source-error') {
-      if (
-        !hasExactKeys(event, ['protocolVersion', 'type', 'sourceLifetimeGeneration', 'code']) ||
-        event.sourceLifetimeGeneration !== this.#sourceLifetimeGeneration ||
-        !isBoundedIdentifier(event.code)
-      ) {
-        this.#fail('decoder-source-error-mismatch');
-        return;
-      }
-      const error = new Error(
-        `FLAC encoded source failed: ${safeErrorCode(event.code, 'unknown')}`,
-      );
-      this.#sourceOpenReadiness?.reject(error);
-      this.#readiness?.reject(error);
-      this.#fail(`decoder-source:${safeErrorCode(event.code, 'unknown')}`, error);
-      return;
-    }
-    if (event.type === 'source-closed') {
-      if (
-        !hasExactKeys(event, ['protocolVersion', 'type', 'sourceLifetimeGeneration']) ||
-        event.sourceLifetimeGeneration !== this.#sourceLifetimeGeneration
-      ) {
-        this.#fail('decoder-invalid-event');
-        return;
-      }
-      if (this.#phase !== 'destroyed' && this.#phase !== 'failed') {
-        this.#fail('decoder-source-closed');
-      }
-      return;
-    }
-    if (
-      !isFlacSourceLifetimeGeneration(event.sourceLifetimeGeneration) ||
-      !isFlacDecoderGeneration(event.decoderGeneration)
-    ) {
-      this.#fail('decoder-invalid-event');
-      return;
-    }
-    const sameCurrentGeneration =
-      event.sourceLifetimeGeneration === this.#sourceLifetimeGeneration &&
-      event.decoderGeneration === this.#generation;
-    if (this.#phase === 'destroyed' || this.#phase === 'failed' || this.#phase === 'cancelled') {
-      return;
-    }
-    if (event.type === 'decoder-error') {
-      if (
-        !hasExactKeys(event, [
-          'protocolVersion',
-          'type',
-          'sourceLifetimeGeneration',
-          'decoderGeneration',
-          'code',
-          'message',
-        ]) ||
-        !isBoundedIdentifier(event.code) ||
-        typeof event.message !== 'string' ||
-        event.message.length > 1_024
-      ) {
-        this.#fail('decoder-invalid-event');
-        return;
-      }
-      if (!sameCurrentGeneration) return;
-      const message = event.message || 'FLAC decoder failed';
-      this.#readiness?.reject(new Error(message));
-      this.#fail(`decoder:${safeErrorCode(event.code, 'unknown')}`);
-      return;
-    }
-    if (event.type === 'decoder-stopped') {
-      if (
-        !hasExactKeys(event, [
-          'protocolVersion',
-          'type',
-          'sourceLifetimeGeneration',
-          'decoderGeneration',
-        ])
-      ) {
-        this.#fail('decoder-invalid-event');
-        return;
-      }
-      if (!sameCurrentGeneration) return;
-      if (this.#readiness && !this.#readiness.settled) {
-        this.#readiness.reject(new Error('FLAC decoder stopped before priming'));
-      }
-      return;
-    }
-    if (event.type === 'decode-anchor-rejected' || event.type === 'frame-index-point') {
-      if (
-        !hasExactKeys(event, [
-          'protocolVersion',
-          'type',
-          'sourceLifetimeGeneration',
-          'decoderGeneration',
-          'sourceSample',
-          'byteOffset',
-        ]) ||
-        !isFrame(event.sourceSample) ||
-        !isFrame(event.byteOffset)
-      ) {
-        this.#fail('decoder-invalid-index-point');
-        return;
-      }
-      if (!sameCurrentGeneration) return;
-      if (event.type === 'decode-anchor-rejected') {
-        this.#seekIndex.rejectUnverifiedCandidate(event.sourceSample, event.byteOffset);
-      } else {
-        this.#seekIndex.addVerifiedFrame(event.sourceSample, event.byteOffset);
-      }
-      return;
-    }
-    if (event.type === 'decode-progress' || event.type === 'decoder-eof') {
-      if (
-        !hasExactKeys(event, [
-          'protocolVersion',
-          'type',
-          'sourceLifetimeGeneration',
-          'decoderGeneration',
-          'decodedInputBytes',
-          'decodedSourceSamples',
-          'producedOutputFrames',
-        ]) ||
-        !isFrame(event.decodedInputBytes) ||
-        !isFrame(event.decodedSourceSamples) ||
-        !isFrame(event.producedOutputFrames)
-      ) {
-        this.#fail('decoder-invalid-event');
-      }
-      return;
-    }
-    if (event.type !== 'decoder-ready') {
-      this.#fail('decoder-invalid-event');
-      return;
-    }
-    if (
-      !hasExactKeys(event, [
-        'protocolVersion',
-        'type',
-        'sourceLifetimeGeneration',
-        'decoderGeneration',
-        'descriptor',
-      ])
-    ) {
-      this.#fail('decoder-invalid-event');
-      return;
-    }
-    if (!sameCurrentGeneration) return;
-    const descriptor = snapshotExactRecord(event.descriptor);
-    if (!descriptor || !hasExactKeys(descriptor, DESCRIPTOR_KEYS)) {
-      this.#readiness?.reject(new Error('FLAC decoder descriptor is missing'));
-      this.#fail('decoder-invalid-event');
-      return;
-    }
-    const expected = this.#currentDescriptor;
-    if (!expected || !sameDescriptor(descriptor, expected)) {
-      this.#readiness?.reject(new Error('FLAC decoder descriptor mismatch'));
-      this.#fail('decoder-descriptor-mismatch');
-      return;
-    }
-    if (this.#readiness?.generation === event.decoderGeneration) {
-      this.#readiness.decoderReady = true;
-      this.#resolveReadiness();
     }
   }
 
@@ -2312,7 +1943,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       case 'primed':
         if (
           value.sampleRate !== this.#audioContext.sampleRate ||
-          value.channels !== this.#metadata.streamInfo.channels
+          value.channels !== this.#decoder.info.channelCount
         ) {
           this.#readiness?.reject(new Error('PCM ring format mismatch'));
           this.#fail('worklet-format-mismatch');
@@ -3023,14 +2654,6 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     }
   }
 
-  #postWorker(command: FlacDecoderCommand): void {
-    try {
-      this.#worker?.postMessage(command);
-    } catch (error) {
-      this.#fail('decoder-command-failed', error);
-    }
-  }
-
   #roomTimeToRenderFrame(roomTimeMs: number): number | null {
     try {
       const contextTime = this.#roomTimeMsToContextTime(roomTimeMs);
@@ -3238,7 +2861,6 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     this.#retireActiveArm(this.#errorCode);
     this.#supersedeControlOperations(this.#errorCode);
     const error = cause instanceof Error ? cause : new Error(this.#errorCode);
-    this.#sourceOpenReadiness?.reject(error);
     this.#readiness?.reject(error);
     this.#clearAcks(this.#errorCode);
     const pauseWait = this.#pendingPauseWait;
@@ -3249,29 +2871,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
   #teardownRuntime(): Promise<void> {
     if (this.#teardownPromise) return this.#teardownPromise;
-    const worker = this.#worker;
     const node = this.#node;
-    const broker = this.#sourceBroker;
-    this.#worker = null;
     this.#node = null;
-    this.#sourceBroker = null;
-    this.#currentDescriptor = null;
-    this.#sourceOpenReadiness = null;
-    if (worker) {
-      try {
-        worker.postMessage({
-          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-          type: 'close-source',
-          sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
-        } satisfies FlacDecoderCommand);
-      } catch {
-        // Worker may already have crossed its terminal boundary.
-      }
-      worker.onmessage = null;
-      worker.onerror = null;
-      worker.onmessageerror = null;
-      worker.terminate();
-    }
     if (node) {
       try {
         node.port.postMessage({
@@ -3288,21 +2889,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       safeClosePort(node.port);
       safeDisconnect(node);
     }
-    const sourceCleanup = broker ? broker.close() : this.#closeUnboundEncodedSource();
-    this.#teardownPromise = Promise.resolve(sourceCleanup);
+    this.#teardownPromise = Promise.resolve(this.#decoder.close());
     return this.#teardownPromise;
-  }
-
-  #closeUnboundEncodedSource(): Promise<void> {
-    if (this.#sourceClosePromise) return this.#sourceClosePromise;
-    try {
-      this.#sourceClosePromise = Promise.resolve(this.#encodedSource.close()).catch(
-        () => undefined,
-      );
-    } catch {
-      this.#sourceClosePromise = Promise.resolve();
-    }
-    return this.#sourceClosePromise;
   }
 
   #assertNotDestroyed(): void {

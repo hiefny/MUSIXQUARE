@@ -653,6 +653,7 @@ describe('transferable M4A chunk-index snapshots', () => {
     const transferred = structuredClone(snapshotM4aChunkIndex(fixture.reader, original, signal()));
     const validated = validateM4aChunkIndexSnapshot(transferred);
     expect(Object.isFrozen(validated)).toBe(true);
+    expect(Object.isFrozen(validated.sampleToChunk)).toBe(true);
     expect(Object.isFrozen(validated.runs)).toBe(true);
     expect(validated.runs.every(Object.isFrozen)).toBe(true);
     expect(Object.isFrozen(validated.mediaDataRanges)).toBe(true);
@@ -669,6 +670,10 @@ describe('transferable M4A chunk-index snapshots', () => {
       signal(),
     );
     expect(fixture.source.reads).toEqual([
+      {
+        offset: validated.sampleToChunk.bodyStart,
+        length: validated.sampleToChunk.bodyLength,
+      },
       { offset: validated.chunkOffsetTableStart - 8, length: 8 },
     ]);
     expect(Object.isFrozen(reopened)).toBe(true);
@@ -711,8 +716,88 @@ describe('transferable M4A chunk-index snapshots', () => {
       ),
     ).rejects.toThrow(/header changed/);
     expect(fixture.source.reads).toEqual([
+      {
+        offset: snapshot.sampleToChunk.bodyStart,
+        length: snapshot.sampleToChunk.bodyLength,
+      },
       { offset: snapshot.chunkOffsetTableStart - 8, length: 8 },
     ]);
+  });
+
+  it('authenticates the complete bounded stsc body before accepting its runs', async () => {
+    const fixture = await indexedFixture({
+      sizes: [3, 5],
+      runs: [[1, 1, 1]],
+      chunkCount: 2,
+      offsetValues: ([range]) => [range!.start, range!.start + 3],
+    });
+    const index = await buildIndex(fixture);
+    const snapshot = structuredClone(snapshotM4aChunkIndex(fixture.reader, index, signal()));
+    fixture.source.bytes[snapshot.sampleToChunk.bodyStart + 8]! ^= 1;
+
+    fixture.source.reads.length = 0;
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        snapshot,
+        fixture.stsz,
+        sourceBinding(fixture),
+        signal(),
+      ),
+    ).rejects.toThrow(/stsc body changed/);
+    expect(fixture.source.reads).toEqual([
+      {
+        offset: snapshot.sampleToChunk.bodyStart,
+        length: snapshot.sampleToChunk.bodyLength,
+      },
+    ]);
+  });
+
+  it('rejects normalized stsc runs changed only in the transferred clone', async () => {
+    const fixture = await indexedFixture({
+      sizes: [3, 5, 7, 11, 13, 17],
+      runs: [
+        [1, 2, 1],
+        [3, 1, 1],
+      ],
+      chunkCount: 4,
+      offsetValues: ([range]) => [
+        range!.start,
+        range!.start + 8,
+        range!.start + 26,
+        range!.start + 39,
+      ],
+    });
+    const index = await buildIndex(fixture);
+    const snapshot = structuredClone(snapshotM4aChunkIndex(fixture.reader, index, signal()));
+    const forged = {
+      ...snapshot,
+      runs: [
+        {
+          firstChunk: 1,
+          endChunkExclusive: 2,
+          firstSampleOrdinal: 0,
+          samplesPerChunk: 3,
+        },
+        {
+          firstChunk: 2,
+          endChunkExclusive: 5,
+          firstSampleOrdinal: 3,
+          samplesPerChunk: 1,
+        },
+      ],
+    };
+    expect(validateM4aChunkIndexSnapshot(forged).runs).toEqual(forged.runs);
+
+    await expect(
+      rehydrateM4aChunkIndex(
+        fixture.reader,
+        forged,
+        fixture.stsz,
+        sourceBinding(fixture),
+        signal(),
+      ),
+    ).rejects.toThrow(/stsc runs do not match/i);
   });
 
   it('strictly rejects malformed objects, nested records, arrays, bounds, and digests', async () => {
@@ -753,6 +838,15 @@ describe('transferable M4A chunk-index snapshots', () => {
       { ...snapshot, chunkOffsetWidthBytes: 5 },
       { ...snapshot, chunkOffsetTableStart: Number.MAX_SAFE_INTEGER },
       { ...snapshot, headerSha256: snapshot.headerSha256.toUpperCase() },
+      { ...snapshot, sampleToChunk: { ...snapshot.sampleToChunk, extra: true } },
+      { ...snapshot, sampleToChunk: { ...snapshot.sampleToChunk, bodyLength: 8 } },
+      {
+        ...snapshot,
+        sampleToChunk: {
+          ...snapshot.sampleToChunk,
+          sha256: snapshot.sampleToChunk.sha256.toUpperCase(),
+        },
+      },
       { ...snapshot, runs: [{ ...snapshot.runs[0]!, extra: true }] },
       { ...snapshot, runs: [{ ...snapshot.runs[0]!, firstSampleOrdinal: 1 }] },
       { ...snapshot, runs: [{ ...snapshot.runs[0]!, samplesPerChunk: 1 }] },

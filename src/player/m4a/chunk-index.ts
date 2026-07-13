@@ -11,17 +11,23 @@ import {
   assertM4aSampleToChunkRunTableProvenance,
   createM4aSampleSizeSequence,
   type M4aIndexSourceBinding,
+  type M4aSampleToChunkEvidence,
   type M4aSampleSizeIndex,
   type M4aSampleToChunkRunTable,
   readM4aSamplePrefixBytes,
   readM4aSampleSizeAt,
+  rehydrateM4aSampleToChunkRuns,
+  snapshotM4aSampleToChunkEvidence,
   snapshotM4aSampleSizeIndex,
   validateM4aIndexSourceBinding,
+  validateM4aSampleToChunkEvidence,
 } from './sample-size-index.ts';
 import { digestM4aMetadataPage } from './page-auth.ts';
 import { M4A_AAC_MAX_ACCESS_UNITS } from './timeline.ts';
 
 const CHUNK_OFFSET_FULL_BOX_HEADER_BYTES = 8;
+const STSC_FULL_BOX_HEADER_BYTES = 8;
+const STSC_ENTRY_BYTES = 12;
 const STSC_MAX_ENTRIES = 2_048;
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 export const M4A_MAX_CHUNKS = 1_048_576;
@@ -68,6 +74,7 @@ export interface M4aChunkIndexSnapshot {
   readonly chunkOffsetWidthBytes: 4 | 8;
   readonly chunkOffsetTableStart: number;
   readonly headerSha256: string;
+  readonly sampleToChunk: Readonly<M4aSampleToChunkEvidence>;
   readonly runs: readonly Readonly<M4aNormalizedChunkRun>[];
   readonly mediaDataRanges: readonly Readonly<M4aMediaDataRange>[];
   readonly pages: readonly Readonly<M4aChunkOffsetPageEvidence>[];
@@ -81,6 +88,7 @@ interface ChunkIndexAuthority {
   readonly chunkOffsetWidthBytes: 4 | 8;
   readonly chunkOffsetTableStart: number;
   readonly headerSha256: string;
+  readonly sampleToChunk: Readonly<M4aSampleToChunkEvidence>;
   readonly entriesPerPage: number;
   readonly runs: readonly Readonly<M4aNormalizedChunkRun>[];
   readonly mediaDataRanges: readonly Readonly<M4aMediaDataRange>[];
@@ -200,6 +208,25 @@ function normalizeRuns(
   return Object.freeze(normalized);
 }
 
+function normalizedRunsEqual(
+  left: readonly Readonly<M4aNormalizedChunkRun>[],
+  right: readonly Readonly<M4aNormalizedChunkRun>[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((run, index) => {
+      const candidate = right[index];
+      return (
+        candidate !== undefined &&
+        run.firstChunk === candidate.firstChunk &&
+        run.endChunkExclusive === candidate.endChunkExclusive &&
+        run.firstSampleOrdinal === candidate.firstSampleOrdinal &&
+        run.samplesPerChunk === candidate.samplesPerChunk
+      );
+    })
+  );
+}
+
 function findContainingMediaDataRange(
   ranges: readonly Readonly<M4aMediaDataRange>[],
   start: number,
@@ -232,6 +259,7 @@ const SNAPSHOT_KEYS = Object.freeze([
   'chunkOffsetWidthBytes',
   'chunkOffsetTableStart',
   'headerSha256',
+  'sampleToChunk',
   'runs',
   'mediaDataRanges',
   'pages',
@@ -388,6 +416,7 @@ export function validateM4aChunkIndexSnapshot(value: unknown): Readonly<M4aChunk
     'M4A snapshot chunk-offset table end',
   );
   const headerSha256 = requireSha256(record.headerSha256, 'M4A chunk-index snapshot header digest');
+  const sampleToChunk = validateM4aSampleToChunkEvidence(record.sampleToChunk);
 
   const runValues = requireDenseDataArray(
     record.runs,
@@ -454,6 +483,9 @@ export function validateM4aChunkIndexSnapshot(value: unknown): Readonly<M4aChunk
   });
   if (runs.at(-1)!.endChunkExclusive !== chunkCount + 1 || coveredSamples !== sampleCount) {
     throw createChunkIndexError('M4A chunk-index snapshot run coverage is incomplete');
+  }
+  if (sampleToChunk.bodyLength !== STSC_FULL_BOX_HEADER_BYTES + runs.length * STSC_ENTRY_BYTES) {
+    throw createChunkIndexError('M4A chunk-index stsc evidence conflicts with its run count');
   }
 
   const mediaRangeValues = requireDenseDataArray(
@@ -541,6 +573,7 @@ export function validateM4aChunkIndexSnapshot(value: unknown): Readonly<M4aChunk
     chunkOffsetWidthBytes,
     chunkOffsetTableStart,
     headerSha256,
+    sampleToChunk,
     runs: Object.freeze(runs),
     mediaDataRanges: Object.freeze(mediaDataRanges),
     pages: Object.freeze(pages),
@@ -603,6 +636,11 @@ export function snapshotM4aChunkIndex(
     chunkOffsetWidthBytes: authority.chunkOffsetWidthBytes,
     chunkOffsetTableStart: authority.chunkOffsetTableStart,
     headerSha256: authority.headerSha256,
+    sampleToChunk: Object.freeze({
+      bodyStart: authority.sampleToChunk.bodyStart,
+      bodyLength: authority.sampleToChunk.bodyLength,
+      sha256: authority.sampleToChunk.sha256,
+    }),
     runs,
     mediaDataRanges,
     pages,
@@ -611,8 +649,8 @@ export function snapshotM4aChunkIndex(
 
 /**
  * Reopen untrusted transferable chunk evidence against its exact source and
- * one already-authenticated same-reader sample-size index. Only the eight-byte
- * `stco`/`co64` FullBox header is reread here; offset pages stay lazy.
+ * one already-authenticated same-reader sample-size index. The complete bounded
+ * `stsc` body and eight-byte `stco`/`co64` header are reread; offset pages stay lazy.
  */
 export async function rehydrateM4aChunkIndex(
   reader: IsoBmffBoxReader,
@@ -637,6 +675,17 @@ export async function rehydrateM4aChunkIndex(
   const sampleSizeSnapshot = snapshotM4aSampleSizeIndex(reader, sampleSizes, signal);
   if (sampleSizeSnapshot.sampleCount !== snapshot.sampleCount) {
     throw createChunkIndexError('M4A chunk and sample-size snapshot counts do not match');
+  }
+  const sourceSampleToChunk = await rehydrateM4aSampleToChunkRuns(
+    reader,
+    snapshot.sampleToChunk,
+    snapshot.sampleCount,
+    expectedSource,
+    signal,
+  );
+  const sourceRuns = normalizeRuns(sourceSampleToChunk, snapshot.chunkCount);
+  if (!normalizedRunsEqual(sourceRuns, snapshot.runs)) {
+    throw createChunkIndexError('M4A transferred stsc runs do not match their bound source body');
   }
 
   const tableBytes = safeMultiply(
@@ -698,7 +747,7 @@ export async function rehydrateM4aChunkIndex(
     chunkCount: snapshot.chunkCount,
     chunkOffsetWidthBytes: snapshot.chunkOffsetWidthBytes,
     chunkOffsetTableStart: snapshot.chunkOffsetTableStart,
-    runs: snapshot.runs,
+    runs: sourceRuns,
     mediaDataRanges: snapshot.mediaDataRanges,
   });
   chunkIndexAuthorities.set(
@@ -711,8 +760,9 @@ export async function rehydrateM4aChunkIndex(
       chunkOffsetWidthBytes: snapshot.chunkOffsetWidthBytes,
       chunkOffsetTableStart: snapshot.chunkOffsetTableStart,
       headerSha256: snapshot.headerSha256,
+      sampleToChunk: snapshot.sampleToChunk,
       entriesPerPage: Math.floor(ISO_BMFF_MAX_BOUNDED_READ_BYTES / snapshot.chunkOffsetWidthBytes),
-      runs: snapshot.runs,
+      runs: sourceRuns,
       mediaDataRanges: snapshot.mediaDataRanges,
       pages: snapshot.pages,
     }),
@@ -740,6 +790,7 @@ export async function readM4aChunkIndex(
   requireReaderAndSignal(reader, signal, 'M4A chunk index');
   const layout = assertM4aContainerLayoutProvenance(reader, containerLayout, signal);
   const stsc = assertM4aSampleToChunkRunTableProvenance(reader, sampleToChunkTable, signal);
+  const sampleToChunk = snapshotM4aSampleToChunkEvidence(reader, stsc, signal);
   const sampleSizeSequence = createM4aSampleSizeSequence(reader, sampleSizes, 0);
   if (sampleSizes.sampleCount !== stsc.sampleCount) {
     throw new M4aChunkIndexError('M4A stsc and stsz sample counts do not match');
@@ -874,6 +925,7 @@ export async function readM4aChunkIndex(
       chunkOffsetWidthBytes,
       chunkOffsetTableStart,
       headerSha256,
+      sampleToChunk,
       entriesPerPage,
       runs,
       mediaDataRanges,

@@ -30,6 +30,13 @@ export interface M4aSampleToChunkRunTable {
   readonly runs: readonly Readonly<M4aSampleToChunkRun>[];
 }
 
+/** Source-bound evidence for the complete, bounded `stsc` FullBox body. */
+export interface M4aSampleToChunkEvidence {
+  readonly bodyStart: number;
+  readonly bodyLength: number;
+  readonly sha256: string;
+}
+
 export interface M4aSamplePrefixCheckpoint {
   readonly ordinal: number;
   readonly prefixBytes: number;
@@ -87,7 +94,14 @@ interface SampleSizeAuthority {
   readonly pages: readonly Readonly<M4aSampleSizePageEvidence>[];
 }
 
-const sampleToChunkAuthorities = new WeakMap<object, IsoBmffBoxReader>();
+interface SampleToChunkAuthority {
+  readonly reader: IsoBmffBoxReader;
+  readonly sampleCount: number;
+  readonly runs: readonly Readonly<M4aSampleToChunkRun>[];
+  readonly evidence: Readonly<M4aSampleToChunkEvidence>;
+}
+
+const sampleToChunkAuthorities = new WeakMap<object, SampleToChunkAuthority>();
 const sampleSizeAuthorities = new WeakMap<object, SampleSizeAuthority>();
 
 export class M4aSampleSizeError extends EncodedSourceIntegrityError {
@@ -193,6 +207,7 @@ const SNAPSHOT_KEYS = Object.freeze([
 const CHECKPOINT_KEYS = Object.freeze(['ordinal', 'prefixBytes'] as const);
 const PAGE_EVIDENCE_KEYS = Object.freeze(['firstSampleOrdinal', 'sampleCount', 'sha256'] as const);
 const SOURCE_BINDING_KEYS = Object.freeze(['sourceSize', 'sourceIdentity'] as const);
+const SAMPLE_TO_CHUNK_EVIDENCE_KEYS = Object.freeze(['bodyStart', 'bodyLength', 'sha256'] as const);
 const SHA256_LOWER_HEX = /^[0-9a-f]{64}$/;
 
 function requireExactDataRecord(
@@ -298,6 +313,38 @@ function requireSha256(value: unknown, label: string): string {
     throw createSampleSizeError(`${label} must be a lowercase 64-character SHA-256 digest`);
   }
   return value;
+}
+
+/** Strictly validate and canonically copy transferable `stsc` source evidence. */
+export function validateM4aSampleToChunkEvidence(
+  value: unknown,
+): Readonly<M4aSampleToChunkEvidence> {
+  const record = requireExactDataRecord(
+    value,
+    SAMPLE_TO_CHUNK_EVIDENCE_KEYS,
+    'M4A stsc snapshot evidence',
+  );
+  const bodyStart = requireSnapshotInteger(
+    record.bodyStart,
+    8,
+    Number.MAX_SAFE_INTEGER,
+    'M4A stsc snapshot body start',
+  );
+  const bodyLength = requireSnapshotInteger(
+    record.bodyLength,
+    STSC_FULL_BOX_HEADER_BYTES + STSC_ENTRY_BYTES,
+    STSC_FULL_BOX_HEADER_BYTES + STSC_MAX_ENTRIES * STSC_ENTRY_BYTES,
+    'M4A stsc snapshot body length',
+  );
+  if ((bodyLength - STSC_FULL_BOX_HEADER_BYTES) % STSC_ENTRY_BYTES !== 0) {
+    throw createSampleSizeError('M4A stsc snapshot body length is not entry-aligned');
+  }
+  safeAdd(bodyStart, bodyLength, 'M4A stsc snapshot body end');
+  return Object.freeze({
+    bodyStart,
+    bodyLength,
+    sha256: requireSha256(record.sha256, 'M4A stsc snapshot body digest'),
+  });
 }
 
 /** Validate and canonically copy the source binding owned by a top-level manifest. */
@@ -491,6 +538,64 @@ export function validateM4aSampleSizeIndexSnapshot(
   });
 }
 
+function parseM4aSampleToChunkBody(
+  bytes: Uint8Array,
+  sampleCount: number,
+): readonly Readonly<M4aSampleToChunkRun>[] {
+  if (bytes.byteLength < STSC_FULL_BOX_HEADER_BYTES) {
+    throw new M4aSampleSizeError('M4A stsc FullBox header is truncated');
+  }
+  requireZeroFullBox(bytes, 'M4A stsc');
+  const entryCount = readUint32(bytes, 4);
+  if (entryCount < 1 || entryCount > STSC_MAX_ENTRIES) {
+    throw new M4aSampleSizeError(`M4A stsc entry count must be from 1 through ${STSC_MAX_ENTRIES}`);
+  }
+  const expectedBodyBytes = STSC_FULL_BOX_HEADER_BYTES + entryCount * STSC_ENTRY_BYTES;
+  if (bytes.byteLength !== expectedBodyBytes) {
+    throw new M4aSampleSizeError(
+      `M4A stsc body has ${bytes.byteLength} bytes; expected ${expectedBodyBytes}`,
+    );
+  }
+
+  const runs: Readonly<M4aSampleToChunkRun>[] = [];
+  let previousFirstChunk = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    const offset = STSC_FULL_BOX_HEADER_BYTES + index * STSC_ENTRY_BYTES;
+    const firstChunk = readUint32(bytes, offset);
+    const samplesPerChunk = readUint32(bytes, offset + 4);
+    const sampleDescriptionIndex = readUint32(bytes, offset + 8);
+    if ((index === 0 && firstChunk !== 1) || firstChunk <= previousFirstChunk) {
+      throw new M4aSampleSizeError(
+        index === 0
+          ? 'M4A stsc first run must begin at chunk 1'
+          : 'M4A stsc first-chunk values must be strictly increasing',
+      );
+    }
+    if (samplesPerChunk < 1 || samplesPerChunk > sampleCount) {
+      throw new M4aSampleSizeError(
+        `M4A stsc samples per chunk must be from 1 through ${sampleCount}`,
+      );
+    }
+    if (sampleDescriptionIndex !== 1) {
+      throw new M4aSampleSizeError('M4A stsc sample-description index must be exactly 1');
+    }
+    runs.push(Object.freeze({ firstChunk, samplesPerChunk, sampleDescriptionIndex: 1 }));
+    previousFirstChunk = firstChunk;
+  }
+  return Object.freeze(runs);
+}
+
+function issueM4aSampleToChunkRunTable(
+  reader: IsoBmffBoxReader,
+  sampleCount: number,
+  runs: readonly Readonly<M4aSampleToChunkRun>[],
+  evidence: Readonly<M4aSampleToChunkEvidence>,
+): Readonly<M4aSampleToChunkRunTable> {
+  const result = Object.freeze({ sampleCount, runs });
+  sampleToChunkAuthorities.set(result, Object.freeze({ reader, sampleCount, runs, evidence }));
+  return result;
+}
+
 /** Read and retain the small, strict `stsc` run table. */
 export async function readM4aSampleToChunkRuns(
   reader: IsoBmffBoxReader,
@@ -524,36 +629,41 @@ export async function readM4aSampleToChunkRuns(
   }
 
   const bytes = await reader.readBytes(body.start, expectedBodyBytes, signal);
-  const runs: Readonly<M4aSampleToChunkRun>[] = [];
-  let previousFirstChunk = 0;
-  for (let index = 0; index < entryCount; index += 1) {
-    const offset = STSC_FULL_BOX_HEADER_BYTES + index * STSC_ENTRY_BYTES;
-    const firstChunk = readUint32(bytes, offset);
-    const samplesPerChunk = readUint32(bytes, offset + 4);
-    const sampleDescriptionIndex = readUint32(bytes, offset + 8);
-    if ((index === 0 && firstChunk !== 1) || firstChunk <= previousFirstChunk) {
-      throw new M4aSampleSizeError(
-        index === 0
-          ? 'M4A stsc first run must begin at chunk 1'
-          : 'M4A stsc first-chunk values must be strictly increasing',
-      );
-    }
-    if (samplesPerChunk < 1 || samplesPerChunk > sampleCount) {
-      throw new M4aSampleSizeError(
-        `M4A stsc samples per chunk must be from 1 through ${sampleCount}`,
-      );
-    }
-    if (sampleDescriptionIndex !== 1) {
-      throw new M4aSampleSizeError('M4A stsc sample-description index must be exactly 1');
-    }
-    runs.push(Object.freeze({ firstChunk, samplesPerChunk, sampleDescriptionIndex: 1 }));
-    previousFirstChunk = firstChunk;
-  }
+  const runs = parseM4aSampleToChunkBody(bytes, sampleCount);
+  const sha256 = await digestM4aMetadataPage(
+    reader,
+    bytes,
+    signal,
+    'M4A stsc body',
+    createSampleSizeError,
+  );
 
   reader.assertReadable(signal);
-  const result = Object.freeze({ sampleCount, runs: Object.freeze(runs) });
-  sampleToChunkAuthorities.set(result, reader);
-  return result;
+  return issueM4aSampleToChunkRunTable(
+    reader,
+    sampleCount,
+    runs,
+    Object.freeze({ bodyStart: body.start, bodyLength: expectedBodyBytes, sha256 }),
+  );
+}
+
+function requireSampleToChunkAuthority(
+  reader: IsoBmffBoxReader,
+  table: unknown,
+  signal: AbortSignal,
+): SampleToChunkAuthority {
+  reader.assertReadable(signal);
+  const authority =
+    table !== null && (typeof table === 'object' || typeof table === 'function')
+      ? sampleToChunkAuthorities.get(table)
+      : undefined;
+  if (authority === undefined) {
+    throw new M4aSampleSizeError('M4A sample-to-chunk table lacks module provenance');
+  }
+  if (authority.reader !== reader) {
+    throw new M4aSampleSizeError('M4A sample-to-chunk table belongs to a different source reader');
+  }
+  return authority;
 }
 
 /**
@@ -567,18 +677,65 @@ export function assertM4aSampleToChunkRunTableProvenance(
   signal: AbortSignal,
 ): Readonly<M4aSampleToChunkRunTable> {
   requireReaderAndSignal(reader, signal, 'M4A stsc provenance assertion');
-  reader.assertReadable(signal);
-  const authority =
-    table !== null && (typeof table === 'object' || typeof table === 'function')
-      ? sampleToChunkAuthorities.get(table)
-      : undefined;
-  if (authority === undefined) {
-    throw new M4aSampleSizeError('M4A sample-to-chunk table lacks module provenance');
-  }
-  if (authority !== reader) {
-    throw new M4aSampleSizeError('M4A sample-to-chunk table belongs to a different source reader');
-  }
+  requireSampleToChunkAuthority(reader, table, signal);
   return table;
+}
+
+/** Export the complete bounded `stsc` body evidence from an authentic table. */
+export function snapshotM4aSampleToChunkEvidence(
+  reader: IsoBmffBoxReader,
+  table: Readonly<M4aSampleToChunkRunTable>,
+  signal: AbortSignal,
+): Readonly<M4aSampleToChunkEvidence> {
+  requireReaderAndSignal(reader, signal, 'M4A stsc snapshot export');
+  const authority = requireSampleToChunkAuthority(reader, table, signal);
+  return Object.freeze({
+    bodyStart: authority.evidence.bodyStart,
+    bodyLength: authority.evidence.bodyLength,
+    sha256: authority.evidence.sha256,
+  });
+}
+
+/** Reparse one source-bound `stsc` body instead of trusting transferred runs. */
+export async function rehydrateM4aSampleToChunkRuns(
+  reader: IsoBmffBoxReader,
+  evidenceValue: unknown,
+  expectedSampleCount: number,
+  expectedSourceValue: unknown,
+  signal: AbortSignal,
+): Promise<Readonly<M4aSampleToChunkRunTable>> {
+  requireReaderAndSignal(reader, signal, 'M4A stsc snapshot rehydration');
+  reader.assertReadable(signal);
+  const expectedSource = validateM4aIndexSourceBinding(expectedSourceValue);
+  if (
+    reader.sourceSize !== expectedSource.sourceSize ||
+    reader.sourceIdentity !== expectedSource.sourceIdentity
+  ) {
+    throw createSampleSizeError('M4A stsc snapshot source binding does not match its reader');
+  }
+  const sampleCount = requireExpectedSampleCount(expectedSampleCount);
+  const evidence = validateM4aSampleToChunkEvidence(evidenceValue);
+  if (
+    safeAdd(evidence.bodyStart, evidence.bodyLength, 'M4A stsc snapshot body end') >
+    reader.sourceSize
+  ) {
+    throw createSampleSizeError('M4A stsc snapshot body exceeds its bound source');
+  }
+
+  const bytes = await reader.readBytes(evidence.bodyStart, evidence.bodyLength, signal);
+  const sha256 = await digestM4aMetadataPage(
+    reader,
+    bytes,
+    signal,
+    'M4A stsc body',
+    createSampleSizeError,
+  );
+  if (sha256 !== evidence.sha256) {
+    throw createSampleSizeError('M4A stsc body changed after the snapshot was built');
+  }
+  const runs = parseM4aSampleToChunkBody(bytes, sampleCount);
+  reader.assertReadable(signal);
+  return issueM4aSampleToChunkRunTable(reader, sampleCount, runs, evidence);
 }
 
 /** Read, fully validate, and sparsely index one strict `stsz` table. */

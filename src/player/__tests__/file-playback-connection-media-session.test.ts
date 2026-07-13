@@ -42,6 +42,10 @@ import {
   type FileMediaSourceOfferV2,
 } from '../file-media-source-offer.ts';
 import {
+  createFileMediaSourceRevokeV2,
+  type FileMediaSourceRevokeV2Input,
+} from '../file-media-source-revoke.ts';
+import {
   FilePlaybackConnectionMediaSession,
   FilePlaybackConnectionMediaSessionFatalError,
   type FilePlaybackConnectionMediaOperation,
@@ -219,6 +223,22 @@ function bindingFor(
     transferSessionId: offer.transferSessionId,
     runId,
     playbackRevision: revision,
+  });
+}
+
+function revokeFor(
+  offer: Readonly<FileMediaSourceOfferV2>,
+  overrides: Partial<FileMediaSourceRevokeV2Input> = {},
+) {
+  return createFileMediaSourceRevokeV2({
+    sessionId: offer.sessionId,
+    connectionId: offer.connectionId,
+    prepareId: offer.prepareId,
+    prepareRevision: offer.prepareRevision,
+    queueItemId: offer.queueItemId,
+    sourceIdentity: offer.sourceIdentity,
+    transferSessionId: offer.transferSessionId,
+    ...overrides,
   });
 }
 
@@ -601,6 +621,103 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(consumedReplay.status).toBe('replayed');
     expect(consumedReplay.preparation).toBe(first.preparation);
     expect(consumedReplay.preparation.fence.isCurrent()).toBe(false);
+  });
+
+  it('retires an exact OFFER preparation immediately, replays idempotently, and admits its next revision', () => {
+    const h = harness();
+    h.session.bootstrapStopped(0);
+    const offer = offerFor(h);
+    const adopted = admitOffer(h, offer);
+    if (!adopted.accepted) throw new Error(adopted.reason);
+
+    expect(
+      h.session.revokeSourceOffer(
+        revokeFor(offer, {
+          prepareId: PREPARE_IDS[2],
+        }),
+      ),
+    ).toEqual({ accepted: false, reason: 'stale-revoke' });
+    expect(adopted.preparation.fence.signal.aborted).toBe(false);
+    expect(adopted.preparation.fence.isCurrent()).toBe(true);
+
+    const revoke = revokeFor(offer);
+    const retired = h.session.revokeSourceOffer(revoke);
+    expect(retired).toMatchObject({ accepted: true, status: 'retired' });
+    if (!retired.accepted) throw new Error(retired.reason);
+    expect(retired.preparation).toBe(adopted.preparation);
+    expect(adopted.preparation.fence.signal.aborted).toBe(true);
+    expect(adopted.preparation.fence.isCurrent()).toBe(false);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'stopped',
+      activeOfferCount: 0,
+      liveQueueItemCount: 1,
+      committedRevisionWatermark: 0,
+      admittedRevisionWatermark: 0,
+    });
+
+    const replay = h.session.revokeSourceOffer({ ...revoke });
+    expect(replay).toMatchObject({ accepted: true, status: 'stale', preparation: null });
+    if (!replay.accepted) throw new Error(replay.reason);
+    expect(replay.revoke).toEqual(retired.revoke);
+
+    const nextOffer = offerFor(h, 1);
+    const next = h.session.adoptSourceOffer(nextOffer);
+    expect(next).toMatchObject({ accepted: true, status: 'accepted' });
+    if (!next.accepted) throw new Error(next.reason);
+    expect(next.preparation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({ activeOfferCount: 1, liveQueueItemCount: 1 });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('cleans an exact preparation whose registry offer expired during another queue admission', () => {
+    const h = harness();
+    h.session.bootstrapStopped(0);
+    const expiredOffer = offerFor(h, 0, QIDS[0], { expiresAtRoomTimeMs: 150 });
+    const expired = admitOffer(h, expiredOffer);
+    if (!expired.accepted) throw new Error(expired.reason);
+
+    h.now = 200;
+    const otherOffer = offerFor(h, 1, QIDS[1], { expiresAtRoomTimeMs: 1_000 });
+    const other = admitOffer(h, otherOffer);
+    if (!other.accepted) throw new Error(other.reason);
+    expect(expired.preparation.fence.signal.aborted).toBe(false);
+    expect(expired.preparation.fence.isCurrent()).toBe(false);
+
+    expect(h.session.revokeSourceOffer(revokeFor(expiredOffer))).toMatchObject({
+      accepted: true,
+      status: 'retired',
+      preparation: expired.preparation,
+    });
+    expect(expired.preparation.fence.signal.aborted).toBe(true);
+    expect(expired.preparation.fence.isCurrent()).toBe(false);
+    expect(other.preparation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({ activeOfferCount: 1, liveQueueItemCount: 2 });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('fail-closes when an exact OFFER revoke arrives after RUN claimed that preparation', () => {
+    const h = harness();
+    h.session.bootstrapStopped(0);
+    const offer = offerFor(h);
+    const adopted = admitOffer(h, offer);
+    if (!adopted.accepted) throw new Error(adopted.reason);
+    const binding = bindingFor(offer, 1);
+    const operation = h.session.stageRunBinding(binding, expectedFor(binding), 'successor');
+
+    expect(() => h.session.revokeSourceOffer(revokeFor(offer))).toThrow(
+      FilePlaybackConnectionMediaSessionFatalError,
+    );
+    expect(operation.fence.signal.aborted).toBe(true);
+    expect(operation.fence.isCurrent()).toBe(false);
+    expect(adopted.preparation.fence.signal.aborted).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'revoked',
+      activeOfferCount: 0,
+      candidate: null,
+      current: null,
+    });
+    expect(h.fatal).toHaveBeenCalledOnce();
+    expect(h.fatal.mock.calls[0]?.[0]).toBe(h.token);
   });
 
   it('supersedes preparations per queue without aborting another queue occurrence', () => {

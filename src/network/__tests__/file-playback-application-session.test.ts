@@ -28,8 +28,9 @@ import type {
   FilePlaybackWireStateLease,
 } from '../../player/file-playback-wire-binding.ts';
 import {
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES,
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
-  FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES,
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
@@ -230,6 +231,7 @@ const AUXILIARY_TYPES = Object.freeze([
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
   FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE,
 ] as const);
@@ -701,16 +703,17 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(setup.host.phase(setup.hostConn)).toBe('none');
   });
 
-  it('rejects a recognized auxiliary frame above its raw byte budget', () => {
+  it('rejects an oversized source-offer revoke at its 4 KiB raw budget', () => {
     const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
     const oversized = fixture({ hostManagerOptions: { adoptAuxiliaryMessage: adopted } });
     expect(oversized.startGuest()).toBe(true);
     oversized.pump();
+    expect(FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES).toBe(4 * 1024);
     expect(
       oversized.host.receive(
         {
-          type: FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
-          padding: 'x'.repeat(FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES),
+          type: FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
+          padding: 'x'.repeat(FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES),
         },
         oversized.hostConn,
       ),

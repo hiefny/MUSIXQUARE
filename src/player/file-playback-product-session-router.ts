@@ -13,6 +13,7 @@ import type {
 } from '../network/file-playback-application-session.ts';
 import { FilePlaybackConnectionChannel } from '../network/file-playback-connection-channel.ts';
 import {
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
@@ -694,7 +695,9 @@ export class FilePlaybackProductSessionRouter {
         if (
           record.role === 'guest' &&
           record.owner.role === 'guest' &&
-          (type === FILE_MEDIA_SOURCE_OFFER_V2_TYPE || type === FILE_PLAYBACK_RUN_BINDING_V2_TYPE)
+          (type === FILE_MEDIA_SOURCE_OFFER_V2_TYPE ||
+            type === FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE ||
+            type === FILE_PLAYBACK_RUN_BINDING_V2_TYPE)
         ) {
           record.owner.adoptAuxiliaryMessage(canonicalEvent, guardedAcknowledge);
           return;

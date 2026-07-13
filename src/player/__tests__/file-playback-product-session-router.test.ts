@@ -13,6 +13,7 @@ import {
   FilePlaybackHostSessionHandshake,
 } from '../../network/file-playback-session-handshake.ts';
 import {
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
@@ -348,7 +349,7 @@ describe('FilePlaybackProductSessionRouter', () => {
     expect(JSON.stringify(snapshot)).not.toContain('connectionToken');
   });
 
-  it('routes BASELINE/TIMELINE_UPDATE/READY to the controller and OFFER/RUN_BINDING to the guest owner', () => {
+  it('routes BASELINE/TIMELINE_UPDATE/READY to the controller and source controls to the guest owner', () => {
     const harness = makeHarness();
     const pair = channelPair();
     establish(harness, pair, 'host');
@@ -360,6 +361,7 @@ describe('FilePlaybackProductSessionRouter', () => {
       auxiliary(pair, 'guest', FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE),
       auxiliary(pair, 'host', FILE_PLAYBACK_PRODUCT_READY_V2_TYPE),
       auxiliary(pair, 'guest', FILE_MEDIA_SOURCE_OFFER_V2_TYPE),
+      auxiliary(pair, 'guest', FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE),
       auxiliary(pair, 'guest', FILE_PLAYBACK_RUN_BINDING_V2_TYPE),
     ];
     const received: unknown[] = [];
@@ -375,7 +377,7 @@ describe('FilePlaybackProductSessionRouter', () => {
     cases.forEach((event, index) => hooks.adoptAuxiliaryMessage(event, acknowledgements[index]!));
 
     expect(harness.controllerAuxiliary).toHaveBeenCalledTimes(3);
-    expect(harness.guestOwners[0]!.auxiliary).toHaveBeenCalledTimes(2);
+    expect(harness.guestOwners[0]!.auxiliary).toHaveBeenCalledTimes(3);
     acknowledgements.forEach((acknowledge) => expect(acknowledge).toHaveBeenCalledOnce());
     received.forEach((event, index) => {
       expect(event).not.toBe(cases[index]);
@@ -676,7 +678,10 @@ describe('FilePlaybackProductSessionRouter', () => {
     }
   });
 
-  it('fails the exact host record closed when a host receives a timeline update', () => {
+  it.each([
+    ['timeline update', FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE],
+    ['source-offer revoke', FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE],
+  ] as const)('fails the exact host record closed when a guest sends a %s', (_label, type) => {
     const pair = channelPair();
     const events: string[] = [];
     const revoke = vi.fn(() => events.push('owner:revoke'));
@@ -699,10 +704,7 @@ describe('FilePlaybackProductSessionRouter', () => {
     expect(() =>
       harness.router
         .applicationSessionHooks()
-        .adoptAuxiliaryMessage(
-          auxiliary(pair, 'host', FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE),
-          acknowledge,
-        ),
+        .adoptAuxiliaryMessage(auxiliary(pair, 'host', type), acknowledge),
     ).toThrow(/direction|cleanup/u);
     expect(acknowledge).not.toHaveBeenCalled();
     expect(revoke).toHaveBeenCalledOnce();

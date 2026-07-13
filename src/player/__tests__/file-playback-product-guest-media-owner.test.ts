@@ -32,6 +32,7 @@ import {
   createR2WholeBlobFileMediaSourceOfferV2,
   type FileMediaSourceOfferV2,
 } from '../file-media-source-offer.ts';
+import { createFileMediaSourceRevokeV2 } from '../file-media-source-revoke.ts';
 import {
   createFilePlaybackProductGuestMediaOwner,
   FilePlaybackProductGuestMediaOwnerFatalError,
@@ -65,6 +66,10 @@ const TRANSFER_ID_2 = 'guest-owner-transfer-2';
 const HANDLE_ID_2 = 'guest-owner-handle-2';
 const RUN_ID_2 = '97000000-0000-4000-8000-000000000014';
 const RENDEZVOUS_ID_2 = 'guest-owner-rendezvous-2';
+const PREPARE_ID_3 = '97000000-0000-4000-8000-000000000022';
+const SOURCE_ID_3 = 'guest-owner-source-3';
+const TRANSFER_ID_3 = 'guest-owner-transfer-3';
+const HANDLE_ID_3 = 'guest-owner-handle-3';
 const ROOM_TOKEN = Object.freeze({ room: 'guest-owner' });
 const CUTOVER_PORT = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
 
@@ -304,6 +309,23 @@ function peerOffer2(context: Readonly<FilePlaybackProductSessionRouterConnection
   });
 }
 
+function peerOffer3(context: Readonly<FilePlaybackProductSessionRouterConnectionContext>) {
+  return createPeerRangeFileMediaSourceOfferV2({
+    sessionId: context.sessionId,
+    connectionId: context.connectionId,
+    prepareId: PREPARE_ID_3,
+    prepareRevision: 3,
+    queueItemId: QUEUE_ID_2,
+    sourceIdentity: SOURCE_ID_3,
+    transferSessionId: TRANSFER_ID_3,
+    handleId: HANDLE_ID_3,
+    encodedSize: 4_096,
+    name: 'replacement-successor.flac',
+    mime: 'audio/flac',
+    expiresAtRoomTimeMs: 10_000,
+  });
+}
+
 function supersedingPeerOffer(
   context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
 ) {
@@ -377,6 +399,18 @@ function runBinding(offer: Readonly<FileMediaSourceOfferV2>, runId = RUN_ID, pla
     transferSessionId: offer.transferSessionId,
     runId,
     playbackRevision,
+  });
+}
+
+function revokeFor(offer: Readonly<FileMediaSourceOfferV2>) {
+  return createFileMediaSourceRevokeV2({
+    sessionId: offer.sessionId,
+    connectionId: offer.connectionId,
+    prepareId: offer.prepareId,
+    prepareRevision: offer.prepareRevision,
+    queueItemId: offer.queueItemId,
+    sourceIdentity: offer.sourceIdentity,
+    transferSessionId: offer.transferSessionId,
   });
 }
 
@@ -942,6 +976,106 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(h.runtime.warmRecords.size).toBe(1);
     expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
+  });
+
+  it('acknowledges exact OFFER revoke synchronously, then cleans warm authority asynchronously and permits a replacement', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const authority = [...h.runtime.warmRecords.keys()][0];
+    const warmOptions = h.runtime.prepareWarmSource.mock.calls[0]![0];
+    expect(authority).toBeDefined();
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).not.toBeNull();
+
+    const revoke = revokeFor(offer);
+    const acknowledge = vi.fn(() => {
+      expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+      expect(h.runtime.peerCloseHandle).not.toHaveBeenCalled();
+      expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).not.toBeNull();
+    });
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, revoke), acknowledge);
+
+    expect(acknowledge).toHaveBeenCalledOnce();
+    expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.runtime.retireWarmSource).toHaveBeenCalledWith(authority));
+    await vi.waitFor(() => expect(h.runtime.peerCloseHandle).toHaveBeenCalledOnce());
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).toBeNull();
+
+    const replayAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, revoke), replayAck);
+    expect(replayAck).toHaveBeenCalledOnce();
+    expect(h.runtime.retireWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.peerCloseHandle).toHaveBeenCalledOnce();
+
+    const replacementAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, supersedingPeerOffer(h.context)),
+      replacementAck,
+    );
+    expect(replacementAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledTimes(2));
+    expect(h.runtime.prepareWarmSource.mock.calls[1]?.[0].expectedBinding).toMatchObject({
+      queueItemId: QUEUE_ID,
+      sourceIdentity: SOURCE_ID_2,
+      transferSessionId: TRANSFER_ID_2,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('removes an exact pending warm on revoke and drains only its next offered revision', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const activeOffer = peerOffer(h.context);
+    const pendingOffer = peerOffer2(h.context);
+    const replacementOffer = peerOffer3(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, activeOffer), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, pendingOffer), vi.fn());
+    await Promise.resolve();
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+
+    const revokeAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, revokeFor(pendingOffer)), revokeAck);
+    expect(revokeAck).toHaveBeenCalledOnce();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, replacementOffer), vi.fn());
+    await Promise.resolve();
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(activeOffer)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledTimes(2));
+    expect(h.runtime.prepareWarmSource.mock.calls[1]?.[0].expectedBinding).toMatchObject({
+      queueItemId: QUEUE_ID_2,
+      sourceIdentity: SOURCE_ID_3,
+      transferSessionId: TRANSFER_ID_3,
+    });
+    expect(h.runtime.prepareWarmSource.mock.calls[1]?.[0].expectedBinding).not.toMatchObject({
+      sourceIdentity: SOURCE_ID_2,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('fail-closes without acknowledging an exact revoke after RUN claimed its OFFER', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    const bindingAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), bindingAck);
+    expect(bindingAck).toHaveBeenCalledOnce();
+
+    const revokeAck = vi.fn();
+    expect(() =>
+      h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, revokeFor(offer)), revokeAck),
+    ).toThrow(FilePlaybackProductGuestMediaOwnerFatalError);
+    expect(revokeAck).not.toHaveBeenCalled();
+    expect(h.fatal).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
   });
 
   it('promotes and hands off the exact OFFER-warmed peer asset on RUN_BINDING', async () => {

@@ -6,6 +6,7 @@ import type {
 import { delay } from '../core/timers.ts';
 import { FilePlaybackConnectionChannel } from '../network/file-playback-connection-channel.ts';
 import {
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
 } from '../network/file-playback-transport-contract.ts';
@@ -1133,6 +1134,17 @@ class GuestMediaOwner {
         if (result.offer.transport === 'peer-range') {
           this.#scheduleOfferWarm(result.preparation);
         }
+        return;
+      }
+      if (type === FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE) {
+        const result = this.#mediaSession.revokeSourceOffer(event!.frame);
+        if (!result.accepted) {
+          throw new Error(`Guest source offer revoke was rejected: ${result.reason}`);
+        }
+        if (result.preparation && this.#pendingOfferWarm === result.preparation) {
+          this.#pendingOfferWarm = null;
+        }
+        acknowledge();
         return;
       }
       if (type !== FILE_PLAYBACK_RUN_BINDING_V2_TYPE) {

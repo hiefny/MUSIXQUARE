@@ -14,6 +14,7 @@ import type {
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
 } from '../file-playback-host-first-file-engine.ts';
+import { fileMediaSourceRevokeMatchesOfferV2 } from '../file-media-source-revoke.ts';
 import {
   FilePlaybackProductHostMediaOwner,
   type FilePlaybackProductHostMediaRoomPort,
@@ -945,7 +946,20 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     );
     const closeConnection = vi.fn();
     const resolvePrepared = vi.fn(async (options) => encodedPreparedSource(options.prepared));
-    const owner = new FilePlaybackProductHostMediaOwner({
+    const required: unknown[] = [];
+    let owner!: FilePlaybackProductHostMediaOwner;
+    let reentrantRetirement: Promise<void> | null = null;
+    const sendRequired = vi.fn((_connection: DataConnection, frame: unknown) => {
+      required.push(frame);
+      if ((frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2') {
+        reentrantRetirement = owner.retirePrepared(
+          prepared,
+          new Error('reentrant offer-only retirement'),
+        );
+      }
+      return true;
+    });
+    owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
       hostRoom: roomPort(
         () => null,
@@ -954,7 +968,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       ),
       publisher: publisher(),
       resolvePreparedPeerRangeSource: resolvePrepared,
-      sendRequired: vi.fn(() => true),
+      sendRequired,
       sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
       closeConnection,
       onHealthSystemMessage: vi.fn(),
@@ -983,9 +997,20 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       connectionToken: pair.hostToken,
     });
 
-    await expect(
-      owner.retirePrepared(prepared, new Error('offer-only candidate cancelled')),
-    ).resolves.toBeUndefined();
+    const retirement = owner.retirePrepared(prepared, new Error('offer-only candidate cancelled'));
+    expect(reentrantRetirement).toBe(retirement);
+    await expect(retirement).resolves.toBeUndefined();
+    expect(owner.retirePrepared(prepared, new Error('settled replay'))).toBe(retirement);
+    expect(required.map((frame) => (frame as { type?: string }).type)).toEqual([
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+    ]);
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+      ),
+    ).toHaveLength(1);
+    expect(fileMediaSourceRevokeMatchesOfferV2(required[1], offered.offer)).toBe(true);
     expect(closeConnection).not.toHaveBeenCalled();
     expect(() => owner.port().adoptPeerRangeControl(staleRead, vi.fn())).toThrow(
       /current publication/u,
@@ -996,10 +1021,15 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     owner.port().revoke(pair.context);
   });
 
-  it('renews the exact connection after retiring a staged revision tombstone', async () => {
+  it('fail-closes the exact connection when an offer-only revoke cannot be sent', async () => {
     const pair = connectionPair(() => 1_000);
     const prepared = preparedTrack('bounded-stream', 3);
+    const required: unknown[] = [];
     const closeConnection = vi.fn();
+    const sendRequired = vi.fn((_connection: DataConnection, frame: unknown) => {
+      required.push(frame);
+      return (frame as { type?: string }).type !== 'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2';
+    });
     const owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
       hostRoom: roomPort(
@@ -1009,7 +1039,51 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       ),
       publisher: publisher(),
       resolvePreparedPeerRangeSource: vi.fn(async () => encodedPreparedSource(prepared)),
-      sendRequired: vi.fn(() => true),
+      sendRequired,
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-failed-revoke-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    const offered = await owner.publishPrepared(prepared);
+    const retirement = owner.retirePrepared(prepared, new Error('cancel offered source'));
+    await expect(retirement).resolves.toBeUndefined();
+
+    expect(required.map((frame) => (frame as { type?: string }).type)).toEqual([
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+    ]);
+    expect(fileMediaSourceRevokeMatchesOfferV2(required[1], offered.offer)).toBe(true);
+    expect(sendRequired).toHaveBeenCalledTimes(2);
+    expect(closeConnection).toHaveBeenCalledOnce();
+    expect(closeConnection).toHaveBeenCalledWith(pair.connection);
+    expect(owner.retirePrepared(prepared, new Error('failed revoke replay'))).toBe(retirement);
+    await expect(owner.bindPrepared(prepared)).rejects.toThrow(/closed|stale/u);
+  });
+
+  it('renews the exact connection after retiring a staged revision tombstone', async () => {
+    const pair = connectionPair(() => 1_000);
+    const prepared = preparedTrack('bounded-stream', 3);
+    const closeConnection = vi.fn();
+    const required: unknown[] = [];
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: vi.fn(async () => encodedPreparedSource(prepared)),
+      sendRequired: vi.fn((_connection, frame) => {
+        required.push(frame);
+        return true;
+      }),
       sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
       closeConnection,
       onHealthSystemMessage: vi.fn(),
@@ -1025,6 +1099,15 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(owner.retirePrepared(prepared, new Error('retry'))).toBe(retirement);
     await expect(retirement).resolves.toBeUndefined();
     expect(owner.retirePrepared(prepared, new Error('settled retry'))).toBe(retirement);
+    expect(required.map((frame) => (frame as { type?: string }).type)).toEqual([
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_PLAYBACK_RUN_BINDING_V2',
+    ]);
+    expect(
+      required.some(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+      ),
+    ).toBe(false);
     expect(closeConnection).toHaveBeenCalledOnce();
     expect(closeConnection).toHaveBeenCalledWith(pair.connection);
     await expect(owner.publishPrepared(preparedTrack('bounded-stream', 3))).rejects.toThrow(

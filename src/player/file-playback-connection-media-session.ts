@@ -7,6 +7,11 @@ import {
   type FileMediaSourceOfferV2,
 } from './file-media-source-offer.ts';
 import {
+  fileMediaSourceRevokeMatchesOfferV2,
+  parseFileMediaSourceRevokeV2,
+  type FileMediaSourceRevokeV2,
+} from './file-media-source-revoke.ts';
+import {
   FilePlaybackRunAuthority,
   type FilePlaybackRunLease,
 } from './file-playback-run-authority.ts';
@@ -112,6 +117,18 @@ export type FilePlaybackConnectionMediaOfferAdoptionResult =
         readonly preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>;
       }
     >;
+
+export type FilePlaybackConnectionMediaOfferRevocationResult =
+  | Readonly<{
+      accepted: true;
+      status: 'retired' | 'stale';
+      revoke: Readonly<FileMediaSourceRevokeV2>;
+      preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation> | null;
+    }>
+  | Readonly<{
+      accepted: false;
+      reason: 'malformed-revoke' | 'wrong-scope' | 'stale-revoke';
+    }>;
 
 /** Opaque identity for one exact connection-media preparation lifetime. */
 export interface FilePlaybackConnectionMediaOperationEpoch {
@@ -297,6 +314,9 @@ const channelCommitAttempt = FilePlaybackConnectionChannel.prototype.commitAttem
 const channelRetireAttempt = FilePlaybackConnectionChannel.prototype.retireAttempt;
 const channelCreateWire = FilePlaybackConnectionChannel.prototype.createWire;
 const offerRegistryActiveOffer = FileMediaOfferRegistry.prototype.activeOffer;
+const offerRegistryRetireActiveOffer = FileMediaOfferRegistry.prototype.retireActiveOffer;
+const offerRegistryPrepareRevisionWatermark =
+  FileMediaOfferRegistry.prototype.prepareRevisionWatermark;
 const abortControllerAbort = AbortController.prototype.abort;
 const MAX_EXPIRY_TIMER_DELAY_MS = 2_147_483_647;
 const MAX_RENDEZVOUS_ID_LENGTH = 256;
@@ -697,6 +717,68 @@ export class FilePlaybackConnectionMediaSession {
       if (!result.accepted) return result;
       const preparation = this.#offerPreparationFor(result.offer);
       return freezeCanonical({ ...result, preparation });
+    });
+  }
+
+  revokeSourceOffer(value: unknown): FilePlaybackConnectionMediaOfferRevocationResult {
+    return this.#mutate(() => {
+      const revoke = parseFileMediaSourceRevokeV2(value);
+      if (!revoke) {
+        return freezeCanonical({ accepted: false as const, reason: 'malformed-revoke' as const });
+      }
+      if (revoke.sessionId !== this.#sessionId || revoke.connectionId !== this.#connectionId) {
+        return freezeCanonical({ accepted: false as const, reason: 'wrong-scope' as const });
+      }
+      const records = [...this.#offerPreparationsByQueue.values()];
+      const record = records.find((candidate) =>
+        fileMediaSourceRevokeMatchesOfferV2(revoke, candidate.offer),
+      );
+      if (record) {
+        if (record.status !== 'offered' || record.operation !== null) {
+          throw this.#fatal('A source offer revoke arrived after its RUN was claimed');
+        }
+        const retired = Reflect.apply(offerRegistryRetireActiveOffer, this.#offerRegistry, [
+          this.#connectionToken,
+          record.offer,
+        ]) as boolean;
+        if (!retired) {
+          throw this.#fatal('The exact source offer could not be retired');
+        }
+        const preparation = record.preparation;
+        this.#retireOfferPreparationLocally(record);
+        return freezeCanonical({
+          accepted: true as const,
+          status: 'retired' as const,
+          revoke,
+          preparation,
+        });
+      }
+      const conflictingIdentity = records.find(
+        (candidate) =>
+          candidate.offer.prepareId === revoke.prepareId ||
+          candidate.offer.prepareRevision === revoke.prepareRevision,
+      );
+      if (conflictingIdentity) {
+        return freezeCanonical({ accepted: false as const, reason: 'stale-revoke' as const });
+      }
+      const conflictingQueue = this.#offerPreparationsByQueue.get(revoke.queueItemId);
+      if (conflictingQueue && revoke.prepareRevision >= conflictingQueue.offer.prepareRevision) {
+        return freezeCanonical({ accepted: false as const, reason: 'stale-revoke' as const });
+      }
+      const watermark = Reflect.apply(
+        offerRegistryPrepareRevisionWatermark,
+        this.#offerRegistry,
+        [],
+      ) as number;
+      if (revoke.prepareRevision <= watermark) {
+        return freezeCanonical({
+          accepted: true as const,
+          status: 'stale' as const,
+          revoke,
+          preparation: null,
+        });
+      }
+      return freezeCanonical({ accepted: false as const, reason: 'stale-revoke' as const });
     });
   }
 

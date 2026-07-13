@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
 import {
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES,
+  FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES,
@@ -563,7 +565,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(received).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAYLIST_UPDATE }));
   });
 
-  it('enforces exact raw text budgets for source offers and run bindings', async () => {
+  it('enforces exact raw text budgets for bounded file-playback control frames', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
     const bulk = new FakeDataChannel('musixquare-data');
@@ -577,8 +579,13 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     conn.on('data', received);
     conn.on('error', errors);
 
+    expect(FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES).toBe(4 * 1024);
     const boundedTypes = [
       [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
+      [
+        FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
+        FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES,
+      ],
       [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
       [
         FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
@@ -599,8 +606,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
         'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
       );
     }
-    expect(received).toHaveBeenCalledTimes(4);
-    expect(errors).toHaveBeenCalledTimes(4);
+    expect(received).toHaveBeenCalledTimes(5);
+    expect(errors).toHaveBeenCalledTimes(5);
   });
 
   it('measures multibyte text frames by UTF-8 bytes rather than UTF-16 length', async () => {
@@ -679,7 +686,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(received).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the entire binary frame budget for small offer and run-binding headers', async () => {
+  it('uses the entire binary frame budget for bounded control headers', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
     const bulk = new FakeDataChannel('musixquare-data');
@@ -694,6 +701,10 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     conn.on('error', errors);
     const boundedTypes = [
       [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
+      [
+        FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
+        FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES,
+      ],
       [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
       [
         FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
@@ -719,8 +730,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
         'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
       );
     }
-    expect(received).toHaveBeenCalledTimes(4);
-    expect(errors).toHaveBeenCalledTimes(4);
+    expect(received).toHaveBeenCalledTimes(5);
+    expect(errors).toHaveBeenCalledTimes(5);
   });
 
   it('snapshots native Blob ranges so subclass getters cannot bypass the raw budget', async () => {

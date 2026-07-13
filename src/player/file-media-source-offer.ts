@@ -610,6 +610,7 @@ export class FileMediaOfferRegistry {
   readonly #retiredPrepareIds = new Set<string>();
   readonly #activeByQueue = new Map<QueueItemId, Readonly<FileMediaSourceOfferV2>>();
   readonly #activeByPrepare = new Map<string, Readonly<FileMediaSourceOfferV2>>();
+  readonly #retiredCanonicalOffers = new WeakSet<object>();
   readonly #currentOfferLeases = new WeakMap<FileMediaCurrentOfferLease, CurrentOfferLeaseRecord>();
   #prepareRevisionWatermark = 0;
   #closed = false;
@@ -825,6 +826,36 @@ export class FileMediaOfferRegistry {
     }
   }
 
+  /**
+   * Retires only the exact canonical offer object previously issued by this
+   * registry. Shape-compatible data is deliberately insufficient authority.
+   * The queue occurrence remains live so a later monotonic offer may reuse it.
+   */
+  retireActiveOffer(token: object, offer: unknown): boolean {
+    if (token !== this.#token || this.#closed || offer === null || typeof offer !== 'object') {
+      return false;
+    }
+    if (this.#mutating) {
+      return this.#fatal('Offer retirement re-entered offer mutation', 'reentrant-call');
+    }
+    this.#mutating = true;
+    try {
+      if (this.#retiredCanonicalOffers.has(offer)) return true;
+      const exact = [...this.#activeByPrepare.values()].find((candidate) => candidate === offer);
+      if (!exact) return false;
+      const now = this.#readRoomTime();
+      if (now === null) return false;
+      this.#expireInternal(now);
+      if (this.#closed) return false;
+      if (this.#activeByPrepare.get(exact.prepareId) !== exact) {
+        return this.#retiredPrepareIds.has(exact.prepareId);
+      }
+      return this.#retireActive(exact);
+    } finally {
+      this.#mutating = false;
+    }
+  }
+
   /** Issues an unforgeable lease for the exact offer current at this clock read. */
   issueCurrentOfferLease(
     token: object,
@@ -955,6 +986,7 @@ export class FileMediaOfferRegistry {
     if (this.#activeByPrepare.get(offer.prepareId) === offer) {
       this.#activeByPrepare.delete(offer.prepareId);
     }
+    this.#retiredCanonicalOffers.add(offer);
     this.#retiredPrepareIds.add(offer.prepareId);
   }
 

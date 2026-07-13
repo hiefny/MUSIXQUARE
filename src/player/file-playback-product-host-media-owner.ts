@@ -12,6 +12,7 @@ import {
   createR2WholeBlobFileMediaSourceOfferV2,
   type FileMediaSourceOfferV2,
 } from './file-media-source-offer.ts';
+import { createFileMediaSourceRevokeV2 } from './file-media-source-revoke.ts';
 import type {
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
@@ -238,6 +239,8 @@ interface PreparedPublicationRecord {
   readonly rejectReady: (error: Error) => void;
   participant: RemoteRendezvousParticipant | null;
   capability: Readonly<HostPreparedRemoteParticipant> | null;
+  offerSent: boolean;
+  offerRevokeSent: boolean;
   status: 'offering' | 'offered' | 'binding' | 'published' | 'activated' | 'retired';
 }
 
@@ -794,13 +797,11 @@ export class FilePlaybackProductHostMediaOwner {
     ) {
       return Promise.reject(new Error('Host prepared retirement authority is stale'));
     }
-    this.#candidateEpoch += 1;
-    this.#candidateController.abort(reason);
     const pendingPublication =
       this.#candidateTaskIdentity === prepared ? this.#candidateTask : null;
     const pendingBinding =
       this.#candidateBindingTaskIdentity === prepared ? this.#candidateBindingTask : null;
-    let staged = this.#retirePreparedCandidate(reason);
+    let staged = false;
     const promise = Promise.resolve()
       .then(async () => {
         await Promise.all([
@@ -827,6 +828,9 @@ export class FilePlaybackProductHostMediaOwner {
     const retirement: PreparedRetirementRecord = { prepared, promise };
     this.#candidateRetirement = retirement;
     this.#preparedRetirements.set(prepared as object, promise);
+    this.#candidateEpoch += 1;
+    this.#candidateController.abort(reason);
+    staged = this.#retirePreparedCandidate(reason);
     return promise;
   }
 
@@ -1199,11 +1203,14 @@ export class FilePlaybackProductHostMediaOwner {
       rejectReady: ready.reject,
       participant: null,
       capability: null,
+      offerSent: false,
+      offerRevokeSent: false,
       status: 'offering',
     };
     this.#candidate = record;
     await Promise.resolve();
     this.#assertCandidateRecord(record);
+    record.offerSent = true;
     this.#sendRequiredFrame(offer);
     this.#assertCandidateRecord(record);
     record.status = 'offered';
@@ -1955,7 +1962,7 @@ export class FilePlaybackProductHostMediaOwner {
     this.#candidateController.abort(reason);
     this.#runtime.cancelInterval(this.#healthTimer);
     this.#retireAttempt(reason);
-    this.#retirePreparedCandidate(reason);
+    this.#retirePreparedCandidate(reason, false);
     this.#revokePublishedHandle(reason);
     this.#responder.close(reason);
     this.#publication = null;
@@ -2010,9 +2017,37 @@ export class FilePlaybackProductHostMediaOwner {
     }
   }
 
-  #retirePreparedCandidate(reason: Error): boolean {
+  #retirePreparedCandidate(reason: Error, notifyGuest = true): boolean {
     const record = this.#candidate;
     if (!record) return false;
+    const stateLease = record.stateLease;
+    const offerSendWasAmbiguous =
+      notifyGuest && stateLease === null && record.status === 'offering' && record.offerSent;
+    if (
+      notifyGuest &&
+      stateLease === null &&
+      record.status === 'offered' &&
+      record.offerSent &&
+      !record.offerRevokeSent
+    ) {
+      record.offerRevokeSent = true;
+      const offer = record.offer;
+      const revoke = createFileMediaSourceRevokeV2({
+        sessionId: offer.sessionId,
+        connectionId: offer.connectionId,
+        prepareId: offer.prepareId,
+        prepareRevision: offer.prepareRevision,
+        queueItemId: offer.queueItemId,
+        sourceIdentity: offer.sourceIdentity,
+        transferSessionId: offer.transferSessionId,
+      });
+      try {
+        this.#sendRequiredFrame(revoke);
+      } catch {
+        // Required-send failure already fail-closed and retired this exact owner.
+      }
+      if (this.#candidate !== record) return stateLease !== null;
+    }
     record.rejectReady(reason);
     if (this.#attempt?.preparedRecord === record) this.#retireAttempt(reason);
     if (record.handleId) {
@@ -2027,7 +2062,6 @@ export class FilePlaybackProductHostMediaOwner {
         // Responder close remains the terminal ownership fence.
       }
     }
-    const stateLease = record.stateLease;
     if (stateLease) {
       try {
         Reflect.apply(trustedChannelRetireMedia, this.#context.channel, [stateLease]);
@@ -2037,7 +2071,7 @@ export class FilePlaybackProductHostMediaOwner {
     }
     record.status = 'retired';
     this.#candidate = null;
-    return stateLease !== null;
+    return stateLease !== null || offerSendWasAmbiguous;
   }
 
   #enqueueMediaLane<T>(operation: () => Promise<T>): Promise<T> {

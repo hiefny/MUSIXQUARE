@@ -425,6 +425,44 @@ describe('FileMediaOfferRegistry', () => {
     expect(setup.fatal).toHaveBeenCalledOnce();
   });
 
+  it('retires only the exact stored offer while keeping its queue live for the next revision', () => {
+    const setup = registry();
+    setup.instance.admitQueueItem(TOKEN, QUEUE_ONE);
+    const first = offer();
+    const accepted = setup.instance.accept(TOKEN, first);
+    if (!accepted.accepted) throw new Error('Expected first offer acceptance');
+    const storedFirst = accepted.offer;
+    const firstLease = setup.instance.issueCurrentOfferLease(TOKEN, QUEUE_ONE);
+
+    expect(setup.instance.retireActiveOffer({}, storedFirst)).toBe(false);
+    expect(setup.instance.retireActiveOffer(TOKEN, { ...storedFirst })).toBe(false);
+    expect(setup.instance.activeOffer(TOKEN, QUEUE_ONE)).toBe(storedFirst);
+    expect(setup.instance.isCurrentOfferLease(TOKEN, firstLease)).toBe(true);
+
+    expect(setup.instance.retireActiveOffer(TOKEN, storedFirst)).toBe(true);
+    expect(setup.instance.activeOfferCount()).toBe(0);
+    expect(setup.instance.liveQueueItemCount()).toBe(1);
+    expect(setup.instance.activeOffer(TOKEN, QUEUE_ONE)).toBeNull();
+    expect(setup.instance.isCurrentOfferLease(TOKEN, firstLease)).toBe(false);
+
+    const second = offer({
+      prepareId: prepareId(2),
+      prepareRevision: 2,
+      transferSessionId: 'transfer:after-exact-retire',
+      handleId: 'handle:after-exact-retire',
+    });
+    const acceptedSecond = setup.instance.accept(TOKEN, second);
+    expect(acceptedSecond).toMatchObject({ accepted: true, status: 'accepted' });
+    if (!acceptedSecond.accepted) throw new Error('Expected second offer acceptance');
+    expect(setup.instance.activeOffer(TOKEN, QUEUE_ONE)).toBe(acceptedSecond.offer);
+
+    expect(setup.instance.retireActiveOffer(TOKEN, storedFirst)).toBe(true);
+    expect(setup.instance.retireActiveOffer(TOKEN, { ...acceptedSecond.offer })).toBe(false);
+    expect(setup.instance.activeOffer(TOKEN, QUEUE_ONE)).toBe(acceptedSecond.offer);
+    expect(setup.instance.isClosed()).toBe(false);
+    expect(setup.fatal).not.toHaveBeenCalled();
+  });
+
   it('requires exact revision progression and consumes exact-next semantic rejections', () => {
     const setup = registry({ maxEncodedSize: 1_000 });
 

@@ -550,6 +550,31 @@ export class FilePlaybackAssetRegistry {
     blob: Blob,
     metadata: EncodedAudioSourceMetadata,
   ): FilePlaybackAssetLease {
+    return this.#admitBlobAsset(token, value, blob, metadata, 'live').lease;
+  }
+
+  /**
+   * Admits one exact Blob as a readable, lookup-hidden provisional asset.
+   * Promotion preserves the returned lease identity; discard leaves no ABA
+   * tombstone after physical cleanup.
+   */
+  admitProvisionalBlobAsset(
+    token: object,
+    value: unknown,
+    blob: Blob,
+    metadata: EncodedAudioSourceMetadata,
+  ): FilePlaybackProvisionalAssetLease {
+    return this.#admitBlobAsset(token, value, blob, metadata, 'provisional')
+      .lease as FilePlaybackProvisionalAssetLease;
+  }
+
+  #admitBlobAsset(
+    token: object,
+    value: unknown,
+    blob: Blob,
+    metadata: EncodedAudioSourceMetadata,
+    mode: 'live' | 'provisional',
+  ): AssetEntry {
     return this.#mutate(token, () => {
       const binding = parseFilePlaybackAssetBinding(value);
       this.#assertStillOpen();
@@ -562,13 +587,13 @@ export class FilePlaybackAssetRegistry {
       const replay = this.#blobEntries.get(blob);
       if (replay) {
         if (
-          replay.status === 'live' &&
+          replay.status === mode &&
           sameBinding(replay.binding, binding) &&
           sameMetadata(replay.adapter.metadata, safeMetadata)
         ) {
-          return replay.lease;
+          return replay;
         }
-        throw new Error('File playback Blob is already owned by another live binding');
+        throw new Error('File playback Blob is already owned by another active binding');
       }
       this.#assertAdmissionAvailable(binding);
 
@@ -581,9 +606,9 @@ export class FilePlaybackAssetRegistry {
         });
         const adapter = snapshotAsset(asset);
         if (!adapter) throw new TypeError('Constructed Blob encoded asset is invalid');
-        const entry = this.#admitEntry(binding, adapter, blob);
+        const entry = this.#admitEntry(binding, adapter, blob, mode);
         admitted = true;
-        return entry.lease;
+        return entry;
       } finally {
         if (!admitted && asset) {
           this.#beginRejectedClose(asset, readCloseMethod(asset));
@@ -770,7 +795,7 @@ export class FilePlaybackAssetRegistry {
   ): Readonly<FilePlaybackBlobResolution> | null {
     if (token !== this.#token || this.#closed) return null;
     const entry = lease && typeof lease === 'object' ? this.#leases.get(lease) : undefined;
-    return entry?.status === 'live' && entry.blob
+    return (entry?.status === 'live' || entry?.status === 'provisional') && entry.blob
       ? freezeCanonical({
           blob: entry.blob,
           binding: entry.binding,
@@ -1029,6 +1054,7 @@ export class FilePlaybackAssetRegistry {
       this.#entriesByTransfer.delete(entry.binding.transferSessionId);
     }
     this.#leases.delete(entry.lease);
+    this.#provisionalLeases.delete(entry.lease as FilePlaybackProvisionalAssetLease);
     this.#ownedAssets.delete(entry.adapter.asset);
     if (entry.status !== 'live') entry.status = 'retired';
   }

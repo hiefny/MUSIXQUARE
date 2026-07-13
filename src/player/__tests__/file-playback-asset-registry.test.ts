@@ -304,6 +304,135 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(assetClose).toHaveBeenCalledOnce();
   });
 
+  it('admits, reads, and promotes an exact provisional Blob without changing lease identity', async () => {
+    const setup = registry();
+    const assetBinding = binding(0);
+    const blob = new Blob([new Uint8Array([11, 12, 13, 14])], { type: 'audio/flac' });
+    const provisional = setup.registry.admitProvisionalBlobAsset(
+      TOKEN,
+      assetBinding,
+      blob,
+      metadata(),
+    );
+
+    expect(
+      setup.registry.admitProvisionalBlobAsset(TOKEN, { ...assetBinding }, blob, metadata()),
+    ).toBe(provisional);
+    expect(() =>
+      setup.registry.admitProvisionalBlobAsset(TOKEN, assetBinding, blob, {
+        ...metadata(),
+        name: 'renamed.flac',
+      }),
+    ).toThrow(/already owned/u);
+    expect(() =>
+      setup.registry.admitProvisionalBlobAsset(TOKEN, binding(1), blob, metadata()),
+    ).toThrow(/already owned/u);
+    expect(() =>
+      setup.registry.admitProvisionalBlobAsset(
+        TOKEN,
+        assetBinding,
+        new Blob([new Uint8Array([11, 12, 13, 14])]),
+        metadata(),
+      ),
+    ).toThrow(/conflicts/u);
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBeNull();
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, assetBinding.sourceIdentity)).toBeNull();
+    expect(setup.registry.resolveBlobAsset(TOKEN, provisional)).toEqual({
+      blob,
+      binding: assetBinding,
+      metadata: metadata(),
+    });
+    expect(setup.registry.resolveBlobAsset(TOKEN, provisional)?.blob).toBe(blob);
+    const reader = setup.registry.acquireSource(TOKEN, provisional);
+    await expect(reader.readAt(1, 2, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([12, 13]),
+    );
+    await reader.close();
+
+    const promoted = setup.registry.promoteProvisionalAsset(TOKEN, provisional);
+    expect(promoted).toBe(provisional);
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBe(provisional);
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, assetBinding.sourceIdentity)).toBe(
+      provisional,
+    );
+    expect(setup.registry.resolveBlobAsset(TOKEN, provisional)?.blob).toBe(blob);
+    expect(setup.registry.admitBlob(TOKEN, { ...assetBinding }, blob, metadata())).toBe(
+      provisional,
+    );
+    await setup.registry.retire(TOKEN, promoted);
+  });
+
+  it('discards a provisional Blob without tombstones and re-admits the same exact binding', async () => {
+    const setup = registry({ maxLiveAssets: 1, maxRetiredAssets: 1 });
+    const assetBinding = binding(0);
+    const blob = new Blob([new Uint8Array([21, 22, 23])], { type: 'audio/flac' });
+    const first = setup.registry.admitProvisionalBlobAsset(TOKEN, assetBinding, blob, metadata());
+
+    await expect(setup.registry.discardProvisionalAsset(TOKEN, first)).resolves.toBe(true);
+    expect(setup.registry.snapshotForLease(TOKEN, first)).toBeNull();
+    expect(setup.registry.resolveBlobAsset(TOKEN, first)).toBeNull();
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBeNull();
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(0);
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+
+    const second = setup.registry.admitProvisionalBlobAsset(TOKEN, { ...assetBinding }, blob, {
+      ...metadata(),
+    });
+    expect(second).not.toBe(first);
+    expect(setup.registry.resolveBlobAsset(TOKEN, second)?.blob).toBe(blob);
+    await expect(setup.registry.discardProvisionalAsset(TOKEN, second)).resolves.toBe(true);
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+    expect(setup.fatal).not.toHaveBeenCalled();
+  });
+
+  it('churns more than default capacity through sequential provisional Blob discards', async () => {
+    const setup = registry();
+    const assetBinding = binding(0);
+    const blob = new Blob([new Uint8Array([31])], { type: 'audio/flac' });
+    const leases = new Set<FilePlaybackProvisionalAssetLease>();
+
+    for (let index = 0; index < 160; index += 1) {
+      const lease = setup.registry.admitProvisionalBlobAsset(TOKEN, assetBinding, blob, metadata());
+      leases.add(lease);
+      await expect(setup.registry.discardProvisionalAsset(TOKEN, lease)).resolves.toBe(true);
+    }
+
+    expect(leases.size).toBe(160);
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(0);
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+    expect(setup.registry.isClosed()).toBe(false);
+    expect(setup.fatal).not.toHaveBeenCalled();
+  });
+
+  it('rejects copied, foreign, and stale provisional Blob leases', async () => {
+    const setup = registry();
+    const foreign = registry();
+    const assetBinding = binding(0);
+    const blob = new Blob([new Uint8Array([41, 42])], { type: 'audio/flac' });
+    const provisional = setup.registry.admitProvisionalBlobAsset(
+      TOKEN,
+      assetBinding,
+      blob,
+      metadata(),
+    );
+    const copied = Object.freeze({ ...provisional }) as unknown as typeof provisional;
+
+    expect(setup.registry.resolveBlobAsset(TOKEN, copied)).toBeNull();
+    expect(() => setup.registry.acquireSource(TOKEN, copied)).toThrow(/forged or retired/u);
+    expect(() => setup.registry.promoteProvisionalAsset(TOKEN, copied)).toThrow(/forged/u);
+    expect(() => setup.registry.discardProvisionalAsset(TOKEN, copied)).toThrow(/forged/u);
+    expect(foreign.registry.resolveBlobAsset(TOKEN, provisional)).toBeNull();
+    expect(() => foreign.registry.acquireSource(TOKEN, provisional)).toThrow(/forged or retired/u);
+    expect(() => foreign.registry.promoteProvisionalAsset(TOKEN, provisional)).toThrow(/forged/u);
+    expect(setup.registry.resolveBlobAsset(FOREIGN_TOKEN, provisional)).toBeNull();
+
+    await expect(setup.registry.discardProvisionalAsset(TOKEN, provisional)).resolves.toBe(true);
+    expect(setup.registry.resolveBlobAsset(TOKEN, provisional)).toBeNull();
+    expect(() => setup.registry.acquireSource(TOKEN, provisional)).toThrow(/forged or retired/u);
+    expect(() => setup.registry.promoteProvisionalAsset(TOKEN, provisional)).toThrow(/forged/u);
+    expect(() => setup.registry.discardProvisionalAsset(TOKEN, provisional)).toThrow(/forged/u);
+  });
+
   it('reuses a provisional queue occurrence only after exact cleanup settles', async () => {
     const setup = registry({ maxLiveAssets: 1 });
     const firstBinding = binding(0);

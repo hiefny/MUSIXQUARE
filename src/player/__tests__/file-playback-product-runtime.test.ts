@@ -1075,6 +1075,129 @@ describe('FilePlaybackProductRuntime', () => {
     expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
   });
 
+  it('settles every source offer before sending any prepared RUN binding', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const firstOfferGate = deferred<void>();
+    const capabilities = [0, 1].map(
+      (index) =>
+        freezeCanonical({
+          participant: freezeCanonical({ participantId: `offer-barrier-guest-${index}` }),
+          bindAttempt: vi.fn(async () => undefined),
+        }) as unknown as Readonly<HostPreparedRemoteParticipant>,
+    );
+    const owners = capabilities.map((capability, index) =>
+      Object.freeze({
+        onHostReady: vi.fn(),
+        adoptWireMessage: vi.fn(),
+        adoptPeerRangeControl: vi.fn(),
+        revoke: vi.fn(),
+        publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+        publishPrepared: vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+          if (index === 0) await firstOfferGate.promise;
+          return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+        }),
+        bindPrepared: vi.fn(
+          async (prepared: Readonly<HostPreparedLocalTrack>) =>
+            freezeCanonical({ schemaVersion: 1, prepared }) as never,
+        ),
+        whenPreparedRemoteReady: vi.fn(async () => capability),
+        activatePrepared: vi.fn(() => freezeCanonical({ schemaVersion: 1 }) as never),
+        retirePrepared: vi.fn(async () => undefined),
+      }),
+    );
+    let ownerIndex = 0;
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: () => owners[ownerIndex++]!,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('offer-barrier-host');
+    routers[0]!.options.createHostMediaOwner(routerContext('host', { suffix: 'offer-barrier-a' }));
+    routers[0]!.options.createHostMediaOwner(routerContext('host', { suffix: 'offer-barrier-b' }));
+    const room = setup.hostRooms[0]!;
+    const file = localFile('offer-barrier.wav');
+    const prepared = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      backend: 'bounded-stream' as const,
+      state: freezeCanonical({
+        queueItemId: Q1,
+        runId: 'offer-barrier-run',
+        revision: 1,
+      }),
+      positionSeconds: 0,
+      playbackRate: 1,
+      asset: freezeCanonical({
+        kind: 'encoded' as const,
+        binding: freezeCanonical({
+          queueItemId: Q1,
+          sourceIdentity: 'offer-barrier-source',
+          transferSessionId: 'offer-barrier-transfer',
+        }),
+        metadata: freezeCanonical({ name: file.name, mime: file.type }),
+        encodedSize: file.size,
+      }),
+    }) as unknown as Readonly<HostPreparedLocalTrack>;
+    const timeline = freezeCanonical({
+      revision: 1,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: prepared.state.runId }),
+      positionSeconds: 0,
+      rate: 1,
+      anchorMonotonicMs: 9_000,
+    }) as Readonly<PlaybackTimelineSnapshot>;
+    room.startLocalTrackWithCohort.mockImplementationOnce(async (input) => {
+      const remotes = await input.prepareRemoteParticipants(
+        freezeCanonical({
+          prepared,
+          signal: input.signal,
+          resolveSource: vi.fn(async () => file),
+        }),
+      );
+      expect(remotes).toEqual(capabilities);
+      return freezeCanonical({
+        ...candidateResult(
+          prepared.roomGeneration,
+          room.options.hostRoomSnapshot.applicationSessionId,
+          'offer-barrier',
+        ),
+        timeline,
+      }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+    });
+
+    const committed = setup.runtime.startLocalTrack({
+      queueItemId: Q1,
+      file,
+      positionSeconds: 0,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => {
+      expect(owners[0]?.publishPrepared).toHaveBeenCalledOnce();
+      expect(owners[1]?.publishPrepared).toHaveBeenCalledOnce();
+    });
+    expect(owners[0]?.bindPrepared).not.toHaveBeenCalled();
+    expect(owners[1]?.bindPrepared).not.toHaveBeenCalled();
+
+    firstOfferGate.resolve();
+    await committed;
+
+    const lastOfferOrder = Math.max(
+      owners[0]!.publishPrepared.mock.invocationCallOrder[0]!,
+      owners[1]!.publishPrepared.mock.invocationCallOrder[0]!,
+    );
+    const firstBindOrder = Math.min(
+      owners[0]!.bindPrepared.mock.invocationCallOrder[0]!,
+      owners[1]!.bindPrepared.mock.invocationCallOrder[0]!,
+    );
+    expect(lastOfferOrder).toBeLessThan(firstBindOrder);
+  });
+
   it('wires one guest room registry/manager and fail-closes exact room resources', async () => {
     const routers: ProductRouterHarness[] = [];
     let guestOwnerOptions: Readonly<FilePlaybackProductGuestMediaOwnerOptions> | null = null;

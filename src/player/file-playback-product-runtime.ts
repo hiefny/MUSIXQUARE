@@ -1516,13 +1516,28 @@ export class FilePlaybackProductRuntime {
             };
             cycle = created;
             this.#hostPreparedCohorts.set(context.prepared, created);
-            for (const [ownerContext, owner] of owners) {
-              const publicationTask = owner
-                .publishPrepared(context.prepared)
-                .then(async (publication) => {
-                  await owner.bindPrepared(context.prepared);
-                  return publication;
-                });
+            const offers = owners.map(([ownerContext, owner]) => ({
+              ownerContext,
+              owner,
+              task: Promise.resolve().then(() => owner.publishPrepared(context.prepared)),
+            }));
+            const allOffersSettled = Promise.allSettled(offers.map((offer) => offer.task));
+            for (const { ownerContext, owner, task: offerTask } of offers) {
+              const publicationTask = offerTask.then(async (publication) => {
+                await allOffersSettled;
+                if (
+                  created.status !== 'preparing' ||
+                  this.#hostPreparedCohorts.get(created.prepared) !== created ||
+                  this.#hostMediaOwners.get(ownerContext) !== owner ||
+                  !this.#connectionContexts.has(ownerContext) ||
+                  context.signal.aborted ||
+                  !this.#ownsExactHostRoom(active)
+                ) {
+                  throw new Error('File playback product prepared offer became stale before bind');
+                }
+                await owner.bindPrepared(context.prepared);
+                return publication;
+              });
               const entry: HostPreparedCohortEntry = {
                 context: ownerContext,
                 owner,

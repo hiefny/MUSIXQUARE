@@ -18,7 +18,11 @@ import {
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
   type FilePlaybackBoundedRoutePolicy,
 } from '../file-playback-bounded-route-policy.ts';
-import type { StagedFilePlaybackAssetSource } from '../file-playback-asset-source-stager.ts';
+import type {
+  FilePlaybackWarmSourceAuthority,
+  StageFilePlaybackAssetSourceOptions,
+  StagedFilePlaybackAssetSource,
+} from '../file-playback-asset-source-stager.ts';
 import {
   FilePlaybackManager,
   type FilePlaybackCutoverCandidatePort,
@@ -36,6 +40,8 @@ import {
 } from '../file-playback-product-guest-media-owner.ts';
 import type { FilePlaybackProductSessionRouterConnectionContext } from '../file-playback-product-session-router.ts';
 import { createFilePlaybackRunBindingV2 } from '../file-playback-run-binding.ts';
+import { UnsupportedOrdinaryEncodedSourceError } from '../file-playback-source-factory.ts';
+import { PeerRangeEncodedAudioAsset } from '../sources/peer-range-encoded-audio-asset.ts';
 import {
   parseFilePlaybackWireMessage,
   type FilePlaybackWireMessage,
@@ -298,6 +304,25 @@ function peerOffer2(context: Readonly<FilePlaybackProductSessionRouterConnection
   });
 }
 
+function supersedingPeerOffer(
+  context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+) {
+  return createPeerRangeFileMediaSourceOfferV2({
+    sessionId: context.sessionId,
+    connectionId: context.connectionId,
+    prepareId: PREPARE_ID_2,
+    prepareRevision: 2,
+    queueItemId: QUEUE_ID,
+    sourceIdentity: SOURCE_ID_2,
+    transferSessionId: TRANSFER_ID_2,
+    handleId: HANDLE_ID_2,
+    encodedSize: 8_192,
+    name: 'replacement.flac',
+    mime: 'audio/flac',
+    expiresAtRoomTimeMs: 10_000,
+  });
+}
+
 function r2ReplayOffer(context: Readonly<FilePlaybackProductSessionRouterConnectionContext>) {
   const original = r2Offer(context);
   return createR2WholeBlobFileMediaSourceOfferV2({
@@ -425,11 +450,12 @@ function runtimeHarness(
   const sent: unknown[] = [];
   const peerAcceptBulk = vi.fn(() => 'accepted' as never);
   const peerClose = vi.fn();
+  const peerCloseHandle = vi.fn();
   const peerTransport = {
     read: vi.fn(async () => new Uint8Array()),
     acceptBulk: peerAcceptBulk,
     close: peerClose,
-    closeHandle: vi.fn(),
+    closeHandle: peerCloseHandle,
   };
   const r2Acquire = vi.fn(async (operation) => {
     const file = new File([new Uint8Array([1, 2, 3, 4])], operation.offer.name, {
@@ -469,6 +495,67 @@ function runtimeHarness(
       }),
     }) satisfies Readonly<StagedFilePlaybackAssetSource>;
   });
+  const warmRecords = new Map<
+    FilePlaybackWarmSourceAuthority,
+    Readonly<{
+      assetLease: StageFilePlaybackAssetSourceOptions['assetLease'];
+      expectedBinding: StageFilePlaybackAssetSourceOptions['expectedBinding'];
+    }>
+  >();
+  const prepareWarmSource: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['prepareWarmSource']
+  > = vi.fn(async (options) => {
+    const asset = registry.snapshotForLease(ROOM_TOKEN, options.assetLease);
+    if (!asset) throw new Error('missing provisional warm asset');
+    const authority = freezeCanonical({
+      backend: 'bounded-stream' as const,
+      sourceIdentity: asset.sourceIdentity,
+      asset,
+      metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
+      readiness: freezeCanonical({
+        durationSeconds: 120,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+    }) as unknown as FilePlaybackWarmSourceAuthority;
+    warmRecords.set(
+      authority,
+      freezeCanonical({
+        assetLease: options.assetLease,
+        expectedBinding: options.expectedBinding,
+      }),
+    );
+    return authority;
+  });
+  let liveLeaseObservedAtHandoff: object | null = null;
+  const handoffWarmSource: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['handoffWarmSource']
+  > = vi.fn(async (options) => {
+    const record = warmRecords.get(options.authority);
+    if (!record) throw new Error('missing exact warm authority');
+    liveLeaseObservedAtHandoff = registry.leaseForBinding(ROOM_TOKEN, record.expectedBinding);
+    const asset = registry.snapshotForLease(ROOM_TOKEN, record.assetLease);
+    if (!asset) throw new Error('missing promoted warm asset');
+    candidateBackend = 'bounded-stream';
+    warmRecords.delete(options.authority);
+    return freezeCanonical({
+      cutoverPort: CUTOVER_PORT,
+      backend: 'bounded-stream' as const,
+      sourceIdentity: asset.sourceIdentity,
+      asset,
+      metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
+      readiness: freezeCanonical({
+        durationSeconds: 120,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+    }) satisfies Readonly<StagedFilePlaybackAssetSource>;
+  });
+  const retireWarmSource: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['retireWarmSource']
+  > = vi.fn(async (authority) => warmRecords.delete(authority));
   const arm = vi.fn(async (intent: RendezvousArmIntent) =>
     freezeCanonical({
       protocolVersion: 2 as const,
@@ -601,6 +688,9 @@ function runtimeHarness(
       close: r2Close,
     }),
     stageAssetSource,
+    prepareWarmSource,
+    handoffWarmSource,
+    retireWarmSource,
     createParticipant: (options) => ({
       participantId: options.participantId,
       arm,
@@ -625,9 +715,15 @@ function runtimeHarness(
     }),
     peerAcceptBulk,
     peerClose,
+    peerCloseHandle,
     r2Acquire,
     r2Close,
     stageAssetSource,
+    prepareWarmSource,
+    handoffWarmSource,
+    retireWarmSource,
+    warmRecords,
+    liveLeaseObservedAtHandoff: () => liveLeaseObservedAtHandoff,
     arm,
     finalize,
     started,
@@ -794,6 +890,495 @@ async function runHostAttempt(
 }
 
 describe('FilePlaybackProductGuestMediaOwner', () => {
+  it('acknowledges a peer offer before starting detached warm preparation', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const acknowledge = vi.fn();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer(h.context)), acknowledge);
+
+    expect(acknowledge).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    expect(acknowledge.mock.invocationCallOrder[0]).toBeLessThan(
+      h.runtime.prepareWarmSource.mock.invocationCallOrder[0]!,
+    );
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('keeps an OFFER-only r2-whole-blob descriptor completely cold', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const acknowledge = vi.fn();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, r2Offer(h.context)), acknowledge);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(acknowledge).toHaveBeenCalledOnce();
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('reuses one detached warm operation for an exact peer OFFER replay', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    const firstAck = vi.fn();
+    const replayAck = vi.fn();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), firstAck);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), replayAck);
+
+    expect(firstAck).toHaveBeenCalledOnce();
+    expect(replayAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.warmRecords.size).toBe(1);
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('promotes and hands off the exact OFFER-warmed peer asset on RUN_BINDING', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const warmOptions = h.runtime.prepareWarmSource.mock.calls[0]![0];
+    const expectedBinding = freezeCanonical({
+      queueItemId: offer.queueItemId,
+      sourceIdentity: offer.sourceIdentity,
+      transferSessionId: offer.transferSessionId,
+    });
+
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).toMatchObject({
+      kind: 'peer-range',
+      sourceIdentity: offer.sourceIdentity,
+    });
+    expect(h.registry.leaseForBinding(ROOM_TOKEN, expectedBinding)).toBeNull();
+
+    const bindingAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), bindingAck);
+    expect(bindingAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toBe(true),
+    );
+
+    expect(h.runtime.liveLeaseObservedAtHandoff()).toBe(warmOptions.assetLease);
+    expect(h.registry.leaseForBinding(ROOM_TOKEN, expectedBinding)).toBe(warmOptions.assetLease);
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('retires a detached warm source before revoke closes its provisional peer handle', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer(h.context)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const authority = [...h.runtime.warmRecords.keys()][0];
+    expect(authority).toBeDefined();
+
+    h.owner.revoke(h.context);
+
+    await vi.waitFor(() => expect(h.runtime.retireWarmSource).toHaveBeenCalledWith(authority));
+    await vi.waitFor(() => expect(h.runtime.peerCloseHandle).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+    expect(h.runtime.retireWarmSource.mock.invocationCallOrder[0]).toBeLessThan(
+      h.runtime.peerCloseHandle.mock.invocationCallOrder[0]!,
+    );
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('immediately discards a detached provisional asset when warm preparation never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = setup();
+      h.runtime.r2Close.mockResolvedValueOnce(undefined);
+      const neverSettles = new Promise<Readonly<FilePlaybackWarmSourceAuthority>>(() => undefined);
+      h.runtime.prepareWarmSource.mockImplementationOnce(() => neverSettles);
+      h.owner.onTimelineAdopted(timelineEvent(h.context));
+      const offer = peerOffer(h.context);
+      h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+      const warmOptions = h.runtime.prepareWarmSource.mock.calls[0]![0];
+
+      h.owner.revoke(h.context);
+      expect(h.runtime.r2Close).toHaveBeenCalledOnce();
+      const r2CloseResult = h.runtime.r2Close.mock.results[0]!.value;
+      await vi.advanceTimersByTimeAsync(0);
+      if (h.runtime.peerClose.mock.calls.length === 0) {
+        await vi.advanceTimersByTimeAsync(2_000);
+      }
+
+      await expect(r2CloseResult).resolves.toBeUndefined();
+      expect(h.runtime.peerCloseHandle).toHaveBeenCalledOnce();
+      expect(h.runtime.peerClose).toHaveBeenCalledOnce();
+      expect(h.runtime.peerCloseHandle.mock.invocationCallOrder[0]).toBeLessThan(
+        h.runtime.peerClose.mock.invocationCallOrder[0]!,
+      );
+      expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).toBeNull();
+
+      const binding = freezeCanonical({
+        queueItemId: offer.queueItemId,
+        sourceIdentity: offer.sourceIdentity,
+        transferSessionId: offer.transferSessionId,
+      });
+      const replacementAsset = new PeerRangeEncodedAudioAsset({
+        size: offer.encodedSize,
+        identity: offer.sourceIdentity,
+        metadata: { name: offer.name, mime: offer.mime },
+        handleId: HANDLE_ID_2,
+        transport: {
+          read: async ({ length }) => new Uint8Array(length),
+          closeHandle: vi.fn(),
+        },
+      });
+      const replacementLease = h.registry.admitProvisionalEncodedAsset(
+        ROOM_TOKEN,
+        binding,
+        replacementAsset,
+      );
+      expect(h.registry.snapshotForLease(ROOM_TOKEN, replacementLease)).toMatchObject({
+        kind: 'peer-range',
+        sourceIdentity: offer.sourceIdentity,
+      });
+      await expect(h.registry.discardProvisionalAsset(ROOM_TOKEN, replacementLease)).resolves.toBe(
+        true,
+      );
+      await h.registry.close(ROOM_TOKEN);
+      expect(h.fatal).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retires a warm authority that arrives after revoke discarded its provisional asset', async () => {
+    const h = setup();
+    const pendingWarm = deferred<Readonly<FilePlaybackWarmSourceAuthority>>();
+    h.runtime.prepareWarmSource.mockImplementationOnce(() => pendingWarm.promise);
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const warmOptions = h.runtime.prepareWarmSource.mock.calls[0]![0];
+    const asset = h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease);
+    expect(asset).not.toBeNull();
+    const lateAuthority = freezeCanonical({
+      backend: 'bounded-stream' as const,
+      sourceIdentity: offer.sourceIdentity,
+      asset: asset!,
+      metadata: freezeCanonical({ name: offer.name, mime: offer.mime }),
+      readiness: freezeCanonical({
+        durationSeconds: 120,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+    }) as unknown as FilePlaybackWarmSourceAuthority;
+
+    h.owner.revoke(h.context);
+    await vi.waitFor(() => expect(h.runtime.peerCloseHandle).toHaveBeenCalledOnce());
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).toBeNull();
+
+    pendingWarm.resolve(lateAuthority);
+
+    await vi.waitFor(() => expect(h.runtime.retireWarmSource).toHaveBeenCalledWith(lateAuthority));
+    expect(h.runtime.retireWarmSource).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('bounds revoke while RUN_BINDING is waiting on warm preparation that never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = setup();
+      const neverSettles = new Promise<Readonly<FilePlaybackWarmSourceAuthority>>(() => undefined);
+      h.runtime.prepareWarmSource.mockImplementationOnce(() => neverSettles);
+      h.owner.onTimelineAdopted(timelineEvent(h.context));
+      const offer = peerOffer(h.context);
+      h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+
+      const bindingAck = vi.fn();
+      h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), bindingAck);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bindingAck).toHaveBeenCalledOnce();
+
+      h.owner.revoke(h.context);
+      expect(h.runtime.r2Close).toHaveBeenCalledOnce();
+      const r2CloseResult = h.runtime.r2Close.mock.results[0]!.value;
+      await vi.advanceTimersByTimeAsync(2_001);
+
+      await expect(r2CloseResult).resolves.toBeUndefined();
+      expect(h.runtime.peerCloseHandle).toHaveBeenCalledOnce();
+      expect(h.runtime.peerClose).toHaveBeenCalledOnce();
+      expect(h.runtime.peerCloseHandle.mock.invocationCallOrder[0]).toBeLessThan(
+        h.runtime.peerClose.mock.invocationCallOrder[0]!,
+      );
+      expect(h.fatal).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the exact two-second peer-close grace when warm authority retirement never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = setup();
+      h.owner.onTimelineAdopted(timelineEvent(h.context));
+      h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer(h.context)), vi.fn());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+      expect(h.runtime.warmRecords.size).toBe(1);
+      h.runtime.retireWarmSource.mockImplementationOnce(
+        () => new Promise<boolean>(() => undefined),
+      );
+
+      h.owner.revoke(h.context);
+      expect(h.runtime.r2Close).toHaveBeenCalledOnce();
+      const r2CloseResult = h.runtime.r2Close.mock.results[0]!.value;
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(h.runtime.peerClose).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2);
+
+      expect(h.runtime.peerClose).toHaveBeenCalledOnce();
+      await expect(r2CloseResult).resolves.toBeUndefined();
+      expect(h.fatal).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fully retires and discards a same-queue warm before preparing its replacement', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer(h.context)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const firstAuthority = [...h.runtime.warmRecords.keys()][0];
+    expect(firstAuthority).toBeDefined();
+
+    const replacementAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, supersedingPeerOffer(h.context)),
+      replacementAck,
+    );
+
+    expect(replacementAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.runtime.retireWarmSource).toHaveBeenCalledWith(firstAuthority));
+    await vi.waitFor(() => expect(h.runtime.peerCloseHandle).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledTimes(2));
+    expect(h.runtime.retireWarmSource.mock.invocationCallOrder[0]).toBeLessThan(
+      h.runtime.peerCloseHandle.mock.invocationCallOrder[0]!,
+    );
+    expect(h.runtime.peerCloseHandle.mock.invocationCallOrder[0]).toBeLessThan(
+      h.runtime.prepareWarmSource.mock.invocationCallOrder[1]!,
+    );
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('keeps a different-queue OFFER pending without evicting the active warm', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer(h.context)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const firstAuthority = [...h.runtime.warmRecords.keys()][0];
+
+    const pendingAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer2(h.context)), pendingAck);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(pendingAck).toHaveBeenCalledOnce();
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.peerCloseHandle).not.toHaveBeenCalled();
+    expect([...h.runtime.warmRecords.keys()]).toEqual([firstAuthority]);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('starts a pending different-queue warm only after the first warm RUN handoff', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const firstOffer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, firstOffer), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer2(h.context)), vi.fn());
+    await Promise.resolve();
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(firstOffer)), vi.fn());
+
+    await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledTimes(2));
+    expect(h.runtime.handoffWarmSource.mock.invocationCallOrder[0]).toBeLessThan(
+      h.runtime.prepareWarmSource.mock.invocationCallOrder[1]!,
+    );
+    expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.warmRecords.size).toBe(1);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('retains and promotes the provisional lease when warm routing is unsupported', async () => {
+    const h = setup();
+    h.runtime.prepareWarmSource.mockRejectedValueOnce(new UnsupportedOrdinaryEncodedSourceError());
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const warmOptions = h.runtime.prepareWarmSource.mock.calls[0]![0];
+    const expectedBinding = freezeCanonical({
+      queueItemId: offer.queueItemId,
+      sourceIdentity: offer.sourceIdentity,
+      transferSessionId: offer.transferSessionId,
+    });
+    await Promise.resolve();
+
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).toMatchObject({
+      kind: 'peer-range',
+      sourceIdentity: offer.sourceIdentity,
+    });
+    expect(h.registry.leaseForBinding(ROOM_TOKEN, expectedBinding)).toBeNull();
+    expect(h.runtime.peerCloseHandle).not.toHaveBeenCalled();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toBe(true),
+    );
+
+    const coldOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
+    expect(coldOptions.assetLease).toBe(warmOptions.assetLease);
+    expect(h.registry.leaseForBinding(ROOM_TOKEN, expectedBinding)).toBe(warmOptions.assetLease);
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.peerCloseHandle).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('cold-retries the same provisional lease after a transient warm failure', async () => {
+    const h = setup();
+    h.runtime.prepareWarmSource.mockRejectedValueOnce(new Error('transient warm failure'));
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    const warmOptions = h.runtime.prepareWarmSource.mock.calls[0]![0];
+    const expectedBinding = freezeCanonical({
+      queueItemId: offer.queueItemId,
+      sourceIdentity: offer.sourceIdentity,
+      transferSessionId: offer.transferSessionId,
+    });
+    await Promise.resolve();
+
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).toMatchObject({
+      kind: 'peer-range',
+      sourceIdentity: offer.sourceIdentity,
+    });
+    expect(h.registry.leaseForBinding(ROOM_TOKEN, expectedBinding)).toBeNull();
+    expect(h.runtime.peerCloseHandle).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toBe(true),
+    );
+
+    const coldOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
+    expect(coldOptions.assetLease).toBe(warmOptions.assetLease);
+    expect(h.registry.leaseForBinding(ROOM_TOKEN, expectedBinding)).toBe(warmOptions.assetLease);
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.peerCloseHandle).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('retries a rejected OFFER-time audio graph provider on the cold RUN path', async () => {
+    const graph = audioGraph();
+    const getAudioGraph = vi
+      .fn<() => Promise<Readonly<ReturnType<typeof audioGraph>>>>()
+      .mockRejectedValueOnce(new Error('transient audio graph failure'))
+      .mockResolvedValueOnce(graph);
+    const h = setup({ getAudioGraph });
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    await vi.waitFor(() => expect(getAudioGraph).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+    await vi.waitFor(() => expect(getAudioGraph).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toBe(true),
+    );
+
+    const coldOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, coldOptions.assetLease)).toMatchObject({
+      kind: 'peer-range',
+      sourceIdentity: offer.sourceIdentity,
+    });
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.retireWarmSource).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('fails closed without starting a replacement when old warm cleanup rejects', async () => {
+    const h = setup();
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, peerOffer(h.context)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce());
+    h.runtime.retireWarmSource.mockRejectedValueOnce(new Error('warm cleanup rejected'));
+
+    const replacementAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, supersedingPeerOffer(h.context)),
+      replacementAck,
+    );
+
+    expect(replacementAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.runtime.retireWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+  });
+
   it('completes peer-range native FLAC late join through physical health evidence', async () => {
     const h = setup();
     expect(Object.keys(h.owner)).toEqual([
@@ -808,10 +1393,12 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(Object.isFrozen(h.owner)).toBe(true);
 
     await prepare(h);
-    expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce();
-    const stageOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
-    expect(stageOptions).not.toHaveProperty('boundedRoutePolicy');
-    expect(h.registry.snapshotForLease(ROOM_TOKEN, stageOptions.assetLease)).toMatchObject({
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.handoffWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    const warmOptions = h.runtime.prepareWarmSource.mock.calls[0]![0];
+    expect(warmOptions).not.toHaveProperty('boundedRoutePolicy');
+    expect(h.registry.snapshotForLease(ROOM_TOKEN, warmOptions.assetLease)).toMatchObject({
       kind: 'peer-range',
       sourceIdentity: SOURCE_ID,
     });
@@ -1078,7 +1665,8 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       auxiliaryEvent(h.context, runBinding(offer, RUN_ID_2, 2)),
       vi.fn(),
     );
-    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledTimes(2));
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
     expect(h.rendered).not.toHaveBeenCalled();
 
     await runHostAttempt(

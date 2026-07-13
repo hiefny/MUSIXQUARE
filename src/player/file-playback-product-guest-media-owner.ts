@@ -19,19 +19,25 @@ import {
   type FilePlaybackAssetBinding,
   type FilePlaybackAssetLease,
   type FilePlaybackAssetSnapshot,
+  type FilePlaybackProvisionalAssetLease,
 } from './file-playback-asset-registry.ts';
 import {
   snapshotFilePlaybackBoundedRoutePolicy,
   type FilePlaybackBoundedRoutePolicy,
 } from './file-playback-bounded-route-policy.ts';
 import {
+  handoffFilePlaybackAssetSourceWarm,
+  prepareFilePlaybackAssetSourceWarm,
+  retireFilePlaybackAssetSourceWarm,
   stageFilePlaybackAssetSource,
+  type FilePlaybackWarmSourceAuthority,
   type StageFilePlaybackAssetSourceOptions,
   type StagedFilePlaybackAssetSource,
 } from './file-playback-asset-source-stager.ts';
 import type { FilePlaybackClockBindings } from './file-playback-clock.ts';
 import {
   FilePlaybackConnectionMediaSession,
+  type FilePlaybackConnectionMediaOfferPreparation,
   type FilePlaybackConnectionMediaOperation,
   type FilePlaybackConnectionMediaPreparedRunAttempt,
 } from './file-playback-connection-media-session.ts';
@@ -129,6 +135,9 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
 );
 const RUNTIME_KEYS = Object.freeze([
   'stageAssetSource',
+  'prepareWarmSource',
+  'handoffWarmSource',
+  'retireWarmSource',
   'createR2Acquirer',
   'createPeerTransport',
   'createParticipant',
@@ -192,12 +201,16 @@ const DEFAULT_ARM_P95_MS = 75;
 const DEFAULT_READY_LEASE_MS = 30_000;
 const DEFAULT_RENDERER_HEALTH_LEASE_MS = 10_000;
 const CLOCK_POLL_MS = 20;
+const WARM_CLOSE_GRACE_MS = 2_000;
 
 type ExactRecord = Readonly<Record<string, unknown>>;
 type MaybePromiseBoolean = boolean | PromiseLike<boolean>;
 type StageAssetSource = (
   options: StageFilePlaybackAssetSourceOptions,
 ) => Promise<Readonly<StagedFilePlaybackAssetSource>>;
+type PrepareWarmSource = typeof prepareFilePlaybackAssetSourceWarm;
+type HandoffWarmSource = typeof handoffFilePlaybackAssetSourceWarm;
+type RetireWarmSource = typeof retireFilePlaybackAssetSourceWarm;
 
 interface GuestR2AcquirerPort {
   acquire(
@@ -224,6 +237,9 @@ interface GuestRendezvousParticipantPort {
 
 interface RuntimeSnapshot {
   readonly stageAssetSource: StageAssetSource;
+  readonly prepareWarmSource: PrepareWarmSource;
+  readonly handoffWarmSource: HandoffWarmSource;
+  readonly retireWarmSource: RetireWarmSource;
   readonly createR2Acquirer: (
     options: FilePlaybackR2WholeBlobAcquirerOptions,
   ) => GuestR2AcquirerPort;
@@ -267,6 +283,9 @@ interface RuntimeSnapshot {
 
 export interface FilePlaybackProductGuestMediaOwnerRuntimeForTests {
   readonly stageAssetSource?: RuntimeSnapshot['stageAssetSource'];
+  readonly prepareWarmSource?: RuntimeSnapshot['prepareWarmSource'];
+  readonly handoffWarmSource?: RuntimeSnapshot['handoffWarmSource'];
+  readonly retireWarmSource?: RuntimeSnapshot['retireWarmSource'];
   readonly createR2Acquirer?: RuntimeSnapshot['createR2Acquirer'];
   readonly createPeerTransport?: RuntimeSnapshot['createPeerTransport'];
   readonly createParticipant?: RuntimeSnapshot['createParticipant'];
@@ -329,6 +348,27 @@ interface GuestPreparedRun {
   status: 'preparing' | 'ready' | 'current' | 'retired';
 }
 
+type GuestOfferWarmOutcome = 'warmed' | 'cold-retained';
+
+interface GuestOfferWarmOperation {
+  readonly preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>;
+  readonly binding: Readonly<FilePlaybackAssetBinding>;
+  readonly controller: AbortController;
+  removePreparationAbort: () => void;
+  task: Promise<GuestOfferWarmOutcome> | null;
+  provisionalLease: FilePlaybackProvisionalAssetLease | null;
+  authority: Readonly<FilePlaybackWarmSourceAuthority> | null;
+  claimedBy: GuestPreparedRun | null;
+  promoted: boolean;
+  retiring: boolean;
+  retirementPromise: Promise<void> | null;
+}
+
+interface GuestOfferWarmClaim {
+  readonly assetLease: FilePlaybackAssetLease;
+  readonly staged: Readonly<StagedFilePlaybackAssetSource> | null;
+}
+
 interface GuestRoomState {
   readonly roomGeneration: number;
   timeline: Readonly<PlaybackTimelineSnapshot>;
@@ -367,6 +407,10 @@ const channelQuality = FilePlaybackConnectionChannel.prototype.quality;
 const channelCreateWire = FilePlaybackConnectionChannel.prototype.createWire;
 const channelCommitAttempt = FilePlaybackConnectionChannel.prototype.commitAttempt;
 const registryAdmitEncoded = FilePlaybackAssetRegistry.prototype.admitEncodedAsset;
+const registryAdmitProvisionalEncoded =
+  FilePlaybackAssetRegistry.prototype.admitProvisionalEncodedAsset;
+const registryPromoteProvisional = FilePlaybackAssetRegistry.prototype.promoteProvisionalAsset;
+const registryDiscardProvisional = FilePlaybackAssetRegistry.prototype.discardProvisionalAsset;
 const registrySnapshot = FilePlaybackAssetRegistry.prototype.snapshotForLease;
 const managerCurrentPort = FilePlaybackManager.prototype.currentCutoverPort;
 const managerCurrentSnapshot = FilePlaybackManager.prototype.currentCutoverSnapshot;
@@ -482,6 +526,15 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     stageAssetSource:
       (runtime.stageAssetSource as RuntimeSnapshot['stageAssetSource'] | undefined) ??
       stageFilePlaybackAssetSource,
+    prepareWarmSource:
+      (runtime.prepareWarmSource as RuntimeSnapshot['prepareWarmSource'] | undefined) ??
+      prepareFilePlaybackAssetSourceWarm,
+    handoffWarmSource:
+      (runtime.handoffWarmSource as RuntimeSnapshot['handoffWarmSource'] | undefined) ??
+      handoffFilePlaybackAssetSourceWarm,
+    retireWarmSource:
+      (runtime.retireWarmSource as RuntimeSnapshot['retireWarmSource'] | undefined) ??
+      retireFilePlaybackAssetSourceWarm,
     createR2Acquirer:
       (runtime.createR2Acquirer as RuntimeSnapshot['createR2Acquirer'] | undefined) ??
       ((options: FilePlaybackR2WholeBlobAcquirerOptions) =>
@@ -648,6 +701,32 @@ function assetBinding(
   });
 }
 
+function preparationAssetBinding(
+  preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>,
+): Readonly<FilePlaybackAssetBinding> {
+  return freezeCanonical({
+    queueItemId: preparation.offer.queueItemId,
+    sourceIdentity: preparation.offer.sourceIdentity,
+    transferSessionId: preparation.offer.transferSessionId,
+  });
+}
+
+function sameOfferedAsset(
+  snapshot: Readonly<FilePlaybackAssetSnapshot> | null,
+  binding: Readonly<FilePlaybackAssetBinding>,
+  preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>,
+): snapshot is Readonly<FilePlaybackAssetSnapshot> {
+  return (
+    snapshot !== null &&
+    snapshot.queueItemId === binding.queueItemId &&
+    snapshot.sourceIdentity === binding.sourceIdentity &&
+    snapshot.transferSessionId === binding.transferSessionId &&
+    snapshot.size === preparation.offer.encodedSize &&
+    snapshot.name === preparation.offer.name &&
+    snapshot.mime === preparation.offer.mime
+  );
+}
+
 function sameAsset(
   snapshot: Readonly<FilePlaybackAssetSnapshot> | null,
   binding: Readonly<FilePlaybackAssetBinding>,
@@ -795,6 +874,13 @@ export class FilePlaybackProductGuestMediaOwnerFatalError extends Error {
   }
 }
 
+class GuestOfferWarmCleanupError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'GuestOfferWarmCleanupError';
+  }
+}
+
 class GuestMediaOwner {
   readonly #context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
   readonly #roomToken: object;
@@ -817,7 +903,10 @@ class GuestMediaOwner {
   readonly #peerTransport: GuestPeerTransportPort;
   readonly #r2Acquirer: GuestR2AcquirerPort;
   readonly #tasks = new Set<Promise<void>>();
+  readonly #warmTasks = new Set<Promise<void>>();
   #room: GuestRoomState | null = null;
+  #offerWarm: GuestOfferWarmOperation | null = null;
+  #pendingOfferWarm: Readonly<FilePlaybackConnectionMediaOfferPreparation> | null = null;
   #lane: Promise<void> = Promise.resolve();
   #closed = false;
   #fatalError: FilePlaybackProductGuestMediaOwnerFatalError | null = null;
@@ -1041,6 +1130,9 @@ class GuestMediaOwner {
           throw new Error(`Guest source offer was rejected: ${result.reason}`);
         }
         acknowledge();
+        if (result.offer.transport === 'peer-range') {
+          this.#scheduleOfferWarm(result.preparation);
+        }
         return;
       }
       if (type !== FILE_PLAYBACK_RUN_BINDING_V2_TYPE) {
@@ -1068,6 +1160,9 @@ class GuestMediaOwner {
         }
       }
       const operation = this.#mediaSession.stageRunBinding(event!.frame, state, kind);
+      if (this.#pendingOfferWarm?.offer === operation.offer) {
+        this.#pendingOfferWarm = null;
+      }
       const existing = kind === 'baseline' ? room.current : room.candidate;
       if (existing) {
         if (existing.operation !== operation) {
@@ -1272,25 +1367,34 @@ class GuestMediaOwner {
       this.#assertRunningAudioGraph(graph);
       this.#assertPrepared(room, prepared);
       prepared.audioGraph = graph;
-      const acquired = await this.#acquireAsset(operation);
+      const warmClaim = await this.#claimOfferWarm(room, prepared, graph);
       this.#assertPrepared(room, prepared);
-      prepared.assetLease = acquired.assetLease;
-      const clockBindings = await this.#awaitClockBindings(room, prepared, graph.audioContext);
-      this.#assertPrepared(room, prepared);
-      const staged = await this.#runtime.stageAssetSource({
-        registry: this.#registry,
-        roomToken: this.#roomToken,
-        assetLease: acquired.assetLease,
-        expectedBinding: assetBinding(operation),
-        manager: this.#manager,
-        audioContext: graph.audioContext,
-        destination: graph.destination,
-        clockBindings,
-        signal: operation.fence.signal,
-        isCurrent: () => this.#preparedCurrent(room, prepared),
-        decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
-        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
-      });
+      let assetLease = warmClaim?.assetLease ?? null;
+      let staged = warmClaim?.staged ?? null;
+      if (!assetLease) {
+        const acquired = await this.#acquireAsset(operation);
+        this.#assertPrepared(room, prepared);
+        assetLease = acquired.assetLease;
+      }
+      prepared.assetLease = assetLease;
+      if (!staged) {
+        const clockBindings = await this.#awaitClockBindings(room, prepared, graph.audioContext);
+        this.#assertPrepared(room, prepared);
+        staged = await this.#runtime.stageAssetSource({
+          registry: this.#registry,
+          roomToken: this.#roomToken,
+          assetLease,
+          expectedBinding: assetBinding(operation),
+          manager: this.#manager,
+          audioContext: graph.audioContext,
+          destination: graph.destination,
+          clockBindings,
+          signal: operation.fence.signal,
+          isCurrent: () => this.#preparedCurrent(room, prepared),
+          decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
+          ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
+        });
+      }
       this.#assertPrepared(room, prepared);
       if (
         staged.asset.queueItemId !== prepared.state.queueItemId ||
@@ -1397,6 +1501,413 @@ class GuestMediaOwner {
     prepared.status = 'ready';
   }
 
+  #scheduleOfferWarm(preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>): void {
+    if (preparation.offer.transport !== 'peer-range') return;
+    if (this.#registry.leaseForBinding(this.#roomToken, preparationAssetBinding(preparation))) {
+      return;
+    }
+    const active = this.#offerWarm;
+    if (active?.preparation === preparation) return;
+    if (active && active.preparation.offer.queueItemId !== preparation.offer.queueItemId) {
+      this.#pendingOfferWarm = preparation;
+      return;
+    }
+    this.#beginOfferWarm(preparation, active);
+  }
+
+  #beginOfferWarm(
+    preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>,
+    previous: GuestOfferWarmOperation | null,
+  ): void {
+    const controller = new AbortController();
+    const operation: GuestOfferWarmOperation = {
+      preparation,
+      binding: preparationAssetBinding(preparation),
+      controller,
+      removePreparationAbort: () => undefined,
+      task: null,
+      provisionalLease: null,
+      authority: null,
+      claimedBy: null,
+      promoted: false,
+      retiring: false,
+      retirementPromise: null,
+    };
+    const retireForPreparation = (): void => {
+      const reason =
+        preparation.fence.signal.reason ??
+        new DOMException('Guest source-offer preparation expired', 'AbortError');
+      controller.abort(reason);
+      this.#observeOfferWarmRetirement(this.#retireOfferWarm(operation, reason));
+    };
+    preparation.fence.signal.addEventListener('abort', retireForPreparation, { once: true });
+    operation.removePreparationAbort = () => {
+      preparation.fence.signal.removeEventListener('abort', retireForPreparation);
+    };
+    this.#offerWarm = operation;
+    if (this.#pendingOfferWarm === preparation) this.#pendingOfferWarm = null;
+    const task = Promise.resolve().then(() => this.#executeOfferWarm(operation, previous));
+    operation.task = task;
+    void task.catch((error: unknown) => {
+      if (error instanceof GuestOfferWarmCleanupError && !this.#closed) {
+        this.#fatal('Guest offer warm cleanup failed', error);
+      }
+      const retirement = operation.retirementPromise;
+      if (retirement) {
+        const lateCleanup = retirement.then(
+          () => this.#cleanupOfferWarmResources(operation),
+          () => this.#cleanupOfferWarmResources(operation),
+        );
+        this.#observeOfferWarmRetirement(lateCleanup);
+        return;
+      }
+      if (
+        !this.#closed &&
+        this.#offerWarm === operation &&
+        (!this.#offerWarmCurrent(operation) ||
+          operation.controller.signal.aborted ||
+          (!operation.provisionalLease && !operation.authority))
+      ) {
+        this.#observeOfferWarmRetirement(this.#retireOfferWarm(operation, error));
+      }
+    });
+    if (preparation.fence.signal.aborted) retireForPreparation();
+  }
+
+  async #executeOfferWarm(
+    operation: GuestOfferWarmOperation,
+    previous: GuestOfferWarmOperation | null,
+  ): Promise<GuestOfferWarmOutcome> {
+    if (previous && previous !== operation) {
+      await this.#retireOfferWarm(
+        previous,
+        new Error('Guest source-offer warm operation was superseded'),
+      );
+    }
+    this.#assertOfferWarm(operation);
+    const graph = await this.#resolveOfferWarmAudioGraph(operation);
+    const clockBindings = await this.#awaitOfferWarmClockBindings(operation, graph.audioContext);
+    this.#assertOfferWarm(operation);
+
+    const offer = operation.preparation.offer;
+    if (offer.transport !== 'peer-range') {
+      throw new Error('Guest offer warm requires an exact peer-range descriptor');
+    }
+    const asset = new PeerRangeEncodedAudioAsset({
+      size: offer.encodedSize,
+      identity: offer.sourceIdentity,
+      metadata: { name: offer.name, mime: offer.mime },
+      transport: this.#peerTransport,
+      handleId: offer.handleId,
+    });
+    const provisionalLease = Reflect.apply(registryAdmitProvisionalEncoded, this.#registry, [
+      this.#roomToken,
+      operation.binding,
+      asset,
+    ]);
+    operation.provisionalLease = provisionalLease;
+    const snapshot = Reflect.apply(registrySnapshot, this.#registry, [
+      this.#roomToken,
+      provisionalLease,
+    ]);
+    if (!sameOfferedAsset(snapshot, operation.binding, operation.preparation)) {
+      throw new Error('Guest provisional peer-range asset admission was inconsistent');
+    }
+    this.#assertOfferWarm(operation);
+
+    const authority = await this.#runtime.prepareWarmSource({
+      registry: this.#registry,
+      roomToken: this.#roomToken,
+      assetLease: provisionalLease,
+      expectedBinding: operation.binding,
+      audioContext: graph.audioContext,
+      clockBindings,
+      signal: operation.controller.signal,
+      isCurrent: () => this.#offerWarmCurrent(operation),
+      decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
+      ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
+    });
+    operation.authority = authority;
+    this.#assertOfferWarm(operation);
+    if (authority.backend !== 'bounded-stream') {
+      try {
+        await this.#runtime.retireWarmSource(authority);
+      } catch (error) {
+        throw new GuestOfferWarmCleanupError('Guest non-bounded warm source cleanup failed', {
+          cause: error,
+        });
+      }
+      operation.authority = null;
+      this.#assertOfferWarm(operation);
+      return 'cold-retained';
+    }
+    return 'warmed';
+  }
+
+  async #claimOfferWarm(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
+  ): Promise<Readonly<GuestOfferWarmClaim> | null> {
+    const warm = this.#offerWarm;
+    if (!warm || warm.preparation.offer !== prepared.operation.offer || !warm.task) return null;
+
+    let outcome: GuestOfferWarmOutcome;
+    try {
+      outcome = await this.#awaitOwnerTask(warm.task);
+    } catch (error) {
+      this.#assertPrepared(room, prepared);
+      if (error instanceof GuestOfferWarmCleanupError) throw error;
+      outcome = 'cold-retained';
+    }
+    this.#assertPrepared(room, prepared);
+    if (warm.retiring || warm.retirementPromise) {
+      if (!warm.retirementPromise) return null;
+      await this.#awaitOwnerTask(warm.retirementPromise);
+      this.#assertPrepared(room, prepared);
+      return null;
+    }
+    if (this.#offerWarm !== warm || warm.preparation.offer !== prepared.operation.offer) {
+      return null;
+    }
+    const provisionalLease = warm.provisionalLease;
+    if (!provisionalLease) {
+      await this.#retireOfferWarm(
+        warm,
+        new Error('Guest source-offer warm operation retained no provisional asset'),
+      );
+      return null;
+    }
+    const snapshot = Reflect.apply(registrySnapshot, this.#registry, [
+      this.#roomToken,
+      provisionalLease,
+    ]);
+    if (!sameOfferedAsset(snapshot, warm.binding, warm.preparation)) {
+      throw new Error('Guest source-offer warm asset became stale before RUN handoff');
+    }
+    this.#assertPrepared(room, prepared);
+
+    const promotedLease = Reflect.apply(registryPromoteProvisional, this.#registry, [
+      this.#roomToken,
+      provisionalLease,
+    ]);
+    if (promotedLease !== provisionalLease) {
+      throw new Error('Guest source-offer warm promotion changed its exact lease identity');
+    }
+    warm.promoted = true;
+    warm.claimedBy = prepared;
+    warm.removePreparationAbort();
+    prepared.assetLease = promotedLease;
+
+    const authority = warm.authority;
+    if (outcome === 'warmed') {
+      if (!authority || authority.backend !== 'bounded-stream') {
+        throw new Error('Guest warmed source lost its exact bounded authority');
+      }
+      try {
+        const staged = await this.#runtime.handoffWarmSource({
+          authority,
+          manager: this.#manager,
+          destination: graph.destination,
+          signal: prepared.operation.fence.signal,
+          isCurrent: () => this.#preparedCurrent(room, prepared),
+        });
+        this.#assertPrepared(room, prepared);
+        return freezeCanonical({ assetLease: promotedLease, staged });
+      } finally {
+        this.#settleClaimedOfferWarm(warm);
+      }
+    }
+
+    this.#settleClaimedOfferWarm(warm);
+    return freezeCanonical({ assetLease: promotedLease, staged: null });
+  }
+
+  async #awaitOwnerTask<T>(task: Promise<T>): Promise<T> {
+    const signal = this.#abort.signal;
+    if (signal.aborted) throw signal.reason ?? new Error('Guest media owner was revoked');
+    let rejectForAbort!: (reason?: unknown) => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectForAbort = reject;
+    });
+    const onAbort = (): void => {
+      rejectForAbort(signal.reason ?? new Error('Guest media owner was revoked'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    try {
+      return await Promise.race([task, aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  #settleClaimedOfferWarm(operation: GuestOfferWarmOperation): void {
+    operation.removePreparationAbort();
+    operation.authority = null;
+    operation.provisionalLease = null;
+    if (this.#offerWarm === operation) this.#offerWarm = null;
+    this.#drainPendingOfferWarm();
+  }
+
+  #retireOfferWarm(operation: GuestOfferWarmOperation, reason: unknown): Promise<void> {
+    if (operation.retirementPromise) return operation.retirementPromise;
+    operation.removePreparationAbort();
+    operation.retiring = true;
+    const retirement = Promise.resolve().then(async () => {
+      const cleanup = this.#cleanupOfferWarmResources(operation);
+      const completed = await Promise.race([
+        cleanup.then(() => true),
+        delay(WARM_CLOSE_GRACE_MS).then(() => false),
+      ]);
+      if (!completed) {
+        throw new GuestOfferWarmCleanupError('Guest warm resource cleanup timed out');
+      }
+      if (this.#offerWarm === operation) {
+        this.#offerWarm = null;
+        this.#drainPendingOfferWarm();
+      }
+    });
+    operation.retirementPromise = retirement;
+    if (!operation.claimedBy && !operation.promoted) operation.controller.abort(reason);
+    return retirement;
+  }
+
+  async #cleanupOfferWarmResources(operation: GuestOfferWarmOperation): Promise<void> {
+    if (operation.claimedBy || operation.promoted) return;
+    const cleanups: Promise<void>[] = [];
+    const authority = operation.authority;
+    if (authority) {
+      operation.authority = null;
+      try {
+        cleanups.push(
+          Promise.resolve(this.#runtime.retireWarmSource(authority)).then(() => undefined),
+        );
+      } catch (error) {
+        cleanups.push(Promise.reject(error));
+      }
+    }
+    const provisionalLease = operation.provisionalLease;
+    if (provisionalLease) {
+      try {
+        const discard = Reflect.apply(registryDiscardProvisional, this.#registry, [
+          this.#roomToken,
+          provisionalLease,
+        ]);
+        operation.provisionalLease = null;
+        cleanups.push(
+          Promise.resolve(discard).then((discarded) => {
+            if (discarded !== true) {
+              throw new Error('Guest provisional warm asset was not discarded');
+            }
+          }),
+        );
+      } catch (error) {
+        cleanups.push(Promise.reject(error));
+      }
+    }
+    if (cleanups.length === 0) return;
+    const results = await Promise.allSettled(cleanups);
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    );
+    if (failures.length > 0) {
+      throw new GuestOfferWarmCleanupError('Guest warm resource cleanup failed', {
+        cause: failures.length === 1 ? failures[0] : new AggregateError(failures),
+      });
+    }
+  }
+
+  #observeOfferWarmRetirement(retirement: Promise<void>): void {
+    const observed = retirement.then(
+      () => undefined,
+      (error: unknown) => {
+        if (!this.#closed) this.#fatal('Guest detached offer warm cleanup failed', error);
+      },
+    );
+    this.#warmTasks.add(observed);
+    void observed.then(() => this.#warmTasks.delete(observed));
+  }
+
+  #drainPendingOfferWarm(): void {
+    if (this.#closed || this.#offerWarm) return;
+    const preparation = this.#pendingOfferWarm;
+    this.#pendingOfferWarm = null;
+    if (!preparation || preparation.offer.transport !== 'peer-range') return;
+    if (!this.#offerPreparationCurrent(preparation)) return;
+    const existing = this.#registry.leaseForBinding(
+      this.#roomToken,
+      preparationAssetBinding(preparation),
+    );
+    if (existing) return;
+    this.#beginOfferWarm(preparation, null);
+  }
+
+  #offerPreparationCurrent(
+    preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>,
+  ): boolean {
+    try {
+      return (
+        !this.#closed &&
+        !this.#abort.signal.aborted &&
+        !preparation.fence.signal.aborted &&
+        preparation.fence.isCurrent() === true
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  #offerWarmCurrent(operation: GuestOfferWarmOperation): boolean {
+    const claimed = operation.claimedBy;
+    if (claimed) {
+      const room = this.#room;
+      return Boolean(
+        room &&
+        claimed.operation.offer === operation.preparation.offer &&
+        this.#preparedCurrent(room, claimed),
+      );
+    }
+    return (
+      !operation.retiring &&
+      this.#offerWarm === operation &&
+      this.#offerPreparationCurrent(operation.preparation)
+    );
+  }
+
+  #assertOfferWarm(operation: GuestOfferWarmOperation): void {
+    this.#assertLive();
+    if (operation.controller.signal.aborted || !this.#offerWarmCurrent(operation)) {
+      throw operation.controller.signal.reason ?? new Error('Guest source-offer warm is stale');
+    }
+    this.#assertLive();
+  }
+
+  async #resolveOfferWarmAudioGraph(
+    operation: GuestOfferWarmOperation,
+  ): Promise<Readonly<FilePlaybackProductGuestAudioGraph>> {
+    this.#assertOfferWarm(operation);
+    const graph = await this.#resolveSharedAudioGraph();
+    this.#assertOfferWarm(operation);
+    this.#assertRunningAudioGraph(graph);
+    return graph;
+  }
+
+  async #awaitOfferWarmClockBindings(
+    operation: GuestOfferWarmOperation,
+    audioContext: AudioContext,
+  ): Promise<Readonly<FilePlaybackClockBindings>> {
+    for (;;) {
+      this.#assertOfferWarm(operation);
+      if (Reflect.apply(channelClockReady, this.#context.channel, [])) {
+        const bindings = Reflect.apply(channelClockBindings, this.#context.channel, [audioContext]);
+        this.#assertOfferWarm(operation);
+        return bindings;
+      }
+      await this.#runtime.waitForClockPoll(operation.controller.signal);
+    }
+  }
+
   async #acquireAsset(
     operation: Readonly<FilePlaybackConnectionMediaOperation>,
   ): Promise<Readonly<FilePlaybackR2WholeBlobAcquisition>> {
@@ -1457,6 +1968,13 @@ class GuestMediaOwner {
     prepared: GuestPreparedRun,
   ): Promise<Readonly<FilePlaybackProductGuestAudioGraph>> {
     this.#assertPrepared(room, prepared);
+    const graph = await this.#resolveSharedAudioGraph();
+    this.#assertPrepared(room, prepared);
+    this.#assertRunningAudioGraph(graph);
+    return graph;
+  }
+
+  #resolveSharedAudioGraph(): Promise<Readonly<FilePlaybackProductGuestAudioGraph>> {
     if (!this.#audioGraphPromise) {
       let graphTask: Promise<Readonly<FilePlaybackProductGuestAudioGraph>>;
       try {
@@ -1467,16 +1985,17 @@ class GuestMediaOwner {
       if (!(graphTask instanceof Promise)) {
         throw new TypeError('Guest audio graph provider must return a native Promise');
       }
-      this.#audioGraphPromise = graphTask.then((value) => {
+      const canonicalTask = graphTask.then((value) => {
         const graph = canonicalAudioGraph(value);
         if (!graph) throw new TypeError('Guest audio graph provider returned a mismatched graph');
         return graph;
       });
+      this.#audioGraphPromise = canonicalTask;
+      void canonicalTask.then(undefined, () => {
+        if (this.#audioGraphPromise === canonicalTask) this.#audioGraphPromise = null;
+      });
     }
-    const graph = await this.#audioGraphPromise;
-    this.#assertPrepared(room, prepared);
-    this.#assertRunningAudioGraph(graph);
-    return graph;
+    return this.#audioGraphPromise;
   }
 
   async #executeArm(
@@ -2029,9 +2548,22 @@ class GuestMediaOwner {
   #beginClose(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
     this.#closed = true;
-    this.#abort.abort(this.#fatalError ?? new Error('Guest media owner revoked'));
-    this.#peerTransport.close(this.#abort.signal.reason);
+    const reason = this.#fatalError ?? new Error('Guest media owner revoked');
+    const warm = this.#offerWarm;
+    this.#pendingOfferWarm = null;
+    this.#abort.abort(reason);
     this.#mediaSession.revoke();
+    const warmRetirement = warm ? this.#retireOfferWarm(warm, reason) : Promise.resolve();
+    const warmTasks = [...this.#warmTasks, warmRetirement];
+    const closePeerTransport = (): void => {
+      this.#peerTransport.close(reason);
+    };
+    const peerCloseTask =
+      warm || this.#warmTasks.size > 0
+        ? Promise.race([Promise.allSettled(warmTasks), delay(WARM_CLOSE_GRACE_MS)]).then(
+            closePeerTransport,
+          )
+        : Promise.resolve(closePeerTransport());
     const preparedRuns = [this.#room?.current, this.#room?.candidate].filter(
       (value): value is GuestPreparedRun => Boolean(value?.staged),
     );
@@ -2044,9 +2576,12 @@ class GuestMediaOwner {
       }),
     );
     const tasks = [...this.#tasks];
-    this.#closePromise = Promise.allSettled([this.#r2Acquirer.close(), retireTask, ...tasks]).then(
-      () => undefined,
-    );
+    this.#closePromise = Promise.allSettled([
+      this.#r2Acquirer.close(),
+      peerCloseTask,
+      retireTask,
+      ...tasks,
+    ]).then(() => undefined);
     return this.#closePromise;
   }
 

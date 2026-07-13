@@ -557,6 +557,142 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(baselineReplay.fence).toBe(stagedBaseline.operation.fence);
   });
 
+  it('issues one frozen revision-free preparation capability for an exact OFFER replay', () => {
+    const h = harness();
+    h.session.bootstrapStopped(0);
+    const offer = offerFor(h);
+    const first = admitOffer(h, offer);
+    if (!first.accepted) throw new Error(first.reason);
+
+    expect(Object.getPrototypeOf(first.preparation)).toBeNull();
+    expect(Object.isFrozen(first.preparation)).toBe(true);
+    expect(Reflect.ownKeys(first.preparation)).toEqual(['offer', 'fence']);
+    expect(first.preparation.offer).toBe(first.offer);
+    expect(first.preparation.fence.signal.aborted).toBe(false);
+    expect(first.preparation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'stopped',
+      committedRevisionWatermark: 0,
+      admittedRevisionWatermark: 0,
+    });
+
+    const replay = h.session.adoptSourceOffer({ ...offer });
+    if (!replay.accepted) throw new Error(replay.reason);
+    expect(replay.status).toBe('replayed');
+    expect(replay.preparation).toBe(first.preparation);
+    expect(replay.preparation.fence).toBe(first.preparation.fence);
+
+    const binding = bindingFor(offer, 1);
+    const operation = h.session.stageRunBinding(binding, expectedFor(binding), 'successor');
+    expect(operation.offer).toBe(first.preparation.offer);
+    expect(first.preparation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'candidate',
+      committedRevisionWatermark: 0,
+      admittedRevisionWatermark: 1,
+    });
+
+    h.session.commitStarted(operation, expectedFor(binding), () => true);
+    expect(first.preparation.fence.signal.aborted).toBe(true);
+    expect(first.preparation.fence.isCurrent()).toBe(false);
+    expect(operation.fence.isCurrent()).toBe(true);
+    const consumedReplay = h.session.adoptSourceOffer({ ...offer });
+    if (!consumedReplay.accepted) throw new Error(consumedReplay.reason);
+    expect(consumedReplay.status).toBe('replayed');
+    expect(consumedReplay.preparation).toBe(first.preparation);
+    expect(consumedReplay.preparation.fence.isCurrent()).toBe(false);
+  });
+
+  it('supersedes preparations per queue without aborting another queue occurrence', () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const firstOffer = offerFor(h, 0, QIDS[0]);
+      const otherOffer = offerFor(h, 1, QIDS[1]);
+      const replacementOffer = offerFor(h, 2, QIDS[0]);
+      const first = admitOffer(h, firstOffer);
+      const other = admitOffer(h, otherOffer);
+      if (!first.accepted || !other.accepted) throw new Error('Expected accepted preparations');
+      expect(vi.getTimerCount()).toBe(2);
+
+      const replacement = h.session.adoptSourceOffer(replacementOffer);
+      if (!replacement.accepted) throw new Error(replacement.reason);
+      expect(replacement.status).toBe('superseded');
+      expect(first.preparation.fence.signal.aborted).toBe(true);
+      expect(first.preparation.fence.isCurrent()).toBe(false);
+      expect(other.preparation.fence.signal.aborted).toBe(false);
+      expect(other.preparation.fence.isCurrent()).toBe(true);
+      expect(replacement.preparation.fence.isCurrent()).toBe(true);
+      expect(vi.getTimerCount()).toBe(2);
+      expect(h.session.snapshot()).toMatchObject({
+        status: 'unbootstrapped',
+        committedRevisionWatermark: 0,
+        admittedRevisionWatermark: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('expires an OFFER-only preparation without revoking the connection', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const offer = offerFor(h);
+      const result = admitOffer(h, offer);
+      if (!result.accepted) throw new Error(result.reason);
+      expect(vi.getTimerCount()).toBe(1);
+
+      h.now = offer.expiresAtRoomTimeMs;
+      expect(result.preparation.fence.isCurrent()).toBe(false);
+      expect(result.preparation.fence.signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(900);
+
+      expect(result.preparation.fence.signal.aborted).toBe(true);
+      expect(result.preparation.fence.isCurrent()).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(h.session.snapshot()).toMatchObject({
+        status: 'unbootstrapped',
+        activeOfferCount: 0,
+        committedRevisionWatermark: 0,
+        admittedRevisionWatermark: 0,
+      });
+      expect(h.fatal).not.toHaveBeenCalled();
+      expect(h.channel.isClosed()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('aborts exact OFFER preparations on queue removal and session revoke', () => {
+    vi.useFakeTimers();
+    try {
+      const removed = harness();
+      const removedOffer = offerFor(removed);
+      const removedResult = admitOffer(removed, removedOffer);
+      if (!removedResult.accepted) throw new Error(removedResult.reason);
+      expect(removed.session.removeQueueItem(removedOffer.queueItemId)).toBe(true);
+      expect(removedResult.preparation.fence.signal.aborted).toBe(true);
+      expect(removedResult.preparation.fence.isCurrent()).toBe(false);
+      expect(removed.channel.isClosed()).toBe(false);
+
+      const revoked = harness();
+      const first = admitOffer(revoked, offerFor(revoked, 0, QIDS[0]));
+      const second = admitOffer(revoked, offerFor(revoked, 1, QIDS[1]));
+      if (!first.accepted || !second.accepted) throw new Error('Expected accepted preparations');
+      revoked.session.revoke();
+      expect(first.preparation.fence.signal.aborted).toBe(true);
+      expect(second.preparation.fence.signal.aborted).toBe(true);
+      expect(first.preparation.fence.isCurrent()).toBe(false);
+      expect(second.preparation.fence.isCurrent()).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(revoked.channel.isClosed()).toBe(false);
+      expect(revoked.fatal).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('removes exact queue authority and retires its staged operation', () => {
     const h = harness();
     h.session.bootstrapStopped(0);

@@ -42,6 +42,8 @@ const OPTION_KEYS = Object.freeze([
 
 declare const mediaOperationBrand: unique symbol;
 declare const mediaEpochBrand: unique symbol;
+declare const mediaOfferPreparationBrand: unique symbol;
+declare const mediaOfferPreparationEpochBrand: unique symbol;
 declare const mediaOperationEpochBrand: unique symbol;
 declare const mediaStateOperationBrand: unique symbol;
 declare const mediaStateOperationEpochBrand: unique symbol;
@@ -76,6 +78,40 @@ export interface FilePlaybackConnectionMediaFence {
   readonly signal: AbortSignal;
   readonly isCurrent: () => boolean;
 }
+
+/** Opaque identity for one exact revision-free source-offer preparation. */
+export interface FilePlaybackConnectionMediaOfferPreparationEpoch {
+  readonly [mediaOfferPreparationEpochBrand]: never;
+}
+
+/**
+ * Await-safe authority for one accepted OFFER before a playback run exists.
+ * It survives an exact RUN_BINDING claim, then follows that operation's
+ * lifetime until handoff no longer needs preparation authority.
+ */
+export interface FilePlaybackConnectionMediaOfferPreparationFence {
+  readonly epoch: FilePlaybackConnectionMediaOfferPreparationEpoch;
+  readonly signal: AbortSignal;
+  readonly isCurrent: () => boolean;
+}
+
+/**
+ * Body-free capability for one canonical OFFER. Runtime authenticity is held
+ * only by the issuing session's private WeakMap.
+ */
+export interface FilePlaybackConnectionMediaOfferPreparation {
+  readonly [mediaOfferPreparationBrand]: never;
+  readonly offer: Readonly<FileMediaSourceOfferV2>;
+  readonly fence: Readonly<FilePlaybackConnectionMediaOfferPreparationFence>;
+}
+
+export type FilePlaybackConnectionMediaOfferAdoptionResult =
+  | Readonly<Extract<FileMediaOfferAcceptResult, { readonly accepted: false }>>
+  | Readonly<
+      Extract<FileMediaOfferAcceptResult, { readonly accepted: true }> & {
+        readonly preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>;
+      }
+    >;
 
 /** Opaque identity for one exact connection-media preparation lifetime. */
 export interface FilePlaybackConnectionMediaOperationEpoch {
@@ -199,9 +235,21 @@ interface OperationRecord {
   readonly kind: FilePlaybackConnectionMediaBootstrapKind;
   readonly epoch: FilePlaybackConnectionMediaOperationEpoch;
   readonly abortController: AbortController;
+  readonly sourcePreparation: OfferPreparationRecord | null;
   readonly expiryTimerName: string;
   expiryTimerArmed: boolean;
   status: 'candidate' | 'current' | 'retired';
+}
+
+interface OfferPreparationRecord {
+  readonly preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>;
+  readonly offer: Readonly<FileMediaSourceOfferV2>;
+  readonly epoch: FilePlaybackConnectionMediaOfferPreparationEpoch;
+  readonly abortController: AbortController;
+  readonly expiryTimerName: string;
+  operation: OperationRecord | null;
+  expiryTimerArmed: boolean;
+  status: 'offered' | 'claimed' | 'consumed' | 'retired';
 }
 
 interface StateOperationRecord {
@@ -397,6 +445,14 @@ function operationExpiryTimerName(binding: Readonly<FilePlaybackRunBindingV2>): 
   ])}`;
 }
 
+function offerPreparationExpiryTimerName(offer: Readonly<FileMediaSourceOfferV2>): string {
+  return `file-playback-offer-preparation-expiry:${JSON.stringify([
+    offer.sessionId,
+    offer.connectionId,
+    offer.prepareId,
+  ])}`;
+}
+
 function operationSnapshot(
   record: OperationRecord,
 ): Readonly<FilePlaybackConnectionMediaOperationSnapshot> {
@@ -451,6 +507,15 @@ export class FilePlaybackConnectionMediaSession {
   readonly #epoch = Object.freeze(Object.create(null)) as FilePlaybackConnectionMediaEpoch;
   readonly #abortController = new AbortController();
   readonly #operations = new WeakMap<FilePlaybackConnectionMediaOperation, OperationRecord>();
+  readonly #offerPreparations = new WeakMap<
+    FilePlaybackConnectionMediaOfferPreparation,
+    OfferPreparationRecord
+  >();
+  readonly #offerPreparationEpochs = new WeakMap<
+    FilePlaybackConnectionMediaOfferPreparationEpoch,
+    OfferPreparationRecord
+  >();
+  readonly #offerPreparationsByQueue = new Map<QueueItemId, OfferPreparationRecord>();
   readonly #operationEpochs = new WeakMap<
     FilePlaybackConnectionMediaOperationEpoch,
     OperationRecord
@@ -610,6 +675,8 @@ export class FilePlaybackConnectionMediaSession {
 
   removeQueueItem(queueItemId: QueueItemId): boolean {
     return this.#mutate(() => {
+      const preparation = this.#offerPreparationsByQueue.get(queueItemId);
+      if (preparation) this.#retireOfferPreparationLocally(preparation);
       for (const record of [this.#candidate, this.#current]) {
         if (record?.binding.queueItemId === queueItemId) this.#retireRecord(record);
       }
@@ -617,11 +684,19 @@ export class FilePlaybackConnectionMediaSession {
     });
   }
 
-  adoptSourceOffer(value: unknown): FileMediaOfferAcceptResult {
+  adoptSourceOffer(value: unknown): FilePlaybackConnectionMediaOfferAdoptionResult {
     return this.#mutate(() => {
       const result = this.#offerRegistry.accept(this.#connectionToken, value);
+      if (result.accepted) {
+        const previous = this.#offerPreparationsByQueue.get(result.offer.queueItemId);
+        if (previous && previous.offer !== result.offer) {
+          this.#retireOfferPreparationLocally(previous);
+        }
+      }
       if (this.#candidate) this.#cleanupCandidateIfRunRetired(this.#candidate);
-      return result;
+      if (!result.accepted) return result;
+      const preparation = this.#offerPreparationFor(result.offer);
+      return freezeCanonical({ ...result, preparation });
     });
   }
 
@@ -738,6 +813,11 @@ export class FilePlaybackConnectionMediaSession {
 
       const epoch = Object.freeze(Object.create(null)) as FilePlaybackConnectionMediaOperationEpoch;
       const abortController = new AbortController();
+      const offeredPreparation = this.#offerPreparationsByQueue.get(binding.queueItemId);
+      const sourcePreparation =
+        offeredPreparation?.status === 'offered' && offeredPreparation.offer === runSnapshot.offer
+          ? offeredPreparation
+          : null;
       const fence = freezeCanonical({
         epoch,
         signal: abortController.signal,
@@ -758,12 +838,18 @@ export class FilePlaybackConnectionMediaSession {
         kind,
         epoch,
         abortController,
+        sourcePreparation,
         expiryTimerName: operationExpiryTimerName(runSnapshot.binding),
         expiryTimerArmed: false,
         status: 'candidate',
       };
       this.#operations.set(operation, record);
       this.#operationEpochs.set(epoch, record);
+      if (sourcePreparation) {
+        this.#clearOfferPreparationExpiry(sourcePreparation);
+        sourcePreparation.status = 'claimed';
+        sourcePreparation.operation = record;
+      }
       this.#candidate = record;
       this.#scheduleCandidateExpiry(record);
       if (record.status !== 'candidate') {
@@ -1463,6 +1549,7 @@ export class FilePlaybackConnectionMediaSession {
     if (this.#revoked) return;
     this.#revoked = true;
     this.#abortFence();
+    this.#retireAllOfferPreparations();
     const stateRecords = this.#liveStateRecords();
     for (const record of stateRecords) this.#abortStateOperationFence(record);
     if (this.#candidateState) this.#retireStateChannelBestEffort(this.#candidateState);
@@ -1608,6 +1695,9 @@ export class FilePlaybackConnectionMediaSession {
     this.#currentState = expected;
     this.#committedRevisionWatermark = record.binding.playbackRevision;
     this.#admittedRevisionWatermark = record.binding.playbackRevision;
+    if (record.sourcePreparation) {
+      this.#consumeOfferPreparation(record.sourcePreparation);
+    }
     return this.#snapshotUnchecked();
   }
 
@@ -1675,6 +1765,9 @@ export class FilePlaybackConnectionMediaSession {
     this.#currentState = expected;
     this.#committedRevisionWatermark = expected.revision;
     this.#admittedRevisionWatermark = expected.revision;
+    if (prepared.sourcePreparation) {
+      this.#consumeOfferPreparation(prepared.sourcePreparation);
+    }
     return this.#snapshotUnchecked();
   }
 
@@ -2086,6 +2179,144 @@ export class FilePlaybackConnectionMediaSession {
     }
   }
 
+  #offerPreparationFor(
+    offer: Readonly<FileMediaSourceOfferV2>,
+  ): Readonly<FilePlaybackConnectionMediaOfferPreparation> {
+    const existing = this.#offerPreparationsByQueue.get(offer.queueItemId);
+    if (existing?.offer === offer && existing.status !== 'retired') {
+      return existing.preparation;
+    }
+    if (existing) this.#retireOfferPreparationLocally(existing);
+
+    const epoch = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackConnectionMediaOfferPreparationEpoch;
+    const abortController = new AbortController();
+    const fence = freezeCanonical({
+      epoch,
+      signal: abortController.signal,
+      isCurrent: () => this.#isOfferPreparationEpochCurrent(epoch),
+    });
+    const preparation = freezeCanonical({
+      offer,
+      fence,
+    }) as Readonly<FilePlaybackConnectionMediaOfferPreparation>;
+    const record: OfferPreparationRecord = {
+      preparation,
+      offer,
+      epoch,
+      abortController,
+      expiryTimerName: offerPreparationExpiryTimerName(offer),
+      operation: null,
+      expiryTimerArmed: false,
+      status: 'offered',
+    };
+    this.#offerPreparations.set(preparation, record);
+    this.#offerPreparationEpochs.set(epoch, record);
+    this.#offerPreparationsByQueue.set(offer.queueItemId, record);
+    this.#scheduleOfferPreparationExpiry(record);
+    if (record.status === 'retired') {
+      throw new Error('File playback source offer expired during preparation admission');
+    }
+    return preparation;
+  }
+
+  #scheduleOfferPreparationExpiry(record: OfferPreparationRecord): void {
+    this.#clearOfferPreparationExpiry(record);
+    if (
+      this.#revoked ||
+      record.status !== 'offered' ||
+      this.#offerPreparationsByQueue.get(record.offer.queueItemId) !== record
+    ) {
+      return;
+    }
+    const nowRoomTimeMs = this.#readRoomTime();
+    const remainingMs = record.offer.expiresAtRoomTimeMs - nowRoomTimeMs;
+    if (remainingMs <= 0) {
+      this.#offerRegistry.expire(this.#connectionToken, nowRoomTimeMs);
+      this.#retireOfferPreparationLocally(record);
+      return;
+    }
+    const delayMs = Math.max(1, Math.ceil(Math.min(remainingMs, MAX_EXPIRY_TIMER_DELAY_MS)));
+    record.expiryTimerArmed = true;
+    try {
+      setManagedTimer(
+        record.expiryTimerName,
+        () => this.#handleOfferPreparationExpiryTimer(record),
+        delayMs,
+      );
+    } catch {
+      record.expiryTimerArmed = false;
+      this.#retireOfferPreparationLocally(record);
+      throw this.#fatal('The source-offer preparation expiry timer is unavailable');
+    }
+  }
+
+  #handleOfferPreparationExpiryTimer(record: OfferPreparationRecord): void {
+    record.expiryTimerArmed = false;
+    if (
+      this.#revoked ||
+      record.status !== 'offered' ||
+      this.#offerPreparationsByQueue.get(record.offer.queueItemId) !== record
+    ) {
+      return;
+    }
+    try {
+      this.#mutate(() => this.#scheduleOfferPreparationExpiry(record));
+    } catch {
+      // Expiry is non-fatal; a broken clock or connection authority already fail-closes.
+    }
+  }
+
+  #clearOfferPreparationExpiry(record: OfferPreparationRecord): void {
+    if (!record.expiryTimerArmed) return;
+    record.expiryTimerArmed = false;
+    try {
+      clearManagedTimer(record.expiryTimerName);
+    } catch {
+      // The exact record and fence remain authority-checked if the timer cannot be cleared.
+    }
+  }
+
+  #retireOfferPreparationLocally(record: OfferPreparationRecord): void {
+    if (record.status === 'retired') return;
+    this.#clearOfferPreparationExpiry(record);
+    if (!record.abortController.signal.aborted) {
+      try {
+        Reflect.apply(abortControllerAbort, record.abortController, []);
+      } catch {
+        // Record retirement remains authoritative if the platform is broken.
+      }
+    }
+    record.status = 'retired';
+    record.operation = null;
+    this.#offerPreparations.delete(record.preparation);
+    this.#offerPreparationEpochs.delete(record.epoch);
+    if (this.#offerPreparationsByQueue.get(record.offer.queueItemId) === record) {
+      this.#offerPreparationsByQueue.delete(record.offer.queueItemId);
+    }
+  }
+
+  #consumeOfferPreparation(record: OfferPreparationRecord): void {
+    if (record.status === 'consumed' || record.status === 'retired') return;
+    this.#clearOfferPreparationExpiry(record);
+    if (!record.abortController.signal.aborted) {
+      try {
+        Reflect.apply(abortControllerAbort, record.abortController, []);
+      } catch {
+        // Consumed identity remains inert even if the platform signal is broken.
+      }
+    }
+    record.status = 'consumed';
+    record.operation = null;
+  }
+
+  #retireAllOfferPreparations(): void {
+    for (const record of [...this.#offerPreparationsByQueue.values()]) {
+      this.#retireOfferPreparationLocally(record);
+    }
+  }
+
   #scheduleCandidateExpiry(record: OperationRecord): void {
     this.#clearCandidateExpiry(record);
     if (this.#revoked || record.status !== 'candidate' || record !== this.#candidate) {
@@ -2252,6 +2483,9 @@ export class FilePlaybackConnectionMediaSession {
 
   #retireRecordLocally(record: OperationRecord | null): void {
     if (!record || record.status === 'retired') return;
+    if (record.sourcePreparation) {
+      this.#consumeOfferPreparation(record.sourcePreparation);
+    }
     if (this.#candidatePreparedRunAttempt?.prepared === record) {
       this.#retirePreparedRunAttemptLocally(this.#candidatePreparedRunAttempt);
     }
@@ -2283,6 +2517,7 @@ export class FilePlaybackConnectionMediaSession {
     this.#fatalCallbackPending = true;
     this.#revoked = true;
     this.#abortFence();
+    this.#retireAllOfferPreparations();
     const stateRecords = this.#liveStateRecords();
     for (const record of stateRecords) this.#abortStateOperationFence(record);
     if (this.#candidateState) this.#retireStateChannelBestEffort(this.#candidateState);
@@ -2321,6 +2556,7 @@ export class FilePlaybackConnectionMediaSession {
   #closeAuthorities(): void {
     if (this.#authoritiesClosed) return;
     this.#authoritiesClosed = true;
+    this.#retireAllOfferPreparations();
     try {
       this.#runAuthority.close(this.#connectionToken);
     } catch {
@@ -2356,6 +2592,43 @@ export class FilePlaybackConnectionMediaSession {
     } catch {
       return false;
     }
+  }
+
+  #isOfferPreparationEpochCurrent(
+    epoch: FilePlaybackConnectionMediaOfferPreparationEpoch,
+  ): boolean {
+    if (this.#revoked || this.#authoritiesClosed || this.#abortController.signal.aborted) {
+      return false;
+    }
+    const record = this.#offerPreparationEpochs.get(epoch);
+    if (
+      !record ||
+      record.epoch !== epoch ||
+      record.status === 'consumed' ||
+      record.status === 'retired' ||
+      record.abortController.signal.aborted ||
+      this.#offerPreparationsByQueue.get(record.offer.queueItemId) !== record
+    ) {
+      return false;
+    }
+    if (record.status === 'claimed') {
+      const operation = record.operation;
+      if (
+        !operation ||
+        operation.sourcePreparation !== record ||
+        operation.status === 'retired' ||
+        operation.abortController.signal.aborted ||
+        (operation !== this.#candidate && operation !== this.#current)
+      ) {
+        return false;
+      }
+      if (operation.status === 'current') return this.#isEpochCurrent(this.#epoch);
+    }
+    const nowRoomTimeMs = this.#readFenceRoomTime();
+    if (nowRoomTimeMs === null || nowRoomTimeMs >= record.offer.expiresAtRoomTimeMs) {
+      return false;
+    }
+    return this.#isEpochCurrent(this.#epoch);
   }
 
   #isOperationEpochCurrent(epoch: FilePlaybackConnectionMediaOperationEpoch): boolean {

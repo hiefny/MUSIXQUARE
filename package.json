@@ -71,6 +71,7 @@
     "codec-parser": "2.5.0",
     "content-shield": "^0.1.1",
     "lanczos-resampler": "0.4.1",
+    "mpg123-decoder": "1.0.3",
     "peerjs": "^1.5.5",
     "qrcode": "^1.5.4"
   }

@@ -11,11 +11,27 @@ import {
   StreamingLinearPcmPlaybackSource,
   type StreamingLinearPcmPlaybackSourceOptions,
 } from './backends/streaming-linear-pcm-playback-source.ts';
+import {
+  StreamingM4aAacPlaybackSource,
+  type StreamingM4aAacPlaybackSourceOptions,
+} from './backends/streaming-m4a-aac-playback-source.ts';
+import {
+  StreamingMp3PlaybackSource,
+  type StreamingMp3PlaybackSourceOptions,
+} from './backends/streaming-mp3-playback-source.ts';
 import type { FilePlaybackSource } from './file-playback-source.ts';
+import {
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
 import { readAiffPcmMetadata } from './aiff/metadata.ts';
 import { readCafLinearPcmMetadata } from './caf/metadata.ts';
 import { readFlacMetadata } from './flac/metadata.ts';
 import type { LinearPcmMetadata } from './linear-pcm/sample-format.ts';
+import { readM4aAacLcMetadata } from './m4a/metadata.ts';
+import { MpegLayer3FrameHeaderError, parseMpegLayer3FrameHeader } from './mp3/frame-header.ts';
+import { readMp3Id3Boundaries } from './mp3/id3.ts';
+import { readMp3Metadata } from './mp3/metadata.ts';
 import { BlobEncodedAudioSource } from './sources/blob-encoded-audio-source.ts';
 import {
   type EncodedAudioSource,
@@ -35,6 +51,8 @@ const FORM_MARKER = new Uint8Array([0x46, 0x4f, 0x52, 0x4d]);
 const AIFF_MARKER = new Uint8Array([0x41, 0x49, 0x46, 0x46]);
 const AIFC_MARKER = new Uint8Array([0x41, 0x49, 0x46, 0x43]);
 const CAF_MARKER = new Uint8Array([0x63, 0x61, 0x66, 0x66]);
+const ID3_MARKER = new Uint8Array([0x49, 0x44, 0x33]);
+const ISO_BMFF_FILE_TYPE_MARKER = new Uint8Array([0x66, 0x74, 0x79, 0x70]);
 const WAVE_FAMILY_MARKERS = Object.freeze([
   new Uint8Array([0x52, 0x49, 0x46, 0x46]),
   new Uint8Array([0x52, 0x46, 0x36, 0x34]),
@@ -95,6 +113,12 @@ export interface BlobFilePlaybackBackendFactories {
   readonly createStreamingLinearPcmSource: (
     options: StreamingLinearPcmPlaybackSourceOptions,
   ) => BoundedStreamSource;
+  readonly createStreamingMp3Source: (
+    options: StreamingMp3PlaybackSourceOptions,
+  ) => BoundedStreamSource;
+  readonly createStreamingM4aAacSource: (
+    options: StreamingM4aAacPlaybackSourceOptions,
+  ) => BoundedStreamSource;
 }
 
 interface FilePlaybackSourceFactoryCommonOptions {
@@ -107,6 +131,10 @@ interface FilePlaybackSourceFactoryCommonOptions {
   /** Decoder-specific Worker seams; neither runtime is started here. */
   readonly flacRuntime?: Partial<BoundedStreamingCodecRuntime>;
   readonly linearPcmRuntime?: Partial<BoundedStreamingCodecRuntime>;
+  readonly mp3Runtime?: Partial<BoundedStreamingCodecRuntime>;
+  readonly m4aRuntime?: Partial<BoundedStreamingCodecRuntime>;
+  /** MP3/M4A remain ordinary AudioBuffer routes unless explicitly opted in. */
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
 }
 
 export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
@@ -136,7 +164,10 @@ export interface CreateEncodedFilePlaybackSourceOptions extends FilePlaybackSour
   readonly backendFactories?: Partial<
     Pick<
       BlobFilePlaybackBackendFactories,
-      'createStreamingFlacSource' | 'createStreamingLinearPcmSource'
+      | 'createStreamingFlacSource'
+      | 'createStreamingLinearPcmSource'
+      | 'createStreamingMp3Source'
+      | 'createStreamingM4aAacSource'
     >
   >;
 }
@@ -253,6 +284,8 @@ const defaultBackendFactories: BlobFilePlaybackBackendFactories = {
   createAudioBufferSource: (options) => new AudioBufferPlaybackSource(options),
   createStreamingFlacSource: (options) => new StreamingFlacPlaybackSource(options),
   createStreamingLinearPcmSource: (options) => new StreamingLinearPcmPlaybackSource(options),
+  createStreamingMp3Source: (options) => new StreamingMp3PlaybackSource(options),
+  createStreamingM4aAacSource: (options) => new StreamingM4aAacPlaybackSource(options),
 };
 
 function hasMarker(bytes: Uint8Array, marker: Uint8Array): boolean {
@@ -307,6 +340,28 @@ function claimsCaf(name: string, mime: string): boolean {
   );
 }
 
+function claimsMp3(name: string, mime: string): boolean {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedMime = mimeEssence(mime);
+  return (
+    normalizedName.endsWith('.mp3') ||
+    normalizedMime === 'audio/mpeg' ||
+    normalizedMime === 'audio/mp3' ||
+    normalizedMime === 'audio/x-mp3'
+  );
+}
+
+function claimsM4a(name: string, mime: string): boolean {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedMime = mimeEssence(mime);
+  return (
+    normalizedName.endsWith('.m4a') ||
+    normalizedMime === 'audio/mp4' ||
+    normalizedMime === 'audio/x-m4a' ||
+    normalizedMime === 'audio/m4a'
+  );
+}
+
 function isWaveFamily(bytes: Uint8Array): boolean {
   return (
     bytes.byteLength >= CONTAINER_PROBE_BYTES &&
@@ -326,6 +381,46 @@ function isAiffFamily(bytes: Uint8Array): boolean {
 
 function isCafFamily(bytes: Uint8Array): boolean {
   return hasMarker(bytes, CAF_MARKER);
+}
+
+function isIsoBmffFileType(bytes: Uint8Array): boolean {
+  return (
+    bytes.byteLength >= CONTAINER_PROBE_BYTES &&
+    ISO_BMFF_FILE_TYPE_MARKER.every((byte, index) => bytes[index + 4] === byte)
+  );
+}
+
+function isRawMp3FrameStart(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 4) return false;
+  try {
+    parseMpegLayer3FrameHeader(bytes.subarray(0, 4));
+    return true;
+  } catch (error) {
+    if (error instanceof MpegLayer3FrameHeaderError) return false;
+    throw error;
+  }
+}
+
+async function isVerifiedMp3ContentCandidate(
+  source: EncodedAudioSource,
+  initialBytes: Uint8Array,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (isRawMp3FrameStart(initialBytes)) return true;
+  if (!hasMarker(initialBytes, ID3_MARKER)) return false;
+  try {
+    const boundaries = await readMp3Id3Boundaries(source, signal);
+    if (boundaries.audioEnd - boundaries.dataStart < 4) return false;
+    const header = await source.readAt(boundaries.dataStart, 4, signal);
+    throwIfAborted(signal);
+    if (!(header instanceof Uint8Array) || header.byteLength !== 4) {
+      throw new EncodedSourceIntegrityError('MP3 classifier returned an inexact frame header');
+    }
+    return isRawMp3FrameStart(header);
+  } catch (error) {
+    if (error instanceof EncodedSourceIntegrityError) return false;
+    throw error;
+  }
 }
 
 function assertFactoryInput(options: FilePlaybackSourceFactoryCommonOptions): void {
@@ -585,6 +680,7 @@ async function createOwnedEncodedFilePlaybackSource(
   try {
     assertFactoryInput(options);
     throwIfAborted(options.signal);
+    const boundedRoutePolicy = snapshotFilePlaybackBoundedRoutePolicy(options.boundedRoutePolicy);
     const factories: BlobFilePlaybackBackendFactories = {
       createAudioBufferSource:
         options.backendFactories?.createAudioBufferSource ??
@@ -595,6 +691,12 @@ async function createOwnedEncodedFilePlaybackSource(
       createStreamingLinearPcmSource:
         options.backendFactories?.createStreamingLinearPcmSource ??
         defaultBackendFactories.createStreamingLinearPcmSource,
+      createStreamingMp3Source:
+        options.backendFactories?.createStreamingMp3Source ??
+        defaultBackendFactories.createStreamingMp3Source,
+      createStreamingM4aAacSource:
+        options.backendFactories?.createStreamingM4aAacSource ??
+        defaultBackendFactories.createStreamingM4aAacSource,
     };
     if (encodedSource.size < NATIVE_FLAC_MARKER.byteLength) {
       throw new EncodedSourceIntegrityError(
@@ -660,6 +762,73 @@ async function createOwnedEncodedFilePlaybackSource(
         roomTimeMsToContextTime: options.roomTimeMsToContextTime,
         localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
         runtime: options.linearPcmRuntime,
+      });
+      const inspected = inspectCreatedSource(returnedSource);
+      destroyCreatedSource = inspected.destroy;
+      streamingOwnsEncodedSource = true;
+      assertCreatedSource(inspected, 'bounded-stream', options.queueItemId);
+      throwIfAborted(options.signal);
+      const result = Object.freeze({
+        backend: 'bounded-stream' as const,
+        source: inspected.source as BoundedStreamSource,
+        sourceIdentity: encodedSource.identity,
+        releaseConstructionLease: releaseNoConstructionLease,
+      });
+      completed = true;
+      return result;
+    }
+
+    const universalRoute = boundedRoutePolicy.mode === 'universal-v1';
+    const m4aContentCandidate = universalRoute && isIsoBmffFileType(marker);
+    const m4aClaim =
+      universalRoute && claimsM4a(encodedSource.metadata.name, encodedSource.metadata.mime);
+    const mp3Claim =
+      universalRoute && claimsMp3(encodedSource.metadata.name, encodedSource.metadata.mime);
+    const mp3ContentCandidate =
+      universalRoute &&
+      (mp3Claim || (await isVerifiedMp3ContentCandidate(encodedSource, marker, options.signal)));
+
+    if (universalRoute && (m4aContentCandidate || (!mp3ContentCandidate && m4aClaim))) {
+      const manifest = await readM4aAacLcMetadata(encodedSource, options.signal);
+      throwIfAborted(options.signal);
+      const returnedSource = factories.createStreamingM4aAacSource({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        manifest,
+        backendId: boundedRoutePolicy.m4aBackendId,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: options.m4aRuntime,
+      });
+      const inspected = inspectCreatedSource(returnedSource);
+      destroyCreatedSource = inspected.destroy;
+      streamingOwnsEncodedSource = true;
+      assertCreatedSource(inspected, 'bounded-stream', options.queueItemId);
+      throwIfAborted(options.signal);
+      const result = Object.freeze({
+        backend: 'bounded-stream' as const,
+        source: inspected.source as BoundedStreamSource,
+        sourceIdentity: encodedSource.identity,
+        releaseConstructionLease: releaseNoConstructionLease,
+      });
+      completed = true;
+      return result;
+    }
+
+    if (universalRoute && (mp3ContentCandidate || (!m4aContentCandidate && mp3Claim))) {
+      const metadata = await readMp3Metadata(encodedSource, options.signal);
+      throwIfAborted(options.signal);
+      const returnedSource = factories.createStreamingMp3Source({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        metadata,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: options.mp3Runtime,
       });
       const inspected = inspectCreatedSource(returnedSource);
       destroyCreatedSource = inspected.destroy;
@@ -799,6 +968,9 @@ export async function createBlobFilePlaybackSource(
       signal: options.signal,
       flacRuntime: options.flacRuntime,
       linearPcmRuntime: options.linearPcmRuntime,
+      mp3Runtime: options.mp3Runtime,
+      m4aRuntime: options.m4aRuntime,
+      boundedRoutePolicy: options.boundedRoutePolicy,
       backendFactories: options.backendFactories,
     },
     {

@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import {
+  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  type FilePlaybackBoundedRoutePolicy,
+} from '../file-playback-bounded-route-policy.ts';
+import {
   FilePlaybackAssetRegistry,
   type FilePlaybackAssetBinding,
   type FilePlaybackAssetLease,
@@ -342,6 +346,7 @@ describe('stageFilePlaybackAssetSource', () => {
     expect(request?.blob).toBe(setup.blob);
     expect(request?.sourceIdentity).toBe(BINDING.sourceIdentity);
     expect(request?.sourceMetadata).toEqual(METADATA);
+    expect(request).not.toHaveProperty('boundedRoutePolicy');
     expect(Object.getPrototypeOf(request?.sourceMetadata)).toBeNull();
     expect(Object.isFrozen(request?.sourceMetadata)).toBe(true);
     expect(h.createEncodedSource).not.toHaveBeenCalled();
@@ -363,8 +368,51 @@ describe('stageFilePlaybackAssetSource', () => {
     expect(h.createEncodedSource.mock.calls[0]?.[0].encodedSource.identity).toBe(
       BINDING.sourceIdentity,
     );
+    expect(h.createEncodedSource.mock.calls[0]?.[0]).not.toHaveProperty('boundedRoutePolicy');
     expect(h.createBlobSource).not.toHaveBeenCalled();
     expect(setup.closeSource).not.toHaveBeenCalled();
+  });
+
+  it.each(['blob', 'generic'] as const)(
+    'forwards one canonical opt-in route policy to the %s factory',
+    async (kind) => {
+      const setup = kind === 'blob' ? blobRegistry() : genericRegistry();
+      const source = fakeCutoverSource(kind === 'blob' ? 'audio-buffer' : 'bounded-stream');
+      const h = successfulRuntime(factoryResult(source));
+
+      await stageFilePlaybackAssetSource(
+        baseOptions(setup.registry, setup.lease, h.runtime, {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        }),
+      );
+
+      const request =
+        kind === 'blob'
+          ? h.createBlobSource.mock.calls[0]?.[0]
+          : h.createEncodedSource.mock.calls[0]?.[0];
+      expect(request?.boundedRoutePolicy).toBe(FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY);
+    },
+  );
+
+  it('rejects an invalid route policy before resolving or acquiring the asset body', async () => {
+    const setup = genericRegistry();
+    const source = fakeCutoverSource('bounded-stream');
+    const h = successfulRuntime(factoryResult(source));
+
+    await expect(
+      stageFilePlaybackAssetSource(
+        baseOptions(setup.registry, setup.lease, h.runtime, {
+          boundedRoutePolicy: {
+            mode: 'universal-v1',
+            m4aBackendId: 'symphonia-wasm',
+          } as unknown as FilePlaybackBoundedRoutePolicy,
+        }),
+      ),
+    ).rejects.toThrow(/webcodecs/i);
+
+    expect(setup.asset.acquire).not.toHaveBeenCalled();
+    expect(h.createBlobSource).not.toHaveBeenCalled();
+    expect(h.createEncodedSource).not.toHaveBeenCalled();
   });
 
   it.each([

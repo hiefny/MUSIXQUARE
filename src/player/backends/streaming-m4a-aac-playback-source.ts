@@ -40,7 +40,7 @@ const defaultRuntime: BoundedStreamingCodecRuntime = {
   createMessageChannel: () => new MessageChannel(),
 };
 
-/** Product-unreachable M4A AAC-LC wrapper over the common bounded streaming renderer. */
+/** Default-off M4A AAC-LC wrapper over the common bounded streaming renderer. */
 export class StreamingM4aAacPlaybackSource extends BoundedStreamingPlaybackSource {
   constructor(options: StreamingM4aAacPlaybackSourceOptions) {
     const createMessageChannel =

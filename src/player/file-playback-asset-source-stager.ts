@@ -10,6 +10,10 @@ import {
 } from './file-playback-asset-registry.ts';
 import type { FilePlaybackClockBindings } from './file-playback-clock.ts';
 import {
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
+import {
   FilePlaybackManager,
   isExactFilePlaybackManager,
   type FilePlaybackCutoverCandidateOptions,
@@ -42,9 +46,14 @@ const OPTION_KEYS = Object.freeze([
   'signal',
   'isCurrent',
   'decodeOrdinaryAudio',
+  'boundedRoutePolicy',
   'runtime',
 ] as const);
-const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter((key) => key !== 'runtime');
+const OPTIONAL_OPTION_KEYS = new Set<(typeof OPTION_KEYS)[number]>([
+  'boundedRoutePolicy',
+  'runtime',
+]);
+const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter((key) => !OPTIONAL_OPTION_KEYS.has(key));
 const RUNTIME_KEYS = Object.freeze([
   'createBlobSource',
   'createEncodedSource',
@@ -134,6 +143,8 @@ export interface StageFilePlaybackAssetSourceOptions {
   readonly signal: AbortSignal;
   readonly isCurrent: () => boolean;
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  /** Omit to preserve the current AudioBuffer route for MP3/M4A. */
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly runtime?: FilePlaybackAssetSourceStagerRuntimeForTests;
 }
 
@@ -225,7 +236,7 @@ function snapshotOptions(value: unknown): ExactRecord | null {
     const snapshot = Object.create(null) as Record<string, unknown>;
     for (const key of OPTION_KEYS) {
       const descriptor = descriptors[key];
-      if (key === 'runtime' && !descriptor) {
+      if (OPTIONAL_OPTION_KEYS.has(key) && !descriptor) {
         snapshot[key] = undefined;
         continue;
       }
@@ -603,6 +614,10 @@ export async function stageFilePlaybackAssetSource(
   const signal = input.signal;
   const isCurrent = input.isCurrent;
   const decodeOrdinaryAudio = input.decodeOrdinaryAudio;
+  const boundedRoutePolicy =
+    input.boundedRoutePolicy === undefined
+      ? undefined
+      : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
   const clock = clockSnapshot(input.clockBindings);
   const runtime = runtimeSnapshot(input.runtime);
 
@@ -729,6 +744,7 @@ export async function stageFilePlaybackAssetSource(
           localPerformanceMsToContextTime: clock.localPerformanceMsToContextTime,
           signal,
           decodeOrdinaryAudio: decodeOrdinaryAudio as OrdinaryAudioDecoder,
+          ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
         },
       ]);
     } else {
@@ -746,6 +762,7 @@ export async function stageFilePlaybackAssetSource(
           roomTimeMsToContextTime: clock.roomTimeMsToContextTime,
           localPerformanceMsToContextTime: clock.localPerformanceMsToContextTime,
           signal,
+          ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
         },
       ]);
     }

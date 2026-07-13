@@ -1,6 +1,6 @@
 import {
   EncodedSourceIntegrityError,
-  type EncodedAudioSource,
+  type EncodedRandomAccessSource,
   isEncodedAudioSourceIdentity,
   throwIfAborted,
   validateExactRead,
@@ -25,7 +25,7 @@ export interface MpegLayer3IncrementalFrameStart {
 }
 
 export interface MpegLayer3IncrementalFrameReaderOptions {
-  readonly source: EncodedAudioSource;
+  readonly source: EncodedRandomAccessSource;
   readonly firstAudioFrameOffset: number;
   readonly audioEndByteOffset: number;
   readonly audioFrameCount: number;
@@ -183,7 +183,7 @@ class ExactSequentialPageCache {
   #pageOffset = 0;
 
   constructor(
-    private readonly source: EncodedAudioSource,
+    private readonly source: EncodedRandomAccessSource,
     private readonly sourceSize: number,
     private readonly sourceIdentity: string,
     private readonly lowerBound: number,
@@ -297,7 +297,7 @@ class ExactSequentialPageCache {
  * the complete encoded asset.
  */
 export class MpegLayer3IncrementalFrameReader {
-  readonly #source: EncodedAudioSource;
+  readonly #source: EncodedRandomAccessSource;
   readonly #sourceSize: number;
   readonly #sourceIdentity: string;
   readonly #audioEndByteOffset: number;

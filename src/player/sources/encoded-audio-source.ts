@@ -13,12 +13,17 @@ export interface EncodedAudioSourceMetadata {
   readonly mime: string;
 }
 
-export interface EncodedAudioSource {
-  readonly kind: EncodedAudioSourceKind;
+/**
+ * Narrow random-access byte authority consumed by codec readers.
+ *
+ * Worker-side MessagePort facades intentionally implement only this contract:
+ * transport kind and presentation metadata belong to the owning main-thread
+ * source and must not be invented after it crosses the port boundary.
+ */
+export interface EncodedRandomAccessSource {
   readonly size: number;
   /** Immutable identity for this exact byte source, never filename-derived. */
   readonly identity: string;
-  readonly metadata: EncodedAudioSourceMetadata;
 
   /**
    * Read exactly `length` bytes from `offset`.
@@ -28,6 +33,12 @@ export interface EncodedAudioSource {
    */
   readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array>;
   close(): Promise<void>;
+}
+
+/** Main-thread encoded media source with transport and presentation metadata. */
+export interface EncodedAudioSource extends EncodedRandomAccessSource {
+  readonly kind: EncodedAudioSourceKind;
+  readonly metadata: EncodedAudioSourceMetadata;
 }
 
 export function isEncodedAudioSourceIdentity(value: unknown): value is string {

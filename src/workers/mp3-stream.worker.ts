@@ -18,8 +18,6 @@ import {
 } from '../player/mp3/incremental-frame-reader.js';
 import { Mpg123FrameDecoder } from '../player/mp3/mpg123-frame-decoder.js';
 import type { MpegLayer3SeekIndexPoint } from '../player/mp3/seek-index.js';
-import type { EncodedAudioSource } from '../player/sources/encoded-audio-source.js';
-import { throwIfAborted, validateExactRead } from '../player/sources/encoded-audio-source.js';
 import {
   ENCODED_SOURCE_PORT_MAX_READ_BYTES,
   EncodedSourcePortClient,
@@ -31,13 +29,14 @@ import {
   type PcmSupplyMessage,
 } from '../player/streaming/pcm-stream-protocol.js';
 import { BoundedPcmOutput, ensureBoundedPcmOutputRuntimeReady } from './bounded-pcm-output.js';
+import {
+  RetryingPortEncodedSource,
+  RetryingPortEncodedSourceError,
+} from './retrying-port-encoded-source.js';
 
 const scope = self as DedicatedWorkerGlobalScope;
 
 const PROGRESS_INTERVAL_BYTES = 1024 * 1024;
-const SOURCE_BUSY_RETRY_LIMIT = 128;
-const SOURCE_BUSY_INITIAL_DELAY_MS = 2;
-const SOURCE_BUSY_MAX_DELAY_MS = 64;
 
 class Mp3WorkerError extends Error {
   constructor(
@@ -68,7 +67,7 @@ interface DecoderSession {
   readonly decoderGeneration: number;
   readonly descriptor: Readonly<Mp3DecoderDescriptor>;
   readonly sourceClient: EncodedSourcePortClient;
-  readonly source: RetryingPortEncodedAudioSource;
+  readonly source: RetryingPortEncodedSource;
   readonly pcmPort: MessagePort;
   readonly abortController: AbortController;
   readonly pcmListener: (event: MessageEvent<unknown>) => void;
@@ -110,6 +109,7 @@ function boundedText(value: string, maximumLength: number, fallback: string): st
 
 function errorCode(error: unknown): string {
   if (error instanceof Mp3WorkerError) return error.code;
+  if (error instanceof RetryingPortEncodedSourceError) return error.code;
   if (error instanceof EncodedSourcePortError) return `source-${error.code}`;
   return 'decode-failed';
 }
@@ -121,82 +121,6 @@ function postControl(message: Mp3DecoderEvent): void {
 function assertCurrent(session: DecoderSession): void {
   if (activeSession !== session || session.stopped || session.terminal) {
     throw new SessionCancelledError();
-  }
-}
-
-function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
-  throwIfAborted(signal);
-  return new Promise<void>((resolve, reject) => {
-    const onAbort = (): void => {
-      globalThis.clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      try {
-        throwIfAborted(signal);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    const timer = globalThis.setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, milliseconds);
-    signal.addEventListener('abort', onAbort, { once: true });
-    if (signal.aborted) onAbort();
-  });
-}
-
-/**
- * Exact EncodedAudioSource facade for this fresh Worker realm.
- *
- * Only the broker's explicit transient `busy` result is retried. The attempt
- * count and backoff are fixed, and every wait remains abort-aware. All other
- * source failures cross the worker boundary immediately.
- */
-class RetryingPortEncodedAudioSource implements EncodedAudioSource {
-  readonly kind = 'peer-range' as const;
-  readonly metadata = Object.freeze({ name: 'bounded-stream.mp3', mime: 'audio/mpeg' });
-
-  constructor(
-    readonly size: number,
-    readonly identity: string,
-    private readonly client: EncodedSourcePortClient,
-  ) {}
-
-  async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
-    validateExactRead(this.size, offset, length);
-    if (length > ENCODED_SOURCE_PORT_MAX_READ_BYTES) {
-      throw new Mp3WorkerError(
-        'source-read-overrun',
-        `MP3 source read exceeds ${ENCODED_SOURCE_PORT_MAX_READ_BYTES} bytes`,
-      );
-    }
-
-    for (let attempt = 0; attempt <= SOURCE_BUSY_RETRY_LIMIT; attempt += 1) {
-      throwIfAborted(signal);
-      try {
-        return await this.client.readAt(offset, length, signal);
-      } catch (error) {
-        throwIfAborted(signal);
-        if (!(error instanceof EncodedSourcePortError) || error.code !== 'busy') throw error;
-        if (attempt === SOURCE_BUSY_RETRY_LIMIT) {
-          throw new Mp3WorkerError(
-            'source-busy-timeout',
-            'MP3 source remained busy beyond the bounded retry window',
-            error,
-          );
-        }
-        const delay = Math.min(
-          SOURCE_BUSY_MAX_DELAY_MS,
-          SOURCE_BUSY_INITIAL_DELAY_MS * 2 ** Math.min(attempt, 5),
-        );
-        await abortableDelay(delay, signal);
-      }
-    }
-    throw new Mp3WorkerError('source-busy-timeout', 'MP3 source retry loop exhausted');
-  }
-
-  close(): Promise<void> {
-    return this.client.close();
   }
 }
 
@@ -628,11 +552,11 @@ function createSession(command: Readonly<Mp3DecoderOpenCommand>): DecoderSession
     size: command.descriptor.sourceSize,
     maxPendingReads: 1,
   });
-  const source = new RetryingPortEncodedAudioSource(
-    command.descriptor.sourceSize,
-    command.descriptor.sourceIdentity,
-    sourceClient,
-  );
+  const source = new RetryingPortEncodedSource({
+    size: command.descriptor.sourceSize,
+    identity: command.descriptor.sourceIdentity,
+    client: sourceClient,
+  });
   const abortController = new AbortController();
   const session: DecoderSession = {
     sourceLifetimeGeneration: command.sourceLifetimeGeneration,

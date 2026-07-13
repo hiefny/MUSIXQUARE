@@ -1,6 +1,6 @@
 import {
   EncodedSourceIntegrityError,
-  type EncodedAudioSource,
+  type EncodedRandomAccessSource,
   isEncodedAudioSourceIdentity,
   throwIfAborted,
   validateExactRead,
@@ -49,7 +49,7 @@ export interface AdtsIncrementalFrameStart {
 }
 
 export interface AdtsIncrementalFrameReaderOptions {
-  readonly source: EncodedAudioSource;
+  readonly source: EncodedRandomAccessSource;
   /** Defaults to the physical origin. Nonzero values must be scanner-verified anchors. */
   readonly start?: AdtsIncrementalFrameStart;
   /**
@@ -88,10 +88,10 @@ export class AdtsIncrementalFrameReaderError extends EncodedSourceIntegrityError
 }
 
 interface SourceSnapshot {
-  readonly authority: EncodedAudioSource;
+  readonly authority: EncodedRandomAccessSource;
   readonly size: number;
   readonly identity: string;
-  readonly readAt: EncodedAudioSource['readAt'];
+  readonly readAt: EncodedRandomAccessSource['readAt'];
 }
 
 interface ReaderOptionsSnapshot {
@@ -261,7 +261,7 @@ function snapshotSource(value: unknown): SourceSnapshot {
     if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
       throw new TypeError('ADTS reader requires an encoded source');
     }
-    const authority = value as EncodedAudioSource;
+    const authority = value as EncodedRandomAccessSource;
     const size = authority.size;
     const identity = authority.identity;
     const readAt = authority.readAt;

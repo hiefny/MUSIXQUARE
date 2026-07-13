@@ -182,11 +182,22 @@ function readProfile(mpegId: AdtsMpegId, value: number): AdtsProfile {
   return value as AdtsProfile;
 }
 
-function readSampleRateIndex(value: number): AdtsSampleRateIndex {
-  if (value >= SAMPLE_RATES_HZ.length) {
+function readSampleRateIndex(value: unknown): AdtsSampleRateIndex {
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    Object.is(value, -0) ||
+    value < 0 ||
+    value >= SAMPLE_RATES_HZ.length
+  ) {
     throw new AdtsHeaderError('ADTS header uses a reserved or forbidden sample-rate index');
   }
   return value as AdtsSampleRateIndex;
+}
+
+/** Single source of truth for the MPEG-4 ADTS core sample-rate table. */
+export function adtsCoreSampleRateHzForIndex(value: unknown): number {
+  return SAMPLE_RATES_HZ[readSampleRateIndex(value)];
 }
 
 function readChannelConfiguration(value: number): {
@@ -235,7 +246,7 @@ export function parseAdtsHeader(input: Uint8Array): AdtsHeader {
   const coreAudioObjectType = (profile + 1) as AacAudioObjectType;
   const profileName = PROFILE_NAMES[profile];
   const sampleRateIndex = readSampleRateIndex((third >>> 2) & 0b1111);
-  const coreSampleRateHz = SAMPLE_RATES_HZ[sampleRateIndex];
+  const coreSampleRateHz = adtsCoreSampleRateHzForIndex(sampleRateIndex);
   const privateBit = ((third >>> 1) & 1) === 1;
   const channel = readChannelConfiguration(((third & 1) << 2) | (fourth >>> 6));
 

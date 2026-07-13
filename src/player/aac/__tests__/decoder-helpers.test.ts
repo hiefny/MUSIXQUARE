@@ -148,6 +148,46 @@ describe('AAC decoder planning-state boundary', () => {
     ).toThrow(/dense array/i);
   });
 
+  it('rejects sparse, accessor, revoked, and over-bound seek-point arrays', () => {
+    const base = scanFixture();
+    const sparse = [...base.seekPoints];
+    delete sparse[1];
+    expect(() => rebuildAacDecoderPlanningState(patchScan(base, { seekPoints: sparse }))).toThrow(
+      /dense array/i,
+    );
+
+    let indexGetterReads = 0;
+    const accessor = [...base.seekPoints];
+    Object.defineProperty(accessor, '1', {
+      enumerable: true,
+      get() {
+        indexGetterReads += 1;
+        return base.seekPoints[1];
+      },
+    });
+    expect(() => rebuildAacDecoderPlanningState(patchScan(base, { seekPoints: accessor }))).toThrow(
+      /enumerable data properties/i,
+    );
+    expect(indexGetterReads).toBe(0);
+
+    const revocable = Proxy.revocable([...base.seekPoints], {});
+    revocable.revoke();
+    expect(() =>
+      rebuildAacDecoderPlanningState(
+        patchScan(base, {
+          seekPoints: revocable.proxy as unknown as readonly AdtsSeekIndexPoint[],
+        }),
+      ),
+    ).toThrow(/snapshotted safely/i);
+
+    const overBoundFrameCount = 8_193;
+    const overBound = scanFixture({
+      frameCount: overBoundFrameCount,
+      seekOrdinals: Array.from({ length: overBoundFrameCount }, (_value, index) => index),
+    });
+    expect(() => rebuildAacDecoderPlanningState(overBound)).toThrow(/1 through 8192 entries/i);
+  });
+
   it('contains re-entrant Proxy mutation to the one detached descriptor snapshot', () => {
     const scanTarget = scanFixture();
     let outerMutationRan = false;

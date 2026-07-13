@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AdtsHeaderError,
+  adtsCoreSampleRateHzForIndex,
   UnsupportedAdtsProgramConfigElementError,
   UnsupportedAdtsRawDataBlocksError,
   parseAdtsHeader,
@@ -118,11 +119,19 @@ describe('ADTS fixed and variable header parser', () => {
     ];
 
     for (let sampleRateIndex = 0; sampleRateIndex < expected.length; sampleRateIndex += 1) {
+      expect(adtsCoreSampleRateHzForIndex(sampleRateIndex)).toBe(expected[sampleRateIndex]);
       expect(parseAdtsHeader(makeHeader({ sampleRateIndex })).coreSampleRateHz).toBe(
         expected[sampleRateIndex],
       );
     }
   });
+
+  it.each([-1, -0, 1.5, 13, 14, 15, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects noncanonical direct sample-rate index %s',
+    (sampleRateIndex) => {
+      expect(() => adtsCoreSampleRateHzForIndex(sampleRateIndex)).toThrowError(AdtsHeaderError);
+    },
+  );
 
   it('maps mono, stereo, 5.1-back, and configuration 7 to wide-back 7.1', () => {
     const mappings: ReadonlyArray<readonly [AdtsChannelConfiguration, number, string]> = [

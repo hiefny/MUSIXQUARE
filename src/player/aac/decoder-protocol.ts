@@ -6,7 +6,7 @@ import {
   type PcmSupplyMessage,
 } from '../streaming/pcm-stream-protocol.ts';
 import { expectedLanczosOutputFrames } from '../streaming/resampler-plan.ts';
-import type { AdtsSampleRateIndex } from './adts-header.ts';
+import { adtsCoreSampleRateHzForIndex, type AdtsSampleRateIndex } from './adts-header.ts';
 import type { AdtsCoreConfiguration } from './incremental-frame-reader.ts';
 import type { AdtsSeekIndexPoint } from './seek-index.ts';
 import { ADTS_CORE_FRAMES_PER_ACCESS_UNIT, type AdtsCoreTimeline } from './timeline.ts';
@@ -22,11 +22,6 @@ export const AAC_DECODER_MAX_TRANSFORM_PREROLL_ACCESS_UNITS = 8;
 
 const ADTS_MIN_ACCESS_UNIT_BYTES = 8;
 const ADTS_MAX_ACCESS_UNIT_BYTES = 8_191;
-
-const ADTS_SAMPLE_RATES_HZ = Object.freeze([
-  96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000,
-  7_350,
-] as const);
 
 export type AacSourceLifetimeGeneration = number;
 /** One fresh Worker realm and one decoder incarnation. */
@@ -389,7 +384,7 @@ function requireDescriptor(value: unknown): Readonly<AacDecoderDescriptor> {
     throw new RangeError('AAC channels must be one or two');
   }
   if (
-    ADTS_SAMPLE_RATES_HZ[coreConfiguration.sampleRateIndex] !== record.coreSampleRateHz ||
+    adtsCoreSampleRateHzForIndex(coreConfiguration.sampleRateIndex) !== record.coreSampleRateHz ||
     coreConfiguration.channelConfiguration !== record.channels
   ) {
     throw new RangeError('AAC rate or channel geometry contradicts its core configuration');

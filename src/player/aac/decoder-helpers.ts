@@ -9,7 +9,7 @@ import {
   type AacDecoderDescriptor,
 } from './decoder-protocol.ts';
 import { ADTS_CORE_SAMPLES_PER_FRAME, type AdtsFrameScanResult } from './frame-scanner.ts';
-import type { AdtsSampleRateIndex } from './adts-header.ts';
+import { adtsCoreSampleRateHzForIndex, type AdtsSampleRateIndex } from './adts-header.ts';
 import type { AdtsCoreConfiguration } from './incremental-frame-reader.ts';
 import { ADTS_SEEK_INDEX_MAX_POINTS, type AdtsSeekIndexPoint } from './seek-index.ts';
 import { createAdtsCoreTimeline, type AdtsCoreTimeline } from './timeline.ts';
@@ -20,11 +20,6 @@ export const AAC_DECODER_DEFAULT_TRANSFORM_PREROLL_ACCESS_UNITS = 1;
 const ADTS_MIN_ACCESS_UNIT_BYTES = 8;
 const ADTS_MAX_ACCESS_UNIT_BYTES = 8_191;
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
-
-const ADTS_SAMPLE_RATES_HZ = Object.freeze([
-  96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000,
-  7_350,
-] as const);
 
 const SCAN_RESULT_KEYS = [
   'sourceIdentity',
@@ -370,7 +365,7 @@ function snapshotScanResult(value: unknown): Readonly<AdtsFrameScanResult> {
     throw new RangeError('AAC frame scan coreChannelCount must be mono or stereo');
   }
   if (
-    ADTS_SAMPLE_RATES_HZ[coreConfiguration.sampleRateIndex] !== record.coreSampleRateHz ||
+    adtsCoreSampleRateHzForIndex(coreConfiguration.sampleRateIndex) !== record.coreSampleRateHz ||
     coreConfiguration.channelConfiguration !== record.coreChannelCount
   ) {
     throw new AacDecoderHelperError(
@@ -397,7 +392,11 @@ function snapshotScanResult(value: unknown): Readonly<AdtsFrameScanResult> {
   });
 }
 
-/** Rebuild detached, bounded decoder-planning evidence from a full ADTS scan. */
+/**
+ * Rebuild detached decoder-planning evidence from the same-realm full scanner.
+ * Retained work is capped at the scanner's 8,192-point contract; arbitrary
+ * Proxy reflection itself is not treated as a network or Worker trust boundary.
+ */
 export function rebuildAacDecoderPlanningState(
   scanValue: AdtsFrameScanResult,
 ): Readonly<AacDecoderPlanningState> {

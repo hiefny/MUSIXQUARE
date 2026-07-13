@@ -46,6 +46,23 @@ function requiredChildren(chunkType: 'stco' | 'co64' = 'stco'): readonly Uint8Ar
   return [box('stsd'), box('stts'), box('stsc'), box('stsz'), box(chunkType)];
 }
 
+function setFourCc(bytes: Uint8Array, offset: number, value: string): void {
+  for (let index = 0; index < 4; index += 1) bytes[offset + index] = value.charCodeAt(index);
+}
+
+function sampleGroupBox(
+  type: 'sgpd' | 'sbgp',
+  groupingType = 'roll',
+  version = type === 'sgpd' ? 1 : 0,
+): Uint8Array {
+  const bodyBytes =
+    type === 'sgpd' ? (version === 0 ? 12 : version === 1 ? 16 : 20) : version === 1 ? 16 : 12;
+  const body = new Uint8Array(bodyBytes);
+  body[0] = version;
+  setFourCc(body, 4, groupingType);
+  return box(type, body);
+}
+
 function sttsBody(
   entries: readonly (readonly [sampleCount: number, sampleDelta: number])[],
   declaredCount = entries.length,
@@ -114,6 +131,7 @@ describe('M4A sample-table layout', () => {
         stsz: { type: 'stsz' },
         chunkOffsets: { type: chunkType },
         chunkOffsetWidthBytes: chunkType === 'stco' ? 4 : 8,
+        rollRecoverySampleGroup: null,
       });
       expect(Object.isFrozen(layout)).toBe(true);
       expect(source.closeCalls).toBe(0);
@@ -157,7 +175,96 @@ describe('M4A sample-table layout', () => {
     }
   });
 
-  it.each(['ctts', 'stz2', 'sgpd', 'sbgp', 'saiz', 'saio', 'subs', 'sdtp', 'stss'])(
+  it('retains exactly one paired sgpd and sbgp layout', async () => {
+    const source = new MemorySource(
+      stbl(...requiredChildren(), sampleGroupBox('sbgp'), sampleGroupBox('sgpd')),
+    );
+    const reader = new IsoBmffBoxReader(source);
+    const layout = await readM4aSampleTableLayout(reader, await rootRef(reader), signal());
+
+    expect(layout.rollRecoverySampleGroup).toMatchObject({
+      sgpd: { type: 'sgpd' },
+      sbgp: { type: 'sbgp' },
+    });
+    expect(Object.isFrozen(layout.rollRecoverySampleGroup)).toBe(true);
+  });
+
+  it.each(['sgpd', 'sbgp'] as const)('rejects orphan and duplicate %s boxes', async (type) => {
+    const other = type === 'sgpd' ? 'sbgp' : 'sgpd';
+    for (const [bytes, message] of [
+      [stbl(...requiredChildren(), sampleGroupBox(type)), /must appear as a pair/],
+      [
+        stbl(
+          ...requiredChildren(),
+          sampleGroupBox(type),
+          sampleGroupBox(other),
+          sampleGroupBox(type),
+        ),
+        /duplicate/,
+      ],
+    ] as const) {
+      const reader = new IsoBmffBoxReader(new MemorySource(bytes));
+      await expect(
+        readM4aSampleTableLayout(reader, await rootRef(reader), signal()),
+      ).rejects.toThrow(message);
+    }
+  });
+
+  it('retains only roll while skipping coexisting and orphan non-roll sample groups', async () => {
+    const source = new MemorySource(
+      stbl(
+        ...requiredChildren(),
+        sampleGroupBox('sgpd', 'tele', 2),
+        sampleGroupBox('sbgp', 'sync'),
+        sampleGroupBox('sgpd', 'seig'),
+        sampleGroupBox('sbgp', 'roll'),
+        sampleGroupBox('sbgp', 'seig'),
+        sampleGroupBox('sgpd', 'roll'),
+      ),
+    );
+    const reader = new IsoBmffBoxReader(source);
+
+    const layout = await readM4aSampleTableLayout(reader, await rootRef(reader), signal());
+
+    expect(layout.rollRecoverySampleGroup).toMatchObject({
+      sgpd: { type: 'sgpd' },
+      sbgp: { type: 'sbgp' },
+    });
+    expect(source.reads.every((read) => read.length <= M4A_STTS_MAX_PAGE_BYTES)).toBe(true);
+  });
+
+  it('ignores a structurally bounded version-2 non-roll orphan sgpd', async () => {
+    const source = new MemorySource(stbl(...requiredChildren(), sampleGroupBox('sgpd', 'tele', 2)));
+    const reader = new IsoBmffBoxReader(source);
+
+    await expect(
+      readM4aSampleTableLayout(reader, await rootRef(reader), signal()),
+    ).resolves.toMatchObject({ rollRecoverySampleGroup: null });
+  });
+
+  it.each([
+    ['common prefix', box('sgpd', new Uint8Array(7)), /prefix is truncated/],
+    [
+      'version-dependent prefix',
+      box(
+        'sgpd',
+        (() => {
+          const body = new Uint8Array(19);
+          body[0] = 2;
+          setFourCc(body, 4, 'tele');
+          return body;
+        })(),
+      ),
+      /shorter than 20 bytes/,
+    ],
+  ])('rejects a truncated sample-group %s', async (_label, group, message) => {
+    const reader = new IsoBmffBoxReader(new MemorySource(stbl(...requiredChildren(), group)));
+    await expect(readM4aSampleTableLayout(reader, await rootRef(reader), signal())).rejects.toThrow(
+      message,
+    );
+  });
+
+  it.each(['ctts', 'stz2', 'saiz', 'saio', 'subs', 'sdtp', 'stss'])(
     'fails closed on unsupported %s metadata',
     async (type) => {
       const bytes = stbl(...requiredChildren(), box(type));

@@ -10,8 +10,6 @@ import {
 const SAMPLE_TABLE_BOX_TYPES = Object.freeze(['stsd', 'stts', 'stsc', 'stsz'] as const);
 const UNSUPPORTED_SAMPLE_TABLE_BOX_TYPES = new Set([
   'ctts',
-  'sbgp',
-  'sgpd',
   'saio',
   'saiz',
   'sdtp',
@@ -21,6 +19,7 @@ const UNSUPPORTED_SAMPLE_TABLE_BOX_TYPES = new Set([
 ]);
 const STTS_FULL_BOX_HEADER_BYTES = 8;
 const STTS_ENTRY_BYTES = 8;
+const SAMPLE_GROUP_COMMON_PREFIX_BYTES = 8;
 export const M4A_STTS_MAX_PAGE_BYTES = 64 * 1_024;
 
 export interface M4aSampleTableLayout {
@@ -30,7 +29,24 @@ export interface M4aSampleTableLayout {
   readonly stsz: Readonly<IsoBmffBoxRef>;
   readonly chunkOffsets: Readonly<IsoBmffBoxRef>;
   readonly chunkOffsetWidthBytes: 4 | 8;
+  readonly rollRecoverySampleGroup: Readonly<M4aRollRecoverySampleGroupLayout> | null;
 }
+
+export interface M4aRollRecoverySampleGroupLayout {
+  readonly sgpd: Readonly<IsoBmffBoxRef>;
+  readonly sbgp: Readonly<IsoBmffBoxRef>;
+}
+
+interface RollRecoverySampleGroupAuthority {
+  readonly reader: IsoBmffBoxReader;
+  readonly stbl: Readonly<IsoBmffBoxRef>;
+  readonly layout: Readonly<M4aRollRecoverySampleGroupLayout>;
+}
+
+const rollRecoverySampleGroupAuthorities = new WeakMap<
+  object,
+  Readonly<RollRecoverySampleGroupAuthority>
+>();
 
 export class M4aSampleTableError extends EncodedSourceIntegrityError {
   constructor(message: string, cause?: unknown) {
@@ -52,6 +68,53 @@ function readUint32(bytes: Uint8Array, offset: number): number {
     bytes[offset + 2]! * 0x100 +
     bytes[offset + 3]!
   );
+}
+
+function readFourCc(bytes: Uint8Array, offset: number): string {
+  return String.fromCharCode(
+    bytes[offset]!,
+    bytes[offset + 1]!,
+    bytes[offset + 2]!,
+    bytes[offset + 3]!,
+  );
+}
+
+function minimumSampleGroupBodyBytes(type: 'sgpd' | 'sbgp', version: number): number {
+  if (type === 'sgpd') {
+    if (version === 0) return 12;
+    if (version === 1) return 16;
+    return 20;
+  }
+  return version === 1 ? 16 : 12;
+}
+
+async function readSampleGroupingType(
+  reader: IsoBmffBoxReader,
+  box: Readonly<IsoBmffBoxRef>,
+  signal: AbortSignal,
+): Promise<string> {
+  const body = reader.createChildCursor(box);
+  if (box.type !== 'sgpd' && box.type !== 'sbgp') {
+    throw new M4aSampleTableError('M4A sample-group discovery requires an sgpd or sbgp box');
+  }
+  if (body.remainingBytes < SAMPLE_GROUP_COMMON_PREFIX_BYTES) {
+    throw new M4aSampleTableError(`M4A ${box.type} FullBox and grouping-type prefix is truncated`);
+  }
+
+  const commonPrefix = await reader.readBytes(body.start, SAMPLE_GROUP_COMMON_PREFIX_BYTES, signal);
+  const minimumBodyBytes = minimumSampleGroupBodyBytes(box.type, commonPrefix[0]!);
+  if (body.remainingBytes < minimumBodyBytes) {
+    throw new M4aSampleTableError(
+      `M4A ${box.type} version ${commonPrefix[0]} body is shorter than ${minimumBodyBytes} bytes`,
+    );
+  }
+
+  // Read the complete version-dependent fixed prefix before skipping an
+  // unconsumed grouping type. No group-specific entry body is retained.
+  if (minimumBodyBytes > commonPrefix.byteLength) {
+    await reader.readBytes(body.start, minimumBodyBytes, signal);
+  }
+  return readFourCc(commonPrefix, 4);
 }
 
 function requireReaderAndSignal(
@@ -86,6 +149,8 @@ export async function readM4aSampleTableLayout(
 
   const required = new Map<string, Readonly<IsoBmffBoxRef>>();
   let chunkOffsets: Readonly<IsoBmffBoxRef> | null = null;
+  let sgpd: Readonly<IsoBmffBoxRef> | null = null;
+  let sbgp: Readonly<IsoBmffBoxRef> | null = null;
 
   for (;;) {
     const child = await children.next(signal);
@@ -109,6 +174,25 @@ export async function readM4aSampleTableLayout(
       continue;
     }
 
+    if (child.type === 'sgpd' || child.type === 'sbgp') {
+      const groupingType = await readSampleGroupingType(reader, child, signal);
+      if (groupingType !== 'roll') {
+        continue;
+      }
+      if (child.type === 'sgpd') {
+        if (sgpd !== null) {
+          throw new M4aSampleTableError('M4A sample table contains duplicate "roll" sgpd boxes');
+        }
+        sgpd = child;
+      } else {
+        if (sbgp !== null) {
+          throw new M4aSampleTableError('M4A sample table contains duplicate "roll" sbgp boxes');
+        }
+        sbgp = child;
+      }
+      continue;
+    }
+
     if (UNSUPPORTED_SAMPLE_TABLE_BOX_TYPES.has(child.type)) {
       throw new M4aSampleTableError(
         `Unsupported M4A sample-table box ${JSON.stringify(child.type)}`,
@@ -127,6 +211,20 @@ export async function readM4aSampleTableLayout(
   if (chunkOffsets === null) {
     throw new M4aSampleTableError('M4A sample table is missing stco or co64 chunk offsets');
   }
+  if ((sgpd === null) !== (sbgp === null)) {
+    throw new M4aSampleTableError(
+      'M4A roll-recovery sample-group boxes sgpd and sbgp must appear as a pair',
+    );
+  }
+
+  const rollRecoverySampleGroup =
+    sgpd === null || sbgp === null ? null : Object.freeze({ sgpd, sbgp });
+  if (rollRecoverySampleGroup !== null) {
+    rollRecoverySampleGroupAuthorities.set(
+      rollRecoverySampleGroup,
+      Object.freeze({ reader, stbl: stblBox, layout: rollRecoverySampleGroup }),
+    );
+  }
 
   reader.assertReadable(signal);
   return Object.freeze({
@@ -136,7 +234,38 @@ export async function readM4aSampleTableLayout(
     stsz: required.get('stsz')!,
     chunkOffsets,
     chunkOffsetWidthBytes: chunkOffsets.type === 'stco' ? 4 : 8,
+    rollRecoverySampleGroup,
   });
+}
+
+/**
+ * Recover only the exact `roll` pair issued while walking this reader's
+ * selected `stbl`. Authentic box references from another table cannot be
+ * spliced into a manufactured pair.
+ */
+export function assertM4aRollRecoverySampleGroupLayoutProvenance(
+  reader: IsoBmffBoxReader,
+  layout: Readonly<M4aRollRecoverySampleGroupLayout>,
+  signal: AbortSignal,
+): Readonly<M4aRollRecoverySampleGroupLayout> {
+  requireReaderAndSignal(reader, signal, 'M4A roll-recovery layout provenance');
+  reader.assertReadable(signal);
+  const authority =
+    layout !== null && (typeof layout === 'object' || typeof layout === 'function')
+      ? rollRecoverySampleGroupAuthorities.get(layout)
+      : undefined;
+  if (authority === undefined) {
+    throw new M4aSampleTableError('M4A roll-recovery layout lacks module provenance');
+  }
+  if (authority.reader !== reader) {
+    throw new M4aSampleTableError('M4A roll-recovery layout belongs to a different source reader');
+  }
+  // Re-authenticate the issuing table as well as the retained pair before
+  // returning trusted evidence to a downstream parser.
+  reader.createChildCursor(authority.stbl);
+  reader.createChildCursor(authority.layout.sgpd);
+  reader.createChildCursor(authority.layout.sbgp);
+  return authority.layout;
 }
 
 /**

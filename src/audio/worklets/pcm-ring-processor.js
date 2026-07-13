@@ -8,13 +8,135 @@
 const PCM_RING_PROTOCOL_VERSION = 2;
 const PCM_RING_MAX_CHANNELS = 8;
 const PCM_RING_MAX_MESSAGE_FRAMES = 32_768;
-const PCM_RING_DEFAULT_CAPACITY_SECONDS = 12;
-const PCM_RING_DEFAULT_PRIME_SECONDS = 4;
-const PCM_RING_MIN_CAPACITY_SECONDS = 6;
+const PCM_RING_MIN_SAMPLE_RATE_HZ = 44_100;
+const PCM_RING_MAX_SAMPLE_RATE_HZ = 768_000;
+const PCM_RING_MIN_PRIME_SECONDS = 1;
+const PCM_RING_HEADROOM_SECONDS = 0.25;
 const PCM_RING_MAX_CAPACITY_SECONDS = 20;
+const PCM_RING_HARD_MAX_BYTES = 64 * 1024 * 1024;
+const PCM_RING_OPTION_KEYS = Object.freeze([
+  'channels',
+  'generation',
+  'mediaFrame',
+  'capacitySeconds',
+  'primeSeconds',
+  'maxRingBytes',
+  'capacityFrames',
+  'primeFrames',
+  'highWaterFrames',
+  'allocationBytes',
+]);
 
-function clamp(value, minimum, maximum) {
-  return Math.min(maximum, Math.max(minimum, value));
+function snapshotProcessorOptions(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('PCM ring processor options must be an exact plain record');
+  }
+  // `processorOptions` crosses a structured-clone boundary in production and
+  // may carry a foreign Object.prototype in test/worklet realms. Its prototype
+  // therefore cannot be an authority boundary; exact own data fields below are.
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const ownKeys = Reflect.ownKeys(descriptors);
+  if (
+    ownKeys.length !== PCM_RING_OPTION_KEYS.length ||
+    ownKeys.some((key) => typeof key !== 'string' || !PCM_RING_OPTION_KEYS.includes(key))
+  ) {
+    throw new TypeError('PCM ring processor options have unexpected or missing fields');
+  }
+
+  const snapshot = Object.create(null);
+  for (const key of PCM_RING_OPTION_KEYS) {
+    const descriptor = descriptors[key];
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError('PCM ring processor options must use enumerable data fields');
+    }
+    snapshot[key] = descriptor.value;
+  }
+  return Object.freeze(snapshot);
+}
+
+function requireSafeInteger(value, minimum, maximum, label) {
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    Object.is(value, -0) ||
+    value < minimum ||
+    value > maximum
+  ) {
+    throw new RangeError(`${label} is outside the PCM ring contract`);
+  }
+  return value;
+}
+
+function requireFiniteNumber(value, minimum, maximum, label) {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    Object.is(value, -0) ||
+    value < minimum ||
+    value > maximum
+  ) {
+    throw new RangeError(`${label} is outside the PCM ring contract`);
+  }
+  return value;
+}
+
+function validateCapacityPlan(options, channels) {
+  const outputSampleRate = requireSafeInteger(
+    sampleRate,
+    PCM_RING_MIN_SAMPLE_RATE_HZ,
+    PCM_RING_MAX_SAMPLE_RATE_HZ,
+    'sampleRate',
+  );
+  const capacitySeconds = requireFiniteNumber(
+    options.capacitySeconds,
+    PCM_RING_MIN_PRIME_SECONDS + PCM_RING_HEADROOM_SECONDS,
+    PCM_RING_MAX_CAPACITY_SECONDS,
+    'capacitySeconds',
+  );
+  const primeSeconds = requireFiniteNumber(
+    options.primeSeconds,
+    PCM_RING_MIN_PRIME_SECONDS,
+    PCM_RING_MAX_CAPACITY_SECONDS,
+    'primeSeconds',
+  );
+  const maxRingBytes = requireSafeInteger(
+    options.maxRingBytes,
+    1,
+    PCM_RING_HARD_MAX_BYTES,
+    'maxRingBytes',
+  );
+  const bytesPerFrame = channels * Float32Array.BYTES_PER_ELEMENT;
+  const capacityFrames = Math.min(
+    Math.floor(outputSampleRate * capacitySeconds),
+    Math.floor(maxRingBytes / bytesPerFrame),
+  );
+  const minimumPrimeFrames = Math.ceil(outputSampleRate * PCM_RING_MIN_PRIME_SECONDS);
+  const headroomFrames = Math.max(128, Math.ceil(outputSampleRate * PCM_RING_HEADROOM_SECONDS));
+  const maximumPrimeFrames = capacityFrames - headroomFrames;
+  if (maximumPrimeFrames < minimumPrimeFrames) {
+    throw new RangeError('maxRingBytes cannot hold the minimum PCM prime and refill headroom');
+  }
+  const primeFrames = Math.min(
+    Math.max(Math.floor(outputSampleRate * primeSeconds), minimumPrimeFrames),
+    maximumPrimeFrames,
+  );
+  const highWaterFrames = Math.max(primeFrames, Math.floor(capacityFrames * 0.8));
+  const allocationBytes = capacityFrames * bytesPerFrame;
+  const exactPlanFields = {
+    capacityFrames,
+    primeFrames,
+    highWaterFrames,
+    allocationBytes,
+  };
+  for (const [key, expected] of Object.entries(exactPlanFields)) {
+    if (requireSafeInteger(options[key], 1, Number.MAX_SAFE_INTEGER, key) !== expected) {
+      throw new RangeError(`PCM ring ${key} does not match the validated plan`);
+    }
+  }
+  if (allocationBytes > maxRingBytes || highWaterFrames > capacityFrames) {
+    throw new RangeError('PCM ring capacity plan exceeds its allocation bounds');
+  }
+  return exactPlanFields;
 }
 
 function isGeneration(value) {
@@ -61,33 +183,35 @@ class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
   constructor(options) {
     super();
 
-    const processorOptions = options?.processorOptions ?? {};
-    const channels = processorOptions.channels ?? 2;
-    if (!Number.isSafeInteger(channels) || channels < 1 || channels > PCM_RING_MAX_CHANNELS) {
-      throw new RangeError(`channels must be an integer from 1 to ${PCM_RING_MAX_CHANNELS}`);
-    }
-
-    const requestedCapacity = Number(processorOptions.capacitySeconds);
-    const capacitySeconds = clamp(
-      Number.isFinite(requestedCapacity) ? requestedCapacity : PCM_RING_DEFAULT_CAPACITY_SECONDS,
-      PCM_RING_MIN_CAPACITY_SECONDS,
-      PCM_RING_MAX_CAPACITY_SECONDS,
-    );
-    const requestedPrime = Number(processorOptions.primeSeconds);
-    const primeSeconds = clamp(
-      Number.isFinite(requestedPrime) ? requestedPrime : PCM_RING_DEFAULT_PRIME_SECONDS,
+    const processorOptions = snapshotProcessorOptions(options?.processorOptions);
+    const channels = requireSafeInteger(
+      processorOptions.channels,
       1,
-      capacitySeconds - 1,
+      PCM_RING_MAX_CHANNELS,
+      'channels',
     );
+    const generation = requireSafeInteger(
+      processorOptions.generation,
+      1,
+      Number.MAX_SAFE_INTEGER,
+      'generation',
+    );
+    const mediaFrame = requireSafeInteger(
+      processorOptions.mediaFrame,
+      0,
+      Number.MAX_SAFE_INTEGER,
+      'mediaFrame',
+    );
+    const capacityPlan = validateCapacityPlan(processorOptions, channels);
 
     this.channels = channels;
-    this.capacityFrames = Math.max(1, Math.floor(sampleRate * capacitySeconds));
-    this.primeFrames = Math.max(1, Math.floor(sampleRate * primeSeconds));
-    this.highWaterFrames = Math.max(this.primeFrames, Math.floor(this.capacityFrames * 0.8));
+    this.capacityFrames = capacityPlan.capacityFrames;
+    this.primeFrames = capacityPlan.primeFrames;
+    this.highWaterFrames = capacityPlan.highWaterFrames;
     this.rings = Array.from({ length: channels }, () => new Float32Array(this.capacityFrames));
 
-    this.generation = isGeneration(processorOptions.generation) ? processorOptions.generation : 1;
-    this.mediaFrame = isMediaFrame(processorOptions.mediaFrame) ? processorOptions.mediaFrame : 0;
+    this.generation = generation;
+    this.mediaFrame = mediaFrame;
 
     this.readIndex = 0;
     this.writeIndex = 0;

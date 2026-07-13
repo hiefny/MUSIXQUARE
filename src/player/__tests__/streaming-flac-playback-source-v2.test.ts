@@ -29,8 +29,9 @@ class FakeAudioContext {
   #currentTime = 1;
   roomNowMs = 1_000;
   state: AudioContextState = 'running';
-  readonly sampleRate = OUTPUT_RATE;
   onCurrentTimeRead: (() => void) | null = null;
+
+  constructor(readonly sampleRate = OUTPUT_RATE) {}
 
   get currentTime(): number {
     this.onCurrentTimeRead?.();
@@ -146,7 +147,7 @@ class FakeAudioWorkletNode extends FakeAudioNode {
   onprocessorerror: ((event: Event) => void) | null = null;
 }
 
-function metadata(): FlacMetadata {
+function metadata(streamInfoOverrides: Partial<FlacMetadata['streamInfo']> = {}): FlacMetadata {
   return Object.freeze({
     streamInfo: Object.freeze({
       minBlockSize: 4_096,
@@ -159,6 +160,7 @@ function metadata(): FlacMetadata {
       totalSamples: TOTAL_SOURCE_SAMPLES,
       duration: 10,
       md5: '00000000000000000000000000000000',
+      ...streamInfoOverrides,
     }),
     seekPoints: Object.freeze([]),
     firstAudioFrameOffset: 42,
@@ -230,8 +232,9 @@ function harness(
   sourceMetadata: FlacMetadata = metadata(),
   nowRoomTimeMs?: () => number,
   roomTimeMsToContextTime: (roomTimeMs: number) => number = (roomTimeMs) => roomTimeMs / 1_000,
+  outputSampleRate = OUTPUT_RATE,
 ) {
-  const context = new FakeAudioContext();
+  const context = new FakeAudioContext(outputSampleRate);
   const destination = new FakeAudioNode(context);
   const worker = new FakeWorker();
   const node = new FakeAudioWorkletNode(context);
@@ -904,7 +907,24 @@ describe('StreamingFlacPlaybackSource v2', () => {
         mediaFrame: 0,
         capacitySeconds: 12,
         primeSeconds: 4,
+        maxRingBytes: 32 * 1024 * 1024,
+        capacityFrames: 576_000,
+        primeFrames: 192_000,
+        highWaterFrames: 460_800,
+        allocationBytes: 4_608_000,
       },
+    });
+    expect(h.nodeOptions?.processorOptions).toEqual({
+      channels: 2,
+      generation: 1,
+      mediaFrame: 0,
+      capacitySeconds: 12,
+      primeSeconds: 4,
+      maxRingBytes: 32 * 1024 * 1024,
+      capacityFrames: 576_000,
+      primeFrames: 192_000,
+      highWaterFrames: 460_800,
+      allocationBytes: 4_608_000,
     });
     expect(h.channels).toHaveLength(2);
     const sourceOpen = h.worker.messages.find(({ message }) => message.type === 'open-source');
@@ -957,6 +977,36 @@ describe('StreamingFlacPlaybackSource v2', () => {
     );
     await h.source.destroy();
     expect(h.closeEncodedSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('preflights an eight-channel high-rate ring against the 32 MiB byte cap', async () => {
+    const outputSampleRate = 352_800;
+    const h = harness(undefined, metadata({ channels: 8 }), undefined, undefined, outputSampleRate);
+    const { preparing } = await beginPrepare(h.source, h.worker);
+    const rejected = expect(preparing).rejects.toThrow(/stopped before priming/i);
+
+    expect(h.nodeOptions?.processorOptions).toEqual({
+      channels: 8,
+      generation: 1,
+      mediaFrame: 0,
+      capacitySeconds: 12,
+      primeSeconds: 4,
+      maxRingBytes: 32 * 1024 * 1024,
+      capacityFrames: 1_048_576,
+      primeFrames: 960_376,
+      highWaterFrames: 960_376,
+      allocationBytes: 33_554_432,
+    });
+
+    const init = lastWorkerInit(h.worker);
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-stopped',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+    });
+    await rejected;
+    await h.source.destroy();
   });
 
   it('arms and finalizes one immutable render frame, then derives position from ring status', async () => {

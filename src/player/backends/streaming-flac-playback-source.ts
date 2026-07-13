@@ -42,6 +42,12 @@ import {
   type PcmStreamRunIdentity,
 } from '../streaming/pcm-stream-protocol.ts';
 import {
+  PCM_RING_DEFAULT_MAX_BYTES,
+  PCM_RING_TARGET_CAPACITY_SECONDS,
+  PCM_RING_TARGET_PRIME_SECONDS,
+  planPcmRingCapacity,
+} from '../streaming/pcm-ring-capacity.ts';
+import {
   createStreamingMediaTimeline,
   mediaFrameAtPosition,
   outputFrameAtMediaFrame,
@@ -66,8 +72,6 @@ const PROCESSOR_NAME = 'musixquare-pcm-ring-v2';
 const DEFAULT_PREPARE_TIMEOUT_MS = 60_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 4_000;
 const START_EVIDENCE_GRACE_MS = 2_500;
-const RING_CAPACITY_SECONDS = 12;
-const RING_PRIME_SECONDS = 4;
 const MAX_IDENTIFIER_LENGTH = 256;
 
 type WorkerFactory = () => Worker;
@@ -1796,6 +1800,13 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       this.#assertOperationOpen(operation.signal);
 
       this.#generation = 1;
+      const ringPlan = planPcmRingCapacity({
+        channels: this.#decoder.info.channelCount,
+        sampleRate: this.#audioContext.sampleRate,
+        capacitySeconds: PCM_RING_TARGET_CAPACITY_SECONDS,
+        primeSeconds: PCM_RING_TARGET_PRIME_SECONDS,
+        maxRingBytes: PCM_RING_DEFAULT_MAX_BYTES,
+      });
       this.#node = this.#runtime.createWorkletNode(this.#audioContext, PROCESSOR_NAME, {
         numberOfInputs: 0,
         numberOfOutputs: 1,
@@ -1807,8 +1818,10 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
           channels: this.#decoder.info.channelCount,
           generation: this.#generation,
           mediaFrame: 0,
-          capacitySeconds: RING_CAPACITY_SECONDS,
-          primeSeconds: RING_PRIME_SECONDS,
+          capacitySeconds: PCM_RING_TARGET_CAPACITY_SECONDS,
+          primeSeconds: PCM_RING_TARGET_PRIME_SECONDS,
+          maxRingBytes: PCM_RING_DEFAULT_MAX_BYTES,
+          ...ringPlan,
         },
       });
       this.#node.port.onmessage = (event: MessageEvent<unknown>) =>

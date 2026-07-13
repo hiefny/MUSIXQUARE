@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import {
+  PCM_RING_DEFAULT_MAX_BYTES,
+  planPcmRingCapacity,
+} from '../../player/streaming/pcm-ring-capacity.ts';
 
 const PROTOCOL_VERSION = 2;
 const SAMPLE_RATE = 48_000;
@@ -65,9 +69,46 @@ function command(type: string, generation = 1, fields: WorkletMessage = {}): Wor
   };
 }
 
+function plannedProcessorOptions(options: {
+  readonly channels: number;
+  readonly sampleRate: number;
+  readonly generation?: number;
+  readonly mediaFrame?: number;
+  readonly capacitySeconds?: number;
+  readonly primeSeconds?: number;
+  readonly maxRingBytes?: number;
+}): WorkletMessage {
+  const capacitySeconds = options.capacitySeconds ?? 6;
+  const primeSeconds = options.primeSeconds ?? 1;
+  const maxRingBytes = options.maxRingBytes ?? PCM_RING_DEFAULT_MAX_BYTES;
+  return {
+    channels: options.channels,
+    generation: options.generation ?? 1,
+    mediaFrame: options.mediaFrame ?? 0,
+    capacitySeconds,
+    primeSeconds,
+    maxRingBytes,
+    ...planPcmRingCapacity({
+      channels: options.channels,
+      sampleRate: options.sampleRate,
+      capacitySeconds,
+      primeSeconds,
+      maxRingBytes,
+    }),
+  };
+}
+
 function createHarness(
   channels = 2,
-  options: { generation?: number; mediaFrame?: number } = {},
+  options: {
+    generation?: number;
+    mediaFrame?: number;
+    sampleRate?: number;
+    capacitySeconds?: number;
+    primeSeconds?: number;
+    maxRingBytes?: number;
+    rawProcessorOptions?: WorkletMessage;
+  } = {},
 ): Harness {
   let registeredName = '';
   let ProcessorConstructor:
@@ -78,6 +119,7 @@ function createHarness(
     readonly port = new FakeMessagePort();
   }
 
+  const outputSampleRate = options.sampleRate ?? SAMPLE_RATE;
   const sandbox = {
     AudioWorkletProcessor: FakeAudioWorkletProcessor,
     registerProcessor: (
@@ -87,7 +129,7 @@ function createHarness(
       registeredName = name;
       ProcessorConstructor = constructor;
     },
-    sampleRate: SAMPLE_RATE,
+    sampleRate: outputSampleRate,
     currentFrame: 0,
     Array,
     ArrayBuffer,
@@ -95,6 +137,7 @@ function createHarness(
     Math,
     Number,
     RangeError,
+    TypeError,
   };
 
   vm.runInNewContext(processorSource, sandbox, { filename: 'pcm-ring-processor.js' });
@@ -102,13 +145,17 @@ function createHarness(
   if (!ProcessorConstructor) throw new Error('processor was not registered');
 
   const processor = new ProcessorConstructor({
-    processorOptions: {
-      channels,
-      capacitySeconds: 6,
-      primeSeconds: 1,
-      generation: options.generation ?? 1,
-      mediaFrame: options.mediaFrame ?? 0,
-    },
+    processorOptions:
+      options.rawProcessorOptions ??
+      plannedProcessorOptions({
+        channels,
+        sampleRate: outputSampleRate,
+        generation: options.generation ?? 1,
+        mediaFrame: options.mediaFrame ?? 0,
+        capacitySeconds: options.capacitySeconds,
+        primeSeconds: options.primeSeconds,
+        maxRingBytes: options.maxRingBytes,
+      }),
   });
   const control = processor.port;
 
@@ -168,6 +215,67 @@ function armAndFinalize(
 }
 
 describe('musixquare-pcm-ring-v2', () => {
+  it.each([
+    { sampleRate: 48_000, channels: 2 },
+    { sampleRate: 96_000, channels: 8 },
+    { sampleRate: 352_800, channels: 8 },
+    { sampleRate: 768_000, channels: 8 },
+  ])(
+    'matches the pure byte-capped plan at $sampleRate Hz / $channels channel(s)',
+    ({ sampleRate, channels }) => {
+      const expected = planPcmRingCapacity({
+        sampleRate,
+        channels,
+        capacitySeconds: 12,
+        primeSeconds: 4,
+        maxRingBytes: PCM_RING_DEFAULT_MAX_BYTES,
+      });
+      const harness = createHarness(channels, {
+        sampleRate,
+        capacitySeconds: 12,
+        primeSeconds: 4,
+      });
+      expect({
+        capacityFrames: harness.processor.capacityFrames,
+        primeFrames: harness.processor.primeFrames,
+        highWaterFrames: harness.processor.highWaterFrames,
+        allocationBytes:
+          (harness.processor.capacityFrames as number) * channels * Float32Array.BYTES_PER_ELEMENT,
+      }).toEqual(expected);
+    },
+  );
+
+  it('rejects a source plan that does not match the Worklet sample rate', () => {
+    const exact = plannedProcessorOptions({ channels: 2, sampleRate: SAMPLE_RATE });
+    expect(() =>
+      createHarness(2, {
+        rawProcessorOptions: {
+          ...exact,
+          capacityFrames: (exact.capacityFrames as number) + 1,
+        },
+      }),
+    ).toThrow(/capacityFrames does not match/u);
+  });
+
+  it('rejects coercible, missing, and extra processor options before allocation', () => {
+    const exact = plannedProcessorOptions({ channels: 2, sampleRate: SAMPLE_RATE });
+    expect(() =>
+      createHarness(2, {
+        rawProcessorOptions: { ...exact, capacitySeconds: '6' },
+      }),
+    ).toThrow(RangeError);
+
+    const missing = { ...exact };
+    delete missing.allocationBytes;
+    expect(() => createHarness(2, { rawProcessorOptions: missing })).toThrow(TypeError);
+
+    expect(() =>
+      createHarness(2, {
+        rawProcessorOptions: { ...exact, unexpected: true },
+      }),
+    ).toThrow(TypeError);
+  });
+
   it('keeps exactly one versioned demand outstanding', () => {
     const harness = createHarness(1);
     const pcmPort = harness.bind();

@@ -7,6 +7,11 @@ const MP3_SOURCE_PATH = resolve('e2e/fixtures/test-01.mp3');
 const SAMPLE_RATE_HZ = 48_000;
 const CHANNEL_COUNT = 2;
 const DURATION_SECONDS = 60;
+const FLAC_SAMPLE_RATE_HZ = 8_000;
+const FLAC_CHANNEL_COUNT = 1;
+const FLAC_BITS_PER_SAMPLE = 16;
+const FLAC_BLOCK_SIZE = 1_920;
+const FLAC_FRAME_COUNT = 250;
 const MP3_XING_FRAME_BYTES = 384;
 const MP3_SOURCE_SHA256 = 'f39bd1784a7cb58675e61ab17906f8ed2d675defc11eea1e10a6bd0258d359f3';
 const MP3_NO_COUNT_SHA256 = '7862af77e2b6f27ecb9847ff3c1f3a75036bd342b34040b3e76477dfd9df48db';
@@ -107,6 +112,82 @@ function createCafPcm16(data: Buffer): Buffer {
   return bytes;
 }
 
+function flacUtf8Integer(value: number): Buffer {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0x7ff) {
+    throw new RangeError('Generated FLAC frame number is outside the two-byte UTF-8 range');
+  }
+  if (value < 0x80) return Buffer.from([value]);
+  return Buffer.from([0xc0 | (value >> 6), 0x80 | (value & 0x3f)]);
+}
+
+function flacCrc8(bytes: Uint8Array): number {
+  let crc = 0;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 0x80) !== 0 ? ((crc << 1) ^ 0x07) & 0xff : (crc << 1) & 0xff;
+    }
+  }
+  return crc;
+}
+
+function flacCrc16(bytes: Uint8Array): number {
+  let crc = 0;
+  for (const byte of bytes) {
+    crc ^= byte << 8;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 0x8000) !== 0 ? ((crc << 1) ^ 0x8005) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc;
+}
+
+/**
+ * Build a deterministic 60-second mono FLAC without relying on an external
+ * encoder in CI. Verbatim zero-valued subframes keep the fixture simple while
+ * still exercising the real FLAC parser, Worker decoder, peer-range source,
+ * resampler, and common PCM renderer.
+ */
+function createFlacPcm16(): Buffer {
+  const totalSamples = FLAC_BLOCK_SIZE * FLAC_FRAME_COUNT;
+  const streamInfo = Buffer.alloc(34);
+  streamInfo.writeUInt16BE(FLAC_BLOCK_SIZE, 0);
+  streamInfo.writeUInt16BE(FLAC_BLOCK_SIZE, 2);
+  const packedStreamInfo =
+    (BigInt(FLAC_SAMPLE_RATE_HZ) << 44n) |
+    (BigInt(FLAC_CHANNEL_COUNT - 1) << 41n) |
+    (BigInt(FLAC_BITS_PER_SAMPLE - 1) << 36n) |
+    BigInt(totalSamples);
+  streamInfo.writeBigUInt64BE(packedStreamInfo, 10);
+
+  const frames: Buffer[] = [];
+  for (let frameNumber = 0; frameNumber < FLAC_FRAME_COUNT; frameNumber += 1) {
+    const encodedFrameNumber = flacUtf8Integer(frameNumber);
+    const headerWithoutCrc = Buffer.alloc(4 + encodedFrameNumber.byteLength + 2);
+    headerWithoutCrc[0] = 0xff;
+    headerWithoutCrc[1] = 0xf8; // 14-bit sync, fixed-block stream.
+    headerWithoutCrc[2] = 0x74; // 16-bit block-size follows; sample rate is 8 kHz.
+    headerWithoutCrc[3] = 0x08; // Mono, 16-bit samples.
+    encodedFrameNumber.copy(headerWithoutCrc, 4);
+    headerWithoutCrc.writeUInt16BE(FLAC_BLOCK_SIZE - 1, 4 + encodedFrameNumber.byteLength);
+    const header = Buffer.concat([headerWithoutCrc, Buffer.from([flacCrc8(headerWithoutCrc)])]);
+    const subframe = Buffer.alloc(1 + FLAC_BLOCK_SIZE * 2);
+    subframe[0] = 0x02; // Verbatim subframe; remaining bytes are zero PCM samples.
+    const frameBody = Buffer.concat([header, subframe]);
+    const frame = Buffer.alloc(frameBody.byteLength + 2);
+    frameBody.copy(frame);
+    frame.writeUInt16BE(flacCrc16(frameBody), frameBody.byteLength);
+    frames.push(frame);
+  }
+
+  return Buffer.concat([
+    Buffer.from('fLaC', 'ascii'),
+    Buffer.from([0x80, 0x00, 0x00, 0x22]), // Last metadata block: STREAMINFO, 34 bytes.
+    streamInfo,
+    ...frames,
+  ]);
+}
+
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -157,6 +238,7 @@ async function main(): Promise<void> {
     writeExact('bounded-tone.wav', createWavePcm16(pcm16le)),
     writeExact('bounded-tone.aiff', createAiffPcm16(pcm16be)),
     writeExact('bounded-tone.caf', createCafPcm16(pcm16le)),
+    writeExact('bounded-tone.flac', createFlacPcm16()),
     writeExact('bounded-tone.aac', adts),
     writeExact('bounded-tone.m4a', m4a),
     writeExact('bounded-tone-no-count.mp3', mp3),

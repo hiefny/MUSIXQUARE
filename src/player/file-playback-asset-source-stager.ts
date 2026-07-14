@@ -20,6 +20,11 @@ import {
   type FilePlaybackCutoverCandidatePort,
 } from './file-playback-manager.ts';
 import {
+  constructFilePlaybackPeerRangeManifestDecoder,
+  retireFilePlaybackPeerRangeManifestDecoderConstruction,
+  type FilePlaybackPeerRangeManifestDecoderConstruction,
+} from './file-playback-peer-range-manifest-decoder-bridge.ts';
+import {
   createFilePlaybackSourceSnapshot,
   type FilePlaybackCutoverSource,
   type FilePlaybackSourceSnapshot,
@@ -80,6 +85,35 @@ const WARM_HANDOFF_OPTION_KEYS = Object.freeze([
   'destination',
   'signal',
   'isCurrent',
+] as const);
+const MANIFEST_WARM_OPTION_KEYS = Object.freeze([
+  'construction',
+  'registry',
+  'roomToken',
+  'assetLease',
+  'expectedBinding',
+  'audioContext',
+  'clockBindings',
+  'signal',
+  'isCurrent',
+  'runtime',
+] as const);
+const OPTIONAL_MANIFEST_WARM_OPTION_KEYS = new Set<(typeof MANIFEST_WARM_OPTION_KEYS)[number]>([
+  'runtime',
+]);
+const REQUIRED_MANIFEST_WARM_OPTION_KEYS = MANIFEST_WARM_OPTION_KEYS.filter(
+  (key) => !OPTIONAL_MANIFEST_WARM_OPTION_KEYS.has(key),
+);
+const MANIFEST_STAGE_OPTION_KEYS = Object.freeze([
+  ...MANIFEST_WARM_OPTION_KEYS,
+  'manager',
+  'destination',
+] as const);
+const MANIFEST_CONSTRUCTION_KEYS = Object.freeze([
+  'codec',
+  'queueItemId',
+  'sourceIdentity',
+  'sourceSize',
 ] as const);
 const RUNTIME_KEYS = Object.freeze([
   'createBlobSource',
@@ -194,6 +228,38 @@ export interface PrepareFilePlaybackAssetSourceWarmOptions {
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly runtime?: FilePlaybackAssetSourceStagerRuntimeForTests;
+}
+
+/**
+ * Narrow test seams for the final manager handoff. Decoder construction is
+ * deliberately not replaceable through this contract.
+ */
+export interface FilePlaybackPeerRangeManifestAssetSourceStagerRuntimeForTests {
+  readonly stageCandidate?: FilePlaybackAssetSourceStagerRuntimeForTests['stageCandidate'];
+  readonly retireCandidate?: FilePlaybackAssetSourceStagerRuntimeForTests['retireCandidate'];
+}
+
+/**
+ * Consumes one opaque manifest-decoder construction into the existing warm
+ * source boundary. Raw source leases and timeline evidence never enter this
+ * public contract.
+ */
+export interface PrepareFilePlaybackPeerRangeManifestAssetSourceWarmOptions {
+  readonly construction: FilePlaybackPeerRangeManifestDecoderConstruction;
+  readonly registry: FilePlaybackAssetRegistry;
+  readonly roomToken: object;
+  readonly assetLease: FilePlaybackAssetLease;
+  readonly expectedBinding: FilePlaybackAssetBinding;
+  readonly audioContext: AudioContext;
+  readonly clockBindings: FilePlaybackClockBindings;
+  readonly signal: AbortSignal;
+  readonly isCurrent: () => boolean;
+  readonly runtime?: FilePlaybackPeerRangeManifestAssetSourceStagerRuntimeForTests;
+}
+
+export interface StageFilePlaybackPeerRangeManifestAssetSourceOptions extends PrepareFilePlaybackPeerRangeManifestAssetSourceWarmOptions {
+  readonly manager: FilePlaybackManager;
+  readonly destination: AudioNode;
 }
 
 declare const warmSourceAuthorityBrand: unique symbol;
@@ -376,6 +442,68 @@ function snapshotWarmOptions(value: unknown): ExactRecord | null {
   }
 }
 
+function snapshotManifestWarmOptions(value: unknown): ExactRecord | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const allowed = new Set<string>(MANIFEST_WARM_OPTION_KEYS);
+    if (
+      ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key)) ||
+      REQUIRED_MANIFEST_WARM_OPTION_KEYS.some((key) => !Object.hasOwn(descriptors, key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of MANIFEST_WARM_OPTION_KEYS) {
+      const descriptor = descriptors[key];
+      if (OPTIONAL_MANIFEST_WARM_OPTION_KEYS.has(key) && !descriptor) {
+        snapshot[key] = undefined;
+        continue;
+      }
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function snapshotManifestStageOptions(value: unknown): ExactRecord | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const allowed = new Set<string>(MANIFEST_STAGE_OPTION_KEYS);
+    if (
+      ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key)) ||
+      MANIFEST_STAGE_OPTION_KEYS.some(
+        (key) => key !== 'runtime' && !Object.hasOwn(descriptors, key),
+      )
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of MANIFEST_STAGE_OPTION_KEYS) {
+      const descriptor = descriptors[key];
+      if (key === 'runtime' && !descriptor) {
+        snapshot[key] = undefined;
+        continue;
+      }
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
 function snapshotWarmHandoffOptions(value: unknown): ExactRecord | null {
   return snapshotExactRecord(value, WARM_HANDOFF_OPTION_KEYS);
 }
@@ -487,6 +615,35 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
   });
 }
 
+function manifestRuntimeSnapshot(value: unknown): RuntimeSnapshot | null {
+  if (value === undefined) return runtimeSnapshot(undefined);
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const allowed = new Set<string>(['stageCandidate', 'retireCandidate']);
+    if (ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key))) return null;
+    const snapshot = Object.create(null) as Record<string, DataMethod>;
+    for (const key of allowed) {
+      const descriptor = descriptors[key];
+      if (!descriptor) continue;
+      if (
+        !descriptor.enumerable ||
+        !Object.hasOwn(descriptor, 'value') ||
+        typeof descriptor.value !== 'function'
+      ) {
+        return null;
+      }
+      snapshot[key] = descriptor.value as DataMethod;
+    }
+    return runtimeSnapshot(Object.freeze(snapshot));
+  } catch {
+    return null;
+  }
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   Reflect.apply(nativeAbortThrowIfAborted, signal, []);
 }
@@ -579,11 +736,13 @@ function oneShotSourceDestroyer(source: unknown): (() => Promise<void>) | null {
   let promise: Promise<void> | null = null;
   return () => {
     if (promise) return promise;
-    try {
-      promise = Promise.resolve(Reflect.apply(destroy, source, []));
-    } catch (error) {
-      promise = Promise.reject(error);
-    }
+    // Publish the one-shot promise before entering source-owned cleanup. A
+    // synchronous destroy side effect may re-enter warm retirement; deferring
+    // the invocation makes that path join this exact promise instead of
+    // observing an empty slot and invoking destroy a second time.
+    promise = Promise.resolve()
+      .then(() => Reflect.apply(destroy, source, []))
+      .then(() => undefined);
     return promise;
   };
 }
@@ -1103,6 +1262,286 @@ export async function prepareFilePlaybackAssetSourceWarm(
     if (!published && factoryResult && !releaseCalled) {
       suppressRelease(factoryResult.releaseConstructionLease);
     }
+  }
+}
+
+/**
+ * Transfers one exact manifest-decoder construction into the ordinary warm
+ * source lifecycle without exposing its encoded source or timeline evidence.
+ *
+ * Once an exact option record is accepted this function owns the construction:
+ * failure retires it, while success consumes it into the returned warm source.
+ * A caller that never invokes this function may explicitly retire the unused
+ * construction through retireFilePlaybackPeerRangeManifestDecoderConstruction().
+ */
+export async function prepareFilePlaybackPeerRangeManifestAssetSourceWarm(
+  options: PrepareFilePlaybackPeerRangeManifestAssetSourceWarmOptions,
+): Promise<Readonly<FilePlaybackWarmSourceAuthority>> {
+  const input = snapshotManifestWarmOptions(options);
+  if (!input) {
+    throw new TypeError('File playback manifest warm source options are invalid');
+  }
+
+  const construction = input.construction as FilePlaybackPeerRangeManifestDecoderConstruction;
+  try {
+    const constructionSnapshot = snapshotExactRecord(construction, MANIFEST_CONSTRUCTION_KEYS);
+    const registry = input.registry;
+    const roomToken = input.roomToken;
+    const assetLease = input.assetLease;
+    const expectedBinding = parseFilePlaybackAssetBinding(input.expectedBinding);
+    const audioContext = input.audioContext;
+    const signal = input.signal;
+    const isCurrent = input.isCurrent;
+    const clock = clockSnapshot(input.clockBindings);
+    const runtime = manifestRuntimeSnapshot(input.runtime);
+
+    if (
+      !constructionSnapshot ||
+      (constructionSnapshot.codec !== 'adts-aac-lc' &&
+        constructionSnapshot.codec !== 'mp3-no-frame-count')
+    ) {
+      throw new TypeError('An exact manifest decoder construction is required');
+    }
+    if (!exactRegistry(registry)) {
+      throw new TypeError('An exact file playback asset registry is required');
+    }
+    if (roomToken === null || typeof roomToken !== 'object') {
+      throw new TypeError('An opaque file playback room token is required');
+    }
+    if (assetLease === null || typeof assetLease !== 'object' || !expectedBinding) {
+      throw new TypeError('An exact file playback asset lease and binding are required');
+    }
+    if (audioContext === null || typeof audioContext !== 'object') {
+      throw new TypeError('A file playback AudioContext is required');
+    }
+    if (!(signal instanceof AbortSignal)) {
+      throw new TypeError('An exact file playback AbortSignal is required');
+    }
+    if (typeof isCurrent !== 'function') {
+      throw new TypeError('A file playback staging authority callback is required');
+    }
+    if (!clock || !runtime) {
+      throw new TypeError('File playback clock bindings or runtime seams are invalid');
+    }
+
+    let canonicalAsset: Readonly<FilePlaybackAssetSnapshot> | null = null;
+    let checkingAuthority = false;
+    const currentSnapshot = (): Readonly<FilePlaybackAssetSnapshot> | null => {
+      try {
+        return canonicalSnapshot(
+          Reflect.apply(registrySnapshotForLease, registry, [roomToken, assetLease]),
+        );
+      } catch {
+        return null;
+      }
+    };
+    const assertAuthority = (): void => {
+      if (checkingAuthority) {
+        throw new Error('File playback manifest asset authority was re-entered');
+      }
+      throwIfAborted(signal);
+      const before = currentSnapshot();
+      if (!before || !sameBinding(before, expectedBinding)) {
+        throw new Error('File playback manifest asset authority is stale');
+      }
+      if (canonicalAsset && !sameSnapshot(before, canonicalAsset)) {
+        throw new Error('File playback manifest asset metadata changed during construction');
+      }
+      checkingAuthority = true;
+      let accepted: unknown;
+      try {
+        accepted = Reflect.apply(isCurrent as () => boolean, undefined, []);
+      } finally {
+        checkingAuthority = false;
+      }
+      if (accepted !== true) {
+        throw new Error('File playback manifest asset staging was superseded');
+      }
+      throwIfAborted(signal);
+      const after = currentSnapshot();
+      if (
+        !after ||
+        !sameBinding(after, expectedBinding) ||
+        (canonicalAsset !== null && !sameSnapshot(after, canonicalAsset))
+      ) {
+        throw new Error('File playback manifest asset authority changed during construction');
+      }
+    };
+
+    assertAuthority();
+    canonicalAsset = currentSnapshot();
+    if (
+      !canonicalAsset ||
+      canonicalAsset.kind !== 'peer-range' ||
+      !sameBinding(canonicalAsset, expectedBinding) ||
+      constructionSnapshot.queueItemId !== canonicalAsset.queueItemId ||
+      constructionSnapshot.sourceIdentity !== canonicalAsset.sourceIdentity ||
+      constructionSnapshot.sourceSize !== canonicalAsset.size
+    ) {
+      throw new Error('Manifest decoder construction does not match its canonical asset');
+    }
+    assertAuthority();
+
+    let rawFactoryResult: unknown = null;
+    let factoryResult: FactoryResultSnapshot | null = null;
+    let releaseCalled = false;
+    let published = false;
+
+    try {
+      const constructTask = constructFilePlaybackPeerRangeManifestDecoder({
+        authority: construction,
+        registry,
+        roomToken: roomToken as object,
+        assetLease: assetLease as FilePlaybackAssetLease,
+        audioContext: audioContext as AudioContext,
+        clockBindings: clock,
+      });
+      if (!(constructTask instanceof Promise)) {
+        throw new TypeError('Manifest decoder construction must return a native Promise');
+      }
+      const source = await constructTask;
+      rawFactoryResult = freezeCanonical({
+        backend: 'bounded-stream' as const,
+        source,
+        sourceIdentity: canonicalAsset.sourceIdentity,
+        releaseConstructionLease: () => undefined,
+      });
+      assertAuthority();
+      factoryResult = inspectFactoryResult(rawFactoryResult, canonicalAsset.sourceIdentity);
+      if (!factoryResult || factoryResult.backend !== 'bounded-stream') {
+        throw new TypeError('Manifest decoder construction returned an invalid exact source');
+      }
+      assertAuthority();
+
+      const prepareTask = factoryResult.prepareSource(signal as AbortSignal);
+      if (!(prepareTask instanceof Promise)) {
+        throw new TypeError('File playback manifest source prepare must return a native Promise');
+      }
+      const preparedValue = await prepareTask;
+      assertAuthority();
+      const returnedReadiness = sourceReadiness(
+        factoryResult,
+        canonicalAsset,
+        'ready',
+        preparedValue,
+      );
+      const observedReadiness = sourceReadiness(factoryResult, canonicalAsset, 'ready');
+      if (
+        !returnedReadiness ||
+        !observedReadiness ||
+        !sameReadiness(returnedReadiness, observedReadiness) ||
+        observedReadiness.outputSampleRateHz !== (audioContext as AudioContext).sampleRate
+      ) {
+        throw new TypeError('File playback manifest warm source readiness is invalid');
+      }
+      assertAuthority();
+
+      const metadata = freezeCanonical({ name: canonicalAsset.name, mime: canonicalAsset.mime });
+      const authority = freezeCanonical({
+        backend: factoryResult.backend,
+        sourceIdentity: factoryResult.sourceIdentity,
+        asset: canonicalAsset,
+        metadata,
+        readiness: observedReadiness,
+      }) as unknown as Readonly<FilePlaybackWarmSourceAuthority>;
+      const record: WarmSourceRecord = {
+        authority,
+        registry,
+        roomToken: roomToken as object,
+        assetLease: assetLease as FilePlaybackAssetLease,
+        expectedBinding,
+        signal,
+        isCurrent: isCurrent as () => boolean,
+        runtime,
+        factory: factoryResult,
+        asset: canonicalAsset,
+        readiness: observedReadiness,
+        status: 'prepared',
+        checkingAuthority: false,
+        removeAbortListener: () => undefined,
+        handoffPromise: null,
+        retirementPromise: null,
+        retirementReason: null,
+      };
+      WARM_SOURCE_RECORDS.set(authority, record);
+      try {
+        const onAbort = (): void => {
+          void retireWarmRecord(record).catch(() => undefined);
+        };
+        Reflect.apply(nativeAddEventListener, signal, ['abort', onAbort, { once: true }]);
+        record.removeAbortListener = () => {
+          Reflect.apply(nativeRemoveEventListener, signal, ['abort', onAbort]);
+        };
+        assertAuthority();
+      } catch (error) {
+        await suppressCleanup(() => retireWarmRecord(record));
+        throw error;
+      }
+      published = true;
+      return authority;
+    } catch (error) {
+      if (!published) {
+        const cleanup = factoryResult
+          ? {
+              destroy: factoryResult.destroySource,
+              release: factoryResult.releaseConstructionLease,
+            }
+          : potentialFactoryCleanup(rawFactoryResult);
+        await suppressCleanup(cleanup.destroy);
+        if (!releaseCalled) {
+          releaseCalled = true;
+          suppressRelease(cleanup.release);
+        }
+      }
+      throw error;
+    } finally {
+      if (!published && factoryResult && !releaseCalled) {
+        suppressRelease(factoryResult.releaseConstructionLease);
+      }
+    }
+  } catch (error) {
+    await suppressCleanup(() =>
+      retireFilePlaybackPeerRangeManifestDecoderConstruction(construction),
+    );
+    throw error;
+  }
+}
+
+/** One-shot prepare-and-handoff facade for an admitted manifest decoder. */
+export async function stageFilePlaybackPeerRangeManifestAssetSource(
+  options: StageFilePlaybackPeerRangeManifestAssetSourceOptions,
+): Promise<Readonly<StagedFilePlaybackAssetSource>> {
+  const input = snapshotManifestStageOptions(options);
+  if (!input) {
+    throw new TypeError('File playback manifest asset staging options are invalid');
+  }
+  const warm = await prepareFilePlaybackPeerRangeManifestAssetSourceWarm({
+    construction: input.construction as FilePlaybackPeerRangeManifestDecoderConstruction,
+    registry: input.registry as FilePlaybackAssetRegistry,
+    roomToken: input.roomToken as object,
+    assetLease: input.assetLease as FilePlaybackAssetLease,
+    expectedBinding: input.expectedBinding as FilePlaybackAssetBinding,
+    audioContext: input.audioContext as AudioContext,
+    clockBindings: input.clockBindings as FilePlaybackClockBindings,
+    signal: input.signal as AbortSignal,
+    isCurrent: input.isCurrent as () => boolean,
+    ...(input.runtime === undefined
+      ? {}
+      : {
+          runtime: input.runtime as FilePlaybackPeerRangeManifestAssetSourceStagerRuntimeForTests,
+        }),
+  });
+  try {
+    return await handoffFilePlaybackAssetSourceWarm({
+      authority: warm,
+      manager: input.manager as FilePlaybackManager,
+      destination: input.destination as AudioNode,
+      signal: input.signal as AbortSignal,
+      isCurrent: input.isCurrent as () => boolean,
+    });
+  } catch (error) {
+    await suppressCleanup(() => retireFilePlaybackAssetSourceWarm(warm));
+    throw error;
   }
 }
 

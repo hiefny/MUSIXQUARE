@@ -2,6 +2,7 @@ import type { QueueItemId } from '../types/index.ts';
 import type { FilePlaybackCancelIntent } from './file-playback-source.ts';
 import {
   createFilePlaybackWireMessage,
+  FILE_PLAYBACK_WIRE_DEFAULT_MAX_CLOCK_SKEW_MS,
   type RendererHealthWireMessage,
 } from './file-playback-wire.ts';
 import { readPlaybackAttemptIdentity, type PlaybackAttemptIdentity } from './playback-identity.ts';
@@ -656,9 +657,14 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
     // Application clock code may synchronously cancel, supersede, or re-enter
     // this participant. Revalidate the exact authority after it returns.
     if (!this.#isLiveRendererEvidence(active, canonical) || !roomTime.ok) return false;
+    // AudioWorklet may render the exact target frame ahead of wall-clock
+    // presentation, and two room-clock estimates may differ slightly. The
+    // receiver already bounds both observations with this skew budget; reuse
+    // it here while still failing closed outside the same temporal contract.
     if (
-      canonical.observedAtRoomTimeMs < active.intent.startAtRoomTimeMs ||
-      canonical.observedAtRoomTimeMs > roomTime.value
+      canonical.observedAtRoomTimeMs + FILE_PLAYBACK_WIRE_DEFAULT_MAX_CLOCK_SKEW_MS <
+        active.intent.startAtRoomTimeMs ||
+      canonical.observedAtRoomTimeMs > roomTime.value + FILE_PLAYBACK_WIRE_DEFAULT_MAX_CLOCK_SKEW_MS
     ) {
       return false;
     }

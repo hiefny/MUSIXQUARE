@@ -638,7 +638,7 @@ describe('RemoteRendezvousParticipant', () => {
       remote.acceptRendererStartEvidence(
         rendererHealth({
           controlSequence: 10,
-          observedAtRoomTimeMs: 1_999,
+          observedAtRoomTimeMs: 1_749,
           leaseUntilRoomTimeMs: 4_000,
         }),
       ),
@@ -647,7 +647,7 @@ describe('RemoteRendezvousParticipant', () => {
       remote.acceptRendererStartEvidence(
         rendererHealth({
           controlSequence: 10,
-          observedAtRoomTimeMs: 2_200,
+          observedAtRoomTimeMs: 2_351,
           leaseUntilRoomTimeMs: 4_000,
         }),
       ),
@@ -658,6 +658,16 @@ describe('RemoteRendezvousParticipant', () => {
       ),
     ).toBe(false);
     expect(remote.acceptRendererStartEvidence({ ...rendererHealth(), extra: true })).toBe(false);
+
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 11,
+          observedAtRoomTimeMs: 1_750,
+          leaseUntilRoomTimeMs: 4_000,
+        }),
+      ),
+    ).toBe(true);
 
     let accessorReads = 0;
     const accessorEvidence = { ...rendererHealth() };
@@ -680,8 +690,12 @@ describe('RemoteRendezvousParticipant', () => {
     expect(remote.acceptRendererStartEvidence(proxiedWrongAttempt)).toBe(false);
     expect(accessorReads).toBe(0);
 
-    expect(remote.acceptRendererStartEvidence(rendererHealth({ controlSequence: 11 }))).toBe(true);
-    expect(remote.acceptRendererStartEvidence(rendererHealth({ controlSequence: 10 }))).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({ controlSequence: 12, observedAtRoomTimeMs: 2_350 }),
+      ),
+    ).toBe(true);
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ controlSequence: 11 }))).toBe(false);
   });
 
   it('lets exact newer unhealthy evidence revoke a pre-commit start lease', async () => {

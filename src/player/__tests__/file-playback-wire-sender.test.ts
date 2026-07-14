@@ -109,6 +109,12 @@ const payloads = Object.freeze([
     underrunCount: 0,
     reasonCode: null,
   },
+  {
+    kind: 'file-playback-prepare',
+    ...expected,
+    positionSeconds: 99.5,
+    playbackRate: 1,
+  },
 ] as const satisfies readonly FilePlaybackWirePayload[]);
 
 interface SenderSetup {
@@ -138,6 +144,7 @@ function leaseFor(setup: SenderSetup, payload: FilePlaybackWirePayload): FilePla
     return setup.attempt;
   }
   if (
+    payload.kind === 'file-playback-prepare' ||
     payload.kind === 'file-playback-pause' ||
     payload.kind === 'file-playback-seek' ||
     payload.kind === 'file-playback-stop'
@@ -150,9 +157,18 @@ function leaseFor(setup: SenderSetup, payload: FilePlaybackWirePayload): FilePla
 describe('FilePlaybackWireSender', () => {
   it('builds every exact payload kind with connection-global sequence and exact leases', () => {
     const setup = setupSender();
-    payloads.forEach((payload, index) => {
+    // PREPARE must use the media successor before STOP irreversibly marks that
+    // same test lease as stop-only authority.
+    const orderedPayloads = [
+      ...payloads.slice(0, 9),
+      payloads[11],
+      payloads[9],
+      payloads[10],
+    ] as const;
+    orderedPayloads.forEach((payload, index) => {
       const message = setup.sender.create(leaseFor(setup, payload), payload);
       const binding =
+        payload.kind === 'file-playback-prepare' ||
         payload.kind === 'file-playback-pause' ||
         payload.kind === 'file-playback-seek' ||
         payload.kind === 'file-playback-stop'
@@ -172,7 +188,7 @@ describe('FilePlaybackWireSender', () => {
       expect(Object.getPrototypeOf(message)).toBeNull();
       expect(Object.isFrozen(message)).toBe(true);
     });
-    expect(setup.sender.lastControlSequence()).toBe(payloads.length);
+    expect(setup.sender.lastControlSequence()).toBe(orderedPayloads.length);
   });
 
   it('snapshots exact connection and media data without invoking accessors', () => {
@@ -260,9 +276,14 @@ describe('FilePlaybackWireSender', () => {
     expect(() => setup.sender.create(setup.attempt, payloads[8])).toThrow(/candidate/);
   });
 
-  it('requires exact successor identity for pause, seek, and stop', () => {
+  it('requires exact successor identity for prepare, pause, seek, and stop', () => {
     const setup = setupSender();
     expect(setup.sender.create(setup.successor, payloads[6]).revision).toBe(8);
+    expect(setup.sender.create(setup.successor, payloads[11])).toMatchObject({
+      kind: 'file-playback-prepare',
+      revision: 8,
+      expectedRevision: 7,
+    });
     expect(() =>
       setup.sender.create(setup.successor, {
         ...payloads[7],

@@ -356,6 +356,45 @@ function admitRemoteRendezvousSuccessor(
   };
 }
 
+function admitRemoteStatePreparation(
+  h: Harness,
+  binding: Readonly<FilePlaybackRunBindingV2>,
+  current: Readonly<PlaybackStateIdentity>,
+  successor: Readonly<PlaybackStateIdentity>,
+): Readonly<{
+  hostStateLease: FilePlaybackWireStateLease;
+  guestStateLease: FilePlaybackWireStateLease;
+}> {
+  h.hostChannel.bootstrapCurrentMedia({
+    run: current,
+    sourceIdentity: binding.sourceIdentity,
+    transferSessionId: binding.transferSessionId,
+  });
+  const hostStateLease = h.hostChannel.stageMedia({
+    run: successor,
+    sourceIdentity: binding.sourceIdentity,
+    transferSessionId: binding.transferSessionId,
+  });
+  const message = h.hostChannel.createWire(hostStateLease, {
+    kind: 'file-playback-prepare',
+    expectedQueueItemId: current.queueItemId,
+    expectedRunId: current.runId,
+    expectedRevision: current.revision,
+    positionSeconds: 12,
+    playbackRate: 1,
+  });
+  const received = h.channel.receive(message, h.token);
+  if (
+    !received.accepted ||
+    received.frame !== 'wire' ||
+    received.message.kind !== 'file-playback-prepare' ||
+    received.attemptLease
+  ) {
+    throw new Error('Guest did not admit remote state preparation');
+  }
+  return { hostStateLease, guestStateLease: received.stateLease };
+}
+
 function stagePreparedNewRunSuccessor(h: Harness) {
   const current = commitBaseline(h);
   const offer = offerFor(h, 1, QIDS[1]);
@@ -1387,6 +1426,161 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(authorityReads).toBe(2);
     expect(state.fence.isCurrent()).toBe(true);
     expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('adopts PREPARE state-only authority, publishes READY, then attaches the exact ARM attempt', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const admitted = admitRemoteStatePreparation(h, prepared.binding, current, successor);
+
+    const preparation = h.session.adoptAdmittedSameRunStatePreparation(
+      prepared.operation,
+      current,
+      successor,
+      admitted.guestStateLease,
+    );
+    expect(
+      h.session.adoptAdmittedSameRunStatePreparation(
+        prepared.operation,
+        { ...current },
+        { ...successor },
+        admitted.guestStateLease,
+      ),
+    ).toBe(preparation);
+    expect(preparation).toMatchObject({ previous: current, state: successor });
+    expect(Reflect.has(preparation, 'stateLease')).toBe(false);
+    expect(Reflect.has(preparation, 'attemptLease')).toBe(false);
+    expect(h.session.snapshot()).toMatchObject({
+      currentState: current,
+      candidateState: { previous: current, state: successor, rendezvousId: null },
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+
+    const now = h.channel.nowRoomTimeMs();
+    const notReady = h.session.createStatePreparationSourceWire(preparation, {
+      kind: 'source-not-ready',
+      observedAtRoomTimeMs: now,
+      reasonCode: 'warming-renderer',
+      retryable: true,
+    });
+    expect(h.hostChannel.receive(notReady, h.hostToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      stateLease: admitted.hostStateLease,
+      attemptLease: null,
+    });
+    const ready = h.session.createStatePreparationSourceWire(preparation, {
+      kind: 'source-ready',
+      observedAtRoomTimeMs: now,
+      readyLeaseUntilRoomTimeMs: now + 10_000,
+      backend: 'bounded-stream',
+      durationSeconds: 600,
+      bufferedAheadSeconds: 12,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    });
+    expect(h.hostChannel.receive(ready, h.hostToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      stateLease: admitted.hostStateLease,
+      attemptLease: null,
+    });
+
+    const hostAttempt = h.hostChannel.stageAttempt(
+      admitted.hostStateLease,
+      'rendezvous:prepared-state',
+    );
+    const arm = h.hostChannel.createWire(hostAttempt, {
+      kind: 'rendezvous-arm',
+      rendezvousId: 'rendezvous:prepared-state',
+      positionSeconds: 12,
+      playbackRate: 1,
+      startAtRoomTimeMs: now + 200,
+      finalizeByRoomTimeMs: now + 100,
+    });
+    const receivedArm = h.channel.receive(arm, h.token);
+    if (!receivedArm.accepted || receivedArm.frame !== 'wire' || !receivedArm.attemptLease) {
+      throw new Error('Guest did not attach the prepared state ARM');
+    }
+    expect(receivedArm.stateLease).toBe(admitted.guestStateLease);
+    channelFault.failStageAttempt = true;
+
+    const operation = h.session.attachAdmittedSameRunStateAttempt(
+      preparation,
+      'rendezvous:prepared-state',
+      receivedArm.stateLease,
+      receivedArm.attemptLease,
+    );
+    expect(
+      h.session.attachAdmittedSameRunStateAttempt(
+        preparation,
+        'rendezvous:prepared-state',
+        receivedArm.stateLease,
+        receivedArm.attemptLease,
+      ),
+    ).toBe(operation);
+    expect(operation).toMatchObject({
+      previous: current,
+      state: successor,
+      rendezvousId: 'rendezvous:prepared-state',
+    });
+    expect(h.session.snapshot()).toMatchObject({
+      candidateState: { rendezvousId: 'rendezvous:prepared-state' },
+    });
+    expect(() =>
+      h.session.createStatePreparationSourceWire(preparation, {
+        kind: 'source-not-ready',
+        observedAtRoomTimeMs: now,
+        reasonCode: 'already-armed',
+        retryable: true,
+      }),
+    ).toThrow(/already owns a rendezvous/u);
+
+    expect(
+      h.session.createStateAttemptWire(operation, {
+        kind: 'rendezvous-armed',
+        rendezvousId: 'rendezvous:prepared-state',
+        status: 'armed',
+        observedAtRoomTimeMs: now,
+        bufferedAheadSeconds: 12,
+        reasonCode: null,
+      }),
+    ).toMatchObject({ kind: 'rendezvous-armed', revision: 2 });
+    expect(h.session.commitStateSuccessor(operation, successor, () => true)).toMatchObject({
+      currentState: successor,
+      candidateState: null,
+      committedRevisionWatermark: 2,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('retires a state-only PREPARE without inventing an attempt or reviving its lease', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const admitted = admitRemoteStatePreparation(h, prepared.binding, current, successor);
+    const preparation = h.session.adoptAdmittedSameRunStatePreparation(
+      prepared.operation,
+      current,
+      successor,
+      admitted.guestStateLease,
+    );
+
+    h.session.retireStatePreparation(preparation);
+    expect(preparation.fence.signal.aborted).toBe(true);
+    expect(preparation.fence.isCurrent()).toBe(false);
+    expect(h.session.snapshot()).toMatchObject({
+      currentState: current,
+      candidateState: null,
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+    expect(() => h.session.retireStatePreparation(preparation)).toThrow(/retired/u);
     expect(h.fatal).not.toHaveBeenCalled();
   });
 

@@ -47,6 +47,7 @@ const MAX_RENDEZVOUS_SCHEDULE_AHEAD_MS = 2_500;
 export const FILE_PLAYBACK_WIRE_KINDS = Object.freeze([
   'source-ready',
   'source-not-ready',
+  'file-playback-prepare',
   'rendezvous-arm',
   'rendezvous-armed',
   'rendezvous-finalize',
@@ -69,6 +70,7 @@ const ATTEMPT_SCOPED_WIRE_KINDS = new Set<FilePlaybackWireKind>([
   'renderer-health',
 ]);
 const SUCCESSOR_SCOPED_WIRE_KINDS = new Set<FilePlaybackWireKind>([
+  'file-playback-prepare',
   'file-playback-pause',
   'file-playback-seek',
   'file-playback-stop',
@@ -120,6 +122,20 @@ export interface FileSourceNotReadyWireMessage extends FilePlaybackWireEnvelope 
   readonly observedAtRoomTimeMs: number;
   readonly reasonCode: string;
   readonly retryable: boolean;
+}
+
+/**
+ * Prepares an exact-next state of the currently bound logical run before its
+ * rendezvous attempt exists. The envelope identifies the successor while the
+ * expected fields fence the current state it must replace.
+ */
+export interface FilePlaybackPrepareWireMessage extends FilePlaybackWireEnvelope {
+  readonly kind: 'file-playback-prepare';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: PlaybackRevision;
+  readonly positionSeconds: number;
+  readonly playbackRate: number;
 }
 
 export interface RendezvousArmWireMessage extends FilePlaybackWireEnvelope {
@@ -204,6 +220,7 @@ export interface RendererHealthWireMessage extends FilePlaybackWireEnvelope {
 export type FilePlaybackWireMessage =
   | FileSourceReadyWireMessage
   | FileSourceNotReadyWireMessage
+  | FilePlaybackPrepareWireMessage
   | RendezvousArmWireMessage
   | RendezvousArmedWireMessage
   | RendezvousFinalizeWireMessage
@@ -304,6 +321,13 @@ const SPECIFIC_KEYS: Readonly<Record<FilePlaybackWireKind, readonly string[]>> =
     'channelCount',
   ]),
   'source-not-ready': Object.freeze(['observedAtRoomTimeMs', 'reasonCode', 'retryable']),
+  'file-playback-prepare': Object.freeze([
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'positionSeconds',
+    'playbackRate',
+  ]),
   'rendezvous-arm': Object.freeze([
     'rendezvousId',
     'positionSeconds',
@@ -618,6 +642,12 @@ function hasValidKindPayload(candidate: Record<string, unknown>): boolean {
         isRoomTime(candidate.observedAtRoomTimeMs) &&
         isBoundedReason(candidate.reasonCode) &&
         typeof candidate.retryable === 'boolean'
+      );
+    case 'file-playback-prepare':
+      return (
+        hasValidSuccessorState(candidate) &&
+        isMediaTime(candidate.positionSeconds) &&
+        isBoundedNumber(candidate.playbackRate, Number.MIN_VALUE, MAX_PLAYBACK_RATE)
       );
     case 'rendezvous-arm':
       return (
@@ -1002,6 +1032,16 @@ function canonicalMessage(candidate: Record<string, unknown>): FilePlaybackWireM
         reasonCode: candidate.reasonCode as string,
         retryable: candidate.retryable as boolean,
       });
+    case 'file-playback-prepare':
+      return freezeCanonical({
+        ...envelope,
+        kind: 'file-playback-prepare',
+        expectedQueueItemId: candidate.expectedQueueItemId as QueueItemId,
+        expectedRunId: candidate.expectedRunId as string,
+        expectedRevision: candidate.expectedRevision as PlaybackRevision,
+        positionSeconds: candidate.positionSeconds as number,
+        playbackRate: candidate.playbackRate as number,
+      });
     case 'rendezvous-arm':
       return freezeCanonical({
         ...envelope,
@@ -1147,7 +1187,11 @@ function stateReferenceFromMessage(
 }
 
 function expectedStateFromMessage(
-  message: FilePlaybackPauseWireMessage | FilePlaybackSeekWireMessage | FilePlaybackStopWireMessage,
+  message:
+    | FilePlaybackPrepareWireMessage
+    | FilePlaybackPauseWireMessage
+    | FilePlaybackSeekWireMessage
+    | FilePlaybackStopWireMessage,
 ): Readonly<FilePlaybackWireExpectedStateIdentity> {
   return freezeCanonical({
     queueItemId: message.expectedQueueItemId,
@@ -1346,6 +1390,7 @@ export class FilePlaybackWireReceiver {
       }
     } else if (isFilePlaybackSuccessorScopedWireKind(message.kind)) {
       if (
+        message.kind !== 'file-playback-prepare' &&
         message.kind !== 'file-playback-pause' &&
         message.kind !== 'file-playback-seek' &&
         message.kind !== 'file-playback-stop'

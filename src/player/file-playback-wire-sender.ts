@@ -44,6 +44,15 @@ export interface FileSourceNotReadyWirePayload {
   readonly retryable: boolean;
 }
 
+export interface FilePlaybackPrepareWirePayload {
+  readonly kind: 'file-playback-prepare';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: number;
+  readonly positionSeconds: number;
+  readonly playbackRate: number;
+}
+
 export interface RendezvousArmWirePayload {
   readonly kind: 'rendezvous-arm';
   readonly rendezvousId: string;
@@ -123,6 +132,7 @@ export interface RendererHealthWirePayload {
 export interface FilePlaybackWirePayloadByKind {
   readonly 'source-ready': FileSourceReadyWirePayload;
   readonly 'source-not-ready': FileSourceNotReadyWirePayload;
+  readonly 'file-playback-prepare': FilePlaybackPrepareWirePayload;
   readonly 'rendezvous-arm': RendezvousArmWirePayload;
   readonly 'rendezvous-armed': RendezvousArmedWirePayload;
   readonly 'rendezvous-finalize': RendezvousFinalizeWirePayload;
@@ -161,6 +171,14 @@ const PAYLOAD_KEYS: Readonly<Record<FilePlaybackWireKind, readonly string[]>> = 
     'channelCount',
   ]),
   'source-not-ready': Object.freeze(['kind', 'observedAtRoomTimeMs', 'reasonCode', 'retryable']),
+  'file-playback-prepare': Object.freeze([
+    'kind',
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'positionSeconds',
+    'playbackRate',
+  ]),
   'rendezvous-arm': Object.freeze([
     'kind',
     'rendezvousId',

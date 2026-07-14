@@ -382,6 +382,69 @@ describe('FilePlaybackConnectionChannel', () => {
     expect(Object.isFrozen(ready)).toBe(true);
   });
 
+  it('carries PREPARE state authority through READY and attaches only the later ARM attempt', () => {
+    const setup = channels();
+    calibrate(setup);
+    bindPair(setup);
+    const hostSuccessor = setup.host.stageMedia(SUCCESSOR);
+    setup.hostNow.set(2_100);
+    setup.guestNow.set(2_000);
+
+    const prepare = setup.host.createWire(hostSuccessor, {
+      kind: 'file-playback-prepare',
+      ...expectedCurrent,
+      positionSeconds: 12.5,
+      playbackRate: 1,
+    });
+    const prepared = setup.guest.receive(prepare, setup.guestToken);
+    expect(prepared).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      message: { kind: 'file-playback-prepare', revision: 2 },
+      attemptLease: null,
+    });
+    if (!prepared.accepted || prepared.frame !== 'wire') {
+      throw new Error('Guest did not admit PREPARE');
+    }
+
+    const ready = setup.guest.createWire(prepared.stateLease, {
+      kind: 'source-ready',
+      observedAtRoomTimeMs: 2_100,
+      readyLeaseUntilRoomTimeMs: 12_100,
+      backend: 'bounded-stream',
+      durationSeconds: 600,
+      bufferedAheadSeconds: 12,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    });
+    expect(setup.host.receive(ready, setup.hostToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      stateLease: hostSuccessor,
+      attemptLease: null,
+    });
+
+    const hostAttempt = setup.host.stageAttempt(hostSuccessor, 'rendezvous-prepared');
+    const arm = setup.host.createWire(hostAttempt, {
+      kind: 'rendezvous-arm',
+      rendezvousId: 'rendezvous-prepared',
+      positionSeconds: 12.5,
+      playbackRate: 1,
+      startAtRoomTimeMs: 2_300,
+      finalizeByRoomTimeMs: 2_200,
+    });
+    const armed = setup.guest.receive(arm, setup.guestToken);
+    expect(armed).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      stateLease: prepared.stateLease,
+    });
+    if (!armed.accepted || armed.frame !== 'wire' || !armed.attemptLease) {
+      throw new Error('Guest did not attach ARM attempt to PREPARE');
+    }
+    expect(armed.stateLease).toBe(prepared.stateLease);
+  });
+
   it('enforces the exhaustive role-kind table before outbound sequence and inbound watermark', () => {
     const setup = channels();
     calibrate(setup);
@@ -407,6 +470,14 @@ describe('FilePlaybackConnectionChannel', () => {
         finalizeByRoomTimeMs: 2_200,
       }),
     ).toThrow(/guest cannot send rendezvous-arm/u);
+    expect(() =>
+      setup.guest.createWire(leases.guest.state, {
+        kind: 'file-playback-prepare',
+        ...expectedCurrent,
+        positionSeconds: 0,
+        playbackRate: 1,
+      }),
+    ).toThrow(/guest cannot send file-playback-prepare/u);
 
     const hostArm = setup.host.createWire(leases.host.attempt, {
       kind: 'rendezvous-arm',

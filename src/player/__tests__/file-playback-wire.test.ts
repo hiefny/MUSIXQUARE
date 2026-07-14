@@ -133,6 +133,17 @@ const messages: readonly FilePlaybackWireMessage[] = Object.freeze([
     underrunCount: 0,
     reasonCode: null,
   },
+  {
+    ...envelope,
+    kind: 'file-playback-prepare',
+    controlSequence: 52,
+    revision: 8,
+    expectedQueueItemId: 'queue-item-1',
+    expectedRunId: 'run-7',
+    expectedRevision: 7,
+    positionSeconds: 99.5,
+    playbackRate: 1,
+  },
 ]);
 
 function record(message: FilePlaybackWireMessage = messages[0]): Record<string, unknown> {
@@ -459,6 +470,22 @@ describe('file playback V2 control wire', () => {
         run: { queueItemId: 'queue-item-1', runId: 'run-older', revision: 7 },
       }),
     ).toBeNull();
+  });
+
+  it('requires an exact same-run successor and bounded media intent for PREPARE', () => {
+    const prepare = messages[11];
+    for (const changes of [
+      { expectedQueueItemId: 'other-item' },
+      { expectedRunId: 'other-run' },
+      { expectedRevision: 8 },
+      { expectedRevision: 9 },
+      { positionSeconds: -1 },
+      { positionSeconds: Number.MAX_VALUE },
+      { playbackRate: 0 },
+      { playbackRate: 17 },
+    ]) {
+      expect(parseFilePlaybackWireMessage(replace(prepare, changes))).toBeNull();
+    }
   });
 
   it('validates renderer leases, counters, and status/reason coherence', () => {
@@ -878,6 +905,52 @@ describe('file playback V2 control wire', () => {
 
     receiver.commitAttempt(first.attemptLease);
     receiver.commitMedia(first.stateLease);
+  });
+
+  it('admits PREPARE as state-only authority, then ARM attaches only its exact attempt', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+
+    const prepared = receiver.receive(replace(messages[11], { controlSequence: 60 }));
+    expect(prepared).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: { kind: 'file-playback-prepare', revision: 8, expectedRevision: 7 },
+      attemptLease: null,
+    });
+    if (!prepared.accepted || prepared.status !== 'message') {
+      throw new Error('Expected an atomically admitted PREPARE successor');
+    }
+
+    const armed = receiver.receive(
+      replace(messages[2], {
+        controlSequence: 61,
+        revision: 8,
+        rendezvousId: 'rendezvous-prepared',
+      }),
+    );
+    expect(armed).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: { kind: 'rendezvous-arm', revision: 8, rendezvousId: 'rendezvous-prepared' },
+    });
+    if (!armed.accepted || armed.status !== 'message' || !armed.attemptLease) {
+      throw new Error('Expected ARM to attach an attempt to PREPARE');
+    }
+    expect(armed.stateLease).toBe(prepared.stateLease);
+
+    receiver.commitAttempt(armed.attemptLease);
+    receiver.commitMedia(prepared.stateLease);
   });
 
   it('does not consume successor ARM authority for replay, time, or binding failures', () => {

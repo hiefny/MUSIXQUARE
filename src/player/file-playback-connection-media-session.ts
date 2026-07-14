@@ -25,6 +25,7 @@ import type {
 } from './file-playback-wire-binding.ts';
 import type {
   FilePlaybackWireMessageForKind,
+  FileSourceNotReadyWirePayload,
   FileSourceReadyWirePayload,
   RendererHealthWirePayload,
   RendezvousArmedWirePayload,
@@ -50,6 +51,7 @@ declare const mediaEpochBrand: unique symbol;
 declare const mediaOfferPreparationBrand: unique symbol;
 declare const mediaOfferPreparationEpochBrand: unique symbol;
 declare const mediaOperationEpochBrand: unique symbol;
+declare const mediaStatePreparationBrand: unique symbol;
 declare const mediaStateOperationBrand: unique symbol;
 declare const mediaStateOperationEpochBrand: unique symbol;
 declare const mediaPreparedRunAttemptBrand: unique symbol;
@@ -177,6 +179,18 @@ export interface FilePlaybackConnectionMediaStateOperationFence {
 }
 
 /**
+ * Body-free authority for an exact-next same-run state admitted by PREPARE,
+ * before any rendezvous attempt exists. The issuing session privately retains
+ * the receiver-issued state lease.
+ */
+export interface FilePlaybackConnectionMediaStatePreparation {
+  readonly [mediaStatePreparationBrand]: never;
+  readonly previous: Readonly<PlaybackStateIdentity>;
+  readonly state: Readonly<PlaybackStateIdentity>;
+  readonly fence: Readonly<FilePlaybackConnectionMediaStateOperationFence>;
+}
+
+/**
  * Body-free authority for an exact-next same-run state and the rendezvous
  * attempt which will render it. The prepared run/source remains separately
  * owned by `FilePlaybackConnectionMediaOperation`.
@@ -192,7 +206,8 @@ export interface FilePlaybackConnectionMediaStateOperation {
 export interface FilePlaybackConnectionMediaStateOperationSnapshot {
   readonly previous: Readonly<PlaybackStateIdentity>;
   readonly state: Readonly<PlaybackStateIdentity>;
-  readonly rendezvousId: string;
+  /** Null only while PREPARE owns the successor before ARM attaches an attempt. */
+  readonly rendezvousId: string | null;
 }
 
 /** Opaque identity for one receiver-admitted attempt on a prepared new run. */
@@ -222,6 +237,10 @@ type FilePlaybackConnectionMediaStateAttemptWirePayload =
   | RendezvousArmedWirePayload
   | RendezvousFinalizedWirePayload
   | RendererHealthWirePayload;
+
+type FilePlaybackConnectionMediaStatePreparationWirePayload =
+  | FileSourceReadyWirePayload
+  | FileSourceNotReadyWirePayload;
 
 export interface FilePlaybackConnectionMediaSessionSnapshot {
   readonly schemaVersion: 1;
@@ -278,13 +297,14 @@ interface OfferPreparationRecord {
 }
 
 interface StateOperationRecord {
-  readonly operation: Readonly<FilePlaybackConnectionMediaStateOperation>;
+  readonly preparation: Readonly<FilePlaybackConnectionMediaStatePreparation>;
+  operation: Readonly<FilePlaybackConnectionMediaStateOperation> | null;
   readonly prepared: OperationRecord;
   readonly stateLease: FilePlaybackWireStateLease;
-  readonly attemptLease: FilePlaybackWireAttemptLease;
+  attemptLease: FilePlaybackWireAttemptLease | null;
   readonly previous: Readonly<PlaybackStateIdentity>;
   readonly state: Readonly<PlaybackStateIdentity>;
-  readonly rendezvousId: string;
+  rendezvousId: string | null;
   readonly epoch: FilePlaybackConnectionMediaStateOperationEpoch;
   readonly abortController: AbortController;
   status: 'candidate' | 'current' | 'retired';
@@ -596,6 +616,10 @@ export class FilePlaybackConnectionMediaSession {
     FilePlaybackConnectionMediaStateOperation,
     StateOperationRecord
   >();
+  readonly #statePreparations = new WeakMap<
+    FilePlaybackConnectionMediaStatePreparation,
+    StateOperationRecord
+  >();
   readonly #stateOperationEpochs = new WeakMap<
     FilePlaybackConnectionMediaStateOperationEpoch,
     StateOperationRecord
@@ -609,6 +633,9 @@ export class FilePlaybackConnectionMediaSession {
     PreparedRunAttemptRecord
   >();
   readonly #retiredOperations = new WeakSet<FilePlaybackConnectionMediaOperation>();
+  readonly #retiredStatePreparations =
+    new WeakSet<FilePlaybackConnectionMediaStatePreparation>();
+  readonly #retiredStateOperations = new WeakSet<FilePlaybackConnectionMediaStateOperation>();
   readonly #retiredPreparedRunAttempts =
     new WeakSet<FilePlaybackConnectionMediaPreparedRunAttempt>();
   readonly #retiredPreparedRunAttemptLeases = new WeakSet<object>();
@@ -1237,7 +1264,8 @@ export class FilePlaybackConnectionMediaSession {
           existing.prepared === prepared &&
           sameStateIdentity(existing.previous, expected) &&
           sameStateIdentity(existing.state, next) &&
-          existing.rendezvousId === rendezvousId
+          existing.rendezvousId === rendezvousId &&
+          existing.operation
         ) {
           return existing.operation;
         }
@@ -1295,6 +1323,100 @@ export class FilePlaybackConnectionMediaSession {
   }
 
   /**
+   * Mirrors the exact successor state lease already admitted by an inbound
+   * PREPARE. No attempt exists yet and neither channel authority is restaged.
+   */
+  adoptAdmittedSameRunStatePreparation(
+    preparedOperation: FilePlaybackConnectionMediaOperation,
+    expectedCurrent: PlaybackStateIdentity,
+    successor: PlaybackStateIdentity,
+    stateLease: FilePlaybackWireStateLease,
+  ): Readonly<FilePlaybackConnectionMediaStatePreparation> {
+    return this.#mutate(() => {
+      const prepared = this.#requireCurrent(preparedOperation);
+      const expected = readPlaybackStateIdentity(expectedCurrent);
+      const next = readPlaybackStateIdentity(successor);
+      if (!expected || !next || stateLease === null || typeof stateLease !== 'object') {
+        throw new TypeError('File playback admitted state preparation authority is invalid');
+      }
+      return this.#adoptAdmittedStatePreparationUnchecked(
+        prepared,
+        expected,
+        next,
+        stateLease,
+      ).preparation;
+    });
+  }
+
+  /** Creates SOURCE_READY/NOT_READY from the exact PREPARE state lease. */
+  createStatePreparationSourceWire<
+    const Payload extends FilePlaybackConnectionMediaStatePreparationWirePayload,
+  >(
+    preparation: FilePlaybackConnectionMediaStatePreparation,
+    payload: Payload,
+  ): FilePlaybackWireMessageForKind<Payload['kind']> {
+    return this.#mutate(() => {
+      const record = this.#requireStatePreparation(preparation);
+      this.#assertStatePreparationCurrent(record);
+      if (record.attemptLease || record.rendezvousId || record.operation) {
+        throw new Error('File playback state preparation already owns a rendezvous attempt');
+      }
+      let wire: FilePlaybackWireMessageForKind<Payload['kind']>;
+      try {
+        wire = Reflect.apply(channelCreateWire, this.#channel, [
+          record.stateLease,
+          payload,
+        ]) as FilePlaybackWireMessageForKind<Payload['kind']>;
+      } catch {
+        throw this.#fatal('The shared channel rejected the exact state preparation authority');
+      }
+      this.#assertStatePreparationCurrent(record);
+      return wire;
+    });
+  }
+
+  /**
+   * Attaches the exact attempt lease admitted by a later ARM to a PREPARE
+   * capability. Equal-looking or foreign leases cannot cross this boundary.
+   */
+  attachAdmittedSameRunStateAttempt(
+    preparation: FilePlaybackConnectionMediaStatePreparation,
+    rendezvousId: string,
+    stateLease: FilePlaybackWireStateLease,
+    attemptLease: FilePlaybackWireAttemptLease,
+  ): Readonly<FilePlaybackConnectionMediaStateOperation> {
+    return this.#mutate(() => {
+      const record = this.#requireStatePreparation(preparation);
+      if (
+        !isBoundedRendezvousId(rendezvousId) ||
+        stateLease === null ||
+        typeof stateLease !== 'object' ||
+        attemptLease === null ||
+        typeof attemptLease !== 'object'
+      ) {
+        throw new TypeError('File playback admitted state attempt authority is invalid');
+      }
+      return this.#attachAdmittedStateAttemptUnchecked(
+        record,
+        rendezvousId,
+        stateLease,
+        attemptLease,
+      );
+    });
+  }
+
+  /** Retires a PREPARE successor which never reached ARM. */
+  retireStatePreparation(preparation: FilePlaybackConnectionMediaStatePreparation): void {
+    this.#mutate(() => {
+      const record = this.#requireStatePreparation(preparation);
+      if (record.operation || record.attemptLease || record.rendezvousId) {
+        throw new Error('An attached state preparation must retire through its state operation');
+      }
+      this.#retireStateRecord(record);
+    });
+  }
+
+  /**
    * Adopts the exact state/attempt lease pair already admitted by an inbound
    * rendezvous ARM. The shared channel has consumed the successor revision, so
    * this boundary must never stage either authority a second time.
@@ -1328,42 +1450,14 @@ export class FilePlaybackConnectionMediaSession {
         throw new TypeError('File playback admitted rendezvous successor authority is invalid');
       }
 
-      const existing = this.#candidateState;
-      if (existing) {
-        if (
-          existing.prepared === prepared &&
-          sameStateIdentity(existing.previous, expected) &&
-          sameStateIdentity(existing.state, next) &&
-          existing.rendezvousId === rendezvousId &&
-          existing.stateLease === stateLease &&
-          existing.attemptLease === attemptLease
-        ) {
-          return existing.operation;
-        }
-        throw this.#fatal(
-          'Inbound rendezvous replay disagreed with the exact admitted state authority',
-        );
-      }
-      if (
-        !this.#currentState ||
-        !sameStateIdentity(this.#currentState, expected) ||
-        next.queueItemId !== expected.queueItemId ||
-        next.runId !== expected.runId ||
-        next.revision !== this.#admittedRevisionWatermark + 1 ||
-        expected.queueItemId !== prepared.binding.queueItemId ||
-        expected.runId !== prepared.binding.runId
-      ) {
-        throw this.#fatal('Inbound rendezvous is not the exact current same-run state successor');
-      }
-
-      // The receiver has already consumed this exact revision in the shared
-      // channel registry. Mirror that admission without calling stageMedia()
-      // or stageAttempt() again.
-      this.#admittedRevisionWatermark = next.revision;
-      return this.#createStateOperation(
+      const preparation = this.#adoptAdmittedStatePreparationUnchecked(
         prepared,
         expected,
         next,
+        stateLease,
+      );
+      return this.#attachAdmittedStateAttemptUnchecked(
+        preparation,
         rendezvousId,
         stateLease,
         attemptLease,
@@ -1933,6 +2027,26 @@ export class FilePlaybackConnectionMediaSession {
     stateLease: FilePlaybackWireStateLease,
     attemptLease: FilePlaybackWireAttemptLease,
   ): Readonly<FilePlaybackConnectionMediaStateOperation> {
+    const record = this.#createStatePreparation(
+      prepared,
+      previous,
+      state,
+      stateLease,
+    );
+    return this.#attachAdmittedStateAttemptUnchecked(
+      record,
+      rendezvousId,
+      stateLease,
+      attemptLease,
+    );
+  }
+
+  #createStatePreparation(
+    prepared: OperationRecord,
+    previous: Readonly<PlaybackStateIdentity>,
+    state: Readonly<PlaybackStateIdentity>,
+    stateLease: FilePlaybackWireStateLease,
+  ): StateOperationRecord {
     const epoch = Object.freeze(
       Object.create(null),
     ) as FilePlaybackConnectionMediaStateOperationEpoch;
@@ -1942,27 +2056,101 @@ export class FilePlaybackConnectionMediaSession {
       signal: abortController.signal,
       isCurrent: () => this.#isStateOperationEpochCurrent(epoch),
     });
-    const operation = freezeCanonical({
+    const preparation = freezeCanonical({
       previous,
       state,
-      rendezvousId,
       fence,
-    }) as Readonly<FilePlaybackConnectionMediaStateOperation>;
+    }) as Readonly<FilePlaybackConnectionMediaStatePreparation>;
     const record: StateOperationRecord = {
-      operation,
+      preparation,
+      operation: null,
       prepared,
       stateLease,
-      attemptLease,
+      attemptLease: null,
       previous,
       state,
-      rendezvousId,
+      rendezvousId: null,
       epoch,
       abortController,
       status: 'candidate',
     };
-    this.#stateOperations.set(operation, record);
+    this.#statePreparations.set(preparation, record);
     this.#stateOperationEpochs.set(epoch, record);
     this.#candidateState = record;
+    return record;
+  }
+
+  #adoptAdmittedStatePreparationUnchecked(
+    prepared: OperationRecord,
+    expected: Readonly<PlaybackStateIdentity>,
+    next: Readonly<PlaybackStateIdentity>,
+    stateLease: FilePlaybackWireStateLease,
+  ): StateOperationRecord {
+    const existing = this.#candidateState;
+    if (existing) {
+      if (
+        existing.prepared === prepared &&
+        sameStateIdentity(existing.previous, expected) &&
+        sameStateIdentity(existing.state, next) &&
+        existing.stateLease === stateLease
+      ) {
+        return existing;
+      }
+      throw this.#fatal(
+        'Inbound state preparation replay disagreed with the exact admitted authority',
+      );
+    }
+    if (
+      !this.#currentState ||
+      !sameStateIdentity(this.#currentState, expected) ||
+      next.queueItemId !== expected.queueItemId ||
+      next.runId !== expected.runId ||
+      next.revision !== this.#admittedRevisionWatermark + 1 ||
+      expected.queueItemId !== prepared.binding.queueItemId ||
+      expected.runId !== prepared.binding.runId
+    ) {
+      throw this.#fatal('Inbound preparation is not the exact current same-run state successor');
+    }
+
+    // The receiver already consumed the successor revision atomically. Mirror
+    // that admission without restaging either media state or an attempt.
+    this.#admittedRevisionWatermark = next.revision;
+    return this.#createStatePreparation(prepared, expected, next, stateLease);
+  }
+
+  #attachAdmittedStateAttemptUnchecked(
+    record: StateOperationRecord,
+    rendezvousId: string,
+    stateLease: FilePlaybackWireStateLease,
+    attemptLease: FilePlaybackWireAttemptLease,
+  ): Readonly<FilePlaybackConnectionMediaStateOperation> {
+    this.#assertStatePreparationCurrent(record);
+    if (record.stateLease !== stateLease) {
+      throw this.#fatal('Inbound ARM did not target the exact prepared state lease');
+    }
+    if (record.operation) {
+      if (
+        record.rendezvousId === rendezvousId &&
+        record.attemptLease === attemptLease
+      ) {
+        return record.operation;
+      }
+      throw this.#fatal('Inbound ARM replay disagreed with the exact prepared state attempt');
+    }
+    if (record.rendezvousId || record.attemptLease) {
+      throw this.#fatal('Prepared state attempt authority became partially attached');
+    }
+
+    const operation = freezeCanonical({
+      previous: record.previous,
+      state: record.state,
+      rendezvousId,
+      fence: record.preparation.fence,
+    }) as Readonly<FilePlaybackConnectionMediaStateOperation>;
+    record.rendezvousId = rendezvousId;
+    record.attemptLease = attemptLease;
+    record.operation = operation;
+    this.#stateOperations.set(operation, record);
     return operation;
   }
 
@@ -2098,9 +2286,19 @@ export class FilePlaybackConnectionMediaSession {
     }
   }
 
+  #assertStatePreparationCurrent(record: StateOperationRecord): void {
+    this.#assertPreparedCurrent(record.prepared);
+    if (record.status !== 'candidate' || record !== this.#candidateState) {
+      throw new Error('File playback state preparation is no longer the exact candidate');
+    }
+  }
+
   #assertStateOperationLive(record: StateOperationRecord): void {
     this.#assertPreparedCurrent(record.prepared);
     if (
+      !record.operation ||
+      !record.attemptLease ||
+      !record.rendezvousId ||
       record.status === 'retired' ||
       (record.status === 'candidate' && record !== this.#candidateState) ||
       (record.status === 'current' && record !== this.#currentStateOperation)
@@ -2208,7 +2406,32 @@ export class FilePlaybackConnectionMediaSession {
     const record =
       value !== null && typeof value === 'object' ? this.#stateOperations.get(value) : undefined;
     if (!record || record.status === 'retired') {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        this.#retiredStateOperations.has(value)
+      ) {
+        throw new Error('File playback state operation is retired');
+      }
       throw new Error('File playback state operation is forged or retired');
+    }
+    return record;
+  }
+
+  #requireStatePreparation(
+    value: FilePlaybackConnectionMediaStatePreparation,
+  ): StateOperationRecord {
+    const record =
+      value !== null && typeof value === 'object' ? this.#statePreparations.get(value) : undefined;
+    if (!record || record.status === 'retired') {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        this.#retiredStatePreparations.has(value)
+      ) {
+        throw new Error('File playback state preparation is retired');
+      }
+      throw new Error('File playback state preparation is forged or retired');
     }
     return record;
   }
@@ -2609,7 +2832,12 @@ export class FilePlaybackConnectionMediaSession {
     if (!record || record.status === 'retired') return;
     this.#abortStateOperationFence(record);
     record.status = 'retired';
-    this.#stateOperations.delete(record.operation);
+    this.#retiredStatePreparations.add(record.preparation);
+    this.#statePreparations.delete(record.preparation);
+    if (record.operation) {
+      this.#retiredStateOperations.add(record.operation);
+      this.#stateOperations.delete(record.operation);
+    }
     this.#stateOperationEpochs.delete(record.epoch);
     if (this.#candidateState === record) this.#candidateState = null;
     if (this.#currentStateOperation === record) this.#currentStateOperation = null;

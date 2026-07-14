@@ -65,6 +65,7 @@ const WIRE_KIND_SENDER_ROLE: Readonly<Record<FilePlaybackWireKind, FilePlaybackC
   Object.freeze({
     'source-ready': 'guest',
     'source-not-ready': 'guest',
+    'file-playback-prepare': 'host',
     'rendezvous-arm': 'host',
     'rendezvous-armed': 'guest',
     'rendezvous-finalize': 'host',

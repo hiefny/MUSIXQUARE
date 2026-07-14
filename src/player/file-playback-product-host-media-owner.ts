@@ -1207,12 +1207,6 @@ export class FilePlaybackProductHostMediaOwner {
     const resolve = this.#resolveWarmPeerRangeSource;
     if (!resolve) throw new Error('Host warm source resolver is unavailable');
     const asset = authority.asset;
-    const prepareRevision = this.#nextPrepareRevision();
-    const prepareId = this.#freshMediaId([
-      asset.binding.queueItemId,
-      asset.binding.sourceIdentity,
-      asset.binding.transferSessionId,
-    ]);
     const exactSource = await awaitWhileOwned(
       Promise.resolve().then(() =>
         resolve({
@@ -1244,27 +1238,18 @@ export class FilePlaybackProductHostMediaOwner {
     }
     if (isEncodedSource(exactSource)) await exactSource.close();
     this.#assertWarmSourceOfferTask(authority, sourceLease, epoch, controller);
+    const expiresAtRoomTimeMs = this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS;
+    const prepareId = this.#freshMediaId([
+      asset.binding.queueItemId,
+      asset.binding.sourceIdentity,
+      asset.binding.transferSessionId,
+    ]);
     const handleId = this.#freshMediaId([
       prepareId,
       asset.binding.queueItemId,
       asset.binding.sourceIdentity,
       asset.binding.transferSessionId,
     ]);
-    const offer = createPeerRangeFileMediaSourceOfferV2({
-      sessionId: this.#context.sessionId,
-      connectionId: this.#context.connectionId,
-      prepareId,
-      prepareRevision,
-      queueItemId: asset.binding.queueItemId,
-      sourceIdentity: asset.binding.sourceIdentity,
-      transferSessionId: asset.binding.transferSessionId,
-      encodedSize: asset.encodedSize,
-      name: asset.metadata.name,
-      mime: asset.metadata.mime,
-      handleId,
-      expiresAtRoomTimeMs: this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
-    });
-    const commit = freezeCanonical({ schemaVersion: 1 as const, sourceLease, offer });
     this.#assertWarmSourceOfferTask(authority, sourceLease, epoch, controller);
 
     const previous = this.#warmOffer;
@@ -1272,54 +1257,84 @@ export class FilePlaybackProductHostMediaOwner {
       this.#retireWarmSourceOffer(previous, new Error('Host warm source offer was superseded'));
       this.#assertWarmSourceOfferTask(authority, sourceLease, epoch, controller);
     }
-    const record: WarmSourceOfferRecord = {
-      epoch,
-      authority,
-      sourceLease,
-      offer,
-      handleId,
-      resolve,
-      controller,
-      commit,
-      expiryTimer: null,
-      offerSent: false,
-      offerRevokeSent: false,
-      status: 'offering',
-    };
-    this.#warmOffer = record;
+    let revisionAllocated = false;
+    let offerDelivered = false;
+    let record: WarmSourceOfferRecord | null = null;
     try {
-      await Promise.resolve();
-      this.#assertWarmSourceOfferRecord(record);
-      record.offerSent = true;
+      // From revision allocation through OFFER delivery this must remain one
+      // synchronous critical section. Warm publication does not share the
+      // media lane, so yielding here can otherwise put revision N+1 on wire
+      // before revision N.
+      const prepareRevision = this.#nextPrepareRevision();
+      revisionAllocated = true;
+      const offer = createPeerRangeFileMediaSourceOfferV2({
+        sessionId: this.#context.sessionId,
+        connectionId: this.#context.connectionId,
+        prepareId,
+        prepareRevision,
+        queueItemId: asset.binding.queueItemId,
+        sourceIdentity: asset.binding.sourceIdentity,
+        transferSessionId: asset.binding.transferSessionId,
+        encodedSize: asset.encodedSize,
+        name: asset.metadata.name,
+        mime: asset.metadata.mime,
+        handleId,
+        expiresAtRoomTimeMs,
+      });
+      const commit = freezeCanonical({ schemaVersion: 1 as const, sourceLease, offer });
+      const createdRecord: WarmSourceOfferRecord = {
+        epoch,
+        authority,
+        sourceLease,
+        offer,
+        handleId,
+        resolve,
+        controller,
+        commit,
+        expiryTimer: null,
+        offerSent: false,
+        offerRevokeSent: false,
+        status: 'offering',
+      };
+      record = createdRecord;
+      this.#warmOffer = createdRecord;
+      this.#assertWarmSourceOfferRecord(createdRecord);
+      createdRecord.offerSent = true;
       this.#sendRequiredFrame(offer);
-      this.#assertWarmSourceOfferRecord(record);
-      record.status = 'offered';
+      offerDelivered = true;
+      this.#assertWarmSourceOfferRecord(createdRecord);
+      createdRecord.status = 'offered';
       let expiryCallbackRan = false;
       try {
         const timer = this.#runtime.scheduleTimeout(() => {
           expiryCallbackRan = true;
-          this.#expireWarmSourceOffer(record);
+          this.#expireWarmSourceOffer(createdRecord);
         }, FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS);
         if (expiryCallbackRan) {
           this.#runtime.cancelTimeout(timer);
           throw new Error('Host warm source offer expired while scheduling its lease');
         }
-        record.expiryTimer = timer;
+        createdRecord.expiryTimer = timer;
       } catch (error) {
         this.#retireWarmSourceOffer(
-          record,
+          createdRecord,
           asError(error, 'Host warm source offer expiry could not be scheduled'),
         );
         throw error;
       }
-      this.#assertWarmSourceOfferRecord(record);
+      this.#assertWarmSourceOfferRecord(createdRecord);
       this.#warmOfferAuthorities.set(sourceLease, authority);
       return commit;
     } catch (error) {
-      this.#retireWarmSourceOffer(
-        record,
-        asError(error, 'Host warm source offer publication failed'),
-      );
+      if (record) {
+        this.#retireWarmSourceOffer(
+          record,
+          asError(error, 'Host warm source offer publication failed'),
+        );
+      }
+      if (revisionAllocated && !offerDelivered && !this.#closed) {
+        throw this.#failConnection(error);
+      }
       throw error;
     }
   }
@@ -1330,41 +1345,18 @@ export class FilePlaybackProductHostMediaOwner {
   ): Promise<Readonly<FilePlaybackProductHostPublicationCommit>> {
     await Promise.resolve();
     this.#assertPublicationAuthority(publication, epoch);
-    const prepareRevision = this.#nextPrepareRevision();
-    const prepareId = this.#freshMediaId([
-      publication.state.queueItemId,
-      publication.state.runId,
-      publication.asset.binding.sourceIdentity,
-      publication.asset.binding.transferSessionId,
-    ]);
-    const nowRoomTimeMs = this.#nowRoomTimeMs();
-    const base = {
-      sessionId: this.#context.sessionId,
-      connectionId: this.#context.connectionId,
-      prepareId,
-      prepareRevision,
-      queueItemId: publication.state.queueItemId,
-      sourceIdentity: publication.asset.binding.sourceIdentity,
-      transferSessionId: publication.asset.binding.transferSessionId,
-      encodedSize: publication.asset.encodedSize,
-      name: publication.asset.metadata.name,
-      mime: publication.asset.metadata.mime,
-    } as const;
-
-    let handleId: string | null = null;
-    let offer: Readonly<FileMediaSourceOfferV2>;
+    let peerRangeExpiresAtRoomTimeMs: number | null = null;
+    let r2OfferFields: Readonly<{
+      storageRoomId: string;
+      objectId: string;
+      encryptedSize: number;
+      keyB64: string;
+      ivB64: string;
+      expiresAtRoomTimeMs: number;
+    }> | null = null;
     if (publication.backend === 'bounded-stream') {
-      handleId = this.#freshMediaId([
-        prepareId,
-        publication.state.queueItemId,
-        publication.asset.binding.sourceIdentity,
-        publication.asset.binding.transferSessionId,
-      ]);
-      offer = createPeerRangeFileMediaSourceOfferV2({
-        ...base,
-        handleId,
-        expiresAtRoomTimeMs: nowRoomTimeMs + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
-      });
+      peerRangeExpiresAtRoomTimeMs =
+        this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS;
     } else {
       const signal = this.#publicationSignal(epoch);
       const source = await awaitWhileOwned(
@@ -1401,8 +1393,7 @@ export class FilePlaybackProductHostMediaOwner {
       if (!Number.isFinite(epochNow) || epochNow < 0) {
         throw new Error('Host media owner epoch clock is invalid');
       }
-      offer = createR2WholeBlobFileMediaSourceOfferV2({
-        ...base,
+      r2OfferFields = freezeCanonical({
         storageRoomId: published.storageRoomId,
         objectId: published.objectId,
         encryptedSize: published.encryptedSize,
@@ -1414,46 +1405,101 @@ export class FilePlaybackProductHostMediaOwner {
     }
 
     this.#assertPublicationAuthority(publication, epoch);
-    const binding = createFilePlaybackRunBindingV2({
+    const prepareId = this.#freshMediaId([
+      publication.state.queueItemId,
+      publication.state.runId,
+      publication.asset.binding.sourceIdentity,
+      publication.asset.binding.transferSessionId,
+    ]);
+    const handleId =
+      publication.backend === 'bounded-stream'
+        ? this.#freshMediaId([
+            prepareId,
+            publication.state.queueItemId,
+            publication.asset.binding.sourceIdentity,
+            publication.asset.binding.transferSessionId,
+          ])
+        : null;
+    const base = {
       sessionId: this.#context.sessionId,
       connectionId: this.#context.connectionId,
-      prepareId: offer.prepareId,
-      prepareRevision: offer.prepareRevision,
-      queueItemId: offer.queueItemId,
-      sourceIdentity: offer.sourceIdentity,
-      transferSessionId: offer.transferSessionId,
-      runId: publication.state.runId,
-      playbackRevision: publication.state.revision,
-    });
-    const stateLease = this.#installCurrentState(publication);
-    const commit = freezeCanonical({
-      schemaVersion: 1 as const,
-      publication,
-      offer,
-      binding,
-    });
-    const record: PublicationRecord = {
-      epoch,
-      publication,
-      offer,
-      binding,
-      stateLease,
-      handleId,
-      commit,
-      transferredWarmSource: null,
-      participant: null,
-      status: 'publishing',
-    };
-    this.#publication = record;
-    await Promise.resolve();
-    this.#assertRecord(record);
-    this.#sendRequiredFrame(offer);
-    await Promise.resolve();
-    this.#assertRecord(record);
-    this.#sendRequiredFrame(binding);
-    this.#assertRecord(record);
-    record.status = 'published';
-    return commit;
+      prepareId,
+      queueItemId: publication.state.queueItemId,
+      sourceIdentity: publication.asset.binding.sourceIdentity,
+      transferSessionId: publication.asset.binding.transferSessionId,
+      encodedSize: publication.asset.encodedSize,
+      name: publication.asset.metadata.name,
+      mime: publication.asset.metadata.mime,
+    } as const;
+    this.#assertPublicationAuthority(publication, epoch);
+
+    let revisionAllocated = false;
+    try {
+      // No await may enter this section: prepare revisions are a reliable
+      // ordered wire lane shared with warm and prepared publication.
+      const prepareRevision = this.#nextPrepareRevision();
+      revisionAllocated = true;
+      let offer: Readonly<FileMediaSourceOfferV2>;
+      if (publication.backend === 'bounded-stream') {
+        if (handleId === null || peerRangeExpiresAtRoomTimeMs === null) {
+          throw new Error('Host peer-range offer plan is incomplete');
+        }
+        offer = createPeerRangeFileMediaSourceOfferV2({
+          ...base,
+          prepareRevision,
+          handleId,
+          expiresAtRoomTimeMs: peerRangeExpiresAtRoomTimeMs,
+        });
+      } else {
+        if (!r2OfferFields) throw new Error('Host R2 offer plan is incomplete');
+        offer = createR2WholeBlobFileMediaSourceOfferV2({
+          ...base,
+          prepareRevision,
+          ...r2OfferFields,
+        });
+      }
+      const binding = createFilePlaybackRunBindingV2({
+        sessionId: this.#context.sessionId,
+        connectionId: this.#context.connectionId,
+        prepareId: offer.prepareId,
+        prepareRevision: offer.prepareRevision,
+        queueItemId: offer.queueItemId,
+        sourceIdentity: offer.sourceIdentity,
+        transferSessionId: offer.transferSessionId,
+        runId: publication.state.runId,
+        playbackRevision: publication.state.revision,
+      });
+      const stateLease = this.#installCurrentState(publication);
+      const commit = freezeCanonical({
+        schemaVersion: 1 as const,
+        publication,
+        offer,
+        binding,
+      });
+      const record: PublicationRecord = {
+        epoch,
+        publication,
+        offer,
+        binding,
+        stateLease,
+        handleId,
+        commit,
+        transferredWarmSource: null,
+        participant: null,
+        status: 'publishing',
+      };
+      this.#publication = record;
+      this.#assertRecord(record);
+      this.#sendRequiredFrame(offer);
+      this.#assertRecord(record);
+      this.#sendRequiredFrame(binding);
+      this.#assertRecord(record);
+      record.status = 'published';
+      return commit;
+    } catch (error) {
+      if (revisionAllocated && !this.#closed) throw this.#failConnection(error);
+      throw error;
+    }
   }
 
   async #publishPrepared(
@@ -1510,8 +1556,15 @@ export class FilePlaybackProductHostMediaOwner {
       }
     }
 
-    let handleId: string | null = null;
-    let offer: Readonly<FileMediaSourceOfferV2>;
+    let peerRangeExpiresAtRoomTimeMs: number | null = null;
+    let r2OfferFields: Readonly<{
+      storageRoomId: string;
+      objectId: string;
+      encryptedSize: number;
+      keyB64: string;
+      ivB64: string;
+      expiresAtRoomTimeMs: number;
+    }> | null = null;
     if (prepared.backend === 'bounded-stream') {
       if (isEncodedSource(exactSource) && !exactSourceClosed) {
         await exactSource.close();
@@ -1519,46 +1572,14 @@ export class FilePlaybackProductHostMediaOwner {
       this.#assertPreparedCandidateAuthority(prepared, epoch);
       this.#fenceSameLeaseWarmSourceForPreparedRepair(prepared);
       this.#assertPreparedCandidateAuthority(prepared, epoch);
-      const prepareRevision = this.#nextPrepareRevision();
-      const prepareId = this.#freshMediaId([
-        prepared.state.queueItemId,
-        prepared.state.runId,
-        prepared.asset.binding.sourceIdentity,
-        prepared.asset.binding.transferSessionId,
-      ]);
-      handleId = this.#freshMediaId([
-        prepareId,
-        prepared.state.queueItemId,
-        prepared.asset.binding.sourceIdentity,
-        prepared.asset.binding.transferSessionId,
-      ]);
-      offer = createPeerRangeFileMediaSourceOfferV2({
-        sessionId: this.#context.sessionId,
-        connectionId: this.#context.connectionId,
-        prepareId,
-        prepareRevision,
-        queueItemId: prepared.state.queueItemId,
-        sourceIdentity: prepared.asset.binding.sourceIdentity,
-        transferSessionId: prepared.asset.binding.transferSessionId,
-        encodedSize: prepared.asset.encodedSize,
-        name: prepared.asset.metadata.name,
-        mime: prepared.asset.metadata.mime,
-        handleId,
-        expiresAtRoomTimeMs: this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
-      });
+      peerRangeExpiresAtRoomTimeMs =
+        this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS;
     } else {
       if (!(exactSource instanceof Blob)) {
         await exactSource.close().catch(() => undefined);
         throw new Error('Ordinary prepared publication requires its exact Blob source');
       }
       this.#assertPreparedCandidateAuthority(prepared, epoch);
-      const prepareRevision = this.#nextPrepareRevision();
-      const prepareId = this.#freshMediaId([
-        prepared.state.queueItemId,
-        prepared.state.runId,
-        prepared.asset.binding.sourceIdentity,
-        prepared.asset.binding.transferSessionId,
-      ]);
       const published = await awaitWhileOwned(
         this.#publisher.publish({
           queueItemId: prepared.state.queueItemId,
@@ -1575,17 +1596,7 @@ export class FilePlaybackProductHostMediaOwner {
       if (!Number.isFinite(epochNow) || epochNow < 0) {
         throw new Error('Host media owner epoch clock is invalid');
       }
-      offer = createR2WholeBlobFileMediaSourceOfferV2({
-        sessionId: this.#context.sessionId,
-        connectionId: this.#context.connectionId,
-        prepareId,
-        prepareRevision,
-        queueItemId: prepared.state.queueItemId,
-        sourceIdentity: prepared.asset.binding.sourceIdentity,
-        transferSessionId: prepared.asset.binding.transferSessionId,
-        encodedSize: prepared.asset.encodedSize,
-        name: prepared.asset.metadata.name,
-        mime: prepared.asset.metadata.mime,
+      r2OfferFields = freezeCanonical({
         storageRoomId: published.storageRoomId,
         objectId: published.objectId,
         encryptedSize: published.encryptedSize,
@@ -1596,24 +1607,84 @@ export class FilePlaybackProductHostMediaOwner {
       });
     }
     this.#assertPreparedCandidateAuthority(prepared, epoch);
-    const record = this.#createPreparedPublicationRecord({
-      epoch,
-      prepared,
-      offer,
-      handleId,
-      resolve,
-      transferredWarmSource: null,
-      offerSent: false,
-      status: 'offering',
-    });
-    this.#candidate = record;
-    await Promise.resolve();
-    this.#assertCandidateRecord(record);
-    record.offerSent = true;
-    this.#sendRequiredFrame(offer);
-    this.#assertCandidateRecord(record);
-    record.status = 'offered';
-    return record.commit;
+    const prepareId = this.#freshMediaId([
+      prepared.state.queueItemId,
+      prepared.state.runId,
+      prepared.asset.binding.sourceIdentity,
+      prepared.asset.binding.transferSessionId,
+    ]);
+    const handleId =
+      prepared.backend === 'bounded-stream'
+        ? this.#freshMediaId([
+            prepareId,
+            prepared.state.queueItemId,
+            prepared.asset.binding.sourceIdentity,
+            prepared.asset.binding.transferSessionId,
+          ])
+        : null;
+    const base = {
+      sessionId: this.#context.sessionId,
+      connectionId: this.#context.connectionId,
+      prepareId,
+      queueItemId: prepared.state.queueItemId,
+      sourceIdentity: prepared.asset.binding.sourceIdentity,
+      transferSessionId: prepared.asset.binding.transferSessionId,
+      encodedSize: prepared.asset.encodedSize,
+      name: prepared.asset.metadata.name,
+      mime: prepared.asset.metadata.mime,
+    } as const;
+    this.#assertPreparedCandidateAuthority(prepared, epoch);
+
+    let revisionAllocated = false;
+    let offerDelivered = false;
+    try {
+      // Keep the exact prepared OFFER on the same synchronous revision lane as
+      // current and warm publication.
+      const prepareRevision = this.#nextPrepareRevision();
+      revisionAllocated = true;
+      let offer: Readonly<FileMediaSourceOfferV2>;
+      if (prepared.backend === 'bounded-stream') {
+        if (handleId === null || peerRangeExpiresAtRoomTimeMs === null) {
+          throw new Error('Host prepared peer-range offer plan is incomplete');
+        }
+        offer = createPeerRangeFileMediaSourceOfferV2({
+          ...base,
+          prepareRevision,
+          handleId,
+          expiresAtRoomTimeMs: peerRangeExpiresAtRoomTimeMs,
+        });
+      } else {
+        if (!r2OfferFields) throw new Error('Host prepared R2 offer plan is incomplete');
+        offer = createR2WholeBlobFileMediaSourceOfferV2({
+          ...base,
+          prepareRevision,
+          ...r2OfferFields,
+        });
+      }
+      const record = this.#createPreparedPublicationRecord({
+        epoch,
+        prepared,
+        offer,
+        handleId,
+        resolve,
+        transferredWarmSource: null,
+        offerSent: false,
+        status: 'offering',
+      });
+      this.#candidate = record;
+      this.#assertCandidateRecord(record);
+      record.offerSent = true;
+      this.#sendRequiredFrame(offer);
+      offerDelivered = true;
+      this.#assertCandidateRecord(record);
+      record.status = 'offered';
+      return record.commit;
+    } catch (error) {
+      if (revisionAllocated && !offerDelivered && !this.#closed) {
+        throw this.#failConnection(error);
+      }
+      throw error;
+    }
   }
 
   #createPreparedPublicationRecord(

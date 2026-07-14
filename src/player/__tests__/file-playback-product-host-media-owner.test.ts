@@ -422,6 +422,37 @@ function publisher(): FilePlaybackR2WholeBlobPublisher {
   });
 }
 
+function publisherWithOneFailedUpload(errorMessage: string): Readonly<{
+  instance: FilePlaybackR2WholeBlobPublisher;
+  upload: ReturnType<typeof vi.fn>;
+}> {
+  const upload = vi.fn(async () => ({
+    objectId: '98000000-0000-4000-8000-000000000099',
+    cleanupToken: 'host-owner-cleanup-token',
+    expiresAt: 61_000,
+  }));
+  upload.mockRejectedValueOnce(new Error(errorMessage));
+  const instance = new FilePlaybackR2WholeBlobPublisher({
+    roomToken: freezeCanonical({ room: `host-owner-${errorMessage}` }),
+    runtime: {
+      createStorageRoomId: () => 'host_owner_retry_room',
+      encrypt: vi.fn(async (blob: Blob) => ({
+        encryptedBlob: new Blob([new Uint8Array(blob.size + 16)]),
+        keyB64: btoa('\0'.repeat(32)),
+        ivB64: btoa('\0'.repeat(12)),
+        plaintextSize: blob.size,
+        encryptedSize: blob.size + 16,
+      })) as never,
+      upload: upload as never,
+      deleteObject: vi.fn(async () => 'deleted' as const),
+      reserveTransport: vi.fn(() => ({ release: vi.fn() })) as never,
+      resolveMemoryBudget: vi.fn(() => ({ tier: 'desktop' })) as never,
+      livePcmBytes: () => 0,
+    },
+  });
+  return Object.freeze({ instance, upload });
+}
+
 function receiveWire(
   pair: ConnectionPair,
   message: FilePlaybackWireMessage,
@@ -3306,5 +3337,245 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     ]);
     expect(closeConnection).not.toHaveBeenCalled();
     owner.port().revoke(pair.context);
+  });
+
+  it('retries a failed warm preflight without consuming prepare revision one', async () => {
+    const pair = connectionPair(() => 1_000);
+    const authority = warmAuthority(pair, warmSourceLease());
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const closeConnection = vi.fn();
+    let failPreflight = true;
+    const resolveWarm = vi.fn(async () => {
+      if (failPreflight) {
+        failPreflight = false;
+        throw new Error('fixture warm preflight failed');
+      }
+      return encodedWarmSource(authority);
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-preflight-retry-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    await expect(owner.publishSourceLease(authority)).rejects.toThrow(
+      'fixture warm preflight failed',
+    );
+    expect(required).toHaveLength(0);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    const published = await owner.publishSourceLease(authority);
+    expect(published.offer.prepareRevision).toBe(1);
+    expect(required).toEqual([published.offer]);
+    expect(resolveWarm).toHaveBeenCalledTimes(2);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    owner.port().revoke(pair.context);
+  });
+
+  it('retries a failed current R2 publication without consuming prepare revision one', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([Uint8Array.of(1, 2, 3)], { type: 'audio/mpeg' });
+    const current = publication('audio-buffer', blob);
+    const retrying = publisherWithOneFailedUpload('fixture current R2 upload failed');
+    const required: unknown[] = [];
+    const closeConnection = vi.fn();
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => current,
+        () => blob,
+        [],
+      ),
+      publisher: retrying.instance,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        nowEpochMsForTests: () => 1_000,
+        scheduleIntervalForTests: () => 'host-owner-current-r2-retry-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    await expect(owner.publishCurrent()).rejects.toThrow('fixture current R2 upload failed');
+    expect(required).toHaveLength(0);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    const published = await owner.publishCurrent();
+    expect(published.offer.transport).toBe('r2-whole-blob');
+    expect(published.offer.prepareRevision).toBe(1);
+    expect(required[0]).toBe(published.offer);
+    expect(retrying.upload).toHaveBeenCalledTimes(2);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    owner.port().revoke(pair.context);
+    await retrying.instance.close();
+  });
+
+  it('retries a failed prepared R2 publication without consuming prepare revision one', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([Uint8Array.of(4, 5, 6)], { type: 'audio/mpeg' });
+    const prepared = preparedTrack('audio-buffer', blob.size);
+    const retrying = publisherWithOneFailedUpload('fixture prepared R2 upload failed');
+    const required: unknown[] = [];
+    const closeConnection = vi.fn();
+    const resolvePrepared = vi.fn(async () => blob);
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => blob,
+        [],
+      ),
+      publisher: retrying.instance,
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        nowEpochMsForTests: () => 1_000,
+        scheduleIntervalForTests: () => 'host-owner-prepared-r2-retry-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    await expect(owner.publishPrepared(prepared)).rejects.toThrow(
+      'fixture prepared R2 upload failed',
+    );
+    expect(required).toHaveLength(0);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    const published = await owner.publishPrepared(prepared);
+    expect(published.offer.transport).toBe('r2-whole-blob');
+    expect(published.offer.prepareRevision).toBe(1);
+    expect(required).toEqual([published.offer]);
+    expect(resolvePrepared).toHaveBeenCalledTimes(2);
+    expect(retrying.upload).toHaveBeenCalledTimes(2);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    owner.port().revoke(pair.context);
+    await retrying.instance.close();
+  });
+
+  it('sends an immediate current offer before a delayed warm offer in revision order', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([Uint8Array.of(7)], { type: 'audio/flac' });
+    const current = publication('bounded-stream', blob);
+    const authority = warmAuthority(pair, warmSourceLease());
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    let releaseWarm!: (source: HostPeerRangeSource) => void;
+    const warmSource = new Promise<HostPeerRangeSource>((resolve) => {
+      releaseWarm = resolve;
+    });
+    const resolveWarm = vi.fn(() => warmSource);
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => current,
+        () => blob,
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-cross-lane-revision-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const delayedWarm = owner.publishSourceLease(authority);
+    await vi.waitFor(() => expect(resolveWarm).toHaveBeenCalledOnce());
+    const currentCommit = await owner.publishCurrent();
+    releaseWarm(encodedWarmSource(authority));
+    const warmCommit = await delayedWarm;
+
+    const offers = required.filter(
+      (frame): frame is { readonly prepareRevision: number; readonly type: string } =>
+        (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+    );
+    expect(offers.map((offer) => offer.prepareRevision)).toEqual([1, 2]);
+    expect(offers).toEqual([currentCommit.offer, warmCommit.offer]);
+
+    owner.port().revoke(pair.context);
+  });
+
+  it('terminalizes the exact connection when post-revision binding creation fails', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([Uint8Array.of(8)], { type: 'audio/flac' });
+    const valid = publication('bounded-stream', blob);
+    const invalid = freezeCanonical({
+      ...valid,
+      state: freezeCanonical({ ...valid.state, runId: 'not-a-valid-run-id' }),
+    }) as unknown as Readonly<HostPeerPlaybackPublication>;
+    const required = vi.fn(() => true);
+    const closeConnection = vi.fn();
+    const r2 = publisher();
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => invalid,
+        () => blob,
+        [],
+      ),
+      publisher: r2,
+      sendRequired: required,
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-post-revision-failure-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    await expect(owner.publishCurrent()).rejects.toThrow(/connection failed/u);
+    expect(required).not.toHaveBeenCalled();
+    expect(closeConnection).toHaveBeenCalledOnce();
+    await expect(owner.publishCurrent()).rejects.toThrow(/closed/u);
+
+    await r2.close();
   });
 });

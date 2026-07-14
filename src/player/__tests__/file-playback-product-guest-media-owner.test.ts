@@ -2455,8 +2455,32 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       sourceIdentity: SOURCE_ID,
       transferSessionId: TRANSFER_ID,
     });
-    const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
 
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-prepare',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: h.state.revision,
+        positionSeconds: 12,
+        playbackRate: 1,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === successor.revision,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+
+    const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
     receiveHostWire(
       h,
       h.host.createWire(attemptLease, {
@@ -2513,7 +2537,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(h.runtime.seekCurrent).not.toHaveBeenCalled();
     expect(
       h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(h.fatal).not.toHaveBeenCalled();
 
     const paused = freezeCanonical({ ...successor, revision: 3 });
@@ -2584,6 +2608,94 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
+  });
+
+  it('fails closed when an exact-next same-run ARM arrives before PREPARE', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
+    const arm = h.host.createWire(attemptLease, {
+      kind: 'rendezvous-arm',
+      rendezvousId: RENDEZVOUS_ID_2,
+      positionSeconds: 12,
+      playbackRate: 1,
+      startAtRoomTimeMs: 1_000,
+      finalizeByRoomTimeMs: 900,
+    });
+    const result = h.guest.receive(arm, h.guestConnection);
+    expect(result).toMatchObject({ accepted: true, frame: 'wire' });
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected ARM wire');
+    const acknowledge = vi.fn();
+
+    expect(() => h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge)).toThrow(
+      /Guest playback wire adoption failed/u,
+    );
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed when a same-run ARM target disagrees with its exact PREPARE', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-prepare',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: h.state.revision,
+        positionSeconds: 12,
+        playbackRate: 1,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === successor.revision,
+        ),
+      ).toHaveLength(1),
+    );
+    const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
+    const mismatchedArm = h.host.createWire(attemptLease, {
+      kind: 'rendezvous-arm',
+      rendezvousId: RENDEZVOUS_ID_2,
+      positionSeconds: 13,
+      playbackRate: 1,
+      startAtRoomTimeMs: 1_000,
+      finalizeByRoomTimeMs: 900,
+    });
+    const result = h.guest.receive(mismatchedArm, h.guestConnection);
+    expect(result).toMatchObject({ accepted: true, frame: 'wire' });
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected ARM wire');
+    const acknowledge = vi.fn();
+
+    expect(() => h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge)).toThrow(
+      /Guest playback wire adoption failed/u,
+    );
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce();
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
   });
 
   it('reuses an admitted body for replay as a new run without reacquisition', async () => {

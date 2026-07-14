@@ -44,6 +44,7 @@ import {
   type FilePlaybackConnectionMediaOfferPreparation,
   type FilePlaybackConnectionMediaOperation,
   type FilePlaybackConnectionMediaPreparedRunAttempt,
+  type FilePlaybackConnectionMediaStatePreparation,
   type FilePlaybackConnectionMediaStateOperation,
 } from './file-playback-connection-media-session.ts';
 import {
@@ -379,7 +380,9 @@ interface GuestPreparedRun {
   readonly kind: 'baseline' | 'recovery' | 'state-successor' | 'successor';
   state: Readonly<PlaybackStateIdentity>;
   readonly operation: Readonly<FilePlaybackConnectionMediaOperation>;
+  statePreparation: Readonly<FilePlaybackConnectionMediaStatePreparation> | null;
   stateOperation: Readonly<FilePlaybackConnectionMediaStateOperation> | null;
+  readonly rendezvousTarget: Readonly<GuestRendezvousTarget> | null;
   assetLease: FilePlaybackAssetLease | null;
   manifestAdmission: FilePlaybackPeerRangeManifestAdmission | null;
   audioGraph: Readonly<FilePlaybackProductGuestAudioGraph> | null;
@@ -388,6 +391,11 @@ interface GuestPreparedRun {
   readyPublished: boolean;
   attempt: GuestAttempt | null;
   status: 'preparing' | 'ready' | 'current' | 'retired';
+}
+
+interface GuestRendezvousTarget {
+  readonly positionSeconds: number;
+  readonly playbackRate: number;
 }
 
 type GuestOfferWarmOutcome = 'warmed' | 'cold-retained';
@@ -1260,7 +1268,9 @@ class GuestMediaOwner {
         kind,
         state,
         operation,
+        statePreparation: null,
         stateOperation: null,
+        rendezvousTarget: null,
         assetLease: null,
         manifestAdmission: null,
         audioGraph: null,
@@ -1306,9 +1316,9 @@ class GuestMediaOwner {
       }
       const room = this.#requireRoom();
       const message = event!.message as Readonly<FilePlaybackWireMessage>;
-      if (message.kind === 'rendezvous-arm') {
-        if (!event!.attemptLease || typeof event!.attemptLease !== 'object') {
-          throw new Error('Guest rendezvous arm has no exact attempt lease');
+      if (message.kind === 'file-playback-prepare') {
+        if (event!.attemptLease !== null) {
+          throw new Error('Guest same-run PREPARE unexpectedly owned an attempt lease');
         }
         const current = room.current;
         const expected = stateFromTimeline(room.timeline);
@@ -1318,60 +1328,59 @@ class GuestMediaOwner {
           revision: message.revision,
         });
         if (
-          current &&
-          current.status === 'current' &&
-          room.candidate === null &&
-          expected &&
-          successor &&
-          sameState(current.state, expected) &&
-          successor.queueItemId === expected.queueItemId &&
-          successor.runId === expected.runId &&
-          successor.revision === expected.revision + 1 &&
-          message.sourceIdentity === current.operation.binding.sourceIdentity &&
-          message.transferSessionId === current.operation.binding.transferSessionId
+          !current ||
+          current.status !== 'current' ||
+          room.candidate !== null ||
+          !expected ||
+          !successor ||
+          !sameState(current.state, expected) ||
+          message.expectedQueueItemId !== expected.queueItemId ||
+          message.expectedRunId !== expected.runId ||
+          message.expectedRevision !== expected.revision ||
+          successor.queueItemId !== expected.queueItemId ||
+          successor.runId !== expected.runId ||
+          successor.revision !== expected.revision + 1 ||
+          message.sourceIdentity !== current.operation.binding.sourceIdentity ||
+          message.transferSessionId !== current.operation.binding.transferSessionId
         ) {
-          if (!event!.stateLease || typeof event!.stateLease !== 'object') {
-            throw new Error('Guest same-run rendezvous arm has no exact state lease');
-          }
-          const stateOperation = this.#mediaSession.adoptAdmittedSameRunStateSuccessor(
-            current.operation,
-            expected,
-            successor,
-            message.rendezvousId,
-            event!.stateLease as FilePlaybackWireStateLease,
-            event!.attemptLease as FilePlaybackWireAttemptLease,
-          );
-          const candidate: GuestPreparedRun = {
-            kind: 'state-successor',
-            state: successor,
-            operation: current.operation,
-            stateOperation,
-            assetLease: current.assetLease,
-            manifestAdmission: current.manifestAdmission,
-            audioGraph: current.audioGraph,
-            staged: null,
-            participant: null,
-            readyPublished: false,
-            attempt: null,
-            status: 'preparing',
-          };
-          room.candidate = candidate;
-          const attemptLease = event!.attemptLease as FilePlaybackWireAttemptLease;
-          acknowledge();
-          this.#enqueue('same-run state successor arm', async () => {
-            await this.#prepareSameSourceCandidate(room, candidate);
-            const attempt = this.#createAttempt(
-              candidate,
-              message,
-              attemptLease,
-              null,
-              stateOperation,
-            );
-            candidate.attempt = attempt;
-            attempt.armTask = this.#executeArm(room, candidate, attempt);
-            await attempt.armTask;
-          });
-          return;
+          throw new Error('Guest same-run PREPARE is not the exact current successor');
+        }
+        const statePreparation = this.#mediaSession.adoptAdmittedSameRunStatePreparation(
+          current.operation,
+          expected,
+          successor,
+          event!.stateLease as FilePlaybackWireStateLease,
+        );
+        const candidate: GuestPreparedRun = {
+          kind: 'state-successor',
+          state: successor,
+          operation: current.operation,
+          statePreparation,
+          stateOperation: null,
+          rendezvousTarget: freezeCanonical({
+            positionSeconds: message.positionSeconds,
+            playbackRate: message.playbackRate,
+          }),
+          assetLease: current.assetLease,
+          manifestAdmission: current.manifestAdmission,
+          audioGraph: current.audioGraph,
+          staged: null,
+          participant: null,
+          readyPublished: false,
+          attempt: null,
+          status: 'preparing',
+        };
+        room.candidate = candidate;
+        acknowledge();
+        this.#enqueue('same-run state successor preparation', async () => {
+          await this.#prepareSameSourceCandidate(room, candidate);
+          await this.#publishSameRunStateReady(room, candidate);
+        });
+        return;
+      }
+      if (message.kind === 'rendezvous-arm') {
+        if (!event!.attemptLease || typeof event!.attemptLease !== 'object') {
+          throw new Error('Guest rendezvous arm has no exact attempt lease');
         }
         const prepared = this.#preparedForMessage(room, message);
         if (
@@ -1383,7 +1392,9 @@ class GuestMediaOwner {
             kind: 'recovery',
             state: prepared.state,
             operation: prepared.operation,
+            statePreparation: null,
             stateOperation: null,
+            rendezvousTarget: null,
             assetLease: prepared.assetLease,
             manifestAdmission: prepared.manifestAdmission,
             audioGraph: prepared.audioGraph,
@@ -1409,6 +1420,28 @@ class GuestMediaOwner {
           throw new Error('Guest rendezvous arm has no exact ready source');
         }
         if (prepared.attempt) throw new Error('Guest prepared run already owns an attempt');
+        if (
+          prepared.kind === 'state-successor' &&
+          (!prepared.statePreparation ||
+            !prepared.rendezvousTarget ||
+            message.positionSeconds !== prepared.rendezvousTarget.positionSeconds ||
+            message.playbackRate !== prepared.rendezvousTarget.playbackRate)
+        ) {
+          throw new Error('Guest same-run ARM disagreed with its exact PREPARE target');
+        }
+        const stateOperation =
+          prepared.kind === 'state-successor'
+            ? this.#mediaSession.attachAdmittedSameRunStateAttempt(
+                prepared.statePreparation!,
+                message.rendezvousId,
+                event!.stateLease as FilePlaybackWireStateLease,
+                event!.attemptLease as FilePlaybackWireAttemptLease,
+              )
+            : null;
+        if (stateOperation) {
+          prepared.stateOperation = stateOperation;
+          prepared.statePreparation = null;
+        }
         const admittedAttempt =
           prepared.kind === 'successor'
             ? this.#mediaSession.adoptAdmittedPreparedRunAttempt(
@@ -1424,7 +1457,7 @@ class GuestMediaOwner {
           message,
           event!.attemptLease as FilePlaybackWireAttemptLease,
           admittedAttempt,
-          null,
+          stateOperation,
         );
         prepared.attempt = attempt;
         acknowledge();
@@ -1611,7 +1644,7 @@ class GuestMediaOwner {
       (prepared.kind !== 'recovery' && prepared.kind !== 'state-successor') ||
       !prepared.assetLease ||
       !prepared.audioGraph ||
-      (prepared.kind === 'state-successor' && !prepared.stateOperation)
+      (prepared.kind === 'state-successor' && !prepared.statePreparation)
     ) {
       throw new Error('Guest same-source candidate is incomplete');
     }
@@ -1652,8 +1685,42 @@ class GuestMediaOwner {
       throw new TypeError('Guest recovery participant is invalid');
     }
     prepared.participant = participant;
-    prepared.readyPublished = true;
+    prepared.readyPublished = prepared.kind === 'recovery';
     prepared.status = 'ready';
+  }
+
+  async #publishSameRunStateReady(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+  ): Promise<void> {
+    this.#assertPrepared(room, prepared);
+    const preparation = prepared.statePreparation;
+    const staged = prepared.staged;
+    if (
+      prepared.kind !== 'state-successor' ||
+      !preparation ||
+      !staged ||
+      !prepared.participant ||
+      prepared.status !== 'ready' ||
+      prepared.readyPublished
+    ) {
+      throw new Error('Guest same-run PREPARE did not produce an exact ready candidate');
+    }
+    const observedAtRoomTimeMs = this.#nowRoomTimeMs();
+    const wire = this.#mediaSession.createStatePreparationSourceWire(preparation, {
+      kind: 'source-ready',
+      observedAtRoomTimeMs,
+      readyLeaseUntilRoomTimeMs: observedAtRoomTimeMs + this.#readyLeaseMs,
+      backend: staged.backend,
+      durationSeconds: staged.readiness.durationSeconds,
+      bufferedAheadSeconds: staged.readiness.bufferedAheadSeconds,
+      outputSampleRateHz: staged.readiness.outputSampleRateHz,
+      channelCount: staged.readiness.channelCount,
+    });
+    this.#assertPrepared(room, prepared);
+    await this.#sendRequired(wire);
+    this.#assertPrepared(room, prepared);
+    prepared.readyPublished = true;
   }
 
   async #stagePreparedAsset(
@@ -2731,7 +2798,7 @@ class GuestMediaOwner {
 
   #preparedCurrent(room: GuestRoomState, prepared: GuestPreparedRun): boolean {
     try {
-      const stateFence = prepared.stateOperation?.fence ?? null;
+      const stateFence = prepared.stateOperation?.fence ?? prepared.statePreparation?.fence ?? null;
       return (
         !this.#closed &&
         this.#room === room &&
@@ -2748,7 +2815,11 @@ class GuestMediaOwner {
   }
 
   #preparedSignal(prepared: GuestPreparedRun): AbortSignal {
-    return prepared.stateOperation?.fence.signal ?? prepared.operation.fence.signal;
+    return (
+      prepared.stateOperation?.fence.signal ??
+      prepared.statePreparation?.fence.signal ??
+      prepared.operation.fence.signal
+    );
   }
 
   #assertPrepared(room: GuestRoomState, prepared: GuestPreparedRun): void {

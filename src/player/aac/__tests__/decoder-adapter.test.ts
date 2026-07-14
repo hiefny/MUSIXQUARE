@@ -128,6 +128,7 @@ function scanFixture(
   return Object.freeze({
     sourceIdentity: SOURCE_IDENTITY,
     sourceSize: SOURCE_SIZE,
+    audioStartByte: 0,
     coreConfiguration: CORE_CONFIGURATION,
     coreSampleRateHz: 44_100,
     coreChannelCount: 2 as const,
@@ -152,6 +153,7 @@ function timelineEvidenceFixture() {
     authority: 'none',
     sourceIdentity: scan.sourceIdentity,
     sourceSize: scan.sourceSize,
+    audioStartByte: scan.audioStartByte,
     coreConfiguration: scan.coreConfiguration,
     coreSampleRateHz: scan.coreSampleRateHz,
     coreChannelCount: scan.coreChannelCount,
@@ -496,6 +498,7 @@ describe('AacDecoderAdapter', () => {
     const scan: AdtsFrameScanResult = {
       sourceIdentity: identity,
       sourceSize,
+      audioStartByte: 0,
       coreConfiguration: {
         ...CORE_CONFIGURATION,
         sampleRateIndex: 11,

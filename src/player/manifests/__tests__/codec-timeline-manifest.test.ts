@@ -170,6 +170,22 @@ describe('codec timeline manifest canonical binary codec', () => {
     }
   });
 
+  it('round-trips ADTS absolute points after a nonzero leading-metadata span', () => {
+    const audioStartByte = 37;
+    const manifest = adtsManifest({
+      sourceSize: audioStartByte + 24,
+      audioStartByte,
+      audioEndByte: audioStartByte + 24,
+      points: [
+        { frameOrdinal: 0, byteOffset: audioStartByte },
+        { frameOrdinal: 1, byteOffset: audioStartByte + 8 },
+        { frameOrdinal: 2, byteOffset: audioStartByte + 16 },
+      ],
+    });
+
+    expect(parseCodecTimelineManifest(encodeCodecTimelineManifest(manifest))).toEqual(manifest);
+  });
+
   it('writes exact fixed-width, big-endian headers and point records', () => {
     const adts = encodeCodecTimelineManifest(adtsManifest());
     const adtsView = dataView(adts);

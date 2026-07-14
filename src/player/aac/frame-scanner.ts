@@ -18,10 +18,12 @@ import {
 
 export const ADTS_CORE_SAMPLES_PER_FRAME = 1_024;
 
-const OPTION_KEYS = Object.freeze(['pageBytes', 'maxSeekPoints'] as const);
+const OPTION_KEYS = Object.freeze(['audioStartByte', 'pageBytes', 'maxSeekPoints'] as const);
 const OPTION_KEY_SET: ReadonlySet<PropertyKey> = new Set(OPTION_KEYS);
 
 export interface AdtsFrameScanOptions {
+  /** Exact first ADTS sync word after bounded leading metadata. Defaults to zero. */
+  readonly audioStartByte?: number;
   /** Transport page size forwarded to the bounded incremental reader. */
   readonly pageBytes?: number;
   /** Retained seek-coordinate bound, never greater than 8,192. */
@@ -31,6 +33,7 @@ export interface AdtsFrameScanOptions {
 export interface AdtsFrameScanResult {
   readonly sourceIdentity: string;
   readonly sourceSize: number;
+  readonly audioStartByte: number;
   readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
   readonly coreSampleRateHz: number;
   readonly coreChannelCount: 1 | 2;
@@ -72,6 +75,7 @@ export class AdtsFrameScanError extends EncodedSourceIntegrityError {
 }
 
 interface OptionsSnapshot {
+  readonly audioStartByte: unknown;
   readonly pageBytes: unknown;
   readonly maxSeekPoints: unknown;
 }
@@ -108,6 +112,7 @@ function snapshotOptions(value: unknown): OptionsSnapshot {
     return descriptor.value;
   };
   return Object.freeze({
+    audioStartByte: readDataField('audioStartByte'),
     pageBytes: readDataField('pageBytes'),
     maxSeekPoints: readDataField('maxSeekPoints'),
   });
@@ -248,7 +253,7 @@ function metadataFromFirstFrame(header: Readonly<AdtsHeader>): FirstFrameCoreMet
 }
 
 /**
- * Fully verify one raw, metadata-free ADTS byte source from zero to physical EOF.
+ * Fully verify one ADTS frame span from its exact audio origin to physical EOF.
  *
  * Encoded frame bytes are discarded after each iteration. The returned state
  * contains only immutable scalar metadata and a deterministically bounded set
@@ -271,13 +276,21 @@ export async function scanAdtsFrames(
     'ADTS maxSeekPoints',
   );
   const sourceSnapshot = snapshotSource(source);
+  const audioStartByte =
+    requireOptionalSafeInteger(
+      input.audioStartByte,
+      0,
+      Math.max(0, sourceSnapshot.size - 8),
+      'ADTS audioStartByte',
+    ) ?? 0;
   throwIfAborted(signal);
 
   const reader = new AdtsIncrementalFrameReader({
     source: sourceSnapshot.readerSource,
+    audioStartByte,
     ...(pageBytes === undefined ? {} : { pageBytes }),
   });
-  const indexOrigin = { frameOrdinal: 0, byteOffset: 0 } as const;
+  const indexOrigin = { frameOrdinal: 0, byteOffset: audioStartByte } as const;
   const seekIndex =
     maxSeekPoints === undefined
       ? new AdtsSeekIndex(indexOrigin)
@@ -287,7 +300,7 @@ export async function scanAdtsFrames(
   let coreChannelCount: 1 | 2 | null = null;
   let frameCount = 0;
   let totalCoreSamples = 0;
-  let audioEndByteOffset = 0;
+  let audioEndByteOffset = audioStartByte;
 
   for (;;) {
     throwIfAborted(signal);
@@ -344,6 +357,7 @@ export async function scanAdtsFrames(
   const result: Readonly<AdtsFrameScanResult> = Object.freeze({
     sourceIdentity: sourceSnapshot.identity,
     sourceSize: sourceSnapshot.size,
+    audioStartByte,
     coreConfiguration,
     coreSampleRateHz,
     coreChannelCount,

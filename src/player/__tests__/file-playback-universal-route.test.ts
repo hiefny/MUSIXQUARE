@@ -101,10 +101,35 @@ function aacFile(name = 'fixture.aac', mime = 'audio/aac'): File {
   return new File([aacBytes()], name, { type: mime });
 }
 
-function expectedAdtsScan(sourceIdentity: string) {
+function id3v2Tag(version: 2 | 3 | 4, bodyBytes: number, withFooter = false): Uint8Array {
+  const size = Uint8Array.of(
+    (bodyBytes >>> 21) & 0x7f,
+    (bodyBytes >>> 14) & 0x7f,
+    (bodyBytes >>> 7) & 0x7f,
+    bodyBytes & 0x7f,
+  );
+  const header = Uint8Array.of(
+    0x49,
+    0x44,
+    0x33,
+    version,
+    0,
+    version === 4 && withFooter ? 0x10 : 0,
+    ...size,
+  );
+  const body = new Uint8Array(bodyBytes).fill(version);
+  const footer =
+    version === 4 && withFooter
+      ? Uint8Array.of(0x33, 0x44, 0x49, ...header.slice(3))
+      : new Uint8Array(0);
+  return concatenate(header, body, footer);
+}
+
+function expectedAdtsScan(sourceIdentity: string, audioStartByte = 0) {
   return {
     sourceIdentity,
-    sourceSize: 143,
+    sourceSize: audioStartByte + 143,
+    audioStartByte,
     coreConfiguration: {
       mpegId: 0,
       profile: 1,
@@ -119,20 +144,22 @@ function expectedAdtsScan(sourceIdentity: string) {
     samplesPerFrame: 1_024,
     frameCount: 3,
     totalCoreSamples: 3_072,
-    audioEndByteOffset: 143,
+    audioEndByteOffset: audioStartByte + 143,
     seekPoints: [
-      { frameOrdinal: 0, byteOffset: 0 },
-      { frameOrdinal: 1, byteOffset: 19 },
-      { frameOrdinal: 2, byteOffset: 60 },
+      { frameOrdinal: 0, byteOffset: audioStartByte },
+      { frameOrdinal: 1, byteOffset: audioStartByte + 19 },
+      { frameOrdinal: 2, byteOffset: audioStartByte + 60 },
     ],
     fullyVerifiedFrameSpan: true,
   };
 }
 
 function id3PrefixedAacFile(): File {
-  const emptyId3v24 = Uint8Array.of(0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0);
-  const adtsAac = Uint8Array.of(0xff, 0xf1, 0x50, 0x80, 0, 0x1f, 0xfc, 0, 0, 0, 0, 0);
-  return new File([emptyId3v24, adtsAac], 'fixture.aac', { type: 'audio/aac' });
+  return new File(
+    [id3v2Tag(2, 3), id3v2Tag(3, 5), id3v2Tag(4, 4, true), aacBytes()],
+    'misnamed.mp3',
+    { type: 'audio/mpeg' },
+  );
 }
 
 function id3PrefixedMp3File(name = 'fixture.aac', mime = 'audio/aac'): File {
@@ -225,6 +252,7 @@ describe('default-off universal bounded audio routes', () => {
   it.each([
     ['MP3', () => mp3File()],
     ['raw ADTS AAC', () => aacFile()],
+    ['ID3-prefixed raw ADTS AAC', () => id3PrefixedAacFile()],
     ['M4A', () => m4aFile()],
   ])('keeps valid %s on the ordinary Blob route when policy is omitted', async (_label, file) => {
     const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
@@ -552,13 +580,20 @@ describe('default-off universal bounded audio routes', () => {
     expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
   });
 
-  it('does not treat an unclaimed ID3-prefixed AAC file as MP3 authority', async () => {
+  it('routes exact post-ID3 ADTS bytes before contradictory MP3 claims', async () => {
     const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
-    const createStreamingAacSource = vi.fn();
+    let probedFrame: Uint8Array | null = null;
+    const aacCapabilityProbe = vi.fn(async (frame: Uint8Array) => {
+      probedFrame = frame.slice();
+    });
+    const createStreamingAacSource = vi.fn((options: StreamingAacPlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
     const createStreamingMp3Source = vi.fn();
     const result = await createBlobFilePlaybackSource(
       blobOptions(id3PrefixedAacFile(), {
         boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        aacCapabilityProbe,
         decodeOrdinaryAudio,
         backendFactories: {
           createStreamingAacSource:
@@ -569,8 +604,40 @@ describe('default-off universal bounded audio routes', () => {
       }),
     );
 
-    expect(result.backend).toBe('audio-buffer');
-    expect(decodeOrdinaryAudio).toHaveBeenCalledOnce();
+    expect(result.backend).toBe('bounded-stream');
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    expect(createStreamingAacSource).toHaveBeenCalledOnce();
+    expect(createStreamingMp3Source).not.toHaveBeenCalled();
+    const received = createStreamingAacSource.mock.calls[0]![0];
+    const audioStartByte = 13 + 15 + 24;
+    expect(received.scan).toEqual(
+      expectedAdtsScan(received.encodedSource.identity, audioStartByte),
+    );
+    expect(aacCapabilityProbe).toHaveBeenCalledOnce();
+    expect(probedFrame).toEqual(makeAdtsFrame(19, 0x11));
+  });
+
+  it('fails closed on a malformed leading ID3 claim before any codec or ordinary decoder', async () => {
+    const malformed = Uint8Array.of(0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0x7f);
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const createStreamingAacSource = vi.fn();
+    const createStreamingMp3Source = vi.fn();
+
+    await expect(
+      createBlobFilePlaybackSource(
+        blobOptions(new File([malformed], 'generic.bin', { type: 'application/octet-stream' }), {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          decodeOrdinaryAudio,
+          backendFactories: {
+            createStreamingAacSource:
+              createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+            createStreamingMp3Source:
+              createStreamingMp3Source as BlobFilePlaybackBackendFactories['createStreamingMp3Source'],
+          },
+        }),
+      ),
+    ).rejects.toThrow(/ID3v2 tag boundary/i);
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
     expect(createStreamingAacSource).not.toHaveBeenCalled();
     expect(createStreamingMp3Source).not.toHaveBeenCalled();
   });

@@ -595,6 +595,7 @@ export async function prepareFilePlaybackPeerRangeManifestDecoderConstruction(
       const firstFrameLength = reconstruction.endpointChecks.firstFrameByteLength;
       const reader = new AdtsIncrementalFrameReader({
         source: acquiredSource,
+        audioStartByte: manifest.audioStartByte,
         start: { byteOffset: manifest.audioStartByte, frameOrdinal: 0 },
         expectedConfig: reconstruction.coreConfiguration,
         pageBytes: firstFrameLength,

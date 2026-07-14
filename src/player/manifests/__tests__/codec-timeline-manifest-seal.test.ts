@@ -234,6 +234,35 @@ describe('scanner-issued codec timeline manifest seals', () => {
     expect(source.closeCount).toBe(0);
   });
 
+  it('seals absolute ADTS points after leading bytes without changing manifest version', async () => {
+    const prefix = new Uint8Array(37).fill(0x49);
+    const frames = [adtsFrame(19, 0x11), adtsFrame(41, 0x22), adtsFrame(83, 0x33)];
+    const source = new MemorySource(
+      concatenate(prefix, ...frames),
+      'sealed-prefixed-adts-source',
+      'audio/aac',
+    );
+    const scan = await scanAdtsFrames(source, signal(), { audioStartByte: prefix.byteLength });
+    const seal = sealAdtsFrameScanTimelineManifest(scan, digest());
+    const parsed = parseCodecTimelineManifest(seal.copyBytes());
+
+    expect(parsed).toMatchObject({
+      manifestVersion: 1,
+      codec: 'adts-aac-lc',
+      sourceSize: source.size,
+      audioStartByte: prefix.byteLength,
+      audioEndByte: source.size,
+      points: [
+        { frameOrdinal: 0, byteOffset: prefix.byteLength },
+        { frameOrdinal: 1, byteOffset: prefix.byteLength + frames[0]!.byteLength },
+        {
+          frameOrdinal: 2,
+          byteOffset: prefix.byteLength + frames[0]!.byteLength + frames[1]!.byteLength,
+        },
+      ],
+    });
+  });
+
   it('does not grant seal authority to structural copies or cross-codec results', async () => {
     const adts = await scanAdtsFrames(
       new MemorySource(adtsFrame(31, 1), 'copy-adts', 'audio/aac'),

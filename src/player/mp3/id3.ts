@@ -49,6 +49,15 @@ export interface ParsedMp3Id3Boundaries extends Mp3Id3Boundaries {
   readonly trailingTags: readonly Id3v2TagBoundary[];
 }
 
+/** Leading-only ID3v2 boundaries shared by content classifiers and MP3 metadata. */
+export interface ParsedLeadingId3v2Boundaries {
+  readonly sourceBytes: number;
+  /** First byte after all consecutive leading ID3v2 tags. */
+  readonly dataStart: number;
+  readonly leadingTagCount: number;
+  readonly leadingTags: readonly Id3v2TagBoundary[];
+}
+
 /** A claimed leading ID3 tag uses a major version this indexer cannot skip safely. */
 export class UnsupportedId3v2VersionError extends EncodedSourceIntegrityError {
   constructor(message: string) {
@@ -275,6 +284,59 @@ async function readLeadingTagBoundary(
   });
 }
 
+async function readLeadingBoundariesWithin(
+  source: EncodedRandomAccessSource,
+  sourceBytes: number,
+  audioEnd: number,
+  signal: AbortSignal,
+): Promise<Pick<ParsedLeadingId3v2Boundaries, 'dataStart' | 'leadingTagCount' | 'leadingTags'>> {
+  const leadingTags: Id3v2TagBoundary[] = [];
+  let dataStart = 0;
+  while (dataStart < audioEnd) {
+    throwIfAborted(signal);
+    const header = await readLeadingHeader(source, sourceBytes, dataStart, audioEnd, signal);
+    if (!header) break;
+    if (leadingTags.length >= MP3_MAX_LEADING_ID3V2_TAGS) {
+      throw new EncodedSourceIntegrityError(
+        `Audio source has more than ${MP3_MAX_LEADING_ID3V2_TAGS} consecutive leading ID3v2 tags`,
+      );
+    }
+    const boundary = await readLeadingTagBoundary(
+      source,
+      sourceBytes,
+      dataStart,
+      audioEnd,
+      header,
+      signal,
+    );
+    leadingTags.push(boundary);
+    dataStart = boundary.endOffset;
+  }
+  const frozenTags = Object.freeze(leadingTags.slice());
+  return Object.freeze({
+    dataStart,
+    leadingTagCount: frozenTags.length,
+    leadingTags: frozenTags,
+  });
+}
+
+/**
+ * Discover consecutive leading ID3v2 tags without reading or allocating any
+ * tag body. This leading-only authority intentionally does not admit trailing
+ * metadata; callers classify the exact bytes at `dataStart` themselves.
+ */
+export async function readLeadingId3v2Boundaries(
+  source: EncodedRandomAccessSource,
+  signal: AbortSignal,
+): Promise<ParsedLeadingId3v2Boundaries> {
+  const sourceBytes = source.size;
+  validateExactRead(sourceBytes, 0, 0);
+  throwIfAborted(signal);
+  const leading = await readLeadingBoundariesWithin(source, sourceBytes, sourceBytes, signal);
+  throwIfAborted(signal);
+  return Object.freeze({ sourceBytes, ...leading });
+}
+
 /**
  * Discover MP3 payload boundaries without reading or allocating ID3 bodies.
  *
@@ -322,38 +384,16 @@ export async function readMp3Id3Boundaries(
     audioEnd = boundary.headerOffset;
   }
 
-  const leadingTags: Id3v2TagBoundary[] = [];
-  let dataStart = 0;
-  while (dataStart < audioEnd) {
-    throwIfAborted(signal);
-    const header = await readLeadingHeader(source, sourceBytes, dataStart, audioEnd, signal);
-    if (!header) break;
-    if (leadingTags.length >= MP3_MAX_LEADING_ID3V2_TAGS) {
-      throw new EncodedSourceIntegrityError(
-        `MP3 has more than ${MP3_MAX_LEADING_ID3V2_TAGS} consecutive leading ID3v2 tags`,
-      );
-    }
-    const boundary = await readLeadingTagBoundary(
-      source,
-      sourceBytes,
-      dataStart,
-      audioEnd,
-      header,
-      signal,
-    );
-    leadingTags.push(boundary);
-    dataStart = boundary.endOffset;
-  }
+  const leading = await readLeadingBoundariesWithin(source, sourceBytes, audioEnd, signal);
 
   throwIfAborted(signal);
-  const frozenTags = Object.freeze(leadingTags.slice());
   const frozenTrailingTags = Object.freeze(reverseTrailingTags.slice().reverse());
   return Object.freeze({
     sourceBytes,
-    dataStart,
+    dataStart: leading.dataStart,
     audioEnd,
-    leadingTagCount: frozenTags.length,
-    leadingTags: frozenTags,
+    leadingTagCount: leading.leadingTagCount,
+    leadingTags: leading.leadingTags,
     trailingTagCount: frozenTrailingTags.length,
     trailingTags: frozenTrailingTags,
     hasTrailingId3v1: trailingId3v1Offset !== null,

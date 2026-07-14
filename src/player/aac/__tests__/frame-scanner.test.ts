@@ -132,6 +132,7 @@ describe('scanAdtsFrames verified metadata', () => {
     expect(result).toMatchObject({
       sourceIdentity: source.identity,
       sourceSize: source.size,
+      audioStartByte: 0,
       coreSampleRateHz: 44_100,
       coreChannelCount: 2,
       samplesPerFrame: 1_024,
@@ -176,6 +177,28 @@ describe('scanAdtsFrames verified metadata', () => {
     expect(source.reads.length).toBeGreaterThan(8);
     expect(source.reads.every((read) => read.length <= 1_024)).toBe(true);
     expect(source.closeCount).toBe(0);
+  });
+
+  it('preserves full source size while indexing absolute nonzero audio coordinates to EOF', async () => {
+    const prefix = new Uint8Array(53).fill(0x49);
+    const frames = [makeFrame({ frameLengthBytes: 19 }), makeFrame({ frameLengthBytes: 41 })];
+    const source = new MemorySource(concatenate(prefix, ...frames));
+    const result = await scanAdtsFrames(source, signal(), {
+      audioStartByte: prefix.byteLength,
+      pageBytes: 7,
+    });
+
+    expect(result).toMatchObject({
+      sourceSize: source.size,
+      audioStartByte: prefix.byteLength,
+      audioEndByteOffset: source.size,
+      frameCount: 2,
+    });
+    expect(result.seekPoints).toEqual([
+      { frameOrdinal: 0, byteOffset: prefix.byteLength },
+      { frameOrdinal: 1, byteOffset: prefix.byteLength + frames[0]!.byteLength },
+    ]);
+    expect(source.reads.every((read) => read.offset >= prefix.byteLength)).toBe(true);
   });
 
   it('bounds a long stream index and retains no duration-proportional encoded storage', async () => {
@@ -344,6 +367,8 @@ describe('scanAdtsFrames snapshot integrity', () => {
       { pageBytes: 64 * 1_024 + 1 },
       { maxSeekPoints: 1 },
       { maxSeekPoints: ADTS_SEEK_INDEX_MAX_POINTS + 1 },
+      { audioStartByte: -1 },
+      { audioStartByte: source.size - 7 },
     ];
     for (const options of invalidOptions) {
       await expect(scanAdtsFrames(source, signal(), options as never)).rejects.toThrow();

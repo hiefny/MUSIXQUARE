@@ -46,7 +46,7 @@ import { readFlacMetadata } from './flac/metadata.ts';
 import type { LinearPcmMetadata } from './linear-pcm/sample-format.ts';
 import { readM4aAacLcMetadata } from './m4a/metadata.ts';
 import { MpegLayer3FrameHeaderError, parseMpegLayer3FrameHeader } from './mp3/frame-header.ts';
-import { readMp3Id3Boundaries } from './mp3/id3.ts';
+import { readLeadingId3v2Boundaries } from './mp3/id3.ts';
 import { readMp3Metadata, type Mp3Metadata } from './mp3/metadata.ts';
 import { BlobEncodedAudioSource } from './sources/blob-encoded-audio-source.ts';
 import {
@@ -559,26 +559,46 @@ function isRawAdtsFrameStart(bytes: Uint8Array): boolean {
   }
 }
 
-async function isVerifiedMp3ContentCandidate(
+interface OptionalFrameContentClassification {
+  readonly audioStartByte: number;
+  readonly adts: boolean;
+  readonly mp3: boolean;
+}
+
+async function classifyOptionalFrameContent(
   source: EncodedAudioSource,
   initialBytes: Uint8Array,
   signal: AbortSignal,
-): Promise<boolean> {
-  if (isRawMp3FrameStart(initialBytes)) return true;
-  if (!hasMarker(initialBytes, ID3_MARKER)) return false;
-  try {
-    const boundaries = await readMp3Id3Boundaries(source, signal);
-    if (boundaries.audioEnd - boundaries.dataStart < 4) return false;
-    const header = await source.readAt(boundaries.dataStart, 4, signal);
-    throwIfAborted(signal);
-    if (!(header instanceof Uint8Array) || header.byteLength !== 4) {
-      throw new EncodedSourceIntegrityError('MP3 classifier returned an inexact frame header');
-    }
-    return isRawMp3FrameStart(header);
-  } catch (error) {
-    if (error instanceof EncodedSourceIntegrityError) return false;
-    throw error;
+  inspectLeadingId3: boolean,
+): Promise<Readonly<OptionalFrameContentClassification>> {
+  const initialAdts = isRawAdtsFrameStart(initialBytes);
+  const initialMp3 = isRawMp3FrameStart(initialBytes);
+  if (initialAdts || initialMp3 || !inspectLeadingId3 || !hasMarker(initialBytes, ID3_MARKER)) {
+    return Object.freeze({ audioStartByte: 0, adts: initialAdts, mp3: initialMp3 });
   }
+
+  // The trusted ID3 reader validates v2.2/v2.3/v2.4 header geometry, the
+  // eight-tag bound, syncsafe sizes, and v2.4 footer mirrors without touching
+  // a tag body. Codec authority comes only from the exact post-tag bytes.
+  const leading = await readLeadingId3v2Boundaries(source, signal);
+  const available = source.size - leading.dataStart;
+  const probeLength = Math.min(9, available);
+  if (probeLength < 4) {
+    return Object.freeze({ audioStartByte: leading.dataStart, adts: false, mp3: false });
+  }
+  validateExactRead(source.size, leading.dataStart, probeLength);
+  const header = await source.readAt(leading.dataStart, probeLength, signal);
+  throwIfAborted(signal);
+  if (!(header instanceof Uint8Array) || header.byteLength !== probeLength) {
+    throw new EncodedSourceIntegrityError(
+      'Post-ID3 audio classifier returned an inexact frame-header probe',
+    );
+  }
+  return Object.freeze({
+    audioStartByte: leading.dataStart,
+    adts: isRawAdtsFrameStart(header),
+    mp3: isRawMp3FrameStart(header),
+  });
 }
 
 function assertFactoryInput(options: FilePlaybackSourceFactoryCommonOptions): void {
@@ -689,12 +709,14 @@ interface RawAacCapabilityEvidence {
 
 async function preflightRawAacCapability(
   source: EncodedAudioSource,
+  audioStartByte: number,
   signal: AbortSignal,
   probe: AacFilePlaybackCapabilityProbe,
   runtime: Readonly<AacWorkerCapabilityProbeRuntime>,
 ): Promise<Readonly<RawAacCapabilityEvidence>> {
   const reader = new AdtsIncrementalFrameReader({
     source,
+    audioStartByte,
     pageBytes: ADTS_MAX_FRAME_BYTES,
   });
   const frame = await reader.readNext(signal);
@@ -1072,17 +1094,18 @@ async function createOwnedEncodedFilePlaybackSource(
       : formatGatedRoute && boundedRoutePolicy.rawAdtsAac === 'webcodecs'
         ? boundedRoutePolicy.rawAdtsAac
         : null;
-    const anyOptionalBoundedRoute =
-      mp3RouteEnabled || m4aBackendId !== null || rawAdtsAacBackendId !== null;
-
     // Content authority remains independent from activation. For example, an
     // ADTS stream cannot enter an enabled MP3 route merely because raw AAC is
     // disabled and its filename claims MP3.
-    const aacContentCandidate = isRawAdtsFrameStart(marker);
+    const frameContent = await classifyOptionalFrameContent(
+      encodedSource,
+      marker,
+      options.signal,
+      mp3RouteEnabled || rawAdtsAacBackendId !== null,
+    );
+    const aacContentCandidate = frameContent.adts;
     const m4aContentCandidate = isIsoBmffFileType(marker);
-    const mp3ContentCandidate =
-      anyOptionalBoundedRoute &&
-      (await isVerifiedMp3ContentCandidate(encodedSource, marker, options.signal));
+    const mp3ContentCandidate = frameContent.mp3;
     const aacClaim =
       rawAdtsAacBackendId !== null &&
       claimsRawAac(encodedSource.metadata.name, encodedSource.metadata.mime);
@@ -1103,12 +1126,15 @@ async function createOwnedEncodedFilePlaybackSource(
       const aacRouteRuntime = snapshotAacRouteRuntime(options.aacRuntime);
       const capabilityEvidence = await preflightRawAacCapability(
         encodedSource,
+        frameContent.audioStartByte,
         options.signal,
         aacCapabilityProbe,
         aacRouteRuntime.capabilityRuntime,
       );
       throwIfAborted(options.signal);
-      const scan = await scanAdtsFrames(encodedSource, options.signal);
+      const scan = await scanAdtsFrames(encodedSource, options.signal, {
+        audioStartByte: frameContent.audioStartByte,
+      });
       throwIfAborted(options.signal);
       if (!sameAacCoreConfiguration(capabilityEvidence.coreConfiguration, scan.coreConfiguration)) {
         throw new EncodedSourceIntegrityError(

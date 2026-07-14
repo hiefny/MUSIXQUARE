@@ -101,6 +101,7 @@ function manifestReconstruction(
     authority: 'none' as const,
     sourceIdentity: scan.sourceIdentity,
     sourceSize: scan.sourceSize,
+    audioStartByte: scan.audioStartByte,
     coreConfiguration: scan.coreConfiguration,
     coreSampleRateHz: scan.coreSampleRateHz,
     coreChannelCount: scan.coreChannelCount,
@@ -126,6 +127,7 @@ function evidenceFixture(): AdtsDecoderTimelineEvidence {
     authority: 'none',
     sourceIdentity: SOURCE_IDENTITY,
     sourceSize: frameCount * frameBytes,
+    audioStartByte: 0,
     coreConfiguration: {
       mpegId: 0,
       profile: 1,
@@ -150,6 +152,40 @@ function evidenceFixture(): AdtsDecoderTimelineEvidence {
 }
 
 describe('ADTS decoder timeline evidence', () => {
+  it('normalizes nonzero absolute seek points and carries the exact origin into decoder planning', () => {
+    const base = evidenceFixture();
+    const audioStartByte = 37;
+    const evidence = createAdtsDecoderTimelineEvidence({
+      ...base,
+      sourceSize: base.sourceSize + audioStartByte,
+      audioStartByte,
+      audioEndByteOffset: base.audioEndByteOffset + audioStartByte,
+      seekPoints: base.seekPoints.map((point) => ({
+        frameOrdinal: point.frameOrdinal,
+        byteOffset: point.byteOffset + audioStartByte,
+      })),
+    });
+    const descriptor = createAacDecoderDescriptorFromTimelineEvidence({
+      timelineEvidence: evidence,
+      outputSampleRateHz: 48_000,
+      mediaFrame: 0,
+    });
+
+    expect(evidence).toMatchObject({
+      sourceSize: base.sourceSize + audioStartByte,
+      audioStartByte,
+      audioEndByteOffset: base.audioEndByteOffset + audioStartByte,
+    });
+    expect(evidence.seekPoints[0]).toEqual({ frameOrdinal: 0, byteOffset: audioStartByte });
+    expect(descriptor).toMatchObject({
+      audioStartByte,
+      startPlan: {
+        scanAnchorByteOffset: audioStartByte,
+        scanAnchorAccessUnitOrdinal: 0,
+      },
+    });
+  });
+
   it('converts only the exact scanner-issued result without additional source reads', async () => {
     const { source, scan } = await issuedScan();
     const readCount = source.readAt.mock.calls.length;

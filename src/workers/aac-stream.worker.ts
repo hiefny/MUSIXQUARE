@@ -476,6 +476,7 @@ function createFrameReader(
 ): AdtsIncrementalFrameReader {
   return new AdtsIncrementalFrameReader({
     source: session.source,
+    audioStartByte: session.descriptor.audioStartByte,
     start,
     expectedConfig: session.descriptor.coreConfiguration,
     pageBytes: Math.min(

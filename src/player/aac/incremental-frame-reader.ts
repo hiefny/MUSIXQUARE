@@ -19,7 +19,13 @@ const DEFAULT_PAGE_BYTES = ADTS_INCREMENTAL_FRAME_READER_MAX_PAGE_BYTES;
 const ADTS_HEADER_BYTES = 7;
 const MINIMUM_FRAME_BYTES = ADTS_HEADER_BYTES + 1;
 
-const OPTION_KEYS = Object.freeze(['source', 'start', 'expectedConfig', 'pageBytes'] as const);
+const OPTION_KEYS = Object.freeze([
+  'source',
+  'audioStartByte',
+  'start',
+  'expectedConfig',
+  'pageBytes',
+] as const);
 const START_KEYS = Object.freeze(['byteOffset', 'frameOrdinal'] as const);
 const CONFIG_KEYS = Object.freeze([
   'mpegId',
@@ -50,11 +56,13 @@ export interface AdtsIncrementalFrameStart {
 
 export interface AdtsIncrementalFrameReaderOptions {
   readonly source: EncodedRandomAccessSource;
-  /** Defaults to the physical origin. Nonzero values must be scanner-verified anchors. */
+  /** Exact first ADTS sync word after any admitted leading metadata. Defaults to zero. */
+  readonly audioStartByte?: number;
+  /** Defaults to audioStartByte. Later values must be scanner-verified anchors. */
   readonly start?: AdtsIncrementalFrameStart;
   /**
-   * Frozen metadata from a verified full scan. Required for a nonzero start and
-   * optional at the origin, where the first frame otherwise establishes it.
+   * Frozen metadata from a verified full scan. Required for a later start and
+   * optional at audioStartByte, where the first frame otherwise establishes it.
    */
   readonly expectedConfig?: Readonly<AdtsCoreConfiguration>;
   /** Transport page size, bounded to 7..64 KiB. */
@@ -96,6 +104,7 @@ interface SourceSnapshot {
 
 interface ReaderOptionsSnapshot {
   readonly source: unknown;
+  readonly audioStartByte: unknown;
   readonly start: unknown;
   readonly expectedConfig: unknown;
   readonly pageBytes: unknown;
@@ -168,6 +177,7 @@ function snapshotOptions(value: unknown): ReaderOptionsSnapshot {
   const record = requireAllowedRecord(value, OPTION_KEYS, ['source'], 'ADTS reader options');
   return Object.freeze({
     source: record.source,
+    audioStartByte: record.audioStartByte,
     start: record.start,
     expectedConfig: record.expectedConfig,
     pageBytes: record.pageBytes,
@@ -192,8 +202,24 @@ function requireSafeInteger(
   return value;
 }
 
-function snapshotStart(value: unknown, sourceSize: number): Readonly<AdtsIncrementalFrameStart> {
-  if (value === undefined) return Object.freeze({ byteOffset: 0, frameOrdinal: 0 });
+function snapshotAudioStartByte(value: unknown, sourceSize: number): number {
+  if (value === undefined) return 0;
+  return requireSafeInteger(
+    value,
+    0,
+    Math.max(0, sourceSize - MINIMUM_FRAME_BYTES),
+    'ADTS audioStartByte',
+  );
+}
+
+function snapshotStart(
+  value: unknown,
+  sourceSize: number,
+  audioStartByte: number,
+): Readonly<AdtsIncrementalFrameStart> {
+  if (value === undefined) {
+    return Object.freeze({ byteOffset: audioStartByte, frameOrdinal: 0 });
+  }
   const record = requireAllowedRecord(value, START_KEYS, START_KEYS, 'ADTS verified start');
   const byteOffset = requireSafeInteger(
     record.byteOffset,
@@ -207,9 +233,9 @@ function snapshotStart(value: unknown, sourceSize: number): Readonly<AdtsIncreme
     Number.MAX_SAFE_INTEGER - 1,
     'ADTS start frameOrdinal',
   );
-  if ((byteOffset === 0) !== (frameOrdinal === 0)) {
+  if ((byteOffset === audioStartByte) !== (frameOrdinal === 0) || byteOffset < audioStartByte) {
     throw new AdtsIncrementalFrameReaderError(
-      'ADTS origin and nonzero verified starts must use matching byte and frame coordinates',
+      'ADTS audio origin and later verified starts must use matching byte and frame coordinates',
     );
   }
   return Object.freeze({ byteOffset, frameOrdinal });
@@ -507,16 +533,17 @@ export class AdtsIncrementalFrameReader {
   constructor(options: AdtsIncrementalFrameReaderOptions) {
     const input = snapshotOptions(options);
     const source = snapshotSource(input.source);
-    if (source.size < MINIMUM_FRAME_BYTES) {
+    const audioStartByte = snapshotAudioStartByte(input.audioStartByte, source.size);
+    if (source.size - audioStartByte < MINIMUM_FRAME_BYTES) {
       throw new AdtsIncrementalFrameReaderError(
-        'ADTS source must contain at least one complete header and AAC payload byte',
+        'ADTS audio span must contain at least one complete header and AAC payload byte',
       );
     }
-    const start = snapshotStart(input.start, source.size);
+    const start = snapshotStart(input.start, source.size, audioStartByte);
     const expectedConfig = snapshotExpectedConfig(input.expectedConfig);
-    if (start.byteOffset !== 0 && expectedConfig === null) {
+    if (start.byteOffset !== audioStartByte && expectedConfig === null) {
       throw new AdtsIncrementalFrameReaderError(
-        'A nonzero ADTS verified start requires full-scan expected core configuration',
+        'A later ADTS verified start requires full-scan expected core configuration',
       );
     }
     const pageBytes = validatePageBytes(input.pageBytes);

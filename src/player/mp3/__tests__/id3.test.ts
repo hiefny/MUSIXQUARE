@@ -12,6 +12,7 @@ import {
   MP3_MAX_LEADING_ID3V2_TAGS,
   MP3_MAX_TRAILING_ID3V2_TAGS,
   UnsupportedId3v2VersionError,
+  readLeadingId3v2Boundaries,
   readMp3Id3Boundaries,
 } from '../id3.ts';
 
@@ -524,6 +525,33 @@ class SparseEncodedAudioSource implements EncodedAudioSource {
 }
 
 describe('readMp3Id3Boundaries sparse input', () => {
+  it('shares the trusted leading parser without probing tag bodies or trailing metadata', async () => {
+    const bodyBytes = 0x0fff_ffff;
+    const header = id3Header(4, bodyBytes, 0x10, 3);
+    const footerOffset = 10 + bodyBytes;
+    const dataStart = footerOffset + 10;
+    const sourceBytes = dataStart + 512;
+    const source = new SparseEncodedAudioSource(sourceBytes, [
+      { offset: 0, bytes: header },
+      { offset: footerOffset, bytes: id3Footer(header) },
+      { offset: dataStart, bytes: Uint8Array.of(0xff, 0xf1, 0x50, 0x80, 0, 0, 0xfc, 0, 0, 0) },
+    ]);
+
+    const boundaries = await readLeadingId3v2Boundaries(source, new AbortController().signal);
+
+    expect(boundaries).toMatchObject({
+      sourceBytes,
+      dataStart,
+      leadingTagCount: 1,
+    });
+    expect(source.reads).toEqual([
+      { offset: 0, length: 10 },
+      { offset: footerOffset, length: 10 },
+      { offset: dataStart, length: 10 },
+    ]);
+    expect(source.reads.every(({ length }) => length <= 10)).toBe(true);
+  });
+
   it('skips a maximum-size sparse v2.4 body and validates only its exact footer', async () => {
     const bodyBytes = 0x0fff_ffff;
     const header = id3Header(4, bodyBytes, 0x10);

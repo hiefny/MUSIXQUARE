@@ -49,6 +49,8 @@ export interface AacDecoderStartPlan {
 export interface AacDecoderStartPlanOptions {
   /** Initial policy default: one transform access unit, bounded for future cohort policy. */
   readonly prerollAccessUnits?: number;
+  /** Exact first ADTS sync word. Defaults to the physical origin. */
+  readonly audioStartByte?: number;
 }
 
 export interface AacDecoderDescriptor {
@@ -56,6 +58,8 @@ export interface AacDecoderDescriptor {
   /** Exact immutable encoded-source binding, repeated across fresh realms. */
   readonly sourceSize: number;
   readonly sourceIdentity: string;
+  /** Exact first ADTS sync word after admitted leading metadata. */
+  readonly audioStartByte: number;
   readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
   readonly coreSampleRateHz: number;
   readonly outputSampleRateHz: number;
@@ -99,6 +103,7 @@ export const AAC_DECODER_DESCRIPTOR_KEYS = [
   'format',
   'sourceSize',
   'sourceIdentity',
+  'audioStartByte',
   'coreConfiguration',
   'coreSampleRateHz',
   'outputSampleRateHz',
@@ -114,7 +119,7 @@ const ADTS_SEEK_POINT_KEYS = [
   'byteOffset',
 ] as const satisfies readonly (keyof AdtsSeekIndexPoint)[];
 
-const START_PLAN_OPTION_KEYS = ['prerollAccessUnits'] as const;
+const START_PLAN_OPTION_KEYS = ['prerollAccessUnits', 'audioStartByte'] as const;
 
 export interface AacDecoderOpenCommand {
   readonly protocolVersion: typeof AAC_DECODER_PROTOCOL_VERSION;
@@ -315,11 +320,15 @@ function requireTimeline(value: unknown): Readonly<AdtsCoreTimeline> {
   });
 }
 
-function requireSeekPoint(value: unknown, label: string): Readonly<AdtsSeekIndexPoint> {
+function requireSeekPoint(
+  value: unknown,
+  label: string,
+  audioStartByte: number,
+): Readonly<AdtsSeekIndexPoint> {
   const record = requireCanonicalRecord(value, ADTS_SEEK_POINT_KEYS, label);
   requireSafeInteger(record.frameOrdinal, `${label} frameOrdinal`, 0);
-  requireSafeInteger(record.byteOffset, `${label} byteOffset`, 0);
-  if (!spanCanContainAccessUnits(record.byteOffset, record.frameOrdinal)) {
+  requireSafeInteger(record.byteOffset, `${label} byteOffset`, audioStartByte);
+  if (!spanCanContainAccessUnits(record.byteOffset - audioStartByte, record.frameOrdinal)) {
     throw new RangeError(`${label} byte offset contradicts its access-unit ordinal`);
   }
   return Object.freeze({
@@ -372,6 +381,12 @@ function requireDescriptor(value: unknown): Readonly<AacDecoderDescriptor> {
   if (!isEncodedAudioSourceIdentity(record.sourceIdentity)) {
     throw new TypeError('AAC source identity is invalid');
   }
+  requireSafeInteger(
+    record.audioStartByte,
+    'AAC audioStartByte',
+    0,
+    record.sourceSize - ADTS_MIN_ACCESS_UNIT_BYTES,
+  );
   const coreConfiguration = requireCoreConfiguration(record.coreConfiguration);
   requireSafeInteger(record.coreSampleRateHz, 'AAC coreSampleRateHz', 1);
   requireSafeInteger(
@@ -399,7 +414,7 @@ function requireDescriptor(value: unknown): Readonly<AacDecoderDescriptor> {
   if (record.audioEndByteOffset !== record.sourceSize) {
     throw new RangeError('AAC verified audio span must reach physical EOF');
   }
-  if (!spanCanContainAccessUnits(record.sourceSize, record.frameCount)) {
+  if (!spanCanContainAccessUnits(record.sourceSize - record.audioStartByte, record.frameCount)) {
     throw new RangeError('AAC source byte span contradicts its access-unit count');
   }
 
@@ -438,7 +453,7 @@ function requireDescriptor(value: unknown): Readonly<AacDecoderDescriptor> {
     throw new RangeError('AAC discardCoreFrames contradicts its exact decode-start coordinate');
   }
 
-  const bytesBeforeAnchor = startPlan.scanAnchorByteOffset;
+  const bytesBeforeAnchor = startPlan.scanAnchorByteOffset - record.audioStartByte;
   const accessUnitsAfterAnchor = record.frameCount - startPlan.scanAnchorAccessUnitOrdinal;
   const bytesAfterAnchor = record.sourceSize - startPlan.scanAnchorByteOffset;
   if (
@@ -459,6 +474,7 @@ function requireDescriptor(value: unknown): Readonly<AacDecoderDescriptor> {
     format: 'aac-adts',
     sourceSize: record.sourceSize,
     sourceIdentity: record.sourceIdentity,
+    audioStartByte: record.audioStartByte,
     coreConfiguration,
     coreSampleRateHz: record.coreSampleRateHz,
     outputSampleRateHz: record.outputSampleRateHz,
@@ -498,14 +514,25 @@ export function isAacDecoderGeneration(value: unknown): value is AacDecoderGener
   return isPcmStreamGeneration(value);
 }
 
-function snapshotStartPlanOptions(value: unknown): number {
-  if (value === undefined) return 1;
+interface StartPlanOptionsSnapshot {
+  readonly prerollAccessUnits: number;
+  readonly audioStartByte: number;
+}
+
+function snapshotStartPlanOptions(value: unknown): Readonly<StartPlanOptionsSnapshot> {
+  if (value === undefined) {
+    return Object.freeze({ prerollAccessUnits: 1, audioStartByte: 0 });
+  }
   const record = snapshotWorkerRecord(value);
   if (
     !record ||
-    Object.keys(record).some((key) => !START_PLAN_OPTION_KEYS.includes(key as 'prerollAccessUnits'))
+    Object.keys(record).some(
+      (key) => !START_PLAN_OPTION_KEYS.includes(key as (typeof START_PLAN_OPTION_KEYS)[number]),
+    )
   ) {
-    throw new TypeError('AAC start-plan options must contain only prerollAccessUnits');
+    throw new TypeError(
+      'AAC start-plan options must contain only prerollAccessUnits and audioStartByte',
+    );
   }
   const prerollAccessUnits = Object.hasOwn(record, 'prerollAccessUnits')
     ? record.prerollAccessUnits
@@ -516,7 +543,9 @@ function snapshotStartPlanOptions(value: unknown): number {
     0,
     AAC_DECODER_MAX_TRANSFORM_PREROLL_ACCESS_UNITS,
   );
-  return prerollAccessUnits;
+  const audioStartByte = Object.hasOwn(record, 'audioStartByte') ? record.audioStartByte : 0;
+  requireSafeInteger(audioStartByte, 'AAC audioStartByte', 0);
+  return Object.freeze({ prerollAccessUnits, audioStartByte });
 }
 
 /**
@@ -532,8 +561,13 @@ export function createAacDecoderStartPlan(
 ): Readonly<AacDecoderStartPlan> {
   const timeline = requireTimeline(timelineValue);
   const target = locateTarget(timeline, mediaFrame);
-  const anchor = requireSeekPoint(verifiedAnchorValue, 'AAC scanner-verified anchor');
-  const prerollAccessUnits = snapshotStartPlanOptions(options);
+  const optionSnapshot = snapshotStartPlanOptions(options);
+  const anchor = requireSeekPoint(
+    verifiedAnchorValue,
+    'AAC scanner-verified anchor',
+    optionSnapshot.audioStartByte,
+  );
+  const prerollAccessUnits = optionSnapshot.prerollAccessUnits;
   const decodeStartAccessUnitOrdinal = Math.max(target.accessUnitOrdinal - prerollAccessUnits, 0);
   if (
     anchor.frameOrdinal >= timeline.frameCount ||

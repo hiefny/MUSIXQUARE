@@ -56,6 +56,7 @@ function scanFixture(options: ScanFixtureOptions = {}): AdtsFrameScanResult {
   return {
     sourceIdentity: SOURCE_IDENTITY,
     sourceSize,
+    audioStartByte: 0,
     coreConfiguration: options.coreConfiguration ?? { ...CORE_CONFIGURATION },
     coreSampleRateHz: options.coreSampleRateHz ?? 44_100,
     coreChannelCount: options.coreChannelCount ?? 2,

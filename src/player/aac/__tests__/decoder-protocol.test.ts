@@ -76,6 +76,7 @@ function descriptor(options: DescriptorOptions = {}): AacDecoderDescriptor {
     format: 'aac-adts' as const,
     sourceSize: SOURCE_SIZE,
     sourceIdentity: SOURCE_IDENTITY,
+    audioStartByte: 0,
     coreConfiguration,
     coreSampleRateHz: 44_100,
     outputSampleRateHz: 48_000,
@@ -133,7 +134,7 @@ describe('AAC decoder start planning', () => {
     expect(AAC_CORE_CONFIGURATION_KEYS).toHaveLength(7);
     expect(AAC_CORE_TIMELINE_KEYS).toHaveLength(3);
     expect(AAC_DECODER_START_PLAN_KEYS).toHaveLength(8);
-    expect(AAC_DECODER_DESCRIPTOR_KEYS).toHaveLength(11);
+    expect(AAC_DECODER_DESCRIPTOR_KEYS).toHaveLength(12);
   });
 
   it('uses one transform AU of preroll by default with an earlier sparse anchor', () => {

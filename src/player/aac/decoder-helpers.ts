@@ -28,6 +28,7 @@ const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 const SCAN_RESULT_KEYS = [
   'sourceIdentity',
   'sourceSize',
+  'audioStartByte',
   'coreConfiguration',
   'coreSampleRateHz',
   'coreChannelCount',
@@ -278,6 +279,7 @@ function snapshotCoreConfiguration(value: unknown): Readonly<AdtsCoreConfigurati
 
 interface ScanGeometry {
   readonly sourceSize: number;
+  readonly audioStartByte: number;
   readonly frameCount: number;
 }
 
@@ -288,9 +290,14 @@ function snapshotSeekPoint(
 ): Readonly<AdtsSeekIndexPoint> {
   const record = requireExactRecord(value, SEEK_POINT_KEYS, label);
   requireSafeInteger(record.frameOrdinal, `${label} frameOrdinal`, 0, geometry.frameCount - 1);
-  requireSafeInteger(record.byteOffset, `${label} byteOffset`, 0, geometry.sourceSize - 1);
+  requireSafeInteger(
+    record.byteOffset,
+    `${label} byteOffset`,
+    geometry.audioStartByte,
+    geometry.sourceSize - 1,
+  );
   if (
-    !spanCanContainAccessUnits(record.byteOffset, record.frameOrdinal) ||
+    !spanCanContainAccessUnits(record.byteOffset - geometry.audioStartByte, record.frameOrdinal) ||
     !spanCanContainAccessUnits(
       geometry.sourceSize - record.byteOffset,
       geometry.frameCount - record.frameOrdinal,
@@ -321,8 +328,8 @@ function snapshotSeekPoints(
     snapshotSeekPoint(point, geometry, `AAC scan seek point ${index}`),
   );
   const origin = points[0];
-  if (!origin || origin.frameOrdinal !== 0 || origin.byteOffset !== 0) {
-    throw new AacDecoderHelperError('AAC scan seek index must retain the physical frame origin');
+  if (!origin || origin.frameOrdinal !== 0 || origin.byteOffset !== geometry.audioStartByte) {
+    throw new AacDecoderHelperError('AAC scan seek index must retain its exact audio origin');
   }
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
@@ -362,6 +369,12 @@ function snapshotScanResult(value: unknown): Readonly<AdtsFrameScanResult> {
     throw new TypeError('AAC frame scan source identity is invalid');
   }
   requireSafeInteger(record.sourceSize, 'AAC frame scan sourceSize', ADTS_MIN_ACCESS_UNIT_BYTES);
+  requireSafeInteger(
+    record.audioStartByte,
+    'AAC frame scan audioStartByte',
+    0,
+    record.sourceSize - ADTS_MIN_ACCESS_UNIT_BYTES,
+  );
   requireSafeInteger(record.frameCount, 'AAC frame scan frameCount', 1);
   requireSafeInteger(record.totalCoreSamples, 'AAC frame scan totalCoreSamples', 1);
   requireSafeInteger(
@@ -373,7 +386,7 @@ function snapshotScanResult(value: unknown): Readonly<AdtsFrameScanResult> {
   if (record.audioEndByteOffset !== record.sourceSize) {
     throw new AacDecoderHelperError('AAC verified audio span must reach physical EOF');
   }
-  if (!spanCanContainAccessUnits(record.sourceSize, record.frameCount)) {
+  if (!spanCanContainAccessUnits(record.sourceSize - record.audioStartByte, record.frameCount)) {
     throw new AacDecoderHelperError('AAC source byte span contradicts its verified frame count');
   }
   if (record.samplesPerFrame !== ADTS_CORE_SAMPLES_PER_FRAME) {
@@ -404,11 +417,13 @@ function snapshotScanResult(value: unknown): Readonly<AdtsFrameScanResult> {
 
   const seekPoints = snapshotSeekPoints(record.seekPoints, {
     sourceSize: record.sourceSize,
+    audioStartByte: record.audioStartByte,
     frameCount: record.frameCount,
   });
   return Object.freeze({
     sourceIdentity: record.sourceIdentity,
     sourceSize: record.sourceSize,
+    audioStartByte: record.audioStartByte,
     coreConfiguration,
     coreSampleRateHz: record.coreSampleRateHz,
     coreChannelCount: record.coreChannelCount,
@@ -525,6 +540,7 @@ function floorSeekAnchor(
 interface AacDecoderDescriptorPlanningView {
   readonly sourceIdentity: string;
   readonly sourceSize: number;
+  readonly audioStartByte: number;
   readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
   readonly coreSampleRateHz: number;
   readonly coreChannelCount: 1 | 2;
@@ -558,7 +574,10 @@ function createDescriptorFromPlanningView(
     planning.timeline,
     options.mediaFrame,
     anchor,
-    Object.freeze({ prerollAccessUnits: options.prerollAccessUnits }),
+    Object.freeze({
+      prerollAccessUnits: options.prerollAccessUnits,
+      audioStartByte: planning.audioStartByte,
+    }),
   );
 
   // Prove the complete resampled remainder fits every browser counter before
@@ -574,6 +593,7 @@ function createDescriptorFromPlanningView(
     format: 'aac-adts',
     sourceSize: planning.sourceSize,
     sourceIdentity: planning.sourceIdentity,
+    audioStartByte: planning.audioStartByte,
     coreConfiguration: planning.coreConfiguration,
     coreSampleRateHz: planning.coreSampleRateHz,
     outputSampleRateHz: options.outputSampleRateHz,
@@ -604,6 +624,7 @@ export function createAacDecoderDescriptor(
     {
       sourceIdentity: planning.scan.sourceIdentity,
       sourceSize: planning.scan.sourceSize,
+      audioStartByte: planning.scan.audioStartByte,
       coreConfiguration: planning.scan.coreConfiguration,
       coreSampleRateHz: planning.scan.coreSampleRateHz,
       coreChannelCount: planning.scan.coreChannelCount,
@@ -628,6 +649,7 @@ export function createAacDecoderDescriptorFromTimelineEvidence(
     {
       sourceIdentity: planning.evidence.sourceIdentity,
       sourceSize: planning.evidence.sourceSize,
+      audioStartByte: planning.evidence.audioStartByte,
       coreConfiguration: planning.evidence.coreConfiguration,
       coreSampleRateHz: planning.evidence.coreSampleRateHz,
       coreChannelCount: planning.evidence.coreChannelCount,

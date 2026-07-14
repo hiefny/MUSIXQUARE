@@ -555,7 +555,6 @@ function canonicalAdtsManifest(record: ExactDataSnapshot): AdtsAacLcTimelineMani
     common.samplesPerFrame !== 1_024 ||
     common.sampleRateHz !== ADTS_SAMPLE_RATES_HZ[sampleRateIndex] ||
     common.channels !== channelConfiguration ||
-    common.audioStartByte !== 0 ||
     common.audioEndByte !== common.sourceSize
   ) {
     throw new RangeError('ADTS manifest is not canonical MPEG-4 AAC-LC mono/stereo evidence');

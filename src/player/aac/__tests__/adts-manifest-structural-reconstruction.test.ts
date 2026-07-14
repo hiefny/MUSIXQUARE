@@ -168,6 +168,7 @@ describe('ADTS manifest structural reconstruction', () => {
       authority: 'none',
       sourceIdentity: source.identity,
       sourceSize: source.size,
+      audioStartByte: 0,
       coreConfiguration: {
         mpegId: 0,
         profile: 1,
@@ -216,6 +217,40 @@ describe('ADTS manifest structural reconstruction', () => {
       terminalFrameByteOffset: 0,
       terminalFrameByteLength: ADTS_MAX_FRAME_BYTES,
     });
+  });
+
+  it('reconstructs absolute endpoints after leading metadata and never reads the prefix', async () => {
+    const prefix = new Uint8Array(37).fill(0x49);
+    const frames = [
+      makeFrame({ frameLengthBytes: 19, payloadByte: 0x11 }),
+      makeFrame({ frameLengthBytes: 41, payloadByte: 0x22 }),
+      makeFrame({ frameLengthBytes: 83, payloadByte: 0x33 }),
+    ];
+    const source = new MemorySource(concatenate(prefix, ...frames));
+    const points = pointsFor(frames).map((point) => ({
+      frameOrdinal: point.frameOrdinal,
+      byteOffset: point.byteOffset + prefix.byteLength,
+    }));
+    const manifest = manifestFor(frames, {
+      sourceSize: source.size,
+      audioStartByte: prefix.byteLength,
+      audioEndByte: source.size,
+      points,
+    });
+
+    const result = await reconstructAdtsManifestStructure(options(source, manifest));
+
+    expect(result).toMatchObject({
+      sourceSize: source.size,
+      audioStartByte: prefix.byteLength,
+      audioEndByteOffset: source.size,
+      seekPoints: points,
+    });
+    expect(source.reads).toEqual([
+      { offset: prefix.byteLength, length: source.size - prefix.byteLength },
+      { offset: points.at(-1)!.byteOffset, length: frames.at(-1)!.byteLength },
+    ]);
+    expect(source.reads.every((read) => read.offset >= prefix.byteLength)).toBe(true);
   });
 
   it('keeps a long structural probe to two reads of at most one maximum ADTS frame', async () => {

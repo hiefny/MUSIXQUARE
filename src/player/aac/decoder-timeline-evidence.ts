@@ -21,6 +21,7 @@ const EVIDENCE_KEYS = Object.freeze([
   'authority',
   'sourceIdentity',
   'sourceSize',
+  'audioStartByte',
   'coreConfiguration',
   'coreSampleRateHz',
   'coreChannelCount',
@@ -57,6 +58,7 @@ const MANIFEST_RECONSTRUCTION_KEYS = Object.freeze([
   'authority',
   'sourceIdentity',
   'sourceSize',
+  'audioStartByte',
   'coreConfiguration',
   'coreSampleRateHz',
   'coreChannelCount',
@@ -90,6 +92,7 @@ export interface AdtsDecoderTimelineEvidence {
   readonly authority: 'none';
   readonly sourceIdentity: string;
   readonly sourceSize: number;
+  readonly audioStartByte: number;
   readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
   readonly coreSampleRateHz: number;
   readonly coreChannelCount: 1 | 2;
@@ -296,6 +299,7 @@ function snapshotTimeline(value: unknown, frameCount: number): Readonly<AdtsCore
 
 interface EvidenceGeometry {
   readonly sourceSize: number;
+  readonly audioStartByte: number;
   readonly frameCount: number;
 }
 
@@ -315,11 +319,11 @@ function snapshotSeekPoint(
   const byteOffset = safeInteger(
     record.byteOffset,
     `${label} byteOffset`,
-    0,
+    geometry.audioStartByte,
     geometry.sourceSize - 1,
   );
   if (
-    !spanCanContainAccessUnits(byteOffset, frameOrdinal) ||
+    !spanCanContainAccessUnits(byteOffset - geometry.audioStartByte, frameOrdinal) ||
     !spanCanContainAccessUnits(geometry.sourceSize - byteOffset, geometry.frameCount - frameOrdinal)
   ) {
     throw new AdtsDecoderTimelineEvidenceError(
@@ -345,9 +349,9 @@ function snapshotSeekPoints(
     points.push(snapshotSeekPoint(values[index], geometry, index));
   }
   const origin = points[0];
-  if (!origin || origin.frameOrdinal !== 0 || origin.byteOffset !== 0) {
+  if (!origin || origin.frameOrdinal !== 0 || origin.byteOffset !== geometry.audioStartByte) {
     throw new AdtsDecoderTimelineEvidenceError(
-      'ADTS decoder evidence must retain the physical access-unit origin',
+      'ADTS decoder evidence must retain its exact audio origin',
     );
   }
   for (let index = 1; index < points.length; index += 1) {
@@ -393,8 +397,14 @@ export function createAdtsDecoderTimelineEvidence(
     'ADTS decoder timeline evidence sourceSize',
     ADTS_MIN_ACCESS_UNIT_BYTES,
   );
+  const audioStartByte = safeInteger(
+    record.audioStartByte,
+    'ADTS decoder timeline evidence audioStartByte',
+    0,
+    sourceSize - ADTS_MIN_ACCESS_UNIT_BYTES,
+  );
   const frameCount = safeInteger(record.frameCount, 'ADTS decoder timeline evidence frameCount', 1);
-  if (!spanCanContainAccessUnits(sourceSize, frameCount)) {
+  if (!spanCanContainAccessUnits(sourceSize - audioStartByte, frameCount)) {
     throw new AdtsDecoderTimelineEvidenceError(
       'ADTS decoder evidence byte span contradicts its access-unit count',
     );
@@ -433,12 +443,17 @@ export function createAdtsDecoderTimelineEvidence(
   }
 
   const timeline = snapshotTimeline(record.timeline, frameCount);
-  const seekPoints = snapshotSeekPoints(record.seekPoints, { sourceSize, frameCount });
+  const seekPoints = snapshotSeekPoints(record.seekPoints, {
+    sourceSize,
+    audioStartByte,
+    frameCount,
+  });
   return Object.freeze({
     format: 'adts-decoder-timeline',
     authority: 'none',
     sourceIdentity: record.sourceIdentity,
     sourceSize,
+    audioStartByte,
     coreConfiguration,
     coreSampleRateHz,
     coreChannelCount: record.coreChannelCount,
@@ -465,6 +480,7 @@ export function createAdtsDecoderTimelineEvidenceFromScanResult(
     authority: 'none',
     sourceIdentity: scan.sourceIdentity,
     sourceSize: scan.sourceSize,
+    audioStartByte: scan.audioStartByte,
     coreConfiguration: scan.coreConfiguration,
     coreSampleRateHz: scan.coreSampleRateHz,
     coreChannelCount: scan.coreChannelCount,
@@ -503,6 +519,7 @@ export function createAdtsDecoderTimelineEvidenceFromManifestReconstruction(
     authority: 'none',
     sourceIdentity: record.sourceIdentity,
     sourceSize: record.sourceSize,
+    audioStartByte: record.audioStartByte,
     coreConfiguration: record.coreConfiguration,
     coreSampleRateHz: record.coreSampleRateHz,
     coreChannelCount: record.coreChannelCount,
@@ -573,9 +590,12 @@ export function createAdtsDecoderTimelineEvidenceFromManifestReconstruction(
   const secondPoint = evidence.seekPoints.find((point) => point.frameOrdinal === 1);
   if (
     (evidence.frameCount === 1 &&
-      (terminalFrameByteOffset !== 0 || firstFrameByteLength !== terminalFrameByteLength)) ||
-    (evidence.frameCount > 1 && firstFrameByteLength > terminalFrameByteOffset) ||
-    (secondPoint !== undefined && secondPoint.byteOffset !== firstFrameByteLength)
+      (terminalFrameByteOffset !== evidence.audioStartByte ||
+        firstFrameByteLength !== terminalFrameByteLength)) ||
+    (evidence.frameCount > 1 &&
+      evidence.audioStartByte + firstFrameByteLength > terminalFrameByteOffset) ||
+    (secondPoint !== undefined &&
+      secondPoint.byteOffset !== evidence.audioStartByte + firstFrameByteLength)
   ) {
     throw new AdtsDecoderTimelineEvidenceError(
       'ADTS manifest reconstruction first endpoint contradicts its retained timeline',

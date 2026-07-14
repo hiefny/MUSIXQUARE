@@ -221,6 +221,31 @@ describe('AdtsIncrementalFrameReader sequential framing', () => {
     expect(frame?.bytes).toHaveLength(8_191);
     expect(frame?.descriptor.byteEndOffset).toBe(8_191);
   });
+
+  it('treats an exact nonzero audioStartByte as frame zero and never reads its metadata prefix', async () => {
+    const prefix = new Uint8Array(37).fill(0x49);
+    const frames = [makeFrame({ frameLengthBytes: 19 }), makeFrame({ frameLengthBytes: 41 })];
+    const source = new MemorySource(concatenate(prefix, ...frames));
+    const reader = new AdtsIncrementalFrameReader(
+      options(source, { audioStartByte: prefix.byteLength, pageBytes: 7 }),
+    );
+
+    expect(await reader.readNext(signal())).toMatchObject({
+      descriptor: {
+        frameOrdinal: 0,
+        byteOffset: prefix.byteLength,
+        byteEndOffset: prefix.byteLength + frames[0]!.byteLength,
+      },
+    });
+    expect(await reader.readNext(signal())).toMatchObject({
+      descriptor: {
+        frameOrdinal: 1,
+        byteOffset: prefix.byteLength + frames[0]!.byteLength,
+      },
+    });
+    expect(await reader.readNext(signal())).toBeNull();
+    expect(source.reads.every((read) => read.offset >= prefix.byteLength)).toBe(true);
+  });
 });
 
 describe('AdtsIncrementalFrameReader strict admission and continuity', () => {

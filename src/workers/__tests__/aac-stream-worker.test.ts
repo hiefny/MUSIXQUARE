@@ -161,23 +161,29 @@ function fixture(options: {
   readonly coreFrameWithinAccessUnit?: number;
   readonly decodeStartAccessUnitOrdinal?: number;
   readonly scanAnchorAccessUnitOrdinal?: number;
+  readonly audioStartByte?: number;
 }): AacFixture {
   const descriptorFrameCount = options.descriptorFrameCount ?? options.actualFrameCount;
   const targetAccessUnitOrdinal = options.targetAccessUnitOrdinal ?? 0;
   const coreFrameWithinAccessUnit = options.coreFrameWithinAccessUnit ?? 0;
   const decodeStartAccessUnitOrdinal = options.decodeStartAccessUnitOrdinal ?? 0;
   const scanAnchorAccessUnitOrdinal = options.scanAnchorAccessUnitOrdinal ?? 0;
+  const audioStartByte = options.audioStartByte ?? 0;
   const mediaFrame = targetAccessUnitOrdinal * CORE_FRAMES + coreFrameWithinAccessUnit;
   const frames = Array.from({ length: options.actualFrameCount }, (_, ordinal) =>
     makeAdtsFrame(ordinal),
   );
-  const bytes = new Uint8Array(options.actualFrameCount * FRAME_BYTES);
-  for (const [ordinal, frame] of frames.entries()) bytes.set(frame, ordinal * FRAME_BYTES);
+  const bytes = new Uint8Array(audioStartByte + options.actualFrameCount * FRAME_BYTES);
+  bytes.fill(0x49, 0, audioStartByte);
+  for (const [ordinal, frame] of frames.entries()) {
+    bytes.set(frame, audioStartByte + ordinal * FRAME_BYTES);
+  }
 
   const descriptor: Readonly<AacDecoderDescriptor> = Object.freeze({
     format: 'aac-adts',
     sourceSize: bytes.byteLength,
     sourceIdentity: 'aac-worker-test-source',
+    audioStartByte,
     coreConfiguration: Object.freeze({
       mpegId: 0,
       profile: 1,
@@ -202,7 +208,7 @@ function fixture(options: {
       coreFrame: mediaFrame,
       accessUnitOrdinal: targetAccessUnitOrdinal,
       coreFrameWithinAccessUnit,
-      scanAnchorByteOffset: scanAnchorAccessUnitOrdinal * FRAME_BYTES,
+      scanAnchorByteOffset: audioStartByte + scanAnchorAccessUnitOrdinal * FRAME_BYTES,
       scanAnchorAccessUnitOrdinal,
       decodeStartAccessUnitOrdinal,
       discardCoreFrames: mediaFrame - decodeStartAccessUnitOrdinal * CORE_FRAMES,
@@ -631,6 +637,28 @@ describe.sequential('bounded AAC stream worker', () => {
     expect(new Float32Array(channels[1] ?? new ArrayBuffer(0))[0]).toBeCloseTo(108.2623, 4);
     expect(mocks.decodeCalls.every((call) => call.byteViews.every(allZero))).toBe(true);
     expect(mocks.decodeCalls.every((call) => call.rawBatch.planes.every(allZero))).toBe(true);
+  });
+
+  it('keeps every worker read at or after a nonzero admitted ADTS origin', async () => {
+    const audioStartByte = 37;
+    const media = fixture({
+      actualFrameCount: 3,
+      targetAccessUnitOrdinal: 1,
+      decodeStartAccessUnitOrdinal: 1,
+      scanAnchorAccessUnitOrdinal: 0,
+      audioStartByte,
+    });
+    const source = new MemoryEncodedAudioSource(media.bytes);
+    const scope = await loadWorker();
+    openDecoder(scope, source, media.descriptor);
+
+    await waitReady(scope);
+    expect(mocks.canaryCopies).toEqual([media.frames[1]]);
+    expect(source.reads.length).toBeGreaterThan(0);
+    expect(source.reads.every((read) => read.offset >= audioStartByte)).toBe(true);
+
+    stop(scope);
+    await vi.waitFor(() => expect(source.closeCount).toBe(1));
   });
 
   it('fails closed on noncanonical and overlapping PCM demands', async () => {

@@ -54,6 +54,7 @@ export interface AdtsManifestStructuralReconstruction {
   readonly authority: 'none';
   readonly sourceIdentity: string;
   readonly sourceSize: number;
+  readonly audioStartByte: number;
   readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
   readonly coreSampleRateHz: number;
   readonly coreChannelCount: 1 | 2;
@@ -262,6 +263,7 @@ async function readFirstFrame(
 ): Promise<Readonly<AdtsIncrementalFrame>> {
   const reader = new AdtsIncrementalFrameReader({
     source,
+    audioStartByte: manifest.audioStartByte,
     expectedConfig: configuration,
     pageBytes: ADTS_MAX_FRAME_BYTES,
   });
@@ -282,12 +284,14 @@ async function readFirstFrame(
 
 async function readTerminalFrame(
   source: EncodedRandomAccessSource,
+  audioStartByte: number,
   terminalPoint: Readonly<AdtsSeekIndexPoint>,
   configuration: Readonly<AdtsCoreConfiguration>,
   signal: AbortSignal,
 ): Promise<Readonly<AdtsIncrementalFrame>> {
   const reader = new AdtsIncrementalFrameReader({
     source,
+    audioStartByte,
     start: terminalPoint,
     expectedConfig: configuration,
     pageBytes: ADTS_MAX_FRAME_BYTES,
@@ -350,8 +354,14 @@ export async function reconstructAdtsManifestStructure(
     );
   }
   let terminal = first;
-  if (terminalPoint.frameOrdinal !== 0 || terminalPoint.byteOffset !== 0) {
-    terminal = await readTerminalFrame(source.source, terminalPoint, configuration, signal);
+  if (terminalPoint.frameOrdinal !== 0 || terminalPoint.byteOffset !== manifest.audioStartByte) {
+    terminal = await readTerminalFrame(
+      source.source,
+      manifest.audioStartByte,
+      terminalPoint,
+      configuration,
+      signal,
+    );
     assertHeaderMatchesManifest(terminal, manifest, 'Terminal');
   }
   throwIfAborted(signal);
@@ -380,6 +390,7 @@ export async function reconstructAdtsManifestStructure(
     authority: 'none',
     sourceIdentity: source.identity,
     sourceSize: source.size,
+    audioStartByte: manifest.audioStartByte,
     coreConfiguration: configuration,
     coreSampleRateHz: manifest.sampleRateHz,
     coreChannelCount: manifest.channels,

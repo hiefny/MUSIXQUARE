@@ -8,17 +8,20 @@ import {
 import { FilePlaybackConnectionChannel } from '../../network/file-playback-connection-channel.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import type {
+  HostLocalTrackSourceLease,
   HostPreparedLocalTrack,
   HostPeerPlaybackPublication,
   HostPeerRangeSource,
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
+  ResolveWarmHostPeerRangeSourceOptions,
 } from '../file-playback-host-first-file-engine.ts';
 import { fileMediaSourceRevokeMatchesOfferV2 } from '../file-media-source-revoke.ts';
 import {
   FilePlaybackProductHostMediaOwner,
   type FilePlaybackProductHostMediaRoomPort,
 } from '../file-playback-product-host-media-owner.ts';
+import type { FilePlaybackProductHostLocalTrackWarmResult } from '../file-playback-product-host-room.ts';
 import { FilePlaybackR2WholeBlobPublisher } from '../file-playback-r2-whole-blob-publisher.ts';
 import type { HostRendezvousAttempt } from '../rendezvous-coordinator.ts';
 import type { FilePlaybackWireMessage } from '../file-playback-wire.ts';
@@ -248,6 +251,65 @@ function encodedPreparedSource(
   };
 }
 
+function warmSourceLease(): HostLocalTrackSourceLease {
+  return freezeCanonical({}) as unknown as HostLocalTrackSourceLease;
+}
+
+function warmAuthority(
+  pair: ConnectionPair,
+  sourceLease: HostLocalTrackSourceLease,
+  suffix = 'warm',
+  sourceIdentity = `host-owner-${suffix}-source`,
+): Readonly<FilePlaybackProductHostLocalTrackWarmResult> {
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    roomGeneration: 1,
+    applicationSessionId: pair.context.sessionId,
+    hostParticipantId: pair.context.hostParticipantId,
+    status: 'warmed' as const,
+    backend: 'bounded-stream' as const,
+    asset: freezeCanonical({
+      kind: 'blob' as const,
+      binding: freezeCanonical({
+        queueItemId: suffix === 'warm' ? QID : QID_2,
+        sourceIdentity,
+        transferSessionId: `host-owner-${suffix}-transfer`,
+      }),
+      metadata: freezeCanonical({
+        name: `${suffix}.flac`,
+        mime: 'audio/flac',
+      }),
+      encodedSize: 4,
+    }),
+    readiness: freezeCanonical({
+      durationSeconds: 120,
+      bufferedAheadSeconds: 8,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    }),
+    sourceLease,
+  });
+}
+
+function encodedWarmSource(
+  authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>,
+  close = vi.fn(async () => undefined),
+): EncodedAudioSource {
+  return {
+    kind: 'peer-range',
+    size: authority.asset.encodedSize,
+    identity: authority.asset.binding.sourceIdentity,
+    metadata: {
+      name: authority.asset.metadata.name,
+      mime: authority.asset.metadata.mime,
+    },
+    readAt: vi.fn(async (offset: number, length: number) =>
+      new Uint8Array(length).fill(offset + 1),
+    ),
+    close,
+  };
+}
+
 function fakeAttempt(rendezvousId: string): HostRendezvousAttempt {
   return {
     rendezvousId,
@@ -375,9 +437,28 @@ function ids() {
     '98000000-0000-4000-8000-000000000012',
     '98000000-0000-4000-8000-000000000013',
     '98000000-0000-4000-8000-000000000014',
+    '98000000-0000-4000-8000-000000000015',
+    '98000000-0000-4000-8000-000000000016',
+    '98000000-0000-4000-8000-000000000017',
+    '98000000-0000-4000-8000-000000000018',
   ];
   let index = 0;
   return () => values[index++] ?? values.at(-1)!;
+}
+
+function offerTimers() {
+  const callbacks = new Map<string, () => void>();
+  let sequence = 0;
+  const schedule = vi.fn((callback: () => void, delayMs: number) => {
+    expect(delayMs).toBe(15 * 60 * 1_000);
+    const handle = `warm-offer-${++sequence}`;
+    callbacks.set(handle, callback);
+    return handle;
+  });
+  const cancel = vi.fn((handle: string) => {
+    callbacks.delete(handle);
+  });
+  return { callbacks, schedule, cancel };
 }
 
 describe('FilePlaybackProductHostMediaOwner', () => {
@@ -1761,6 +1842,781 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     await drain(64);
     expect(closeSource).toHaveBeenCalledOnce();
     expect(required.some((value) => (value as { type?: string }).type === 'error')).toBe(true);
+    owner.port().revoke(pair.context);
+  });
+
+  it('publishes one exact warm result idempotently and rejects copied or cross-room authority without replacement', async () => {
+    const pair = connectionPair(() => 1_000);
+    const lease = warmSourceLease();
+    const authority = warmAuthority(pair, lease);
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const closeConnection = vi.fn();
+    const resolveWarm = vi.fn(async (options: ResolveWarmHostPeerRangeSourceOptions) => {
+      if (options.sourceLease !== lease) throw new Error('fixture warm lease is stale');
+      return encodedWarmSource(authority);
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-identity-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const first = await owner.publishSourceLease(authority);
+    expect(await owner.publishSourceLease(authority)).toBe(first);
+    expect(resolveWarm).toHaveBeenCalledOnce();
+    expect(required).toHaveLength(1);
+    if (first.offer.transport !== 'peer-range') throw new Error('peer offer unavailable');
+    const acknowledge = vi.fn();
+    owner.port().adoptPeerRangeControl(
+      freezeCanonical({
+        frame: createPeerRangeReadFrame({
+          connectionId: pair.context.connectionId,
+          sourceIdentity: first.offer.sourceIdentity,
+          handleId: first.offer.handleId,
+          requestId: '98000000-0000-4000-8000-000000000070',
+          offset: 0,
+          totalLength: first.offer.encodedSize,
+        }),
+        lane: 'control' as const,
+        role: 'host' as const,
+        connection: pair.connection,
+        channel: pair.host,
+        connectionToken: pair.hostToken,
+      }),
+      acknowledge,
+    );
+    expect(acknowledge).toHaveBeenCalledOnce();
+    await drain(64);
+    expect(resolveWarm).toHaveBeenCalledTimes(2);
+    expect(required.some((frame) => (frame as { type?: string }).type === 'chunk')).toBe(true);
+
+    const copiedAuthority = freezeCanonical({ ...authority });
+    expect(copiedAuthority).not.toBe(authority);
+    await expect(owner.publishSourceLease(copiedAuthority)).rejects.toThrow(/exact authority/u);
+    await expect(
+      owner.publishSourceLease(
+        freezeCanonical({ ...authority, applicationSessionId: 'wrong-session' }),
+      ),
+    ).rejects.toThrow(/invalid/u);
+    await expect(
+      owner.publishSourceLease(freezeCanonical({ ...authority, hostParticipantId: 'wrong-host' })),
+    ).rejects.toThrow(/invalid/u);
+    expect(resolveWarm).toHaveBeenCalledTimes(2);
+
+    await expect(owner.publishSourceLease(warmAuthority(pair, warmSourceLease()))).rejects.toThrow(
+      /stale/u,
+    );
+    await expect(
+      owner.publishSourceLease(warmAuthority(pair, warmSourceLease(), 'cross')),
+    ).rejects.toThrow(/stale/u);
+    expect(await owner.publishSourceLease(authority)).toBe(first);
+    expect(resolveWarm).toHaveBeenCalledTimes(4);
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toHaveLength(1);
+    expect(closeConnection).not.toHaveBeenCalled();
+    expect(timers.callbacks).toHaveLength(1);
+
+    owner.port().revoke(pair.context);
+    expect(timers.callbacks).toHaveLength(0);
+    expect(timers.cancel).toHaveBeenCalledOnce();
+  });
+
+  it.each(['send', 'schedule'] as const)(
+    'shares the in-flight warm task across synchronous %s reentrancy and rejects both callers',
+    async (failurePoint) => {
+      const pair = connectionPair(() => 1_000);
+      const authority = warmAuthority(pair, warmSourceLease());
+      const closeConnection = vi.fn();
+      let owner!: FilePlaybackProductHostMediaOwner;
+      let reentrant: Promise<unknown> | null = null;
+      const sendRequired = vi.fn((_connection: DataConnection, frame: unknown) => {
+        if (
+          failurePoint === 'send' &&
+          (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2'
+        ) {
+          reentrant = owner.publishSourceLease(authority);
+          return false;
+        }
+        return true;
+      });
+      const scheduleTimeout = vi.fn((_callback: () => void, _delayMs: number) => {
+        if (failurePoint === 'schedule') {
+          reentrant = owner.publishSourceLease(authority);
+          throw new Error('fixture warm expiry scheduling failed');
+        }
+        return 'host-owner-warm-reentrant-timeout';
+      });
+      owner = new FilePlaybackProductHostMediaOwner({
+        context: pair.context,
+        hostRoom: roomPort(
+          () => null,
+          () => new Blob(),
+          [],
+        ),
+        publisher: publisher(),
+        resolveWarmPeerRangeSource: vi.fn(async () => encodedWarmSource(authority)),
+        sendRequired,
+        sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+        closeConnection,
+        onHealthSystemMessage: vi.fn(),
+        runtimeForTests: {
+          createMediaIdForTests: ids(),
+          scheduleIntervalForTests: () => `host-owner-warm-${failurePoint}-health`,
+          cancelIntervalForTests: vi.fn(),
+          scheduleTimeoutForTests: scheduleTimeout,
+          cancelTimeoutForTests: vi.fn(),
+        },
+      });
+
+      const first = owner.publishSourceLease(authority);
+      await drain(32);
+      expect(reentrant).toBe(first);
+      await expect(first).rejects.toThrow(/connection|failed|scheduling/u);
+      await expect(reentrant!).rejects.toThrow(/connection|failed|scheduling/u);
+      expect(sendRequired).toHaveBeenCalled();
+      expect(closeConnection).toHaveBeenCalledTimes(failurePoint === 'send' ? 1 : 0);
+      if (failurePoint === 'schedule') owner.port().revoke(pair.context);
+    },
+  );
+
+  it('offers and serves the exact room-owned warm Blob without taking Blob cleanup ownership', async () => {
+    const pair = connectionPair(() => 1_000);
+    const sourceLease = warmSourceLease();
+    const authority = warmAuthority(pair, sourceLease);
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/flac' });
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const resolveWarm = vi.fn(async (options: ResolveWarmHostPeerRangeSourceOptions) => {
+      if (
+        options.sourceLease !== sourceLease ||
+        options.sourceIdentity !== authority.asset.binding.sourceIdentity ||
+        options.signal.aborted
+      ) {
+        throw new Error('fixture warm Blob authority is stale');
+      }
+      return blob;
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-blob-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const published = await owner.publishSourceLease(authority);
+    const acknowledge = vi.fn();
+    owner.port().adoptPeerRangeControl(
+      freezeCanonical({
+        frame: createPeerRangeReadFrame({
+          connectionId: pair.context.connectionId,
+          sourceIdentity: published.offer.sourceIdentity,
+          handleId: published.offer.handleId,
+          requestId: '98000000-0000-4000-8000-000000000073',
+          offset: 1,
+          totalLength: 2,
+        }),
+        lane: 'control' as const,
+        role: 'host' as const,
+        connection: pair.connection,
+        channel: pair.host,
+        connectionToken: pair.hostToken,
+      }),
+      acknowledge,
+    );
+    expect(acknowledge).toHaveBeenCalledOnce();
+    await drain(64);
+    expect(resolveWarm).toHaveBeenCalledTimes(2);
+    expect(required.some((frame) => (frame as { type?: string }).type === 'chunk')).toBe(true);
+
+    owner.port().revoke(pair.context);
+    expect(timers.callbacks).toHaveLength(0);
+    await expect(blob.arrayBuffer()).resolves.toHaveProperty('byteLength', 4);
+  });
+
+  it('keeps current playback while atomically replacing only the warm offer and its stale handle', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([new Uint8Array([7])], { type: 'audio/flac' });
+    const current = publication('bounded-stream', blob);
+    const firstAuthority = warmAuthority(pair, warmSourceLease());
+    const nextAuthority = warmAuthority(pair, warmSourceLease(), 'next');
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const closeConnection = vi.fn();
+    const resolveWarm = vi.fn(async (options: ResolveWarmHostPeerRangeSourceOptions) => {
+      if (options.sourceLease === firstAuthority.sourceLease) {
+        return encodedWarmSource(firstAuthority);
+      }
+      if (options.sourceLease === nextAuthority.sourceLease)
+        return encodedWarmSource(nextAuthority);
+      throw new Error('fixture warm lease is stale');
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: {
+        currentPeerPublication: () => current,
+        resolveCurrentPeerRangeSource: vi.fn(async () => ({
+          kind: 'peer-range',
+          size: blob.size,
+          identity: current.asset.binding.sourceIdentity,
+          metadata: current.asset.metadata,
+          readAt: vi.fn(async () => new Uint8Array([7])),
+          close: vi.fn(async () => undefined),
+        })),
+        recoverRemoteParticipant: vi.fn(),
+      },
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-current-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const currentCommit = await owner.publishCurrent();
+    const first = await owner.publishSourceLease(firstAuthority);
+    const next = await owner.publishSourceLease(nextAuthority);
+    expect(await owner.publishCurrent()).toBe(currentCommit);
+    if (
+      currentCommit.offer.transport !== 'peer-range' ||
+      first.offer.transport !== 'peer-range' ||
+      next.offer.transport !== 'peer-range'
+    ) {
+      throw new Error('peer offer unavailable');
+    }
+    expect(next.offer.prepareRevision).toBeGreaterThan(first.offer.prepareRevision);
+    expect(next.offer.prepareId).not.toBe(first.offer.prepareId);
+    expect(next.offer.handleId).not.toBe(first.offer.handleId);
+    expect(required.map((frame) => (frame as { type?: string }).type)).toEqual([
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_PLAYBACK_RUN_BINDING_V2',
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+    ]);
+    expect(fileMediaSourceRevokeMatchesOfferV2(required[3], first.offer)).toBe(true);
+    expect(timers.cancel).toHaveBeenCalledOnce();
+    expect(timers.callbacks).toHaveLength(1);
+
+    const staleRead = freezeCanonical({
+      frame: createPeerRangeReadFrame({
+        connectionId: pair.context.connectionId,
+        sourceIdentity: first.offer.sourceIdentity,
+        handleId: first.offer.handleId,
+        requestId: '98000000-0000-4000-8000-000000000071',
+        offset: 0,
+        totalLength: first.offer.encodedSize,
+      }),
+      lane: 'control' as const,
+      role: 'host' as const,
+      connection: pair.connection,
+      channel: pair.host,
+      connectionToken: pair.hostToken,
+    });
+    expect(() => owner.port().adoptPeerRangeControl(staleRead, vi.fn())).toThrow(
+      /current publication/u,
+    );
+    expect(closeConnection).not.toHaveBeenCalled();
+    owner.port().revoke(pair.context);
+    expect(timers.callbacks).toHaveLength(0);
+  });
+
+  it('routes equal source identities by exact handle across current, candidate, and warm lifecycles', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/flac' });
+    const current = publication('bounded-stream', blob);
+    const prepared = preparedTrack('bounded-stream', blob.size);
+    const warm = warmAuthority(
+      pair,
+      warmSourceLease(),
+      'owner',
+      current.asset.binding.sourceIdentity,
+    );
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const resolveCurrent = vi.fn(async () => encodedPreparedSource(prepared));
+    const resolvePrepared = vi.fn(async () => encodedPreparedSource(prepared));
+    const resolveWarm = vi.fn(async () => encodedWarmSource(warm));
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: {
+        currentPeerPublication: () => current,
+        resolveCurrentPeerRangeSource: resolveCurrent,
+        recoverRemoteParticipant: vi.fn(),
+      },
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-equal-source-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const currentCommit = await owner.publishCurrent();
+    const candidateCommit = await owner.publishPrepared(prepared);
+    const warmCommit = await owner.publishSourceLease(warm);
+    if (
+      currentCommit.offer.transport !== 'peer-range' ||
+      candidateCommit.offer.transport !== 'peer-range'
+    ) {
+      throw new Error('peer offer unavailable');
+    }
+    const offers = [currentCommit.offer, candidateCommit.offer, warmCommit.offer] as const;
+    for (const [index, offer] of offers.entries()) {
+      const acknowledge = vi.fn();
+      owner.port().adoptPeerRangeControl(
+        freezeCanonical({
+          frame: createPeerRangeReadFrame({
+            connectionId: pair.context.connectionId,
+            sourceIdentity: current.asset.binding.sourceIdentity,
+            handleId: offer.handleId,
+            requestId: `98000000-0000-4000-8000-00000000008${index}`,
+            offset: index,
+            totalLength: 1,
+          }),
+          lane: 'control' as const,
+          role: 'host' as const,
+          connection: pair.connection,
+          channel: pair.host,
+          connectionToken: pair.hostToken,
+        }),
+        acknowledge,
+      );
+      expect(acknowledge).toHaveBeenCalledOnce();
+    }
+    await drain(96);
+
+    expect(resolveCurrent).toHaveBeenCalledOnce();
+    expect(resolvePrepared).toHaveBeenCalledTimes(2);
+    expect(resolveWarm).toHaveBeenCalledTimes(2);
+    expect(resolvePrepared).toHaveBeenLastCalledWith({
+      prepared,
+      sourceIdentity: current.asset.binding.sourceIdentity,
+      signal: expect.any(AbortSignal),
+    });
+    expect(resolveWarm).toHaveBeenLastCalledWith({
+      sourceLease: warm.sourceLease,
+      sourceIdentity: current.asset.binding.sourceIdentity,
+      signal: expect.any(AbortSignal),
+    });
+    expect(required.filter((frame) => (frame as { type?: string }).type === 'chunk')).toHaveLength(
+      3,
+    );
+    owner.port().revoke(pair.context);
+  });
+
+  it('retires a warm offer without disturbing a prepared candidate and revalidates a stale lease', async () => {
+    const pair = connectionPair(() => 1_000);
+    const sourceLease = warmSourceLease();
+    const authority = warmAuthority(pair, sourceLease, 'next');
+    const prepared = preparedTrack('bounded-stream', 3);
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const closeConnection = vi.fn();
+    let leaseLive = true;
+    const resolveWarm = vi.fn(async (options: ResolveWarmHostPeerRangeSourceOptions) => {
+      if (!leaseLive || options.sourceLease !== sourceLease) {
+        throw new Error('fixture warm lease is stale');
+      }
+      return encodedWarmSource(authority);
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: vi.fn(async () => encodedPreparedSource(prepared)),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-retire-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const warm = await owner.publishSourceLease(authority);
+    await owner.publishPrepared(prepared);
+    const retirement = owner.retireSourceLease(sourceLease, new Error('warm no longer needed'));
+    expect(owner.retireSourceLease(sourceLease, new Error('reentrant replay'))).toBe(retirement);
+    await expect(retirement).resolves.toBeUndefined();
+    expect(fileMediaSourceRevokeMatchesOfferV2(required[2], warm.offer)).toBe(true);
+    expect(timers.callbacks).toHaveLength(0);
+    expect(closeConnection).not.toHaveBeenCalled();
+    await expect(owner.bindPrepared(prepared)).resolves.toMatchObject({ prepared });
+
+    leaseLive = false;
+    await expect(owner.publishSourceLease(authority)).rejects.toThrow(/retired/u);
+    expect(resolveWarm).toHaveBeenCalledOnce();
+    expect(closeConnection).not.toHaveBeenCalled();
+    owner.port().revoke(pair.context);
+  });
+
+  it('preserves exact retirement promise identity across a B to A to B interleave', async () => {
+    const pair = connectionPair(() => 1_000);
+    const authorityA = warmAuthority(pair, warmSourceLease());
+    const authorityB = warmAuthority(pair, warmSourceLease(), 'next');
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    let resolveB!: (source: HostPeerRangeSource) => void;
+    const pendingBSource = new Promise<HostPeerRangeSource>((resolve) => {
+      resolveB = resolve;
+    });
+    const lateBClose = vi.fn(async () => undefined);
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: vi.fn((options: ResolveWarmHostPeerRangeSourceOptions) =>
+        options.sourceLease === authorityB.sourceLease
+          ? pendingBSource
+          : Promise.resolve(encodedWarmSource(authorityA)),
+      ),
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-retirement-map-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    await owner.publishSourceLease(authorityA);
+    const pendingB = owner.publishSourceLease(authorityB);
+    await drain(32);
+    const retirementB = owner.retireSourceLease(
+      authorityB.sourceLease,
+      new Error('retire pending B'),
+    );
+    const retirementA = owner.retireSourceLease(
+      authorityA.sourceLease,
+      new Error('retire current A'),
+    );
+    const retirementBReplay = owner.retireSourceLease(
+      authorityB.sourceLease,
+      new Error('retire B replay'),
+    );
+
+    expect(retirementBReplay).toBe(retirementB);
+    expect(retirementA).not.toBe(retirementB);
+    await expect(pendingB).rejects.toThrow(/retire pending B|aborted/u);
+    await expect(Promise.all([retirementB, retirementA])).resolves.toEqual([undefined, undefined]);
+    expect(owner.retireSourceLease(authorityA.sourceLease, new Error('A replay'))).toBe(
+      retirementA,
+    );
+
+    resolveB(encodedWarmSource(authorityB, lateBClose));
+    await drain(64);
+    expect(lateBClose).toHaveBeenCalledOnce();
+    expect(required.map((frame) => (frame as { type?: string }).type)).toEqual([
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+    ]);
+    expect(timers.callbacks).toHaveLength(0);
+    owner.port().revoke(pair.context);
+  });
+
+  it('fences the expired warm record before cancelTimeout can synchronously republish it', async () => {
+    const pair = connectionPair(() => 1_000);
+    const authority = warmAuthority(pair, warmSourceLease());
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    let owner!: FilePlaybackProductHostMediaOwner;
+    let reentrant: ReturnType<FilePlaybackProductHostMediaOwner['publishSourceLease']> | null =
+      null;
+    let shouldReenter = true;
+    const cancelTimeout = vi.fn((handle: string) => {
+      timers.cancel(handle);
+      if (!shouldReenter) return;
+      shouldReenter = false;
+      reentrant = owner.publishSourceLease(authority);
+    });
+    owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: vi.fn(async () => encodedWarmSource(authority)),
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-cancel-reentrant-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: cancelTimeout,
+      },
+    });
+
+    const first = await owner.publishSourceLease(authority);
+    const expire = [...timers.callbacks.values()][0];
+    if (!expire) throw new Error('warm expiry timer unavailable');
+    expire();
+    if (!reentrant) throw new Error('cancelTimeout did not synchronously republish');
+    const second = await reentrant;
+
+    expect(second).not.toBe(first);
+    expect(second.offer.prepareRevision).toBeGreaterThan(first.offer.prepareRevision);
+    expect(second.offer.prepareId).not.toBe(first.offer.prepareId);
+    expect(second.offer.handleId).not.toBe(first.offer.handleId);
+    expect(required.map((frame) => (frame as { type?: string }).type)).toEqual([
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+    ]);
+    expect(timers.callbacks).toHaveLength(1);
+    owner.port().revoke(pair.context);
+    expect(timers.callbacks).toHaveLength(0);
+  });
+
+  it('expires only the exact warm offer and republishes the same live lease with fresh IDs', async () => {
+    let now = 1_000;
+    const pair = connectionPair(() => now);
+    const sourceLease = warmSourceLease();
+    const authority = warmAuthority(pair, sourceLease);
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const closeConnection = vi.fn();
+    const resolveWarm = vi.fn(async () => encodedWarmSource(authority));
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-expiry-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const first = await owner.publishSourceLease(authority);
+    if (first.offer.transport !== 'peer-range') throw new Error('peer offer unavailable');
+    const firstTimer = [...timers.callbacks.values()][0];
+    if (!firstTimer) throw new Error('warm expiry timer unavailable');
+    now = first.offer.expiresAtRoomTimeMs;
+    firstTimer();
+    expect(closeConnection).not.toHaveBeenCalled();
+    expect(timers.callbacks).toHaveLength(0);
+    expect(fileMediaSourceRevokeMatchesOfferV2(required[1], first.offer)).toBe(true);
+
+    const expiredRead = freezeCanonical({
+      frame: createPeerRangeReadFrame({
+        connectionId: pair.context.connectionId,
+        sourceIdentity: first.offer.sourceIdentity,
+        handleId: first.offer.handleId,
+        requestId: '98000000-0000-4000-8000-000000000072',
+        offset: 0,
+        totalLength: first.offer.encodedSize,
+      }),
+      lane: 'control' as const,
+      role: 'host' as const,
+      connection: pair.connection,
+      channel: pair.host,
+      connectionToken: pair.hostToken,
+    });
+    expect(() => owner.port().adoptPeerRangeControl(expiredRead, vi.fn())).toThrow(
+      /current publication/u,
+    );
+
+    const second = await owner.publishSourceLease(authority);
+    if (second.offer.transport !== 'peer-range') throw new Error('peer offer unavailable');
+    expect(second.offer.prepareRevision).toBeGreaterThan(first.offer.prepareRevision);
+    expect(second.offer.prepareId).not.toBe(first.offer.prepareId);
+    expect(second.offer.handleId).not.toBe(first.offer.handleId);
+    expect(resolveWarm).toHaveBeenCalledTimes(2);
+    expect(timers.callbacks).toHaveLength(1);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    owner.port().revoke(pair.context);
+    expect(timers.callbacks).toHaveLength(0);
+    expect(timers.cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('fences an abort-ignoring warm resolver and closes its late source without replacing the newer offer', async () => {
+    const pair = connectionPair(() => 1_000);
+    const first = warmAuthority(pair, warmSourceLease());
+    const next = warmAuthority(pair, warmSourceLease(), 'next');
+    const aba = warmAuthority(pair, warmSourceLease(), 'aba');
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    let resolveFirst!: (source: HostPeerRangeSource) => void;
+    const ignoredAbort = new Promise<HostPeerRangeSource>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let resolveAba!: (source: HostPeerRangeSource) => void;
+    const ignoredAbaAbort = new Promise<HostPeerRangeSource>((resolve) => {
+      resolveAba = resolve;
+    });
+    const lateClose = vi.fn(async () => undefined);
+    const lateAbaClose = vi.fn(async () => undefined);
+    const resolveWarm = vi.fn((options: ResolveWarmHostPeerRangeSourceOptions) => {
+      if (options.sourceLease === first.sourceLease) return ignoredAbort;
+      if (options.sourceLease === aba.sourceLease) return ignoredAbaAbort;
+      return Promise.resolve(encodedWarmSource(next));
+    });
+    const closeConnection = vi.fn();
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, wireLease, payload) => pair.host.createWire(wireLease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-aba-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const stale = owner.publishSourceLease(first);
+    await drain();
+    const published = await owner.publishSourceLease(next);
+    await expect(stale).rejects.toThrow(/superseded|aborted/u);
+    expect(required).toHaveLength(1);
+    expect(required[0]).toBe(published.offer);
+
+    resolveFirst(encodedWarmSource(first, lateClose));
+    await drain(64);
+    expect(lateClose).toHaveBeenCalledOnce();
+    expect(required).toHaveLength(1);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    const staleAba = owner.publishSourceLease(aba);
+    await drain();
+    expect(await owner.publishSourceLease(next)).toBe(published);
+    await expect(staleAba).rejects.toThrow(/superseded|aborted/u);
+    resolveAba(encodedWarmSource(aba, lateAbaClose));
+    await drain(64);
+    expect(lateAbaClose).toHaveBeenCalledOnce();
+    expect(required).toHaveLength(1);
+    expect(timers.callbacks).toHaveLength(1);
+
+    await expect(
+      owner.retireSourceLease(next.sourceLease, new Error('new warm offer complete')),
+    ).resolves.toBeUndefined();
+    expect(timers.callbacks).toHaveLength(0);
+    expect(required.map((frame) => (frame as { type?: string }).type)).toEqual([
+      'FILE_MEDIA_SOURCE_OFFER_V2',
+      'FILE_MEDIA_SOURCE_OFFER_REVOKE_V2',
+    ]);
+    expect(closeConnection).not.toHaveBeenCalled();
     owner.port().revoke(pair.context);
   });
 });

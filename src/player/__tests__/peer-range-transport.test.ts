@@ -476,6 +476,32 @@ describe('FramedPeerRangeClientTransport', () => {
 });
 
 describe('PeerRangeHostResponder', () => {
+  it('forwards the exact claimed handle to an optional handle-aware source resolver', async () => {
+    const resolve = vi.fn(() => new Blob([Uint8Array.of(9)]));
+    const resolveHandle = vi.fn(() => new Blob([Uint8Array.of(4)]));
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve, resolveHandle },
+      sendBulk: vi.fn(),
+    });
+    const read = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:exact-route', requestId: 'request:exact-route' }),
+    );
+
+    expect(host.acceptControl(CONNECTION_TOKEN, read)).toBe('accepted');
+    await vi.waitFor(() => expect(host.activeRequestCount).toBe(0));
+
+    expect(resolveHandle).toHaveBeenCalledOnce();
+    expect(resolveHandle).toHaveBeenCalledWith(
+      'handle:exact-route',
+      SOURCE_ID,
+      expect.any(AbortSignal),
+    );
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
   it('serves an exact Blob slice without retaining or reading the whole body', async () => {
     const whole = bytes(200_000);
     const frames: PeerRangeBulkFrame[] = [];

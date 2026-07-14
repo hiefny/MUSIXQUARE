@@ -605,6 +605,12 @@ export interface PeerRangeHostSourceRegistryProvider {
     sourceIdentity: string,
     signal: AbortSignal,
   ): MaybePromise<PeerRangeHostSource | null | undefined>;
+  /** Optional exact-handle route for owners with overlapping source identities. */
+  resolveHandle?(
+    handleId: string,
+    sourceIdentity: string,
+    signal: AbortSignal,
+  ): MaybePromise<PeerRangeHostSource | null | undefined>;
 }
 
 export type PeerRangeHostControlStatus =
@@ -742,7 +748,12 @@ export class PeerRangeHostResponder {
   #fatalError: PeerRangeConnectionFatalError | null = null;
 
   constructor(options: PeerRangeHostResponderOptions) {
-    if (!options.sources || typeof options.sources.resolve !== 'function') {
+    if (
+      !options.sources ||
+      typeof options.sources.resolve !== 'function' ||
+      (options.sources.resolveHandle !== undefined &&
+        typeof options.sources.resolveHandle !== 'function')
+    ) {
       throw new TypeError('Peer range source registry provider is required');
     }
     if (typeof options.sendBulk !== 'function') {
@@ -1036,7 +1047,15 @@ export class PeerRangeHostResponder {
     if (lease.source) return Promise.resolve(lease.source);
     if (lease.resolvePromise) return lease.resolvePromise;
     lease.resolvePromise = Promise.resolve()
-      .then(() => this.#sources.resolve(lease.sourceIdentity, lease.controller.signal))
+      .then(() =>
+        this.#sources.resolveHandle
+          ? this.#sources.resolveHandle(
+              lease.handleId,
+              lease.sourceIdentity,
+              lease.controller.signal,
+            )
+          : this.#sources.resolve(lease.sourceIdentity, lease.controller.signal),
+      )
       .then((candidate) => {
         const ownedSource =
           candidate && isEncodedAudioSource(candidate) && typeof candidate.close === 'function'

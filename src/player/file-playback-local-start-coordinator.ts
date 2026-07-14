@@ -63,10 +63,14 @@ const STAGE_OPTION_KEYS = Object.freeze([
   'rttP95Ms',
   'armP95Ms',
   'boundedRoutePolicy',
+  'installCodecTimelineHostArtifact',
   'runtimeForTests',
 ] as const);
 const REQUIRED_STAGE_OPTION_KEYS = STAGE_OPTION_KEYS.filter(
-  (key) => key !== 'boundedRoutePolicy' && key !== 'runtimeForTests',
+  (key) =>
+    key !== 'boundedRoutePolicy' &&
+    key !== 'installCodecTimelineHostArtifact' &&
+    key !== 'runtimeForTests',
 );
 const WARM_STAGE_OPTION_KEYS = Object.freeze([
   'warmSource',
@@ -91,7 +95,10 @@ const START_OPTION_KEYS = Object.freeze([
   'runtimeForTests',
 ] as const);
 const REQUIRED_START_OPTION_KEYS = START_OPTION_KEYS.filter(
-  (key) => key !== 'boundedRoutePolicy' && key !== 'runtimeForTests',
+  (key) =>
+    key !== 'boundedRoutePolicy' &&
+    key !== 'installCodecTimelineHostArtifact' &&
+    key !== 'runtimeForTests',
 );
 const COMPLETE_OPTION_KEYS = Object.freeze(['staged', 'attempt'] as const);
 const CLOCK_KEYS = Object.freeze([
@@ -160,6 +167,8 @@ export interface StageLocalFilePlaybackParticipantOptions {
   readonly armP95Ms: number;
   /** Fixed for this staging boundary; omission preserves the current bounded route. */
   readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
+  /** Exact opt-in for issuing and lease-binding a reusable host codec timeline. */
+  readonly installCodecTimelineHostArtifact?: true;
   readonly runtimeForTests?: FilePlaybackLocalStartCoordinatorRuntimeForTests;
 }
 
@@ -329,7 +338,12 @@ function snapshotOptions(
     const snapshot = Object.create(null) as Record<string, unknown>;
     for (const key of optionKeys) {
       const descriptor = descriptors[key];
-      if ((key === 'boundedRoutePolicy' || key === 'runtimeForTests') && !descriptor) {
+      if (
+        (key === 'boundedRoutePolicy' ||
+          key === 'installCodecTimelineHostArtifact' ||
+          key === 'runtimeForTests') &&
+        !descriptor
+      ) {
         snapshot[key] = undefined;
         continue;
       }
@@ -993,6 +1007,7 @@ export async function stageLocalFilePlaybackParticipant(
     input.boundedRoutePolicy === undefined
       ? null
       : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
+  const installCodecTimelineHostArtifact = input.installCodecTimelineHostArtifact;
 
   const registry = input.registry;
   const roomToken = input.roomToken;
@@ -1036,6 +1051,9 @@ export async function stageLocalFilePlaybackParticipant(
   }
   if (typeof isCurrent !== 'function' || typeof decodeOrdinaryAudio !== 'function') {
     throw new TypeError('Local playback callbacks are invalid');
+  }
+  if (installCodecTimelineHostArtifact !== undefined && installCodecTimelineHostArtifact !== true) {
+    throw new TypeError('Host codec timeline artifact installation must be the literal true');
   }
   if (!clock || !runtime || !playbackState) {
     throw new TypeError('Local playback clock, runtime, or state identity is invalid');
@@ -1084,6 +1102,9 @@ export async function stageLocalFilePlaybackParticipant(
       isCurrent: wrappedIsCurrent,
       decodeOrdinaryAudio: decodeOrdinaryAudio as OrdinaryAudioDecoder,
       ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
+      ...(installCodecTimelineHostArtifact === true
+        ? { installCodecTimelineHostArtifact: true as const }
+        : {}),
     },
   ]);
   assertNativePromise<Readonly<StagedFilePlaybackAssetSource>>(
@@ -1359,6 +1380,7 @@ export async function startLocalFilePlayback(
     input.boundedRoutePolicy === undefined
       ? null
       : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
+  const installCodecTimelineHostArtifact = input.installCodecTimelineHostArtifact;
   const positionSeconds = input.positionSeconds;
   const playbackRate = input.playbackRate;
   const rendezvousCoordinator = input.rendezvousCoordinator;
@@ -1370,6 +1392,9 @@ export async function startLocalFilePlayback(
   }
   if (!Number.isFinite(playbackRate) || (playbackRate as number) <= 0) {
     throw new RangeError('Local playback rate must be finite and positive');
+  }
+  if (installCodecTimelineHostArtifact !== undefined && installCodecTimelineHostArtifact !== true) {
+    throw new TypeError('Host codec timeline artifact installation must be the literal true');
   }
 
   let staged: Readonly<StagedLocalFilePlaybackParticipant> | null = null;
@@ -1392,6 +1417,9 @@ export async function startLocalFilePlayback(
       rttP95Ms: input.rttP95Ms as number,
       armP95Ms: input.armP95Ms as number,
       ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
+      ...(installCodecTimelineHostArtifact === true
+        ? { installCodecTimelineHostArtifact: true as const }
+        : {}),
       runtimeForTests: input.runtimeForTests as
         | FilePlaybackLocalStartCoordinatorRuntimeForTests
         | undefined,

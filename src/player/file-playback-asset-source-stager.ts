@@ -32,11 +32,20 @@ import {
 import {
   createBlobFilePlaybackSource,
   createEncodedFilePlaybackSource,
+  codecTimelineHostArtifactForFilePlaybackSourceResult,
   type BlobFilePlaybackSourceResult,
   type CreateBlobFilePlaybackSourceOptions,
   type CreateEncodedFilePlaybackSourceOptions,
   type OrdinaryAudioDecoder,
 } from './file-playback-source-factory.ts';
+import {
+  describeCodecTimelineHostArtifactForLease,
+  installCodecTimelineHostArtifactForLease,
+} from './manifests/codec-timeline-host-artifact-lease-store.ts';
+import type {
+  CodecTimelineHostArtifact,
+  CodecTimelineHostArtifactBinding,
+} from './manifests/codec-timeline-host-artifact.ts';
 import type { EncodedAudioSource } from './sources/encoded-audio-source.ts';
 
 const OPTION_KEYS = Object.freeze([
@@ -52,10 +61,12 @@ const OPTION_KEYS = Object.freeze([
   'isCurrent',
   'decodeOrdinaryAudio',
   'boundedRoutePolicy',
+  'installCodecTimelineHostArtifact',
   'runtime',
 ] as const);
 const OPTIONAL_OPTION_KEYS = new Set<(typeof OPTION_KEYS)[number]>([
   'boundedRoutePolicy',
+  'installCodecTimelineHostArtifact',
   'runtime',
 ]);
 const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter((key) => !OPTIONAL_OPTION_KEYS.has(key));
@@ -70,10 +81,12 @@ const WARM_OPTION_KEYS = Object.freeze([
   'isCurrent',
   'decodeOrdinaryAudio',
   'boundedRoutePolicy',
+  'installCodecTimelineHostArtifact',
   'runtime',
 ] as const);
 const OPTIONAL_WARM_OPTION_KEYS = new Set<(typeof WARM_OPTION_KEYS)[number]>([
   'boundedRoutePolicy',
+  'installCodecTimelineHostArtifact',
   'runtime',
 ]);
 const REQUIRED_WARM_OPTION_KEYS = WARM_OPTION_KEYS.filter(
@@ -206,6 +219,8 @@ export interface StageFilePlaybackAssetSourceOptions {
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   /** Omit to preserve the current AudioBuffer route for MP3/M4A. */
   readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
+  /** Exact opt-in for issuing and lease-binding a reusable host codec timeline. */
+  readonly installCodecTimelineHostArtifact?: true;
   readonly runtime?: FilePlaybackAssetSourceStagerRuntimeForTests;
 }
 
@@ -227,6 +242,7 @@ export interface PrepareFilePlaybackAssetSourceWarmOptions {
   readonly isCurrent: () => boolean;
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
+  readonly installCodecTimelineHostArtifact?: true;
   readonly runtime?: FilePlaybackAssetSourceStagerRuntimeForTests;
 }
 
@@ -700,6 +716,19 @@ function canonicalSnapshot(value: unknown): Readonly<FilePlaybackAssetSnapshot> 
   });
 }
 
+function codecTimelineHostArtifactBindingFromAsset(
+  asset: Readonly<FilePlaybackAssetSnapshot>,
+): Readonly<CodecTimelineHostArtifactBinding> {
+  return freezeCanonical({
+    queueItemId: asset.queueItemId,
+    sourceIdentity: asset.sourceIdentity,
+    transferSessionId: asset.transferSessionId,
+    encodedSize: asset.size,
+    name: asset.name,
+    mime: asset.mime,
+  });
+}
+
 function canonicalMetadata(
   value: unknown,
   expected: Readonly<FilePlaybackAssetSnapshot>,
@@ -1034,6 +1063,7 @@ export async function prepareFilePlaybackAssetSourceWarm(
     input.boundedRoutePolicy === undefined
       ? undefined
       : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
+  const installCodecTimelineHostArtifact = input.installCodecTimelineHostArtifact;
   const clock = clockSnapshot(input.clockBindings);
   const runtime = runtimeSnapshot(input.runtime);
 
@@ -1054,6 +1084,9 @@ export async function prepareFilePlaybackAssetSourceWarm(
   }
   if (typeof isCurrent !== 'function' || typeof decodeOrdinaryAudio !== 'function') {
     throw new TypeError('File playback authority and ordinary decoder callbacks are required');
+  }
+  if (installCodecTimelineHostArtifact !== undefined && installCodecTimelineHostArtifact !== true) {
+    throw new TypeError('Host codec timeline artifact installation must be the literal true');
   }
   if (!clock || !runtime) {
     throw new TypeError('File playback clock bindings or runtime seams are invalid');
@@ -1106,6 +1139,19 @@ export async function prepareFilePlaybackAssetSourceWarm(
   }
   assertAuthority();
 
+  let codecTimelineHostArtifactBinding: Readonly<CodecTimelineHostArtifactBinding> | null = null;
+  if (installCodecTimelineHostArtifact === true) {
+    const existing = describeCodecTimelineHostArtifactForLease({
+      registry,
+      roomToken: roomToken as object,
+      lease: assetLease as FilePlaybackAssetLease,
+    });
+    assertAuthority();
+    if (existing === null) {
+      codecTimelineHostArtifactBinding = codecTimelineHostArtifactBindingFromAsset(canonicalAsset);
+    }
+  }
+
   const rawResolution = Reflect.apply(registryResolveBlobAsset, registry, [roomToken, assetLease]);
   const blobResolution: Readonly<FilePlaybackBlobResolution> | null =
     rawResolution === null ? null : canonicalBlobResolution(rawResolution, canonicalAsset);
@@ -1119,6 +1165,7 @@ export async function prepareFilePlaybackAssetSourceWarm(
 
   let rawFactoryResult: unknown = null;
   let factoryResult: FactoryResultSnapshot | null = null;
+  let codecTimelineHostArtifact: Readonly<CodecTimelineHostArtifact> | null = null;
   let factoryOwnsGenericLease = false;
   let acquiredGenericSource: EncodedAudioSource | null = null;
   let releaseCalled = false;
@@ -1144,6 +1191,7 @@ export async function prepareFilePlaybackAssetSourceWarm(
           signal,
           decodeOrdinaryAudio: decodeOrdinaryAudio as OrdinaryAudioDecoder,
           ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
+          ...(codecTimelineHostArtifactBinding ? { codecTimelineHostArtifactBinding } : {}),
         },
       ]);
     } else {
@@ -1162,6 +1210,7 @@ export async function prepareFilePlaybackAssetSourceWarm(
           localPerformanceMsToContextTime: clock.localPerformanceMsToContextTime,
           signal,
           ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
+          ...(codecTimelineHostArtifactBinding ? { codecTimelineHostArtifactBinding } : {}),
         },
       ]);
     }
@@ -1174,6 +1223,10 @@ export async function prepareFilePlaybackAssetSourceWarm(
     factoryResult = inspectFactoryResult(rawFactoryResult, canonicalAsset.sourceIdentity);
     if (!factoryResult) {
       throw new TypeError('File playback source factory returned an invalid exact result');
+    }
+    if (codecTimelineHostArtifactBinding) {
+      codecTimelineHostArtifact =
+        codecTimelineHostArtifactForFilePlaybackSourceResult(rawFactoryResult);
     }
     assertAuthority();
 
@@ -1199,6 +1252,28 @@ export async function prepareFilePlaybackAssetSourceWarm(
       throw new TypeError('File playback warm source readiness is invalid');
     }
     assertAuthority();
+
+    if (codecTimelineHostArtifact) {
+      const leaseAccess = {
+        registry,
+        roomToken: roomToken as object,
+        lease: assetLease as FilePlaybackAssetLease,
+      };
+      const installed = describeCodecTimelineHostArtifactForLease(leaseAccess);
+      if (installed === null) {
+        installCodecTimelineHostArtifactForLease({
+          ...leaseAccess,
+          artifact: codecTimelineHostArtifact,
+        });
+      } else if (
+        installed.codec !== codecTimelineHostArtifact.codec ||
+        installed.manifestByteLength !== codecTimelineHostArtifact.manifestByteLength ||
+        installed.manifestSha256B64 !== codecTimelineHostArtifact.manifestSha256B64
+      ) {
+        throw new Error('Installed host codec timeline artifact conflicts with this source');
+      }
+      assertAuthority();
+    }
 
     const metadata = freezeCanonical({ name: canonicalAsset.name, mime: canonicalAsset.mime });
     const authority = freezeCanonical({
@@ -1710,6 +1785,12 @@ export async function stageFilePlaybackAssetSource(
 ): Promise<Readonly<StagedFilePlaybackAssetSource>> {
   const input = snapshotOptions(options);
   if (!input) throw new TypeError('File playback asset staging options are invalid');
+  if (
+    input.installCodecTimelineHostArtifact !== undefined &&
+    input.installCodecTimelineHostArtifact !== true
+  ) {
+    throw new TypeError('Host codec timeline artifact installation must be the literal true');
+  }
   const warm = await prepareFilePlaybackAssetSourceWarm({
     registry: input.registry as FilePlaybackAssetRegistry,
     roomToken: input.roomToken as object,
@@ -1723,6 +1804,9 @@ export async function stageFilePlaybackAssetSource(
     ...(input.boundedRoutePolicy === undefined
       ? {}
       : { boundedRoutePolicy: input.boundedRoutePolicy as FilePlaybackBoundedRoutePolicy }),
+    ...(input.installCodecTimelineHostArtifact === true
+      ? { installCodecTimelineHostArtifact: true as const }
+      : {}),
     ...(input.runtime === undefined
       ? {}
       : { runtime: input.runtime as FilePlaybackAssetSourceStagerRuntimeForTests }),

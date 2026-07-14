@@ -23,11 +23,16 @@ import {
 import { FilePlaybackManager } from '../file-playback-manager.ts';
 import type { FilePlaybackCutoverSource } from '../file-playback-source.ts';
 import {
+  codecTimelineHostArtifactForFilePlaybackSourceResult,
   createBlobFilePlaybackSource,
   createEncodedFilePlaybackSource,
   type BlobFilePlaybackSourceResult,
   type CreateBlobFilePlaybackSourceOptions,
 } from '../file-playback-source-factory.ts';
+import {
+  describeCodecTimelineHostArtifactForLease,
+  installCodecTimelineHostArtifactForLease,
+} from '../manifests/codec-timeline-host-artifact-lease-store.ts';
 import type { EncodedAudioAsset } from '../sources/encoded-audio-asset.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 
@@ -275,6 +280,57 @@ function successfulRuntime(
     createEncodedSource,
     stageCandidate,
     retireCandidate,
+  };
+}
+
+function makeAdtsFrame(frameLengthBytes: number, payloadByte: number): Uint8Array {
+  const bytes = new Uint8Array(frameLengthBytes).fill(payloadByte);
+  const profile = 1;
+  const sampleRateIndex = 4;
+  const channelConfiguration = 2;
+  bytes[0] = 0xff;
+  bytes[1] = 0xf1;
+  bytes[2] = (profile << 6) | (sampleRateIndex << 2) | ((channelConfiguration >>> 2) & 1);
+  bytes[3] = ((channelConfiguration & 0b11) << 6) | ((frameLengthBytes >>> 11) & 0b11);
+  bytes[4] = (frameLengthBytes >>> 3) & 0xff;
+  bytes[5] = ((frameLengthBytes & 0b111) << 5) | 0b1_1111;
+  bytes[6] = 0b1111_1100;
+  return bytes;
+}
+
+function adtsFixtureBytes(): Uint8Array {
+  return concatFixtureBytes(
+    makeAdtsFrame(19, 0x11),
+    makeAdtsFrame(41, 0x22),
+    makeAdtsFrame(83, 0x33),
+  );
+}
+
+function authenticAdtsRuntime(
+  onResult?: (result: BlobFilePlaybackSourceResult) => void | Promise<void>,
+) {
+  const destroy = vi.fn(async () => undefined);
+  const source = fakeCutoverSource('bounded-stream', destroy);
+  const createEncodedSource = vi.fn(
+    async (options: Parameters<typeof createEncodedFilePlaybackSource>[0]) => {
+      const result = await createEncodedFilePlaybackSource({
+        ...options,
+        aacCapabilityProbe: async () => undefined,
+        backendFactories: {
+          createStreamingAacSource: () => source as never,
+        },
+      });
+      await onResult?.(result);
+      return result;
+    },
+  );
+  return {
+    source,
+    destroy,
+    createEncodedSource,
+    runtime: {
+      createEncodedSource,
+    } satisfies FilePlaybackAssetSourceStagerRuntimeForTests,
   };
 }
 
@@ -762,7 +818,412 @@ describe('revision-free file playback warm source', () => {
   });
 });
 
+describe('host codec timeline artifact installation', () => {
+  const metadata = Object.freeze({ name: 'remote.aac', mime: 'audio/aac' });
+
+  it('keeps omission inert and installs an authentic result with the exact canonical binding', async () => {
+    const bytes = adtsFixtureBytes();
+    const omittedSetup = genericRegistry(bytes, metadata);
+    const omittedSource = fakeCutoverSource('bounded-stream');
+    const omittedRuntime = successfulRuntime(factoryResult(omittedSource));
+    const omitted = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(omittedSetup.registry, omittedSetup.lease, omittedRuntime.runtime, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      }),
+    );
+    const omittedRequest = omittedRuntime.createEncodedSource.mock.calls[0]?.[0];
+    expect(omittedRequest).not.toHaveProperty('codecTimelineHostArtifactBinding');
+    expect(
+      describeCodecTimelineHostArtifactForLease({
+        registry: omittedSetup.registry,
+        roomToken: TOKEN,
+        lease: omittedSetup.lease,
+      }),
+    ).toBeNull();
+    await retireFilePlaybackAssetSourceWarm(omitted);
+
+    const setup = genericRegistry(bytes, metadata);
+    const h = authenticAdtsRuntime();
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, h.runtime, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        installCodecTimelineHostArtifact: true,
+      }),
+    );
+    const request = h.createEncodedSource.mock.calls[0]?.[0];
+    const binding = request?.codecTimelineHostArtifactBinding;
+    expect(binding).toEqual({
+      queueItemId: QID,
+      sourceIdentity: BINDING.sourceIdentity,
+      transferSessionId: BINDING.transferSessionId,
+      encodedSize: bytes.byteLength,
+      name: metadata.name,
+      mime: metadata.mime,
+    });
+    expect(Reflect.ownKeys(binding ?? {})).toEqual([
+      'queueItemId',
+      'sourceIdentity',
+      'transferSessionId',
+      'encodedSize',
+      'name',
+      'mime',
+    ]);
+    expect(Object.getPrototypeOf(binding)).toBeNull();
+    expect(Object.isFrozen(binding)).toBe(true);
+    expect(
+      describeCodecTimelineHostArtifactForLease({
+        registry: setup.registry,
+        roomToken: TOKEN,
+        lease: setup.lease,
+      }),
+    ).toMatchObject({ codec: 'adts-aac-lc' });
+    expect(Object.keys(warm)).toEqual([
+      'backend',
+      'sourceIdentity',
+      'asset',
+      'metadata',
+      'readiness',
+    ]);
+    await retireFilePlaybackAssetSourceWarm(warm);
+  });
+
+  it('does not install from a structural copy of an otherwise authentic factory result', async () => {
+    const bytes = adtsFixtureBytes();
+    const setup = genericRegistry(bytes, metadata);
+    const authentic = authenticAdtsRuntime();
+    const copiedRuntime: FilePlaybackAssetSourceStagerRuntimeForTests = {
+      createEncodedSource: async (options) => {
+        const result = await authentic.createEncodedSource(options);
+        return Object.freeze({ ...result });
+      },
+    };
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, copiedRuntime, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        installCodecTimelineHostArtifact: true,
+      }),
+    );
+
+    expect(
+      describeCodecTimelineHostArtifactForLease({
+        registry: setup.registry,
+        roomToken: TOKEN,
+        lease: setup.lease,
+      }),
+    ).toBeNull();
+    await retireFilePlaybackAssetSourceWarm(warm);
+  });
+
+  it('preflights an existing association and skips reissuing or reinstalling it', async () => {
+    const bytes = adtsFixtureBytes();
+    const setup = genericRegistry(bytes, metadata);
+    const firstRuntime = authenticAdtsRuntime();
+    const first = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, firstRuntime.runtime, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        installCodecTimelineHostArtifact: true,
+      }),
+    );
+    await retireFilePlaybackAssetSourceWarm(first);
+
+    const secondSource = fakeCutoverSource('bounded-stream');
+    const secondRuntime = successfulRuntime(factoryResult(secondSource));
+    const second = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, secondRuntime.runtime, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        installCodecTimelineHostArtifact: true,
+      }),
+    );
+
+    expect(secondRuntime.createEncodedSource.mock.calls[0]?.[0]).not.toHaveProperty(
+      'codecTimelineHostArtifactBinding',
+    );
+    expect(
+      describeCodecTimelineHostArtifactForLease({
+        registry: setup.registry,
+        roomToken: TOKEN,
+        lease: setup.lease,
+      }),
+    ).toMatchObject({ codec: 'adts-aac-lc' });
+    await retireFilePlaybackAssetSourceWarm(second);
+  });
+
+  it('converges concurrent same-lease preparations on one matching association', async () => {
+    const bytes = adtsFixtureBytes();
+    const setup = genericRegistry(bytes, metadata);
+    const barrier = deferred<void>();
+    const artifacts: Array<
+      NonNullable<ReturnType<typeof codecTimelineHostArtifactForFilePlaybackSourceResult>>
+    > = [];
+    let arrivals = 0;
+    const waitForBothResults = async (result: BlobFilePlaybackSourceResult): Promise<void> => {
+      const artifact = codecTimelineHostArtifactForFilePlaybackSourceResult(result);
+      if (!artifact) throw new Error('fixture artifact missing');
+      artifacts.push(artifact);
+      arrivals += 1;
+      if (arrivals === 2) barrier.resolve(undefined);
+      await barrier.promise;
+    };
+    const firstRuntime = authenticAdtsRuntime(waitForBothResults);
+    const secondRuntime = authenticAdtsRuntime(waitForBothResults);
+    const options = {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      installCodecTimelineHostArtifact: true as const,
+    };
+
+    const [first, second] = await Promise.all([
+      prepareFilePlaybackAssetSourceWarm(
+        warmOptions(setup.registry, setup.lease, firstRuntime.runtime, options),
+      ),
+      prepareFilePlaybackAssetSourceWarm(
+        warmOptions(setup.registry, setup.lease, secondRuntime.runtime, options),
+      ),
+    ]);
+
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts[0]).not.toBe(artifacts[1]);
+    expect({
+      codec: artifacts[1]!.codec,
+      manifestByteLength: artifacts[1]!.manifestByteLength,
+      manifestSha256B64: artifacts[1]!.manifestSha256B64,
+    }).toEqual({
+      codec: artifacts[0]!.codec,
+      manifestByteLength: artifacts[0]!.manifestByteLength,
+      manifestSha256B64: artifacts[0]!.manifestSha256B64,
+    });
+    expect(
+      describeCodecTimelineHostArtifactForLease({
+        registry: setup.registry,
+        roomToken: TOKEN,
+        lease: setup.lease,
+      }),
+    ).toMatchObject({
+      codec: artifacts[0]!.codec,
+      manifestByteLength: artifacts[0]!.manifestByteLength,
+      manifestSha256B64: artifacts[0]!.manifestSha256B64,
+    });
+    const exactReplayOutcomes = artifacts.map((artifact) => {
+      try {
+        installCodecTimelineHostArtifactForLease({
+          registry: setup.registry,
+          roomToken: TOKEN,
+          lease: setup.lease,
+          artifact,
+        });
+        return 'installed' as const;
+      } catch {
+        return 'rejected' as const;
+      }
+    });
+    expect(exactReplayOutcomes.filter((outcome) => outcome === 'installed')).toHaveLength(1);
+    expect(exactReplayOutcomes.filter((outcome) => outcome === 'rejected')).toHaveLength(1);
+    await Promise.all([
+      retireFilePlaybackAssetSourceWarm(first),
+      retireFilePlaybackAssetSourceWarm(second),
+    ]);
+  });
+
+  it('rejects false and accessor opt-ins before entering the source factory', async () => {
+    const setup = genericRegistry(adtsFixtureBytes(), metadata);
+    const source = fakeCutoverSource('bounded-stream');
+    const h = successfulRuntime(factoryResult(source));
+    const falseOptions = warmOptions(setup.registry, setup.lease, h.runtime) as unknown as Record<
+      string,
+      unknown
+    >;
+    falseOptions.installCodecTimelineHostArtifact = false;
+    await expect(prepareFilePlaybackAssetSourceWarm(falseOptions as never)).rejects.toThrow(
+      /literal true/u,
+    );
+
+    const accessorOptions = { ...warmOptions(setup.registry, setup.lease, h.runtime) } as Record<
+      string,
+      unknown
+    >;
+    Object.defineProperty(accessorOptions, 'installCodecTimelineHostArtifact', {
+      enumerable: true,
+      get: () => true,
+    });
+    await expect(prepareFilePlaybackAssetSourceWarm(accessorOptions as never)).rejects.toThrow(
+      /options/u,
+    );
+    expect(h.createEncodedSource).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a concurrent same-lease artifact has different diagnostics', async () => {
+    const bytes = adtsFixtureBytes();
+    const alternateBytes = concatFixtureBytes(
+      makeAdtsFrame(23, 0x44),
+      makeAdtsFrame(37, 0x55),
+      makeAdtsFrame(83, 0x66),
+    );
+    expect(alternateBytes.byteLength).toBe(bytes.byteLength);
+    const setup = genericRegistry(bytes, metadata);
+    let candidate: NonNullable<
+      ReturnType<typeof codecTimelineHostArtifactForFilePlaybackSourceResult>
+    > | null = null;
+    const h = authenticAdtsRuntime(async (result) => {
+      const candidateArtifact = codecTimelineHostArtifactForFilePlaybackSourceResult(result);
+      if (!candidateArtifact) throw new Error('fixture candidate artifact missing');
+      candidate = candidateArtifact;
+      const alternateSource: EncodedAudioSource = {
+        kind: 'peer-range',
+        size: alternateBytes.byteLength,
+        identity: BINDING.sourceIdentity,
+        metadata,
+        readAt: async (offset, length, signal) => {
+          signal.throwIfAborted();
+          return alternateBytes.slice(offset, offset + length);
+        },
+        close: vi.fn(async () => undefined),
+      };
+      const alternateResult = await createEncodedFilePlaybackSource({
+        encodedSource: alternateSource,
+        queueItemId: QID,
+        audioContext: { sampleRate: 48_000, currentTime: 0 } as AudioContext,
+        nowRoomTimeMs: () => 1_000,
+        roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1_000,
+        localPerformanceMsToContextTime: (localTimeMs) => localTimeMs / 1_000,
+        signal: new AbortController().signal,
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        codecTimelineHostArtifactBinding: {
+          queueItemId: QID,
+          sourceIdentity: BINDING.sourceIdentity,
+          transferSessionId: BINDING.transferSessionId,
+          encodedSize: alternateBytes.byteLength,
+          name: metadata.name,
+          mime: metadata.mime,
+        },
+        aacCapabilityProbe: async () => undefined,
+        backendFactories: {
+          createStreamingAacSource: () => fakeCutoverSource('bounded-stream') as never,
+        },
+      });
+      const alternateArtifact =
+        codecTimelineHostArtifactForFilePlaybackSourceResult(alternateResult);
+      if (!alternateArtifact) throw new Error('fixture alternate artifact missing');
+      expect(alternateArtifact.manifestSha256B64).not.toBe(candidateArtifact.manifestSha256B64);
+      installCodecTimelineHostArtifactForLease({
+        registry: setup.registry,
+        roomToken: TOKEN,
+        lease: setup.lease,
+        artifact: alternateArtifact,
+      });
+    });
+
+    await expect(
+      prepareFilePlaybackAssetSourceWarm(
+        warmOptions(setup.registry, setup.lease, h.runtime, {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          installCodecTimelineHostArtifact: true,
+        }),
+      ),
+    ).rejects.toThrow(/conflicts with this source/u);
+    expect(candidate).not.toBeNull();
+    expect(h.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('destroys the prepared source when exact lease installation fails', async () => {
+    const bytes = adtsFixtureBytes();
+    const setup = genericRegistry(bytes, metadata);
+    const foreign = genericRegistry(bytes, metadata);
+    const h = authenticAdtsRuntime((result) => {
+      const artifact = codecTimelineHostArtifactForFilePlaybackSourceResult(result);
+      if (!artifact) throw new Error('fixture artifact missing');
+      installCodecTimelineHostArtifactForLease({
+        registry: foreign.registry,
+        roomToken: TOKEN,
+        lease: foreign.lease,
+        artifact,
+      });
+    });
+
+    await expect(
+      prepareFilePlaybackAssetSourceWarm(
+        warmOptions(setup.registry, setup.lease, h.runtime, {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          installCodecTimelineHostArtifact: true,
+        }),
+      ),
+    ).rejects.toThrow(/claimed by another exact registry lease/u);
+    expect(h.destroy).toHaveBeenCalledOnce();
+    expect(
+      describeCodecTimelineHostArtifactForLease({
+        registry: setup.registry,
+        roomToken: TOKEN,
+        lease: setup.lease,
+      }),
+    ).toBeNull();
+  });
+
+  it('rechecks authority immediately after synchronous installation', async () => {
+    const bytes = adtsFixtureBytes();
+    const setup = genericRegistry(bytes, metadata);
+    const h = authenticAdtsRuntime();
+    const isCurrent = vi.fn(
+      () =>
+        describeCodecTimelineHostArtifactForLease({
+          registry: setup.registry,
+          roomToken: TOKEN,
+          lease: setup.lease,
+        }) === null,
+    );
+
+    await expect(
+      prepareFilePlaybackAssetSourceWarm(
+        warmOptions(setup.registry, setup.lease, h.runtime, {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          installCodecTimelineHostArtifact: true,
+          isCurrent,
+        }),
+      ),
+    ).rejects.toThrow(/superseded/u);
+    expect(h.destroy).toHaveBeenCalledOnce();
+    expect(
+      describeCodecTimelineHostArtifactForLease({
+        registry: setup.registry,
+        roomToken: TOKEN,
+        lease: setup.lease,
+      }),
+    ).toMatchObject({ codec: 'adts-aac-lc' });
+  });
+});
+
 describe('stageFilePlaybackAssetSource', () => {
+  it('forwards only the exact host-artifact opt-in through the one-shot facade', async () => {
+    const setup = genericRegistry(adtsFixtureBytes(), {
+      name: 'facade.aac',
+      mime: 'audio/aac',
+    });
+    const source = fakeCutoverSource('bounded-stream');
+    const h = successfulRuntime(factoryResult(source));
+    await stageFilePlaybackAssetSource(
+      baseOptions(setup.registry, setup.lease, h.runtime, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        installCodecTimelineHostArtifact: true,
+      }),
+    );
+
+    expect(h.createEncodedSource.mock.calls[0]?.[0]).toHaveProperty(
+      'codecTimelineHostArtifactBinding',
+    );
+
+    const rejectedSetup = genericRegistry(adtsFixtureBytes(), {
+      name: 'facade-false.aac',
+      mime: 'audio/aac',
+    });
+    const rejectedSource = fakeCutoverSource('bounded-stream');
+    const rejected = successfulRuntime(factoryResult(rejectedSource));
+    const invalid = baseOptions(
+      rejectedSetup.registry,
+      rejectedSetup.lease,
+      rejected.runtime,
+    ) as unknown as Record<string, unknown>;
+    invalid.installCodecTimelineHostArtifact = false;
+    await expect(stageFilePlaybackAssetSource(invalid as never)).rejects.toThrow(/literal true/u);
+    expect(rejected.createEncodedSource).not.toHaveBeenCalled();
+  });
+
   it('forwards the exact Blob, distributed identity, and canonical metadata once', async () => {
     const setup = blobRegistry();
     const source = fakeCutoverSource();

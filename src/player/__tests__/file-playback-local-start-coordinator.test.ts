@@ -636,7 +636,7 @@ describe('revision-free warm local participant staging', () => {
 });
 
 describe('split local rendezvous participant lifecycle', () => {
-  it('keeps the bounded route policy property absent when the caller omits it', async () => {
+  it('keeps optional route and host-artifact properties absent when the caller omits them', async () => {
     const room = roomHarness();
     const fixture = room.admit(Q1, 'policy-omitted', 'audio-buffer');
     const stageAssetSourceForTests = vi.fn(
@@ -648,7 +648,58 @@ describe('split local rendezvous participant lifecycle', () => {
     });
 
     expect(stageAssetSourceForTests.mock.calls[0]?.[0]).not.toHaveProperty('boundedRoutePolicy');
+    expect(stageAssetSourceForTests.mock.calls[0]?.[0]).not.toHaveProperty(
+      'installCodecTimelineHostArtifact',
+    );
     await retireLocalFilePlaybackParticipant(staged, 'policy-omitted-cleanup');
+  });
+
+  it('forwards only the exact literal host-artifact opt-in to the asset stager', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'host-artifact-forwarded', 'bounded-stream');
+    const stageAssetSourceForTests = vi.fn(
+      fixture.options.runtimeForTests!.stageAssetSourceForTests,
+    );
+    const staged = await stageLocalFilePlaybackParticipant({
+      ...splitStageOptions(fixture.options),
+      installCodecTimelineHostArtifact: true,
+      runtimeForTests: { stageAssetSourceForTests },
+    });
+
+    expect(stageAssetSourceForTests.mock.calls[0]?.[0]).toMatchObject({
+      installCodecTimelineHostArtifact: true,
+    });
+    await retireLocalFilePlaybackParticipant(staged, 'host-artifact-forwarded-cleanup');
+  });
+
+  it('rejects false and accessor-backed host-artifact opt-ins before staging', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'host-artifact-invalid', 'bounded-stream');
+    const stageAssetSourceForTests = vi.fn(
+      fixture.options.runtimeForTests!.stageAssetSourceForTests,
+    );
+    const falseOptions = {
+      ...splitStageOptions(fixture.options),
+      installCodecTimelineHostArtifact: false,
+      runtimeForTests: { stageAssetSourceForTests },
+    } as unknown as StageLocalFilePlaybackParticipantOptions;
+    await expect(stageLocalFilePlaybackParticipant(falseOptions)).rejects.toThrow(/literal true/u);
+
+    const getter = vi.fn(() => true);
+    const accessorOptions = {
+      ...splitStageOptions(fixture.options),
+      runtimeForTests: { stageAssetSourceForTests },
+    } as StageLocalFilePlaybackParticipantOptions;
+    Object.defineProperty(accessorOptions, 'installCodecTimelineHostArtifact', {
+      enumerable: true,
+      configurable: true,
+      get: getter,
+    });
+    await expect(stageLocalFilePlaybackParticipant(accessorOptions)).rejects.toThrow(
+      /options are invalid/u,
+    );
+    expect(getter).not.toHaveBeenCalled();
+    expect(stageAssetSourceForTests).not.toHaveBeenCalled();
   });
 
   it('rejects invalid or accessor-backed route policy options before staging', async () => {
@@ -1015,6 +1066,35 @@ describe('split local rendezvous participant lifecycle', () => {
 });
 
 describe('startLocalFilePlayback', () => {
+  it('preserves omission and forwards the exact host-artifact opt-in through compatibility staging', async () => {
+    const omittedRoom = roomHarness();
+    const omittedFixture = omittedRoom.admit(Q1, 'compat-artifact-omitted', 'bounded-stream');
+    const omittedStage = vi.fn(omittedFixture.options.runtimeForTests!.stageAssetSourceForTests);
+    const omittedPending = startLocalFilePlayback({
+      ...omittedFixture.options,
+      runtimeForTests: { stageAssetSourceForTests: omittedStage },
+    });
+    await resolveStarted(omittedPending, omittedRoom, omittedFixture.source);
+    const omittedResult = await omittedPending;
+    expect(omittedStage.mock.calls[0]?.[0]).not.toHaveProperty('installCodecTimelineHostArtifact');
+    await omittedRoom.manager.retireCurrentCutover(omittedResult.port);
+
+    const enabledRoom = roomHarness();
+    const enabledFixture = enabledRoom.admit(Q1, 'compat-artifact-enabled', 'bounded-stream');
+    const enabledStage = vi.fn(enabledFixture.options.runtimeForTests!.stageAssetSourceForTests);
+    const enabledPending = startLocalFilePlayback({
+      ...enabledFixture.options,
+      installCodecTimelineHostArtifact: true,
+      runtimeForTests: { stageAssetSourceForTests: enabledStage },
+    });
+    await resolveStarted(enabledPending, enabledRoom, enabledFixture.source);
+    const enabledResult = await enabledPending;
+    expect(enabledStage.mock.calls[0]?.[0]).toMatchObject({
+      installCodecTimelineHostArtifact: true,
+    });
+    await enabledRoom.manager.retireCurrentCutover(enabledResult.port);
+  });
+
   it('canonicalizes and forwards one fixed universal-v1 policy through compatibility staging', async () => {
     const room = roomHarness();
     const fixture = room.admit(Q1, 'policy-opted-in', 'bounded-stream');

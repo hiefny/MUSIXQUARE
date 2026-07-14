@@ -178,11 +178,15 @@ build a bounded sparse access-unit index, expose an untrimmed `1024 * N` media
 timeline, and use a fresh decoder generation plus measured bounded preroll for
 seek. No callback-to-access-unit one-to-one relationship may be assumed.
 
-WebCodecs AAC is an optimization, not the portability contract. It requires
-both `AudioDecoder.isConfigSupported()` and a real canary decode for the exact
-configuration. A repository-owned bounded fallback must be selected and pass
-the dependency and redistribution review before ADTS can claim support on iOS
-versions without a usable `AudioDecoder`.
+The first shipping AAC decoder cohort is WebCodecs-only. WebKit added
+`AudioDecoder` in Safari 26, but a browser/version label is not admission
+evidence. Every device still requires both `AudioDecoder.isConfigSupported()`
+and a real canary decode for the exact configuration. Safari versions before
+26, or any implementation that fails either check, reject bounded AAC/M4A
+playback explicitly; they must not fall back to a whole-file `AudioBuffer`, a
+`MediaElement`, or another unbounded path. See the official
+[WebKit Safari 26 feature summary](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/)
+and [Safari 26 release notes](https://developer.apple.com/documentation/safari-release-notes/safari-26-release-notes).
 
 The canary proves that the selected browser decoder emits bounded AAC-LC core
 geometry for a real frame. It does not parse `raw_data_block()` and therefore
@@ -219,12 +223,14 @@ channels is required, all peers use the same pinned fallback artifact and move
 together to a candidate generation opened from one common anchor. The current
 one-AU transform preroll is bounded startup policy, not a PNS bitwise guarantee.
 
-Symphonia `v0.6.0` is the current fallback candidate, not yet an admitted
-dependency. Admission requires a repository-owned raw-AU ABI, fail-closed
+A repository-owned WASM decoder remains a possible future compatibility
+expansion, not a prerequisite for the Safari 26+ WebCodecs cohort. Symphonia
+`v0.6.0` is only a deferred candidate and is not an admitted dependency.
+Admission would still require a repository-owned raw-AU ABI, fail-closed
 SBR/PS/SAC patch, fixed WASM memory, reproducible artifact manifest and digest,
-malformed-input/lifecycle soak, and MPL-2.0 corresponding-source notices. The
-artifact digest and ABI become the room-visible backend profile before any AAC
-product route is enabled.
+malformed-input/lifecycle soak, and MPL-2.0 corresponding-source notices. Its
+artifact digest and ABI would become a new room-visible backend profile; it
+could not silently join or replace the current WebCodecs cohort.
 
 ### M4A AAC container checkpoint
 

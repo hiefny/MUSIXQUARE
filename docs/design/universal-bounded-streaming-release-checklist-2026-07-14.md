@@ -99,6 +99,18 @@ Safari and the installed PWA are separate execution environments. A Safari
 PASS cannot be copied into the PWA column, even when both report the same
 WebKit version.
 
+The mandatory AAC/M4A matrix uses iOS/Safari 26 or newer because Safari 26 is
+the first WebKit release with `AudioDecoder`. Version alone is not a PASS: each
+ADTS and M4A run must record successful `isConfigSupported()` and exact canary
+decode evidence. An older Safari, or a newer implementation that fails the
+canary, is outside the admitted AAC decoder cohort and must show a clear
+unsupported result without entering a whole-file `AudioBuffer`, `MediaElement`,
+or persistent-storage fallback. Other bounded formats retain their own
+capability results; lack of AAC capability must not be misreported as a room or
+connection failure. Reference:
+[WebKit Safari 26 features](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/)
+and [Safari 26 release notes](https://developer.apple.com/documentation/safari-release-notes/safari-26-release-notes).
+
 ## Fixture contract
 
 Prepare two independently decodable, non-sparse fixtures for every format:

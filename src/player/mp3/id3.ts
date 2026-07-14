@@ -1,6 +1,6 @@
 import {
   EncodedSourceIntegrityError,
-  type EncodedAudioSource,
+  type EncodedRandomAccessSource,
   throwIfAborted,
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
@@ -74,7 +74,7 @@ function safeAdd(left: number, right: number, label: string): number {
 }
 
 async function readExact(
-  source: EncodedAudioSource,
+  source: EncodedRandomAccessSource,
   sourceBytes: number,
   offset: number,
   length: number,
@@ -129,7 +129,7 @@ function validateHeaderFlags(majorVersion: Id3v2MajorVersion, flags: number): vo
 }
 
 async function readTrailingTagBoundary(
-  source: EncodedAudioSource,
+  source: EncodedRandomAccessSource,
   sourceBytes: number,
   endOffset: number,
   signal: AbortSignal,
@@ -201,7 +201,7 @@ async function readTrailingTagBoundary(
 }
 
 async function readLeadingHeader(
-  source: EncodedAudioSource,
+  source: EncodedRandomAccessSource,
   sourceBytes: number,
   offset: number,
   audioEnd: number,
@@ -220,7 +220,7 @@ async function readLeadingHeader(
 }
 
 async function readLeadingTagBoundary(
-  source: EncodedAudioSource,
+  source: EncodedRandomAccessSource,
   sourceBytes: number,
   headerOffset: number,
   audioEnd: number,
@@ -287,7 +287,7 @@ async function readLeadingTagBoundary(
  * its canonical 128-byte-from-end boundary.
  */
 export async function readMp3Id3Boundaries(
-  source: EncodedAudioSource,
+  source: EncodedRandomAccessSource,
   signal: AbortSignal,
 ): Promise<ParsedMp3Id3Boundaries> {
   const sourceBytes = source.size;

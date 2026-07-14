@@ -20,6 +20,7 @@ import type { HostRendezvousParticipant } from './rendezvous-coordinator.ts';
 
 const MAX_IDENTIFIER_LENGTH = 256;
 const MAX_RENDEZVOUS_IDS_PER_RUN = 256;
+const MAX_RECEIPT_AUTHORITIES = 512;
 const INVALID_METRIC_FALLBACK_MS = 2_500;
 const FALLBACK_QUEUE_ITEM_ID = 'invalid-queue-item' as QueueItemId;
 const FALLBACK_RUN_ID = 'invalid-run';
@@ -51,6 +52,23 @@ const CANCEL_INTENT_KEYS = Object.freeze([
 ]);
 
 export type RemoteRendezvousMetric = number | (() => number);
+
+/**
+ * Separates a receipt that changed rendezvous state from one that was safely
+ * consumed after its authority expired, without weakening malformed or
+ * unissued receipt handling.
+ */
+export type RemoteRendezvousReceiptAdmission =
+  | Readonly<{ readonly disposition: 'accepted' }>
+  | Readonly<{ readonly disposition: 'handled'; readonly reason: 'late' | 'stale' }>
+  | Readonly<{
+      readonly disposition: 'invalid';
+      readonly reason:
+        | 'malformed'
+        | 'wrong-participant'
+        | 'conflicting-authority'
+        | 'unknown-authority';
+    }>;
 
 export interface RemoteRendererEvidenceScope {
   readonly sessionId: string;
@@ -190,6 +208,34 @@ function freezeCanonical<T extends object>(value: T): T {
   return Object.freeze(Object.assign(Object.create(null), value)) as T;
 }
 
+const RECEIPT_ACCEPTED: RemoteRendezvousReceiptAdmission = freezeCanonical({
+  disposition: 'accepted' as const,
+});
+const RECEIPT_HANDLED_LATE: RemoteRendezvousReceiptAdmission = freezeCanonical({
+  disposition: 'handled' as const,
+  reason: 'late' as const,
+});
+const RECEIPT_HANDLED_STALE: RemoteRendezvousReceiptAdmission = freezeCanonical({
+  disposition: 'handled' as const,
+  reason: 'stale' as const,
+});
+const RECEIPT_INVALID_MALFORMED: RemoteRendezvousReceiptAdmission = freezeCanonical({
+  disposition: 'invalid' as const,
+  reason: 'malformed' as const,
+});
+const RECEIPT_INVALID_WRONG_PARTICIPANT: RemoteRendezvousReceiptAdmission = freezeCanonical({
+  disposition: 'invalid' as const,
+  reason: 'wrong-participant' as const,
+});
+const RECEIPT_INVALID_CONFLICTING_AUTHORITY: RemoteRendezvousReceiptAdmission = freezeCanonical({
+  disposition: 'invalid' as const,
+  reason: 'conflicting-authority' as const,
+});
+const RECEIPT_INVALID_UNKNOWN_AUTHORITY: RemoteRendezvousReceiptAdmission = freezeCanonical({
+  disposition: 'invalid' as const,
+  reason: 'unknown-authority' as const,
+});
+
 function snapshotCancelIntent(value: unknown): FilePlaybackCancelIntent | null {
   const snapshot = snapshotExactDataRecord(value, CANCEL_INTENT_KEYS);
   const attempt = readPlaybackAttemptIdentity(snapshot);
@@ -319,6 +365,8 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
   #latestIdentity: LatestCorrelationIdentity | null = null;
   #seenRun: RevisionedPlaybackRun | null = null;
   readonly #seenRendezvousIds = new Set<string>();
+  readonly #armReceiptAuthorities: RendezvousArmIntent[] = [];
+  readonly #finalizeReceiptAuthorities: RendezvousFinalizeIntent[] = [];
   #lastRoomTimeMs: number | null = null;
   #readingRoomTime = false;
   #roomTimeReadReentered = false;
@@ -431,6 +479,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       rendezvousId: canonical.rendezvousId,
     });
     this.#rememberRendezvous(canonical);
+    this.#rememberArmReceiptAuthority(canonical);
 
     try {
       const dispatched = this.#dispatchArm(canonical);
@@ -475,6 +524,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       deferred: deferredReceipt<RendezvousFinalizeReceipt>(),
     };
     active.finalize = operation;
+    this.#rememberFinalizeReceiptAuthority(canonical);
     try {
       const dispatched = this.#dispatchFinalize(canonical);
       this.#observeDispatchFailure(dispatched, () => {
@@ -499,52 +549,66 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
     return operation.deferred.promise;
   }
 
-  /** Admits one untrusted arm receipt if it exactly matches the live request. */
-  acceptArmReceipt(receipt: unknown): boolean {
+  /** Classifies and, when live, admits one untrusted arm receipt. */
+  admitArmReceipt(receipt: unknown): RemoteRendezvousReceiptAdmission {
     const canonical = readRendezvousArmReceipt(receipt);
+    if (canonical === null) return RECEIPT_INVALID_MALFORMED;
+    if (canonical.participantId !== this.participantId) {
+      return RECEIPT_INVALID_WRONG_PARTICIPANT;
+    }
     const active = this.#active;
-    if (canonical === null || active === null || !this.#isLiveArm(active, canonical)) {
-      return false;
+    if (active === null || !this.#isLiveArm(active, canonical)) {
+      return this.#classifyInactiveArmReceipt(canonical);
     }
     const roomTime = this.#readRoomTimeMs();
     // The injected clock is application code and may synchronously cancel or
     // supersede this request. Never commit using authority captured before it.
-    if (!this.#isLiveArm(active, canonical)) return false;
+    if (!this.#isLiveArm(active, canonical)) return this.#classifyInactiveArmReceipt(canonical);
     if (!roomTime.ok) {
       this.#settleArm(active, this.#rejectedArm(active.intent, roomTime.reasonCode));
-      return false;
+      return RECEIPT_HANDLED_STALE;
     }
     if (
       roomTime.value > active.intent.finalizeByRoomTimeMs ||
       canonical.observedAtRoomTimeMs > active.intent.finalizeByRoomTimeMs
     ) {
       this.#settleArm(active, this.#rejectedArm(active.intent, 'remote-arm-receipt-late'));
-      return false;
+      return RECEIPT_HANDLED_LATE;
     }
-    return this.#settleArm(active, canonical);
+    return this.#settleArm(active, canonical) ? RECEIPT_ACCEPTED : RECEIPT_HANDLED_STALE;
   }
 
-  /** Admits one untrusted finalize receipt if it exactly matches the live request. */
-  acceptFinalizeReceipt(receipt: unknown): boolean {
+  /** Boolean compatibility view for coordinator and test harness callers. */
+  acceptArmReceipt(receipt: unknown): boolean {
+    return this.admitArmReceipt(receipt).disposition === 'accepted';
+  }
+
+  /** Classifies and, when live, admits one untrusted finalize receipt. */
+  admitFinalizeReceipt(receipt: unknown): RemoteRendezvousReceiptAdmission {
     const canonical = readRendezvousFinalizeReceipt(receipt);
+    if (canonical === null) return RECEIPT_INVALID_MALFORMED;
+    if (canonical.participantId !== this.participantId) {
+      return RECEIPT_INVALID_WRONG_PARTICIPANT;
+    }
     const active = this.#active;
     const operation = active?.finalize ?? null;
     if (
-      canonical === null ||
       active === null ||
       operation === null ||
       !this.#isLiveFinalize(active, operation, canonical)
     ) {
-      return false;
+      return this.#classifyInactiveFinalizeReceipt(canonical);
     }
     const roomTime = this.#readRoomTimeMs();
-    if (!this.#isLiveFinalize(active, operation, canonical)) return false;
+    if (!this.#isLiveFinalize(active, operation, canonical)) {
+      return this.#classifyInactiveFinalizeReceipt(canonical);
+    }
     if (!roomTime.ok) {
       this.#settleFinalize(
         operation,
         this.#rejectedFinalize(operation.intent, roomTime.reasonCode),
       );
-      return false;
+      return RECEIPT_HANDLED_STALE;
     }
     if (
       roomTime.value > operation.intent.startAtRoomTimeMs ||
@@ -554,11 +618,16 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
         operation,
         this.#rejectedFinalize(operation.intent, 'remote-finalize-receipt-late'),
       );
-      return false;
+      return RECEIPT_HANDLED_LATE;
     }
     const settled = this.#settleFinalize(operation, canonical);
     if (settled && canonical.status === 'accepted') active.finalizeAccepted = true;
-    return settled;
+    return settled ? RECEIPT_ACCEPTED : RECEIPT_HANDLED_STALE;
+  }
+
+  /** Boolean compatibility view for coordinator and test harness callers. */
+  acceptFinalizeReceipt(receipt: unknown): boolean {
+    return this.admitFinalizeReceipt(receipt).disposition === 'accepted';
   }
 
   /**
@@ -756,6 +825,54 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       this.#seenRendezvousIds.clear();
     }
     this.#seenRendezvousIds.add(intent.rendezvousId);
+  }
+
+  #rememberArmReceiptAuthority(intent: RendezvousArmIntent): void {
+    this.#armReceiptAuthorities.push(intent);
+    if (this.#armReceiptAuthorities.length > MAX_RECEIPT_AUTHORITIES) {
+      this.#armReceiptAuthorities.shift();
+    }
+  }
+
+  #rememberFinalizeReceiptAuthority(intent: RendezvousFinalizeIntent): void {
+    this.#finalizeReceiptAuthorities.push(intent);
+    if (this.#finalizeReceiptAuthorities.length > MAX_RECEIPT_AUTHORITIES) {
+      this.#finalizeReceiptAuthorities.shift();
+    }
+  }
+
+  #classifyInactiveArmReceipt(receipt: RendezvousArmReceipt): RemoteRendezvousReceiptAdmission {
+    if (this.#armReceiptAuthorities.some((intent) => armReceiptMatches(intent, receipt))) {
+      return RECEIPT_HANDLED_STALE;
+    }
+    if (
+      this.#armReceiptAuthorities.some(
+        (intent) =>
+          intent.rendezvousId === receipt.rendezvousId || sameRevisionedRun(intent, receipt),
+      )
+    ) {
+      return RECEIPT_INVALID_CONFLICTING_AUTHORITY;
+    }
+    return RECEIPT_INVALID_UNKNOWN_AUTHORITY;
+  }
+
+  #classifyInactiveFinalizeReceipt(
+    receipt: RendezvousFinalizeReceipt,
+  ): RemoteRendezvousReceiptAdmission {
+    if (
+      this.#finalizeReceiptAuthorities.some((intent) => finalizeReceiptMatches(intent, receipt))
+    ) {
+      return RECEIPT_HANDLED_STALE;
+    }
+    if (
+      this.#finalizeReceiptAuthorities.some(
+        (intent) =>
+          intent.rendezvousId === receipt.rendezvousId || sameRevisionedRun(intent, receipt),
+      )
+    ) {
+      return RECEIPT_INVALID_CONFLICTING_AUTHORITY;
+    }
+    return RECEIPT_INVALID_UNKNOWN_AUTHORITY;
   }
 
   #readRoomTimeMs(): RoomTimeRead {

@@ -2353,7 +2353,7 @@ export class FilePlaybackProductHostMediaOwner {
       return;
     }
     if (message.kind === 'rendezvous-armed') {
-      const accepted = attempt.participant.acceptArmReceipt({
+      const admission = attempt.participant.admitArmReceipt({
         protocolVersion: 2,
         kind: 'rendezvous-armed',
         queueItemId: message.queueItemId,
@@ -2366,12 +2366,14 @@ export class FilePlaybackProductHostMediaOwner {
         bufferedAheadSeconds: message.bufferedAheadSeconds,
         reasonCode: message.reasonCode,
       });
-      if (!accepted) throw new Error('Guest rendezvous ARM receipt was stale or invalid');
+      if (admission.disposition === 'invalid') {
+        throw new Error(`Guest rendezvous ARM receipt was invalid: ${admission.reason}`);
+      }
       acknowledge();
       return;
     }
     if (message.kind === 'rendezvous-finalized') {
-      const accepted = attempt.participant.acceptFinalizeReceipt({
+      const admission = attempt.participant.admitFinalizeReceipt({
         protocolVersion: 2,
         kind: 'rendezvous-finalized',
         queueItemId: message.queueItemId,
@@ -2383,7 +2385,9 @@ export class FilePlaybackProductHostMediaOwner {
         observedAtRoomTimeMs: message.observedAtRoomTimeMs,
         reasonCode: message.reasonCode,
       });
-      if (!accepted) throw new Error('Guest rendezvous FINALIZE receipt was stale or invalid');
+      if (admission.disposition === 'invalid') {
+        throw new Error(`Guest rendezvous FINALIZE receipt was invalid: ${admission.reason}`);
+      }
       acknowledge();
       return;
     }

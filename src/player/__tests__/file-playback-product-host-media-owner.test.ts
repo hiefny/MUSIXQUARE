@@ -862,6 +862,19 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       }),
     );
     await expect(armTask).resolves.toMatchObject({ status: 'armed' });
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'rendezvous-armed',
+        rendezvousId: arm.rendezvousId,
+        status: 'armed',
+        observedAtRoomTimeMs: now,
+        bufferedAheadSeconds: 8,
+        reasonCode: null,
+      }),
+    );
+    expect(closeConnection).not.toHaveBeenCalled();
     const finalizeTask = capability.participant.finalize({
       protocolVersion: 2,
       kind: 'rendezvous-finalize',
@@ -888,6 +901,18 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       }),
     );
     await expect(finalizeTask).resolves.toMatchObject({ status: 'accepted' });
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'rendezvous-finalized',
+        rendezvousId: finalize.rendezvousId,
+        status: 'accepted',
+        observedAtRoomTimeMs: now,
+        reasonCode: null,
+      }),
+    );
+    expect(closeConnection).not.toHaveBeenCalled();
     now = 2_000;
     adoptWire(
       pair,

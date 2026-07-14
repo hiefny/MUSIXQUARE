@@ -281,6 +281,125 @@ describe('RemoteRendezvousParticipant', () => {
     await expect(activePending).resolves.toMatchObject({ status: 'armed', revision: 8 });
   });
 
+  it('classifies live, stale, conflicting, and unknown arm receipt authority separately', async () => {
+    const remote = participant();
+    const arm = armIntent();
+    const pending = remote.arm(arm);
+
+    expect(remote.admitArmReceipt(null)).toEqual({
+      disposition: 'invalid',
+      reason: 'malformed',
+    });
+    expect(
+      remote.admitArmReceipt({ ...armReceipt(arm), participantId: 'wrong-participant' }),
+    ).toEqual({
+      disposition: 'invalid',
+      reason: 'wrong-participant',
+    });
+    expect(
+      remote.admitArmReceipt(armReceipt({ ...arm, rendezvousId: 'unissued-rendezvous' })),
+    ).toEqual({
+      disposition: 'invalid',
+      reason: 'conflicting-authority',
+    });
+    expect(
+      remote.admitArmReceipt(
+        armReceipt(
+          armIntent({
+            queueItemId: OTHER_QID,
+            runId: 'unknown-run',
+            revision: 99,
+            rendezvousId: 'unknown-rendezvous',
+          }),
+        ),
+      ),
+    ).toEqual({
+      disposition: 'invalid',
+      reason: 'unknown-authority',
+    });
+
+    expect(remote.admitArmReceipt(armReceipt(arm))).toEqual({ disposition: 'accepted' });
+    await expect(pending).resolves.toMatchObject({ status: 'armed' });
+    expect(remote.admitArmReceipt(armReceipt(arm))).toEqual({
+      disposition: 'handled',
+      reason: 'stale',
+    });
+  });
+
+  it('classifies exact expired arm and finalize receipts as handled timing outcomes', async () => {
+    let now = 1_600;
+    const lateArmRemote = participant({ nowRoomTimeMs: () => now });
+    const arm = armIntent();
+    const pendingArm = lateArmRemote.arm(arm);
+    now = arm.finalizeByRoomTimeMs + 1;
+    expect(lateArmRemote.admitArmReceipt(armReceipt(arm))).toEqual({
+      disposition: 'handled',
+      reason: 'late',
+    });
+    await expect(pendingArm).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'remote-arm-receipt-late',
+    });
+
+    now = 1_600;
+    const lateFinalizeRemote = participant({ nowRoomTimeMs: () => now });
+    const finalizeArm = armIntent();
+    lateFinalizeRemote.arm(finalizeArm);
+    expect(lateFinalizeRemote.admitArmReceipt(armReceipt(finalizeArm))).toEqual({
+      disposition: 'accepted',
+    });
+    const finalize = finalizeIntent();
+    const pendingFinalize = lateFinalizeRemote.finalize(finalize);
+    expect(lateFinalizeRemote.admitFinalizeReceipt(null)).toEqual({
+      disposition: 'invalid',
+      reason: 'malformed',
+    });
+    expect(
+      lateFinalizeRemote.admitFinalizeReceipt({
+        ...finalizeReceipt(finalize),
+        participantId: 'wrong-participant',
+      }),
+    ).toEqual({
+      disposition: 'invalid',
+      reason: 'wrong-participant',
+    });
+    expect(
+      lateFinalizeRemote.admitFinalizeReceipt(
+        finalizeReceipt({ ...finalize, rendezvousId: 'unissued-rendezvous' }),
+      ),
+    ).toEqual({
+      disposition: 'invalid',
+      reason: 'conflicting-authority',
+    });
+    expect(
+      lateFinalizeRemote.admitFinalizeReceipt(
+        finalizeReceipt({
+          ...finalize,
+          queueItemId: OTHER_QID,
+          runId: 'unknown-run',
+          revision: 99,
+          rendezvousId: 'unknown-rendezvous',
+        }),
+      ),
+    ).toEqual({
+      disposition: 'invalid',
+      reason: 'unknown-authority',
+    });
+    now = finalize.startAtRoomTimeMs + 1;
+    expect(lateFinalizeRemote.admitFinalizeReceipt(finalizeReceipt(finalize))).toEqual({
+      disposition: 'handled',
+      reason: 'late',
+    });
+    await expect(pendingFinalize).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'remote-finalize-receipt-late',
+    });
+    expect(lateFinalizeRemote.admitFinalizeReceipt(finalizeReceipt(finalize))).toEqual({
+      disposition: 'handled',
+      reason: 'stale',
+    });
+  });
+
   it('keeps malformed, accessor, and mismatched arm receipts inert and closes late work', async () => {
     let now = 1_600;
     const remote = participant({ nowRoomTimeMs: () => now });

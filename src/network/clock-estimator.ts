@@ -51,7 +51,8 @@ export type ClockSampleRejectionReason =
   | 'exchange-too-long'
   | 'invalid-rtt'
   | 'rtt-too-high'
-  | 'offset-outlier';
+  | 'offset-outlier'
+  | 'quality-regression';
 
 export type ClockSampleResult =
   | {
@@ -196,16 +197,37 @@ export class ClockEstimator {
 
     if (this.isOffsetOutlier(offsetMs)) return this.rejected('offset-outlier', capturedAtMs);
 
-    this.samples.push({ offsetMs, rttMs, capturedAtMs });
+    const qualityBefore = this.qualityAt(capturedAtMs);
+    if (
+      qualityBefore.calibrated &&
+      (rttMs > this.calibration.maxRttP95Ms ||
+        Math.abs(offsetMs - qualityBefore.offsetMs) > this.calibration.maxOffsetSpreadMs)
+    ) {
+      return this.rejected('quality-regression', capturedAtMs);
+    }
+
+    const previousSamples = this.samples;
+    this.samples = [...previousSamples, { offsetMs, rttMs, capturedAtMs }];
     if (this.samples.length > this.maxSamples) {
-      this.samples.splice(0, this.samples.length - this.maxSamples);
+      this.samples = this.samples.slice(this.samples.length - this.maxSamples);
+    }
+    const quality = this.qualityAt(capturedAtMs);
+
+    // Once a clock is authoritative, one maintenance packet must not create a
+    // transient authority gap. Evaluate the candidate transactionally and
+    // keep the last calibrated cohort until a compatible sample can renew it.
+    // Rejected candidates do not refresh age, so sustained drift/noise still
+    // expires the lease and forces a fresh bounded calibration.
+    if (qualityBefore.calibrated && !quality.calibrated) {
+      this.samples = previousSamples;
+      return this.rejected('quality-regression', capturedAtMs);
     }
 
     return {
       accepted: true,
       rttMs,
       offsetMs,
-      quality: this.qualityAt(capturedAtMs),
+      quality,
     };
   }
 

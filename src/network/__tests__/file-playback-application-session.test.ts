@@ -104,7 +104,43 @@ function manualTimers(): {
   };
 }
 
+function leakyCancellationTimers(): {
+  options: FilePlaybackApplicationSessionManagerOptions;
+  handlesForDelay: (delayMs: number) => number[];
+  run: (handle: number) => void;
+} {
+  let nextId = 1;
+  const timers = new Map<number, { callback: () => void; delayMs: number; ran: boolean }>();
+  return {
+    options: {
+      applicationHandshakeDeadlineMs: 50,
+      clockCalibrationRetryMs: 10,
+      clockCalibrationDeadlineMs: 100,
+      maxClockCalibrationAttempts: 15,
+      scheduleTimeout(callback, delayMs) {
+        const id = nextId++;
+        timers.set(id, { callback, delayMs, ran: false });
+        return id;
+      },
+      // Simulate a platform adapter that cannot prevent an already queued
+      // callback from running. The session's generation fence must own safety.
+      cancelTimeout() {},
+    },
+    handlesForDelay: (delayMs) =>
+      [...timers]
+        .filter(([, timer]) => timer.delayMs === delayMs && !timer.ran)
+        .map(([handle]) => handle),
+    run: (handle) => {
+      const timer = timers.get(handle);
+      if (!timer || timer.ran) throw new Error(`Timer ${handle} is unavailable`);
+      timer.ran = true;
+      timer.callback();
+    },
+  };
+}
+
 let fixtureSequence = 0;
+const liveManagers = new Set<FilePlaybackApplicationSessionManager>();
 
 function issuer(prefix: string): FilePlaybackHandshakeIdIssuer {
   let session = 0;
@@ -166,6 +202,8 @@ function fixture(
       issuer(`${prefix}-guest`),
       options.guestManagerOptions,
     );
+  liveManagers.add(host);
+  liveManagers.add(guest);
   const hostAuthority = host.beginHostRoom('host-participant');
   expect(host.beginHostConnection(hostConn, 'guest-participant')).toBe(true);
 
@@ -296,6 +334,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const manager of liveManagers) manager.endRoom();
+  liveManagers.clear();
   bus.clear();
 });
 
@@ -1481,7 +1521,182 @@ describe('FilePlaybackApplicationSessionManager', () => {
         (value) => (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
       ),
     ).toHaveLength(10);
-    expect(timers.pending()).toBe(0);
+    expect(timers.pending()).toBe(1);
+  });
+
+  it('keeps an established guest clock fresh across repeated lease windows', () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const timers = manualTimers();
+      const setup = fixture({ guestManagerOptions: timers.options });
+      expect(setup.startGuest()).toBe(true);
+      setup.pump();
+      const channel = setup.guest.establishedChannel(setup.guestConn);
+      expect(channel?.clockReady()).toBe(true);
+      expect(timers.pending()).toBe(1);
+
+      for (let cycle = 0; cycle < 8; cycle += 1) {
+        now += 1_000;
+        timers.runDelay(1_000);
+        expect(
+          setup.queue.filter(
+            ({ from, value }) =>
+              from === 'guest' &&
+              (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
+          ),
+        ).toHaveLength(1);
+        setup.pump();
+        expect(setup.guest.clockCalibrationState(setup.guestConn)).toBe('ready');
+        expect(channel?.clockReady()).toBe(true);
+        expect(channel?.quality()).toMatchObject({
+          calibrated: true,
+          sampleCount: 6 + cycle,
+          ageMs: 0,
+        });
+        expect(channel?.nowRoomTimeMs()).toBe(now);
+        expect(timers.pending()).toBe(1);
+      }
+
+      expect(
+        setup.guestConn.sent.filter(
+          (value) => (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
+        ),
+      ).toHaveLength(13);
+      setup.guest.closeConnection(setup.guestConn, true);
+      expect(timers.pending()).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('retires lost maintenance pings and recalibrates after the clock lease expires', () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const timers = manualTimers();
+      const lifecycle: string[] = [];
+      const setup = fixture({
+        guestManagerOptions: {
+          ...timers.options,
+          onLifecycleEvent: (event) => lifecycle.push(event.kind),
+        },
+      });
+      expect(setup.startGuest()).toBe(true);
+      setup.pump();
+      expect(setup.guest.clockCalibrationState(setup.guestConn)).toBe('ready');
+
+      now = 2_000;
+      timers.runDelay(1_000);
+      const firstPing = setup.deliverNext();
+      expect((firstPing?.value as { type?: string }).type).toBe(FILE_PLAYBACK_CLOCK_PING_TYPE);
+      const latePong = setup.queue.shift();
+      expect((latePong?.value as { type?: string }).type).toBe(FILE_PLAYBACK_CLOCK_PONG_TYPE);
+
+      now = 3_000;
+      timers.runDelay(1_000);
+      expect(setup.queue).toHaveLength(0);
+
+      now = 4_101;
+      timers.runDelay(1_000);
+      expect(setup.guest.clockCalibrationState(setup.guestConn)).toBe('calibrating');
+      expect(lifecycle).toContain('clock-degraded');
+      expect(
+        setup.queue.filter(
+          ({ from, value }) =>
+            from === 'guest' && (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
+        ),
+      ).toHaveLength(5);
+
+      setup.pump();
+      expect(setup.guest.clockCalibrationState(setup.guestConn)).toBe('ready');
+      expect(setup.guest.establishedChannel(setup.guestConn)?.clockReady()).toBe(true);
+      expect(latePong).toBeDefined();
+      expect(setup.guest.receive(latePong!.value, setup.guestConn)).toMatchObject({
+        handled: true,
+      });
+      expect(setup.guestConn.close).not.toHaveBeenCalled();
+      expect(timers.pending()).toBe(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('rejects a noisy maintenance pong without interrupting an established clock', () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const timers = manualTimers();
+      const lifecycle: string[] = [];
+      const setup = fixture({
+        guestManagerOptions: {
+          ...timers.options,
+          onLifecycleEvent: (event) => lifecycle.push(event.kind),
+        },
+      });
+      expect(setup.startGuest()).toBe(true);
+      setup.pump();
+      const channel = setup.guest.establishedChannel(setup.guestConn);
+      expect(channel?.quality()).toMatchObject({ calibrated: true, sampleCount: 5, ageMs: 0 });
+
+      now = 2_000;
+      timers.runDelay(1_000);
+      expect((setup.deliverNext()?.value as { type?: string }).type).toBe(
+        FILE_PLAYBACK_CLOCK_PING_TYPE,
+      );
+      now = 2_018;
+      expect((setup.deliverNext()?.value as { type?: string }).type).toBe(
+        FILE_PLAYBACK_CLOCK_PONG_TYPE,
+      );
+      expect(channel?.quality()).toMatchObject({
+        calibrated: true,
+        sampleCount: 5,
+        ageMs: 1_018,
+      });
+      expect(setup.guest.clockCalibrationState(setup.guestConn)).toBe('ready');
+      expect(setup.guestConn.close).not.toHaveBeenCalled();
+      expect(lifecycle.filter((kind) => kind === 'clock-degraded')).toHaveLength(0);
+
+      now = 3_000;
+      timers.runDelay(1_000);
+      setup.pump();
+      expect(channel?.quality()).toMatchObject({ calibrated: true, sampleCount: 6, ageMs: 0 });
+      expect(lifecycle.filter((kind) => kind === 'clock-ready')).toHaveLength(1);
+      expect(timers.pending()).toBe(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('fences cancelled and post-teardown maintenance callbacks by generation', () => {
+    const timers = leakyCancellationTimers();
+    const setup = fixture({ guestManagerOptions: timers.options });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+
+    const firstMaintenance = timers.handlesForDelay(1_000);
+    expect(firstMaintenance).toHaveLength(1);
+    timers.run(firstMaintenance[0]!);
+    setup.pump();
+    const [cancelledMaintenance, currentMaintenance] = timers.handlesForDelay(1_000);
+    expect(cancelledMaintenance).toBeDefined();
+    expect(currentMaintenance).toBeDefined();
+
+    const pingCount = () =>
+      setup.guestConn.sent.filter(
+        (value) => (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
+      ).length;
+    expect(pingCount()).toBe(6);
+    timers.run(cancelledMaintenance!);
+    expect(pingCount()).toBe(6);
+
+    timers.run(currentMaintenance!);
+    expect(pingCount()).toBe(7);
+    const [postTeardownMaintenance] = timers.handlesForDelay(1_000);
+    expect(postTeardownMaintenance).toBeDefined();
+    setup.guest.closeConnection(setup.guestConn, true);
+    timers.run(postTeardownMaintenance!);
+    expect(pingCount()).toBe(7);
   });
 
   it('restarts a quality-failed batch and calibrates without tearing down the room', () => {

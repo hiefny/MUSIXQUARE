@@ -48,7 +48,7 @@ describe('ClockEstimator', () => {
     addSample(estimator, 30, 100);
     addSample(estimator, 20, 102);
     addSample(estimator, 50, 98);
-    addSample(estimator, 500, 1_500);
+    addSample(estimator, 500, 104);
 
     const quality = estimator.quality();
     expect(quality.offsetMs).toBe(100);
@@ -125,6 +125,62 @@ describe('ClockEstimator', () => {
     const result = addSample(estimator, 9, 20_000);
     expect(result).toMatchObject({ accepted: false, reason: 'offset-outlier' });
     expect(result.quality).toMatchObject({ sampleCount: 3, offsetMs: 100 });
+  });
+
+  it('transactionally rejects maintenance samples that would regress calibrated quality', () => {
+    const clock = makeNow();
+    const estimator = new ClockEstimator({ now: clock.now });
+    for (let index = 0; index < 5; index += 1) {
+      addSample(estimator, 10, 100 + index);
+    }
+    expect(estimator.quality()).toMatchObject({
+      calibrated: true,
+      sampleCount: 5,
+      offsetMs: 102,
+      offsetSpreadMs: 4,
+      ageMs: 0,
+    });
+
+    clock.advance(1_000);
+    const spreadRegression = addSample(estimator, 9, 109);
+    expect(spreadRegression).toMatchObject({
+      accepted: false,
+      reason: 'quality-regression',
+      quality: {
+        calibrated: true,
+        sampleCount: 5,
+        offsetMs: 102,
+        offsetSpreadMs: 4,
+        ageMs: 1_000,
+      },
+    });
+
+    const rttRegression = addSample(estimator, 1_501, 102);
+    expect(rttRegression).toMatchObject({
+      accepted: false,
+      reason: 'quality-regression',
+      quality: { calibrated: true, sampleCount: 5, ageMs: 1_000 },
+    });
+
+    const renewal = addSample(estimator, 9, 103);
+    expect(renewal).toMatchObject({
+      accepted: true,
+      quality: { calibrated: true, sampleCount: 6, ageMs: 0 },
+    });
+  });
+
+  it('does not extend the calibrated lease with rejected maintenance evidence', () => {
+    const clock = makeNow();
+    const estimator = new ClockEstimator({ now: clock.now });
+    for (let index = 0; index < 5; index += 1) addSample(estimator, 10, 100 + index);
+
+    clock.advance(2_000);
+    expect(addSample(estimator, 9, 109)).toMatchObject({
+      accepted: false,
+      reason: 'quality-regression',
+    });
+    clock.advance(1_001);
+    expect(estimator.quality()).toMatchObject({ calibrated: false, ageMs: 3_001 });
   });
 
   it('converts host and local monotonic timestamps in both directions', () => {

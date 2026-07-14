@@ -28,6 +28,7 @@ import {
   parseFilePlaybackClockPongV2,
   type FilePlaybackClockExchangeRejectionReason,
 } from './file-playback-clock-exchange.ts';
+import { DEFAULT_CLOCK_CALIBRATION_THRESHOLDS } from './clock-estimator.ts';
 import { FilePlaybackConnectionChannel } from './file-playback-connection-channel.ts';
 import {
   FILE_PLAYBACK_SESSION_APPLIED_TYPE,
@@ -63,6 +64,10 @@ const DEFAULT_MAX_CLOCK_CALIBRATION_ATTEMPTS = 15;
 const DEFAULT_APPLICATION_HANDSHAKE_DEADLINE_MS = 10_000;
 const DEFAULT_CLOCK_CALIBRATION_RETRY_MS = 1_000;
 const DEFAULT_CLOCK_CALIBRATION_DEADLINE_MS = 5_000;
+const DEFAULT_CLOCK_MAINTENANCE_INTERVAL_MS = Math.max(
+  1,
+  Math.floor(DEFAULT_CLOCK_CALIBRATION_THRESHOLDS.maxAgeMs / 3),
+);
 const MAX_RETIRED_CLOCK_PING_IDS = 100;
 const MAX_BOOTSTRAP_SNAPSHOT_NODES = 10_000;
 const MAX_BOOTSTRAP_SNAPSHOT_DEPTH = 8;
@@ -88,6 +93,7 @@ const RECOVERABLE_CLOCK_SAMPLE_REJECTIONS = new Set<FilePlaybackClockExchangeRej
   'exchange-too-long',
   'rtt-too-high',
   'offset-outlier',
+  'quality-regression',
 ]);
 
 const BOOTSTRAP_FRAME_KEYS = Object.freeze([
@@ -273,6 +279,8 @@ interface GuestConnectionRecord extends BaseConnectionRecord {
   calibrationRetiredPingIds: Set<number>;
   calibrationRetryTimer: ApplicationSessionTimerHandle | null;
   calibrationDeadlineTimer: ApplicationSessionTimerHandle | null;
+  calibrationMaintenanceTimer: ApplicationSessionTimerHandle | null;
+  calibrationMaintenanceEpoch: number;
 }
 
 type ConnectionRecord = HostConnectionRecord | GuestConnectionRecord;
@@ -897,6 +905,8 @@ export class FilePlaybackApplicationSessionManager {
         calibrationRetiredPingIds: new Set(),
         calibrationRetryTimer: null,
         calibrationDeadlineTimer: null,
+        calibrationMaintenanceTimer: null,
+        calibrationMaintenanceEpoch: 0,
       };
       this.#records.set(conn, record);
       if (!this.#armHandshakeDeadline(record)) return false;
@@ -1481,7 +1491,7 @@ export class FilePlaybackApplicationSessionManager {
     }
 
     if (accepted && this.#guestClockIsReady(record)) {
-      this.#markCalibrationReady(record);
+      if (!this.#markCalibrationReady(record)) return result(true);
       return result(true, false, this.#publishClockReady(record));
     }
     if (record.calibrationPendingPingIds.size === 0 && record.calibrationState === 'calibrating') {
@@ -1606,11 +1616,14 @@ export class FilePlaybackApplicationSessionManager {
     }
   }
 
-  #markCalibrationReady(record: GuestConnectionRecord): void {
-    if (this.#records.get(record.conn) !== record || record.closing) return;
+  #markCalibrationReady(record: GuestConnectionRecord): boolean {
+    if (this.#records.get(record.conn) !== record || record.closing) return false;
     record.calibrationState = 'ready';
     this.#cancelCalibrationTimers(record);
     this.#retireCalibrationPending(record);
+    if (this.#armClockMaintenance(record)) return true;
+    if (this.#records.get(record.conn) === record) this.#teardown(record, true);
+    return false;
   }
 
   #markCalibrationDegraded(record: GuestConnectionRecord): void {
@@ -1682,6 +1695,126 @@ export class FilePlaybackApplicationSessionManager {
     }
   }
 
+  /**
+   * Keeps the guest's calibrated room-clock lease fresh without resetting its
+   * established sample set. One bounded ping per interval is enough to renew
+   * the estimator's newest-sample age while preserving its low-RTT history.
+   */
+  #armClockMaintenance(record: GuestConnectionRecord): boolean {
+    this.#clearClockMaintenance(record);
+    if (
+      this.#records.get(record.conn) !== record ||
+      record.closing ||
+      record.calibrationState !== 'ready'
+    ) {
+      return false;
+    }
+    const calibrationEpoch = record.calibrationEpoch;
+    const maintenanceEpoch = record.calibrationMaintenanceEpoch;
+    let handle: ApplicationSessionTimerHandle;
+    try {
+      handle = this.#scheduleTimeout(() => {
+        if (
+          record.calibrationEpoch !== calibrationEpoch ||
+          record.calibrationMaintenanceEpoch !== maintenanceEpoch ||
+          this.#records.get(record.conn) !== record ||
+          record.closing ||
+          record.calibrationState !== 'ready'
+        ) {
+          return;
+        }
+        record.calibrationMaintenanceTimer = null;
+        if (!this.#guestClockIsReady(record)) {
+          this.#restartExpiredGuestCalibration(record);
+          return;
+        }
+
+        const clock = record.channel ?? record.clock;
+        if (!clock) {
+          this.#restartExpiredGuestCalibration(record);
+          return;
+        }
+        try {
+          if (record.calibrationPendingPingIds.size === 0) {
+            const ping =
+              clock instanceof FilePlaybackConnectionChannel
+                ? clock.createClockPing()
+                : clock.createPing();
+            record.calibrationPendingPingIds.add(ping.pingId);
+            if (!this.#sendRequired(record, ping)) return;
+          }
+        } catch (error) {
+          log.warn('[AppSession] Clock maintenance ping failed', error);
+          this.#restartExpiredGuestCalibration(record);
+          return;
+        }
+        if (
+          record.calibrationEpoch === calibrationEpoch &&
+          record.calibrationMaintenanceEpoch === maintenanceEpoch &&
+          this.#records.get(record.conn) === record &&
+          !record.closing &&
+          record.calibrationState === 'ready' &&
+          !this.#armClockMaintenance(record)
+        ) {
+          this.#teardown(record, true);
+        }
+      }, DEFAULT_CLOCK_MAINTENANCE_INTERVAL_MS);
+      if (handle === null || handle === undefined) throw new Error('Timer handle is missing');
+    } catch (error) {
+      log.warn('[AppSession] Failed to arm clock maintenance', error);
+      return false;
+    }
+    if (
+      this.#records.get(record.conn) !== record ||
+      record.closing ||
+      record.calibrationState !== 'ready' ||
+      record.calibrationEpoch !== calibrationEpoch ||
+      record.calibrationMaintenanceEpoch !== maintenanceEpoch
+    ) {
+      try {
+        this.#cancelTimeout(handle);
+      } catch {
+        /* noop */
+      }
+      return false;
+    }
+    record.calibrationMaintenanceTimer = handle;
+    return true;
+  }
+
+  #restartExpiredGuestCalibration(record: GuestConnectionRecord): void {
+    if (this.#records.get(record.conn) !== record || record.closing) return;
+    const clock = record.channel ?? record.clock;
+    if (!clock) {
+      this.#teardown(record, true);
+      return;
+    }
+    try {
+      clock.handleWake();
+    } catch (error) {
+      log.warn('[AppSession] Failed to invalidate expired guest clock', error);
+      this.#teardown(record, true);
+      return;
+    }
+    this.#markCalibrationDegraded(record);
+    if (this.#records.get(record.conn) !== record || record.closing) return;
+    if (!this.#beginGuestCalibration(record) && this.#records.get(record.conn) === record) {
+      this.#teardown(record, true);
+    }
+  }
+
+  #clearClockMaintenance(record: GuestConnectionRecord): void {
+    record.calibrationMaintenanceEpoch += 1;
+    const handle = record.calibrationMaintenanceTimer;
+    record.calibrationMaintenanceTimer = null;
+    if (handle === null) return;
+    try {
+      this.#cancelTimeout(handle);
+    } catch {
+      /* noop */
+    }
+  }
+
   #armCalibrationRetry(record: GuestConnectionRecord): boolean {
     const epoch = record.calibrationEpoch;
     let handle: ApplicationSessionTimerHandle;
@@ -1696,8 +1829,7 @@ export class FilePlaybackApplicationSessionManager {
         }
         record.calibrationRetryTimer = null;
         if (this.#guestClockIsReady(record)) {
-          this.#markCalibrationReady(record);
-          this.#publishClockReady(record);
+          if (this.#markCalibrationReady(record)) this.#publishClockReady(record);
         } else if (record.calibrationAttempts >= this.#maxClockCalibrationAttempts) {
           this.#markCalibrationDegraded(record);
         } else if (!this.#sendNextCalibrationBatch(record, true)) {
@@ -1740,8 +1872,7 @@ export class FilePlaybackApplicationSessionManager {
         }
         record.calibrationDeadlineTimer = null;
         if (this.#guestClockIsReady(record)) {
-          this.#markCalibrationReady(record);
-          this.#publishClockReady(record);
+          if (this.#markCalibrationReady(record)) this.#publishClockReady(record);
         } else {
           this.#markCalibrationDegraded(record);
         }
@@ -1780,6 +1911,7 @@ export class FilePlaybackApplicationSessionManager {
 
   #cancelCalibrationTimers(record: GuestConnectionRecord): void {
     this.#clearCalibrationRetry(record);
+    this.#clearClockMaintenance(record);
     const deadline = record.calibrationDeadlineTimer;
     record.calibrationDeadlineTimer = null;
     if (deadline !== null) {
@@ -1824,7 +1956,7 @@ export class FilePlaybackApplicationSessionManager {
         return result(true);
       }
       this.#clearHandshakeDeadline(record);
-      if (channel.clockReady()) this.#markCalibrationReady(record);
+      if (channel.clockReady() && !this.#markCalibrationReady(record)) return result(true);
       return result(true, true, this.#publishClockReady(record));
     } catch (error) {
       log.warn('[AppSession] Guest channel activation failed', error);
@@ -1836,7 +1968,13 @@ export class FilePlaybackApplicationSessionManager {
   #publishClockReady(record: ConnectionRecord): boolean {
     const channel = record.channel;
     if (!channel || record.clockReadyNotified || !channel.clockReady()) return false;
-    if (record.role === 'guest') this.#markCalibrationReady(record);
+    if (
+      record.role === 'guest' &&
+      record.calibrationState !== 'ready' &&
+      !this.#markCalibrationReady(record)
+    ) {
+      return false;
+    }
     record.clockReadyNotified = true;
     if (!this.#emitLifecycle(record, 'clock-ready')) {
       this.#teardown(record, true);

@@ -3730,6 +3730,62 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     },
   );
 
+  it('prepares a bounded replay as a fresh peer-readable run before its shared start', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([57, 58, 59])], { type: 'audio/flac' });
+    const first = await resolveLatestStart(
+      harness,
+      harness.start(blob, { name: 'prepared-replay.flac' }),
+    );
+    harness.setRoomTime(2_000);
+
+    const prepared = await harness.engine.prepareReplayCurrent({
+      signal: new AbortController().signal,
+    });
+
+    expect(prepared).toMatchObject({
+      backend: 'bounded-stream',
+      state: {
+        queueItemId: Q1,
+        revision: first.attempt.revision + 1,
+      },
+      positionSeconds: 0,
+      playbackRate: 1,
+      asset: {
+        binding: {
+          queueItemId: Q1,
+          sourceIdentity: first.asset.sourceIdentity,
+          transferSessionId: first.asset.transferSessionId,
+        },
+      },
+    });
+    expect(prepared.state.runId).not.toBe(first.attempt.runId);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+    expect(harness.controller.timelineSnapshot()).toBe(first.timeline);
+
+    const replayed = await resolveLatestStart(
+      harness,
+      harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+    expect(replayed).toMatchObject({
+      attempt: {
+        queueItemId: Q1,
+        runId: prepared.state.runId,
+        revision: prepared.state.revision,
+      },
+      schedule: { positionSeconds: 0 },
+      timeline: { phase: 'playing', positionSeconds: 0 },
+    });
+    await harness.engine.close();
+  });
+
   it('lets an accepted-rendezvous commit dominate a reentrant successor intent', async () => {
     let harness!: EngineHarness;
     let reentrant: ReturnType<FilePlaybackHostFirstFileEngine['replayCurrent']> | null = null;

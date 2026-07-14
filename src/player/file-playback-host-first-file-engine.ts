@@ -1359,6 +1359,15 @@ export class FilePlaybackHostFirstFileEngine {
     );
   }
 
+  /** Prepares a fresh zero-position run for the current asset without starting its rendezvous. */
+  prepareReplayCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
+    return this.#runSynchronousCandidatePreparation(() =>
+      this.#prepareReplayCurrentCandidate(options),
+    );
+  }
+
   /** Starts one shared rendezvous for the exact prepared local host and remotes. */
   startPreparedLocalTrack(
     options: StartPreparedHostLocalTrackOptions,
@@ -1421,29 +1430,9 @@ export class FilePlaybackHostFirstFileEngine {
     options: HostCurrentPlaybackOperationOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     return this.#runSynchronousCandidateStart(() => {
-      const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
-      const previousTimeline = this.#captureTimeline('replay');
-      if (
-        (previousTimeline.phase !== 'playing' && previousTimeline.phase !== 'paused') ||
-        previousTimeline.run === null
-      ) {
-        throw new Error('Host replay requires exact active timeline truth');
-      }
-      const asset = this.#requireCurrentAsset(previousTimeline);
-      const runtime = this.#requireAudioRuntime();
-      const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'replay');
-      const runId = this.#newRunId('replay', asset.queueItemId, 0, previousTimeline);
-      return this.#beginCandidateOperation({
-        action: 'replay',
-        previousTimeline,
-        expectedCurrentPort,
-        asset,
-        runId,
-        positionSeconds: 0,
-        playbackRate: 1,
-        signal: input.signal,
-        ...runtime,
-      });
+      return this.#prepareReplayCurrentCandidate(options).then((prepared) =>
+        this.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+      );
     });
   }
 
@@ -1982,6 +1971,34 @@ export class FilePlaybackHostFirstFileEngine {
       runId: previousTimeline.run.runId,
       positionSeconds,
       playbackRate: previousTimeline.rate,
+      signal: input.signal,
+      ...runtime,
+    });
+  }
+
+  #prepareReplayCurrentCandidate(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
+    const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
+    const previousTimeline = this.#captureTimeline('replay');
+    if (
+      (previousTimeline.phase !== 'playing' && previousTimeline.phase !== 'paused') ||
+      previousTimeline.run === null
+    ) {
+      throw new Error('Host replay requires exact active timeline truth');
+    }
+    const asset = this.#requireCurrentAsset(previousTimeline);
+    const runtime = this.#requireAudioRuntime();
+    const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'replay');
+    const runId = this.#newRunId('replay', asset.queueItemId, 0, previousTimeline);
+    return this.#beginCandidatePreparation({
+      action: 'replay',
+      previousTimeline,
+      expectedCurrentPort,
+      asset,
+      runId,
+      positionSeconds: 0,
+      playbackRate: 1,
       signal: input.signal,
       ...runtime,
     });
@@ -3598,7 +3615,11 @@ export class FilePlaybackHostFirstFileEngine {
         staged,
         sourceLease: claimedSourceLease,
         sourcePhase:
-          operation.action === 'first' || operation.action === 'track' ? 'prepared' : 'retired',
+          operation.action === 'first' ||
+          operation.action === 'track' ||
+          operation.action === 'replay'
+            ? 'prepared'
+            : 'retired',
         started: false,
       };
       if (claimedSourceLease) {
@@ -4269,7 +4290,9 @@ export class FilePlaybackHostFirstFileEngine {
       this.#closed ||
       this.#coordinatorClosed ||
       this.#fatalError ||
-      (operation.action !== 'first' && operation.action !== 'track') ||
+      (operation.action !== 'first' &&
+        operation.action !== 'track' &&
+        operation.action !== 'replay') ||
       prepared.roomGeneration !== this.#roomGeneration ||
       prepared.backend !== staged.backend ||
       prepared.state !== playbackState ||

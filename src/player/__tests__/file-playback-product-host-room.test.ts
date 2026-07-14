@@ -380,6 +380,55 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       return prepared;
     },
   );
+  readonly prepareReplayCurrent = vi.fn(
+    async (
+      input: HostCurrentPlaybackOperationOptions,
+    ): Promise<Readonly<HostPreparedLocalTrack>> => {
+      input.signal.throwIfAborted();
+      const previous = this.options.controller.timelineSnapshot();
+      if (
+        (previous.phase !== 'playing' && previous.phase !== 'paused') ||
+        !previous.run ||
+        !this.queueItemId ||
+        !this.runId ||
+        !this.backend ||
+        !this.asset ||
+        previous.run.queueItemId !== this.queueItemId ||
+        previous.run.runId !== this.runId
+      ) {
+        throw new Error('Fixture replay has no exact current run');
+      }
+      const prepared = freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.options.roomGeneration,
+        backend: this.backend,
+        state: freezeCanonical({
+          queueItemId: this.queueItemId,
+          runId: `fixture-prepared-replay-run-${++this.sequence}`,
+          revision: previous.revision + 1,
+        }),
+        positionSeconds: 0,
+        playbackRate: 1,
+        asset: freezeCanonical({
+          kind: this.asset.kind,
+          binding: freezeCanonical({
+            queueItemId: this.asset.queueItemId,
+            sourceIdentity: this.asset.sourceIdentity,
+            transferSessionId: this.asset.transferSessionId,
+          }),
+          metadata: freezeCanonical({
+            name: this.asset.name,
+            mime: this.asset.mime,
+          }),
+          encodedSize: this.asset.size,
+          peerRangeManifest: null,
+        }),
+        sourceLease: null,
+      });
+      this.preparedReplayInputs.set(prepared, input);
+      return prepared;
+    },
+  );
   readonly startPreparedLocalTrack = vi.fn(
     (
       input: StartPreparedHostLocalTrackOptions,
@@ -396,12 +445,29 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
           seekInput.signal,
         );
       }
+      const replayInput = this.preparedReplayInputs.get(input.prepared);
+      if (replayInput) {
+        return this.#commitCurrentCandidate(
+          'replay',
+          0,
+          replayInput.signal,
+          input.prepared.state.runId,
+        );
+      }
       return Promise.reject(new Error('Fixture prepared track is stale'));
     },
   );
   readonly resolvePreparedPeerRangeSource = vi.fn(
-    (_input: ResolvePreparedHostPeerRangeSourceOptions): Promise<HostPeerRangeSource> =>
-      Promise.reject(new Error('Fixture prepared peer source is unavailable')),
+    async (input: ResolvePreparedHostPeerRangeSourceOptions): Promise<HostPeerRangeSource> => {
+      input.signal.throwIfAborted();
+      const local = this.preparedInputs.get(input.prepared)?.blob;
+      const replay = this.preparedReplayInputs.has(input.prepared) ? this.currentBlob : null;
+      const source = local ?? replay;
+      if (!source || input.sourceIdentity !== input.prepared.asset.binding.sourceIdentity) {
+        throw new Error('Fixture prepared peer source is unavailable');
+      }
+      return source;
+    },
   );
   readonly pauseCurrent = vi.fn((input: HostCurrentPlaybackOperationOptions) =>
     this.#commitTransition('pause', input.signal),
@@ -494,6 +560,11 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   private sequence = 0;
   private readonly preparedInputs = new WeakMap<object, StartHostLocalTrackOptions>();
   private readonly preparedSeekInputs = new WeakMap<object, SeekHostPlayingOptions>();
+  private readonly preparedReplayInputs = new WeakMap<
+    object,
+    HostCurrentPlaybackOperationOptions
+  >();
+  private currentBlob: Blob | null = null;
   private warmQueueItemId: QueueItemId | null = null;
   private warmSourceLease: HostLocalTrackSourceLease | null = null;
   private warmBlob: Blob | null = null;
@@ -547,7 +618,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       mime: input.mime || 'application/octet-stream',
     });
     this.audioContext = input.audioContext;
-    return this.#commitCandidate(
+    const committed = await this.#commitCandidate(
       input.queueItemId,
       backend,
       asset,
@@ -555,12 +626,15 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       true,
       input.signal,
     );
+    this.currentBlob = input.blob;
+    return committed;
   }
 
   async #commitCurrentCandidate(
     action: 'playing-seek' | 'replay' | 'resume',
     positionSeconds: number,
     signal: AbortSignal,
+    preparedRunId?: string,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     if (!this.queueItemId || !this.backend || !this.asset || !this.runId) {
       throw new Error('Fixture current renderer is unavailable');
@@ -572,6 +646,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       positionSeconds,
       action === 'replay',
       signal,
+      preparedRunId,
     );
   }
 
@@ -582,6 +657,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
     positionSeconds: number,
     newRun: boolean,
     signal: AbortSignal,
+    preparedRunId?: string,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     const plan = this.candidates.shift() ?? {};
     await waitForPlanGate(
@@ -594,7 +670,8 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
     if (plan.failure) throw plan.failure;
 
     const previous = this.options.controller.timelineSnapshot();
-    const runId = newRun || !this.runId ? `fixture-run-${++this.sequence}` : this.runId;
+    const runId =
+      preparedRunId ?? (newRun || !this.runId ? `fixture-run-${++this.sequence}` : this.runId);
     const attempt: Readonly<PlaybackAttemptIdentity> = freezeCanonical({
       queueItemId,
       runId,
@@ -1991,6 +2068,67 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       schedule: { positionSeconds: 77 },
     });
     expect(containsBody(sought)).toBe(false);
+  });
+
+  it('prepares and publishes a fresh replay cohort before starting the zero-position run', async () => {
+    const setup = makeHarness();
+    const media = file('cohort-replay.flac', 'audio/flac');
+    const started = await first(setup.room, Q1, media);
+    const prepareRemoteParticipants = vi.fn(
+      async (context: Readonly<FilePlaybackProductHostPreparedCohortContext>) => {
+        expect(context.prepared).toMatchObject({
+          backend: 'bounded-stream',
+          state: {
+            queueItemId: Q1,
+            revision: started.attempt.revision + 1,
+          },
+          positionSeconds: 0,
+          playbackRate: 1,
+          asset: {
+            binding: {
+              queueItemId: Q1,
+              sourceIdentity: started.asset.sourceIdentity,
+              transferSessionId: started.asset.transferSessionId,
+            },
+          },
+        });
+        expect(context.prepared.state.runId).not.toBe(started.attempt.runId);
+        await expect(
+          context.resolveSource(
+            context.prepared.asset.binding.sourceIdentity,
+            context.prepared.asset.peerRangeManifest,
+            context.signal,
+          ),
+        ).resolves.toBe(media);
+        return [];
+      },
+    );
+
+    const replayed = await setup.room.replayCurrentWithCohort({
+      ...signalOptions(),
+      prepareRemoteParticipants,
+    });
+    const engine = setup.engines[0]!;
+    const context = prepareRemoteParticipants.mock.calls[0]?.[0];
+    const preparedStart = engine.startPreparedLocalTrack.mock.calls.at(-1)?.[0];
+
+    expect(engine.prepareReplayCurrent).toHaveBeenCalledWith({ signal: context?.signal });
+    expect(engine.replayCurrent).not.toHaveBeenCalled();
+    expect(preparedStart?.prepared).toBe(context?.prepared);
+    expect(preparedStart?.remoteParticipants).toEqual([]);
+    expect(prepareRemoteParticipants.mock.invocationCallOrder[0]).toBeLessThan(
+      engine.startPreparedLocalTrack.mock.invocationCallOrder.at(-1)!,
+    );
+    expect(replayed).toMatchObject({
+      status: 'committed',
+      backend: 'bounded-stream',
+      attempt: {
+        queueItemId: Q1,
+        runId: context?.prepared.state.runId,
+        revision: started.attempt.revision + 1,
+      },
+      schedule: { positionSeconds: 0 },
+    });
   });
 
   it.each([

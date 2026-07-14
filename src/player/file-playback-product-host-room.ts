@@ -65,6 +65,7 @@ const CLEAR_WARM_TRACK_BY_LEASE_KEYS = Object.freeze(['signal', 'sourceLease'] a
 const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'signal'] as const);
 const COHORT_TRACK_KEYS = Object.freeze([...TRACK_KEYS, 'prepareRemoteParticipants'] as const);
 const CURRENT_KEYS = Object.freeze(['signal'] as const);
+const COHORT_CURRENT_KEYS = Object.freeze([...CURRENT_KEYS, 'prepareRemoteParticipants'] as const);
 const SEEK_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const COHORT_SEEK_KEYS = Object.freeze([...SEEK_KEYS, 'prepareRemoteParticipants'] as const);
 const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
@@ -119,6 +120,9 @@ export interface FilePlaybackProductHostFirstEnginePort {
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
   prepareLocalTrack(options: StartHostLocalTrackOptions): Promise<Readonly<HostPreparedLocalTrack>>;
   preparePlayingSeek(options: SeekHostPlayingOptions): Promise<Readonly<HostPreparedLocalTrack>>;
+  prepareReplayCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>>;
   startPreparedLocalTrack(
     options: StartPreparedHostLocalTrackOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
@@ -266,6 +270,10 @@ export interface StartFilePlaybackProductHostLocalTrackWithCohortOptions extends
 
 export interface FilePlaybackProductHostCurrentOptions {
   readonly signal: AbortSignal;
+}
+
+export interface FilePlaybackProductHostCurrentWithCohortOptions extends FilePlaybackProductHostCurrentOptions {
+  readonly prepareRemoteParticipants: PrepareFilePlaybackProductHostRemoteParticipants;
 }
 
 export interface FilePlaybackProductHostSeekOptions extends FilePlaybackProductHostCurrentOptions {
@@ -616,6 +624,7 @@ function isEnginePort(
     typeof candidate.startLocalTrack === 'function' &&
     typeof candidate.prepareLocalTrack === 'function' &&
     typeof candidate.preparePlayingSeek === 'function' &&
+    typeof candidate.prepareReplayCurrent === 'function' &&
     typeof candidate.startPreparedLocalTrack === 'function' &&
     typeof candidate.resolvePreparedPeerRangeSource === 'function' &&
     typeof candidate.pauseCurrent === 'function' &&
@@ -1096,6 +1105,71 @@ export class FilePlaybackProductHostRoom {
     return this.#enqueueCandidateCurrent(options, 'replay', (engine, signal) =>
       engine.replayCurrent({ signal }),
     );
+  }
+
+  replayCurrentWithCohort(
+    options: FilePlaybackProductHostCurrentWithCohortOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    const input = snapshotExactRecord(options, COHORT_CURRENT_KEYS);
+    let signal: AbortSignal;
+    if (!input || typeof input.prepareRemoteParticipants !== 'function') {
+      return Promise.reject(new TypeError('Product replay cohort options are invalid'));
+    }
+    try {
+      signal = readSignalOptions(options, COHORT_CURRENT_KEYS, 'replay cohort');
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const prepareRemoteParticipants =
+      input.prepareRemoteParticipants as PrepareFilePlaybackProductHostRemoteParticipants;
+    return this.#enqueueCandidate(signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      return this.#startPreparedCandidateWithCohort({
+        operation,
+        record,
+        expectedQueueItemId: null,
+        prepare: () =>
+          record.engine.prepareReplayCurrent({
+            signal: operation.controller.signal,
+          }),
+        prepareRemoteParticipants,
+        resolveSource: async (
+          prepared: Readonly<HostPreparedLocalTrack>,
+          sourceIdentity: string,
+          peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
+          sourceSignal: AbortSignal,
+        ): Promise<HostPeerRangeSource> => {
+          if (
+            typeof sourceIdentity !== 'string' ||
+            (peerRangeManifest !== null &&
+              (typeof peerRangeManifest !== 'object' || peerRangeManifest === null)) ||
+            !(sourceSignal instanceof AbortSignal)
+          ) {
+            throw new TypeError('Product prepared replay peer-range source identity is invalid');
+          }
+          this.#assertPreparedSourceRoomReady(record, sourceSignal);
+          const source = await record.engine.resolvePreparedPeerRangeSource({
+            prepared,
+            sourceIdentity,
+            peerRangeManifest,
+            signal: sourceSignal,
+          });
+          try {
+            this.#assertPreparedSourceRoomReady(record, sourceSignal);
+            return source;
+          } catch (error) {
+            if (!(source instanceof Blob)) {
+              try {
+                await source.close();
+              } catch {
+                // The stale room/peer authority remains the primary rejection.
+              }
+            }
+            throw error;
+          }
+        },
+      });
+    });
   }
 
   stopCurrent(

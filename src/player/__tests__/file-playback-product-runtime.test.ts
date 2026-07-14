@@ -39,6 +39,7 @@ import type {
   ClearFilePlaybackProductHostLocalTrackWarmByLeaseOptions,
   ClearFilePlaybackProductHostLocalTrackWarmOptions,
   FilePlaybackProductHostCurrentOptions,
+  FilePlaybackProductHostCurrentWithCohortOptions,
   FilePlaybackProductHostFirstLocalFileCommit,
   FilePlaybackProductHostLocalTrackWarmResult,
   FilePlaybackProductHostLocalTrackCommit,
@@ -110,6 +111,7 @@ interface ProductHostRoomHarness {
   readonly seekPaused: ReturnType<typeof vi.fn>;
   readonly resumeCurrent: ReturnType<typeof vi.fn>;
   readonly replayCurrent: ReturnType<typeof vi.fn>;
+  readonly replayCurrentWithCohort: ReturnType<typeof vi.fn>;
   readonly stopCurrent: ReturnType<typeof vi.fn>;
   readonly settleEndedCurrent: ReturnType<typeof vi.fn>;
   readonly currentTerminalRendererObservation: ReturnType<typeof vi.fn>;
@@ -366,6 +368,12 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       events.push(`host-room:${index}:replay`);
       return candidate('replay');
     });
+    const replayCurrentWithCohort = vi.fn(
+      async (_input: FilePlaybackProductHostCurrentWithCohortOptions) => {
+        events.push(`host-room:${index}:replay-cohort`);
+        return candidate('replay-cohort');
+      },
+    );
     const stopCurrent = vi.fn(async (_input: FilePlaybackProductHostCurrentOptions) => {
       events.push(`host-room:${index}:stop`);
       return transition('stop');
@@ -409,6 +417,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       seekPaused,
       resumeCurrent,
       replayCurrent,
+      replayCurrentWithCohort,
       stopCurrent,
       settleEndedCurrent,
       currentPeerPublication,
@@ -441,6 +450,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       seekPaused,
       resumeCurrent,
       replayCurrent,
+      replayCurrentWithCohort,
       stopCurrent,
       settleEndedCurrent,
       currentTerminalRendererObservation,
@@ -2061,6 +2071,121 @@ describe('FilePlaybackProductRuntime', () => {
     expect(resolveSource).not.toHaveBeenCalled();
   });
 
+  it('publishes and binds the prepared remote cohort before starting a replay run', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const order: string[] = [];
+    const capability = freezeCanonical({
+      participant: freezeCanonical({ participantId: 'runtime-replay-cohort-guest' }),
+      bindAttempt: vi.fn(async () => undefined),
+    }) as unknown as Readonly<HostPreparedRemoteParticipant>;
+    const publishPrepared = vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+      order.push('remote:offer');
+      return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+    });
+    const bindPrepared = vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+      order.push('remote:bind');
+      return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+    });
+    const whenPreparedRemoteReady = vi.fn(async () => {
+      order.push('remote:ready');
+      return capability;
+    });
+    const activatePrepared = vi.fn(() => freezeCanonical({ schemaVersion: 1 }) as never);
+    const hostOwner = Object.freeze({
+      onHostReady: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeControl: vi.fn(),
+      revoke: vi.fn(),
+      publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+      publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+      retireSourceLease: vi.fn(async () => undefined),
+      publishPrepared,
+      bindPrepared,
+      whenPreparedRemoteReady,
+      activatePrepared,
+      retirePrepared: vi.fn(async () => undefined),
+    });
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: () => hostOwner,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('replay-cohort-runtime-host');
+    routers[0]!.options.createHostMediaOwner(
+      routerContext('host', { suffix: 'replay-cohort-runtime' }),
+    );
+    const room = setup.hostRooms[0]!;
+    const prepared = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      backend: 'bounded-stream' as const,
+      state: freezeCanonical({
+        queueItemId: Q1,
+        runId: 'runtime-replay-cohort-run',
+        revision: 3,
+      }),
+      positionSeconds: 0,
+      playbackRate: 1,
+      asset: freezeCanonical({
+        kind: 'encoded' as const,
+        binding: freezeCanonical({
+          queueItemId: Q1,
+          sourceIdentity: 'runtime-replay-cohort-source',
+          transferSessionId: 'runtime-replay-cohort-transfer',
+        }),
+        metadata: freezeCanonical({ name: 'runtime-replay.wav', mime: 'audio/wav' }),
+        encodedSize: 1_024,
+        peerRangeManifest: null,
+      }),
+      sourceLease: null,
+    }) as Readonly<HostPreparedLocalTrack>;
+    const timeline = freezeCanonical({
+      revision: prepared.state.revision,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: prepared.state.runId }),
+      positionSeconds: 0,
+      rate: 1,
+      anchorMonotonicMs: 12_000,
+    }) as Readonly<PlaybackTimelineSnapshot>;
+    room.replayCurrentWithCohort.mockImplementationOnce(async (input) => {
+      const remotes = await input.prepareRemoteParticipants(
+        freezeCanonical({
+          prepared,
+          signal: input.signal,
+          resolveSource: vi.fn(async () => localFile('runtime-replay.wav')),
+        }),
+      );
+      expect(remotes).toEqual([capability]);
+      order.push('room:replay-start');
+      return freezeCanonical({
+        ...candidateResult(
+          prepared.roomGeneration,
+          room.options.hostRoomSnapshot.applicationSessionId,
+          'replay-cohort',
+        ),
+        timeline,
+      }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+    });
+    const signal = new AbortController().signal;
+
+    await expect(setup.runtime.replayCurrent({ signal })).resolves.toMatchObject({ timeline });
+
+    expect(room.replayCurrentWithCohort).toHaveBeenCalledWith(expect.objectContaining({ signal }));
+    expect(room.replayCurrent).not.toHaveBeenCalled();
+    expect(order).toEqual(['remote:offer', 'remote:bind', 'remote:ready', 'room:replay-start']);
+    expect(activatePrepared).toHaveBeenCalledWith({
+      prepared,
+      timeline,
+      initialCohortAdmitted: true,
+    });
+  });
+
   it('serializes a late READY owner from the previous seek revision into canonical truth', async () => {
     const routers: ProductRouterHarness[] = [];
     const previousPublication = freezeCanonical({
@@ -2992,6 +3117,7 @@ describe('FilePlaybackProductRuntime', () => {
     'clearWarmLocalTrack',
     'seekPlaying',
     'seekPlayingWithCohort',
+    'replayCurrentWithCohort',
     'currentTerminalRendererObservation',
   ] as const)('fails host entry when the expanded structural room port omits %s', (method) => {
     const setup = harness({ omitHostRoomMethod: method });
@@ -3056,7 +3182,8 @@ describe('FilePlaybackProductRuntime', () => {
     expect(room?.resumeCurrent).toHaveBeenCalledWith(current);
     expect(room?.seekPlayingWithCohort).toHaveBeenCalledWith(expect.objectContaining(seek));
     expect(room?.seekPlaying).not.toHaveBeenCalled();
-    expect(room?.replayCurrent).toHaveBeenCalledWith(current);
+    expect(room?.replayCurrentWithCohort).toHaveBeenCalledWith(expect.objectContaining(current));
+    expect(room?.replayCurrent).not.toHaveBeenCalled();
     expect(room?.stopCurrent).toHaveBeenCalledWith(current);
     expect(room?.settleEndedCurrent).toHaveBeenCalledWith(current);
     expect(results.every((result) => Object.isFrozen(result))).toBe(true);
@@ -3102,6 +3229,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(room?.seekPaused).not.toHaveBeenCalled();
     expect(room?.resumeCurrent).not.toHaveBeenCalled();
     expect(room?.replayCurrent).not.toHaveBeenCalled();
+    expect(room?.replayCurrentWithCohort).not.toHaveBeenCalled();
     expect(room?.stopCurrent).not.toHaveBeenCalled();
     expect(room?.settleEndedCurrent).not.toHaveBeenCalled();
   });

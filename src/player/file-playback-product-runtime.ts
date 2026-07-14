@@ -58,6 +58,7 @@ import {
   type ClearFilePlaybackProductHostLocalTrackWarmByLeaseOptions,
   type ClearFilePlaybackProductHostLocalTrackWarmOptions,
   type FilePlaybackProductHostCurrentOptions,
+  type FilePlaybackProductHostCurrentWithCohortOptions,
   type FilePlaybackProductHostFirstLocalFileCommit,
   type FilePlaybackProductHostLocalTrackWarmResult,
   type FilePlaybackProductHostLocalTrackCommit,
@@ -226,6 +227,9 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
   replayCurrent(
     options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  replayCurrentWithCohort(
+    options: FilePlaybackProductHostCurrentWithCohortOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
   stopCurrent(
     options: FilePlaybackProductHostCurrentOptions,
@@ -476,6 +480,7 @@ function assertHostRoomPort(
     typeof value.seekPaused !== 'function' ||
     typeof value.resumeCurrent !== 'function' ||
     typeof value.replayCurrent !== 'function' ||
+    typeof value.replayCurrentWithCohort !== 'function' ||
     typeof value.stopCurrent !== 'function' ||
     typeof value.settleEndedCurrent !== 'function' ||
     typeof value.currentPeerPublication !== 'function' ||
@@ -1057,7 +1062,9 @@ export class FilePlaybackProductRuntime {
   replayCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
-    return this.#dispatchExactHostRoom('replay', (port) => port.replayCurrent(options));
+    return this.#runPreparedCohort('replay', (port, prepareRemoteParticipants) =>
+      port.replayCurrentWithCohort({ ...options, prepareRemoteParticipants }),
+    );
   }
 
   stopCurrent(

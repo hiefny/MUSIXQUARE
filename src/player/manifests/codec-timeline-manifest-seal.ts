@@ -211,6 +211,9 @@ function assertMp3MetadataSealable(metadata: Readonly<Mp3Metadata>, sourceSize: 
   ) {
     fail('MP3 manifest sealing requires a fully verified no-count frame scan');
   }
+  if (metadata.gapless !== null) {
+    fail('MP3 manifest sealing requires gapless metadata to be null');
+  }
   if (metadata.vbr !== null && metadata.vbr.frameCount !== null) {
     fail('MP3 manifest sealing rejects Xing, Info, or VBRI frame-count declarations');
   }
@@ -235,6 +238,24 @@ function assertMp3MetadataSealable(metadata: Readonly<Mp3Metadata>, sourceSize: 
     if (point.rawSample !== point.frameOrdinal * metadata.samplesPerFrame) {
       fail('MP3 scanner-issued seek point contradicts its decoder sample coordinate');
     }
+  }
+}
+
+/**
+ * Whether one exact scanner-issued MP3 result can be reconstructed by the
+ * current guest manifest admission path. Ineligible but valid MP3 files must
+ * remain on direct peer-range instead of turning a normal fallback into an
+ * artifact-construction error.
+ */
+export function isMp3MetadataTimelineManifestEligible(metadata: unknown): boolean {
+  const source = scannerIssuedMp3MetadataSource(metadata);
+  if (!source) return false;
+  try {
+    assertMp3MetadataSealable(metadata as Readonly<Mp3Metadata>, source.sourceSize);
+    return true;
+  } catch (error) {
+    if (error instanceof CodecTimelineManifestSealError) return false;
+    throw error;
   }
 }
 

@@ -10,6 +10,7 @@ import {
   validateExactRead,
 } from '../../sources/encoded-audio-source.ts';
 import {
+  isMp3MetadataTimelineManifestEligible,
   sealAdtsFrameScanTimelineManifest,
   sealMp3MetadataTimelineManifest,
 } from '../codec-timeline-manifest-seal.ts';
@@ -93,13 +94,43 @@ function setUint32(bytes: Uint8Array, offset: number, value: number): void {
   bytes[offset + 3] = value;
 }
 
-function xingTaggedMp3(audioFrameCount: number, declaredFrameCount: number | null): Uint8Array {
+function setUint16(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = value >>> 8;
+  bytes[offset + 1] = value;
+}
+
+function lameInfoTagCrc16(bytes: Uint8Array, endOffset: number): number {
+  let crc = 0;
+  for (let offset = 0; offset < endOffset; offset += 1) {
+    crc ^= bytes[offset] ?? 0;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xa001);
+    }
+  }
+  return crc & 0xffff;
+}
+
+function xingTaggedMp3(
+  audioFrameCount: number,
+  declaredFrameCount: number | null,
+  gapless: Readonly<{ delay: number; padding: number }> | null = null,
+): Uint8Array {
   const tag = mp3Frame(0, 0);
   const header = parseMpegLayer3FrameHeader(tag.subarray(0, 4));
   const markerOffset = 4 + header.sideInfoBytes;
   setAscii(tag, markerOffset, 'Xing');
   setUint32(tag, markerOffset + 4, declaredFrameCount === null ? 0 : 1);
   if (declaredFrameCount !== null) setUint32(tag, markerOffset + 8, declaredFrameCount);
+  if (gapless !== null) {
+    const encoderOffset = markerOffset + 12;
+    setAscii(tag, encoderOffset, 'LAME3.100');
+    const packed = gapless.delay * 0x1000 + gapless.padding;
+    tag[encoderOffset + 21] = packed >>> 16;
+    tag[encoderOffset + 22] = packed >>> 8;
+    tag[encoderOffset + 23] = packed;
+    const crcOffset = encoderOffset + 34;
+    setUint16(tag, crcOffset, lameInfoTagCrc16(tag, crcOffset));
+  }
   const audio = Array.from({ length: audioFrameCount }, (_, index) =>
     mp3Frame(index === 0 ? 0 : 16, index + 1),
   );
@@ -168,6 +199,7 @@ describe('scanner-issued codec timeline manifest seals', () => {
       sourceIdentity: source.identity,
       sourceSize: source.size,
     });
+    expect(isMp3MetadataTimelineManifestEligible(metadata)).toBe(true);
 
     const seal = sealMp3MetadataTimelineManifest(metadata, binding);
     const parsed = parseCodecTimelineManifest(seal.copyBytes());
@@ -235,9 +267,26 @@ describe('scanner-issued codec timeline manifest seals', () => {
       fullyVerifiedFrameSpan: true,
       vbr: { kind: 'xing', frameCount: 2 },
     });
+    expect(isMp3MetadataTimelineManifestEligible(metadata)).toBe(false);
     expect(() => sealMp3MetadataTimelineManifest(metadata, digest())).toThrow(
       /frame-count declarations/i,
     );
+  });
+
+  it('routes scanner-issued gapless MP3 metadata away from manifest publication', async () => {
+    const source = new MemorySource(
+      xingTaggedMp3(2, 2, { delay: 576, padding: 100 }),
+      'gapless-mp3',
+      'audio/mpeg',
+    );
+    const metadata = await readMp3Metadata(source, signal());
+
+    expect(metadata.gapless).toMatchObject({
+      encoderDelaySamples: 576,
+      endPaddingSamples: 100,
+    });
+    expect(isMp3MetadataTimelineManifestEligible(metadata)).toBe(false);
+    expect(() => sealMp3MetadataTimelineManifest(metadata, digest())).toThrow(/gapless.*null/i);
   });
 
   it('keeps digest and manifest copies isolated and rejects forged seal receivers', async () => {

@@ -555,6 +555,20 @@ function receiveWire(
   return result;
 }
 
+function receiveHostWireAtGuest(
+  pair: ConnectionPair,
+  message: FilePlaybackWireMessage,
+): Extract<
+  ReturnType<FilePlaybackConnectionChannel['receive']>,
+  { accepted: true; frame: 'wire' }
+> {
+  const result = pair.guest.receive(message, pair.guestToken);
+  if (!result.accepted || result.frame !== 'wire') {
+    throw new Error(`host wire rejected: ${JSON.stringify(result)}`);
+  }
+  return result;
+}
+
 function adoptWire(
   pair: ConnectionPair,
   owner: FilePlaybackProductHostMediaOwner,
@@ -939,6 +953,13 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       initialCohortAdmitted: true,
     });
     expect(activated.publication).toBe(current);
+    expect(
+      required.some(
+        (frame) => (frame as { type?: string }).type === 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
+      ),
+    ).toBe(false);
+    acceptParticipant({ participantId: capability.participant.participantId });
+    await drain();
     expect(required.at(-1)).toMatchObject({
       type: 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
       roomGeneration: 1,
@@ -946,8 +967,6 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       runId: RUN_ID,
       revision: 1,
     });
-    acceptParticipant({ participantId: capability.participant.participantId });
-    await drain();
     expect(closeConnection).not.toHaveBeenCalled();
     expect(() =>
       owner.activatePrepared({ prepared, timeline, initialCohortAdmitted: true }),
@@ -1036,6 +1055,8 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       positionSeconds: 12,
     });
     const required: unknown[] = [];
+    const wire: FilePlaybackWireMessage[] = [];
+    const recoveries: RecoverHostRemoteParticipantOptions[] = [];
     const resolvePrepared = vi.fn(async () => {
       throw new Error('same-run seek must not reacquire its source');
     });
@@ -1044,7 +1065,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       hostRoom: roomPort(
         () => current,
         () => blob,
-        [],
+        recoveries,
       ),
       publisher: publisher(),
       resolvePreparedPeerRangeSource: resolvePrepared,
@@ -1052,7 +1073,11 @@ describe('FilePlaybackProductHostMediaOwner', () => {
         required.push(frame);
         return true;
       },
-      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      sendWire: (_connection, lease, payload) => {
+        const message = pair.host.createWire(lease, payload);
+        wire.push(message);
+        return message;
+      },
       closeConnection: vi.fn(),
       onHealthSystemMessage: vi.fn(),
       runtimeForTests: {
@@ -1063,6 +1088,11 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     });
 
     const baseline = await owner.publishCurrent();
+    pair.guest.bootstrapCurrentMedia({
+      run: baseline.publication.state,
+      sourceIdentity: baseline.publication.asset.binding.sourceIdentity,
+      transferSessionId: baseline.publication.asset.binding.transferSessionId,
+    });
     const beforeCandidate = [...required];
     const candidate = await owner.publishPrepared(prepared);
     expect(candidate.offer).toBe(baseline.offer);
@@ -1071,6 +1101,26 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(resolvePrepared).not.toHaveBeenCalled();
 
     await owner.bindPrepared(prepared);
+    const prepare = wire.at(-1);
+    if (prepare?.kind !== 'file-playback-prepare') {
+      throw new Error('same-run PREPARE unavailable');
+    }
+    const receivedPrepare = receiveHostWireAtGuest(pair, prepare);
+    expect(receivedPrepare.attemptLease).toBeNull();
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(receivedPrepare.stateLease, {
+        kind: 'source-ready',
+        observedAtRoomTimeMs: 1_000,
+        readyLeaseUntilRoomTimeMs: 10_000,
+        backend: prepared.backend,
+        durationSeconds: 180,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+    );
     const capability = await owner.whenPreparedRemoteReady(prepared);
     expect(capability.participant.participantId).toBe(pair.context.guestParticipantId);
     expect(required).toEqual(beforeCandidate);
@@ -1088,7 +1138,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     const activated = owner.activatePrepared({
       prepared,
       timeline,
-      initialCohortAdmitted: true,
+      initialCohortAdmitted: false,
     });
 
     expect(activated.offer).toBe(baseline.offer);
@@ -1104,11 +1154,15 @@ describe('FilePlaybackProductHostMediaOwner', () => {
         (frame) => (frame as { type?: string }).type === 'FILE_PLAYBACK_RUN_BINDING_V2',
       ),
     ).toHaveLength(1);
-    expect(required.at(-1)).toMatchObject({
-      type: 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
-      revision: 2,
-      positionSeconds: 12,
-    });
+    expect(
+      required.some(
+        (frame) => (frame as { type?: string }).type === 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
+      ),
+    ).toBe(false);
+    await drain();
+    expect(recoveries).toHaveLength(1);
+    expect(wire.some((message) => message.kind === 'file-playback-prepare')).toBe(true);
+    expect(wire.at(-1)).toMatchObject({ kind: 'rendezvous-arm', revision: 2 });
     expect(await owner.publishCurrent()).toBe(activated);
     owner.port().revoke(pair.context);
   });
@@ -1181,19 +1235,19 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
     await owner.publishPrepared(prepared);
     await owner.bindPrepared(prepared);
-    await owner.whenPreparedRemoteReady(prepared);
     const timeline = freezeCanonical({ ...committedTimeline(), revision: 2 });
     current = committedPreparedPublication(prepared, timeline);
     const activated = owner.activatePrepared({
       prepared,
       timeline,
-      initialCohortAdmitted: true,
+      initialCohortAdmitted: false,
     });
 
     await expect(
       staleRecovery.bindAttempt(fakeAttempt('host-owner-stale-recovery')),
     ).rejects.toThrow(/stale/u);
-    expect(sendWire).not.toHaveBeenCalled();
+    expect(sendWire).toHaveBeenCalledOnce();
+    expect(sendWire.mock.results[0]?.value).toMatchObject({ kind: 'file-playback-prepare' });
     expect(closeConnection).not.toHaveBeenCalled();
     expect(await owner.publishCurrent()).toBe(activated);
 
@@ -1204,16 +1258,20 @@ describe('FilePlaybackProductHostMediaOwner', () => {
   });
 
   it('commits a prepared state without waiting for a slow remote SOURCE_READY', async () => {
-    const pair = connectionPair(() => 1_000);
+    let now = 1_000;
+    const pair = connectionPair(() => now);
     const prepared = preparedTrack('bounded-stream', 3);
     const required: unknown[] = [];
+    const wire: FilePlaybackWireMessage[] = [];
+    const recoveries: RecoverHostRemoteParticipantOptions[] = [];
+    const closeConnection = vi.fn();
     let current: Readonly<HostPeerPlaybackPublication> | null = null;
     const owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
       hostRoom: roomPort(
         () => current,
         () => new Blob(),
-        [],
+        recoveries,
       ),
       publisher: publisher(),
       resolvePreparedPeerRangeSource: vi.fn(async (options) => {
@@ -1224,8 +1282,12 @@ describe('FilePlaybackProductHostMediaOwner', () => {
         required.push(frame);
         return true;
       },
-      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
-      closeConnection: vi.fn(),
+      sendWire: (_connection, lease, payload) => {
+        const message = pair.host.createWire(lease, payload);
+        wire.push(message);
+        return message;
+      },
+      closeConnection,
       onHealthSystemMessage: vi.fn(),
       runtimeForTests: {
         createMediaIdForTests: ids(),
@@ -1246,8 +1308,133 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     });
     expect(activated.publication.state).toBe(prepared.state);
     await expect(readiness).rejects.toThrow(/committed before/u);
-    expect(required.at(-1)).toMatchObject({ type: 'FILE_PLAYBACK_TIMELINE_UPDATE_V2' });
+    expect(
+      required.some(
+        (frame) => (frame as { type?: string }).type === 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
+      ),
+    ).toBe(false);
+
+    pair.guest.bootstrapStopped(0);
+    const guestState = pair.guest.stageMedia({
+      run: prepared.state,
+      sourceIdentity: prepared.asset.binding.sourceIdentity,
+      transferSessionId: prepared.asset.binding.transferSessionId,
+    });
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestState, {
+        kind: 'source-ready',
+        observedAtRoomTimeMs: 1_000,
+        readyLeaseUntilRoomTimeMs: 10_000,
+        backend: prepared.backend,
+        durationSeconds: 180,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+    );
+    await drain();
+    expect(recoveries).toHaveLength(1);
+    const arm = wire.at(-1);
+    if (arm?.kind !== 'rendezvous-arm') throw new Error('late recovery ARM unavailable');
+    const guestAttempt = pair.guest.stageAttempt(guestState, arm.rendezvousId);
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'rendezvous-armed',
+        rendezvousId: arm.rendezvousId,
+        status: 'armed',
+        observedAtRoomTimeMs: 1_000,
+        bufferedAheadSeconds: 8,
+        reasonCode: null,
+      }),
+    );
+    await drain();
+    const finalize = wire.at(-1);
+    if (finalize?.kind !== 'rendezvous-finalize') {
+      throw new Error('late recovery FINALIZE unavailable');
+    }
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'rendezvous-finalized',
+        rendezvousId: finalize.rendezvousId,
+        status: 'accepted',
+        observedAtRoomTimeMs: 1_000,
+        reasonCode: null,
+      }),
+    );
+    await drain();
+    pair.guest.commitAttempt(guestAttempt);
+    pair.guest.commitMedia(guestState);
+    now = 2_000;
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'renderer-health',
+        rendezvousId: finalize.rendezvousId,
+        value: 'healthy',
+        observedAtRoomTimeMs: now,
+        leaseUntilRoomTimeMs: 10_000,
+        renderedFrame: 48_000,
+        underrunCount: 0,
+        reasonCode: null,
+      }),
+    );
+    await drain(64);
+    expect(required.at(-1)).toMatchObject({
+      type: 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
+      revision: prepared.state.revision,
+    });
+    expect(closeConnection).not.toHaveBeenCalled();
     owner.port().revoke(pair.context);
+  });
+
+  it('fails closed instead of replacing a publication with a pending peer timeline', async () => {
+    const pair = connectionPair(() => 1_000);
+    const prepared = preparedTrack('bounded-stream', 3);
+    const closeConnection = vi.fn();
+    let current: Readonly<HostPeerPlaybackPublication> | null = null;
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => current,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: vi.fn(async () => encodedPreparedSource(prepared)),
+      sendRequired: () => true,
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        nowEpochMsForTests: () => 1_000,
+        scheduleIntervalForTests: () => 'host-owner-pending-timeline-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+    await owner.publishPrepared(prepared);
+    await owner.bindPrepared(prepared);
+    const readiness = owner.whenPreparedRemoteReady(prepared);
+    const timeline = committedTimeline();
+    current = committedPreparedPublication(prepared, timeline);
+    const activated = owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: false,
+    });
+    await expect(readiness).rejects.toThrow(/committed before/u);
+    await expect(owner.publishCurrent()).resolves.toBe(activated);
+
+    current = publication('bounded-stream', new Blob([new Uint8Array([1, 2, 3])]));
+    await expect(owner.publishCurrent()).rejects.toThrow(/connection failed/u);
+    expect(closeConnection).toHaveBeenCalledOnce();
   });
 
   it('revokes a delayed exact prepared source without publishing or leaking it', async () => {

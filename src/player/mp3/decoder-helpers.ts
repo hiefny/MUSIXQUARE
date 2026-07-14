@@ -6,8 +6,12 @@ import {
   snapshotMp3DecoderDescriptor,
   type Mp3DecoderDescriptor,
 } from './decoder-protocol.ts';
+import {
+  createMp3DecoderTimelineEvidence,
+  type Mp3DecoderTimelineEvidence,
+} from './decoder-timeline-evidence.ts';
 import type { MpegLayer3FrameHeader, MpegLayer3Version } from './frame-header.ts';
-import type { Mp3Metadata } from './metadata.ts';
+import { scannerIssuedMp3MetadataSource, type Mp3Metadata } from './metadata.ts';
 import {
   MP3_SEEK_INDEX_MAX_POINTS,
   MP3_SEEK_MAX_SYNTHESIS_WARMUP_FRAMES,
@@ -105,6 +109,15 @@ export interface Mp3DecoderPlanningState {
   readonly seekPoints: readonly Readonly<MpegLayer3SeekIndexPoint>[];
 }
 
+export interface Mp3DecoderTimelinePlanningState {
+  readonly evidence: Readonly<Mp3DecoderTimelineEvidence>;
+  readonly sourceSize: number;
+  readonly timeline: Readonly<Mp3SampleTimeline>;
+  /** Mutable only through its bounded verified-point API. */
+  readonly seekIndex: MpegLayer3SeekIndex;
+  readonly seekPoints: readonly Readonly<MpegLayer3SeekIndexPoint>[];
+}
+
 export interface RebuildMp3DecoderPlanningStateOptions {
   readonly metadata: Readonly<Mp3Metadata>;
   readonly sourceSize: number;
@@ -112,8 +125,21 @@ export interface RebuildMp3DecoderPlanningStateOptions {
   readonly seekPoints?: readonly MpegLayer3SeekIndexPoint[];
 }
 
+export interface RebuildMp3DecoderTimelinePlanningStateOptions {
+  readonly evidence: Readonly<Mp3DecoderTimelineEvidence>;
+  /** Optional progressively enriched exact-point snapshot. */
+  readonly seekPoints?: readonly MpegLayer3SeekIndexPoint[];
+}
+
 export interface CreateMp3DecoderDescriptorOptions extends RebuildMp3DecoderPlanningStateOptions {
   readonly sourceIdentity: string;
+  readonly mediaFrame: number;
+  /** Defaults to the encoded sample rate, avoiding an unnecessary resampler. */
+  readonly outputSampleRate?: number;
+  readonly minimumWarmupFrames?: number;
+}
+
+export interface CreateMp3DecoderDescriptorFromTimelineEvidenceOptions extends RebuildMp3DecoderTimelinePlanningStateOptions {
   readonly mediaFrame: number;
   /** Defaults to the encoded sample rate, avoiding an unnecessary resampler. */
   readonly outputSampleRate?: number;
@@ -753,16 +779,30 @@ function validateMetadata(metadataValue: unknown, sourceSizeValue: unknown): Val
   });
 }
 
-function buildIndex(
-  validated: ValidatedMetadata,
+interface BuiltSeekIndex {
+  readonly seekIndex: MpegLayer3SeekIndex;
+  readonly seekPoints: readonly Readonly<MpegLayer3SeekIndexPoint>[];
+}
+
+function sameSeekPoint(
+  left: Readonly<MpegLayer3SeekIndexPoint>,
+  right: Readonly<MpegLayer3SeekIndexPoint>,
+): boolean {
+  return POINT_KEYS.every((key) => left[key] === right[key]);
+}
+
+function buildSeekIndex(
+  geometry: Mp3Geometry,
+  timeline: Readonly<Mp3SampleTimeline>,
+  baselinePoints: readonly Readonly<MpegLayer3SeekIndexPoint>[],
   seekPointsValue?: readonly MpegLayer3SeekIndexPoint[],
-): Mp3DecoderPlanningState {
+): BuiltSeekIndex {
   const points =
     seekPointsValue === undefined
-      ? validated.metadataSeekPoints
-      : snapshotSeekPoints(seekPointsValue, validated.geometry, 'MP3 decoder seek point');
+      ? baselinePoints
+      : snapshotSeekPoints(seekPointsValue, geometry, 'MP3 decoder seek point');
   const origin = points[0];
-  const metadataOrigin = validated.metadataSeekPoints[0];
+  const metadataOrigin = baselinePoints[0];
   if (
     !origin ||
     !metadataOrigin ||
@@ -775,11 +815,11 @@ function buildIndex(
     throw new Mp3DecoderHelperError('MP3 decoder seek points do not preserve metadata origin');
   }
   const index = new MpegLayer3SeekIndex({
-    sourceSize: validated.geometry.sourceSize,
-    firstAudioFrameOffset: validated.geometry.firstAudioFrameOffset,
-    audioEndByteOffset: validated.geometry.audioEndByteOffset,
-    totalRawSamples: validated.timeline.totalRawSamples,
-    samplesPerFrame: validated.geometry.samplesPerFrame,
+    sourceSize: geometry.sourceSize,
+    firstAudioFrameOffset: geometry.firstAudioFrameOffset,
+    audioEndByteOffset: geometry.audioEndByteOffset,
+    totalRawSamples: timeline.totalRawSamples,
+    samplesPerFrame: geometry.samplesPerFrame,
     firstFrameMainDataCapacityBytes: origin.mainDataCapacityBytes,
     firstFrameMainDataBeginBytes: origin.mainDataBeginBytes,
     maxPoints: MP3_SEEK_INDEX_MAX_POINTS,
@@ -798,15 +838,87 @@ function buildIndex(
     }
   }
   const snapshot = index.snapshot();
-  if (snapshot.length !== points.length) {
+  if (
+    snapshot.length !== points.length ||
+    snapshot.some((point, pointIndex) => !sameSeekPoint(point, points[pointIndex]!))
+  ) {
     throw new Mp3DecoderHelperError('MP3 decoder seek points were not rebuilt exactly');
   }
+  return Object.freeze({ seekIndex: index, seekPoints: snapshot });
+}
+
+function buildIndex(
+  validated: ValidatedMetadata,
+  seekPointsValue?: readonly MpegLayer3SeekIndexPoint[],
+): Mp3DecoderPlanningState {
+  const built = buildSeekIndex(
+    validated.geometry,
+    validated.timeline,
+    validated.metadataSeekPoints,
+    seekPointsValue,
+  );
   return Object.freeze({
     metadata: validated.metadata,
     sourceSize: validated.geometry.sourceSize,
     timeline: validated.timeline,
-    seekIndex: index,
-    seekPoints: snapshot,
+    seekIndex: built.seekIndex,
+    seekPoints: built.seekPoints,
+  });
+}
+
+/**
+ * Convert exact scanner-issued metadata into detached decoder planning data.
+ * Source identity and size come from the metadata scanner's private issuance
+ * binding; this conversion performs no encoded-source reads.
+ */
+export function createMp3DecoderTimelineEvidenceFromMetadata(
+  metadata: Readonly<Mp3Metadata>,
+): Readonly<Mp3DecoderTimelineEvidence> {
+  const binding = scannerIssuedMp3MetadataSource(metadata);
+  if (!binding) {
+    throw new TypeError('MP3 timeline evidence requires exact scanner-issued metadata');
+  }
+  const validated = validateMetadata(metadata, binding.sourceSize);
+  const vbr = validated.metadata.vbr;
+  const tagFrame =
+    vbr && validated.metadata.tagFrameOffset !== null
+      ? {
+          byteOffset: validated.metadata.tagFrameOffset,
+          byteLength: validated.metadata.tagFrameBytes,
+          declaration: {
+            kind: vbr.kind === 'vbri' ? 'vbri' : vbr.identifier === 'Info' ? 'info' : 'xing',
+            frameCount: vbr.frameCount,
+            streamBytes: vbr.streamBytes,
+            gapless:
+              vbr.kind === 'xing' && vbr.gapless
+                ? {
+                    encoderFamily: vbr.gapless.encoderFamily,
+                    encoderTag: vbr.gapless.encoderTag,
+                    encoderDelaySamples: vbr.gapless.encoderDelaySamples,
+                    endPaddingSamples: vbr.gapless.endPaddingSamples,
+                  }
+                : null,
+          },
+        }
+      : null;
+  return createMp3DecoderTimelineEvidence({
+    format: 'mp3-decoder-timeline',
+    sourceIdentity: binding.sourceIdentity,
+    sourceSize: validated.geometry.sourceSize,
+    version: validated.metadata.version,
+    sampleRateHz: validated.metadata.sampleRateHz,
+    channels: validated.metadata.channels,
+    samplesPerFrame: validated.metadata.samplesPerFrame,
+    firstAudioFrameOffset: validated.geometry.firstAudioFrameOffset,
+    audioEndByteOffset: validated.geometry.audioEndByteOffset,
+    audioFrameCount: validated.geometry.audioFrameCount,
+    tagFrame,
+    frameCountEvidence: validated.metadata.frameCountEvidence,
+    fullyVerifiedFrameSpan: validated.metadata.fullyVerifiedFrameSpan,
+    verifiedAudioFrameCount: validated.metadata.verifiedAudioFrameCount,
+    verifiedAudioBytes: validated.metadata.verifiedAudioBytes,
+    timeline: validated.timeline,
+    seekPoints: validated.metadataSeekPoints,
   });
 }
 
@@ -820,17 +932,60 @@ export function rebuildMp3DecoderPlanningState(
   return buildIndex(validated, options.seekPoints);
 }
 
-export function createMp3DecoderDescriptor(
-  options: CreateMp3DecoderDescriptorOptions,
-): Readonly<Mp3DecoderDescriptor> {
+export function rebuildMp3DecoderTimelinePlanningState(
+  options: RebuildMp3DecoderTimelinePlanningStateOptions,
+): Readonly<Mp3DecoderTimelinePlanningState> {
   if (!options || typeof options !== 'object') {
-    throw new TypeError('MP3 decoder descriptor options are missing');
+    throw new TypeError('MP3 decoder timeline planning options are missing');
   }
-  if (!isEncodedAudioSourceIdentity(options.sourceIdentity)) {
-    throw new TypeError('MP3 decoder source identity is invalid');
-  }
-  const planning = rebuildMp3DecoderPlanningState(options);
-  const outputSampleRate = options.outputSampleRate ?? planning.metadata.sampleRateHz;
+  const evidence = createMp3DecoderTimelineEvidence(options.evidence);
+  const geometry: Mp3Geometry = Object.freeze({
+    sourceSize: evidence.sourceSize,
+    firstAudioFrameOffset: evidence.firstAudioFrameOffset,
+    audioEndByteOffset: evidence.audioEndByteOffset,
+    audioFrameCount: evidence.audioFrameCount,
+    samplesPerFrame: evidence.samplesPerFrame,
+  });
+  const built = buildSeekIndex(
+    geometry,
+    evidence.timeline,
+    evidence.seekPoints,
+    options.seekPoints,
+  );
+  return Object.freeze({
+    evidence,
+    sourceSize: evidence.sourceSize,
+    timeline: evidence.timeline,
+    seekIndex: built.seekIndex,
+    seekPoints: built.seekPoints,
+  });
+}
+
+interface Mp3DecoderDescriptorPlanningView {
+  readonly sourceIdentity: string;
+  readonly sourceSize: number;
+  readonly version: MpegLayer3Version;
+  readonly sampleRateHz: number;
+  readonly channels: 1 | 2;
+  readonly samplesPerFrame: 576 | 1_152;
+  readonly firstAudioFrameOffset: number;
+  readonly audioEndByteOffset: number;
+  readonly audioFrameCount: number;
+  readonly timeline: Readonly<Mp3SampleTimeline>;
+  readonly seekIndex: MpegLayer3SeekIndex;
+}
+
+interface Mp3DecoderDescriptorTargetOptions {
+  readonly mediaFrame: number;
+  readonly outputSampleRate?: number;
+  readonly minimumWarmupFrames?: number;
+}
+
+function createDescriptorFromPlanningView(
+  planning: Mp3DecoderDescriptorPlanningView,
+  options: Mp3DecoderDescriptorTargetOptions,
+): Readonly<Mp3DecoderDescriptor> {
+  const outputSampleRate = options.outputSampleRate ?? planning.sampleRateHz;
   requireSafeInteger(
     outputSampleRate,
     'MP3 output sample rate',
@@ -859,21 +1014,75 @@ export function createMp3DecoderDescriptor(
   const descriptor: Mp3DecoderDescriptor = Object.freeze({
     format: 'mp3',
     sourceSize: planning.sourceSize,
-    sourceIdentity: options.sourceIdentity,
-    version: planning.metadata.version,
-    sourceSampleRate: planning.metadata.sampleRateHz,
+    sourceIdentity: planning.sourceIdentity,
+    version: planning.version,
+    sourceSampleRate: planning.sampleRateHz,
     outputSampleRate,
-    channels: planning.metadata.channels,
-    samplesPerFrame: planning.metadata.samplesPerFrame,
-    firstAudioFrameOffset: planning.metadata.firstAudioFrameOffset,
-    audioEndByteOffset: planning.metadata.audioEndByteOffset,
-    audioFrameCount: planning.metadata.audioFrameCount,
+    channels: planning.channels,
+    samplesPerFrame: planning.samplesPerFrame,
+    firstAudioFrameOffset: planning.firstAudioFrameOffset,
+    audioEndByteOffset: planning.audioEndByteOffset,
+    audioFrameCount: planning.audioFrameCount,
     timeline: planning.timeline,
     startPlan,
   });
   const snapshot = snapshotMp3DecoderDescriptor(descriptor);
   if (!snapshot) throw new Mp3DecoderHelperError('MP3 decoder descriptor failed validation');
   return snapshot;
+}
+
+export function createMp3DecoderDescriptor(
+  options: CreateMp3DecoderDescriptorOptions,
+): Readonly<Mp3DecoderDescriptor> {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('MP3 decoder descriptor options are missing');
+  }
+  if (!isEncodedAudioSourceIdentity(options.sourceIdentity)) {
+    throw new TypeError('MP3 decoder source identity is invalid');
+  }
+  const planning = rebuildMp3DecoderPlanningState(options);
+  return createDescriptorFromPlanningView(
+    {
+      sourceIdentity: options.sourceIdentity,
+      sourceSize: planning.sourceSize,
+      version: planning.metadata.version,
+      sampleRateHz: planning.metadata.sampleRateHz,
+      channels: planning.metadata.channels,
+      samplesPerFrame: planning.metadata.samplesPerFrame,
+      firstAudioFrameOffset: planning.metadata.firstAudioFrameOffset,
+      audioEndByteOffset: planning.metadata.audioEndByteOffset,
+      audioFrameCount: planning.metadata.audioFrameCount,
+      timeline: planning.timeline,
+      seekIndex: planning.seekIndex,
+    },
+    options,
+  );
+}
+
+export function createMp3DecoderDescriptorFromTimelineEvidence(
+  options: CreateMp3DecoderDescriptorFromTimelineEvidenceOptions,
+): Readonly<Mp3DecoderDescriptor> {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('MP3 decoder timeline descriptor options are missing');
+  }
+  const planning = rebuildMp3DecoderTimelinePlanningState(options);
+  const { evidence } = planning;
+  return createDescriptorFromPlanningView(
+    {
+      sourceIdentity: evidence.sourceIdentity,
+      sourceSize: evidence.sourceSize,
+      version: evidence.version,
+      sampleRateHz: evidence.sampleRateHz,
+      channels: evidence.channels,
+      samplesPerFrame: evidence.samplesPerFrame,
+      firstAudioFrameOffset: evidence.firstAudioFrameOffset,
+      audioEndByteOffset: evidence.audioEndByteOffset,
+      audioFrameCount: evidence.audioFrameCount,
+      timeline: planning.timeline,
+      seekIndex: planning.seekIndex,
+    },
+    options,
+  );
 }
 
 function requireDescriptor(value: unknown): Readonly<Mp3DecoderDescriptor> {

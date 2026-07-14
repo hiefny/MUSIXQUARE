@@ -1130,6 +1130,9 @@ class GuestMediaOwner {
         if (!result.accepted) {
           throw new Error(`Guest source offer was rejected: ${result.reason}`);
         }
+        if (result.offer.transport === 'peer-range-manifest') {
+          throw new Error('FILE_PLAYBACK_PEER_RANGE_MANIFEST_GATED_OFF');
+        }
         acknowledge();
         if (result.offer.transport === 'peer-range') {
           this.#scheduleOfferWarm(result.preparation);
@@ -1923,6 +1926,9 @@ class GuestMediaOwner {
   async #acquireAsset(
     operation: Readonly<FilePlaybackConnectionMediaOperation>,
   ): Promise<Readonly<FilePlaybackR2WholeBlobAcquisition>> {
+    if (operation.offer.transport === 'peer-range-manifest') {
+      throw new Error('FILE_PLAYBACK_PEER_RANGE_MANIFEST_GATED_OFF');
+    }
     const binding = assetBinding(operation);
     const existingLease = this.#registry.leaseForBinding(this.#roomToken, binding);
     if (existingLease) {
@@ -1937,6 +1943,9 @@ class GuestMediaOwner {
     }
     if (operation.offer.transport === 'r2-whole-blob') {
       return this.#r2Acquirer.acquire(operation);
+    }
+    if (operation.offer.transport !== 'peer-range') {
+      throw new Error('Guest file media transport is unsupported');
     }
     this.#assertLive();
     const asset = new PeerRangeEncodedAudioAsset({

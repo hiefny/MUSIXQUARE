@@ -29,6 +29,7 @@ import {
 } from '../file-playback-manager.ts';
 import {
   createPeerRangeFileMediaSourceOfferV2,
+  createPeerRangeManifestFileMediaSourceOfferV2,
   createR2WholeBlobFileMediaSourceOfferV2,
   type FileMediaSourceOfferV2,
 } from '../file-media-source-offer.ts';
@@ -286,6 +287,25 @@ function peerOffer(context: Readonly<FilePlaybackProductSessionRouterConnectionC
     transferSessionId: TRANSFER_ID,
     handleId: HANDLE_ID,
     encodedSize: 4_096,
+    name: 'orchestra.flac',
+    mime: 'audio/flac',
+    expiresAtRoomTimeMs: 10_000,
+  });
+}
+
+function gatedManifestOffer(context: Readonly<FilePlaybackProductSessionRouterConnectionContext>) {
+  return createPeerRangeManifestFileMediaSourceOfferV2({
+    sessionId: context.sessionId,
+    connectionId: context.connectionId,
+    prepareId: PREPARE_ID,
+    prepareRevision: 1,
+    queueItemId: QUEUE_ID,
+    sourceIdentity: SOURCE_ID,
+    transferSessionId: TRANSFER_ID,
+    handleId: HANDLE_ID,
+    encodedSize: 4_096,
+    manifestByteLength: 128,
+    manifestSha256B64: btoa('\0'.repeat(32)),
     name: 'orchestra.flac',
     mime: 'audio/flac',
     expiresAtRoomTimeMs: 10_000,
@@ -956,6 +976,47 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
     expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
+  });
+
+  it('rejects a gated manifest offer before ACK, audio graph, or existing-asset lookup', async () => {
+    const h = setup();
+    const offer = gatedManifestOffer(h.context);
+    const existingAsset = new PeerRangeEncodedAudioAsset({
+      size: offer.encodedSize,
+      identity: offer.sourceIdentity,
+      metadata: { name: offer.name, mime: offer.mime },
+      transport: {
+        read: vi.fn(async (request) => new Uint8Array(request.length)),
+        closeHandle: vi.fn(),
+      },
+      handleId: offer.handleId,
+    });
+    h.registry.admitEncodedAsset(
+      ROOM_TOKEN,
+      {
+        queueItemId: offer.queueItemId,
+        sourceIdentity: offer.sourceIdentity,
+        transferSessionId: offer.transferSessionId,
+      },
+      existingAsset,
+    );
+    const leaseLookup = vi.spyOn(h.registry, 'leaseForBinding');
+    const assetAdmission = vi.spyOn(h.registry, 'admitEncodedAsset');
+
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offerAck = vi.fn();
+    expect(() => h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), offerAck)).toThrow(
+      /Guest auxiliary media adoption failed/u,
+    );
+
+    expect(offerAck).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.options.getAudioGraph).not.toHaveBeenCalled();
+    expect(leaseLookup).not.toHaveBeenCalled();
+    expect(assetAdmission).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
   });
 
   it('reuses one detached warm operation for an exact peer OFFER replay', async () => {

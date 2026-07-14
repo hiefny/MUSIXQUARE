@@ -20,6 +20,10 @@ import {
   type FilePlaybackSessionSnapshotV2,
   type FilePlaybackSessionWelcomeV2,
 } from '../file-playback-session-handshake.ts';
+import {
+  FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+  FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+} from '../../player/file-playback-semantic-cohort.ts';
 
 const SCOPE = Object.freeze({
   sessionId: 'session-0000000000000001',
@@ -51,7 +55,10 @@ function deterministicIssuer(
   });
 }
 
-function pair() {
+function pair(
+  hostSemanticPlaybackCohortId = FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+  guestSemanticPlaybackCohortId = FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+) {
   const hostIssuer = deterministicIssuer();
   const guestIssuer = deterministicIssuer();
   const sessionId = hostIssuer.issueSessionId();
@@ -63,10 +70,12 @@ function pair() {
       connectionId,
       hostParticipantId: SCOPE.hostParticipantId,
       guestParticipantId: SCOPE.guestParticipantId,
+      semanticPlaybackCohortId: hostSemanticPlaybackCohortId,
     }),
     guest: new FilePlaybackGuestSessionHandshake({
       idIssuer: guestIssuer,
       guestParticipantId: SCOPE.guestParticipantId,
+      semanticPlaybackCohortId: guestSemanticPlaybackCohortId,
     }),
     hostIssuer,
     guestIssuer,
@@ -188,12 +197,14 @@ describe('file playback application-session handshake', () => {
     const hello: FilePlaybackSessionHelloV2 = {
       type: FILE_PLAYBACK_SESSION_HELLO_TYPE,
       version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+      semanticPlaybackCohortId: FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
       helloId: 'hello-1',
       guestParticipantId: 'guest-1',
     };
     const welcome: FilePlaybackSessionWelcomeV2 = {
       type: FILE_PLAYBACK_SESSION_WELCOME_TYPE,
       version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+      semanticPlaybackCohortId: FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
       ...SCOPE,
       helloId: hello.helloId,
     };
@@ -226,6 +237,7 @@ describe('file playback application-session handshake', () => {
     const accessor = {
       type: FILE_PLAYBACK_SESSION_HELLO_TYPE,
       version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+      semanticPlaybackCohortId: FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
       get helloId() {
         accessorReads += 1;
         return 'hello-accessor';
@@ -239,6 +251,7 @@ describe('file playback application-session handshake', () => {
     const target: FilePlaybackSessionHelloV2 = {
       type: FILE_PLAYBACK_SESSION_HELLO_TYPE,
       version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+      semanticPlaybackCohortId: FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
       helloId: 'hello-proxy',
       guestParticipantId: 'guest-proxy',
     };
@@ -257,6 +270,7 @@ describe('file playback application-session handshake', () => {
         ['type', 1],
         ['guestParticipantId', 1],
         ['helloId', 1],
+        ['semanticPlaybackCohortId', 1],
         ['version', 1],
       ]),
     );
@@ -288,6 +302,7 @@ describe('file playback application-session handshake', () => {
       const message = Object.assign(Object.create(null), {
         type: FILE_PLAYBACK_SESSION_HELLO_TYPE,
         version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+        semanticPlaybackCohortId: FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
         helloId: 'hello-pollution',
         guestParticipantId: 'guest-pollution',
       });
@@ -308,6 +323,7 @@ describe('file playback application-session handshake', () => {
     const base: FilePlaybackSessionWelcomeV2 = {
       type: FILE_PLAYBACK_SESSION_WELCOME_TYPE,
       version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+      semanticPlaybackCohortId: FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
       ...SCOPE,
       helloId: 'hello-bounds',
     };
@@ -385,6 +401,76 @@ describe('file playback application-session handshake', () => {
     });
     expect(guest.state()).toBe('hello-issued');
     expect(guest.handleWelcome(welcomeResult.welcome)).toMatchObject({ accepted: true });
+  });
+
+  it.each([
+    [
+      'current guest -> universal host',
+      FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+      FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+    ],
+    [
+      'universal guest -> current host',
+      FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+      FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+    ],
+  ] as const)(
+    'fails closed before publishing a binding for %s',
+    (_label, hostCohort, guestCohort) => {
+      const { host, guest } = pair(hostCohort, guestCohort);
+      const hello = guest.createHello();
+      if (!hello.accepted) throw new Error(hello.reason);
+
+      expect(host.handleHello(hello.hello)).toEqual({
+        accepted: false,
+        reason: 'semantic-playback-cohort-mismatch',
+      });
+      expect(host.state()).toBe('awaiting-hello');
+      expect(host.provisionalBinding()).toBeNull();
+    },
+  );
+
+  it('rejects a mismatched host echo before the guest publishes a binding', () => {
+    const { host, guest } = pair(
+      FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+      FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+    );
+    const hello = guest.createHello();
+    if (!hello.accepted) throw new Error(hello.reason);
+    const welcome = host.handleHello(hello.hello);
+    if (!welcome.accepted) throw new Error(welcome.reason);
+
+    expect(
+      guest.handleWelcome({
+        ...welcome.welcome,
+        semanticPlaybackCohortId: FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+      }),
+    ).toEqual({ accepted: false, reason: 'semantic-playback-cohort-mismatch' });
+    expect(guest.state()).toBe('hello-issued');
+    expect(guest.provisionalBinding()).toBeNull();
+  });
+
+  it('classifies exact pre-cohort V2 HELLO and WELCOME as update-boundary mismatches', () => {
+    const { host, guest } = pair();
+    const hello = guest.createHello();
+    if (!hello.accepted) throw new Error(hello.reason);
+    const { semanticPlaybackCohortId: _guestCohort, ...preCohortHello } = hello.hello;
+
+    expect(host.handleHello(preCohortHello)).toEqual({
+      accepted: false,
+      reason: 'semantic-playback-cohort-mismatch',
+    });
+    expect(host.state()).toBe('awaiting-hello');
+
+    const welcome = host.handleHello(hello.hello);
+    if (!welcome.accepted) throw new Error(welcome.reason);
+    const { semanticPlaybackCohortId: _hostCohort, ...preCohortWelcome } = welcome.welcome;
+    expect(guest.handleWelcome(preCohortWelcome)).toEqual({
+      accepted: false,
+      reason: 'semantic-playback-cohort-mismatch',
+    });
+    expect(guest.state()).toBe('hello-issued');
+    expect(guest.provisionalBinding()).toBeNull();
   });
 
   it.each([

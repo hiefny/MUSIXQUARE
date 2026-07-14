@@ -17,6 +17,10 @@ import {
 } from '../file-playback-application-session.ts';
 import { getFilePlaybackRoomClock } from '../../player/file-playback-room-clock.ts';
 import {
+  FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+  FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+} from '../../player/file-playback-semantic-cohort.ts';
+import {
   FILE_PLAYBACK_SESSION_APPLIED_TYPE,
   FILE_PLAYBACK_SESSION_HELLO_TYPE,
   FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE,
@@ -445,6 +449,88 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(() => installFilePlaybackApplicationSessionHooks(applicationHooks())).toThrow(
       'already installed',
     );
+  });
+
+  it.each([
+    [
+      'current guest -> universal host',
+      FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+      FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+    ],
+    [
+      'universal guest -> current host',
+      FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+      FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+    ],
+  ] as const)(
+    'terminates %s before WELCOME, queue bootstrap, or source authority',
+    (_label, hostCohort, guestCohort) => {
+      const setup = fixture({
+        hostManagerOptions: { semanticPlaybackCohortId: hostCohort },
+        guestManagerOptions: { semanticPlaybackCohortId: guestCohort },
+      });
+      expect(setup.startGuest()).toBe(true);
+      expect(setup.queue).toHaveLength(1);
+
+      setup.deliverNext();
+
+      expect(setup.delivered[0]?.result).toEqual({
+        handled: true,
+        established: false,
+        clockBecameReady: false,
+        rejectionReason: 'semantic-playback-cohort-mismatch',
+        updateRequired: true,
+      });
+      expect(setup.hostConn.sent).toEqual([]);
+      expect(setup.queue).toEqual([]);
+      expect(setup.host.phase(setup.hostConn)).toBe('none');
+      expect(setup.host.establishedChannel(setup.hostConn)).toBeNull();
+      expect(setup.hostConn.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('rejects an exact pre-cohort V2 guest before any host bootstrap side effect', () => {
+    const setup = fixture();
+    expect(setup.startGuest()).toBe(true);
+    const queued = setup.queue.shift();
+    if (!queued || queued.from !== 'guest') throw new Error('Missing guest HELLO');
+    const hello = queued.value as Record<string, unknown>;
+    const { semanticPlaybackCohortId: _cohort, ...preCohortHello } = hello;
+
+    expect(setup.host.receive(preCohortHello, setup.hostConn)).toEqual({
+      handled: true,
+      established: false,
+      clockBecameReady: false,
+      rejectionReason: 'semantic-playback-cohort-mismatch',
+      updateRequired: true,
+    });
+    expect(setup.hostConn.sent).toEqual([]);
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+    expect(setup.hostConn.close).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an exact pre-cohort V2 host WELCOME before guest queue apply', () => {
+    const setup = fixture();
+    expect(setup.startGuest()).toBe(true);
+    setup.deliverNext(); // matching HELLO reaches host; WELCOME is now first on the lane
+    const queued = setup.queue.shift();
+    if (!queued || queued.from !== 'host') throw new Error('Missing host WELCOME');
+    const welcome = queued.value as Record<string, unknown>;
+    const { semanticPlaybackCohortId: _cohort, ...preCohortWelcome } = welcome;
+    const apply = vi.fn();
+    bus.clear('network:peer-bootstrap-apply');
+    bus.on('network:peer-bootstrap-apply', apply);
+
+    expect(setup.guest.receive(preCohortWelcome, setup.guestConn)).toEqual({
+      handled: true,
+      established: false,
+      clockBecameReady: false,
+      rejectionReason: 'semantic-playback-cohort-mismatch',
+      updateRequired: true,
+    });
+    expect(apply).not.toHaveBeenCalled();
+    expect(setup.guest.phase(setup.guestConn)).toBe('none');
+    expect(setup.guestConn.close).toHaveBeenCalledOnce();
   });
 
   it('establishes the exact HELLO/WELCOME/bootstrap/SNAPSHOT/APPLIED flow and five-sample clock', () => {

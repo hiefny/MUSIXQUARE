@@ -16,6 +16,11 @@ import type {
   FilePlaybackWireStateLease,
 } from '../player/file-playback-wire-binding.ts';
 import type { FilePlaybackWireMessage } from '../player/file-playback-wire.ts';
+import { getFilePlaybackBuildProfile } from '../player/file-playback-build-profile.ts';
+import {
+  FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+  isFilePlaybackSemanticCohortId,
+} from '../player/file-playback-semantic-cohort.ts';
 import {
   PEER_RANGE_MAX_CHUNK_BYTES,
   PEER_RANGE_PROTOCOL,
@@ -39,8 +44,8 @@ import {
   FilePlaybackHandshakeIdIssuer,
   FilePlaybackHostSessionHandshake,
   isFilePlaybackSessionId,
-  parseFilePlaybackSessionMessageV2,
   type FilePlaybackHandshakeIdToken,
+  type FilePlaybackSessionHandshakeRejectionReason,
 } from './file-playback-session-handshake.ts';
 import {
   FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_MAX_RAW_FRAME_BYTES,
@@ -106,6 +111,7 @@ const APPLICATION_OPTION_KEYS = Object.freeze([
   'clockCalibrationRetryMs',
   'clockCalibrationDeadlineMs',
   'maxClockCalibrationAttempts',
+  'semanticPlaybackCohortId',
   'scheduleTimeout',
   'cancelTimeout',
   'adoptWireMessage',
@@ -157,6 +163,8 @@ export interface FilePlaybackApplicationSessionManagerOptions {
   readonly clockCalibrationRetryMs?: number;
   readonly clockCalibrationDeadlineMs?: number;
   readonly maxClockCalibrationAttempts?: number;
+  /** Immutable playback semantics for every connection owned by this manager. */
+  readonly semanticPlaybackCohortId?: string;
   readonly scheduleTimeout?: (
     callback: () => void,
     delayMs: number,
@@ -247,6 +255,8 @@ export interface FilePlaybackApplicationReceiveResult {
   readonly handled: boolean;
   readonly established: boolean;
   readonly clockBecameReady: boolean;
+  readonly rejectionReason?: 'semantic-playback-cohort-mismatch';
+  readonly updateRequired?: true;
 }
 
 interface BaseConnectionRecord {
@@ -335,8 +345,21 @@ function result(
   handled: boolean,
   established = false,
   clockBecameReady = false,
+  rejectionReason?: 'semantic-playback-cohort-mismatch',
 ): Readonly<FilePlaybackApplicationReceiveResult> {
-  return Object.freeze({ handled, established, clockBecameReady });
+  return Object.freeze(
+    rejectionReason
+      ? { handled, established, clockBecameReady, rejectionReason, updateRequired: true as const }
+      : { handled, established, clockBecameReady },
+  );
+}
+
+function handshakeRejectionResult(
+  reason: FilePlaybackSessionHandshakeRejectionReason,
+): Readonly<FilePlaybackApplicationReceiveResult> {
+  return reason === 'semantic-playback-cohort-mismatch'
+    ? result(true, false, false, reason)
+    : result(true);
 }
 
 /**
@@ -700,6 +723,7 @@ function snapshotExactGuestBootstrapFrame(
  */
 export class FilePlaybackApplicationSessionManager {
   readonly #issuer: FilePlaybackHandshakeIdIssuer;
+  readonly #semanticPlaybackCohortId: string;
   readonly #records = new Map<DataConnection, ConnectionRecord>();
   readonly #applicationHandshakeDeadlineMs: number;
   readonly #clockCalibrationRetryMs: number;
@@ -729,6 +753,12 @@ export class FilePlaybackApplicationSessionManager {
     const snapshot = snapshotApplicationOptions(options);
     if (!snapshot) throw new TypeError('Application-session manager options are invalid');
     this.#issuer = issuer;
+    const semanticPlaybackCohortId =
+      snapshot.semanticPlaybackCohortId ?? FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID;
+    if (!isFilePlaybackSemanticCohortId(semanticPlaybackCohortId)) {
+      throw new TypeError('Application-session semantic playback cohort is invalid');
+    }
+    this.#semanticPlaybackCohortId = semanticPlaybackCohortId;
     this.#applicationHandshakeDeadlineMs =
       (snapshot.applicationHandshakeDeadlineMs as number | undefined) ??
       DEFAULT_APPLICATION_HANDSHAKE_DEADLINE_MS;
@@ -843,6 +873,7 @@ export class FilePlaybackApplicationSessionManager {
         connectionId: this.#issuer.issueConnectionId(),
         hostParticipantId: room.descriptor.hostParticipantId,
         guestParticipantId,
+        semanticPlaybackCohortId: this.#semanticPlaybackCohortId,
       });
       this.#records.set(conn, {
         role: 'host',
@@ -883,6 +914,7 @@ export class FilePlaybackApplicationSessionManager {
       const handshake = new FilePlaybackGuestSessionHandshake({
         idIssuer: this.#issuer,
         guestParticipantId,
+        semanticPlaybackCohortId: this.#semanticPlaybackCohortId,
       });
       const record: GuestConnectionRecord = {
         role: 'guest',
@@ -956,7 +988,7 @@ export class FilePlaybackApplicationSessionManager {
       }
 
       if (discriminator.type && SESSION_TYPES.has(discriminator.type)) {
-        return this.#receiveSession(record, value);
+        return this.#receiveSession(record, value, discriminator.type);
       }
       if (discriminator.type && CLOCK_TYPES.has(discriminator.type)) {
         return this.#receiveClock(record, value);
@@ -1090,19 +1122,14 @@ export class FilePlaybackApplicationSessionManager {
   #receiveSession(
     record: ConnectionRecord,
     value: unknown,
+    messageType: string,
   ): Readonly<FilePlaybackApplicationReceiveResult> {
-    const message = parseFilePlaybackSessionMessageV2(value);
-    if (!message) {
-      this.#teardown(record, true);
-      return result(true);
-    }
-
     if (record.role === 'host') {
-      if (message.type === FILE_PLAYBACK_SESSION_HELLO_TYPE) {
-        const welcome = record.handshake.handleHello(message);
+      if (messageType === FILE_PLAYBACK_SESSION_HELLO_TYPE) {
+        const welcome = record.handshake.handleHello(value);
         if (!welcome.accepted) {
           this.#teardown(record, true);
-          return result(true);
+          return handshakeRejectionResult(welcome.reason);
         }
         if (!this.#sendRequired(record, welcome.welcome)) return result(true);
         const binding = record.handshake.provisionalBinding();
@@ -1126,11 +1153,11 @@ export class FilePlaybackApplicationSessionManager {
         }
         return result(true);
       }
-      if (message.type === FILE_PLAYBACK_SESSION_APPLIED_TYPE) {
-        const applied = record.handshake.handleApplied(message);
+      if (messageType === FILE_PLAYBACK_SESSION_APPLIED_TYPE) {
+        const applied = record.handshake.handleApplied(value);
         if (!applied.accepted || !record.clock) {
           this.#teardown(record, true);
-          return result(true);
+          return !applied.accepted ? handshakeRejectionResult(applied.reason) : result(true);
         }
         return this.#establishHost(record);
       }
@@ -1138,11 +1165,11 @@ export class FilePlaybackApplicationSessionManager {
       return result(true);
     }
 
-    if (message.type === FILE_PLAYBACK_SESSION_WELCOME_TYPE) {
-      const accepted = record.handshake.handleWelcome(message);
+    if (messageType === FILE_PLAYBACK_SESSION_WELCOME_TYPE) {
+      const accepted = record.handshake.handleWelcome(value);
       if (!accepted.accepted) {
         this.#teardown(record, true);
-        return result(true);
+        return handshakeRejectionResult(accepted.reason);
       }
       const binding = record.handshake.provisionalBinding();
       if (!binding) {
@@ -1160,15 +1187,15 @@ export class FilePlaybackApplicationSessionManager {
       }
       return result(true);
     }
-    if (message.type === FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE) {
+    if (messageType === FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE) {
       if (record.bootstrapIndex !== 3 || !hasQueueAuthority(record.conn) || !record.clock) {
         this.#teardown(record, true);
         return result(true);
       }
-      const accepted = record.handshake.acceptSnapshot(message);
+      const accepted = record.handshake.acceptSnapshot(value);
       if (!accepted.accepted) {
         this.#teardown(record, true);
-        return result(true);
+        return handshakeRejectionResult(accepted.reason);
       }
       const applied = record.handshake.createApplied();
       if (!applied.accepted) {
@@ -2086,7 +2113,12 @@ export class FilePlaybackApplicationSessionManager {
   }
 }
 
-const filePlaybackApplicationSessions = new FilePlaybackApplicationSessionManager();
+const filePlaybackApplicationSessions = new FilePlaybackApplicationSessionManager(
+  new FilePlaybackHandshakeIdIssuer(),
+  {
+    semanticPlaybackCohortId: getFilePlaybackBuildProfile().semanticPlaybackCohortId,
+  },
+);
 
 export function installFilePlaybackApplicationSessionHooks(
   hooks: FilePlaybackApplicationSessionHooks,

@@ -33,6 +33,7 @@ import {
   isPlaybackTimelineSnapshot,
   type PlaybackTimelineSnapshot,
 } from './playback-timeline.ts';
+import { isFilePlaybackSemanticCohortId } from './file-playback-semantic-cohort.ts';
 
 const BASELINE_ID_ISSUER_OPTION_KEYS = Object.freeze(['createBaselineId'] as const);
 const MAX_ACTIVE_PRODUCT_BASELINE_SESSIONS = 64;
@@ -55,6 +56,7 @@ const SESSION_BINDING_KEYS = Object.freeze([
   'guestParticipantId',
   'helloId',
   'hostParticipantId',
+  'semanticPlaybackCohortId',
   'sessionId',
   'version',
 ] as const);
@@ -265,6 +267,7 @@ function readSessionScope(
   if (
     !snapshot ||
     snapshot.version !== FILE_PLAYBACK_SESSION_PROTOCOL_VERSION ||
+    !isFilePlaybackSemanticCohortId(snapshot.semanticPlaybackCohortId) ||
     !isFilePlaybackSessionId(snapshot.sessionId) ||
     !isFilePlaybackSessionId(snapshot.connectionId) ||
     !isFilePlaybackSessionId(snapshot.helloId) ||

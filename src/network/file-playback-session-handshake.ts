@@ -1,3 +1,8 @@
+import {
+  FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+  isFilePlaybackSemanticCohortId,
+} from '../player/file-playback-semantic-cohort.ts';
+
 /**
  * File-playback application-session handshake for one exact live ordered
  * DataConnection.
@@ -25,13 +30,16 @@ export const FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES = 768;
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~:-]*$/u;
 
-const HELLO_KEYS = Object.freeze(['guestParticipantId', 'helloId', 'type', 'version']);
+const HELLO_KEYS = Object.freeze(
+  ['guestParticipantId', 'helloId', 'semanticPlaybackCohortId', 'type', 'version'].sort(),
+);
 const WELCOME_KEYS = Object.freeze(
   [
     'connectionId',
     'guestParticipantId',
     'helloId',
     'hostParticipantId',
+    'semanticPlaybackCohortId',
     'sessionId',
     'type',
     'version',
@@ -52,7 +60,13 @@ const HOST_OPTION_KEYS = Object.freeze([
   'idIssuer',
   'sessionId',
 ]);
+const HOST_OPTION_KEYS_WITH_COHORT = Object.freeze(
+  [...HOST_OPTION_KEYS, 'semanticPlaybackCohortId'].sort(),
+);
 const GUEST_OPTION_KEYS = Object.freeze(['guestParticipantId', 'idIssuer']);
+const GUEST_OPTION_KEYS_WITH_COHORT = Object.freeze(
+  [...GUEST_OPTION_KEYS, 'semanticPlaybackCohortId'].sort(),
+);
 const ID_ISSUER_OPTION_KEYS = Object.freeze([
   'createConnectionId',
   'createHelloId',
@@ -82,6 +96,7 @@ export interface FilePlaybackHandshakeIdIssuerOptions {
 export interface FilePlaybackSessionHelloV2 {
   readonly type: typeof FILE_PLAYBACK_SESSION_HELLO_TYPE;
   readonly version: typeof FILE_PLAYBACK_SESSION_PROTOCOL_VERSION;
+  readonly semanticPlaybackCohortId: string;
   readonly helloId: string;
   readonly guestParticipantId: string;
 }
@@ -89,6 +104,7 @@ export interface FilePlaybackSessionHelloV2 {
 export interface FilePlaybackSessionWelcomeV2 {
   readonly type: typeof FILE_PLAYBACK_SESSION_WELCOME_TYPE;
   readonly version: typeof FILE_PLAYBACK_SESSION_PROTOCOL_VERSION;
+  readonly semanticPlaybackCohortId: string;
   readonly sessionId: string;
   readonly connectionId: string;
   readonly helloId: string;
@@ -99,6 +115,7 @@ export interface FilePlaybackSessionWelcomeV2 {
 export interface FilePlaybackSessionSnapshotV2 {
   readonly type: typeof FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE;
   readonly version: typeof FILE_PLAYBACK_SESSION_PROTOCOL_VERSION;
+  readonly semanticPlaybackCohortId: string;
   readonly sessionId: string;
   readonly connectionId: string;
   readonly helloId: string;
@@ -110,6 +127,7 @@ export interface FilePlaybackSessionSnapshotV2 {
 export interface FilePlaybackSessionAppliedV2 {
   readonly type: typeof FILE_PLAYBACK_SESSION_APPLIED_TYPE;
   readonly version: typeof FILE_PLAYBACK_SESSION_PROTOCOL_VERSION;
+  readonly semanticPlaybackCohortId: string;
   readonly sessionId: string;
   readonly connectionId: string;
   readonly helloId: string;
@@ -133,6 +151,7 @@ export type FilePlaybackSessionMessageV2 =
  */
 export interface FilePlaybackSessionBindingV2 {
   readonly version: typeof FILE_PLAYBACK_SESSION_PROTOCOL_VERSION;
+  readonly semanticPlaybackCohortId: string;
   readonly sessionId: string;
   readonly connectionId: string;
   readonly helloId: string;
@@ -146,11 +165,15 @@ export interface FilePlaybackHostSessionHandshakeOptions {
   readonly connectionId: FilePlaybackHandshakeIdToken<'connection'>;
   readonly hostParticipantId: string;
   readonly guestParticipantId: string;
+  /** Fixed manager/build identity; omitted only by direct current-profile callers. */
+  readonly semanticPlaybackCohortId?: string;
 }
 
 export interface FilePlaybackGuestSessionHandshakeOptions {
   readonly idIssuer: FilePlaybackHandshakeIdIssuer;
   readonly guestParticipantId: string;
+  /** Fixed manager/build identity; omitted only by direct current-profile callers. */
+  readonly semanticPlaybackCohortId?: string;
 }
 
 export type FilePlaybackHostSessionHandshakeState =
@@ -171,6 +194,7 @@ export type FilePlaybackSessionHandshakeRejectionReason =
   | 'message-too-large'
   | 'wrong-state'
   | 'reentrant-call'
+  | 'semantic-playback-cohort-mismatch'
   | 'wrong-hello'
   | 'wrong-session'
   | 'wrong-connection'
@@ -478,6 +502,7 @@ function snapshotSessionMessage(value: unknown): DetachedRecord | null {
 function hasValidSharedEnvelope(record: DetachedRecord): boolean {
   return (
     record.version === FILE_PLAYBACK_SESSION_PROTOCOL_VERSION &&
+    isFilePlaybackSemanticCohortId(record.semanticPlaybackCohortId) &&
     isFilePlaybackSessionId(record.sessionId) &&
     isFilePlaybackSessionId(record.connectionId) &&
     record.sessionId !== record.connectionId &&
@@ -492,6 +517,7 @@ function canonicalHello(record: DetachedRecord): Readonly<FilePlaybackSessionHel
   if (
     record.type !== FILE_PLAYBACK_SESSION_HELLO_TYPE ||
     record.version !== FILE_PLAYBACK_SESSION_PROTOCOL_VERSION ||
+    !isFilePlaybackSemanticCohortId(record.semanticPlaybackCohortId) ||
     !isFilePlaybackSessionId(record.helloId) ||
     !isFilePlaybackSessionId(record.guestParticipantId)
   ) {
@@ -500,6 +526,7 @@ function canonicalHello(record: DetachedRecord): Readonly<FilePlaybackSessionHel
   return freezeCanonical({
     type: FILE_PLAYBACK_SESSION_HELLO_TYPE,
     version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+    semanticPlaybackCohortId: record.semanticPlaybackCohortId,
     helloId: record.helloId,
     guestParticipantId: record.guestParticipantId,
   });
@@ -512,6 +539,7 @@ function canonicalWelcome(record: DetachedRecord): Readonly<FilePlaybackSessionW
   return freezeCanonical({
     type: FILE_PLAYBACK_SESSION_WELCOME_TYPE,
     version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+    semanticPlaybackCohortId: record.semanticPlaybackCohortId as string,
     sessionId: record.sessionId as string,
     connectionId: record.connectionId as string,
     helloId: record.helloId as string,
@@ -531,6 +559,7 @@ function canonicalSnapshot(record: DetachedRecord): Readonly<FilePlaybackSession
   return freezeCanonical({
     type: FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE,
     version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+    semanticPlaybackCohortId: record.semanticPlaybackCohortId as string,
     sessionId: record.sessionId as string,
     connectionId: record.connectionId as string,
     helloId: record.helloId as string,
@@ -551,6 +580,7 @@ function canonicalApplied(record: DetachedRecord): Readonly<FilePlaybackSessionA
   return freezeCanonical({
     type: FILE_PLAYBACK_SESSION_APPLIED_TYPE,
     version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+    semanticPlaybackCohortId: record.semanticPlaybackCohortId as string,
     sessionId: record.sessionId as string,
     connectionId: record.connectionId as string,
     helloId: record.helloId as string,
@@ -558,6 +588,40 @@ function canonicalApplied(record: DetachedRecord): Readonly<FilePlaybackSessionA
     guestParticipantId: record.guestParticipantId as string,
     snapshotSequence: FILE_PLAYBACK_SESSION_SNAPSHOT_SEQUENCE,
   });
+}
+
+/**
+ * Recognizes only the exact pre-cohort V2 schema. This lets a newly deployed
+ * peer report an update boundary instead of collapsing a genuine predecessor
+ * into the generic malformed-frame bucket. No legacy frame is ever accepted.
+ */
+function isExactPreCohortV2Frame(value: unknown, expectedType: string): boolean {
+  const currentKeys = MESSAGE_KEYS[expectedType as keyof typeof MESSAGE_KEYS];
+  if (!currentKeys) return false;
+  const legacyKeys = currentKeys.filter((key) => key !== 'semanticPlaybackCohortId');
+  const record = snapshotExactDataRecord(value, legacyKeys);
+  if (!record || record.type !== expectedType) return false;
+
+  if (expectedType === FILE_PLAYBACK_SESSION_HELLO_TYPE) {
+    return (
+      record.version === FILE_PLAYBACK_SESSION_PROTOCOL_VERSION &&
+      isFilePlaybackSessionId(record.helloId) &&
+      isFilePlaybackSessionId(record.guestParticipantId)
+    );
+  }
+
+  const validSharedEnvelope =
+    record.version === FILE_PLAYBACK_SESSION_PROTOCOL_VERSION &&
+    isFilePlaybackSessionId(record.sessionId) &&
+    isFilePlaybackSessionId(record.connectionId) &&
+    record.sessionId !== record.connectionId &&
+    isFilePlaybackSessionId(record.helloId) &&
+    isFilePlaybackSessionId(record.hostParticipantId) &&
+    isFilePlaybackSessionId(record.guestParticipantId) &&
+    record.hostParticipantId !== record.guestParticipantId;
+  if (!validSharedEnvelope) return false;
+  if (expectedType === FILE_PLAYBACK_SESSION_WELCOME_TYPE) return true;
+  return record.snapshotSequence === FILE_PLAYBACK_SESSION_SNAPSHOT_SEQUENCE;
 }
 
 function serializedByteLength(message: Readonly<FilePlaybackSessionMessageV2>): number {
@@ -631,6 +695,7 @@ export function serializeFilePlaybackSessionMessageV2(value: unknown): string {
 }
 
 function createBinding(
+  semanticPlaybackCohortId: string,
   sessionId: string,
   connectionId: string,
   helloId: string,
@@ -639,6 +704,7 @@ function createBinding(
 ): Readonly<FilePlaybackSessionBindingV2> {
   return freezeCanonical({
     version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+    semanticPlaybackCohortId,
     sessionId,
     connectionId,
     helloId,
@@ -651,6 +717,9 @@ function correlationMismatch(
   message: Readonly<FilePlaybackSessionSnapshotV2 | FilePlaybackSessionAppliedV2>,
   binding: Readonly<FilePlaybackSessionBindingV2>,
 ): FilePlaybackSessionHandshakeRejectionReason | null {
+  if (message.semanticPlaybackCohortId !== binding.semanticPlaybackCohortId) {
+    return 'semantic-playback-cohort-mismatch';
+  }
   if (message.helloId !== binding.helloId) return 'wrong-hello';
   if (message.sessionId !== binding.sessionId) return 'wrong-session';
   if (message.connectionId !== binding.connectionId) return 'wrong-connection';
@@ -668,6 +737,7 @@ function snapshotFromBinding(
   return freezeCanonical({
     type: FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE,
     version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+    semanticPlaybackCohortId: binding.semanticPlaybackCohortId,
     sessionId: binding.sessionId,
     connectionId: binding.connectionId,
     helloId: binding.helloId,
@@ -683,6 +753,7 @@ function appliedFromSnapshot(
   return freezeCanonical({
     type: FILE_PLAYBACK_SESSION_APPLIED_TYPE,
     version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+    semanticPlaybackCohortId: snapshot.semanticPlaybackCohortId,
     sessionId: snapshot.sessionId,
     connectionId: snapshot.connectionId,
     helloId: snapshot.helloId,
@@ -698,6 +769,7 @@ function appliedFromSnapshot(
  * issuer-owned connection ID token.
  */
 export class FilePlaybackHostSessionHandshake {
+  readonly #semanticPlaybackCohortId: string;
   readonly #sessionId: string;
   readonly #connectionId: string;
   readonly #hostParticipantId: string;
@@ -707,16 +779,22 @@ export class FilePlaybackHostSessionHandshake {
   #handlingInbound = false;
 
   constructor(options: FilePlaybackHostSessionHandshakeOptions) {
-    const snapshot = snapshotExactDataRecord(options, HOST_OPTION_KEYS);
+    const snapshot =
+      snapshotExactDataRecord(options, HOST_OPTION_KEYS_WITH_COHORT) ??
+      snapshotExactDataRecord(options, HOST_OPTION_KEYS);
+    const semanticPlaybackCohortId =
+      snapshot?.semanticPlaybackCohortId ?? FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID;
     if (
       !snapshot ||
       !(snapshot.idIssuer instanceof FilePlaybackHandshakeIdIssuer) ||
+      !isFilePlaybackSemanticCohortId(semanticPlaybackCohortId) ||
       !isFilePlaybackSessionId(snapshot.hostParticipantId) ||
       !isFilePlaybackSessionId(snapshot.guestParticipantId) ||
       snapshot.hostParticipantId === snapshot.guestParticipantId
     ) {
       throw new TypeError('File playback host session scope is invalid');
     }
+    this.#semanticPlaybackCohortId = semanticPlaybackCohortId;
 
     try {
       this.#sessionId = snapshot.idIssuer.resolveSessionId(
@@ -754,12 +832,22 @@ export class FilePlaybackHostSessionHandshake {
     this.#handlingInbound = true;
     try {
       const hello = parseFilePlaybackSessionHelloV2(value);
-      if (!hello) return rejected('malformed-message');
+      if (!hello) {
+        return rejected(
+          isExactPreCohortV2Frame(value, FILE_PLAYBACK_SESSION_HELLO_TYPE)
+            ? 'semantic-playback-cohort-mismatch'
+            : 'malformed-message',
+        );
+      }
+      if (hello.semanticPlaybackCohortId !== this.#semanticPlaybackCohortId) {
+        return rejected('semantic-playback-cohort-mismatch');
+      }
       if (hello.guestParticipantId !== this.#guestParticipantId) {
         return rejected('wrong-guest-participant');
       }
 
       const binding = createBinding(
+        this.#semanticPlaybackCohortId,
         this.#sessionId,
         this.#connectionId,
         hello.helloId,
@@ -769,6 +857,7 @@ export class FilePlaybackHostSessionHandshake {
       const welcome = freezeCanonical({
         type: FILE_PLAYBACK_SESSION_WELCOME_TYPE,
         version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+        semanticPlaybackCohortId: binding.semanticPlaybackCohortId,
         sessionId: binding.sessionId,
         connectionId: binding.connectionId,
         helloId: binding.helloId,
@@ -807,7 +896,13 @@ export class FilePlaybackHostSessionHandshake {
     this.#handlingInbound = true;
     try {
       const applied = parseFilePlaybackSessionAppliedV2(value);
-      if (!applied) return rejected('malformed-message');
+      if (!applied) {
+        return rejected(
+          isExactPreCohortV2Frame(value, FILE_PLAYBACK_SESSION_APPLIED_TYPE)
+            ? 'semantic-playback-cohort-mismatch'
+            : 'malformed-message',
+        );
+      }
       const mismatch = correlationMismatch(applied, this.#binding);
       if (mismatch) return rejected(mismatch);
       this.#state = 'applied';
@@ -823,6 +918,7 @@ export class FilePlaybackHostSessionHandshake {
  * inbound frames only from the exact currently live host DataConnection.
  */
 export class FilePlaybackGuestSessionHandshake {
+  readonly #semanticPlaybackCohortId: string;
   readonly #helloId: string;
   readonly #guestParticipantId: string;
   #state: FilePlaybackGuestSessionHandshakeState = 'ready';
@@ -831,14 +927,20 @@ export class FilePlaybackGuestSessionHandshake {
   #handlingInbound = false;
 
   constructor(options: FilePlaybackGuestSessionHandshakeOptions) {
-    const snapshot = snapshotExactDataRecord(options, GUEST_OPTION_KEYS);
+    const snapshot =
+      snapshotExactDataRecord(options, GUEST_OPTION_KEYS_WITH_COHORT) ??
+      snapshotExactDataRecord(options, GUEST_OPTION_KEYS);
+    const semanticPlaybackCohortId =
+      snapshot?.semanticPlaybackCohortId ?? FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID;
     if (
       !snapshot ||
       !(snapshot.idIssuer instanceof FilePlaybackHandshakeIdIssuer) ||
+      !isFilePlaybackSemanticCohortId(semanticPlaybackCohortId) ||
       !isFilePlaybackSessionId(snapshot.guestParticipantId)
     ) {
       throw new TypeError('File playback guest session scope is invalid');
     }
+    this.#semanticPlaybackCohortId = semanticPlaybackCohortId;
 
     try {
       const helloId = snapshot.idIssuer.issueHelloId();
@@ -868,6 +970,7 @@ export class FilePlaybackGuestSessionHandshake {
     const hello = freezeCanonical({
       type: FILE_PLAYBACK_SESSION_HELLO_TYPE,
       version: FILE_PLAYBACK_SESSION_PROTOCOL_VERSION,
+      semanticPlaybackCohortId: this.#semanticPlaybackCohortId,
       helloId: this.#helloId,
       guestParticipantId: this.#guestParticipantId,
     });
@@ -881,12 +984,22 @@ export class FilePlaybackGuestSessionHandshake {
     this.#handlingInbound = true;
     try {
       const welcome = parseFilePlaybackSessionWelcomeV2(value);
-      if (!welcome) return rejected('malformed-message');
+      if (!welcome) {
+        return rejected(
+          isExactPreCohortV2Frame(value, FILE_PLAYBACK_SESSION_WELCOME_TYPE)
+            ? 'semantic-playback-cohort-mismatch'
+            : 'malformed-message',
+        );
+      }
+      if (welcome.semanticPlaybackCohortId !== this.#semanticPlaybackCohortId) {
+        return rejected('semantic-playback-cohort-mismatch');
+      }
       if (welcome.helloId !== this.#helloId) return rejected('wrong-hello');
       if (welcome.guestParticipantId !== this.#guestParticipantId) {
         return rejected('wrong-guest-participant');
       }
       const binding = createBinding(
+        this.#semanticPlaybackCohortId,
         welcome.sessionId,
         welcome.connectionId,
         welcome.helloId,
@@ -915,7 +1028,13 @@ export class FilePlaybackGuestSessionHandshake {
     this.#handlingInbound = true;
     try {
       const snapshot = parseFilePlaybackSessionSnapshotV2(value);
-      if (!snapshot) return rejected('malformed-message');
+      if (!snapshot) {
+        return rejected(
+          isExactPreCohortV2Frame(value, FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE)
+            ? 'semantic-playback-cohort-mismatch'
+            : 'malformed-message',
+        );
+      }
       const mismatch = correlationMismatch(snapshot, this.#binding);
       if (mismatch) return rejected(mismatch);
       const applied = appliedFromSnapshot(snapshot);

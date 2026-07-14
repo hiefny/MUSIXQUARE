@@ -18,6 +18,7 @@ import {
   type FilePlaybackApplicationTimelineUpdatedEvent,
 } from './file-playback-application-controller.ts';
 import { FilePlaybackAssetRegistry } from './file-playback-asset-registry.ts';
+import { getFilePlaybackBuildProfile } from './file-playback-build-profile.ts';
 import {
   snapshotFilePlaybackBoundedRoutePolicy,
   type FilePlaybackBoundedRoutePolicy,
@@ -2509,7 +2510,12 @@ export class FilePlaybackProductRuntime {
   }
 }
 
-const filePlaybackProductRuntime = new FilePlaybackProductRuntime();
+const filePlaybackProductBuildProfile = getFilePlaybackBuildProfile();
+const filePlaybackProductRuntime = new FilePlaybackProductRuntime({
+  ...(filePlaybackProductBuildProfile.boundedRoutePolicy
+    ? { boundedRoutePolicy: filePlaybackProductBuildProfile.boundedRoutePolicy }
+    : {}),
+});
 
 export function getFilePlaybackProductRuntime(): FilePlaybackProductRuntime {
   return filePlaybackProductRuntime;

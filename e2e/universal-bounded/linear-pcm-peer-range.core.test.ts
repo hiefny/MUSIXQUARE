@@ -11,6 +11,7 @@ import {
   captureUniversalConsole,
   expectExactPlayingProjection,
   expectNoLegacyResident,
+  expectPeerRangePhysicalReadsRetired,
   expectUniversalRoom,
   readUniversalRuntime,
   waitForBoundedPlayback,
@@ -88,6 +89,7 @@ test.describe('universal bounded linear PCM over a real host/guest room', () => 
           async () => (await readUniversalRuntime(pair.hostPage)).controller?.activeConnectionCount,
         )
         .toBe(0);
+      await expectPeerRangePhysicalReadsRetired(pair.hostPage);
     });
   }
 });

@@ -3,10 +3,25 @@ import { defineConfig, mergeConfig, type Plugin } from 'vite';
 import baseConfig from '../vite.config.ts';
 
 const PRODUCT_RUNTIME_MODULE = '/src/player/file-playback-product-runtime.ts';
-const PRODUCT_SINGLETON = 'const filePlaybackProductRuntime = new FilePlaybackProductRuntime();';
-const UNIVERSAL_POLICY_IMPORT =
-  "import { FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY as UNIVERSAL_E2E_BOUNDED_ROUTE_POLICY } from './file-playback-bounded-route-policy.ts';";
-const UNIVERSAL_SINGLETON = `const universalE2eTransportEvents = [];
+const PEER_RANGE_DIAGNOSTICS_IMPORT =
+  "import { PeerRangeHostResponder as UniversalE2ePeerRangeHostResponder } from './sources/peer-range-transport.ts';";
+const PRODUCT_SINGLETON = `const filePlaybackProductBuildProfile = getFilePlaybackBuildProfile();
+const filePlaybackProductRuntime = new FilePlaybackProductRuntime({
+  ...(filePlaybackProductBuildProfile.boundedRoutePolicy
+    ? { boundedRoutePolicy: filePlaybackProductBuildProfile.boundedRoutePolicy }
+    : {}),
+});`;
+const UNIVERSAL_SINGLETON = `const universalE2eBuildProfile = getFilePlaybackBuildProfile();
+if (
+  universalE2eBuildProfile.id !== 'v2-universal-v1' ||
+  universalE2eBuildProfile.engine !== 'v2' ||
+  universalE2eBuildProfile.boundedRouteMode !== 'universal-v1' ||
+  universalE2eBuildProfile.boundedRoutePolicy === null ||
+  universalE2eBuildProfile.boundedRoutePolicy.mode !== 'universal-v1'
+) {
+  throw new Error('Universal E2E build profile is not exact');
+}
+const universalE2eTransportEvents = [];
 const summarizeUniversalE2eFrame = (frame) => {
   if (frame === null || typeof frame !== 'object') return { valueType: typeof frame };
   try {
@@ -78,7 +93,7 @@ const universalE2eSessions = Object.freeze({
   },
 });
 const filePlaybackProductRuntime = new FilePlaybackProductRuntime({
-  boundedRoutePolicy: UNIVERSAL_E2E_BOUNDED_ROUTE_POLICY,
+  boundedRoutePolicy: universalE2eBuildProfile.boundedRoutePolicy,
   sessions: universalE2eSessions,
 });
 
@@ -88,11 +103,15 @@ Object.defineProperty(globalThis, '__MUSIXQUARE_FILE_PLAYBACK_E2E__', {
   writable: false,
   value: Object.freeze({
     schemaVersion: 1,
-    policyMode: UNIVERSAL_E2E_BOUNDED_ROUTE_POLICY.mode,
+    profileId: universalE2eBuildProfile.id,
+    policyMode: universalE2eBuildProfile.boundedRoutePolicy.mode,
+    semanticPlaybackCohortId: universalE2eBuildProfile.semanticPlaybackCohortId,
     enabled: () => filePlaybackProductRuntime.enabled(),
     hostRoomSnapshot: () => filePlaybackProductRuntime.hostRoomSnapshot(),
     hostRendererSnapshot: () => filePlaybackProductRuntime.currentHostRendererSnapshot(),
     controllerSnapshot: () => filePlaybackProductRuntime.controller()?.snapshot() ?? null,
+    peerRangePhysicalReads: () =>
+      UniversalE2ePeerRangeHostResponder.physicalReadDiagnostics(),
     transportEvents: () => universalE2eTransportEvents.slice(),
   }),
 });`;
@@ -119,7 +138,7 @@ function installUniversalBoundedCandidate(): Plugin {
       }
       transformedModules += 1;
       return {
-        code: `${UNIVERSAL_POLICY_IMPORT}\n${source.replace(PRODUCT_SINGLETON, UNIVERSAL_SINGLETON)}`,
+        code: `${PEER_RANGE_DIAGNOSTICS_IMPORT}\n${source.replace(PRODUCT_SINGLETON, UNIVERSAL_SINGLETON)}`,
         map: null,
       };
     },
@@ -137,6 +156,7 @@ export default defineConfig(
   mergeConfig(baseConfig, {
     define: {
       'import.meta.env.VITE_MUSIXQUARE_FILE_ENGINE_V2': JSON.stringify('1'),
+      'import.meta.env.VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1': JSON.stringify('1'),
       'import.meta.env.VITE_MUSIXQUARE_TEST_HOOKS': JSON.stringify('1'),
     },
     plugins: [installUniversalBoundedCandidate()],

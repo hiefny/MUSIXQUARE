@@ -11,6 +11,7 @@ import {
   captureUniversalConsole,
   expectExactPlayingProjection,
   expectNoLegacyResident,
+  expectPeerRangePhysicalReadsRetired,
   expectUniversalRoom,
   logUniversalDiagnostics,
   readUniversalRuntime,
@@ -176,5 +177,6 @@ test.describe('universal bounded M4A AAC-LC over a real host/guest room', () => 
         async () => (await readUniversalRuntime(pair.hostPage)).controller?.activeConnectionCount,
       )
       .toBe(0);
+    await expectPeerRangePhysicalReadsRetired(pair.hostPage);
   });
 });

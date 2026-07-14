@@ -75,13 +75,27 @@ export interface UniversalControllerSnapshot {
   };
 }
 
+export interface UniversalPeerRangePhysicalReadDiagnostics {
+  readonly schemaVersion: 1;
+  readonly readByteLimit: number;
+  readonly readCount: number;
+  readonly settledReadCount: number;
+  readonly requestedByteCount: number;
+  readonly maxRequestByteLength: number;
+  readonly pendingReadCount: number;
+  readonly maxConcurrentReadCount: number;
+}
+
 export interface UniversalRuntimeSnapshot {
   readonly schemaVersion: number;
+  readonly profileId: string;
   readonly policyMode: string;
+  readonly semanticPlaybackCohortId: string;
   readonly enabled: boolean;
   readonly hostRoom: unknown;
   readonly renderer: UniversalRendererSnapshot | null;
   readonly controller: UniversalControllerSnapshot | null;
+  readonly peerRangePhysicalReads: UniversalPeerRangePhysicalReadDiagnostics;
   readonly transportEvents: readonly unknown[];
 }
 
@@ -133,11 +147,14 @@ export async function readUniversalRuntime(page: Page): Promise<UniversalRuntime
         string,
         | {
             schemaVersion: number;
+            profileId: string;
             policyMode: string;
+            semanticPlaybackCohortId: string;
             enabled: () => boolean;
             hostRoomSnapshot: () => unknown;
             hostRendererSnapshot: () => unknown;
             controllerSnapshot: () => unknown;
+            peerRangePhysicalReads: () => UniversalPeerRangePhysicalReadDiagnostics;
             transportEvents: () => readonly unknown[];
           }
         | undefined
@@ -146,11 +163,14 @@ export async function readUniversalRuntime(page: Page): Promise<UniversalRuntime
     if (!bridge) throw new Error('Universal bounded runtime bridge is unavailable');
     return {
       schemaVersion: bridge.schemaVersion,
+      profileId: bridge.profileId,
       policyMode: bridge.policyMode,
+      semanticPlaybackCohortId: bridge.semanticPlaybackCohortId,
       enabled: bridge.enabled(),
       hostRoom: bridge.hostRoomSnapshot(),
       renderer: bridge.hostRendererSnapshot(),
       controller: bridge.controllerSnapshot(),
+      peerRangePhysicalReads: bridge.peerRangePhysicalReads(),
       transportEvents: bridge.transportEvents(),
     } as UniversalRuntimeSnapshot;
   });
@@ -164,7 +184,10 @@ export async function expectUniversalRoom(page: Page, role: 'host' | 'guest'): P
     })
     .toMatchObject({
       schemaVersion: 1,
+      profileId: 'v2-universal-v1',
       policyMode: 'universal-v1',
+      semanticPlaybackCohortId:
+        'file-playback;session=v2;route=universal-v1;flac=wasm-0.2.10;linear-pcm=worker-v1;mp3=mpg123-1.0.3;adts-aac=webcodecs-v1;m4a-aac=webcodecs-v1',
       enabled: true,
       controller: {
         roomRole: role,
@@ -211,6 +234,32 @@ export async function waitForBoundedPlayback(
   expect(host.renderer?.queueItemId).toBe(guest.controller?.timeline.run?.queueItemId);
   expect(host.renderer?.revision).toBe(guest.controller?.timeline.revision);
   expect(host.renderer?.errorCode).toBeNull();
+  expect(host.peerRangePhysicalReads).toMatchObject({
+    schemaVersion: 1,
+    readByteLimit: expect.any(Number),
+    readCount: expect.any(Number),
+    settledReadCount: expect.any(Number),
+    requestedByteCount: expect.any(Number),
+    maxRequestByteLength: expect.any(Number),
+    pendingReadCount: expect.any(Number),
+    maxConcurrentReadCount: expect.any(Number),
+  });
+  expect(host.peerRangePhysicalReads.readCount).toBeGreaterThan(0);
+  expect(host.peerRangePhysicalReads.requestedByteCount).toBeGreaterThanOrEqual(
+    host.peerRangePhysicalReads.readCount,
+  );
+  expect(host.peerRangePhysicalReads.maxRequestByteLength).toBeGreaterThan(0);
+  expect(host.peerRangePhysicalReads.maxRequestByteLength).toBeLessThanOrEqual(
+    host.peerRangePhysicalReads.readByteLimit,
+  );
+  expect(host.peerRangePhysicalReads.pendingReadCount).toBeGreaterThanOrEqual(0);
+  expect(host.peerRangePhysicalReads.pendingReadCount).toBeLessThanOrEqual(
+    host.peerRangePhysicalReads.maxConcurrentReadCount,
+  );
+  expect(host.peerRangePhysicalReads.maxConcurrentReadCount).toBeGreaterThan(0);
+  expect(
+    host.peerRangePhysicalReads.settledReadCount + host.peerRangePhysicalReads.pendingReadCount,
+  ).toBe(host.peerRangePhysicalReads.readCount);
   expect(guest.transportEvents, 'guest did not report exact physical renderer evidence').toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -226,6 +275,27 @@ export async function waitForBoundedPlayback(
     ]),
   );
   return Object.freeze({ host, guest });
+}
+
+export async function expectPeerRangePhysicalReadsRetired(hostPage: Page): Promise<void> {
+  await expect
+    .poll(async () => {
+      const diagnostics = (await readUniversalRuntime(hostPage)).peerRangePhysicalReads;
+      return {
+        readCount: diagnostics.readCount,
+        pendingReadCount: diagnostics.pendingReadCount,
+        allReadsAccountedFor:
+          diagnostics.settledReadCount + diagnostics.pendingReadCount === diagnostics.readCount,
+      };
+    })
+    .toMatchObject({
+      readCount: expect.any(Number),
+      pendingReadCount: 0,
+      allReadsAccountedFor: true,
+    });
+
+  const diagnostics = (await readUniversalRuntime(hostPage)).peerRangePhysicalReads;
+  expect(diagnostics.readCount).toBeGreaterThan(0);
 }
 
 async function readUniversalUiDiagnostics(page: Page): Promise<unknown> {

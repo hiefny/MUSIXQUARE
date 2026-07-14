@@ -11,7 +11,9 @@ import {
   captureUniversalConsole,
   expectExactPlayingProjection,
   expectNoLegacyResident,
+  expectPeerRangePhysicalReadsRetired,
   expectUniversalRoom,
+  readUniversalRuntime,
   waitForBoundedPlayback,
 } from './runtime-assertions.ts';
 import { installUniversalNetworkStubs } from './network-stubs.ts';
@@ -107,5 +109,22 @@ test.describe('universal bounded ADTS manifest lane', () => {
         }),
       ]),
     );
+
+    await pair.guestPage.evaluate(() => {
+      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+        | ((path: string) => unknown)
+        | undefined;
+      const connection = get?.('network.hostConn') as { close?: () => void } | null | undefined;
+      if (typeof connection?.close !== 'function') {
+        throw new Error('E2E guest connection is unavailable for retirement');
+      }
+      connection.close();
+    });
+    await expect
+      .poll(
+        async () => (await readUniversalRuntime(pair.hostPage)).controller?.activeConnectionCount,
+      )
+      .toBe(0);
+    await expectPeerRangePhysicalReadsRetired(pair.hostPage);
   });
 });

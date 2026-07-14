@@ -11,6 +11,7 @@ import {
   captureUniversalConsole,
   expectExactPlayingProjection,
   expectNoLegacyResident,
+  expectPeerRangePhysicalReadsRetired,
   expectUniversalRoom,
   readUniversalRuntime,
   waitForBoundedPlayback,
@@ -133,5 +134,6 @@ test.describe('universal bounded no-frame-count MP3 manifest lane', () => {
         async () => (await readUniversalRuntime(pair.hostPage)).controller?.activeConnectionCount,
       )
       .toBe(0);
+    await expectPeerRangePhysicalReadsRetired(pair.hostPage);
   });
 });

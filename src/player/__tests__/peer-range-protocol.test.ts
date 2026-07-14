@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { pack, unpack } from 'peerjs-js-binarypack';
 
 import {
   PEER_RANGE_MAX_CHUNK_BYTES,
@@ -117,9 +118,14 @@ describe('peer range protocol framing', () => {
     expect(() => createPeerRangeChunkFrames(request, Uint8Array.of(1, 2))).toThrow(
       PeerRangeProtocolError,
     );
-    expect(() =>
-      parsePeerRangeBulkFrame(mutate(parsed, { payload: new Uint8Array([1, 2, 3]) })),
-    ).toThrow(PeerRangeProtocolError);
+    const wirePayload = new Uint8Array([1, 2, 3]);
+    const parsedWirePayload = parsePeerRangeBulkFrame(mutate(parsed, { payload: wirePayload }));
+    expect(parsedWirePayload.type).toBe('chunk');
+    if (parsedWirePayload.type !== 'chunk') throw new Error('expected a chunk');
+    expect(parsedWirePayload.payload).toBeInstanceOf(ArrayBuffer);
+    expect([...new Uint8Array(parsedWirePayload.payload)]).toEqual([1, 2, 3]);
+    wirePayload.fill(8);
+    expect([...new Uint8Array(parsedWirePayload.payload)]).toEqual([1, 2, 3]);
     expect(() => parsePeerRangeBulkFrame(mutate(parsed, { chunkCount: 2 }))).toThrow(
       PeerRangeProtocolError,
     );
@@ -140,6 +146,75 @@ describe('peer range protocol framing', () => {
         }),
       ),
     ).toThrow(PeerRangeProtocolError);
+  });
+
+  it('canonicalizes the exact Uint8Array produced by PeerJS internal BinaryPack reassembly', () => {
+    const frame = createPeerRangeChunkFrames(descriptor(), bytes(PEER_RANGE_MAX_READ_BYTES))[0]!;
+    const packed = pack(frame as never);
+    if (packed instanceof Promise) {
+      throw new Error('Peer range frame unexpectedly required asynchronous BinaryPack');
+    }
+    const peerJsChunkedMtu = 16_300;
+    expect(packed.byteLength).toBeGreaterThan(peerJsChunkedMtu);
+    const pieces: Uint8Array[] = [];
+    for (let offset = 0; offset < packed.byteLength; offset += peerJsChunkedMtu) {
+      pieces.push(new Uint8Array(packed.slice(offset, offset + peerJsChunkedMtu)));
+    }
+    expect(pieces.length).toBeGreaterThan(1);
+    const peerJsReassembled = new Uint8Array(packed.byteLength);
+    let outputOffset = 0;
+    for (const piece of pieces) {
+      peerJsReassembled.set(piece, outputOffset);
+      outputOffset += piece.byteLength;
+    }
+    const delivered = unpack(peerJsReassembled as unknown as ArrayBuffer) as unknown as Record<
+      string,
+      unknown
+    >;
+    expect(delivered.payload).toBeInstanceOf(Uint8Array);
+
+    const parsed = parsePeerRangeBulkFrame(delivered);
+    expect(parsed.type).toBe('chunk');
+    if (parsed.type !== 'chunk') throw new Error('expected a chunk');
+    expect(parsed.payload).toBeInstanceOf(ArrayBuffer);
+    expect(parsed.payload).not.toBe((delivered.payload as Uint8Array).buffer);
+    expect(new Uint8Array(parsed.payload)).toEqual(new Uint8Array(frame.payload));
+    (delivered.payload as Uint8Array).fill(0);
+    expect(new Uint8Array(parsed.payload)).toEqual(new Uint8Array(frame.payload));
+  });
+
+  it('rejects every non-exact Uint8Array peer-range payload representation', () => {
+    const request = descriptor({ totalLength: 4 });
+    const frame = createPeerRangeChunkFrames(request, Uint8Array.of(1, 2, 3, 4))[0]!;
+    class DerivedUint8Array extends Uint8Array {}
+    class DerivedArrayBuffer extends ArrayBuffer {}
+    const largerBacking = new Uint8Array([0, 1, 2, 3, 4, 0]);
+    let proxyGetPrototypeCalls = 0;
+    const invalidPayloads: unknown[] = [
+      new DataView(Uint8Array.of(1, 2, 3, 4).buffer),
+      new Uint16Array(Uint8Array.of(1, 2, 3, 4).buffer),
+      new DerivedUint8Array([1, 2, 3, 4]),
+      new Uint8Array(new DerivedArrayBuffer(4)),
+      new Uint8Array(largerBacking.buffer, 1, 4),
+      new Proxy(Uint8Array.of(1, 2, 3, 4), {
+        getPrototypeOf(target) {
+          proxyGetPrototypeCalls += 1;
+          return Reflect.getPrototypeOf(target);
+        },
+      }),
+    ];
+    if (typeof SharedArrayBuffer === 'function') {
+      const shared = new SharedArrayBuffer(4);
+      new Uint8Array(shared).set([1, 2, 3, 4]);
+      invalidPayloads.push(new Uint8Array(shared));
+    }
+
+    for (const payload of invalidPayloads) {
+      expect(() => parsePeerRangeBulkFrame(mutate(frame, { payload }))).toThrow(
+        PeerRangeProtocolError,
+      );
+    }
+    expect(proxyGetPrototypeCalls).toBe(0);
   });
 
   it('accepts only exact own enumerable data properties without invoking accessors', () => {
@@ -228,6 +303,45 @@ describe('peer range protocol framing', () => {
     if (parsed.type !== 'chunk') throw new Error('expected a chunk');
     expect(new Uint8Array(parsed.payload)).toEqual(Uint8Array.of(4, 5, 6));
     expect(byteLengthAccessorCalls).toBe(0);
+    expect(constructorAccessorCalls).toBe(0);
+  });
+
+  it('reads an exact Uint8Array wire payload only through captured typed-array intrinsics', () => {
+    const request = descriptor({ totalLength: 3 });
+    const frame = createPeerRangeChunkFrames(request, Uint8Array.of(4, 5, 6))[0]!;
+    const payload = Uint8Array.of(4, 5, 6);
+    let accessorCalls = 0;
+    for (const key of ['buffer', 'byteLength', 'byteOffset', 'constructor'] as const) {
+      Object.defineProperty(payload, key, {
+        configurable: true,
+        get() {
+          accessorCalls += 1;
+          throw new Error(`${key} shadow accessor must not be read`);
+        },
+      });
+    }
+
+    const parsed = parsePeerRangeBulkFrame({ ...frame, payload });
+    expect(parsed.type).toBe('chunk');
+    if (parsed.type !== 'chunk') throw new Error('expected a chunk');
+    expect(new Uint8Array(parsed.payload)).toEqual(Uint8Array.of(4, 5, 6));
+    expect(accessorCalls).toBe(0);
+  });
+
+  it('rejects a mismatched Uint8Array length without reading constructor or species', () => {
+    const request = descriptor({ totalLength: 3 });
+    const frame = createPeerRangeChunkFrames(request, Uint8Array.of(4, 5, 6))[0]!;
+    const payload = Uint8Array.of(4, 5);
+    let constructorAccessorCalls = 0;
+    Object.defineProperty(payload, 'constructor', {
+      configurable: true,
+      get() {
+        constructorAccessorCalls += 1;
+        throw new Error('mismatched payload species must not be read');
+      },
+    });
+
+    expect(() => parsePeerRangeBulkFrame({ ...frame, payload })).toThrow(/payload length/u);
     expect(constructorAccessorCalls).toBe(0);
   });
 

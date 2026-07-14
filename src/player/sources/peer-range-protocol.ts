@@ -532,25 +532,89 @@ const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(
   ArrayBuffer.prototype,
   'byteLength',
 )?.get;
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object | null;
+const typedArrayBufferGetter = typedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')?.get
+  : undefined;
+const typedArrayByteLengthGetter = typedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')?.get
+  : undefined;
+const typedArrayByteOffsetGetter = typedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteOffset')?.get
+  : undefined;
 
 function copyArrayBufferPayload(value: unknown, expectedByteLength: number): ArrayBuffer {
   if (!arrayBufferByteLengthGetter) {
     throw new PeerRangeProtocolError('ArrayBuffer validation is unavailable');
   }
-  let byteLength: number;
+
+  let arrayBufferByteLength: number | null = null;
   try {
-    byteLength = arrayBufferByteLengthGetter.call(value) as number;
+    arrayBufferByteLength = Reflect.apply(arrayBufferByteLengthGetter, value, []) as number;
   } catch {
-    throw new PeerRangeProtocolError('Peer range chunk payload must be an ArrayBuffer');
+    // PeerJS reconstructs an internally chunked BinaryPack envelope as a
+    // Uint8Array. BinaryPack then preserves that container type for nested
+    // raw values, so this exact wire representation is handled below.
   }
-  if (byteLength !== expectedByteLength) {
-    throw new PeerRangeProtocolError(
-      'Peer range chunk payload length does not match its semantic position',
-    );
+
+  let source: Uint8Array;
+  if (arrayBufferByteLength !== null) {
+    if (arrayBufferByteLength !== expectedByteLength) {
+      throw new PeerRangeProtocolError(
+        'Peer range chunk payload length does not match its semantic position',
+      );
+    }
+    try {
+      source = new Uint8Array(value as ArrayBuffer);
+    } catch {
+      throw new PeerRangeProtocolError('Peer range chunk payload could not be copied');
+    }
+  } else {
+    if (!typedArrayBufferGetter || !typedArrayByteLengthGetter || !typedArrayByteOffsetGetter) {
+      throw new PeerRangeProtocolError('Uint8Array validation is unavailable');
+    }
+    let prototype: object | null;
+    let backingPrototype: object | null;
+    let buffer: ArrayBuffer;
+    let byteLength: number;
+    let byteOffset: number;
+    let backingByteLength: number;
+    try {
+      buffer = Reflect.apply(typedArrayBufferGetter, value, []) as ArrayBuffer;
+      byteLength = Reflect.apply(typedArrayByteLengthGetter, value, []) as number;
+      byteOffset = Reflect.apply(typedArrayByteOffsetGetter, value, []) as number;
+      backingByteLength = Reflect.apply(arrayBufferByteLengthGetter, buffer, []) as number;
+    } catch {
+      throw new PeerRangeProtocolError(
+        'Peer range chunk payload must be an ArrayBuffer or exact Uint8Array wire value',
+      );
+    }
+    try {
+      prototype = Reflect.getPrototypeOf(value as object);
+      backingPrototype = Reflect.getPrototypeOf(buffer);
+    } catch {
+      throw new PeerRangeProtocolError('Peer range chunk payload reflection failed');
+    }
+    if (
+      prototype !== Uint8Array.prototype ||
+      backingPrototype !== ArrayBuffer.prototype ||
+      byteLength !== expectedByteLength ||
+      !Number.isSafeInteger(byteOffset) ||
+      byteOffset !== 0 ||
+      backingByteLength !== byteLength
+    ) {
+      throw new PeerRangeProtocolError(
+        'Peer range chunk payload length does not match its semantic position',
+      );
+    }
+    try {
+      source = new Uint8Array(buffer, byteOffset, byteLength);
+    } catch {
+      throw new PeerRangeProtocolError('Peer range chunk payload could not be copied');
+    }
   }
   try {
-    const source = new Uint8Array(value as ArrayBuffer);
-    const copy = new Uint8Array(byteLength);
+    const copy = new Uint8Array(expectedByteLength);
     copy.set(source);
     return copy.buffer;
   } catch (error) {

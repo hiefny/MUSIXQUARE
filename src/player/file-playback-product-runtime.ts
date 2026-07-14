@@ -62,8 +62,10 @@ import {
   type FilePlaybackProductHostLocalTrackCommit,
   type FilePlaybackProductHostRoomOptions,
   type FilePlaybackProductHostSeekOptions,
+  type FilePlaybackProductHostSeekWithCohortOptions,
   type FilePlaybackProductHostTransitionCommit,
   type FilePlaybackProductHostTerminalObservation,
+  type PrepareFilePlaybackProductHostRemoteParticipants,
   type StartFilePlaybackProductHostFirstLocalFileOptions,
   type StartFilePlaybackProductHostLocalTrackWithCohortOptions,
   type StartFilePlaybackProductHostLocalTrackOptions,
@@ -211,6 +213,9 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>>;
   seekPlaying(
     options: FilePlaybackProductHostSeekOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  seekPlayingWithCohort(
+    options: FilePlaybackProductHostSeekWithCohortOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
   seekPaused(
     options: FilePlaybackProductHostSeekOptions,
@@ -464,6 +469,7 @@ function assertHostRoomPort(
     typeof value.startLocalTrackWithCohort !== 'function' ||
     typeof value.pauseCurrent !== 'function' ||
     typeof value.seekPlaying !== 'function' ||
+    typeof value.seekPlayingWithCohort !== 'function' ||
     typeof value.seekPaused !== 'function' ||
     typeof value.resumeCurrent !== 'function' ||
     typeof value.replayCurrent !== 'function' ||
@@ -844,10 +850,13 @@ export class FilePlaybackProductRuntime {
   async startHostFirstLocalFile(
     options: StartFilePlaybackProductHostFirstLocalFileOptions,
   ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>> {
-    return this.#startLocalTrackWithCohort('first local file start', {
-      ...options,
-      positionSeconds: 0,
-    });
+    return this.#runPreparedCohort('first local file start', (port, prepareRemoteParticipants) =>
+      port.startLocalTrackWithCohort({
+        ...options,
+        positionSeconds: 0,
+        prepareRemoteParticipants,
+      }),
+    );
   }
 
   /**
@@ -1011,7 +1020,9 @@ export class FilePlaybackProductRuntime {
   startLocalTrack(
     options: StartFilePlaybackProductHostLocalTrackOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
-    return this.#startLocalTrackWithCohort('local track start', options);
+    return this.#runPreparedCohort('local track start', (port, prepareRemoteParticipants) =>
+      port.startLocalTrackWithCohort({ ...options, prepareRemoteParticipants }),
+    );
   }
 
   pauseCurrent(
@@ -1023,7 +1034,9 @@ export class FilePlaybackProductRuntime {
   seekPlaying(
     options: FilePlaybackProductHostSeekOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
-    return this.#dispatchExactHostRoom('playing seek', (port) => port.seekPlaying(options));
+    return this.#runPreparedCohort('playing seek', (port, prepareRemoteParticipants) =>
+      port.seekPlayingWithCohort({ ...options, prepareRemoteParticipants }),
+    );
   }
 
   seekPaused(
@@ -1659,9 +1672,12 @@ export class FilePlaybackProductRuntime {
     }
   }
 
-  async #startLocalTrackWithCohort(
+  async #runPreparedCohort(
     label: string,
-    options: StartFilePlaybackProductHostLocalTrackOptions,
+    start: (
+      port: FilePlaybackProductRuntimeHostRoomPort,
+      prepareRemoteParticipants: PrepareFilePlaybackProductHostRemoteParticipants,
+    ) => Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
     let cycle: HostPreparedCohortCycle | null = null;
     try {
@@ -1670,119 +1686,116 @@ export class FilePlaybackProductRuntime {
         if (!active || active.port !== port || !this.#ownsExactHostRoom(active)) {
           throw new Error(`File playback product host room changed before ${label}`);
         }
-        return port.startLocalTrackWithCohort({
-          ...options,
-          prepareRemoteParticipants: async (context) => {
-            if (cycle) throw new Error('File playback product host cohort was prepared twice');
-            const owners = [...this.#hostMediaOwners.entries()].filter(
-              ([ownerContext, owner]) =>
-                this.#connectionContexts.has(ownerContext) &&
-                this.#hostMediaOwners.get(ownerContext) === owner,
-            );
-            const contexts = new Set(owners.map(([ownerContext]) => ownerContext));
-            const created: HostPreparedCohortCycle = {
+        return start(port, async (context) => {
+          if (cycle) throw new Error('File playback product host cohort was prepared twice');
+          const owners = [...this.#hostMediaOwners.entries()].filter(
+            ([ownerContext, owner]) =>
+              this.#connectionContexts.has(ownerContext) &&
+              this.#hostMediaOwners.get(ownerContext) === owner,
+          );
+          const contexts = new Set(owners.map(([ownerContext]) => ownerContext));
+          const created: HostPreparedCohortCycle = {
+            active,
+            prepared: context.prepared,
+            signal: context.signal,
+            resolveSource: context.resolveSource,
+            contexts,
+            entries: [],
+            status: 'preparing',
+          };
+          cycle = created;
+          this.#hostPreparedCohorts.set(context.prepared, created);
+          const offers = owners.map(([ownerContext, owner]) => ({
+            ownerContext,
+            owner,
+            task: Promise.resolve().then(() => owner.publishPrepared(context.prepared)),
+          }));
+          for (const { ownerContext, owner, task: offerTask } of offers) {
+            // Connections are independent publication authorities. Each peer
+            // needs only its own OFFER before its own RUN; a never-settling
+            // peer must not hold every other owner behind a room-wide barrier.
+            let bindAuthority: Readonly<{
+              active: ActiveProductHostRoom;
+              cycle: HostPreparedCohortCycle;
+              owner: FilePlaybackProductRuntimeHostMediaOwnerPort;
+              ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
+              prepared: Readonly<HostPreparedLocalTrack>;
+              signal: AbortSignal;
+            }> | null = Object.freeze({
               active,
+              cycle: created,
+              owner,
+              ownerContext,
               prepared: context.prepared,
               signal: context.signal,
-              resolveSource: context.resolveSource,
-              contexts,
-              entries: [],
-              status: 'preparing',
-            };
-            cycle = created;
-            this.#hostPreparedCohorts.set(context.prepared, created);
-            const offers = owners.map(([ownerContext, owner]) => ({
-              ownerContext,
-              owner,
-              task: Promise.resolve().then(() => owner.publishPrepared(context.prepared)),
-            }));
-            for (const { ownerContext, owner, task: offerTask } of offers) {
-              // Connections are independent publication authorities. Each peer
-              // needs only its own OFFER before its own RUN; a never-settling
-              // peer must not hold every other owner behind a room-wide barrier.
-              let bindAuthority: Readonly<{
-                active: ActiveProductHostRoom;
-                cycle: HostPreparedCohortCycle;
-                owner: FilePlaybackProductRuntimeHostMediaOwnerPort;
-                ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
-                prepared: Readonly<HostPreparedLocalTrack>;
-                signal: AbortSignal;
-              }> | null = Object.freeze({
-                active,
-                cycle: created,
-                owner,
-                ownerContext,
-                prepared: context.prepared,
-                signal: context.signal,
-              });
-              const ownerTask = offerTask.then((publication) => {
-                const authority = bindAuthority;
-                if (
-                  !authority ||
-                  (authority.cycle.status !== 'preparing' &&
-                    authority.cycle.status !== 'committed') ||
-                  this.#hostPreparedCohorts.get(authority.prepared) !== authority.cycle ||
-                  this.#hostMediaOwners.get(authority.ownerContext) !== authority.owner ||
-                  !this.#connectionContexts.has(authority.ownerContext) ||
-                  authority.signal.aborted ||
-                  !this.#ownsExactHostRoom(authority.active)
-                ) {
-                  throw new Error('File playback product prepared offer became stale before bind');
-                }
-                return authority.owner.bindPrepared(authority.prepared).then(() => publication);
-              });
-              const bounded = createBoundedHostPublicationTask(
-                ownerTask,
-                context.signal,
-                (error) => this.#closeExactHostMediaOwner(ownerContext, owner, error),
-                () => {
-                  bindAuthority = null;
-                },
-              );
-              const publicationTask = bounded.promise;
-              this.#setHostMediaOwnerPublicationBarrier(
-                owner,
-                publicationTask.then(() => undefined),
-              );
-              const entry: HostPreparedCohortEntry = {
-                context: ownerContext,
-                owner,
-                publicationTask,
-                cancelPublicationTask: bounded.cancel,
-                readinessTask: Promise.resolve(),
-                publication: null,
-                capability: null,
-                publicationFailure: null,
-                activated: false,
-              };
-              entry.readinessTask = publicationTask.then(
-                async (publication) => {
-                  entry.publication = publication;
-                  try {
-                    entry.capability = await owner.whenPreparedRemoteReady(context.prepared);
-                  } catch {
-                    // A published but slow/not-ready peer becomes a late-recovery peer
-                    // after canonical host activation; it never blocks the room.
-                  }
-                },
-                (cause) => {
-                  entry.publicationFailure = asError(cause);
-                },
-              );
-              created.entries.push(entry);
-            }
-            await this.#awaitPreparedCohortAdmission(created);
-            if (
-              created.status !== 'preparing' ||
-              this.#hostPreparedCohorts.get(created.prepared) !== created ||
-              !this.#ownsExactHostRoom(active)
-            ) {
-              throw new Error('File playback product host cohort authority is stale');
-            }
-            return Object.freeze(
-              created.entries.flatMap((entry) => (entry.capability ? [entry.capability] : [])),
+            });
+            const ownerTask = offerTask.then((publication) => {
+              const authority = bindAuthority;
+              if (
+                !authority ||
+                (authority.cycle.status !== 'preparing' &&
+                  authority.cycle.status !== 'committed') ||
+                this.#hostPreparedCohorts.get(authority.prepared) !== authority.cycle ||
+                this.#hostMediaOwners.get(authority.ownerContext) !== authority.owner ||
+                !this.#connectionContexts.has(authority.ownerContext) ||
+                authority.signal.aborted ||
+                !this.#ownsExactHostRoom(authority.active)
+              ) {
+                throw new Error('File playback product prepared offer became stale before bind');
+              }
+              return authority.owner.bindPrepared(authority.prepared).then(() => publication);
+            });
+            const bounded = createBoundedHostPublicationTask(
+              ownerTask,
+              context.signal,
+              (error) => this.#closeExactHostMediaOwner(ownerContext, owner, error),
+              () => {
+                bindAuthority = null;
+              },
             );
-          },
+            const publicationTask = bounded.promise;
+            this.#setHostMediaOwnerPublicationBarrier(
+              owner,
+              publicationTask.then(() => undefined),
+            );
+            const entry: HostPreparedCohortEntry = {
+              context: ownerContext,
+              owner,
+              publicationTask,
+              cancelPublicationTask: bounded.cancel,
+              readinessTask: Promise.resolve(),
+              publication: null,
+              capability: null,
+              publicationFailure: null,
+              activated: false,
+            };
+            entry.readinessTask = publicationTask.then(
+              async (publication) => {
+                entry.publication = publication;
+                try {
+                  entry.capability = await owner.whenPreparedRemoteReady(context.prepared);
+                } catch {
+                  // A published but slow/not-ready peer becomes a late-recovery peer
+                  // after canonical host activation; it never blocks the room.
+                }
+              },
+              (cause) => {
+                entry.publicationFailure = asError(cause);
+              },
+            );
+            created.entries.push(entry);
+          }
+          await this.#awaitPreparedCohortAdmission(created);
+          if (
+            created.status !== 'preparing' ||
+            this.#hostPreparedCohorts.get(created.prepared) !== created ||
+            !this.#ownsExactHostRoom(active)
+          ) {
+            throw new Error('File playback product host cohort authority is stale');
+          }
+          return Object.freeze(
+            created.entries.flatMap((entry) => (entry.capability ? [entry.capability] : [])),
+          );
         });
       });
       if (cycle) {
@@ -1869,7 +1882,11 @@ export class FilePlaybackProductRuntime {
     }
     for (const [context, owner] of this.#hostMediaOwners) {
       if (cycle.contexts.has(context) || !this.#connectionContexts.has(context)) continue;
-      const currentTask = owner.publishCurrent().then(() => undefined);
+      // A READY owner may have joined while the cohort was preparing and still
+      // be publishing the previous revision. Preserve its per-owner lane: once
+      // that exact barrier settles, publish canonical post-commit truth.
+      const predecessor = this.#hostMediaOwnerPublicationBarriers.get(owner) ?? Promise.resolve();
+      const currentTask = predecessor.then(() => owner.publishCurrent()).then(() => undefined);
       this.#setHostMediaOwnerPublicationBarrier(owner, currentTask);
       void currentTask.then(
         () => this.#publishNextLocalTrackWarmToOwner(cycle.active, context, owner),

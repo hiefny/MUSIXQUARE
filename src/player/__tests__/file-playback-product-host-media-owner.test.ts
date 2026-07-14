@@ -991,6 +991,178 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     owner.port().revoke(pair.context);
   });
 
+  it('reuses the exact current offer and handle for a same-run rendezvous seek', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/flac' });
+    let current: Readonly<HostPeerPlaybackPublication> | null = publication('bounded-stream', blob);
+    const prepared = freezeCanonical({
+      ...preparedTrack(
+        'bounded-stream',
+        blob.size,
+        freezeCanonical({ queueItemId: QID, runId: RUN_ID, revision: 2 }),
+      ),
+      positionSeconds: 12,
+    });
+    const required: unknown[] = [];
+    const resolvePrepared = vi.fn(async () => {
+      throw new Error('same-run seek must not reacquire its source');
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => current,
+        () => blob,
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-same-run-seek-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    const baseline = await owner.publishCurrent();
+    const beforeCandidate = [...required];
+    const candidate = await owner.publishPrepared(prepared);
+    expect(candidate.offer).toBe(baseline.offer);
+    expect(candidate.binding).toBe(baseline.binding);
+    expect(required).toEqual(beforeCandidate);
+    expect(resolvePrepared).not.toHaveBeenCalled();
+
+    await owner.bindPrepared(prepared);
+    const capability = await owner.whenPreparedRemoteReady(prepared);
+    expect(capability.participant.participantId).toBe(pair.context.guestParticipantId);
+    expect(required).toEqual(beforeCandidate);
+
+    const timeline = freezeCanonical({
+      schemaVersion: 1 as const,
+      revision: 2,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: QID, runId: RUN_ID }),
+      positionSeconds: 12,
+      anchorMonotonicMs: 2_000,
+      rate: 1,
+    });
+    current = committedPreparedPublication(prepared, timeline);
+    const activated = owner.activatePrepared({ prepared, timeline });
+
+    expect(activated.offer).toBe(baseline.offer);
+    expect(activated.binding).toBe(baseline.binding);
+    expect(resolvePrepared).not.toHaveBeenCalled();
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toHaveLength(1);
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_PLAYBACK_RUN_BINDING_V2',
+      ),
+    ).toHaveLength(1);
+    expect(required.at(-1)).toMatchObject({
+      type: 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
+      revision: 2,
+      positionSeconds: 12,
+    });
+    expect(await owner.publishCurrent()).toBe(activated);
+    owner.port().revoke(pair.context);
+  });
+
+  it('rejects a pre-seek recovery that binds after same-run state promotion', async () => {
+    const pair = connectionPair(() => 1_000);
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/flac' });
+    let current: Readonly<HostPeerPlaybackPublication> | null = publication('bounded-stream', blob);
+    const prepared = preparedTrack(
+      'bounded-stream',
+      blob.size,
+      freezeCanonical({ queueItemId: QID, runId: RUN_ID, revision: 2 }),
+    );
+    let recoveryOptions: RecoverHostRemoteParticipantOptions | null = null;
+    let rejectRecovery!: (reason: Error) => void;
+    const recoveryTask = new Promise<Readonly<HostRemoteRecoveryCommit>>((_resolve, reject) => {
+      rejectRecovery = reject;
+    });
+    const recoverRemoteParticipant = vi.fn((options: RecoverHostRemoteParticipantOptions) => {
+      recoveryOptions = options;
+      return recoveryTask;
+    });
+    const sendWire = vi.fn((_connection, lease, payload) => pair.host.createWire(lease, payload));
+    const closeConnection = vi.fn();
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: {
+        currentPeerPublication: () => current,
+        resolveCurrentPeerRangeSource: vi.fn(async () => blob),
+        recoverRemoteParticipant,
+      },
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: vi.fn(async () => {
+        throw new Error('same-run seek must not reacquire its source');
+      }),
+      sendRequired: vi.fn(() => true),
+      sendWire,
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-stale-recovery-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    await owner.publishCurrent();
+    const guestCurrent = pair.guest.bootstrapCurrentMedia({
+      run: current.state,
+      sourceIdentity: current.asset.binding.sourceIdentity,
+      transferSessionId: current.asset.binding.transferSessionId,
+    });
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestCurrent, {
+        kind: 'source-ready',
+        observedAtRoomTimeMs: 1_000,
+        readyLeaseUntilRoomTimeMs: 10_000,
+        backend: current.backend,
+        durationSeconds: 180,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+    );
+    await drain();
+    const staleRecovery = recoveryOptions as RecoverHostRemoteParticipantOptions | null;
+    if (!staleRecovery) throw new Error('fixture recovery was not started');
+
+    await owner.publishPrepared(prepared);
+    await owner.bindPrepared(prepared);
+    await owner.whenPreparedRemoteReady(prepared);
+    const timeline = freezeCanonical({ ...committedTimeline(), revision: 2 });
+    current = committedPreparedPublication(prepared, timeline);
+    const activated = owner.activatePrepared({ prepared, timeline });
+
+    await expect(
+      staleRecovery.bindAttempt(fakeAttempt('host-owner-stale-recovery')),
+    ).rejects.toThrow(/stale/u);
+    expect(sendWire).not.toHaveBeenCalled();
+    expect(closeConnection).not.toHaveBeenCalled();
+    expect(await owner.publishCurrent()).toBe(activated);
+
+    rejectRecovery(new Error('fixture stale recovery retired'));
+    await drain();
+    expect(closeConnection).not.toHaveBeenCalled();
+    owner.port().revoke(pair.context);
+  });
+
   it('commits a prepared state without waiting for a slow remote SOURCE_READY', async () => {
     const pair = connectionPair(() => 1_000);
     const prepared = preparedTrack('bounded-stream', 3);

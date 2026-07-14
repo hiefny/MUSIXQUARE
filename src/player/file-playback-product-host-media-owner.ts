@@ -261,13 +261,13 @@ interface PeerRangeOfferPlan {
 
 interface PublicationRecord {
   readonly epoch: number;
-  readonly publication: Readonly<HostPeerPlaybackPublication>;
+  publication: Readonly<HostPeerPlaybackPublication>;
   readonly offer: Readonly<FileMediaSourceOfferV2>;
   readonly binding: Readonly<FilePlaybackRunBindingV2>;
-  readonly stateLease: FilePlaybackWireStateLease;
+  stateLease: FilePlaybackWireStateLease;
   readonly handleId: string | null;
   readonly peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null;
-  readonly commit: Readonly<FilePlaybackProductHostPublicationCommit>;
+  commit: Readonly<FilePlaybackProductHostPublicationCommit>;
   readonly transferredWarmSource: WarmSourceOfferRecord | null;
   participant: RemoteRendezvousParticipant | null;
   status: 'publishing' | 'published';
@@ -281,6 +281,7 @@ interface CandidateSourceRecord {
 }
 
 interface PreparedPublicationRecord {
+  readonly mode: 'source' | 'same-run-state';
   readonly epoch: number;
   readonly prepared: Readonly<HostPreparedLocalTrack>;
   readonly offer: Readonly<FileMediaSourceOfferV2>;
@@ -288,7 +289,7 @@ interface PreparedPublicationRecord {
   stateLease: FilePlaybackWireStateLease | null;
   readonly handleId: string | null;
   readonly peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null;
-  readonly source: CandidateSourceRecord;
+  readonly source: CandidateSourceRecord | null;
   readonly commit: Readonly<FilePlaybackProductHostPreparedPublicationCommit>;
   readonly transferredWarmSource: WarmSourceOfferRecord | null;
   readonly ready: Promise<Readonly<HostPreparedRemoteParticipant>>;
@@ -327,7 +328,7 @@ interface PreparedRetirementRecord {
 
 interface AttemptRecord {
   readonly mode: 'prepared' | 'recovery';
-  readonly publicationEpoch: number;
+  publicationEpoch: number;
   readonly participant: RemoteRendezvousParticipant;
   readonly attempt: HostRendezvousAttempt;
   readonly lease: FilePlaybackWireAttemptLease;
@@ -346,10 +347,12 @@ interface AttemptRecord {
 
 function hasPreparedSourceAuthority(record: PreparedPublicationRecord): boolean {
   return (
-    record.status === 'offering' ||
-    record.status === 'offered' ||
-    record.status === 'binding' ||
-    record.status === 'published'
+    record.mode === 'source' &&
+    record.source !== null &&
+    (record.status === 'offering' ||
+      record.status === 'offered' ||
+      record.status === 'binding' ||
+      record.status === 'published')
   );
 }
 
@@ -989,9 +992,6 @@ export class FilePlaybackProductHostMediaOwner {
     prepared: Readonly<HostPreparedLocalTrack>,
   ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> {
     if (this.#closed) return Promise.reject(new Error('Host media owner is closed'));
-    if (!this.#resolvePreparedPeerRangeSource) {
-      return Promise.reject(new Error('Host prepared source resolver is unavailable'));
-    }
     if (prepared === null || typeof prepared !== 'object') {
       return Promise.reject(new TypeError('Host prepared publication authority is invalid'));
     }
@@ -1223,6 +1223,10 @@ export class FilePlaybackProductHostMediaOwner {
     const timeline = timelineFromFilePlaybackTimelineUpdateV2(update);
     if (!timeline) throw new Error('Host prepared committed timeline is invalid');
 
+    if (record.mode === 'same-run-state') {
+      return this.#activateSameRunPrepared(record, publication, timeline, update, stateLease);
+    }
+
     Reflect.apply(trustedChannelCommitMedia, this.#context.channel, [stateLease]);
     this.#revokePublishedHandle(new Error('Host current publication was superseded'));
     this.#publicationEpoch += 1;
@@ -1261,6 +1265,59 @@ export class FilePlaybackProductHostMediaOwner {
     if (attempt?.mode === 'prepared' && attempt.preparedRecord === record) {
       attempt.stateCommitted = true;
       this.#settlePreparedAttempt(attempt);
+    }
+    return commit;
+  }
+
+  #activateSameRunPrepared(
+    record: PreparedPublicationRecord,
+    publication: Readonly<HostPeerPlaybackPublication>,
+    timeline: Readonly<PlaybackTimelineSnapshot>,
+    update: Readonly<FilePlaybackTimelineUpdateV2>,
+    stateLease: FilePlaybackWireStateLease,
+  ): Readonly<FilePlaybackProductHostPublicationCommit> {
+    const current = this.#publication;
+    if (
+      !current ||
+      current.status !== 'published' ||
+      current.offer !== record.offer ||
+      current.binding !== record.binding ||
+      current.handleId !== record.handleId ||
+      current.peerRangeOfferPlan !== record.peerRangeOfferPlan ||
+      current.publication.state.queueItemId !== record.prepared.state.queueItemId ||
+      current.publication.state.runId !== record.prepared.state.runId ||
+      current.publication.state.revision + 1 !== record.prepared.state.revision
+    ) {
+      throw new Error('Host same-run activation changed its current source authority');
+    }
+
+    Reflect.apply(trustedChannelCommitMedia, this.#context.channel, [stateLease]);
+    const commit = freezeCanonical({
+      schemaVersion: 1 as const,
+      publication,
+      offer: current.offer,
+      binding: current.binding,
+    });
+    current.publication = publication;
+    current.stateLease = stateLease;
+    current.commit = commit;
+    current.participant = record.participant;
+    this.#assertRecord(current);
+
+    if (!record.capability) {
+      record.rejectReady(new Error('Host committed before this remote state became ready'));
+    }
+    record.status = 'activated';
+    this.#candidate = null;
+    this.#sendRequiredFrame(update);
+    const attempt = this.#attempt;
+    if (attempt?.mode === 'prepared' && attempt.preparedRecord === record) {
+      attempt.publicationEpoch = current.epoch;
+      attempt.stateCommitted = true;
+      this.#settlePreparedAttempt(attempt);
+    }
+    if (timeline.revision !== publication.timeline.revision) {
+      throw new Error('Host same-run activation changed its committed timeline');
     }
     return commit;
   }
@@ -1624,6 +1681,8 @@ export class FilePlaybackProductHostMediaOwner {
   ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> {
     await Promise.resolve();
     this.#assertPreparedCandidateAuthority(prepared, epoch);
+    const current = this.#sameRunCurrentPublication(prepared);
+    if (current) return this.#createSameRunPreparedPublication(prepared, current, epoch);
     const peerRangeOfferPlan =
       prepared.backend === 'bounded-stream'
         ? this.#createPeerRangeOfferPlan(prepared.backend, prepared.asset)
@@ -1860,6 +1919,7 @@ export class FilePlaybackProductHostMediaOwner {
       binding,
     });
     return {
+      mode: 'source',
       epoch: options.epoch,
       prepared: options.prepared,
       offer: options.offer,
@@ -1879,6 +1939,77 @@ export class FilePlaybackProductHostMediaOwner {
       offerRevokeSent: false,
       status: options.status,
     };
+  }
+
+  #createSameRunPreparedPublication(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    current: PublicationRecord,
+    epoch: number,
+  ): Readonly<FilePlaybackProductHostPreparedPublicationCommit> {
+    this.#assertPreparedCandidateAuthority(prepared, epoch);
+    if (this.#publication !== current || current.status !== 'published') {
+      throw new Error('Host same-run publication authority is stale');
+    }
+    const ready = deferredReadyCapability();
+    const commit = freezeCanonical({
+      schemaVersion: 1 as const,
+      prepared,
+      offer: current.offer,
+      binding: current.binding,
+    });
+    const record: PreparedPublicationRecord = {
+      mode: 'same-run-state',
+      epoch,
+      prepared,
+      offer: current.offer,
+      binding: current.binding,
+      stateLease: null,
+      handleId: current.handleId,
+      peerRangeOfferPlan: current.peerRangeOfferPlan,
+      source: null,
+      commit,
+      transferredWarmSource: null,
+      ready: ready.promise,
+      resolveReady: ready.resolve,
+      rejectReady: ready.reject,
+      participant: null,
+      capability: null,
+      offerSent: false,
+      offerRevokeSent: false,
+      status: 'offered',
+    };
+    this.#candidate = record;
+    this.#assertCandidateRecord(record);
+    return commit;
+  }
+
+  #sameRunCurrentPublication(prepared: Readonly<HostPreparedLocalTrack>): PublicationRecord | null {
+    const current = this.#publication;
+    const publication = current?.publication;
+    const asset = publication?.asset;
+    const preparedAsset = prepared.asset;
+    if (
+      !current ||
+      current.status !== 'published' ||
+      !publication ||
+      !asset ||
+      prepared.roomGeneration !== publication.roomGeneration ||
+      prepared.backend !== publication.backend ||
+      prepared.state.queueItemId !== publication.state.queueItemId ||
+      prepared.state.runId !== publication.state.runId ||
+      prepared.state.revision !== publication.state.revision + 1 ||
+      preparedAsset.kind !== asset.kind ||
+      preparedAsset.binding.queueItemId !== asset.binding.queueItemId ||
+      preparedAsset.binding.sourceIdentity !== asset.binding.sourceIdentity ||
+      preparedAsset.binding.transferSessionId !== asset.binding.transferSessionId ||
+      preparedAsset.metadata.name !== asset.metadata.name ||
+      preparedAsset.metadata.mime !== asset.metadata.mime ||
+      preparedAsset.encodedSize !== asset.encodedSize ||
+      !samePeerRangeManifestPublication(preparedAsset.peerRangeManifest, asset.peerRangeManifest)
+    ) {
+      return null;
+    }
+    return current;
   }
 
   #transferableWarmSourceForPrepared(
@@ -2061,7 +2192,7 @@ export class FilePlaybackProductHostMediaOwner {
     if (record.status !== 'offered' || record.stateLease !== null) {
       throw new Error('Host prepared publication is not bindable');
     }
-    if (record.offer.expiresAtRoomTimeMs <= this.#nowRoomTimeMs()) {
+    if (record.mode === 'source' && record.offer.expiresAtRoomTimeMs <= this.#nowRoomTimeMs()) {
       const error = new Error('Host prepared source offer expired before binding');
       this.#candidateEpoch += 1;
       this.#candidateController.abort(error);
@@ -2077,9 +2208,10 @@ export class FilePlaybackProductHostMediaOwner {
       throw this.#failConnection(error);
     }
     record.stateLease = stateLease;
-    this.#sendRequiredFrame(record.binding);
+    if (record.mode === 'source') this.#sendRequiredFrame(record.binding);
     this.#assertCandidateRecord(record);
     record.status = 'published';
+    if (record.mode === 'same-run-state') this.#publishPreparedRemoteCapability(record);
     return record.commit;
   }
 
@@ -2485,6 +2617,11 @@ export class FilePlaybackProductHostMediaOwner {
     try {
       Reflect.apply(trustedChannelCommitAttempt, this.#context.channel, [attempt.lease]);
       attempt.status = 'current';
+      for (const [rendezvousId, stale] of this.#attemptsById) {
+        if (stale === attempt) continue;
+        stale.status = 'retired';
+        this.#attemptsById.delete(rendezvousId);
+      }
     } catch (error) {
       this.#failConnection(error);
     }
@@ -2506,39 +2643,49 @@ export class FilePlaybackProductHostMediaOwner {
     ) {
       return;
     }
+    const publication = record.publication;
+    const stateLease = record.stateLease;
+    const publicationEpoch = record.epoch;
     const participant =
       record.participant ??
       this.#createRemoteParticipant(
-        record.publication.state,
-        record.publication.asset.binding.sourceIdentity,
-        record.publication.asset.binding.transferSessionId,
+        publication.state,
+        publication.asset.binding.sourceIdentity,
+        publication.asset.binding.transferSessionId,
       );
     record.participant = participant;
     const evidence = deferredEvidence();
     const recovery = this.#hostRoom.recoverRemoteParticipant({
-      publication: record.publication,
+      publication,
       participant,
-      signal: this.#publicationSignal(record.epoch),
+      signal: this.#publicationSignal(publicationEpoch),
       bindAttempt: (attempt) => {
-        if (this.#closed || this.#publication !== record) {
+        if (
+          this.#closed ||
+          this.#publication !== record ||
+          record.epoch !== publicationEpoch ||
+          record.publication !== publication ||
+          record.stateLease !== stateLease ||
+          record.participant !== participant
+        ) {
           return Promise.reject(new Error('Host media recovery publication is stale'));
         }
         const lease = Reflect.apply(trustedChannelStageAttempt, this.#context.channel, [
-          record.stateLease,
+          stateLease,
           attempt.rendezvousId,
         ]);
         const previous = this.#attempt;
         if (previous?.status === 'candidate') this.#retireAttemptLease(previous);
         this.#attempt = {
           mode: 'recovery',
-          publicationEpoch: record.epoch,
+          publicationEpoch,
           participant,
           attempt,
           lease,
-          stateLease: record.stateLease,
-          state: record.publication.state,
-          sourceIdentity: record.publication.asset.binding.sourceIdentity,
-          transferSessionId: record.publication.asset.binding.transferSessionId,
+          stateLease,
+          state: publication.state,
+          sourceIdentity: publication.asset.binding.sourceIdentity,
+          transferSessionId: publication.asset.binding.transferSessionId,
           evidence: evidence.promise,
           resolveEvidence: evidence.resolve,
           rejectEvidence: evidence.reject,
@@ -2553,20 +2700,30 @@ export class FilePlaybackProductHostMediaOwner {
     });
     observe(
       recovery.then(
-        () => this.#commitRecovery(record, participant),
-        (error) => this.#rejectRecovery(record, participant, error),
+        () => this.#commitRecovery(record, publication, stateLease, participant),
+        (error) => this.#rejectRecovery(record, publication, stateLease, participant, error),
       ),
     );
   }
 
-  #commitRecovery(record: PublicationRecord, participant: RemoteRendezvousParticipant): void {
+  #commitRecovery(
+    record: PublicationRecord,
+    publication: Readonly<HostPeerPlaybackPublication>,
+    stateLease: FilePlaybackWireStateLease,
+    participant: RemoteRendezvousParticipant,
+  ): void {
     const attempt = this.#attempt;
     if (
       !attempt ||
       this.#closed ||
       this.#publication !== record ||
+      record.publication !== publication ||
+      record.stateLease !== stateLease ||
+      record.participant !== participant ||
       attempt.participant !== participant ||
       attempt.publicationEpoch !== record.epoch ||
+      attempt.stateLease !== stateLease ||
+      attempt.state !== publication.state ||
       attempt.status !== 'candidate'
     ) {
       return;
@@ -2583,15 +2740,25 @@ export class FilePlaybackProductHostMediaOwner {
 
   #rejectRecovery(
     record: PublicationRecord,
+    publication: Readonly<HostPeerPlaybackPublication>,
+    stateLease: FilePlaybackWireStateLease,
     participant: RemoteRendezvousParticipant,
     error: unknown,
   ): void {
     const attempt = this.#attempt;
-    if (
-      attempt &&
+    const exactRecovery =
+      !this.#closed &&
       this.#publication === record &&
+      record.publication === publication &&
+      record.stateLease === stateLease &&
+      record.participant === participant;
+    if (
+      exactRecovery &&
+      attempt &&
       attempt.participant === participant &&
       attempt.publicationEpoch === record.epoch &&
+      attempt.stateLease === stateLease &&
+      attempt.state === publication.state &&
       attempt.status === 'candidate'
     ) {
       attempt.rejectEvidence(asError(error, 'Host participant recovery failed'));
@@ -2599,7 +2766,7 @@ export class FilePlaybackProductHostMediaOwner {
       this.#attemptsById.delete(attempt.attempt.rendezvousId);
       if (this.#attempt === attempt) this.#attempt = null;
     }
-    this.#applyHealth(this.#health.completeRejoin(false));
+    if (exactRecovery) this.#applyHealth(this.#health.completeRejoin(false));
   }
 
   #dispatchAttemptWire<
@@ -2636,8 +2803,10 @@ export class FilePlaybackProductHostMediaOwner {
   ): Promise<HostPeerRangeSource | null> {
     this.#expireWarmSourceOfferIfNeeded();
     const candidate = this.#candidate;
+    const candidateSource = candidate?.source ?? null;
     if (
       candidate !== null &&
+      candidateSource !== null &&
       hasPreparedSourceAuthority(candidate) &&
       isAnyPeerRangeOffer(candidate.offer) &&
       (handleId === null || handleId === candidate.handleId) &&
@@ -2647,7 +2816,7 @@ export class FilePlaybackProductHostMediaOwner {
         candidate.offer,
         candidate.peerRangeOfferPlan,
       );
-      const source = await candidate.source.resolve({
+      const source = await candidateSource.resolve({
         prepared: candidate.prepared,
         sourceIdentity,
         peerRangeManifest: peerRangeOfferPlan.peerRangeManifest,
@@ -3049,7 +3218,7 @@ export class FilePlaybackProductHostMediaOwner {
     }
     record.rejectReady(reason);
     if (this.#attempt?.preparedRecord === record) this.#retireAttempt(reason);
-    if (record.handleId) {
+    if (record.mode === 'source' && record.handleId) {
       try {
         this.#responder.revokeHandle(
           this.#context.connectionToken,
@@ -3315,6 +3484,27 @@ export class FilePlaybackProductHostMediaOwner {
     this.#assertPreparedCandidateAuthority(record.prepared, record.epoch);
     if (this.#candidate !== record || record.status === 'retired') {
       throw new Error('Host prepared publication was superseded');
+    }
+    if (record.mode === 'same-run-state') {
+      const current = this.#publication;
+      if (
+        record.source !== null ||
+        record.offerSent ||
+        record.transferredWarmSource !== null ||
+        !current ||
+        current.status !== 'published' ||
+        record.offer !== current.offer ||
+        record.binding !== current.binding ||
+        record.handleId !== current.handleId ||
+        record.peerRangeOfferPlan !== current.peerRangeOfferPlan ||
+        record.prepared.state.queueItemId !== current.publication.state.queueItemId ||
+        record.prepared.state.runId !== current.publication.state.runId ||
+        record.prepared.state.revision !== current.publication.state.revision + 1
+      ) {
+        throw new Error('Host same-run prepared publication changed its current authority');
+      }
+    } else if (record.source === null) {
+      throw new Error('Host prepared source publication lost its resolver authority');
     }
     if (isAnyPeerRangeOffer(record.offer)) {
       if (record.handleId !== record.offer.handleId) {

@@ -1352,6 +1352,13 @@ export class FilePlaybackHostFirstFileEngine {
     });
   }
 
+  /** Prepares an exact-next same-run playing seek without starting its rendezvous. */
+  preparePlayingSeek(options: SeekHostPlayingOptions): Promise<Readonly<HostPreparedLocalTrack>> {
+    return this.#runSynchronousCandidatePreparation(() =>
+      this.#preparePlayingSeekCandidate(options),
+    );
+  }
+
   /** Starts one shared rendezvous for the exact prepared local host and remotes. */
   startPreparedLocalTrack(
     options: StartPreparedHostLocalTrackOptions,
@@ -1404,33 +1411,9 @@ export class FilePlaybackHostFirstFileEngine {
     options: SeekHostPlayingOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     return this.#runSynchronousCandidateStart(() => {
-      const input = this.#readCurrentOperationInput(options, SEEK_PLAYING_KEYS);
-      const positionSeconds = input.positionSeconds;
-      if (
-        typeof positionSeconds !== 'number' ||
-        !Number.isFinite(positionSeconds) ||
-        positionSeconds < 0
-      ) {
-        throw new TypeError('Host playing seek position is invalid');
-      }
-      const previousTimeline = this.#captureTimeline('playing-seek');
-      if (previousTimeline.phase !== 'playing' || previousTimeline.run === null) {
-        throw new Error('Host playing seek requires exact playing timeline truth');
-      }
-      const asset = this.#requireCurrentAsset(previousTimeline);
-      const runtime = this.#requireAudioRuntime();
-      const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'playing-seek');
-      return this.#beginCandidateOperation({
-        action: 'playing-seek',
-        previousTimeline,
-        expectedCurrentPort,
-        asset,
-        runId: previousTimeline.run.runId,
-        positionSeconds,
-        playbackRate: previousTimeline.rate,
-        signal: input.signal,
-        ...runtime,
-      });
+      return this.#preparePlayingSeekCandidate(options).then((prepared) =>
+        this.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+      );
     });
   }
 
@@ -1550,8 +1533,9 @@ export class FilePlaybackHostFirstFileEngine {
 
   currentPeerPublication(): Readonly<HostPeerPlaybackPublication> | null {
     try {
-      if (this.#activeOperation !== null || !this.#hasLiveProjectionAuthority()) return null;
+      if (!this.#hasLiveProjectionAuthority()) return null;
       const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+      if (!this.#allowsCurrentPeerPublicationForTimeline(timeline)) return null;
       const run = timeline.run;
       if (!run || timeline.phase === 'stopped') return null;
       const port = this.#committedPort;
@@ -1577,7 +1561,7 @@ export class FilePlaybackHostFirstFileEngine {
         cached.lease === admitted.lease &&
         this.#samePeerAsset(cached.asset, asset)
       ) {
-        this.#assertPeerPublicationAuthority(cached);
+        this.#assertCurrentPeerPublicationAuthority(cached);
         return cached.publication;
       }
       const state = freezeCanonical({
@@ -1601,7 +1585,7 @@ export class FilePlaybackHostFirstFileEngine {
         lease: admitted.lease,
       };
       this.#peerPublicationAuthority = authority;
-      this.#assertPeerPublicationAuthority(authority);
+      this.#assertCurrentPeerPublicationAuthority(authority);
       return publication;
     } catch {
       this.#peerPublicationAuthority = null;
@@ -1621,7 +1605,7 @@ export class FilePlaybackHostFirstFileEngine {
       throw new TypeError('Host peer-range source resolution options are invalid');
     }
     const signal = input.signal;
-    const authority = this.#requirePeerPublication(input.publication);
+    const authority = this.#requireCurrentPeerPublication(input.publication);
     if (input.sourceIdentity !== authority.asset.sourceIdentity) {
       throw new Error('Host peer-range source identity is not the current publication');
     }
@@ -1631,14 +1615,14 @@ export class FilePlaybackHostFirstFileEngine {
       'Host peer-range source',
     );
     throwIfAborted(signal);
-    this.#assertPeerPublicationAuthority(authority);
+    this.#assertCurrentPeerPublicationAuthority(authority);
     return this.#resolvePeerRangeLeaseSource(
       authority.lease,
       authority.asset,
       authority.publication.backend,
       peerRangeManifest,
       signal,
-      () => this.#assertPeerPublicationAuthority(authority),
+      () => this.#assertCurrentPeerPublicationAuthority(authority),
       'Host peer-range',
     );
   }
@@ -1969,6 +1953,38 @@ export class FilePlaybackHostFirstFileEngine {
     }
     throwIfAborted(input.signal);
     return freezeCanonical({ signal: input.signal, positionSeconds: input.positionSeconds });
+  }
+
+  #preparePlayingSeekCandidate(
+    options: SeekHostPlayingOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
+    const input = this.#readCurrentOperationInput(options, SEEK_PLAYING_KEYS);
+    const positionSeconds = input.positionSeconds;
+    if (
+      typeof positionSeconds !== 'number' ||
+      !Number.isFinite(positionSeconds) ||
+      positionSeconds < 0
+    ) {
+      throw new TypeError('Host playing seek position is invalid');
+    }
+    const previousTimeline = this.#captureTimeline('playing-seek');
+    if (previousTimeline.phase !== 'playing' || previousTimeline.run === null) {
+      throw new Error('Host playing seek requires exact playing timeline truth');
+    }
+    const asset = this.#requireCurrentAsset(previousTimeline);
+    const runtime = this.#requireAudioRuntime();
+    const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'playing-seek');
+    return this.#beginCandidatePreparation({
+      action: 'playing-seek',
+      previousTimeline,
+      expectedCurrentPort,
+      asset,
+      runId: previousTimeline.run.runId,
+      positionSeconds,
+      playbackRate: previousTimeline.rate,
+      signal: input.signal,
+      ...runtime,
+    });
   }
 
   #runSynchronousTransition(
@@ -3463,7 +3479,7 @@ export class FilePlaybackHostFirstFileEngine {
       task: null,
     };
     this.#activeOperation = operation;
-    this.#peerPublicationAuthority = null;
+    if (operation.action !== 'playing-seek') this.#peerPublicationAuthority = null;
     this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-renderer-candidate');
     previousOperation?.controller.abort(new Error('Host local file candidate was superseded'));
@@ -4404,12 +4420,31 @@ export class FilePlaybackHostFirstFileEngine {
     return authority;
   }
 
+  #requireCurrentPeerPublication(value: unknown): PeerPublicationAuthority {
+    const authority = this.#peerPublicationAuthority;
+    if (!authority || value !== authority.publication) {
+      throw new Error('Host peer publication is not the exact current publication');
+    }
+    this.#assertCurrentPeerPublicationAuthority(authority);
+    return authority;
+  }
+
   #assertPeerPublicationAuthority(authority: PeerPublicationAuthority): void {
-    if (
-      this.#peerPublicationAuthority !== authority ||
-      this.#activeOperation !== null ||
-      !this.#hasLiveProjectionAuthority()
-    ) {
+    if (this.#activeOperation !== null) {
+      throw new Error('Host peer publication authority is stale');
+    }
+    this.#assertPeerPublicationStateAuthority(authority);
+  }
+
+  #assertCurrentPeerPublicationAuthority(authority: PeerPublicationAuthority): void {
+    if (!this.#allowsCurrentPeerPublicationForTimeline(authority.timeline)) {
+      throw new Error('Host peer publication authority is stale');
+    }
+    this.#assertPeerPublicationStateAuthority(authority);
+  }
+
+  #assertPeerPublicationStateAuthority(authority: PeerPublicationAuthority): void {
+    if (this.#peerPublicationAuthority !== authority || !this.#hasLiveProjectionAuthority()) {
       throw new Error('Host peer publication authority is stale');
     }
     const controller = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
@@ -4442,6 +4477,20 @@ export class FilePlaybackHostFirstFileEngine {
     ) {
       throw new Error('Host peer publication authority changed');
     }
+  }
+
+  #allowsCurrentPeerPublicationForTimeline(timeline: PlaybackTimelineSnapshot): boolean {
+    const operation = this.#activeOperation;
+    if (operation === null) return true;
+    return (
+      operation.kind === 'candidate' &&
+      operation.action === 'playing-seek' &&
+      !operation.published &&
+      this.#operationEpoch === operation.epoch &&
+      operation.previousTimeline === timeline &&
+      operation.expectedCurrentPort !== null &&
+      operation.expectedCurrentPort === this.#committedPort
+    );
   }
 
   async #executeRemoteRecovery(

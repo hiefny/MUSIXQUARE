@@ -66,6 +66,7 @@ const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'sig
 const COHORT_TRACK_KEYS = Object.freeze([...TRACK_KEYS, 'prepareRemoteParticipants'] as const);
 const CURRENT_KEYS = Object.freeze(['signal'] as const);
 const SEEK_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
+const COHORT_SEEK_KEYS = Object.freeze([...SEEK_KEYS, 'prepareRemoteParticipants'] as const);
 const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
   'peerRangeManifest',
   'publication',
@@ -117,6 +118,7 @@ export interface FilePlaybackProductHostFirstEnginePort {
     options: StartHostLocalTrackOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
   prepareLocalTrack(options: StartHostLocalTrackOptions): Promise<Readonly<HostPreparedLocalTrack>>;
+  preparePlayingSeek(options: SeekHostPlayingOptions): Promise<Readonly<HostPreparedLocalTrack>>;
   startPreparedLocalTrack(
     options: StartPreparedHostLocalTrackOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
@@ -268,6 +270,10 @@ export interface FilePlaybackProductHostCurrentOptions {
 
 export interface FilePlaybackProductHostSeekOptions extends FilePlaybackProductHostCurrentOptions {
   readonly positionSeconds: number;
+}
+
+export interface FilePlaybackProductHostSeekWithCohortOptions extends FilePlaybackProductHostSeekOptions {
+  readonly prepareRemoteParticipants: PrepareFilePlaybackProductHostRemoteParticipants;
 }
 
 /** Frozen, serializable control result. Encoded bodies and native graph objects stay private. */
@@ -609,6 +615,7 @@ function isEnginePort(
     typeof candidate.resolveWarmPeerRangeSource === 'function' &&
     typeof candidate.startLocalTrack === 'function' &&
     typeof candidate.prepareLocalTrack === 'function' &&
+    typeof candidate.preparePlayingSeek === 'function' &&
     typeof candidate.startPreparedLocalTrack === 'function' &&
     typeof candidate.resolvePreparedPeerRangeSource === 'function' &&
     typeof candidate.pauseCurrent === 'function' &&
@@ -679,8 +686,9 @@ function readSignalOptions(value: unknown, keys: readonly string[], label: strin
 function readSeekOptions(
   value: unknown,
   label: string,
+  keys: readonly string[] = SEEK_KEYS,
 ): Readonly<{ positionSeconds: number; signal: AbortSignal }> {
-  const input = snapshotExactRecord(value, SEEK_KEYS);
+  const input = snapshotExactRecord(value, keys);
   if (
     !input ||
     !(input.signal instanceof AbortSignal) ||
@@ -1017,6 +1025,40 @@ export class FilePlaybackProductHostRoom {
           signal: operation.controller.signal,
         }),
       );
+    });
+  }
+
+  seekPlayingWithCohort(
+    options: FilePlaybackProductHostSeekWithCohortOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    const input = snapshotExactRecord(options, COHORT_SEEK_KEYS);
+    let seek: Readonly<{ positionSeconds: number; signal: AbortSignal }>;
+    if (!input || typeof input.prepareRemoteParticipants !== 'function') {
+      return Promise.reject(new TypeError('Product playing seek cohort options are invalid'));
+    }
+    try {
+      seek = readSeekOptions(options, 'playing seek cohort', COHORT_SEEK_KEYS);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const prepareRemoteParticipants =
+      input.prepareRemoteParticipants as PrepareFilePlaybackProductHostRemoteParticipants;
+    return this.#enqueueCandidate(seek.signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      return this.#startPreparedCandidateWithCohort({
+        operation,
+        record,
+        expectedQueueItemId: null,
+        prepare: () =>
+          record.engine.preparePlayingSeek({
+            positionSeconds: seek.positionSeconds,
+            signal: operation.controller.signal,
+          }),
+        prepareRemoteParticipants,
+        resolveSource: async () => {
+          throw new Error('Same-run state successor must reuse its current source binding');
+        },
+      });
     });
   }
 
@@ -1437,21 +1479,25 @@ export class FilePlaybackProductHostRoom {
     this.#assertOperationReady(operation);
     const record = await this.#getOrCreateEngine(operation);
     this.#assertOperationReady(operation);
-    const prepared = await record.engine.prepareLocalTrack({
-      queueItemId: intent.queueItemId,
-      blob: intent.file,
-      name: intent.name,
-      mime: intent.mime,
-      positionSeconds: intent.positionSeconds,
-      audioContext: audioRuntime.audioContext,
-      destination: audioRuntime.destination,
-      decodeOrdinaryAudio: this.#runtime.decodeOrdinaryAudio,
-      signal: operation.controller.signal,
-    });
-    this.#assertOperationReady(operation);
-    assertBodyFree(prepared);
-    try {
-      const resolveSource = async (
+    return this.#startPreparedCandidateWithCohort({
+      operation,
+      record,
+      expectedQueueItemId: intent.queueItemId,
+      prepare: () =>
+        record.engine.prepareLocalTrack({
+          queueItemId: intent.queueItemId,
+          blob: intent.file,
+          name: intent.name,
+          mime: intent.mime,
+          positionSeconds: intent.positionSeconds,
+          audioContext: audioRuntime.audioContext,
+          destination: audioRuntime.destination,
+          decodeOrdinaryAudio: this.#runtime.decodeOrdinaryAudio,
+          signal: operation.controller.signal,
+        }),
+      prepareRemoteParticipants,
+      resolveSource: async (
+        prepared: Readonly<HostPreparedLocalTrack>,
         sourceIdentity: string,
         peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
         signal: AbortSignal,
@@ -1484,11 +1530,39 @@ export class FilePlaybackProductHostRoom {
           }
           throw error;
         }
-      };
+      },
+    });
+  }
+
+  async #startPreparedCandidateWithCohort(
+    input: Readonly<{
+      operation: RoomOperation;
+      record: EngineRecord;
+      expectedQueueItemId: QueueItemId | null;
+      prepare: () => Promise<Readonly<HostPreparedLocalTrack>>;
+      prepareRemoteParticipants: PrepareFilePlaybackProductHostRemoteParticipants;
+      resolveSource: (
+        prepared: Readonly<HostPreparedLocalTrack>,
+        sourceIdentity: string,
+        peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
+        signal: AbortSignal,
+      ) => Promise<HostPeerRangeSource>;
+    }>,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    const { operation, record, expectedQueueItemId, prepareRemoteParticipants, resolveSource } =
+      input;
+    const prepared = await input.prepare();
+    this.#assertOperationReady(operation);
+    assertBodyFree(prepared);
+    try {
       const context = freezeCanonical({
         prepared,
         signal: operation.controller.signal,
-        resolveSource,
+        resolveSource: (
+          sourceIdentity: string,
+          peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
+          signal: AbortSignal,
+        ) => resolveSource(prepared, sourceIdentity, peerRangeManifest, signal),
       });
       this.#assertOperationReady(operation);
       const cohortTask = Reflect.apply(prepareRemoteParticipants, undefined, [context]) as unknown;
@@ -1503,7 +1577,7 @@ export class FilePlaybackProductHostRoom {
       if (!Array.isArray(remoteParticipants)) {
         throw new TypeError('Product remote cohort preparation returned an invalid cohort');
       }
-      return await this.#invokeCandidate(operation, intent.queueItemId, () =>
+      return await this.#invokeCandidate(operation, expectedQueueItemId, () =>
         record.engine.startPreparedLocalTrack({
           prepared,
           remoteParticipants,

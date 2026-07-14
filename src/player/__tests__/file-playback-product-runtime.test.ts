@@ -44,6 +44,7 @@ import type {
   FilePlaybackProductHostLocalTrackCommit,
   FilePlaybackProductHostRoomOptions,
   FilePlaybackProductHostSeekOptions,
+  FilePlaybackProductHostSeekWithCohortOptions,
   FilePlaybackProductHostTerminalObservation,
   FilePlaybackProductHostTransitionCommit,
   StartFilePlaybackProductHostFirstLocalFileOptions,
@@ -105,6 +106,7 @@ interface ProductHostRoomHarness {
   readonly startLocalTrackWithCohort: ReturnType<typeof vi.fn>;
   readonly pauseCurrent: ReturnType<typeof vi.fn>;
   readonly seekPlaying: ReturnType<typeof vi.fn>;
+  readonly seekPlayingWithCohort: ReturnType<typeof vi.fn>;
   readonly seekPaused: ReturnType<typeof vi.fn>;
   readonly resumeCurrent: ReturnType<typeof vi.fn>;
   readonly replayCurrent: ReturnType<typeof vi.fn>;
@@ -346,6 +348,12 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       events.push(`host-room:${index}:seek-playing`);
       return candidate('seek-playing');
     });
+    const seekPlayingWithCohort = vi.fn(
+      async (_input: FilePlaybackProductHostSeekWithCohortOptions) => {
+        events.push(`host-room:${index}:seek-playing-cohort`);
+        return candidate('seek-playing-cohort');
+      },
+    );
     const seekPaused = vi.fn(async (_input: FilePlaybackProductHostSeekOptions) => {
       events.push(`host-room:${index}:seek-paused`);
       return transition('seek-paused');
@@ -397,6 +405,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       startLocalTrackWithCohort,
       pauseCurrent,
       seekPlaying,
+      seekPlayingWithCohort,
       seekPaused,
       resumeCurrent,
       replayCurrent,
@@ -428,6 +437,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       startLocalTrackWithCohort,
       pauseCurrent,
       seekPlaying,
+      seekPlayingWithCohort,
       seekPaused,
       resumeCurrent,
       replayCurrent,
@@ -1930,6 +1940,248 @@ describe('FilePlaybackProductRuntime', () => {
     expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
   });
 
+  it('runs a playing seek through prepared cohort publication instead of direct room seek', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const capability = freezeCanonical({
+      participant: freezeCanonical({ participantId: 'runtime-seek-cohort-guest' }),
+      bindAttempt: vi.fn(async () => undefined),
+    }) as unknown as Readonly<HostPreparedRemoteParticipant>;
+    const publishPrepared = vi.fn(
+      async (prepared: Readonly<HostPreparedLocalTrack>) =>
+        freezeCanonical({ schemaVersion: 1, prepared }) as never,
+    );
+    const bindPrepared = vi.fn(
+      async (prepared: Readonly<HostPreparedLocalTrack>) =>
+        freezeCanonical({ schemaVersion: 1, prepared }) as never,
+    );
+    const whenPreparedRemoteReady = vi.fn(async () => capability);
+    const activatePrepared = vi.fn(() => freezeCanonical({ schemaVersion: 1 }) as never);
+    const hostOwner = Object.freeze({
+      onHostReady: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeControl: vi.fn(),
+      revoke: vi.fn(),
+      publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+      publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+      retireSourceLease: vi.fn(async () => undefined),
+      publishPrepared,
+      bindPrepared,
+      whenPreparedRemoteReady,
+      activatePrepared,
+      retirePrepared: vi.fn(async () => undefined),
+    });
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: () => hostOwner,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('seek-cohort-runtime-host');
+    routers[0]!.options.createHostMediaOwner(
+      routerContext('host', { suffix: 'seek-cohort-runtime' }),
+    );
+    const room = setup.hostRooms[0]!;
+    const prepared = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      backend: 'bounded-stream' as const,
+      state: freezeCanonical({
+        queueItemId: Q1,
+        runId: 'runtime-seek-cohort-run',
+        revision: 2,
+      }),
+      positionSeconds: 24,
+      playbackRate: 1,
+      asset: freezeCanonical({
+        kind: 'encoded' as const,
+        binding: freezeCanonical({
+          queueItemId: Q1,
+          sourceIdentity: 'runtime-seek-cohort-source',
+          transferSessionId: 'runtime-seek-cohort-transfer',
+        }),
+        metadata: freezeCanonical({ name: 'runtime-seek.wav', mime: 'audio/wav' }),
+        encodedSize: 1_024,
+        peerRangeManifest: null,
+      }),
+    }) as unknown as Readonly<HostPreparedLocalTrack>;
+    const timeline = freezeCanonical({
+      revision: prepared.state.revision,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: prepared.state.runId }),
+      positionSeconds: prepared.positionSeconds,
+      rate: prepared.playbackRate,
+      anchorMonotonicMs: 10_000,
+    }) as Readonly<PlaybackTimelineSnapshot>;
+    const resolveSource = vi.fn(async () => {
+      throw new Error('same-run seek must not reacquire source bytes');
+    });
+    room.seekPlayingWithCohort.mockImplementationOnce(async (input) => {
+      const remotes = await input.prepareRemoteParticipants(
+        freezeCanonical({ prepared, signal: input.signal, resolveSource }),
+      );
+      expect(remotes).toEqual([capability]);
+      return freezeCanonical({
+        ...candidateResult(
+          prepared.roomGeneration,
+          room.options.hostRoomSnapshot.applicationSessionId,
+          'seek-playing-cohort',
+        ),
+        timeline,
+      }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+    });
+    const signal = new AbortController().signal;
+
+    await expect(setup.runtime.seekPlaying({ positionSeconds: 24, signal })).resolves.toMatchObject(
+      {
+        timeline,
+      },
+    );
+
+    expect(room.seekPlayingWithCohort).toHaveBeenCalledWith(
+      expect.objectContaining({ positionSeconds: 24, signal }),
+    );
+    expect(room.seekPlaying).not.toHaveBeenCalled();
+    expect(publishPrepared).toHaveBeenCalledWith(prepared);
+    expect(bindPrepared).toHaveBeenCalledWith(prepared);
+    expect(whenPreparedRemoteReady).toHaveBeenCalledWith(prepared);
+    expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+    expect(resolveSource).not.toHaveBeenCalled();
+  });
+
+  it('serializes a late READY owner from the previous seek revision into canonical truth', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const previousPublication = freezeCanonical({
+      schemaVersion: 1,
+      fixtureRevision: 'previous',
+    }) as unknown as Readonly<HostPeerPlaybackPublication>;
+    const canonicalPublication = freezeCanonical({
+      schemaVersion: 1,
+      fixtureRevision: 'canonical',
+    }) as unknown as Readonly<HostPeerPlaybackPublication>;
+    const previousPublicationGate = deferred<void>();
+    const publicationEvents: string[] = [];
+    const observedPublications: Array<Readonly<HostPeerPlaybackPublication> | null> = [];
+    let publicationSequence = 0;
+    let room: ProductHostRoomHarness | null = null;
+    const publishCurrent = vi.fn(async () => {
+      publicationSequence += 1;
+      const sequence = publicationSequence;
+      publicationEvents.push(`start-${sequence}`);
+      observedPublications.push(room?.port.currentPeerPublication() ?? null);
+      if (sequence === 1) await previousPublicationGate.promise;
+      publicationEvents.push(`end-${sequence}`);
+      return freezeCanonical({ schemaVersion: 1 }) as never;
+    });
+    const lateOwner = Object.freeze({
+      onHostReady: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeControl: vi.fn(),
+      revoke: vi.fn(),
+      publishCurrent,
+      publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+      retireSourceLease: vi.fn(async () => undefined),
+      publishPrepared: vi.fn(),
+      bindPrepared: vi.fn(),
+      whenPreparedRemoteReady: vi.fn(),
+      activatePrepared: vi.fn(),
+      retirePrepared: vi.fn(async () => undefined),
+    });
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: () => lateOwner,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('seek-late-ready-host');
+    room = setup.hostRooms[0]!;
+    room.setCurrentPeerPublication(previousPublication);
+    const lateContext = routerContext('host', { suffix: 'seek-late-ready' });
+    const prepared = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      backend: 'bounded-stream' as const,
+      state: freezeCanonical({
+        queueItemId: Q1,
+        runId: 'seek-late-ready-run',
+        revision: 2,
+      }),
+      positionSeconds: 36,
+      playbackRate: 1,
+      asset: freezeCanonical({
+        kind: 'encoded' as const,
+        binding: freezeCanonical({
+          queueItemId: Q1,
+          sourceIdentity: 'seek-late-ready-source',
+          transferSessionId: 'seek-late-ready-transfer',
+        }),
+        metadata: freezeCanonical({ name: 'seek-late-ready.wav', mime: 'audio/wav' }),
+        encodedSize: 2_048,
+        peerRangeManifest: null,
+      }),
+    }) as unknown as Readonly<HostPreparedLocalTrack>;
+    const timeline = freezeCanonical({
+      revision: prepared.state.revision,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: prepared.state.runId }),
+      positionSeconds: prepared.positionSeconds,
+      rate: prepared.playbackRate,
+      anchorMonotonicMs: 12_000,
+    }) as Readonly<PlaybackTimelineSnapshot>;
+    room.seekPlayingWithCohort.mockImplementationOnce(async (input) => {
+      const remotes = await input.prepareRemoteParticipants(
+        freezeCanonical({
+          prepared,
+          signal: input.signal,
+          resolveSource: vi.fn(async () => {
+            throw new Error('same-run seek must not reacquire source bytes');
+          }),
+        }),
+      );
+      expect(remotes).toEqual([]);
+      const wrapped = routers[0]!.options.createHostMediaOwner(lateContext);
+      wrapped.onHostReady?.(hostReadySnapshot(setup, lateContext));
+      await vi.waitFor(() => expect(publishCurrent).toHaveBeenCalledOnce());
+      room?.setCurrentPeerPublication(canonicalPublication);
+      return freezeCanonical({
+        ...candidateResult(
+          prepared.roomGeneration,
+          room!.options.hostRoomSnapshot.applicationSessionId,
+          'seek-late-ready',
+        ),
+        timeline,
+      }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+    });
+
+    await expect(
+      setup.runtime.seekPlaying({
+        positionSeconds: prepared.positionSeconds,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({ timeline });
+
+    expect(publishCurrent).toHaveBeenCalledOnce();
+    expect(observedPublications).toEqual([previousPublication]);
+    expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
+    previousPublicationGate.resolve();
+    await vi.waitFor(() => expect(publishCurrent).toHaveBeenCalledTimes(2));
+    expect(observedPublications).toEqual([previousPublication, canonicalPublication]);
+    expect(publicationEvents).toEqual(['start-1', 'end-1', 'start-2', 'end-2']);
+    expect(lateOwner.publishPrepared).not.toHaveBeenCalled();
+    expect(lateOwner.bindPrepared).not.toHaveBeenCalled();
+    expect(lateOwner.activatePrepared).not.toHaveBeenCalled();
+    expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
+  });
+
   it('binds each fast owner after its own OFFER without waiting for a slow owner', async () => {
     const routers: ProductRouterHarness[] = [];
     const firstOfferGate = deferred<void>();
@@ -2719,6 +2971,7 @@ describe('FilePlaybackProductRuntime', () => {
     'warmLocalTrack',
     'clearWarmLocalTrack',
     'seekPlaying',
+    'seekPlayingWithCohort',
     'currentTerminalRendererObservation',
   ] as const)('fails host entry when the expanded structural room port omits %s', (method) => {
     const setup = harness({ omitHostRoomMethod: method });
@@ -2781,7 +3034,8 @@ describe('FilePlaybackProductRuntime', () => {
     expect(room?.pauseCurrent).toHaveBeenCalledWith(current);
     expect(room?.seekPaused).toHaveBeenCalledWith(seek);
     expect(room?.resumeCurrent).toHaveBeenCalledWith(current);
-    expect(room?.seekPlaying).toHaveBeenCalledWith(seek);
+    expect(room?.seekPlayingWithCohort).toHaveBeenCalledWith(expect.objectContaining(seek));
+    expect(room?.seekPlaying).not.toHaveBeenCalled();
     expect(room?.replayCurrent).toHaveBeenCalledWith(current);
     expect(room?.stopCurrent).toHaveBeenCalledWith(current);
     expect(room?.settleEndedCurrent).toHaveBeenCalledWith(current);
@@ -2824,6 +3078,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(room?.startLocalTrackWithCohort).not.toHaveBeenCalled();
     expect(room?.pauseCurrent).not.toHaveBeenCalled();
     expect(room?.seekPlaying).not.toHaveBeenCalled();
+    expect(room?.seekPlayingWithCohort).not.toHaveBeenCalled();
     expect(room?.seekPaused).not.toHaveBeenCalled();
     expect(room?.resumeCurrent).not.toHaveBeenCalled();
     expect(room?.replayCurrent).not.toHaveBeenCalled();

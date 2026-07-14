@@ -1217,6 +1217,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
     ).toHaveLength(1);
     expect(h.fatal).not.toHaveBeenCalled();
+
     h.owner.revoke(h.context);
   });
 
@@ -2440,6 +2441,147 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     const rendered = activeTimeline(successor, 'playing', 12, 1_000);
     h.owner.onTimelineUpdated(timelineUpdated(h.context, rendered));
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(rendered));
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('restages the current RAM asset for an exact-next same-run rendezvous seek', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
+
+    receiveHostWire(
+      h,
+      h.host.createWire(attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID_2,
+        positionSeconds: 12,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'rendezvous-armed' &&
+            (frame as { revision?: number }).revision === successor.revision,
+        ),
+      ).toHaveLength(1),
+    );
+
+    h.runtime.setCurrentState(successor);
+    receiveHostWire(
+      h,
+      h.host.createWire(attemptLease, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: RENDEZVOUS_ID_2,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() => {
+      if (h.fatal.mock.calls.length > 0) throw h.fatal.mock.calls[0]![1];
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'renderer-health' &&
+            (frame as { revision?: number }).revision === successor.revision,
+        ),
+      ).toHaveLength(1);
+    });
+    h.host.commitAttempt(attemptLease);
+    h.host.commitMedia(stateLease);
+
+    const rendered = activeTimeline(successor, 'playing', 12, 1_000);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, rendered));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(rendered));
+
+    expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.handoffWarmSource).toHaveBeenCalledOnce();
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce();
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    expect(h.runtime.seekCurrent).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toHaveLength(1);
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    const paused = freezeCanonical({ ...successor, revision: 3 });
+    const pauseLease = h.host.stageMedia({
+      run: paused,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(pauseLease, {
+        kind: 'file-playback-pause',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: successor.revision,
+        atRoomTimeMs: 300,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.pauseCurrent).toHaveBeenCalledOnce());
+    h.host.commitMedia(pauseLease);
+    const pausedTimeline = activeTimeline(paused, 'paused', 12, 300);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, pausedTimeline));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(pausedTimeline));
+
+    const sought = freezeCanonical({ ...successor, revision: 4 });
+    const seekLease = h.host.stageMedia({
+      run: sought,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(seekLease, {
+        kind: 'file-playback-seek',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: paused.revision,
+        positionSeconds: 24,
+        atRoomTimeMs: 400,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.seekCurrent).toHaveBeenCalledOnce());
+    h.host.commitMedia(seekLease);
+    const soughtTimeline = activeTimeline(sought, 'paused', 24, 400);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, soughtTimeline));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(soughtTimeline));
+
+    const stopped = freezeCanonical({ ...successor, revision: 5 });
+    const stopLease = h.host.stageMedia({
+      run: stopped,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(stopLease, {
+        kind: 'file-playback-stop',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: sought.revision,
+        atRoomTimeMs: 500,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.stopCurrent).toHaveBeenCalledOnce());
+    h.host.commitStop(stopLease, sought);
+    const stoppedProjection = stoppedTimeline(stopped.revision, 500);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
   });

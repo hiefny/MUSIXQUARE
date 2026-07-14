@@ -3534,6 +3534,87 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   });
 
   it.each(['audio-buffer', 'bounded-stream'] as const)(
+    'prepares a body-free playing %s seek before starting its shared rendezvous',
+    async (backend) => {
+      const harness = makeHarness([{ backend }, { backend }]);
+      const blob = new Blob([new Uint8Array([54])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      const first = await resolveLatestStart(
+        harness,
+        harness.start(blob, { name: 'prepared-seek-current' }),
+      );
+      const previousTimeline = harness.controller.timelineSnapshot();
+      const previousPort = harness.manager.currentCutoverPort();
+      const previousPublication = harness.engine.currentPeerPublication();
+      if (!previousPublication) throw new Error('Fixture expected a current peer publication');
+      harness.setRoomTime(2_000);
+
+      const prepared = await harness.engine.preparePlayingSeek({
+        positionSeconds: 42,
+        signal: new AbortController().signal,
+      });
+
+      expect(prepared).toMatchObject({
+        backend,
+        state: {
+          queueItemId: Q1,
+          runId: first.attempt.runId,
+          revision: 2,
+        },
+        positionSeconds: 42,
+        playbackRate: 1,
+      });
+      expectBodyFree(prepared);
+      expect(harness.controller.timelineSnapshot()).toBe(previousTimeline);
+      expect(harness.manager.currentCutoverPort()).toBe(previousPort);
+      expect(harness.sources[0]?.destroy).not.toHaveBeenCalled();
+      expect(harness.engine.currentPeerPublication()).toBe(previousPublication);
+      await expect(
+        harness.engine.resolveCurrentPeerRangeSource({
+          publication: previousPublication,
+          sourceIdentity: previousPublication.asset.binding.sourceIdentity,
+          peerRangeManifest: previousPublication.asset.peerRangeManifest,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toBe(blob);
+      const recovery = remoteRecoveryHarness('prepared-seek-recovery-peer', previousPublication);
+      await expect(
+        harness.engine.recoverRemoteParticipant({
+          publication: previousPublication,
+          participant: recovery.participant,
+          signal: new AbortController().signal,
+          bindAttempt: () => Promise.resolve(),
+        }),
+      ).rejects.toThrow(/idle|candidate|recovery|authority/iu);
+      expect(recovery.arms).toHaveLength(0);
+
+      const committed = await resolveLatestStart(
+        harness,
+        harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+      );
+      expect(committed.attempt).toMatchObject(prepared.state);
+      expect(committed.timeline).toMatchObject({
+        phase: 'playing',
+        revision: 2,
+        positionSeconds: 42,
+      });
+      expect(harness.createRunId).toHaveBeenCalledOnce();
+      expect(harness.manager.currentCutoverPort()).not.toBe(previousPort);
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+      await expect(
+        harness.engine.resolveCurrentPeerRangeSource({
+          publication: previousPublication,
+          sourceIdentity: previousPublication.asset.binding.sourceIdentity,
+          peerRangeManifest: previousPublication.asset.peerRangeManifest,
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow(/publication|authority|current/iu);
+      await harness.engine.close();
+    },
+  );
+
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'seeks a playing %s renderer through a same-run rendezvous candidate',
     async (backend) => {
       const harness = makeHarness([{ backend }, { backend }]);

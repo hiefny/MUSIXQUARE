@@ -327,8 +327,56 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
           encodedSize: input.blob.size,
           peerRangeManifest: this.plan.preparedPeerRangeManifest ?? null,
         }),
+        sourceLease: null,
       });
       this.preparedInputs.set(prepared, input);
+      return prepared;
+    },
+  );
+  readonly preparePlayingSeek = vi.fn(
+    async (input: SeekHostPlayingOptions): Promise<Readonly<HostPreparedLocalTrack>> => {
+      input.signal.throwIfAborted();
+      const previous = this.options.controller.timelineSnapshot();
+      if (
+        previous.phase !== 'playing' ||
+        !previous.run ||
+        !this.queueItemId ||
+        !this.runId ||
+        !this.backend ||
+        !this.asset ||
+        previous.run.queueItemId !== this.queueItemId ||
+        previous.run.runId !== this.runId
+      ) {
+        throw new Error('Fixture playing seek has no exact current run');
+      }
+      const prepared = freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.options.roomGeneration,
+        backend: this.backend,
+        state: freezeCanonical({
+          queueItemId: this.queueItemId,
+          runId: this.runId,
+          revision: previous.revision + 1,
+        }),
+        positionSeconds: input.positionSeconds,
+        playbackRate: 1,
+        asset: freezeCanonical({
+          kind: this.asset.kind,
+          binding: freezeCanonical({
+            queueItemId: this.asset.queueItemId,
+            sourceIdentity: this.asset.sourceIdentity,
+            transferSessionId: this.asset.transferSessionId,
+          }),
+          metadata: freezeCanonical({
+            name: this.asset.name,
+            mime: this.asset.mime,
+          }),
+          encodedSize: this.asset.size,
+          peerRangeManifest: null,
+        }),
+        sourceLease: null,
+      });
+      this.preparedSeekInputs.set(prepared, input);
       return prepared;
     },
   );
@@ -337,8 +385,18 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       input: StartPreparedHostLocalTrackOptions,
     ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> => {
       const preparedInput = this.preparedInputs.get(input.prepared);
-      if (!preparedInput) return Promise.reject(new Error('Fixture prepared track is stale'));
-      return this.#commitFileCandidate(preparedInput, preparedInput.positionSeconds);
+      if (preparedInput) {
+        return this.#commitFileCandidate(preparedInput, preparedInput.positionSeconds);
+      }
+      const seekInput = this.preparedSeekInputs.get(input.prepared);
+      if (seekInput) {
+        return this.#commitCurrentCandidate(
+          'playing-seek',
+          input.prepared.positionSeconds,
+          seekInput.signal,
+        );
+      }
+      return Promise.reject(new Error('Fixture prepared track is stale'));
     },
   );
   readonly resolvePreparedPeerRangeSource = vi.fn(
@@ -435,6 +493,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   private audioContext: AudioContext | null = null;
   private sequence = 0;
   private readonly preparedInputs = new WeakMap<object, StartHostLocalTrackOptions>();
+  private readonly preparedSeekInputs = new WeakMap<object, SeekHostPlayingOptions>();
   private warmQueueItemId: QueueItemId | null = null;
   private warmSourceLease: HostLocalTrackSourceLease | null = null;
   private warmBlob: Blob | null = null;
@@ -1852,6 +1911,86 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     });
     expect(sought.attempt.revision).toBe(started.attempt.revision + 1);
     expect(setup.room.positionAt(2_000)?.positionSeconds).toBe(77);
+  });
+
+  it('starts an exact-next same-run playing seek with the prepared remote cohort and no new source resolution', async () => {
+    const setup = makeHarness();
+    const started = await first(setup.room, Q1, file('cohort-seek.flac', 'audio/flac'));
+    const prepareRemoteParticipants = vi.fn(
+      async (context: Readonly<FilePlaybackProductHostPreparedCohortContext>) => {
+        expect(Object.isFrozen(context)).toBe(true);
+        expect(Object.isFrozen(context.prepared)).toBe(true);
+        expect(context.prepared).toMatchObject({
+          backend: 'bounded-stream',
+          state: {
+            queueItemId: Q1,
+            runId: started.attempt.runId,
+            revision: started.attempt.revision + 1,
+          },
+          positionSeconds: 77,
+          playbackRate: 1,
+          sourceLease: null,
+          asset: {
+            binding: {
+              queueItemId: Q1,
+              sourceIdentity: started.asset.sourceIdentity,
+              transferSessionId: started.asset.transferSessionId,
+            },
+          },
+        });
+        expect(containsBody(context.prepared)).toBe(false);
+        const participant = new RemoteRendezvousParticipant({
+          participantId: 'product-seek-cohort-peer',
+          rendererEvidenceScope: Object.freeze({
+            sessionId: 'product-seek-cohort-session',
+            connectionId: 'product-seek-cohort-connection',
+            recipientParticipantId: 'product-seek-cohort-host',
+            sourceIdentity: context.prepared.asset.binding.sourceIdentity,
+            transferSessionId: context.prepared.asset.binding.transferSessionId,
+          }),
+          rttP95Ms: 10,
+          armP95Ms: 10,
+          nowRoomTimeMs: () => 1_000,
+          dispatchArm: vi.fn(),
+          dispatchFinalize: vi.fn(),
+          dispatchCancel: vi.fn(),
+        });
+        return [freezeCanonical({ participant, bindAttempt: vi.fn(async () => undefined) })];
+      },
+    );
+
+    const sought = await setup.room.seekPlayingWithCohort({
+      ...signalOptions(),
+      positionSeconds: 77,
+      prepareRemoteParticipants,
+    });
+    const engine = setup.engines[0]!;
+    const context = prepareRemoteParticipants.mock.calls[0]?.[0];
+    const preparedStart = engine.startPreparedLocalTrack.mock.calls.at(-1)?.[0];
+
+    expect(engine.preparePlayingSeek).toHaveBeenCalledOnce();
+    expect(engine.preparePlayingSeek).toHaveBeenCalledWith({
+      positionSeconds: 77,
+      signal: context?.signal,
+    });
+    expect(engine.seekPlaying).not.toHaveBeenCalled();
+    expect(prepareRemoteParticipants).toHaveBeenCalledOnce();
+    expect(preparedStart?.prepared).toBe(context?.prepared);
+    expect(preparedStart?.remoteParticipants).toBe(
+      await prepareRemoteParticipants.mock.results[0]?.value,
+    );
+    expect(engine.resolvePreparedPeerRangeSource).not.toHaveBeenCalled();
+    expect(sought).toMatchObject({
+      status: 'committed',
+      backend: 'bounded-stream',
+      attempt: {
+        queueItemId: Q1,
+        runId: started.attempt.runId,
+        revision: started.attempt.revision + 1,
+      },
+      schedule: { positionSeconds: 77 },
+    });
+    expect(containsBody(sought)).toBe(false);
   });
 
   it.each([

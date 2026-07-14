@@ -4,6 +4,7 @@ import {
   FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY,
   FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  isFilePlaybackPeerRangeManifestCodecEnabled,
   snapshotFilePlaybackBoundedRoutePolicy,
 } from '../file-playback-bounded-route-policy.ts';
 
@@ -215,5 +216,72 @@ describe('file playback bounded route policy', () => {
       (result as { mode: string }).mode = 'universal-v1';
     }).toThrow(TypeError);
     expect(result).toEqual({ mode: 'current' });
+  });
+
+  it('keeps peer manifest codec admission closed for the default/current policy', () => {
+    expect(isFilePlaybackPeerRangeManifestCodecEnabled(undefined, 'adts-aac-lc')).toBe(false);
+    expect(isFilePlaybackPeerRangeManifestCodecEnabled(undefined, 'mp3-no-frame-count')).toBe(
+      false,
+    );
+    expect(
+      isFilePlaybackPeerRangeManifestCodecEnabled(
+        FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY,
+        'adts-aac-lc',
+      ),
+    ).toBe(false);
+  });
+
+  it('admits only the codec enabled by an exact format-gated policy', () => {
+    expect(
+      isFilePlaybackPeerRangeManifestCodecEnabled(
+        FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
+        'mp3-no-frame-count',
+      ),
+    ).toBe(true);
+    expect(
+      isFilePlaybackPeerRangeManifestCodecEnabled(
+        FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
+        'adts-aac-lc',
+      ),
+    ).toBe(false);
+
+    const rawAacOnly = {
+      mode: 'format-gated-v1',
+      mp3: 'current',
+      m4aAacLc: 'current',
+      rawAdtsAac: 'webcodecs',
+    } as const;
+    expect(isFilePlaybackPeerRangeManifestCodecEnabled(rawAacOnly, 'adts-aac-lc')).toBe(true);
+    expect(isFilePlaybackPeerRangeManifestCodecEnabled(rawAacOnly, 'mp3-no-frame-count')).toBe(
+      false,
+    );
+  });
+
+  it('admits both current manifest codecs only for universal-v1 and rejects unknown codecs', () => {
+    expect(
+      isFilePlaybackPeerRangeManifestCodecEnabled(
+        FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        'adts-aac-lc',
+      ),
+    ).toBe(true);
+    expect(
+      isFilePlaybackPeerRangeManifestCodecEnabled(
+        FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        'mp3-no-frame-count',
+      ),
+    ).toBe(true);
+    expect(
+      isFilePlaybackPeerRangeManifestCodecEnabled(
+        new Proxy(
+          {},
+          {
+            ownKeys() {
+              throw new Error('must not inspect policy for an unknown codec');
+            },
+          },
+        ),
+        'm4a-aac-lc',
+      ),
+    ).toBe(false);
   });
 });

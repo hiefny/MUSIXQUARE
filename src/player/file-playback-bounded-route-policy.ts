@@ -28,6 +28,9 @@ export type FilePlaybackBoundedRoutePolicy =
   | Readonly<UniversalV1FilePlaybackBoundedRoutePolicy>
   | Readonly<FormatGatedV1FilePlaybackBoundedRoutePolicy>;
 
+/** Codec identities currently carried by the authenticated peer manifest lane. */
+export type FilePlaybackPeerRangeManifestCodec = 'adts-aac-lc' | 'mp3-no-frame-count';
+
 export const FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY: Readonly<CurrentFilePlaybackBoundedRoutePolicy> =
   Object.freeze({ mode: 'current' });
 
@@ -169,4 +172,22 @@ export function snapshotFilePlaybackBoundedRoutePolicy(
     return canonicalFormatGatedV1Policy(record.mp3, record.m4aAacLc, record.rawAdtsAac);
   }
   throw new TypeError('File playback bounded route policy mode is not supported');
+}
+
+/**
+ * Keep host offer selection and guest decoder admission on one fail-closed
+ * policy decision. The manifest transport is not an independent codec gate:
+ * it may carry only a codec already enabled by the canonical bounded route.
+ */
+export function isFilePlaybackPeerRangeManifestCodecEnabled(
+  policyValue: unknown,
+  codec: unknown,
+): codec is FilePlaybackPeerRangeManifestCodec {
+  if (codec !== 'adts-aac-lc' && codec !== 'mp3-no-frame-count') return false;
+  const policy = snapshotFilePlaybackBoundedRoutePolicy(policyValue);
+  if (policy.mode === 'current') return false;
+  if (policy.mode === 'universal-v1') return true;
+  return codec === 'adts-aac-lc'
+    ? policy.rawAdtsAac === 'webcodecs'
+    : policy.mp3 === 'bounded-stream';
 }

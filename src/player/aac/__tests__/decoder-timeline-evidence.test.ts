@@ -13,9 +13,11 @@ import {
 } from '../decoder-helpers.ts';
 import {
   createAdtsDecoderTimelineEvidence,
+  createAdtsDecoderTimelineEvidenceFromManifestReconstruction,
   createAdtsDecoderTimelineEvidenceFromScanResult,
   type AdtsDecoderTimelineEvidence,
 } from '../decoder-timeline-evidence.ts';
+import type { AdtsManifestStructuralReconstruction } from '../adts-manifest-structural-reconstruction.ts';
 import {
   isScannerIssuedAdtsFrameScanResult,
   scanAdtsFrames,
@@ -86,6 +88,34 @@ async function issuedScan(): Promise<{
   const source = new MemorySource(concatenate(frames()));
   const scan = await scanAdtsFrames(source, new AbortController().signal);
   return { source, scan };
+}
+
+function manifestReconstruction(
+  scan: Readonly<AdtsFrameScanResult>,
+): Readonly<AdtsManifestStructuralReconstruction> {
+  const fixtureFrames = frames();
+  const terminal = scan.seekPoints.at(-1);
+  if (!terminal) throw new Error('Expected terminal ADTS seek point');
+  return Object.freeze({
+    evidenceKind: 'adts-manifest-structural-reconstruction' as const,
+    authority: 'none' as const,
+    sourceIdentity: scan.sourceIdentity,
+    sourceSize: scan.sourceSize,
+    coreConfiguration: scan.coreConfiguration,
+    coreSampleRateHz: scan.coreSampleRateHz,
+    coreChannelCount: scan.coreChannelCount,
+    samplesPerFrame: scan.samplesPerFrame,
+    frameCount: scan.frameCount,
+    totalCoreSamples: scan.totalCoreSamples,
+    audioEndByteOffset: scan.audioEndByteOffset,
+    seekPoints: scan.seekPoints,
+    endpointChecks: Object.freeze({
+      firstFrameByteLength: fixtureFrames[0]!.byteLength,
+      terminalFrameOrdinal: terminal.frameOrdinal,
+      terminalFrameByteOffset: terminal.byteOffset,
+      terminalFrameByteLength: fixtureFrames.at(-1)!.byteLength,
+    }),
+  });
 }
 
 function evidenceFixture(): AdtsDecoderTimelineEvidence {
@@ -168,6 +198,45 @@ describe('ADTS decoder timeline evidence', () => {
         new Uint8Array(32),
       ),
     ).toThrow(/exact scanner/i);
+  });
+
+  it('normalizes admitted-manifest reconstruction without inheriting admission authority', async () => {
+    const { scan } = await issuedScan();
+    const reconstruction = manifestReconstruction(scan);
+    const evidence = createAdtsDecoderTimelineEvidenceFromManifestReconstruction(reconstruction);
+
+    expect(evidence).toEqual(createAdtsDecoderTimelineEvidenceFromScanResult(scan));
+    expect(evidence).not.toBe(reconstruction);
+    expect(evidence.authority).toBe('none');
+    expect('endpointChecks' in evidence).toBe(false);
+    expect(isScannerIssuedAdtsFrameScanResult(evidence)).toBe(false);
+    expect(() =>
+      sealAdtsFrameScanTimelineManifest(
+        evidence as unknown as Readonly<AdtsFrameScanResult>,
+        new Uint8Array(32),
+      ),
+    ).toThrow(/exact scanner/i);
+  });
+
+  it('rejects contradictory admitted-manifest endpoint observations', async () => {
+    const { scan } = await issuedScan();
+    const reconstruction = manifestReconstruction(scan);
+
+    expect(() =>
+      createAdtsDecoderTimelineEvidenceFromManifestReconstruction({
+        ...reconstruction,
+        endpointChecks: {
+          ...reconstruction.endpointChecks,
+          terminalFrameByteLength: reconstruction.endpointChecks.terminalFrameByteLength - 1,
+        },
+      }),
+    ).toThrow(/terminal endpoint|EOF/i);
+    expect(() =>
+      createAdtsDecoderTimelineEvidenceFromManifestReconstruction({
+        ...reconstruction,
+        totalCoreSamples: reconstruction.totalCoreSamples - 1,
+      }),
+    ).toThrow(/sample total/i);
   });
 
   it('returns a deeply detached canonical snapshot', () => {

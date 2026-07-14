@@ -1,5 +1,9 @@
 import { isEncodedAudioSourceIdentity } from '../sources/encoded-audio-source.ts';
 import { adtsCoreSampleRateHzForIndex, type AdtsSampleRateIndex } from './adts-header.ts';
+import type {
+  AdtsManifestEndpointChecks,
+  AdtsManifestStructuralReconstruction,
+} from './adts-manifest-structural-reconstruction.ts';
 import {
   ADTS_CORE_SAMPLES_PER_FRAME,
   isScannerIssuedAdtsFrameScanResult,
@@ -47,6 +51,29 @@ const SEEK_POINT_KEYS = Object.freeze([
   'frameOrdinal',
   'byteOffset',
 ] as const satisfies readonly (keyof AdtsSeekIndexPoint)[]);
+
+const MANIFEST_RECONSTRUCTION_KEYS = Object.freeze([
+  'evidenceKind',
+  'authority',
+  'sourceIdentity',
+  'sourceSize',
+  'coreConfiguration',
+  'coreSampleRateHz',
+  'coreChannelCount',
+  'samplesPerFrame',
+  'frameCount',
+  'totalCoreSamples',
+  'audioEndByteOffset',
+  'seekPoints',
+  'endpointChecks',
+] as const satisfies readonly (keyof AdtsManifestStructuralReconstruction)[]);
+
+const MANIFEST_ENDPOINT_KEYS = Object.freeze([
+  'firstFrameByteLength',
+  'terminalFrameOrdinal',
+  'terminalFrameByteOffset',
+  'terminalFrameByteLength',
+] as const satisfies readonly (keyof AdtsManifestEndpointChecks)[]);
 
 type StrictRecord = Readonly<Record<string, unknown>>;
 
@@ -182,6 +209,14 @@ function safeInteger(
 
 function safeMultiply(left: number, right: number, label: string): number {
   const result = left * right;
+  if (!Number.isSafeInteger(result) || result < 0) {
+    throw new AdtsDecoderTimelineEvidenceError(`${label} exceeds the safe-integer range`);
+  }
+  return result;
+}
+
+function safeAdd(left: number, right: number, label: string): number {
+  const result = left + right;
   if (!Number.isSafeInteger(result) || result < 0) {
     throw new AdtsDecoderTimelineEvidenceError(`${label} exceeds the safe-integer range`);
   }
@@ -439,4 +474,112 @@ export function createAdtsDecoderTimelineEvidenceFromScanResult(
     timeline: createAdtsCoreTimeline(scan.frameCount),
     seekPoints: scan.seekPoints,
   });
+}
+
+/**
+ * Convert bounded endpoint reconstruction into detached decoder planning data.
+ *
+ * The reconstruction and returned evidence both carry `authority: 'none'`.
+ * A caller must first own the exact live manifest admission and registry lease;
+ * this helper deliberately cannot mint, retain, or substitute that authority.
+ */
+export function createAdtsDecoderTimelineEvidenceFromManifestReconstruction(
+  value: Readonly<AdtsManifestStructuralReconstruction>,
+): Readonly<AdtsDecoderTimelineEvidence> {
+  const record = exactDataRecord(
+    value,
+    MANIFEST_RECONSTRUCTION_KEYS,
+    'ADTS manifest structural reconstruction',
+  );
+  if (
+    record.evidenceKind !== 'adts-manifest-structural-reconstruction' ||
+    record.authority !== 'none'
+  ) {
+    throw new TypeError('ADTS manifest structural reconstruction kind or authority is invalid');
+  }
+
+  const evidence = createAdtsDecoderTimelineEvidence({
+    format: 'adts-decoder-timeline',
+    authority: 'none',
+    sourceIdentity: record.sourceIdentity,
+    sourceSize: record.sourceSize,
+    coreConfiguration: record.coreConfiguration,
+    coreSampleRateHz: record.coreSampleRateHz,
+    coreChannelCount: record.coreChannelCount,
+    samplesPerFrame: record.samplesPerFrame,
+    frameCount: record.frameCount,
+    audioEndByteOffset: record.audioEndByteOffset,
+    timeline: createAdtsCoreTimeline(
+      safeInteger(record.frameCount, 'ADTS manifest reconstruction frameCount', 1),
+    ),
+    seekPoints: record.seekPoints,
+  });
+  const totalCoreSamples = safeInteger(
+    record.totalCoreSamples,
+    'ADTS manifest reconstruction totalCoreSamples',
+    ADTS_CORE_SAMPLES_PER_FRAME,
+  );
+  if (totalCoreSamples !== evidence.timeline.totalMediaFrames) {
+    throw new AdtsDecoderTimelineEvidenceError(
+      'ADTS manifest reconstruction sample total contradicts its frame count',
+    );
+  }
+
+  const endpoints = exactDataRecord(
+    record.endpointChecks,
+    MANIFEST_ENDPOINT_KEYS,
+    'ADTS manifest reconstruction endpoint checks',
+  );
+  const firstFrameByteLength = safeInteger(
+    endpoints.firstFrameByteLength,
+    'ADTS manifest reconstruction first frame length',
+    ADTS_MIN_ACCESS_UNIT_BYTES,
+    ADTS_MAX_ACCESS_UNIT_BYTES,
+  );
+  const terminalFrameOrdinal = safeInteger(
+    endpoints.terminalFrameOrdinal,
+    'ADTS manifest reconstruction terminal frame ordinal',
+    0,
+    evidence.frameCount - 1,
+  );
+  const terminalFrameByteOffset = safeInteger(
+    endpoints.terminalFrameByteOffset,
+    'ADTS manifest reconstruction terminal frame offset',
+    0,
+    evidence.sourceSize - 1,
+  );
+  const terminalFrameByteLength = safeInteger(
+    endpoints.terminalFrameByteLength,
+    'ADTS manifest reconstruction terminal frame length',
+    ADTS_MIN_ACCESS_UNIT_BYTES,
+    ADTS_MAX_ACCESS_UNIT_BYTES,
+  );
+  const terminalPoint = evidence.seekPoints[evidence.seekPoints.length - 1];
+  if (
+    !terminalPoint ||
+    terminalFrameOrdinal !== evidence.frameCount - 1 ||
+    terminalFrameOrdinal !== terminalPoint.frameOrdinal ||
+    terminalFrameByteOffset !== terminalPoint.byteOffset ||
+    safeAdd(
+      terminalFrameByteOffset,
+      terminalFrameByteLength,
+      'ADTS manifest reconstruction terminal frame end',
+    ) !== evidence.audioEndByteOffset
+  ) {
+    throw new AdtsDecoderTimelineEvidenceError(
+      'ADTS manifest reconstruction terminal endpoint contradicts its timeline or EOF',
+    );
+  }
+  const secondPoint = evidence.seekPoints.find((point) => point.frameOrdinal === 1);
+  if (
+    (evidence.frameCount === 1 &&
+      (terminalFrameByteOffset !== 0 || firstFrameByteLength !== terminalFrameByteLength)) ||
+    (evidence.frameCount > 1 && firstFrameByteLength > terminalFrameByteOffset) ||
+    (secondPoint !== undefined && secondPoint.byteOffset !== firstFrameByteLength)
+  ) {
+    throw new AdtsDecoderTimelineEvidenceError(
+      'ADTS manifest reconstruction first endpoint contradicts its retained timeline',
+    );
+  }
+  return evidence;
 }

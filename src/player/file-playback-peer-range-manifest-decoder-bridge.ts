@@ -61,6 +61,9 @@ const PREPARE_OPTIONAL_KEYS = new Set<(typeof PREPARE_OPTION_KEYS)[number]>([
 ]);
 const CONSTRUCT_OPTION_KEYS = Object.freeze([
   'authority',
+  'registry',
+  'roomToken',
+  'assetLease',
   'audioContext',
   'clockBindings',
 ] as const);
@@ -131,6 +134,10 @@ export interface FilePlaybackPeerRangeManifestDecoderConstruction {
 
 export interface ConstructFilePlaybackPeerRangeManifestDecoderOptions {
   readonly authority: FilePlaybackPeerRangeManifestDecoderConstruction;
+  /** Must be the exact registry authority captured during preparation. */
+  readonly registry: FilePlaybackAssetRegistry;
+  readonly roomToken: object;
+  readonly assetLease: FilePlaybackAssetLease;
   readonly audioContext: AudioContext;
   readonly clockBindings: FilePlaybackClockBindings;
 }
@@ -713,6 +720,13 @@ export async function constructFilePlaybackPeerRangeManifestDecoder(
       : undefined;
   if (!record || record.authority !== authority || record.status !== 'available') {
     throw new Error('File playback manifest decoder construction is stale');
+  }
+  if (
+    input.registry !== record.registry ||
+    input.roomToken !== record.roomToken ||
+    input.assetLease !== record.assetLease
+  ) {
+    throw new Error('File playback manifest decoder construction belongs to another asset lease');
   }
   if (input.audioContext === null || typeof input.audioContext !== 'object') {
     throw new TypeError('A manifest decoder AudioContext is required');

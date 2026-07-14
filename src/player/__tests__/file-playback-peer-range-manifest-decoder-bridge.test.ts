@@ -376,6 +376,20 @@ const clockBindings = Object.freeze({
 
 const audioContext = Object.freeze({ sampleRate: 48_000 }) as unknown as AudioContext;
 
+function constructOptions(
+  fixture: AcquiredFixture,
+  authority: Readonly<FilePlaybackPeerRangeManifestDecoderConstruction>,
+) {
+  return {
+    authority,
+    registry: fixture.registry,
+    roomToken: ROOM_TOKEN,
+    assetLease: fixture.acquired.assetLease,
+    audioContext,
+    clockBindings,
+  };
+}
+
 afterEach(async () => {
   for (const registry of registries) {
     await registry.close(ROOM_TOKEN).catch(() => undefined);
@@ -427,11 +441,9 @@ describe('peer-range manifest decoder construction bridge', () => {
     expect(Object.keys(authority)).not.toContain('timelineEvidence');
     expect(canaryBytes).toEqual(ADTS_FRAMES[0]);
 
-    const result = await constructFilePlaybackPeerRangeManifestDecoder({
-      authority,
-      audioContext,
-      clockBindings,
-    });
+    const result = await constructFilePlaybackPeerRangeManifestDecoder(
+      constructOptions(fixture, authority),
+    );
     expect(result).toBe(constructed);
     expect(wrapperOptions).toMatchObject({
       backendId: 'webcodecs',
@@ -450,7 +462,7 @@ describe('peer-range manifest decoder construction bridge', () => {
     expect(createWorker).toHaveBeenCalledOnce();
 
     await expect(
-      constructFilePlaybackPeerRangeManifestDecoder({ authority, audioContext, clockBindings }),
+      constructFilePlaybackPeerRangeManifestDecoder(constructOptions(fixture, authority)),
     ).rejects.toThrow(/stale/u);
     await expect(retireFilePlaybackPeerRangeManifestDecoderConstruction(authority)).resolves.toBe(
       false,
@@ -476,7 +488,7 @@ describe('peer-range manifest decoder construction bridge', () => {
     );
 
     await expect(
-      constructFilePlaybackPeerRangeManifestDecoder({ authority, audioContext, clockBindings }),
+      constructFilePlaybackPeerRangeManifestDecoder(constructOptions(fixture, authority)),
     ).resolves.toBe(constructed);
     expect(wrapperOptions).toMatchObject({
       queueItemId: QUEUE_ID,
@@ -539,7 +551,7 @@ describe('peer-range manifest decoder construction bridge', () => {
     );
 
     await expect(
-      constructFilePlaybackPeerRangeManifestDecoder({ authority, audioContext, clockBindings }),
+      constructFilePlaybackPeerRangeManifestDecoder(constructOptions(fixture, authority)),
     ).rejects.toThrow(/revoked/u);
     expect(reentrantRetirement).not.toBeNull();
     expect(retireFilePlaybackPeerRangeManifestDecoderConstruction(authority)).toBe(
@@ -576,7 +588,7 @@ describe('peer-range manifest decoder construction bridge', () => {
     );
 
     await expect(
-      constructFilePlaybackPeerRangeManifestDecoder({ authority, audioContext, clockBindings }),
+      constructFilePlaybackPeerRangeManifestDecoder(constructOptions(fixture, authority)),
     ).rejects.toBe(reason);
     await expect(retireFilePlaybackPeerRangeManifestDecoderConstruction(authority)).resolves.toBe(
       true,
@@ -609,11 +621,7 @@ describe('peer-range manifest decoder construction bridge', () => {
       }),
     );
     await expect(
-      constructFilePlaybackPeerRangeManifestDecoder({
-        authority: failing,
-        audioContext,
-        clockBindings,
-      }),
+      constructFilePlaybackPeerRangeManifestDecoder(constructOptions(fixture, failing)),
     ).rejects.toThrow(/wrapper failure/u);
 
     const first = await prepareFilePlaybackPeerRangeManifestDecoderConstruction(
@@ -648,20 +656,32 @@ describe('peer-range manifest decoder construction bridge', () => {
     );
     const copied = Object.assign({}, authority) as FilePlaybackPeerRangeManifestDecoderConstruction;
     await expect(
-      constructFilePlaybackPeerRangeManifestDecoder({
-        authority: copied,
-        audioContext,
-        clockBindings,
-      }),
+      constructFilePlaybackPeerRangeManifestDecoder(constructOptions(left, copied)),
     ).rejects.toThrow(/stale/u);
+
+    await expect(
+      constructFilePlaybackPeerRangeManifestDecoder({
+        ...constructOptions(left, authority),
+        registry: right.registry,
+        assetLease: right.acquired.assetLease,
+      }),
+    ).rejects.toThrow(/another asset lease/u);
+    await expect(
+      constructFilePlaybackPeerRangeManifestDecoder({
+        ...constructOptions(left, authority),
+        roomToken: Object.freeze({ room: 'copied-diagnostics' }),
+      }),
+    ).rejects.toThrow(/another asset lease/u);
+    await expect(
+      constructFilePlaybackPeerRangeManifestDecoder({
+        ...constructOptions(left, authority),
+        assetLease: right.acquired.assetLease,
+      }),
+    ).rejects.toThrow(/another asset lease/u);
 
     await left.registry.retire(ROOM_TOKEN, left.acquired.assetLease as FilePlaybackAssetLease);
     await expect(
-      constructFilePlaybackPeerRangeManifestDecoder({
-        authority,
-        audioContext,
-        clockBindings,
-      }),
+      constructFilePlaybackPeerRangeManifestDecoder(constructOptions(left, authority)),
     ).rejects.toThrow(/stale|closed/u);
     await expect(retireFilePlaybackPeerRangeManifestDecoderConstruction(authority)).resolves.toBe(
       true,

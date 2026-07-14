@@ -541,6 +541,12 @@ const pl: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Nie można uruchomić silnika audio',
   'error.session_create_fail': 'Nie udało się utworzyć pokoju',
   'error.network_generic': 'Wykryto błąd sieci',
+  'error.peer_app_version_mismatch':
+    '{{name}} nie może dołączyć, ponieważ wersje aplikacji są różne. Odśwież stronę na obu urządzeniach.',
+  'error.app_version_mismatch':
+    'Wersje aplikacji są różne. Odśwież stronę na obu urządzeniach i spróbuj ponownie.',
+  'error.session_handshake_failed':
+    'Nie udało się nawiązać połączenia z sesją. Odśwież stronę na obu urządzeniach i spróbuj ponownie.',
   'error.host_unreachable': 'Wygląda na to, że host opuścił pokój',
   'error.host_disconnected': 'Połączenie z hostem pokoju przerwane',
   'error.host_conn_error': 'Błąd połączenia z hostem pokoju',

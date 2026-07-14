@@ -458,6 +458,12 @@ const ptBr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Não foi possível preparar o motor de áudio',
   'error.session_create_fail': 'Não foi possível criar a sala',
   'error.network_generic': 'Ocorreu um erro de rede',
+  'error.peer_app_version_mismatch':
+    '{{name}} não pode entrar porque as versões do aplicativo são diferentes. Recarregue a página nos dois dispositivos.',
+  'error.app_version_mismatch':
+    'As versões do aplicativo não correspondem. Recarregue a página nos dois dispositivos e tente novamente.',
+  'error.session_handshake_failed':
+    'Não foi possível concluir a conexão com a sessão. Recarregue a página nos dois dispositivos e tente novamente.',
   'error.host_unreachable': 'Parece que o host saiu da sala',
   'error.host_disconnected': 'Desconectado do host',
   'error.host_conn_error': 'Ocorreu um erro ao conectar ao host',

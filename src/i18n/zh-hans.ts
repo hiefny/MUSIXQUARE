@@ -439,6 +439,10 @@ const zhHans: Record<I18nKey, string> = {
   'error.audio_engine_prepare': '无法准备音频引擎',
   'error.session_create_fail': '无法创建房间',
   'error.network_generic': '发生网络错误',
+  'error.peer_app_version_mismatch':
+    '{{name}} 因应用版本不一致而无法加入。请在两台设备上刷新页面。',
+  'error.app_version_mismatch': '应用版本不一致。请在两台设备上刷新页面后重试。',
+  'error.session_handshake_failed': '未能完成会话连接。请在两台设备上刷新页面后重试。',
   'error.host_unreachable': '主持人似乎已离开房间',
   'error.host_disconnected': '已与主持人断开连接',
   'error.host_conn_error': '连接主持人时发生错误',

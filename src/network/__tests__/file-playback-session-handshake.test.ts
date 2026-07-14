@@ -13,8 +13,10 @@ import {
   FilePlaybackGuestSessionHandshake,
   FilePlaybackHostSessionHandshake,
   createSecureFilePlaybackHandshakeId,
+  isFilePlaybackSessionSemanticCohortMismatchV2,
   parseFilePlaybackSessionMessageV2,
   serializeFilePlaybackSessionMessageV2,
+  snapshotFilePlaybackSessionHelloCandidateV2,
   type FilePlaybackSessionAppliedV2,
   type FilePlaybackSessionHelloV2,
   type FilePlaybackSessionSnapshotV2,
@@ -471,6 +473,61 @@ describe('file playback application-session handshake', () => {
     });
     expect(guest.state()).toBe('hello-issued');
     expect(guest.provisionalBinding()).toBeNull();
+  });
+
+  it('detaches only exact HELLO candidates and classifies cohort mismatches without widening malformed input', () => {
+    const { guest } = pair();
+    const hello = guest.createHello();
+    if (!hello.accepted) throw new Error(hello.reason);
+    const { semanticPlaybackCohortId: _cohort, ...preCohortHello } = hello.hello;
+
+    expect(snapshotFilePlaybackSessionHelloCandidateV2(hello.hello)).toEqual(hello.hello);
+    expect(
+      isFilePlaybackSessionSemanticCohortMismatchV2(
+        hello.hello,
+        FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+      ),
+    ).toBe(false);
+    expect(
+      isFilePlaybackSessionSemanticCohortMismatchV2(
+        hello.hello,
+        FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+      ),
+    ).toBe(true);
+    expect(snapshotFilePlaybackSessionHelloCandidateV2(preCohortHello)).toEqual(preCohortHello);
+    expect(
+      isFilePlaybackSessionSemanticCohortMismatchV2(
+        preCohortHello,
+        FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+      ),
+    ).toBe(true);
+
+    const extraKey = { ...preCohortHello, extra: true };
+    expect(snapshotFilePlaybackSessionHelloCandidateV2(extraKey)).toBeNull();
+    expect(
+      isFilePlaybackSessionSemanticCohortMismatchV2(
+        extraKey,
+        FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+      ),
+    ).toBe(false);
+
+    let accessorReads = 0;
+    const accessor = { ...preCohortHello } as Record<string, unknown>;
+    Object.defineProperty(accessor, 'helloId', {
+      enumerable: true,
+      get: () => {
+        accessorReads += 1;
+        return preCohortHello.helloId;
+      },
+    });
+    expect(snapshotFilePlaybackSessionHelloCandidateV2(accessor)).toBeNull();
+    expect(
+      isFilePlaybackSessionSemanticCohortMismatchV2(
+        accessor,
+        FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
+      ),
+    ).toBe(false);
+    expect(accessorReads).toBe(0);
   });
 
   it.each([

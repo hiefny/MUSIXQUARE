@@ -543,6 +543,12 @@ const it: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Impossibile avviare il motore audio',
   'error.session_create_fail': 'Impossibile creare la stanza',
   'error.network_generic': 'Errore di rete rilevato',
+  'error.peer_app_version_mismatch':
+    '{{name}} non può entrare perché le versioni dell’app non corrispondono. Ricarica la pagina su entrambi i dispositivi.',
+  'error.app_version_mismatch':
+    'Le versioni dell’app non corrispondono. Ricarica la pagina su entrambi i dispositivi e riprova.',
+  'error.session_handshake_failed':
+    'Impossibile completare la connessione alla sessione. Ricarica la pagina su entrambi i dispositivi e riprova.',
   'error.host_unreachable': 'Il gestore sembra aver lasciato la stanza',
   'error.host_disconnected': 'Connessione con il gestore della stanza interrotta',
   'error.host_conn_error': 'Errore di connessione con il gestore della stanza',

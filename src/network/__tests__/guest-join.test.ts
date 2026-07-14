@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { t } from '../../i18n/index.ts';
+import { FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID } from '../../player/file-playback-semantic-cohort.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -309,6 +311,120 @@ describe('joinSession reconnect racing', () => {
 
     conn.fire('close');
     expect(mocks.endRoom).toHaveBeenCalledOnce();
+  });
+
+  it('reports an exact pre-cohort host frame once and suppresses generic close and error UI', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const networkErrors = vi.fn();
+    const joinFailures = vi.fn();
+    bus.on('network:error', networkErrors);
+    bus.on('setup:guest-join-failure', joinFailures);
+    const hostIssuer = new FilePlaybackHandshakeIdIssuer();
+    const host = new FilePlaybackHostSessionHandshake({
+      idIssuer: hostIssuer,
+      sessionId: hostIssuer.issueSessionId(),
+      connectionId: hostIssuer.issueConnectionId(),
+      hostParticipantId: 'HOST01',
+      guestParticipantId: 'guest-test-participant',
+    });
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('open');
+    const hello = vi.mocked(conn.send).mock.calls[0]?.[0];
+    const welcome = host.handleHello(hello);
+    if (!welcome.accepted) throw new Error(welcome.reason);
+    const { semanticPlaybackCohortId: _cohort, ...preCohortWelcome } = welcome.welcome;
+
+    conn.fire('data', preCohortWelcome);
+
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('error.app_version_mismatch'));
+    expect(joinFailures).toHaveBeenCalledOnce();
+    expect((joinFailures.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_UPDATE_REQUIRED',
+    );
+    expect(networkErrors).not.toHaveBeenCalled();
+
+    conn.fire('close');
+    conn.fire('error', new Error('late transport error'));
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(joinFailures).toHaveBeenCalledOnce();
+    expect(networkErrors).not.toHaveBeenCalled();
+  });
+
+  it('reports a current-schema host frame from a different semantic cohort once', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const networkErrors = vi.fn();
+    const joinFailures = vi.fn();
+    bus.on('network:error', networkErrors);
+    bus.on('setup:guest-join-failure', joinFailures);
+    const hostIssuer = new FilePlaybackHandshakeIdIssuer();
+    const host = new FilePlaybackHostSessionHandshake({
+      idIssuer: hostIssuer,
+      sessionId: hostIssuer.issueSessionId(),
+      connectionId: hostIssuer.issueConnectionId(),
+      hostParticipantId: 'HOST01',
+      guestParticipantId: 'guest-test-participant',
+    });
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('open');
+    const hello = vi.mocked(conn.send).mock.calls[0]?.[0];
+    const welcome = host.handleHello(hello);
+    if (!welcome.accepted) throw new Error(welcome.reason);
+    const otherCohortWelcome = {
+      ...welcome.welcome,
+      semanticPlaybackCohortId: FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+    };
+
+    conn.fire('data', otherCohortWelcome);
+
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('error.app_version_mismatch'));
+    expect(joinFailures).toHaveBeenCalledOnce();
+    expect((joinFailures.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_UPDATE_REQUIRED',
+    );
+    expect(networkErrors).not.toHaveBeenCalled();
+
+    conn.fire('close');
+    conn.fire('error', new Error('late transport error'));
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(joinFailures).toHaveBeenCalledOnce();
+    expect(networkErrors).not.toHaveBeenCalled();
+  });
+
+  it('uses neutral copy for an unclassified V2 handshake close', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const networkErrors = vi.fn();
+    const joinFailures = vi.fn();
+    bus.on('network:error', networkErrors);
+    bus.on('setup:guest-join-failure', joinFailures);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('open');
+    conn.fire('close');
+
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('error.session_handshake_failed'));
+    expect(mocks.showToast).not.toHaveBeenCalledWith(t('error.app_version_mismatch'));
+    expect(joinFailures).toHaveBeenCalledOnce();
+    expect((joinFailures.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_HANDSHAKE_FAILED',
+    );
+    expect(networkErrors).not.toHaveBeenCalled();
   });
 
   it('ignores a duplicate joinSession call while the first attempt is still connecting', () => {

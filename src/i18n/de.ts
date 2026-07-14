@@ -455,6 +455,12 @@ const de: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Audio-Engine konnte nicht vorbereitet werden',
   'error.session_create_fail': 'Raum konnte nicht erstellt werden',
   'error.network_generic': 'Ein Netzwerkfehler ist aufgetreten',
+  'error.peer_app_version_mismatch':
+    '{{name}} kann nicht beitreten, da die App-Versionen nicht übereinstimmen. Lade die Seite auf beiden Geräten neu.',
+  'error.app_version_mismatch':
+    'Die App-Versionen stimmen nicht überein. Lade die Seite auf beiden Geräten neu und versuche es erneut.',
+  'error.session_handshake_failed':
+    'Die Sitzungsverbindung konnte nicht hergestellt werden. Lade die Seite auf beiden Geräten neu und versuche es erneut.',
   'error.host_unreachable': 'Der Host scheint den Raum verlassen zu haben',
   'error.host_disconnected': 'Vom Host getrennt',
   'error.host_conn_error': 'Beim Verbinden mit dem Host ist ein Fehler aufgetreten',

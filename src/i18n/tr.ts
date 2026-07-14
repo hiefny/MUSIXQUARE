@@ -537,6 +537,12 @@ const tr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Ses motoru başlatılamadı',
   'error.session_create_fail': 'Oda oluşturulamadı',
   'error.network_generic': 'Bir ağ hatası oluştu',
+  'error.peer_app_version_mismatch':
+    '{{name}}, uygulama sürümleri eşleşmediği için katılamıyor. Her iki cihazdaki sayfayı da yenileyin.',
+  'error.app_version_mismatch':
+    'Uygulama sürümleri eşleşmiyor. Her iki cihazdaki sayfayı yenileyip tekrar deneyin.',
+  'error.session_handshake_failed':
+    'Oturum bağlantısı tamamlanamadı. Her iki cihazdaki sayfayı yenileyip tekrar deneyin.',
   'error.host_unreachable': 'Oda sahibine şu anda ulaşılamıyor',
   'error.host_disconnected': 'Oda sahibiyle bağlantı koptu',
   'error.host_conn_error': 'Oda sahibine bağlanırken hata oluştu',

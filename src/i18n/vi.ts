@@ -449,6 +449,12 @@ const vi: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Không thể chuẩn bị bộ xử lý âm thanh',
   'error.session_create_fail': 'Không thể tạo phòng',
   'error.network_generic': 'Đã xảy ra lỗi mạng',
+  'error.peer_app_version_mismatch':
+    '{{name}} không thể tham gia vì phiên bản ứng dụng không khớp. Hãy tải lại trang trên cả hai thiết bị.',
+  'error.app_version_mismatch':
+    'Phiên bản ứng dụng không khớp. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
+  'error.session_handshake_failed':
+    'Không thể hoàn tất kết nối phiên. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
   'error.host_unreachable': 'Có vẻ host đã rời phòng',
   'error.host_disconnected': 'Đã ngắt kết nối với host',
   'error.host_conn_error': 'Đã xảy ra lỗi khi kết nối với host',

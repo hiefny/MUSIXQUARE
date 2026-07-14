@@ -595,19 +595,22 @@ function canonicalApplied(record: DetachedRecord): Readonly<FilePlaybackSessionA
  * peer report an update boundary instead of collapsing a genuine predecessor
  * into the generic malformed-frame bucket. No legacy frame is ever accepted.
  */
-function isExactPreCohortV2Frame(value: unknown, expectedType: string): boolean {
+function snapshotExactPreCohortV2Frame(
+  value: unknown,
+  expectedType: string,
+): DetachedRecord | null {
   const currentKeys = MESSAGE_KEYS[expectedType as keyof typeof MESSAGE_KEYS];
-  if (!currentKeys) return false;
+  if (!currentKeys) return null;
   const legacyKeys = currentKeys.filter((key) => key !== 'semanticPlaybackCohortId');
   const record = snapshotExactDataRecord(value, legacyKeys);
-  if (!record || record.type !== expectedType) return false;
+  if (!record || record.type !== expectedType) return null;
 
   if (expectedType === FILE_PLAYBACK_SESSION_HELLO_TYPE) {
-    return (
-      record.version === FILE_PLAYBACK_SESSION_PROTOCOL_VERSION &&
+    return record.version === FILE_PLAYBACK_SESSION_PROTOCOL_VERSION &&
       isFilePlaybackSessionId(record.helloId) &&
       isFilePlaybackSessionId(record.guestParticipantId)
-    );
+      ? record
+      : null;
   }
 
   const validSharedEnvelope =
@@ -619,9 +622,13 @@ function isExactPreCohortV2Frame(value: unknown, expectedType: string): boolean 
     isFilePlaybackSessionId(record.hostParticipantId) &&
     isFilePlaybackSessionId(record.guestParticipantId) &&
     record.hostParticipantId !== record.guestParticipantId;
-  if (!validSharedEnvelope) return false;
-  if (expectedType === FILE_PLAYBACK_SESSION_WELCOME_TYPE) return true;
-  return record.snapshotSequence === FILE_PLAYBACK_SESSION_SNAPSHOT_SEQUENCE;
+  if (!validSharedEnvelope) return null;
+  if (expectedType === FILE_PLAYBACK_SESSION_WELCOME_TYPE) return record;
+  return record.snapshotSequence === FILE_PLAYBACK_SESSION_SNAPSHOT_SEQUENCE ? record : null;
+}
+
+function isExactPreCohortV2Frame(value: unknown, expectedType: string): boolean {
+  return snapshotExactPreCohortV2Frame(value, expectedType) !== null;
 }
 
 function serializedByteLength(message: Readonly<FilePlaybackSessionMessageV2>): number {
@@ -665,6 +672,41 @@ export function parseFilePlaybackSessionHelloV2(
 ): Readonly<FilePlaybackSessionHelloV2> | null {
   const message = parseFilePlaybackSessionMessageV2(value);
   return message?.type === FILE_PLAYBACK_SESSION_HELLO_TYPE ? message : null;
+}
+
+/**
+ * Detaches the only two HELLO shapes that may cross the host's pre-open queue:
+ * the exact current frame, or the exact pre-cohort V2 predecessor. The latter
+ * remains invalid to the handshake and is retained solely so the manager can
+ * classify its update boundary after binding the exact connection.
+ */
+export function snapshotFilePlaybackSessionHelloCandidateV2(
+  value: unknown,
+): Readonly<Record<string, unknown>> | null {
+  const current = parseFilePlaybackSessionHelloV2(value);
+  if (current) return current as unknown as Readonly<Record<string, unknown>>;
+  return snapshotExactPreCohortV2Frame(value, FILE_PLAYBACK_SESSION_HELLO_TYPE);
+}
+
+/**
+ * Returns true only for an exact V2 session frame whose semantic cohort is
+ * different from this build, including the exact pre-cohort predecessor.
+ * Arbitrary malformed or accessor-shaped frames are never reclassified as an
+ * update boundary.
+ */
+export function isFilePlaybackSessionSemanticCohortMismatchV2(
+  value: unknown,
+  expectedSemanticPlaybackCohortId: string,
+): boolean {
+  if (!isFilePlaybackSemanticCohortId(expectedSemanticPlaybackCohortId)) return false;
+  const current = parseFilePlaybackSessionMessageV2(value);
+  if (current) {
+    return current.semanticPlaybackCohortId !== expectedSemanticPlaybackCohortId;
+  }
+  for (const type of Object.keys(MESSAGE_KEYS)) {
+    if (isExactPreCohortV2Frame(value, type)) return true;
+  }
+  return false;
 }
 
 export function parseFilePlaybackSessionWelcomeV2(

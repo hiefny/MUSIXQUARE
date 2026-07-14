@@ -3,6 +3,7 @@ import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID } from '../../player/file-playback-semantic-cohort.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -345,22 +346,122 @@ describe('ordered host bootstrap phases', () => {
     expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('handshaking');
   });
 
+  it('routes an exact pre-cohort HELLO through the manager and publishes one host-local update message', () => {
+    const conn = makeIncomingConn('guest-pre-cohort');
+    const guest = new FilePlaybackGuestSessionHandshake({
+      idIssuer: new FilePlaybackHandshakeIdIssuer(),
+      guestParticipantId: conn.peer,
+    });
+    const hello = guest.createHello();
+    if (!hello.accepted) throw new Error(hello.reason);
+    const { semanticPlaybackCohortId: _cohort, ...preCohortHello } = hello.hello;
+    const connected = vi.fn();
+    const localSystemMessages: string[] = [];
+    const stopConnected = bus.on('network:peer-connected', connected);
+    const stopSystem = bus.on('chat:system-message', (message) => {
+      localSystemMessages.push(message);
+    });
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('data', preCohortHello);
+      expect(conn.close).not.toHaveBeenCalled();
+      expect(mocks.showToast).not.toHaveBeenCalled();
+
+      conn.fire('open');
+      expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+      expect(conn.close).toHaveBeenCalledOnce();
+      expect(connected).not.toHaveBeenCalled();
+      expect(mocks.showToast).toHaveBeenCalledOnce();
+      const message = mocks.showToast.mock.calls[0]?.[0];
+      expect(message).toEqual(expect.any(String));
+      expect(localSystemMessages).toEqual([message]);
+      expect(conn.send).not.toHaveBeenCalled();
+
+      // A late transport close must retire state without adding the generic
+      // disconnected toast or broadcasting a CHAT_SYSTEM frame.
+      conn.fire('close');
+      expect(mocks.showToast).toHaveBeenCalledOnce();
+      expect(localSystemMessages).toEqual([message]);
+      expect(
+        vi
+          .mocked(conn.send)
+          .mock.calls.some(([frame]) => (frame as { type?: string }).type === MSG.CHAT_SYSTEM),
+      ).toBe(false);
+    } finally {
+      stopConnected();
+      stopSystem();
+    }
+  });
+
+  it('reports a current-schema HELLO from a different semantic cohort once without generic disconnect UI', () => {
+    const conn = makeIncomingConn('guest-universal-v1');
+    const guest = new FilePlaybackGuestSessionHandshake({
+      idIssuer: new FilePlaybackHandshakeIdIssuer(),
+      guestParticipantId: conn.peer,
+      semanticPlaybackCohortId: FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
+    });
+    const hello = guest.createHello();
+    if (!hello.accepted) throw new Error(hello.reason);
+    const connected = vi.fn();
+    const localSystemMessages: string[] = [];
+    const stopConnected = bus.on('network:peer-connected', connected);
+    const stopSystem = bus.on('chat:system-message', (message) => {
+      localSystemMessages.push(message);
+    });
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('data', hello.hello);
+      expect(conn.close).not.toHaveBeenCalled();
+      expect(mocks.showToast).not.toHaveBeenCalled();
+
+      conn.fire('open');
+      expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+      expect(conn.close).toHaveBeenCalledOnce();
+      expect(connected).not.toHaveBeenCalled();
+      expect(mocks.showToast).toHaveBeenCalledOnce();
+      const message = mocks.showToast.mock.calls[0]?.[0];
+      expect(message).toEqual(expect.any(String));
+      expect(localSystemMessages).toEqual([message]);
+      expect(conn.send).not.toHaveBeenCalled();
+
+      conn.fire('close');
+      conn.fire('error', new Error('late transport error'));
+      expect(mocks.showToast).toHaveBeenCalledOnce();
+      expect(localSystemMessages).toEqual([message]);
+      expect(
+        vi
+          .mocked(conn.send)
+          .mock.calls.some(([frame]) => (frame as { type?: string }).type === MSG.CHAT_SYSTEM),
+      ).toBe(false);
+    } finally {
+      stopConnected();
+      stopSystem();
+    }
+  });
+
   it('fails closed on non-HELLO data before RTC open', () => {
     const conn = makeIncomingConn('guest-pre-open-hostile');
     const connected = vi.fn();
+    const systemMessage = vi.fn();
     const stopConnected = bus.on('network:peer-connected', connected);
+    const stopSystem = bus.on('chat:system-message', systemMessage);
     try {
       handleHostIncomingConnection(conn);
       conn.fire('data', { type: MSG.CHAT, text: 'too early' });
       conn.fire('open');
     } finally {
       stopConnected();
+      stopSystem();
     }
 
     expect(conn.close).toHaveBeenCalled();
     expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.WELCOME }));
     expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
     expect(connected).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(systemMessage).not.toHaveBeenCalled();
   });
 
   it('allows at most one pre-open HELLO on the exact host connection', () => {

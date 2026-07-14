@@ -462,6 +462,12 @@ const fr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Impossible de préparer le moteur audio',
   'error.session_create_fail': 'Impossible de créer la salle',
   'error.network_generic': 'Une erreur réseau est survenue',
+  'error.peer_app_version_mismatch':
+    '{{name}} ne peut pas rejoindre la session, car les versions de l’application ne correspondent pas. Actualisez les deux appareils.',
+  'error.app_version_mismatch':
+    'Les versions de l’application ne correspondent pas. Actualisez les deux appareils et réessayez.',
+  'error.session_handshake_failed':
+    'La connexion à la session n’a pas pu être établie. Actualisez les deux appareils et réessayez.',
   'error.host_unreachable': 'L’hôte semble avoir quitté la salle',
   'error.host_disconnected': 'Déconnecté de l’hôte',
   'error.host_conn_error': 'Une erreur est survenue lors de la connexion à l’hôte',

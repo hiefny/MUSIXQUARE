@@ -28,10 +28,15 @@ import {
 } from './peer-state.ts';
 import { showToast } from '../ui/toast.ts';
 import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
-import { parseFilePlaybackSessionHelloV2 } from './file-playback-session-handshake.ts';
+import {
+  isFilePlaybackSessionSemanticCohortMismatchV2,
+  snapshotFilePlaybackSessionHelloCandidateV2,
+} from './file-playback-session-handshake.ts';
+import { getFilePlaybackBuildProfile } from '../player/file-playback-build-profile.ts';
 import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
 
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
+const FILE_PLAYBACK_SEMANTIC_COHORT_ID = getFilePlaybackBuildProfile().semanticPlaybackCohortId;
 
 // ─── Host: Incoming Connection ──────────────────────────────────────
 
@@ -54,8 +59,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     : null;
   let applicationEstablished = false;
   let dataChannelOpened = false;
-  let preOpenHello: ReturnType<typeof parseFilePlaybackSessionHelloV2> = null;
+  let preOpenHello: ReturnType<typeof snapshotFilePlaybackSessionHelloCandidateV2> = null;
   let preOpenRejected = false;
+  let semanticCohortMismatch = false;
+  let semanticCohortMismatchUiPublished = false;
   let detectedConnectionType: 'local' | 'remote' | null = null;
   let connectionTypePublished = false;
 
@@ -218,6 +225,22 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     return;
   }
   setState('network.connectedPeers', [...currentPeers, peerObj]);
+
+  const recordSemanticCohortMismatch = (): void => {
+    semanticCohortMismatch = true;
+    if (
+      semanticCohortMismatchUiPublished ||
+      getState('network.activeHostConnByPeerId').get(peerId) !== conn
+    ) {
+      return;
+    }
+    semanticCohortMismatchUiPublished = true;
+    const message = t('error.peer_app_version_mismatch', { name: deviceName });
+    showToast(message);
+    // The rejected transport never became a room participant. Keep this
+    // automatic diagnostic local to the host's gray system-message lane.
+    bus.emit('chat:system-message', message);
+  };
 
   const publishDetectedConnectionType = (isInitial: boolean): void => {
     if (
@@ -399,12 +422,27 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       );
 
       if (!applicationSessions.beginHostConnection(conn, peerId)) return;
+      if (
+        preOpenHello &&
+        isFilePlaybackSessionSemanticCohortMismatchV2(
+          preOpenHello,
+          FILE_PLAYBACK_SEMANTIC_COHORT_ID,
+        )
+      ) {
+        const queuedHello = preOpenHello;
+        preOpenHello = null;
+        recordSemanticCohortMismatch();
+        const application = applicationSessions.receive(queuedHello, conn);
+        if (application.updateRequired) recordSemanticCohortMismatch();
+        return;
+      }
       if (!applicationSessions.sendRequired(conn, welcomeFrame())) return;
 
       if (preOpenHello) {
         const queuedHello = preOpenHello;
         preOpenHello = null;
         const application = applicationSessions.receive(queuedHello, conn);
+        if (application.updateRequired) recordSemanticCohortMismatch();
         if (!application.handled || applicationSessions.phase(conn) === 'none') return;
       }
     } else {
@@ -482,7 +520,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   conn.on('data', (data: unknown) => {
     if (FILE_PLAYBACK_ENGINE_V2_ENABLED && !dataChannelOpened) {
-      const hello = parseFilePlaybackSessionHelloV2(data);
+      const hello = snapshotFilePlaybackSessionHelloCandidateV2(data);
       if (!hello || preOpenHello) {
         preOpenRejected = true;
         preOpenHello = null;
@@ -506,7 +544,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
           }
           return;
         }
+        if (isFilePlaybackSessionSemanticCohortMismatchV2(data, FILE_PLAYBACK_SEMANTIC_COHORT_ID)) {
+          recordSemanticCohortMismatch();
+        }
         const application = applicationSessions.receive(data, conn);
+        if (application.updateRequired) recordSemanticCohortMismatch();
         if (application.handled) {
           if (application.established) completeApplicationSession();
           return;
@@ -553,7 +595,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     broadcastDeviceList();
 
     const sessionStarted = getState('setup.sessionStarted');
-    if (applicationEstablished && sessionStarted) {
+    if (applicationEstablished && sessionStarted && !semanticCohortMismatch) {
       showToast(t('toast.device_disconnected', { name: currentLabel }));
       broadcastSystemMessage('chat.peer_disconnected', { name: currentLabel });
     }
@@ -599,7 +641,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     broadcastDeviceList();
 
     const sessionStarted = getState('setup.sessionStarted');
-    if (applicationEstablished && sessionStarted) {
+    if (applicationEstablished && sessionStarted && !semanticCohortMismatch) {
       showToast(t('toast.device_conn_error', { name: errLabel }));
       broadcastSystemMessage('chat.peer_disconnected', { name: errLabel });
     }

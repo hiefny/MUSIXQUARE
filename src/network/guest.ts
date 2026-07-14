@@ -23,10 +23,13 @@ import { getPeer, detectConnectionType } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
 import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
+import { isFilePlaybackSessionSemanticCohortMismatchV2 } from './file-playback-session-handshake.ts';
+import { getFilePlaybackBuildProfile } from '../player/file-playback-build-profile.ts';
 import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
 import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
 
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
+const FILE_PLAYBACK_SEMANTIC_COHORT_ID = getFilePlaybackBuildProfile().semanticPlaybackCohortId;
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
@@ -307,6 +310,31 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   const preOpenFrames: Readonly<Record<string, unknown>>[] = [];
   let preOpenFrameBytes = 0;
   let preOpenRejected = false;
+  let semanticCohortMismatch = false;
+  let joinFailureUiPublished = false;
+
+  const publishGuestJoinFailure = (
+    key: 'error.app_version_mismatch' | 'error.session_handshake_failed',
+  ): void => {
+    if (joinFailureUiPublished) return;
+    joinFailureUiPublished = true;
+    _handledConnectionErrors.add(conn);
+    setState('network.isConnecting', false);
+    showToast(t(key));
+    bus.emit(
+      'setup:guest-join-failure',
+      new Error(
+        key === 'error.app_version_mismatch'
+          ? 'FILE_PLAYBACK_UPDATE_REQUIRED'
+          : 'FILE_PLAYBACK_HANDSHAKE_FAILED',
+      ),
+    );
+  };
+
+  const recordSemanticCohortMismatch = (): void => {
+    semanticCohortMismatch = true;
+    publishGuestJoinFailure('error.app_version_mismatch');
+  };
 
   const completeApplicationSession = (): void => {
     if (
@@ -351,7 +379,14 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         }
         return;
       }
+      if (
+        getState('network.hostConn') === conn &&
+        isFilePlaybackSessionSemanticCohortMismatchV2(data, FILE_PLAYBACK_SEMANTIC_COHORT_ID)
+      ) {
+        recordSemanticCohortMismatch();
+      }
       const application = applicationSessions.receive(data, conn);
+      if (application.updateRequired) recordSemanticCohortMismatch();
       if (application.handled) {
         if (application.established) completeApplicationSession();
         return;
@@ -371,8 +406,8 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         preOpenFrames.length = 0;
         preOpenFrameBytes = 0;
         clearManagedTimer('join-timeout');
+        publishGuestJoinFailure('error.session_handshake_failed');
         endProductRoom();
-        setState('network.isConnecting', false);
         try {
           conn.close();
         } catch {
@@ -463,9 +498,13 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         // intentional disconnects (e.g. leaveSession) that race with close.
         return;
       }
-      _handledConnectionErrors.add(conn);
 
       const isIntentional = getState('network.isIntentionalDisconnect');
+      if (!isIntentional && !applicationEstablished && !semanticCohortMismatch) {
+        publishGuestJoinFailure('error.session_handshake_failed');
+        return;
+      }
+      _handledConnectionErrors.add(conn);
       if (!isIntentional) {
         bus.emit('network:error', new Error('HOST_DISCONNECTED'));
       }
@@ -487,6 +526,10 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       setState('network.isConnecting', false);
 
       if (_handledConnectionErrors.has(conn)) return;
+      if (!applicationEstablished && !semanticCohortMismatch) {
+        publishGuestJoinFailure('error.session_handshake_failed');
+        return;
+      }
       _handledConnectionErrors.add(conn);
 
       bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));

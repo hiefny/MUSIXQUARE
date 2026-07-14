@@ -538,6 +538,85 @@ describe('PeerRangeHostResponder', () => {
     expect(assembled).toEqual(whole.slice(70_000, 70_000 + PEER_RANGE_MAX_READ_BYTES));
   });
 
+  it('reports bounded PII-free physical read counters and returns pending to zero', async () => {
+    const before = PeerRangeHostResponder.physicalReadDiagnostics();
+    const fourBytes = deferred<Uint8Array>();
+    const sevenBytes = deferred<Uint8Array>();
+    const source: EncodedAudioSource = {
+      kind: 'peer-range',
+      size: 32,
+      identity: SOURCE_ID,
+      metadata: { name: 'private-name.flac', mime: 'audio/flac' },
+      readAt: async (_offset, length) => (length === 4 ? fourBytes.promise : sevenBytes.promise),
+      close: async () => undefined,
+    };
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => source },
+      sendBulk: vi.fn(),
+    });
+
+    expect(
+      host.acceptControl(
+        CONNECTION_TOKEN,
+        createPeerRangeReadFrame(
+          descriptor({ requestId: 'request:diagnostic-four', totalLength: 4 }),
+        ),
+      ),
+    ).toBe('accepted');
+    expect(
+      host.acceptControl(
+        CONNECTION_TOKEN,
+        createPeerRangeReadFrame(
+          descriptor({ requestId: 'request:diagnostic-seven', offset: 8, totalLength: 7 }),
+        ),
+      ),
+    ).toBe('accepted');
+
+    await vi.waitFor(() =>
+      expect(PeerRangeHostResponder.physicalReadDiagnostics().pendingReadCount).toBe(
+        before.pendingReadCount + 2,
+      ),
+    );
+    const active = PeerRangeHostResponder.physicalReadDiagnostics();
+    expect(Object.isFrozen(active)).toBe(true);
+    expect(Object.keys(active).sort()).toEqual(
+      [
+        'maxConcurrentReadCount',
+        'maxRequestByteLength',
+        'pendingReadCount',
+        'readByteLimit',
+        'readCount',
+        'requestedByteCount',
+        'schemaVersion',
+        'settledReadCount',
+      ].sort(),
+    );
+    expect(Object.values(active).every((value) => typeof value === 'number')).toBe(true);
+    expect(active).toMatchObject({
+      schemaVersion: 1,
+      readByteLimit: PEER_RANGE_MAX_READ_BYTES,
+      readCount: before.readCount + 2,
+      requestedByteCount: before.requestedByteCount + 11,
+      pendingReadCount: before.pendingReadCount + 2,
+      maxRequestByteLength: Math.max(before.maxRequestByteLength, 7),
+      maxConcurrentReadCount: Math.max(before.maxConcurrentReadCount, before.pendingReadCount + 2),
+    });
+
+    fourBytes.resolve(bytes(4));
+    sevenBytes.resolve(bytes(7));
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    const settled = PeerRangeHostResponder.physicalReadDiagnostics();
+    expect(settled).toMatchObject({
+      readCount: before.readCount + 2,
+      settledReadCount: before.settledReadCount + 2,
+      requestedByteCount: before.requestedByteCount + 11,
+      pendingReadCount: before.pendingReadCount,
+    });
+  });
+
   it('returns bounded errors for missing, stale-identity, short, and out-of-range sources', async () => {
     const shortSource: EncodedAudioSource = {
       kind: 'peer-range',

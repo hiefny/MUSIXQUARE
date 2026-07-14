@@ -10,6 +10,7 @@ import type {
   PeerRangeTransport,
 } from './peer-range-encoded-audio-source.ts';
 import {
+  PEER_RANGE_MAX_READ_BYTES,
   PEER_RANGE_MAX_CONNECTION_ID_LENGTH,
   PeerRangeAssemblerClosedError,
   PeerRangeProtocolError,
@@ -42,6 +43,76 @@ const MAX_TERMINAL_EGRESS_REFILL_MS = 60_000;
 const DEFAULT_DELIVERY_TIMEOUT_MS = 5_000;
 const DEFAULT_TERMINAL_EGRESS_CREDITS = 128;
 const DEFAULT_TERMINAL_EGRESS_REFILL_MS = 5;
+
+interface PeerRangePhysicalReadDiagnostics {
+  readonly schemaVersion: 1;
+  readonly readByteLimit: number;
+  readonly readCount: number;
+  readonly settledReadCount: number;
+  readonly requestedByteCount: number;
+  readonly maxRequestByteLength: number;
+  readonly pendingReadCount: number;
+  readonly maxConcurrentReadCount: number;
+}
+
+const physicalReadDiagnostics = {
+  readCount: 0,
+  settledReadCount: 0,
+  requestedByteCount: 0,
+  maxRequestByteLength: 0,
+  pendingReadCount: 0,
+  maxConcurrentReadCount: 0,
+};
+
+function saturatingDiagnosticAdd(current: number, increment: number): number {
+  return increment >= Number.MAX_SAFE_INTEGER - current
+    ? Number.MAX_SAFE_INTEGER
+    : current + increment;
+}
+
+function beginPhysicalReadDiagnostic(byteLength: number): () => void {
+  physicalReadDiagnostics.readCount = saturatingDiagnosticAdd(physicalReadDiagnostics.readCount, 1);
+  physicalReadDiagnostics.requestedByteCount = saturatingDiagnosticAdd(
+    physicalReadDiagnostics.requestedByteCount,
+    byteLength,
+  );
+  physicalReadDiagnostics.maxRequestByteLength = Math.max(
+    physicalReadDiagnostics.maxRequestByteLength,
+    byteLength,
+  );
+  physicalReadDiagnostics.pendingReadCount += 1;
+  physicalReadDiagnostics.maxConcurrentReadCount = Math.max(
+    physicalReadDiagnostics.maxConcurrentReadCount,
+    physicalReadDiagnostics.pendingReadCount,
+  );
+
+  let settled = false;
+  return () => {
+    if (settled) return;
+    settled = true;
+    physicalReadDiagnostics.pendingReadCount = Math.max(
+      0,
+      physicalReadDiagnostics.pendingReadCount - 1,
+    );
+    physicalReadDiagnostics.settledReadCount = saturatingDiagnosticAdd(
+      physicalReadDiagnostics.settledReadCount,
+      1,
+    );
+  };
+}
+
+function snapshotPhysicalReadDiagnostics(): Readonly<PeerRangePhysicalReadDiagnostics> {
+  return Object.freeze({
+    schemaVersion: 1 as const,
+    readByteLimit: PEER_RANGE_MAX_READ_BYTES,
+    readCount: physicalReadDiagnostics.readCount,
+    settledReadCount: physicalReadDiagnostics.settledReadCount,
+    requestedByteCount: physicalReadDiagnostics.requestedByteCount,
+    maxRequestByteLength: physicalReadDiagnostics.maxRequestByteLength,
+    pendingReadCount: physicalReadDiagnostics.pendingReadCount,
+    maxConcurrentReadCount: physicalReadDiagnostics.maxConcurrentReadCount,
+  });
+}
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
@@ -747,6 +818,15 @@ export class PeerRangeHostResponder {
   #closed = false;
   #fatalError: PeerRangeConnectionFatalError | null = null;
 
+  /**
+   * Document-lifetime, PII-free aggregate over physical host source reads.
+   * The snapshot retains numbers only: no descriptors, source identities,
+   * filenames, peer identities, or response bytes are observed or stored.
+   */
+  static physicalReadDiagnostics(): Readonly<PeerRangePhysicalReadDiagnostics> {
+    return snapshotPhysicalReadDiagnostics();
+  }
+
   constructor(options: PeerRangeHostResponderOptions) {
     if (
       !options.sources ||
@@ -1083,19 +1163,24 @@ export class PeerRangeHostResponder {
 
   async #readExact(source: PeerRangeHostSource, state: HostRequestState): Promise<Uint8Array> {
     throwIfAborted(state.controller.signal);
-    if (isEncodedAudioSource(source)) {
-      const bytes = await source.readAt(
-        state.descriptor.offset,
-        state.descriptor.totalLength,
-        state.controller.signal,
-      );
+    const settleDiagnostic = beginPhysicalReadDiagnostic(state.descriptor.totalLength);
+    try {
+      if (isEncodedAudioSource(source)) {
+        const bytes = await source.readAt(
+          state.descriptor.offset,
+          state.descriptor.totalLength,
+          state.controller.signal,
+        );
+        throwIfAborted(state.controller.signal);
+        return bytes;
+      }
+      const end = state.descriptor.offset + state.descriptor.totalLength;
+      const buffer = await source.slice(state.descriptor.offset, end).arrayBuffer();
       throwIfAborted(state.controller.signal);
-      return bytes;
+      return new Uint8Array(buffer);
+    } finally {
+      settleDiagnostic();
     }
-    const end = state.descriptor.offset + state.descriptor.totalLength;
-    const buffer = await source.slice(state.descriptor.offset, end).arrayBuffer();
-    throwIfAborted(state.controller.signal);
-    return new Uint8Array(buffer);
   }
 
   #isCurrent(state: HostRequestState): boolean {

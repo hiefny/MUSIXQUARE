@@ -32,6 +32,7 @@ import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-ba
 import type { FilePlaybackProductGuestMediaOwnerOptions } from '../file-playback-product-guest-media-owner.ts';
 import {
   FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
+  FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT,
   type FilePlaybackProductHostMediaOwnerOptions,
 } from '../file-playback-product-host-media-owner.ts';
 import type {
@@ -2330,6 +2331,39 @@ describe('FilePlaybackProductRuntime', () => {
         freezeCanonical({ type: 'foreign-frame' }),
       ),
     ).toBe(false);
+
+    const dataChannel = {
+      readyState: 'open',
+      bufferedAmount: 0,
+    };
+    Object.assign(peer, { dataChannel });
+    const peerControl = freezeCanonical({
+      lane: 'control' as const,
+      type: 'close-handle' as const,
+      connectionId: context.connectionId,
+      sourceIdentity: 'runtime-peer-source',
+      handleId: 'runtime-peer-handle',
+    });
+    const sendsBeforePeerGate = setup.sessions.sendRequired.mock.calls.length;
+    expect(guestOwnerOptions?.canSendPeerControl(context, peerControl)).toBe(true);
+    expect(setup.sessions.sendRequired).toHaveBeenCalledTimes(sendsBeforePeerGate);
+    expect(guestOwnerOptions?.sendRequired(context, peerControl)).toBe(true);
+    expect(setup.sessions.sendRequired).toHaveBeenCalledTimes(sendsBeforePeerGate + 1);
+    expect(setup.sessions.sendRequired).toHaveBeenLastCalledWith(peer, peerControl);
+
+    dataChannel.bufferedAmount = FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT + 1;
+    expect(guestOwnerOptions?.canSendPeerControl(context, peerControl)).toBe(false);
+    dataChannel.bufferedAmount = 0;
+    dataChannel.readyState = 'closing';
+    expect(guestOwnerOptions?.canSendPeerControl(context, peerControl)).toBe(false);
+    dataChannel.readyState = 'open';
+    expect(
+      guestOwnerOptions?.canSendPeerControl(
+        routerContext('guest', { suffix: 'foreign-peer-control' }),
+        peerControl,
+      ),
+    ).toBe(false);
+    expect(setup.sessions.sendRequired).toHaveBeenCalledTimes(sendsBeforePeerGate + 1);
 
     guestOwnerOptions?.onFatalConnection(
       context,

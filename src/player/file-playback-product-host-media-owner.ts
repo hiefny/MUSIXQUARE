@@ -154,7 +154,7 @@ const PEER_RANGE_MANIFEST_KEYS = Object.freeze([
 ] as const);
 const SHA_256_BYTES = 32;
 const SHA_256_BASE64_LENGTH = 44;
-const PEER_RANGE_BUFFERED_AMOUNT_LIMIT = 256 * 1024;
+export const FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT = 256 * 1024;
 export const FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS = 15 * 60 * 1_000;
 const HEALTH_LEASE_MS = 2_000;
 const HEALTH_TICK_MS = 250;
@@ -2773,7 +2773,7 @@ export class FilePlaybackProductHostMediaOwner {
       connection.open === true &&
       dataChannel?.readyState === 'open' &&
       Number.isFinite(dataChannel.bufferedAmount) &&
-      dataChannel.bufferedAmount <= PEER_RANGE_BUFFERED_AMOUNT_LIMIT
+      dataChannel.bufferedAmount <= FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT
     );
   }
 

@@ -43,6 +43,7 @@ import {
 } from './file-playback-product-guest-media-owner.ts';
 import {
   FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
+  FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT,
   FilePlaybackProductHostMediaOwner,
   type ActivateFilePlaybackProductHostPreparedOptions,
   type FilePlaybackProductHostHealthSystemMessage,
@@ -92,7 +93,7 @@ import {
 } from './playback-timeline.ts';
 
 const DEFAULT_ENABLED = isFilePlaybackEngineV2Enabled();
-// Peer-range streaming never materializes the full encoded FLAC in RAM. Keep
+// Peer-range streaming never materializes the full encoded body in RAM. Keep
 // its offer policy independent from the temporary 200 MiB whole-Blob R2 cap.
 const FILE_PLAYBACK_PRODUCT_MAX_PEER_ENCODED_BYTES = 5 * 1024 * 1024 * 1024;
 const FILE_PLAYBACK_PRODUCT_COHORT_ADMISSION_MS = 2_500;
@@ -1502,11 +1503,18 @@ export class FilePlaybackProductRuntime {
           sessions.sendRequired(context.connection, frame),
         canSendPeerControl: (
           ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
-          frame: Parameters<FilePlaybackProductGuestMediaOwnerOptions['canSendPeerControl']>[1],
-        ) =>
-          this.#connectionContexts.has(ownerContext) &&
-          ownerContext === context &&
-          sessions.sendRequired(context.connection, frame),
+        ) => {
+          const connection = context.connection;
+          const dataChannel = connection.dataChannel;
+          return (
+            this.#connectionContexts.has(ownerContext) &&
+            ownerContext === context &&
+            connection.open === true &&
+            dataChannel?.readyState === 'open' &&
+            Number.isFinite(dataChannel.bufferedAmount) &&
+            dataChannel.bufferedAmount <= FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT
+          );
+        },
         onFatalConnection: (
           ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
         ) => {

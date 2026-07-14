@@ -28,7 +28,20 @@ export function captureUniversalConsole(page: Page, role: 'host' | 'guest'): voi
     void Promise.all(
       message.args().map(async (handle) => {
         try {
-          return await handle.jsonValue();
+          return await handle.evaluate((value) => {
+            const describeError = (error: Error, depth: number): unknown => ({
+              name: error.name,
+              message: error.message,
+              stack: error.stack ?? null,
+              cause:
+                depth < 5 && error.cause instanceof Error
+                  ? describeError(error.cause, depth + 1)
+                  : error.cause === undefined
+                    ? null
+                    : String(error.cause),
+            });
+            return value instanceof Error ? describeError(value, 0) : value;
+          });
         } catch {
           return '[unserializable console argument]';
         }

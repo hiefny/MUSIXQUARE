@@ -1395,6 +1395,7 @@ export class FilePlaybackProductRuntime {
         context,
         hostRoom: active.port,
         publisher: active.publisher,
+        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
         sendRequired: (connection: DataConnection, frame: unknown) =>
           sessions.sendRequired(connection, frame),
         sendWire: <Kind extends keyof FilePlaybackWirePayloadByKind>(

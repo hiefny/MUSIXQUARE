@@ -9,16 +9,25 @@ import type { DataConnection } from '../types/index.ts';
 import {
   createFileMediaPrepareId,
   createPeerRangeFileMediaSourceOfferV2,
+  createPeerRangeManifestFileMediaSourceOfferV2,
   createR2WholeBlobFileMediaSourceOfferV2,
+  derivePeerRangeManifestBundleSize,
+  type AnyPeerRangeFileMediaSourceOfferV2,
   type FileMediaSourceOfferV2,
-  type PeerRangeFileMediaSourceOfferV2,
 } from './file-media-source-offer.ts';
 import { createFileMediaSourceRevokeV2 } from './file-media-source-revoke.ts';
+import {
+  isFilePlaybackPeerRangeManifestCodecEnabled,
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
 import type {
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
   HostLocalTrackSourceLease,
+  HostPeerPlaybackAssetPublication,
   HostPeerPlaybackPublication,
+  HostPeerRangeManifestPublication,
   HostPeerRangeSource,
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
@@ -70,6 +79,7 @@ import {
 import type { EncodedAudioSource } from './sources/encoded-audio-source.ts';
 
 const OPTION_KEYS = Object.freeze([
+  'boundedRoutePolicy',
   'closeConnection',
   'context',
   'hostRoom',
@@ -83,6 +93,7 @@ const OPTION_KEYS = Object.freeze([
 ] as const);
 const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
   (key) =>
+    key !== 'boundedRoutePolicy' &&
     key !== 'resolvePreparedPeerRangeSource' &&
     key !== 'resolveWarmPeerRangeSource' &&
     key !== 'runtimeForTests',
@@ -136,6 +147,13 @@ const READY_KEYS = Object.freeze([
   'sessionId',
 ] as const);
 const ACTIVATE_PREPARED_KEYS = Object.freeze(['prepared', 'timeline'] as const);
+const PEER_RANGE_MANIFEST_KEYS = Object.freeze([
+  'codec',
+  'manifestByteLength',
+  'manifestSha256B64',
+] as const);
+const SHA_256_BYTES = 32;
+const SHA_256_BASE64_LENGTH = 44;
 const PEER_RANGE_BUFFERED_AMOUNT_LIMIT = 256 * 1024;
 export const FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS = 15 * 60 * 1_000;
 const HEALTH_LEASE_MS = 2_000;
@@ -172,6 +190,8 @@ export interface FilePlaybackProductHostMediaOwnerRuntimeForTests {
 }
 
 export interface FilePlaybackProductHostMediaOwnerOptions {
+  /** Fixed for this connection owner and canonicalized before any publication work. */
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
   readonly hostRoom: FilePlaybackProductHostMediaRoomPort;
   readonly publisher: FilePlaybackR2WholeBlobPublisher;
@@ -215,7 +235,7 @@ export interface FilePlaybackProductHostPreparedPublicationCommit {
 export interface FilePlaybackProductHostSourceLeasePublicationCommit {
   readonly schemaVersion: 1;
   readonly sourceLease: HostLocalTrackSourceLease;
-  readonly offer: Readonly<PeerRangeFileMediaSourceOfferV2>;
+  readonly offer: Readonly<AnyPeerRangeFileMediaSourceOfferV2>;
 }
 
 export interface ActivateFilePlaybackProductHostPreparedOptions {
@@ -232,6 +252,13 @@ interface RuntimeSnapshot {
   readonly cancelTimeout: (handle: TimerHandle) => void;
 }
 
+interface PeerRangeOfferPlan {
+  /** Null means the exact direct peer-range route; non-null is an engine-issued selector. */
+  readonly peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null;
+  /** Direct media bytes or the exact `[manifest][media]` bundle bytes exposed by the responder. */
+  readonly expectedSourceSize: number;
+}
+
 interface PublicationRecord {
   readonly epoch: number;
   readonly publication: Readonly<HostPeerPlaybackPublication>;
@@ -239,6 +266,7 @@ interface PublicationRecord {
   readonly binding: Readonly<FilePlaybackRunBindingV2>;
   readonly stateLease: FilePlaybackWireStateLease;
   readonly handleId: string | null;
+  readonly peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null;
   readonly commit: Readonly<FilePlaybackProductHostPublicationCommit>;
   readonly transferredWarmSource: WarmSourceOfferRecord | null;
   participant: RemoteRendezvousParticipant | null;
@@ -259,6 +287,7 @@ interface PreparedPublicationRecord {
   readonly binding: Readonly<FilePlaybackRunBindingV2>;
   stateLease: FilePlaybackWireStateLease | null;
   readonly handleId: string | null;
+  readonly peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null;
   readonly source: CandidateSourceRecord;
   readonly commit: Readonly<FilePlaybackProductHostPreparedPublicationCommit>;
   readonly transferredWarmSource: WarmSourceOfferRecord | null;
@@ -277,8 +306,9 @@ interface WarmSourceOfferRecord {
   readonly epoch: number;
   readonly authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>;
   readonly sourceLease: HostLocalTrackSourceLease;
-  readonly offer: Readonly<PeerRangeFileMediaSourceOfferV2>;
+  readonly offer: Readonly<AnyPeerRangeFileMediaSourceOfferV2>;
   readonly handleId: string;
+  readonly peerRangeOfferPlan: Readonly<PeerRangeOfferPlan>;
   readonly resolve: NonNullable<
     FilePlaybackProductHostMediaOwnerOptions['resolveWarmPeerRangeSource']
   >;
@@ -375,6 +405,34 @@ function snapshotExactRecord(value: unknown, expectedKeys: readonly string[]): E
   } catch {
     return null;
   }
+}
+
+function isCanonicalSha256Base64(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length !== SHA_256_BASE64_LENGTH) return false;
+  try {
+    const decoded = atob(value);
+    return decoded.length === SHA_256_BYTES && btoa(decoded) === value;
+  } catch {
+    return false;
+  }
+}
+
+function samePeerRangeManifestPublication(
+  left: Readonly<HostPeerRangeManifestPublication> | null,
+  right: Readonly<HostPeerRangeManifestPublication> | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.codec === right.codec &&
+    left.manifestByteLength === right.manifestByteLength &&
+    left.manifestSha256B64 === right.manifestSha256B64
+  );
+}
+
+function isAnyPeerRangeOffer(
+  offer: Readonly<FileMediaSourceOfferV2>,
+): offer is Readonly<AnyPeerRangeFileMediaSourceOfferV2> {
+  return offer.transport === 'peer-range' || offer.transport === 'peer-range-manifest';
 }
 
 function snapshotOptions(value: unknown): ExactRecord | null {
@@ -591,6 +649,7 @@ function deferredReadyCapability(): Readonly<{
  * revoking this owner can therefore isolate one peer without stopping either.
  */
 export class FilePlaybackProductHostMediaOwner {
+  readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly #context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
   readonly #hostRoom: FilePlaybackProductHostMediaRoomPort;
   readonly #publisher: FilePlaybackR2WholeBlobPublisher;
@@ -650,10 +709,19 @@ export class FilePlaybackProductHostMediaOwner {
     const input = snapshotOptions(options);
     const context = snapshotExactRecord(input?.context, CONTEXT_KEYS);
     const runtime = runtimeSnapshot(input?.runtimeForTests);
+    let boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | null = null;
+    try {
+      if (input) {
+        boundedRoutePolicy = snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
+      }
+    } catch {
+      // Fold an invalid policy into the constructor's single fail-closed options error.
+    }
     if (
       !input ||
       !context ||
       !runtime ||
+      !boundedRoutePolicy ||
       context.schemaVersion !== 1 ||
       context.role !== 'host' ||
       !(context.channel instanceof FilePlaybackConnectionChannel) ||
@@ -704,6 +772,7 @@ export class FilePlaybackProductHostMediaOwner {
       throw new Error('Host media owner connection context is stale');
     }
 
+    this.#boundedRoutePolicy = boundedRoutePolicy;
     this.#context = input.context as Readonly<FilePlaybackProductSessionRouterConnectionContext>;
     this.#hostRoom = input.hostRoom as FilePlaybackProductHostMediaRoomPort;
     this.#publisher = input.publisher as FilePlaybackR2WholeBlobPublisher;
@@ -1104,6 +1173,10 @@ export class FilePlaybackProductHostMediaOwner {
       throw new Error('Host prepared publication is not activatable');
     }
     const publication = this.#hostRoom.currentPeerPublication();
+    const peerRangeOfferPlan =
+      publication?.backend === 'bounded-stream'
+        ? this.#createPeerRangeOfferPlan(publication.backend, publication.asset)
+        : null;
     if (
       !publication ||
       publication.roomGeneration !== record.prepared.roomGeneration ||
@@ -1119,9 +1192,26 @@ export class FilePlaybackProductHostMediaOwner {
       publication.asset.kind !== record.prepared.asset.kind ||
       publication.asset.metadata.name !== record.prepared.asset.metadata.name ||
       publication.asset.metadata.mime !== record.prepared.asset.metadata.mime ||
-      publication.asset.encodedSize !== record.prepared.asset.encodedSize
+      publication.asset.encodedSize !== record.prepared.asset.encodedSize ||
+      !samePeerRangeManifestPublication(
+        publication.asset.peerRangeManifest,
+        record.prepared.asset.peerRangeManifest,
+      )
     ) {
       throw new Error('Host room did not commit the exact prepared publication');
+    }
+    this.#assertSamePeerRangeOfferPlan(
+      record.peerRangeOfferPlan,
+      peerRangeOfferPlan,
+      'Host committed publication changed its peer-range offer plan',
+    );
+    if (isAnyPeerRangeOffer(record.offer)) {
+      if (!peerRangeOfferPlan) {
+        throw new Error('Host committed publication lost its peer-range offer plan');
+      }
+      this.#assertPeerRangeOfferMatchesPlan(record.offer, peerRangeOfferPlan);
+    } else if (peerRangeOfferPlan !== null) {
+      throw new Error('Host committed publication changed its R2 offer plan');
     }
     const update = createFilePlaybackTimelineUpdateV2({
       sessionId: this.#context.sessionId,
@@ -1154,6 +1244,7 @@ export class FilePlaybackProductHostMediaOwner {
       binding: record.binding,
       stateLease,
       handleId: record.handleId,
+      peerRangeOfferPlan,
       commit,
       transferredWarmSource: record.transferredWarmSource,
       participant: record.participant,
@@ -1207,12 +1298,13 @@ export class FilePlaybackProductHostMediaOwner {
     const resolve = this.#resolveWarmPeerRangeSource;
     if (!resolve) throw new Error('Host warm source resolver is unavailable');
     const asset = authority.asset;
+    const peerRangeOfferPlan = this.#createPeerRangeOfferPlan(authority.backend, asset);
     const exactSource = await awaitWhileOwned(
       Promise.resolve().then(() =>
         resolve({
           sourceLease,
           sourceIdentity: asset.binding.sourceIdentity,
-          peerRangeManifest: null,
+          peerRangeManifest: peerRangeOfferPlan.peerRangeManifest,
           signal: controller.signal,
         }),
       ),
@@ -1227,16 +1319,12 @@ export class FilePlaybackProductHostMediaOwner {
       if (isEncodedSource(exactSource)) await exactSource.close().catch(() => undefined);
       throw error;
     }
-    if (
-      exactSource.size !== asset.encodedSize ||
-      (isEncodedSource(exactSource) &&
-        (exactSource.identity !== asset.binding.sourceIdentity ||
-          exactSource.metadata.name !== asset.metadata.name ||
-          exactSource.metadata.mime !== asset.metadata.mime))
-    ) {
-      if (isEncodedSource(exactSource)) await exactSource.close().catch(() => undefined);
-      throw new Error('Host warm source changed its exact lease binding');
-    }
+    await this.#assertResolvedPeerSource(
+      exactSource,
+      asset,
+      peerRangeOfferPlan,
+      'Host warm source changed its exact lease binding',
+    );
     if (isEncodedSource(exactSource)) await exactSource.close();
     this.#assertWarmSourceOfferTask(authority, sourceLease, epoch, controller);
     const expiresAtRoomTimeMs = this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS;
@@ -1268,7 +1356,7 @@ export class FilePlaybackProductHostMediaOwner {
       // before revision N.
       const prepareRevision = this.#nextPrepareRevision();
       revisionAllocated = true;
-      const offer = createPeerRangeFileMediaSourceOfferV2({
+      const base = {
         sessionId: this.#context.sessionId,
         connectionId: this.#context.connectionId,
         prepareId,
@@ -1281,7 +1369,15 @@ export class FilePlaybackProductHostMediaOwner {
         mime: asset.metadata.mime,
         handleId,
         expiresAtRoomTimeMs,
-      });
+      } as const;
+      const manifest = peerRangeOfferPlan.peerRangeManifest;
+      const offer = manifest
+        ? createPeerRangeManifestFileMediaSourceOfferV2({
+            ...base,
+            manifestByteLength: manifest.manifestByteLength,
+            manifestSha256B64: manifest.manifestSha256B64,
+          })
+        : createPeerRangeFileMediaSourceOfferV2(base);
       const commit = freezeCanonical({ schemaVersion: 1 as const, sourceLease, offer });
       const createdRecord: WarmSourceOfferRecord = {
         epoch,
@@ -1289,6 +1385,7 @@ export class FilePlaybackProductHostMediaOwner {
         sourceLease,
         offer,
         handleId,
+        peerRangeOfferPlan,
         resolve,
         controller,
         commit,
@@ -1346,6 +1443,10 @@ export class FilePlaybackProductHostMediaOwner {
   ): Promise<Readonly<FilePlaybackProductHostPublicationCommit>> {
     await Promise.resolve();
     this.#assertPublicationAuthority(publication, epoch);
+    const peerRangeOfferPlan =
+      publication.backend === 'bounded-stream'
+        ? this.#createPeerRangeOfferPlan(publication.backend, publication.asset)
+        : null;
     let peerRangeExpiresAtRoomTimeMs: number | null = null;
     let r2OfferFields: Readonly<{
       storageRoomId: string;
@@ -1365,7 +1466,7 @@ export class FilePlaybackProductHostMediaOwner {
           this.#hostRoom.resolveCurrentPeerRangeSource({
             publication,
             sourceIdentity: publication.asset.binding.sourceIdentity,
-            peerRangeManifest: null,
+            peerRangeManifest: peerRangeOfferPlan?.peerRangeManifest ?? null,
             signal,
           }),
         ),
@@ -1443,15 +1544,27 @@ export class FilePlaybackProductHostMediaOwner {
       revisionAllocated = true;
       let offer: Readonly<FileMediaSourceOfferV2>;
       if (publication.backend === 'bounded-stream') {
-        if (handleId === null || peerRangeExpiresAtRoomTimeMs === null) {
+        if (
+          handleId === null ||
+          peerRangeExpiresAtRoomTimeMs === null ||
+          peerRangeOfferPlan === null
+        ) {
           throw new Error('Host peer-range offer plan is incomplete');
         }
-        offer = createPeerRangeFileMediaSourceOfferV2({
+        const peerBase = {
           ...base,
           prepareRevision,
           handleId,
           expiresAtRoomTimeMs: peerRangeExpiresAtRoomTimeMs,
-        });
+        } as const;
+        const manifest = peerRangeOfferPlan.peerRangeManifest;
+        offer = manifest
+          ? createPeerRangeManifestFileMediaSourceOfferV2({
+              ...peerBase,
+              manifestByteLength: manifest.manifestByteLength,
+              manifestSha256B64: manifest.manifestSha256B64,
+            })
+          : createPeerRangeFileMediaSourceOfferV2(peerBase);
       } else {
         if (!r2OfferFields) throw new Error('Host R2 offer plan is incomplete');
         offer = createR2WholeBlobFileMediaSourceOfferV2({
@@ -1485,6 +1598,7 @@ export class FilePlaybackProductHostMediaOwner {
         binding,
         stateLease,
         handleId,
+        peerRangeOfferPlan,
         commit,
         transferredWarmSource: null,
         participant: null,
@@ -1510,6 +1624,10 @@ export class FilePlaybackProductHostMediaOwner {
   ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> {
     await Promise.resolve();
     this.#assertPreparedCandidateAuthority(prepared, epoch);
+    const peerRangeOfferPlan =
+      prepared.backend === 'bounded-stream'
+        ? this.#createPeerRangeOfferPlan(prepared.backend, prepared.asset)
+        : null;
     const resolve = this.#resolvePreparedPeerRangeSource;
     if (!resolve) throw new Error('Host prepared source resolver is unavailable');
     const signal = this.#candidateSignal(epoch);
@@ -1521,7 +1639,7 @@ export class FilePlaybackProductHostMediaOwner {
         resolve({
           prepared,
           sourceIdentity: prepared.asset.binding.sourceIdentity,
-          peerRangeManifest: null,
+          peerRangeManifest: peerRangeOfferPlan?.peerRangeManifest ?? null,
           signal,
         }),
       ),
@@ -1536,16 +1654,12 @@ export class FilePlaybackProductHostMediaOwner {
       if (isEncodedSource(exactSource)) await exactSource.close().catch(() => undefined);
       throw error;
     }
-    if (
-      exactSource.size !== prepared.asset.encodedSize ||
-      (isEncodedSource(exactSource) &&
-        (exactSource.identity !== prepared.asset.binding.sourceIdentity ||
-          exactSource.metadata.name !== prepared.asset.metadata.name ||
-          exactSource.metadata.mime !== prepared.asset.metadata.mime))
-    ) {
-      if (isEncodedSource(exactSource)) await exactSource.close().catch(() => undefined);
-      throw new Error('Host prepared source changed its exact candidate binding');
-    }
+    await this.#assertResolvedPeerSource(
+      exactSource,
+      prepared.asset,
+      peerRangeOfferPlan,
+      'Host prepared source changed its exact candidate binding',
+    );
 
     let exactSourceClosed = false;
     if (warmAtStart && this.#canTransferWarmSourceToPrepared(prepared, warmAtStart)) {
@@ -1555,7 +1669,16 @@ export class FilePlaybackProductHostMediaOwner {
       }
       this.#assertPreparedCandidateAuthority(prepared, epoch);
       if (this.#canTransferWarmSourceToPrepared(prepared, warmAtStart)) {
-        return this.#transferWarmSourceToPrepared(prepared, epoch, warmAtStart, resolve);
+        if (!peerRangeOfferPlan) {
+          throw new Error('Host prepared peer-range offer plan is unavailable');
+        }
+        return this.#transferWarmSourceToPrepared(
+          prepared,
+          epoch,
+          warmAtStart,
+          resolve,
+          peerRangeOfferPlan,
+        );
       }
     }
 
@@ -1647,15 +1770,27 @@ export class FilePlaybackProductHostMediaOwner {
       revisionAllocated = true;
       let offer: Readonly<FileMediaSourceOfferV2>;
       if (prepared.backend === 'bounded-stream') {
-        if (handleId === null || peerRangeExpiresAtRoomTimeMs === null) {
+        if (
+          handleId === null ||
+          peerRangeExpiresAtRoomTimeMs === null ||
+          peerRangeOfferPlan === null
+        ) {
           throw new Error('Host prepared peer-range offer plan is incomplete');
         }
-        offer = createPeerRangeFileMediaSourceOfferV2({
+        const peerBase = {
           ...base,
           prepareRevision,
           handleId,
           expiresAtRoomTimeMs: peerRangeExpiresAtRoomTimeMs,
-        });
+        } as const;
+        const manifest = peerRangeOfferPlan.peerRangeManifest;
+        offer = manifest
+          ? createPeerRangeManifestFileMediaSourceOfferV2({
+              ...peerBase,
+              manifestByteLength: manifest.manifestByteLength,
+              manifestSha256B64: manifest.manifestSha256B64,
+            })
+          : createPeerRangeFileMediaSourceOfferV2(peerBase);
       } else {
         if (!r2OfferFields) throw new Error('Host prepared R2 offer plan is incomplete');
         offer = createR2WholeBlobFileMediaSourceOfferV2({
@@ -1669,6 +1804,7 @@ export class FilePlaybackProductHostMediaOwner {
         prepared,
         offer,
         handleId,
+        peerRangeOfferPlan,
         resolve,
         transferredWarmSource: null,
         offerSent: false,
@@ -1696,6 +1832,7 @@ export class FilePlaybackProductHostMediaOwner {
       prepared: Readonly<HostPreparedLocalTrack>;
       offer: Readonly<FileMediaSourceOfferV2>;
       handleId: string | null;
+      peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null;
       resolve: NonNullable<
         FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']
       >;
@@ -1729,6 +1866,7 @@ export class FilePlaybackProductHostMediaOwner {
       binding,
       stateLease: null,
       handleId: options.handleId,
+      peerRangeOfferPlan: options.peerRangeOfferPlan,
       source: freezeCanonical({ prepared: options.prepared, resolve: options.resolve }),
       commit,
       transferredWarmSource: options.transferredWarmSource,
@@ -1830,7 +1968,8 @@ export class FilePlaybackProductHostMediaOwner {
       prepared.asset.binding.transferSessionId !== asset.binding.transferSessionId ||
       prepared.asset.metadata.name !== asset.metadata.name ||
       prepared.asset.metadata.mime !== asset.metadata.mime ||
-      prepared.asset.encodedSize !== asset.encodedSize
+      prepared.asset.encodedSize !== asset.encodedSize ||
+      !samePeerRangeManifestPublication(prepared.asset.peerRangeManifest, asset.peerRangeManifest)
     ) {
       throw new Error('Host prepared source contradicts the exact warm offer');
     }
@@ -1872,18 +2011,26 @@ export class FilePlaybackProductHostMediaOwner {
     resolve: NonNullable<
       FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']
     >,
+    peerRangeOfferPlan: Readonly<PeerRangeOfferPlan>,
   ): Readonly<FilePlaybackProductHostPreparedPublicationCommit> {
     this.#assertPreparedCandidateAuthority(prepared, epoch);
     this.#assertPreparedMatchesWarmSource(prepared, warm);
     if (!this.#canTransferWarmSourceToPrepared(prepared, warm)) {
       throw new Error('Host warm source offer transfer authority raced away');
     }
+    this.#assertSamePeerRangeOfferPlan(
+      warm.peerRangeOfferPlan,
+      peerRangeOfferPlan,
+      'Host warm source offer changed its manifest plan during transfer',
+    );
+    this.#assertPeerRangeOfferMatchesPlan(warm.offer, peerRangeOfferPlan);
 
     const record = this.#createPreparedPublicationRecord({
       epoch,
       prepared,
       offer: warm.offer,
       handleId: warm.handleId,
+      peerRangeOfferPlan,
       resolve,
       transferredWarmSource: warm,
       offerSent: true,
@@ -2154,21 +2301,21 @@ export class FilePlaybackProductHostMediaOwner {
       candidate !== null &&
       hasPreparedSourceAuthority(candidate) &&
       candidate.handleId === frame.handleId &&
-      candidate.offer.transport === 'peer-range'
+      isAnyPeerRangeOffer(candidate.offer)
         ? {
             handleId: candidate.handleId,
             sourceIdentity: candidate.prepared.asset.binding.sourceIdentity,
           }
         : current?.status === 'published' &&
             current.handleId === frame.handleId &&
-            current.offer.transport === 'peer-range'
+            isAnyPeerRangeOffer(current.offer)
           ? {
               handleId: current.handleId,
               sourceIdentity: current.publication.asset.binding.sourceIdentity,
             }
           : warm?.status === 'offered' &&
               warm.handleId === frame.handleId &&
-              warm.offer.transport === 'peer-range'
+              isAnyPeerRangeOffer(warm.offer)
             ? {
                 handleId: warm.handleId,
                 sourceIdentity: warm.authority.asset.binding.sourceIdentity,
@@ -2492,33 +2639,47 @@ export class FilePlaybackProductHostMediaOwner {
     if (
       candidate !== null &&
       hasPreparedSourceAuthority(candidate) &&
-      candidate.offer.transport === 'peer-range' &&
+      isAnyPeerRangeOffer(candidate.offer) &&
       (handleId === null || handleId === candidate.handleId) &&
       sourceIdentity === candidate.prepared.asset.binding.sourceIdentity
     ) {
+      const peerRangeOfferPlan = this.#requirePeerRangeOfferPlan(
+        candidate.offer,
+        candidate.peerRangeOfferPlan,
+      );
       const source = await candidate.source.resolve({
         prepared: candidate.prepared,
         sourceIdentity,
-        peerRangeManifest: null,
+        peerRangeManifest: peerRangeOfferPlan.peerRangeManifest,
         signal,
       });
       if (this.#closed || this.#candidate !== candidate || !hasPreparedSourceAuthority(candidate)) {
         if (isEncodedSource(source)) await source.close().catch(() => undefined);
         return null;
       }
+      await this.#assertResolvedPeerSource(
+        source,
+        candidate.prepared.asset,
+        peerRangeOfferPlan,
+        'Host prepared peer source changed its exact offer binding',
+      );
       return source;
     }
     const record = this.#publication;
     if (
       record &&
-      record.offer.transport === 'peer-range' &&
+      isAnyPeerRangeOffer(record.offer) &&
       (handleId === null || handleId === record.handleId) &&
       sourceIdentity === record.publication.asset.binding.sourceIdentity
     ) {
+      const peerRangeOfferPlan = this.#requirePeerRangeOfferPlan(
+        record.offer,
+        record.peerRangeOfferPlan,
+      );
       const source = await this.#hostRoom.resolveCurrentPeerRangeSource({
         publication: record.publication,
         sourceIdentity,
-        peerRangeManifest: null,
+        peerRangeManifest: peerRangeOfferPlan.peerRangeManifest,
         signal,
       });
       if (this.#closed || this.#publication !== record) {
@@ -2529,6 +2690,12 @@ export class FilePlaybackProductHostMediaOwner {
         if (isEncodedSource(source)) await source.close().catch(() => undefined);
         return null;
       }
+      await this.#assertResolvedPeerSource(
+        source,
+        record.publication.asset,
+        peerRangeOfferPlan,
+        'Host current peer source changed its exact offer binding',
+      );
       return source;
     }
 
@@ -2536,16 +2703,17 @@ export class FilePlaybackProductHostMediaOwner {
     if (
       !warm ||
       warm.status !== 'offered' ||
-      warm.offer.transport !== 'peer-range' ||
+      !isAnyPeerRangeOffer(warm.offer) ||
       (handleId !== null && handleId !== warm.handleId) ||
       sourceIdentity !== warm.authority.asset.binding.sourceIdentity
     ) {
       return null;
     }
+    this.#assertPeerRangeOfferMatchesPlan(warm.offer, warm.peerRangeOfferPlan);
     const source = await warm.resolve({
       sourceLease: warm.sourceLease,
       sourceIdentity,
-      peerRangeManifest: null,
+      peerRangeManifest: warm.peerRangeOfferPlan.peerRangeManifest,
       signal,
     });
     const stillWarm = this.#warmOffer === warm && warm.status === 'offered';
@@ -2553,17 +2721,12 @@ export class FilePlaybackProductHostMediaOwner {
       if (isEncodedSource(source)) await source.close().catch(() => undefined);
       return null;
     }
-    const asset = warm.authority.asset;
-    if (
-      source.size !== asset.encodedSize ||
-      (isEncodedSource(source) &&
-        (source.identity !== asset.binding.sourceIdentity ||
-          source.metadata.name !== asset.metadata.name ||
-          source.metadata.mime !== asset.metadata.mime))
-    ) {
-      if (isEncodedSource(source)) await source.close().catch(() => undefined);
-      throw new Error('Host warm peer source changed its exact offer binding');
-    }
+    await this.#assertResolvedPeerSource(
+      source,
+      warm.authority.asset,
+      warm.peerRangeOfferPlan,
+      'Host warm peer source changed its exact offer binding',
+    );
     return source;
   }
 
@@ -2967,6 +3130,113 @@ export class FilePlaybackProductHostMediaOwner {
     return sourceLease;
   }
 
+  #createPeerRangeOfferPlan(
+    backend: HostPreparedLocalTrack['backend'],
+    asset: Readonly<HostPeerPlaybackAssetPublication>,
+  ): Readonly<PeerRangeOfferPlan> {
+    if (backend !== 'bounded-stream') {
+      throw new Error('Host peer-range offer plan requires a bounded publication');
+    }
+    if (!Number.isSafeInteger(asset.encodedSize) || asset.encodedSize <= 0) {
+      throw new Error('Host peer-range media size is invalid');
+    }
+    const issued = asset.peerRangeManifest;
+    if (issued === null) {
+      return freezeCanonical({ peerRangeManifest: null, expectedSourceSize: asset.encodedSize });
+    }
+    const diagnostics = snapshotExactRecord(issued, PEER_RANGE_MANIFEST_KEYS);
+    if (
+      !diagnostics ||
+      (diagnostics.codec !== 'adts-aac-lc' && diagnostics.codec !== 'mp3-no-frame-count') ||
+      !Number.isSafeInteger(diagnostics.manifestByteLength) ||
+      !isCanonicalSha256Base64(diagnostics.manifestSha256B64)
+    ) {
+      throw new Error('Host peer-range manifest diagnostics are invalid');
+    }
+    const manifest = issued as Readonly<HostPeerRangeManifestPublication>;
+    const bundleSize = derivePeerRangeManifestBundleSize(
+      asset.encodedSize,
+      manifest.manifestByteLength,
+    );
+    if (bundleSize === null) {
+      throw new Error('Host peer-range manifest bundle geometry is invalid');
+    }
+    if (!isFilePlaybackPeerRangeManifestCodecEnabled(this.#boundedRoutePolicy, manifest.codec)) {
+      return freezeCanonical({ peerRangeManifest: null, expectedSourceSize: asset.encodedSize });
+    }
+    return freezeCanonical({ peerRangeManifest: manifest, expectedSourceSize: bundleSize });
+  }
+
+  #assertSamePeerRangeOfferPlan(
+    left: Readonly<PeerRangeOfferPlan> | null,
+    right: Readonly<PeerRangeOfferPlan> | null,
+    message: string,
+  ): void {
+    if (
+      left === null ||
+      right === null ||
+      left.expectedSourceSize !== right.expectedSourceSize ||
+      !samePeerRangeManifestPublication(left.peerRangeManifest, right.peerRangeManifest)
+    ) {
+      if (left === null && right === null) return;
+      throw new Error(message);
+    }
+  }
+
+  #assertPeerRangeOfferMatchesPlan(
+    offer: Readonly<AnyPeerRangeFileMediaSourceOfferV2>,
+    plan: Readonly<PeerRangeOfferPlan>,
+  ): void {
+    const manifest = plan.peerRangeManifest;
+    if (manifest === null) {
+      if (offer.transport !== 'peer-range' || offer.encodedSize !== plan.expectedSourceSize) {
+        throw new Error('Host direct peer-range offer changed its exact plan');
+      }
+      return;
+    }
+    if (
+      offer.transport !== 'peer-range-manifest' ||
+      offer.manifestByteLength !== manifest.manifestByteLength ||
+      offer.manifestSha256B64 !== manifest.manifestSha256B64 ||
+      derivePeerRangeManifestBundleSize(offer.encodedSize, offer.manifestByteLength) !==
+        plan.expectedSourceSize
+    ) {
+      throw new Error('Host manifest peer-range offer changed its exact plan');
+    }
+  }
+
+  #requirePeerRangeOfferPlan(
+    offer: Readonly<AnyPeerRangeFileMediaSourceOfferV2>,
+    plan: Readonly<PeerRangeOfferPlan> | null,
+  ): Readonly<PeerRangeOfferPlan> {
+    if (!plan) throw new Error('Host peer-range offer lost its exact plan');
+    this.#assertPeerRangeOfferMatchesPlan(offer, plan);
+    return plan;
+  }
+
+  async #assertResolvedPeerSource(
+    source: HostPeerRangeSource,
+    asset: Readonly<HostPeerPlaybackAssetPublication>,
+    plan: Readonly<PeerRangeOfferPlan> | null,
+    message: string,
+  ): Promise<void> {
+    const expectedSourceSize = plan?.expectedSourceSize ?? asset.encodedSize;
+    const encodedSource = isEncodedSource(source) ? source : null;
+    const manifestRequiresEncodedSource = plan !== null && plan.peerRangeManifest !== null;
+    if (
+      source.size === expectedSourceSize &&
+      (!manifestRequiresEncodedSource || encodedSource !== null) &&
+      (!encodedSource ||
+        (encodedSource.identity === asset.binding.sourceIdentity &&
+          encodedSource.metadata.name === asset.metadata.name &&
+          encodedSource.metadata.mime === asset.metadata.mime))
+    ) {
+      return;
+    }
+    if (encodedSource) await encodedSource.close().catch(() => undefined);
+    throw new Error(message);
+  }
+
   #sameWarmSourceOfferBinding(
     left: Readonly<FilePlaybackProductHostLocalTrackWarmResult>,
     right: Readonly<FilePlaybackProductHostLocalTrackWarmResult>,
@@ -2984,7 +3254,8 @@ export class FilePlaybackProductHostMediaOwner {
       left.asset.binding.transferSessionId === right.asset.binding.transferSessionId &&
       left.asset.metadata.name === right.asset.metadata.name &&
       left.asset.metadata.mime === right.asset.metadata.mime &&
-      left.asset.encodedSize === right.asset.encodedSize
+      left.asset.encodedSize === right.asset.encodedSize &&
+      samePeerRangeManifestPublication(left.asset.peerRangeManifest, right.asset.peerRangeManifest)
     );
   }
 
@@ -3016,6 +3287,10 @@ export class FilePlaybackProductHostMediaOwner {
     ) {
       throw new Error('Host warm source offer was superseded');
     }
+    if (record.offer.handleId !== record.handleId) {
+      throw new Error('Host warm source offer changed its exact handle');
+    }
+    this.#assertPeerRangeOfferMatchesPlan(record.offer, record.peerRangeOfferPlan);
   }
 
   #assertPreparedCandidateAuthority(
@@ -3040,6 +3315,14 @@ export class FilePlaybackProductHostMediaOwner {
     this.#assertPreparedCandidateAuthority(record.prepared, record.epoch);
     if (this.#candidate !== record || record.status === 'retired') {
       throw new Error('Host prepared publication was superseded');
+    }
+    if (isAnyPeerRangeOffer(record.offer)) {
+      if (record.handleId !== record.offer.handleId) {
+        throw new Error('Host prepared peer-range publication changed its exact handle');
+      }
+      this.#requirePeerRangeOfferPlan(record.offer, record.peerRangeOfferPlan);
+    } else if (record.peerRangeOfferPlan !== null || record.handleId !== null) {
+      throw new Error('Host prepared R2 publication changed its exact plan');
     }
   }
 
@@ -3068,6 +3351,14 @@ export class FilePlaybackProductHostMediaOwner {
   #assertRecord(record: PublicationRecord): void {
     this.#assertPublicationAuthority(record.publication, record.epoch);
     if (this.#publication !== record) throw new Error('Host media publication was superseded');
+    if (isAnyPeerRangeOffer(record.offer)) {
+      if (record.handleId !== record.offer.handleId) {
+        throw new Error('Host peer-range publication changed its exact handle');
+      }
+      this.#requirePeerRangeOfferPlan(record.offer, record.peerRangeOfferPlan);
+    } else if (record.peerRangeOfferPlan !== null || record.handleId !== null) {
+      throw new Error('Host R2 publication changed its exact plan');
+    }
   }
 
   #assertConnection(): void {

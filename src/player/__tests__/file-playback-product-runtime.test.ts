@@ -1742,6 +1742,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(hostOwnerOptions?.context).toBe(context);
     expect(hostOwnerOptions?.hostRoom).toBe(setup.hostRooms[0]?.port);
     expect(hostOwnerOptions?.publisher).toBe(publisher);
+    expect(hostOwnerOptions).not.toHaveProperty('boundedRoutePolicy');
     expect(wrappedOwner).not.toBe(hostOwner);
     expect(hostOwnerOptions?.sendRequired(peer, freezeCanonical({ type: 'fixture' }))).toBe(true);
     expect(setup.sessions.sendRequired).toHaveBeenCalledWith(peer, { type: 'fixture' });
@@ -2444,7 +2445,22 @@ describe('FilePlaybackProductRuntime', () => {
 
   it('pins one opt-in bounded route policy across host and guest room owners', () => {
     const routers: ProductRouterHarness[] = [];
+    let hostOwnerOptions: Readonly<FilePlaybackProductHostMediaOwnerOptions> | null = null;
     let guestOwnerOptions: Readonly<FilePlaybackProductGuestMediaOwnerOptions> | null = null;
+    const hostOwner = Object.freeze({
+      onHostReady: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeControl: vi.fn(),
+      revoke: vi.fn(),
+      publishCurrent: vi.fn(),
+      publishSourceLease: vi.fn(),
+      retireSourceLease: vi.fn(),
+      publishPrepared: vi.fn(),
+      bindPrepared: vi.fn(),
+      whenPreparedRemoteReady: vi.fn(),
+      activatePrepared: vi.fn(),
+      retirePrepared: vi.fn(),
+    });
     const guestOwner = Object.freeze({
       onTimelineAdopted: vi.fn(),
       onTimelineUpdated: vi.fn(),
@@ -2461,6 +2477,10 @@ describe('FilePlaybackProductRuntime', () => {
           routers.push(candidate);
           return candidate.port;
         },
+        createHostMediaOwner: (options) => {
+          hostOwnerOptions = options;
+          return hostOwner;
+        },
         createGuestMediaOwner: (options) => {
           guestOwnerOptions = options;
           return guestOwner;
@@ -2471,6 +2491,14 @@ describe('FilePlaybackProductRuntime', () => {
 
     setup.runtime.beginHostRoom('bounded-policy-host');
     expect(setup.hostRooms[0]?.options.boundedRoutePolicy).toBe(
+      FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
+    );
+    const hostContext = routerContext('host', {
+      connection: connection(),
+      suffix: 'bounded-policy-host-owner',
+    });
+    routers[0]!.options.createHostMediaOwner(hostContext);
+    expect(hostOwnerOptions?.boundedRoutePolicy).toBe(
       FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
     );
     setup.runtime.endRoom();

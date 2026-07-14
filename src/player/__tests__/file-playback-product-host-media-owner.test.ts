@@ -11,11 +11,17 @@ import type {
   HostLocalTrackSourceLease,
   HostPreparedLocalTrack,
   HostPeerPlaybackPublication,
+  HostPeerRangeManifestPublication,
   HostPeerRangeSource,
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
   ResolveWarmHostPeerRangeSourceOptions,
 } from '../file-playback-host-first-file-engine.ts';
+import {
+  FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY,
+  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+} from '../file-playback-bounded-route-policy.ts';
+import { derivePeerRangeManifestBundleSize } from '../file-media-source-offer.ts';
 import { fileMediaSourceRevokeMatchesOfferV2 } from '../file-media-source-revoke.ts';
 import {
   FilePlaybackProductHostMediaOwner,
@@ -25,13 +31,28 @@ import type { FilePlaybackProductHostLocalTrackWarmResult } from '../file-playba
 import { FilePlaybackR2WholeBlobPublisher } from '../file-playback-r2-whole-blob-publisher.ts';
 import type { HostRendezvousAttempt } from '../rendezvous-coordinator.ts';
 import type { FilePlaybackWireMessage } from '../file-playback-wire.ts';
-import { createPeerRangeReadFrame } from '../sources/peer-range-protocol.ts';
+import {
+  createPeerRangeReadFrame,
+  parsePeerRangeBulkFrame,
+} from '../sources/peer-range-protocol.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 
 const QID = '98000000-0000-4000-8000-000000000001' as QueueItemId;
 const RUN_ID = '98000000-0000-4000-8000-000000000002';
 const QID_2 = '98000000-0000-4000-8000-000000000003' as QueueItemId;
 const RUN_ID_2 = '98000000-0000-4000-8000-000000000004';
+const MANIFEST_SHA256_B64 = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=';
+
+function manifestDiagnostics(
+  overrides: Partial<HostPeerRangeManifestPublication> = {},
+): Readonly<HostPeerRangeManifestPublication> {
+  return freezeCanonical({
+    codec: 'adts-aac-lc' as const,
+    manifestByteLength: 128,
+    manifestSha256B64: MANIFEST_SHA256_B64,
+    ...overrides,
+  });
+}
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
@@ -146,6 +167,7 @@ function publication(
   backend: 'audio-buffer' | 'bounded-stream',
   blob: Blob,
   phase: 'paused' | 'playing' = 'playing',
+  peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null = null,
 ): Readonly<HostPeerPlaybackPublication> {
   const state = freezeCanonical({ queueItemId: QID, runId: RUN_ID, revision: 1 });
   return freezeCanonical({
@@ -174,7 +196,7 @@ function publication(
         mime: backend === 'bounded-stream' ? 'audio/flac' : 'audio/mpeg',
       }),
       encodedSize: blob.size,
-      peerRangeManifest: null,
+      peerRangeManifest,
     }),
   });
 }
@@ -184,6 +206,7 @@ function preparedTrack(
   encodedSize: number,
   state = freezeCanonical({ queueItemId: QID, runId: RUN_ID, revision: 1 }),
   sourceLease: HostLocalTrackSourceLease | null = null,
+  peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null = null,
 ): Readonly<HostPreparedLocalTrack> {
   return freezeCanonical({
     schemaVersion: 1 as const,
@@ -205,7 +228,7 @@ function preparedTrack(
         mime: backend === 'bounded-stream' ? 'audio/flac' : 'audio/mpeg',
       }),
       encodedSize,
-      peerRangeManifest: null,
+      peerRangeManifest,
     }),
   });
 }
@@ -255,6 +278,38 @@ function encodedPreparedSource(
   };
 }
 
+function encodedBundleSource(
+  asset: Readonly<HostPreparedLocalTrack['asset']>,
+  bytes: Uint8Array,
+  close = vi.fn(async () => undefined),
+): EncodedAudioSource {
+  return {
+    kind: 'peer-range',
+    size: bytes.byteLength,
+    identity: asset.binding.sourceIdentity,
+    metadata: {
+      name: asset.metadata.name,
+      mime: asset.metadata.mime,
+    },
+    readAt: vi.fn(async (offset: number, length: number) => bytes.slice(offset, offset + length)),
+    close,
+  };
+}
+
+function manifestBundle(
+  manifest: Readonly<HostPeerRangeManifestPublication>,
+  media = Uint8Array.of(201, 202, 203, 204),
+): Readonly<{ manifestBytes: Uint8Array; mediaBytes: Uint8Array; bytes: Uint8Array }> {
+  const manifestBytes = new Uint8Array(manifest.manifestByteLength);
+  for (let index = 0; index < manifestBytes.byteLength; index += 1) {
+    manifestBytes[index] = (index % 251) + 1;
+  }
+  const bytes = new Uint8Array(manifestBytes.byteLength + media.byteLength);
+  bytes.set(manifestBytes, 0);
+  bytes.set(media, manifestBytes.byteLength);
+  return Object.freeze({ manifestBytes, mediaBytes: media, bytes });
+}
+
 function warmSourceLease(): HostLocalTrackSourceLease {
   return freezeCanonical({}) as unknown as HostLocalTrackSourceLease;
 }
@@ -264,6 +319,7 @@ function warmAuthority(
   sourceLease: HostLocalTrackSourceLease,
   suffix = 'warm',
   sourceIdentity = `host-owner-${suffix}-source`,
+  peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null = null,
 ): Readonly<FilePlaybackProductHostLocalTrackWarmResult> {
   return freezeCanonical({
     schemaVersion: 1 as const,
@@ -284,7 +340,36 @@ function warmAuthority(
         mime: 'audio/flac',
       }),
       encodedSize: 4,
-      peerRangeManifest: null,
+      peerRangeManifest,
+    }),
+    readiness: freezeCanonical({
+      durationSeconds: 120,
+      bufferedAheadSeconds: 8,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    }),
+    sourceLease,
+  });
+}
+
+function matchingWarmAuthorityWithManifest(
+  pair: ConnectionPair,
+  sourceLease: HostLocalTrackSourceLease,
+  prepared: Readonly<HostPreparedLocalTrack>,
+  peerRangeManifest: Readonly<HostPeerRangeManifestPublication>,
+): Readonly<FilePlaybackProductHostLocalTrackWarmResult> {
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    roomGeneration: prepared.roomGeneration,
+    applicationSessionId: pair.context.sessionId,
+    hostParticipantId: pair.context.hostParticipantId,
+    status: 'warmed' as const,
+    backend: 'bounded-stream' as const,
+    asset: freezeCanonical({
+      ...prepared.asset,
+      binding: freezeCanonical({ ...prepared.asset.binding }),
+      metadata: freezeCanonical({ ...prepared.asset.metadata }),
+      peerRangeManifest,
     }),
     readiness: freezeCanonical({
       durationSeconds: 120,
@@ -526,6 +611,7 @@ function requestPeerRange(
   options: Readonly<{
     sourceIdentity: string;
     handleId: string;
+    offset?: number;
     totalLength: number;
     requestId: string;
   }>,
@@ -538,7 +624,7 @@ function requestPeerRange(
         sourceIdentity: options.sourceIdentity,
         handleId: options.handleId,
         requestId: options.requestId,
-        offset: 0,
+        offset: options.offset ?? 0,
         totalLength: options.totalLength,
       }),
       lane: 'control' as const,
@@ -550,6 +636,27 @@ function requestPeerRange(
     acknowledge,
   );
   expect(acknowledge).toHaveBeenCalledOnce();
+}
+
+function peerRangeChunkBytes(required: readonly unknown[], requestId: string): Uint8Array {
+  const frames = required
+    .filter((frame) => (frame as { type?: string }).type === 'chunk')
+    .map((frame) => parsePeerRangeBulkFrame(frame))
+    .filter((frame) => frame.type === 'chunk' && frame.requestId === requestId)
+    .sort((left, right) => left.chunkIndex - right.chunkIndex);
+  const totalLength = frames.reduce(
+    (length, frame) => length + (frame.type === 'chunk' ? frame.payload.byteLength : 0),
+    0,
+  );
+  const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const frame of frames) {
+    if (frame.type !== 'chunk') continue;
+    const chunk = new Uint8Array(frame.payload);
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 describe('FilePlaybackProductHostMediaOwner', () => {
@@ -3600,5 +3707,647 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     await expect(owner.publishCurrent()).rejects.toThrow(/closed/u);
 
     await r2.close();
+  });
+
+  it.each([
+    { label: 'omitted policy', boundedRoutePolicy: undefined },
+    {
+      label: 'explicit current policy',
+      boundedRoutePolicy: FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY,
+    },
+  ])(
+    'keeps non-null manifest diagnostics on a direct offer under $label',
+    async ({ boundedRoutePolicy }) => {
+      const pair = connectionPair(() => 1_000);
+      const selector = manifestDiagnostics();
+      const prepared = preparedTrack('bounded-stream', 4, undefined, null, selector);
+      const required: unknown[] = [];
+      const resolvePrepared = vi.fn(async () => encodedPreparedSource(prepared));
+      const owner = new FilePlaybackProductHostMediaOwner({
+        ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
+        context: pair.context,
+        hostRoom: roomPort(
+          () => null,
+          () => new Blob(),
+          [],
+        ),
+        publisher: publisher(),
+        resolvePreparedPeerRangeSource: resolvePrepared,
+        sendRequired: (_connection, frame) => {
+          required.push(frame);
+          return true;
+        },
+        sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+        closeConnection: vi.fn(),
+        onHealthSystemMessage: vi.fn(),
+        runtimeForTests: {
+          createMediaIdForTests: ids(),
+          scheduleIntervalForTests: () => 'host-owner-direct-policy-health',
+          cancelIntervalForTests: vi.fn(),
+        },
+      });
+
+      const published = await owner.publishPrepared(prepared);
+      expect(published.offer.transport).toBe('peer-range');
+      if (published.offer.transport !== 'peer-range') throw new Error('direct offer unavailable');
+      requestPeerRange(pair, owner, {
+        sourceIdentity: published.offer.sourceIdentity,
+        handleId: published.offer.handleId,
+        totalLength: published.offer.encodedSize,
+        requestId: '98000000-0000-4000-8000-000000000091',
+      });
+      await drain(64);
+
+      expect(resolvePrepared).toHaveBeenCalledTimes(2);
+      expect(resolvePrepared.mock.calls.map(([options]) => options.peerRangeManifest)).toEqual([
+        null,
+        null,
+      ]);
+      expect(
+        required.filter(
+          (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+        ),
+      ).toEqual([published.offer]);
+      owner.port().revoke(pair.context);
+    },
+  );
+
+  it('serves one opt-in warm manifest bundle with the exact selector and media-sized offer', async () => {
+    const pair = connectionPair(() => 1_000);
+    const selector = manifestDiagnostics();
+    const sourceLease = warmSourceLease();
+    const authority = warmAuthority(
+      pair,
+      sourceLease,
+      'warm-manifest',
+      'host-owner-warm-manifest-source',
+      selector,
+    );
+    const bundle = manifestBundle(selector);
+    const expectedBundleSize = derivePeerRangeManifestBundleSize(
+      authority.asset.encodedSize,
+      selector.manifestByteLength,
+    );
+    if (expectedBundleSize === null) throw new Error('fixture bundle size unavailable');
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const closes: ReturnType<typeof vi.fn>[] = [];
+    const resolveWarm = vi.fn(async () => {
+      const close = vi.fn(async () => undefined);
+      closes.push(close);
+      return encodedBundleSource(authority.asset, bundle.bytes, close);
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-warm-manifest-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const published = await owner.publishSourceLease(authority);
+    expect(published.offer).toMatchObject({
+      transport: 'peer-range-manifest',
+      encodedSize: authority.asset.encodedSize,
+      manifestByteLength: selector.manifestByteLength,
+      manifestSha256B64: selector.manifestSha256B64,
+    });
+    if (published.offer.transport !== 'peer-range-manifest') {
+      throw new Error('warm manifest offer unavailable');
+    }
+    expect(expectedBundleSize).toBe(bundle.bytes.byteLength);
+    expect(resolveWarm).toHaveBeenCalledOnce();
+    expect(resolveWarm.mock.calls[0]?.[0].peerRangeManifest).toBe(selector);
+    expect(closes[0]).toHaveBeenCalledOnce();
+
+    const requestId = '98000000-0000-4000-8000-000000000092';
+    requestPeerRange(pair, owner, {
+      sourceIdentity: published.offer.sourceIdentity,
+      handleId: published.offer.handleId,
+      offset: selector.manifestByteLength - 2,
+      totalLength: 4,
+      requestId,
+    });
+    await drain(64);
+    expect(resolveWarm).toHaveBeenCalledTimes(2);
+    expect(resolveWarm.mock.calls.map(([options]) => options.peerRangeManifest)).toEqual([
+      selector,
+      selector,
+    ]);
+    expect(peerRangeChunkBytes(required, requestId)).toEqual(
+      Uint8Array.of(
+        bundle.manifestBytes.at(-2)!,
+        bundle.manifestBytes.at(-1)!,
+        bundle.mediaBytes[0]!,
+        bundle.mediaBytes[1]!,
+      ),
+    );
+    owner.port().revoke(pair.context);
+    await drain(64);
+    expect(closes[1]).toHaveBeenCalledOnce();
+  });
+
+  it('offers and serves an opt-in prepared manifest bundle through its exact selector', async () => {
+    const pair = connectionPair(() => 1_000);
+    const selector = manifestDiagnostics();
+    const prepared = preparedTrack('bounded-stream', 4, undefined, null, selector);
+    const bundle = manifestBundle(selector);
+    const required: unknown[] = [];
+    const resolvePrepared = vi.fn(async () => encodedBundleSource(prepared.asset, bundle.bytes));
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-prepared-manifest-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    const published = await owner.publishPrepared(prepared);
+    expect(published.offer).toMatchObject({
+      transport: 'peer-range-manifest',
+      encodedSize: prepared.asset.encodedSize,
+      manifestByteLength: selector.manifestByteLength,
+      manifestSha256B64: selector.manifestSha256B64,
+    });
+    if (published.offer.transport !== 'peer-range-manifest') {
+      throw new Error('prepared manifest offer unavailable');
+    }
+    expect(resolvePrepared.mock.calls[0]?.[0].peerRangeManifest).toBe(selector);
+    const requestId = '98000000-0000-4000-8000-000000000093';
+    requestPeerRange(pair, owner, {
+      sourceIdentity: published.offer.sourceIdentity,
+      handleId: published.offer.handleId,
+      offset: selector.manifestByteLength,
+      totalLength: prepared.asset.encodedSize,
+      requestId,
+    });
+    await drain(64);
+    expect(resolvePrepared).toHaveBeenCalledTimes(2);
+    expect(resolvePrepared.mock.calls.map(([options]) => options.peerRangeManifest)).toEqual([
+      selector,
+      selector,
+    ]);
+    expect(peerRangeChunkBytes(required, requestId)).toEqual(bundle.mediaBytes);
+    owner.port().revoke(pair.context);
+  });
+
+  it.each([
+    ['media-sized source', 4],
+    ['incorrect bundle-sized source', 133],
+  ])('rejects a manifest plan with a %s before publishing', async (_label, resolvedSourceSize) => {
+    const pair = connectionPair(() => 1_000);
+    const selector = manifestDiagnostics();
+    const prepared = preparedTrack('bounded-stream', 4, undefined, null, selector);
+    const closeSource = vi.fn(async () => undefined);
+    const resolvePrepared = vi.fn(async (options) =>
+      encodedBundleSource(prepared.asset, new Uint8Array(resolvedSourceSize), closeSource),
+    );
+    const required: unknown[] = [];
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-invalid-manifest-bundle-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    await expect(owner.publishPrepared(prepared)).rejects.toThrow(/exact candidate binding/u);
+    expect(resolvePrepared).toHaveBeenCalledOnce();
+    expect(resolvePrepared.mock.calls[0]?.[0].peerRangeManifest).toBe(selector);
+    expect(resolvePrepared.mock.calls.some(([options]) => options.peerRangeManifest === null)).toBe(
+      false,
+    );
+    expect(closeSource).toHaveBeenCalledOnce();
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toEqual([]);
+    owner.port().revoke(pair.context);
+  });
+
+  it('does not retry a failed prepared manifest request with the direct selector', async () => {
+    const pair = connectionPair(() => 1_000);
+    const selector = manifestDiagnostics();
+    const prepared = preparedTrack('bounded-stream', 4, undefined, null, selector);
+    const bundle = manifestBundle(selector);
+    const required: unknown[] = [];
+    let resolution = 0;
+    const resolvePrepared = vi.fn(async (options) => {
+      if (options.peerRangeManifest === null) {
+        throw new Error('fixture observed forbidden direct fallback');
+      }
+      resolution += 1;
+      if (resolution === 1) return encodedBundleSource(prepared.asset, bundle.bytes);
+      throw new Error('fixture manifest request failed');
+    });
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-prepared-manifest-failure-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    const published = await owner.publishPrepared(prepared);
+    if (published.offer.transport !== 'peer-range-manifest') {
+      throw new Error('prepared manifest offer unavailable');
+    }
+    requestPeerRange(pair, owner, {
+      sourceIdentity: published.offer.sourceIdentity,
+      handleId: published.offer.handleId,
+      totalLength: 1,
+      requestId: '98000000-0000-4000-8000-000000000094',
+    });
+    await drain(64);
+
+    expect(resolvePrepared).toHaveBeenCalledTimes(2);
+    expect(resolvePrepared.mock.calls.map(([options]) => options.peerRangeManifest)).toEqual([
+      selector,
+      selector,
+    ]);
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toEqual([published.offer]);
+    expect(required.some((frame) => (frame as { type?: string }).type === 'error')).toBe(true);
+    owner.port().revoke(pair.context);
+  });
+
+  it('serves a current manifest offer only through the exact current selector', async () => {
+    const pair = connectionPair(() => 1_000);
+    const selector = manifestDiagnostics();
+    const media = new Blob([Uint8Array.of(201, 202, 203, 204)], { type: 'audio/aac' });
+    const current = publication('bounded-stream', media, 'playing', selector);
+    const bundle = manifestBundle(selector);
+    const required: unknown[] = [];
+    const resolveCurrent = vi.fn(async () => encodedBundleSource(current.asset, bundle.bytes));
+    const room: FilePlaybackProductHostMediaRoomPort = {
+      currentPeerPublication: () => current,
+      resolveCurrentPeerRangeSource: resolveCurrent,
+      recoverRemoteParticipant: vi.fn(),
+    };
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: room,
+      publisher: publisher(),
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-current-manifest-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    const published = await owner.publishCurrent();
+    expect(published.offer.transport).toBe('peer-range-manifest');
+    if (published.offer.transport !== 'peer-range-manifest') {
+      throw new Error('current manifest offer unavailable');
+    }
+    const requestId = '98000000-0000-4000-8000-000000000095';
+    requestPeerRange(pair, owner, {
+      sourceIdentity: published.offer.sourceIdentity,
+      handleId: published.offer.handleId,
+      totalLength: 4,
+      requestId,
+    });
+    await drain(64);
+    expect(resolveCurrent).toHaveBeenCalledOnce();
+    expect(resolveCurrent.mock.calls[0]?.[0]).toMatchObject({
+      publication: current,
+      sourceIdentity: current.asset.binding.sourceIdentity,
+    });
+    expect(resolveCurrent.mock.calls[0]?.[0].peerRangeManifest).toBe(selector);
+    expect(peerRangeChunkBytes(required, requestId)).toEqual(bundle.manifestBytes.slice(0, 4));
+    owner.port().revoke(pair.context);
+  });
+
+  it('transfers equal manifest values across distinct warm, prepared, and current selectors', async () => {
+    const pair = connectionPair(() => 1_000);
+    const sourceLease = warmSourceLease();
+    const warmSelector = manifestDiagnostics();
+    const preparedSelector = manifestDiagnostics();
+    const currentSelector = manifestDiagnostics();
+    expect(preparedSelector).not.toBe(warmSelector);
+    expect(currentSelector).not.toBe(preparedSelector);
+    const prepared = preparedTrack('bounded-stream', 4, undefined, sourceLease, preparedSelector);
+    const authority = matchingWarmAuthorityWithManifest(pair, sourceLease, prepared, warmSelector);
+    const bundle = manifestBundle(warmSelector);
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    let current: Readonly<HostPeerPlaybackPublication> | null = null;
+    const resolveWarm = vi.fn(async () => encodedBundleSource(authority.asset, bundle.bytes));
+    const resolvePrepared = vi.fn(async () => encodedBundleSource(prepared.asset, bundle.bytes));
+    const resolveCurrent = vi.fn(async () => {
+      if (!current) throw new Error('fixture current publication unavailable');
+      return encodedBundleSource(current.asset, bundle.bytes);
+    });
+    const room: FilePlaybackProductHostMediaRoomPort = {
+      currentPeerPublication: () => current,
+      resolveCurrentPeerRangeSource: resolveCurrent,
+      recoverRemoteParticipant: vi.fn(),
+    };
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: room,
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      resolveWarmPeerRangeSource: resolveWarm,
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-manifest-transfer-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const warm = await owner.publishSourceLease(authority);
+    const candidate = await owner.publishPrepared(prepared);
+    expect(candidate.offer).toBe(warm.offer);
+    expect(candidate.offer.transport).toBe('peer-range-manifest');
+    expect(resolveWarm.mock.calls[0]?.[0].peerRangeManifest).toBe(warmSelector);
+    expect(resolvePrepared.mock.calls[0]?.[0].peerRangeManifest).toBe(preparedSelector);
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toEqual([warm.offer]);
+
+    await owner.bindPrepared(prepared);
+    const timeline = committedTimeline();
+    const committed = committedPreparedPublication(prepared, timeline);
+    current = freezeCanonical({
+      ...committed,
+      asset: freezeCanonical({
+        ...committed.asset,
+        binding: freezeCanonical({ ...committed.asset.binding }),
+        metadata: freezeCanonical({ ...committed.asset.metadata }),
+        peerRangeManifest: currentSelector,
+      }),
+    });
+    const activated = owner.activatePrepared({ prepared, timeline });
+    expect(activated.offer).toBe(warm.offer);
+    if (activated.offer.transport !== 'peer-range-manifest') {
+      throw new Error('activated manifest offer unavailable');
+    }
+    requestPeerRange(pair, owner, {
+      sourceIdentity: activated.offer.sourceIdentity,
+      handleId: activated.offer.handleId,
+      offset: currentSelector.manifestByteLength - 1,
+      totalLength: 2,
+      requestId: '98000000-0000-4000-8000-000000000096',
+    });
+    await drain(64);
+    expect(resolveCurrent).toHaveBeenCalledOnce();
+    expect(resolveCurrent.mock.calls[0]?.[0].peerRangeManifest).toBe(currentSelector);
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toEqual([warm.offer]);
+    owner.port().revoke(pair.context);
+  });
+
+  it.each([
+    ['codec', { codec: 'mp3-no-frame-count' as const }],
+    ['manifest length', { manifestByteLength: 129 }],
+    ['manifest hash', { manifestSha256B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' }],
+  ])('rejects a same-lease prepared %s mismatch before transfer', async (_label, overrides) => {
+    const pair = connectionPair(() => 1_000);
+    const sourceLease = warmSourceLease();
+    const warmSelector = manifestDiagnostics();
+    const preparedSelector = manifestDiagnostics(overrides);
+    const prepared = preparedTrack('bounded-stream', 4, undefined, sourceLease, preparedSelector);
+    const authority = matchingWarmAuthorityWithManifest(pair, sourceLease, prepared, warmSelector);
+    const bundle = manifestBundle(warmSelector);
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const resolvePrepared = vi.fn(async () => encodedBundleSource(prepared.asset, bundle.bytes));
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      resolveWarmPeerRangeSource: vi.fn(async () =>
+        encodedBundleSource(authority.asset, bundle.bytes),
+      ),
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-manifest-mismatch-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const warm = await owner.publishSourceLease(authority);
+    await expect(owner.publishPrepared(prepared)).rejects.toThrow(/contradicts|manifest/u);
+    expect(resolvePrepared).not.toHaveBeenCalled();
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toEqual([warm.offer]);
+    owner.port().revoke(pair.context);
+  });
+
+  it('rejects a warm-manifest to prepared-direct presence mismatch before resolution', async () => {
+    const pair = connectionPair(() => 1_000);
+    const sourceLease = warmSourceLease();
+    const warmSelector = manifestDiagnostics();
+    const prepared = preparedTrack('bounded-stream', 4, undefined, sourceLease, null);
+    const authority = matchingWarmAuthorityWithManifest(pair, sourceLease, prepared, warmSelector);
+    const bundle = manifestBundle(warmSelector);
+    const timers = offerTimers();
+    const required: unknown[] = [];
+    const resolvePrepared = vi.fn(async () => encodedPreparedSource(prepared));
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: roomPort(
+        () => null,
+        () => new Blob(),
+        [],
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: resolvePrepared,
+      resolveWarmPeerRangeSource: vi.fn(async () =>
+        encodedBundleSource(authority.asset, bundle.bytes),
+      ),
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-manifest-presence-mismatch-health',
+        cancelIntervalForTests: vi.fn(),
+        scheduleTimeoutForTests: timers.schedule,
+        cancelTimeoutForTests: timers.cancel,
+      },
+    });
+
+    const warm = await owner.publishSourceLease(authority);
+    await expect(owner.publishPrepared(prepared)).rejects.toThrow(/contradicts|manifest/u);
+    expect(resolvePrepared).not.toHaveBeenCalled();
+    expect(
+      required.filter(
+        (frame) => (frame as { type?: string }).type === 'FILE_MEDIA_SOURCE_OFFER_V2',
+      ),
+    ).toEqual([warm.offer]);
+    owner.port().revoke(pair.context);
+  });
+
+  it('rejects a prepared-to-current manifest mismatch before activation', async () => {
+    const pair = connectionPair(() => 1_000);
+    const preparedSelector = manifestDiagnostics();
+    const currentSelector = manifestDiagnostics({
+      manifestSha256B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    });
+    const prepared = preparedTrack('bounded-stream', 4, undefined, null, preparedSelector);
+    const bundle = manifestBundle(preparedSelector);
+    const required: unknown[] = [];
+    let current: Readonly<HostPeerPlaybackPublication> | null = null;
+    const room: FilePlaybackProductHostMediaRoomPort = {
+      currentPeerPublication: () => current,
+      resolveCurrentPeerRangeSource: vi.fn(),
+      recoverRemoteParticipant: vi.fn(),
+    };
+    const owner = new FilePlaybackProductHostMediaOwner({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      context: pair.context,
+      hostRoom: room,
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: vi.fn(async () =>
+        encodedBundleSource(prepared.asset, bundle.bytes),
+      ),
+      sendRequired: (_connection, frame) => {
+        required.push(frame);
+        return true;
+      },
+      sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
+      closeConnection: vi.fn(),
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-current-manifest-mismatch-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    const candidate = await owner.publishPrepared(prepared);
+    expect(candidate.offer.transport).toBe('peer-range-manifest');
+    await owner.bindPrepared(prepared);
+    const timeline = committedTimeline();
+    const committed = committedPreparedPublication(prepared, timeline);
+    current = freezeCanonical({
+      ...committed,
+      asset: freezeCanonical({
+        ...committed.asset,
+        peerRangeManifest: currentSelector,
+      }),
+    });
+    const beforeActivation = [...required];
+    expect(() => owner.activatePrepared({ prepared, timeline })).toThrow(/prepared|manifest/u);
+    expect(required).toEqual(beforeActivation);
+    owner.port().revoke(pair.context);
   });
 });

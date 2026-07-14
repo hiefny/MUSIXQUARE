@@ -24,6 +24,7 @@ import {
 import { FilePlaybackManager } from './file-playback-manager.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
 import type {
+  HostLocalTrackSourceLease,
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
   HostPeerPlaybackPublication,
@@ -32,6 +33,7 @@ import type {
   RecoverHostRemoteParticipantOptions,
   ResolvePreparedHostPeerRangeSourceOptions,
   ResolveHostPeerRangeSourceOptions,
+  ResolveWarmHostPeerRangeSourceOptions,
 } from './file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from './file-playback-product-baseline-session.ts';
 import {
@@ -46,9 +48,11 @@ import {
   type FilePlaybackProductHostMediaOwnerOptions,
   type FilePlaybackProductHostPreparedPublicationCommit,
   type FilePlaybackProductHostPublicationCommit,
+  type FilePlaybackProductHostSourceLeasePublicationCommit,
 } from './file-playback-product-host-media-owner.ts';
 import {
   FilePlaybackProductHostRoom,
+  type ClearFilePlaybackProductHostLocalTrackWarmByLeaseOptions,
   type ClearFilePlaybackProductHostLocalTrackWarmOptions,
   type FilePlaybackProductHostCurrentOptions,
   type FilePlaybackProductHostFirstLocalFileCommit,
@@ -142,6 +146,10 @@ interface FilePlaybackProductRuntimeSessionRouterPort {
 
 interface FilePlaybackProductRuntimeHostMediaOwnerPort extends FilePlaybackProductSessionRouterHostMediaOwnerPort {
   publishCurrent(): Promise<Readonly<FilePlaybackProductHostPublicationCommit>>;
+  publishSourceLease(
+    authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>,
+  ): Promise<Readonly<FilePlaybackProductHostSourceLeasePublicationCommit>>;
+  retireSourceLease(sourceLease: HostLocalTrackSourceLease, reason: Error): Promise<void>;
   publishPrepared(
     prepared: Readonly<HostPreparedLocalTrack>,
   ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>>;
@@ -181,6 +189,12 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
     options: WarmFilePlaybackProductHostLocalTrackOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackWarmResult>>;
   clearWarmLocalTrack(options: ClearFilePlaybackProductHostLocalTrackWarmOptions): Promise<boolean>;
+  clearWarmLocalTrackByLease(
+    options: ClearFilePlaybackProductHostLocalTrackWarmByLeaseOptions,
+  ): Promise<boolean>;
+  resolveWarmPeerRangeSource(
+    options: ResolveWarmHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource>;
   startFirstLocalFile(
     options: StartFilePlaybackProductHostFirstLocalFileOptions,
   ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>>;
@@ -286,9 +300,12 @@ interface HostPreparedCohortCycle {
 interface NextLocalTrackWarmIntent {
   readonly epoch: number;
   readonly active: ActiveProductHostRoom;
+  readonly room: Readonly<FilePlaybackProductHostRoomSnapshot>;
   readonly queueItemId: QueueItemId;
   readonly file: File;
   readonly controller: AbortController;
+  authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult> | null;
+  status: 'warming' | 'warmed' | 'consumed' | 'retired';
   task: Promise<boolean>;
 }
 
@@ -371,6 +388,10 @@ function defaultHostMediaOwnerFactory(
   return Object.freeze({
     ...owner.port(),
     publishCurrent: () => owner.publishCurrent(),
+    publishSourceLease: (authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>) =>
+      owner.publishSourceLease(authority),
+    retireSourceLease: (sourceLease: HostLocalTrackSourceLease, reason: Error) =>
+      owner.retireSourceLease(sourceLease, reason),
     publishPrepared: (prepared: Readonly<HostPreparedLocalTrack>) =>
       owner.publishPrepared(prepared),
     bindPrepared: (prepared: Readonly<HostPreparedLocalTrack>) => owner.bindPrepared(prepared),
@@ -433,6 +454,8 @@ function assertHostRoomPort(
     typeof value !== 'object' ||
     typeof value.warmLocalTrack !== 'function' ||
     typeof value.clearWarmLocalTrack !== 'function' ||
+    typeof value.clearWarmLocalTrackByLease !== 'function' ||
+    typeof value.resolveWarmPeerRangeSource !== 'function' ||
     typeof value.startFirstLocalFile !== 'function' ||
     typeof value.startLocalTrack !== 'function' ||
     typeof value.startLocalTrackWithCohort !== 'function' ||
@@ -465,6 +488,8 @@ function assertHostMediaOwnerPort(
     typeof value.adoptPeerRangeControl !== 'function' ||
     typeof value.revoke !== 'function' ||
     typeof value.publishCurrent !== 'function' ||
+    typeof value.publishSourceLease !== 'function' ||
+    typeof value.retireSourceLease !== 'function' ||
     typeof value.publishPrepared !== 'function' ||
     typeof value.bindPrepared !== 'function' ||
     typeof value.whenPreparedRemoteReady !== 'function' ||
@@ -677,6 +702,15 @@ export class FilePlaybackProductRuntime {
     Readonly<FilePlaybackProductSessionRouterConnectionContext>,
     FilePlaybackProductRuntimeHostMediaOwnerPort
   >();
+  readonly #readyHostMediaOwners = new WeakSet<FilePlaybackProductRuntimeHostMediaOwnerPort>();
+  readonly #hostMediaOwnerPublicationBarriers = new WeakMap<
+    FilePlaybackProductRuntimeHostMediaOwnerPort,
+    Promise<void>
+  >();
+  readonly #hostMediaOwnerWarmAuthorities = new WeakMap<
+    FilePlaybackProductRuntimeHostMediaOwnerPort,
+    Readonly<FilePlaybackProductHostLocalTrackWarmResult>
+  >();
   readonly #hostPreparedCohorts = new Map<
     Readonly<HostPreparedLocalTrack>,
     HostPreparedCohortCycle
@@ -851,7 +885,15 @@ export class FilePlaybackProductRuntime {
       return Promise.reject(new TypeError('File playback next local warm options are invalid'));
     }
     const active = this.#activeHostRoom;
-    if (!active || !this.#ownsExactHostRoom(active)) return Promise.resolve(false);
+    const room = this.#hostRoomSnapshot;
+    if (
+      !active ||
+      !room ||
+      room.roomGeneration !== active.roomGeneration ||
+      !this.#ownsExactHostRoom(active)
+    ) {
+      return Promise.resolve(false);
+    }
 
     const current = this.#nextLocalTrackWarmIntent;
     if (
@@ -870,15 +912,24 @@ export class FilePlaybackProductRuntime {
     const intent: NextLocalTrackWarmIntent = {
       epoch,
       active,
+      room,
       queueItemId: input.queueItemId,
       file: input.file,
       controller,
+      authority: null,
+      status: 'warming',
       task: Promise.resolve(false),
     };
     this.#nextLocalTrackWarmIntent = intent;
     const predecessor = this.#nextLocalTrackWarmLane;
     const task = (async () => {
       await predecessor;
+      if (current) {
+        await this.#retireNextLocalTrackWarmIntent(
+          current,
+          new Error('File playback next local warm was superseded'),
+        );
+      }
       if (
         this.#nextLocalTrackWarmIntent !== intent ||
         this.#nextLocalTrackWarmEpoch !== epoch ||
@@ -888,20 +939,34 @@ export class FilePlaybackProductRuntime {
         return false;
       }
       try {
-        const result = await this.warmLocalTrack({
+        const result = await active.port.warmLocalTrack({
           queueItemId: input.queueItemId,
           file: input.file,
           signal: controller.signal,
         });
-        const warmed = result?.status === 'warmed' && result.backend === 'bounded-stream';
+        const sourceLease = this.#validateNextLocalTrackWarmResult(intent, result);
+        if (!sourceLease) {
+          intent.status = 'retired';
+          if (this.#nextLocalTrackWarmIntent === intent) {
+            this.#nextLocalTrackWarmIntent = null;
+          }
+          return false;
+        }
+        intent.authority = result;
+        intent.status = 'warmed';
         if (
           this.#nextLocalTrackWarmIntent === intent &&
           this.#nextLocalTrackWarmEpoch === epoch &&
-          !controller.signal.aborted
+          !controller.signal.aborted &&
+          this.#ownsExactHostRoom(active)
         ) {
-          if (!warmed) this.#nextLocalTrackWarmIntent = null;
-          return warmed;
+          this.#fanOutNextLocalTrackWarm(intent);
+          return true;
         }
+        await this.#retireNextLocalTrackWarmIntent(
+          intent,
+          new Error('File playback next local warm settled after its authority changed'),
+        );
         return false;
       } catch (cause) {
         if (this.#nextLocalTrackWarmIntent === intent) this.#nextLocalTrackWarmIntent = null;
@@ -928,11 +993,10 @@ export class FilePlaybackProductRuntime {
     const predecessor = this.#nextLocalTrackWarmLane;
     const task = (async () => {
       await predecessor;
-      if (!this.#ownsExactHostRoom(intent.active)) return false;
-      return this.clearWarmLocalTrack({
-        queueItemId: intent.queueItemId,
-        signal: new AbortController().signal,
-      });
+      return this.#retireNextLocalTrackWarmIntent(
+        intent,
+        new Error('File playback next local warm was cleared'),
+      );
     })();
     this.#nextLocalTrackWarmLane = task.then(
       () => undefined,
@@ -1347,6 +1411,14 @@ export class FilePlaybackProductRuntime {
           }
           return this.#resolvePreparedHostPeerSource(active, context, exactOwner, input);
         },
+        resolveWarmPeerRangeSource: (input: ResolveWarmHostPeerRangeSourceOptions) => {
+          if (!exactOwner) {
+            return Promise.reject(
+              new Error('File playback product warm source owner is unavailable'),
+            );
+          }
+          return this.#resolveWarmHostPeerSource(active, context, exactOwner, input);
+        },
       });
       const owner = this.#createHostMediaOwner(ownerOptions);
       assertHostMediaOwnerPort(owner);
@@ -1357,7 +1429,19 @@ export class FilePlaybackProductRuntime {
           ? {
               onHostReady: (
                 snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>,
-              ) => owner.onHostReady?.(snapshot),
+              ) => {
+                if (
+                  snapshot.roomGeneration !== active.roomGeneration ||
+                  this.#hostMediaOwners.get(context) !== owner ||
+                  !this.#connectionContexts.has(context) ||
+                  !this.#ownsExactHostRoom(active)
+                ) {
+                  throw new Error('File playback product host media READY authority is stale');
+                }
+                owner.onHostReady?.(snapshot);
+                this.#readyHostMediaOwners.add(owner);
+                this.#synchronizeReadyHostMediaOwner(active, context, owner);
+              },
             }
           : {}),
         adoptWireMessage: (...args: Parameters<typeof owner.adoptWireMessage>) =>
@@ -1645,6 +1729,10 @@ export class FilePlaybackProductRuntime {
                 },
               );
               const publicationTask = bounded.promise;
+              this.#setHostMediaOwnerPublicationBarrier(
+                owner,
+                publicationTask.then(() => undefined),
+              );
               const entry: HostPreparedCohortEntry = {
                 context: ownerContext,
                 owner,
@@ -1686,7 +1774,10 @@ export class FilePlaybackProductRuntime {
           },
         });
       });
-      if (cycle) this.#commitPreparedCohort(cycle, commit.timeline);
+      if (cycle) {
+        this.#commitPreparedCohort(cycle, commit.timeline);
+        this.#consumeNextLocalTrackWarm(cycle);
+      }
       return commit;
     } catch (cause) {
       if (cycle) await this.#failPreparedCohort(cycle, asError(cause));
@@ -1767,8 +1858,14 @@ export class FilePlaybackProductRuntime {
     }
     for (const [context, owner] of this.#hostMediaOwners) {
       if (cycle.contexts.has(context) || !this.#connectionContexts.has(context)) continue;
+      const currentTask = owner.publishCurrent().then(() => undefined);
+      this.#setHostMediaOwnerPublicationBarrier(owner, currentTask);
+      void currentTask.then(
+        () => this.#publishNextLocalTrackWarmToOwner(cycle.active, context, owner),
+        () => undefined,
+      );
       pending.push(
-        owner.publishCurrent().then(
+        currentTask.then(
           () => undefined,
           (cause) => this.#closeExactHostMediaOwner(context, owner, asError(cause)),
         ),
@@ -1791,6 +1888,314 @@ export class FilePlaybackProductRuntime {
     await Promise.allSettled(
       cycle.entries.map((entry) => entry.owner.retirePrepared(cycle.prepared, reason)),
     );
+  }
+
+  #validateNextLocalTrackWarmResult(
+    intent: NextLocalTrackWarmIntent,
+    result: Readonly<FilePlaybackProductHostLocalTrackWarmResult>,
+  ): HostLocalTrackSourceLease | null {
+    const sourceLeaseDescriptor =
+      result && typeof result === 'object'
+        ? Object.getOwnPropertyDescriptor(result, 'sourceLease')
+        : undefined;
+    const hasExactSourceLease =
+      sourceLeaseDescriptor?.enumerable === true && Object.hasOwn(sourceLeaseDescriptor, 'value');
+    const sourceLease = hasExactSourceLease ? sourceLeaseDescriptor.value : undefined;
+    const asset = result?.asset;
+    const binding = asset?.binding;
+    const metadata = asset?.metadata;
+    const expectedMime =
+      intent.file.type.trim().length === 0 ? 'application/octet-stream' : intent.file.type;
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      result.schemaVersion !== 1 ||
+      result.roomGeneration !== intent.room.roomGeneration ||
+      result.applicationSessionId !== intent.room.applicationSessionId ||
+      result.hostParticipantId !== intent.room.hostParticipantId ||
+      !hasExactSourceLease ||
+      !asset ||
+      typeof asset !== 'object' ||
+      !binding ||
+      typeof binding !== 'object' ||
+      binding.queueItemId !== intent.queueItemId ||
+      typeof binding.sourceIdentity !== 'string' ||
+      binding.sourceIdentity.length === 0 ||
+      typeof binding.transferSessionId !== 'string' ||
+      binding.transferSessionId.length === 0 ||
+      !metadata ||
+      typeof metadata !== 'object' ||
+      metadata.name !== intent.file.name ||
+      metadata.mime !== expectedMime ||
+      !Number.isSafeInteger(asset.encodedSize) ||
+      asset.encodedSize !== intent.file.size
+    ) {
+      throw new Error('File playback next local warm result did not match its exact intent');
+    }
+    if (result.status === 'warmed') {
+      if (
+        result.backend !== 'bounded-stream' ||
+        sourceLease === null ||
+        typeof sourceLease !== 'object'
+      ) {
+        throw new Error('File playback next local warm result had invalid bounded authority');
+      }
+      return sourceLease as HostLocalTrackSourceLease;
+    }
+    if (
+      result.status !== 'skipped-non-bounded' ||
+      result.backend === 'bounded-stream' ||
+      sourceLease !== null
+    ) {
+      throw new Error('File playback next local warm result had invalid fallback authority');
+    }
+    return null;
+  }
+
+  #ownsNextLocalTrackWarmIntent(intent: NextLocalTrackWarmIntent): boolean {
+    return (
+      this.#nextLocalTrackWarmIntent === intent &&
+      this.#nextLocalTrackWarmEpoch === intent.epoch &&
+      intent.status === 'warmed' &&
+      intent.authority !== null &&
+      !intent.controller.signal.aborted &&
+      this.#hostRoomSnapshot === intent.room &&
+      this.#ownsExactHostRoom(intent.active)
+    );
+  }
+
+  #setHostMediaOwnerPublicationBarrier(
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+    barrier: Promise<void>,
+  ): void {
+    this.#hostMediaOwnerPublicationBarriers.set(owner, barrier);
+    const release = () => {
+      if (this.#hostMediaOwnerPublicationBarriers.get(owner) === barrier) {
+        this.#hostMediaOwnerPublicationBarriers.delete(owner);
+      }
+    };
+    void barrier.then(release, release);
+  }
+
+  async #awaitHostMediaOwnerPublicationBarrier(
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+  ): Promise<void> {
+    while (true) {
+      const barrier = this.#hostMediaOwnerPublicationBarriers.get(owner);
+      if (!barrier) return;
+      await barrier;
+      if (this.#hostMediaOwnerPublicationBarriers.get(owner) === barrier) return;
+    }
+  }
+
+  #synchronizeReadyHostMediaOwner(
+    active: ActiveProductHostRoom,
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+  ): void {
+    if (
+      !this.#readyHostMediaOwners.has(owner) ||
+      this.#hostMediaOwners.get(context) !== owner ||
+      !this.#connectionContexts.has(context) ||
+      !this.#ownsExactHostRoom(active)
+    ) {
+      return;
+    }
+    const currentTask = active.port.currentPeerPublication()
+      ? Promise.resolve()
+          .then(() => owner.publishCurrent())
+          .then(() => undefined)
+      : Promise.resolve();
+    this.#setHostMediaOwnerPublicationBarrier(owner, currentTask);
+    void currentTask.then(
+      () => this.#publishNextLocalTrackWarmToOwner(active, context, owner),
+      (cause) => this.#closeExactHostMediaOwner(context, owner, asError(cause)),
+    );
+  }
+
+  #fanOutNextLocalTrackWarm(intent: NextLocalTrackWarmIntent): void {
+    if (!this.#ownsNextLocalTrackWarmIntent(intent)) return;
+    for (const [context, owner] of this.#hostMediaOwners) {
+      this.#publishNextLocalTrackWarmToOwner(intent.active, context, owner);
+    }
+  }
+
+  #publishNextLocalTrackWarmToOwner(
+    active: ActiveProductHostRoom,
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+  ): void {
+    const intent = this.#nextLocalTrackWarmIntent;
+    const authority = intent?.authority ?? null;
+    if (
+      !intent ||
+      !authority ||
+      intent.active !== active ||
+      !this.#ownsNextLocalTrackWarmIntent(intent) ||
+      !this.#readyHostMediaOwners.has(owner) ||
+      this.#hostMediaOwners.get(context) !== owner ||
+      !this.#connectionContexts.has(context)
+    ) {
+      return;
+    }
+    const sourceLease = authority.sourceLease;
+    if (!sourceLease || this.#hostMediaOwnerWarmAuthorities.get(owner) === authority) return;
+    this.#hostMediaOwnerWarmAuthorities.set(owner, authority);
+    const task = (async () => {
+      let published = false;
+      try {
+        await this.#awaitHostMediaOwnerPublicationBarrier(owner);
+        if (
+          intent.authority !== authority ||
+          !this.#ownsNextLocalTrackWarmIntent(intent) ||
+          !this.#readyHostMediaOwners.has(owner) ||
+          this.#hostMediaOwners.get(context) !== owner ||
+          !this.#connectionContexts.has(context)
+        ) {
+          return;
+        }
+        await owner.publishSourceLease(authority);
+        published = true;
+        if (intent.status === 'consumed') return;
+        if (
+          intent.authority !== authority ||
+          !this.#ownsNextLocalTrackWarmIntent(intent) ||
+          this.#hostMediaOwners.get(context) !== owner ||
+          !this.#connectionContexts.has(context)
+        ) {
+          await owner
+            .retireSourceLease(
+              sourceLease,
+              new Error('File playback next local source offer became stale after publication'),
+            )
+            .catch(() => undefined);
+        }
+      } finally {
+        if (
+          (!published ||
+            intent.status !== 'warmed' ||
+            this.#hostMediaOwners.get(context) !== owner ||
+            !this.#connectionContexts.has(context)) &&
+          this.#hostMediaOwnerWarmAuthorities.get(owner) === authority
+        ) {
+          this.#hostMediaOwnerWarmAuthorities.delete(owner);
+        }
+      }
+    })();
+    void task.catch(() => {
+      if (this.#hostMediaOwnerWarmAuthorities.get(owner) === authority) {
+        this.#hostMediaOwnerWarmAuthorities.delete(owner);
+      }
+    });
+  }
+
+  async #retireNextLocalTrackWarmIntent(
+    intent: NextLocalTrackWarmIntent,
+    reason: Error,
+  ): Promise<boolean> {
+    if (intent.status === 'consumed' || intent.status === 'retired') return false;
+    const authority = intent.authority;
+    intent.status = 'retired';
+    intent.authority = null;
+    if (!authority?.sourceLease) return false;
+    const sourceLease = authority.sourceLease;
+    const retirements: Promise<void>[] = [];
+    if (this.#ownsExactHostRoom(intent.active)) {
+      for (const [context, owner] of this.#hostMediaOwners) {
+        if (
+          this.#hostMediaOwners.get(context) !== owner ||
+          !this.#connectionContexts.has(context)
+        ) {
+          continue;
+        }
+        if (this.#hostMediaOwnerWarmAuthorities.get(owner) === authority) {
+          this.#hostMediaOwnerWarmAuthorities.delete(owner);
+        }
+        retirements.push(owner.retireSourceLease(sourceLease, reason));
+      }
+    }
+    await Promise.allSettled(retirements);
+    try {
+      const cleared = await intent.active.port.clearWarmLocalTrackByLease({
+        sourceLease,
+        signal: new AbortController().signal,
+      });
+      if (typeof cleared !== 'boolean') {
+        throw new TypeError('File playback product host room returned an invalid exact warm clear');
+      }
+      return cleared;
+    } catch (cause) {
+      if (this.#ownsExactHostRoom(intent.active)) throw cause;
+      return false;
+    }
+  }
+
+  #consumeNextLocalTrackWarm(cycle: HostPreparedCohortCycle): void {
+    const intent = this.#nextLocalTrackWarmIntent;
+    const authority = intent?.authority ?? null;
+    if (
+      !intent ||
+      !authority?.sourceLease ||
+      intent.status !== 'warmed' ||
+      intent.active !== cycle.active ||
+      cycle.prepared.sourceLease !== authority.sourceLease ||
+      cycle.prepared.state.queueItemId !== intent.queueItemId ||
+      cycle.prepared.asset.binding.queueItemId !== intent.queueItemId ||
+      cycle.prepared.asset.binding.sourceIdentity !== authority.asset.binding.sourceIdentity ||
+      cycle.prepared.asset.binding.transferSessionId !==
+        authority.asset.binding.transferSessionId ||
+      cycle.prepared.asset.encodedSize !== authority.asset.encodedSize ||
+      cycle.prepared.asset.metadata.name !== authority.asset.metadata.name ||
+      cycle.prepared.asset.metadata.mime !== authority.asset.metadata.mime
+    ) {
+      return;
+    }
+    intent.status = 'consumed';
+    intent.authority = null;
+    for (const owner of this.#hostMediaOwners.values()) {
+      if (this.#hostMediaOwnerWarmAuthorities.get(owner) === authority) {
+        this.#hostMediaOwnerWarmAuthorities.delete(owner);
+      }
+    }
+    this.#nextLocalTrackWarmEpoch += 1;
+    this.#nextLocalTrackWarmIntent = null;
+  }
+
+  async #resolveWarmHostPeerSource(
+    active: ActiveProductHostRoom,
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+    options: ResolveWarmHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    const intent = this.#nextLocalTrackWarmIntent;
+    const authority = intent?.authority ?? null;
+    if (
+      !intent ||
+      !authority?.sourceLease ||
+      intent.active !== active ||
+      options.sourceLease !== authority.sourceLease ||
+      options.sourceIdentity !== authority.asset.binding.sourceIdentity ||
+      options.signal.aborted ||
+      !this.#ownsNextLocalTrackWarmIntent(intent) ||
+      !this.#readyHostMediaOwners.has(owner) ||
+      this.#hostMediaOwners.get(context) !== owner ||
+      !this.#connectionContexts.has(context)
+    ) {
+      throw new Error('File playback product warm source authority is stale');
+    }
+    const source = await active.port.resolveWarmPeerRangeSource(options);
+    if (
+      options.signal.aborted ||
+      intent.authority !== authority ||
+      !this.#ownsNextLocalTrackWarmIntent(intent) ||
+      !this.#readyHostMediaOwners.has(owner) ||
+      this.#hostMediaOwners.get(context) !== owner ||
+      !this.#connectionContexts.has(context)
+    ) {
+      if (!(source instanceof Blob)) await source.close().catch(() => undefined);
+      throw new Error('File playback product warm source changed during resolution');
+    }
+    return source;
   }
 
   async #resolvePreparedHostPeerSource(
@@ -1908,7 +2313,21 @@ export class FilePlaybackProductRuntime {
     // A retired room cannot serialize work for its successor. Exact room
     // identity fences any late settlement from the detached predecessor.
     this.#nextLocalTrackWarmLane = Promise.resolve();
-    intent?.controller.abort(new Error(reason));
+    if (!intent) return;
+    const error = new Error(reason);
+    intent.controller.abort(error);
+    const authority = intent.authority;
+    const sourceLease = authority?.sourceLease ?? null;
+    intent.authority = null;
+    if (intent.status !== 'consumed') intent.status = 'retired';
+    if (!sourceLease) return;
+    for (const [context, owner] of this.#hostMediaOwners) {
+      if (this.#hostMediaOwners.get(context) !== owner) continue;
+      if (authority && this.#hostMediaOwnerWarmAuthorities.get(owner) === authority) {
+        this.#hostMediaOwnerWarmAuthorities.delete(owner);
+      }
+      void owner.retireSourceLease(sourceLease, error).catch(() => undefined);
+    }
   }
 
   #ownsExactHostRoom(active: ActiveProductHostRoom): boolean {

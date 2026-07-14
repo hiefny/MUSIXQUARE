@@ -258,6 +258,14 @@ interface OperationRecord {
   status: 'candidate' | 'current' | 'retired';
 }
 
+interface ExactOperationAuthorityRecord {
+  readonly operation: Readonly<FilePlaybackConnectionMediaOperation>;
+  readonly epoch: FilePlaybackConnectionMediaOperationEpoch;
+  readonly signal: AbortSignal;
+  readonly isCurrent: () => boolean;
+  checkingCurrent: boolean;
+}
+
 interface OfferPreparationRecord {
   readonly preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>;
   readonly offer: Readonly<FileMediaSourceOfferV2>;
@@ -321,9 +329,53 @@ const abortControllerAbort = AbortController.prototype.abort;
 const MAX_EXPIRY_TIMER_DELAY_MS = 2_147_483_647;
 const MAX_RENDEZVOUS_ID_LENGTH = 256;
 const CLAIMED_MEDIA_CHANNELS = new WeakSet<FilePlaybackConnectionChannel>();
+const EXACT_OPERATION_AUTHORITIES = new WeakMap<object, ExactOperationAuthorityRecord>();
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function throwIfOperationAuthorityAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  if (signal.reason !== undefined) throw signal.reason;
+  throw new DOMException('The file playback media operation was aborted', 'AbortError');
+}
+
+/**
+ * Verifies exact module-issued operation identity and its live session-owned
+ * fence. Structural copies and caller-provided `isCurrent` callbacks carry no
+ * authority.
+ */
+export function assertFilePlaybackConnectionMediaOperationCurrent(
+  value: unknown,
+): asserts value is Readonly<FilePlaybackConnectionMediaOperation> {
+  const record =
+    value !== null && typeof value === 'object'
+      ? EXACT_OPERATION_AUTHORITIES.get(value)
+      : undefined;
+  if (!record || record.operation !== value) {
+    throw new Error('File playback media operation is forged or retired');
+  }
+  throwIfOperationAuthorityAborted(record.signal);
+  if (record.checkingCurrent) {
+    throw new Error('File playback media operation currentness was re-entered');
+  }
+  record.checkingCurrent = true;
+  let current: boolean;
+  try {
+    try {
+      current = Reflect.apply(record.isCurrent, undefined, []) === true;
+    } catch {
+      throwIfOperationAuthorityAborted(record.signal);
+      current = false;
+    }
+  } finally {
+    record.checkingCurrent = false;
+  }
+  throwIfOperationAuthorityAborted(record.signal);
+  if (!current || EXACT_OPERATION_AUTHORITIES.get(record.operation as object) !== record) {
+    throw new Error('File playback media operation is stale');
+  }
 }
 
 function snapshotOptions(value: unknown): ExactOptions | null {
@@ -900,10 +952,11 @@ export class FilePlaybackConnectionMediaSession {
         offeredPreparation?.status === 'offered' && offeredPreparation.offer === runSnapshot.offer
           ? offeredPreparation
           : null;
+      const isCurrent = () => this.#isOperationEpochCurrent(epoch);
       const fence = freezeCanonical({
         epoch,
         signal: abortController.signal,
-        isCurrent: () => this.#isOperationEpochCurrent(epoch),
+        isCurrent,
       });
       const operation = freezeCanonical({
         kind,
@@ -937,6 +990,13 @@ export class FilePlaybackConnectionMediaSession {
       if (record.status !== 'candidate') {
         throw this.#fatalError ?? new Error('File playback source offer expired during staging');
       }
+      EXACT_OPERATION_AUTHORITIES.set(operation as object, {
+        operation,
+        epoch,
+        signal: abortController.signal,
+        isCurrent,
+        checkingCurrent: false,
+      });
       return operation;
     });
   }
@@ -2580,6 +2640,7 @@ export class FilePlaybackConnectionMediaSession {
     if (this.#currentStateOperation?.prepared === record) {
       this.#retireStateRecordLocally(this.#currentStateOperation);
     }
+    EXACT_OPERATION_AUTHORITIES.delete(record.operation as object);
     this.#abortOperationFence(record);
     record.status = 'retired';
     this.#retiredOperations.add(record.operation);

@@ -46,6 +46,7 @@ import {
   type FileMediaSourceRevokeV2Input,
 } from '../file-media-source-revoke.ts';
 import {
+  assertFilePlaybackConnectionMediaOperationCurrent,
   FilePlaybackConnectionMediaSession,
   FilePlaybackConnectionMediaSessionFatalError,
   type FilePlaybackConnectionMediaOperation,
@@ -405,6 +406,23 @@ function admitRemotePreparedRunAttempt(
 }
 
 describe('FilePlaybackConnectionMediaSession', () => {
+  it('exports exact session-issued operation authority without trusting structural copies', () => {
+    const h = harness();
+    const { operation } = stageBaseline(h);
+
+    expect(() => assertFilePlaybackConnectionMediaOperationCurrent(operation)).not.toThrow();
+    expect(() =>
+      assertFilePlaybackConnectionMediaOperationCurrent(
+        Object.freeze({ ...operation }) as FilePlaybackConnectionMediaOperation,
+      ),
+    ).toThrow(/forged|retired/u);
+
+    h.session.revoke();
+    expect(() => assertFilePlaybackConnectionMediaOperationCurrent(operation)).toThrow(
+      /forged|retired/u,
+    );
+  });
+
   it('binds an active baseline to one exact APPLIED guest channel and commits only after start', () => {
     const h = harness();
     const { binding, operation } = stageBaseline(h, 700);

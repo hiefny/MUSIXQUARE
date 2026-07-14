@@ -932,7 +932,12 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
     const timeline = committedTimeline();
     current = committedPreparedPublication(prepared, timeline);
-    const activated = owner.activatePrepared({ prepared, timeline });
+    expect(() => owner.activatePrepared({ prepared, timeline } as never)).toThrow(/stale/u);
+    const activated = owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: true,
+    });
     expect(activated.publication).toBe(current);
     expect(required.at(-1)).toMatchObject({
       type: 'FILE_PLAYBACK_TIMELINE_UPDATE_V2',
@@ -944,7 +949,9 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     acceptParticipant({ participantId: capability.participant.participantId });
     await drain();
     expect(closeConnection).not.toHaveBeenCalled();
-    expect(() => owner.activatePrepared({ prepared, timeline })).toThrow(/stale/u);
+    expect(() =>
+      owner.activatePrepared({ prepared, timeline, initialCohortAdmitted: true }),
+    ).toThrow(/stale/u);
     owner.port().revoke(pair.context);
   });
 
@@ -1078,7 +1085,11 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       rate: 1,
     });
     current = committedPreparedPublication(prepared, timeline);
-    const activated = owner.activatePrepared({ prepared, timeline });
+    const activated = owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: true,
+    });
 
     expect(activated.offer).toBe(baseline.offer);
     expect(activated.binding).toBe(baseline.binding);
@@ -1173,7 +1184,11 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     await owner.whenPreparedRemoteReady(prepared);
     const timeline = freezeCanonical({ ...committedTimeline(), revision: 2 });
     current = committedPreparedPublication(prepared, timeline);
-    const activated = owner.activatePrepared({ prepared, timeline });
+    const activated = owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: true,
+    });
 
     await expect(
       staleRecovery.bindAttempt(fakeAttempt('host-owner-stale-recovery')),
@@ -1224,7 +1239,11 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     const readiness = owner.whenPreparedRemoteReady(prepared);
     const timeline = committedTimeline();
     current = committedPreparedPublication(prepared, timeline);
-    const activated = owner.activatePrepared({ prepared, timeline });
+    const activated = owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: false,
+    });
     expect(activated.publication.state).toBe(prepared.state);
     await expect(readiness).rejects.toThrow(/committed before/u);
     expect(required.at(-1)).toMatchObject({ type: 'FILE_PLAYBACK_TIMELINE_UPDATE_V2' });
@@ -1717,7 +1736,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     await owner.bindPrepared(prepared);
     const timeline = committedTimeline();
     current = committedPreparedPublication(prepared, timeline);
-    owner.activatePrepared({ prepared, timeline });
+    owner.activatePrepared({ prepared, timeline, initialCohortAdmitted: false });
     if (candidate.offer.transport !== 'peer-range') throw new Error('peer candidate unavailable');
     const acknowledge = vi.fn();
     owner.port().adoptPeerRangeControl(
@@ -2786,7 +2805,11 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     await owner.bindPrepared(prepared);
     const timeline = committedTimeline();
     current = committedPreparedPublication(prepared, timeline);
-    const activated = owner.activatePrepared({ prepared, timeline });
+    const activated = owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: false,
+    });
     expect(activated.offer).toBe(transferred.offer);
     expect(activated.offer).toBe(warm.offer);
     resolveRange(encodedWarmSource(authority, closeRange));
@@ -4365,7 +4388,11 @@ describe('FilePlaybackProductHostMediaOwner', () => {
         peerRangeManifest: currentSelector,
       }),
     });
-    const activated = owner.activatePrepared({ prepared, timeline });
+    const activated = owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: false,
+    });
     expect(activated.offer).toBe(warm.offer);
     if (activated.offer.transport !== 'peer-range-manifest') {
       throw new Error('activated manifest offer unavailable');
@@ -4543,7 +4570,9 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       }),
     });
     const beforeActivation = [...required];
-    expect(() => owner.activatePrepared({ prepared, timeline })).toThrow(/prepared|manifest/u);
+    expect(() =>
+      owner.activatePrepared({ prepared, timeline, initialCohortAdmitted: false }),
+    ).toThrow(/prepared|manifest/u);
     expect(required).toEqual(beforeActivation);
     owner.port().revoke(pair.context);
   });

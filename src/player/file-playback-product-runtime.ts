@@ -288,6 +288,8 @@ interface HostPreparedCohortEntry {
   publication: Readonly<FilePlaybackProductHostPreparedPublicationCommit> | null;
   capability: Readonly<HostPreparedRemoteParticipant> | null;
   publicationFailure: Error | null;
+  /** Immutable after the admission wait ends; late READY cannot promote it. */
+  initialCohortAdmitted: boolean;
   activated: boolean;
 }
 
@@ -1767,6 +1769,7 @@ export class FilePlaybackProductRuntime {
               publication: null,
               capability: null,
               publicationFailure: null,
+              initialCohortAdmitted: false,
               activated: false,
             };
             entry.readinessTask = publicationTask.then(
@@ -1793,9 +1796,14 @@ export class FilePlaybackProductRuntime {
           ) {
             throw new Error('File playback product host cohort authority is stale');
           }
-          return Object.freeze(
-            created.entries.flatMap((entry) => (entry.capability ? [entry.capability] : [])),
-          );
+          const admittedParticipants: Readonly<HostPreparedRemoteParticipant>[] = [];
+          for (const entry of created.entries) {
+            const capability = entry.capability;
+            if (!capability) continue;
+            entry.initialCohortAdmitted = true;
+            admittedParticipants.push(capability);
+          }
+          return Object.freeze(admittedParticipants);
         });
       });
       if (cycle) {
@@ -1850,7 +1858,11 @@ export class FilePlaybackProductRuntime {
         return;
       }
       try {
-        entry.owner.activatePrepared({ prepared: cycle.prepared, timeline });
+        entry.owner.activatePrepared({
+          prepared: cycle.prepared,
+          timeline,
+          initialCohortAdmitted: entry.initialCohortAdmitted,
+        });
         entry.activated = true;
       } catch (cause) {
         this.#closeExactHostMediaOwner(entry.context, entry.owner, asError(cause));

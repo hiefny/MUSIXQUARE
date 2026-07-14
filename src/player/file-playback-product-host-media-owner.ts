@@ -146,7 +146,11 @@ const READY_KEYS = Object.freeze([
   'schemaVersion',
   'sessionId',
 ] as const);
-const ACTIVATE_PREPARED_KEYS = Object.freeze(['prepared', 'timeline'] as const);
+const ACTIVATE_PREPARED_KEYS = Object.freeze([
+  'initialCohortAdmitted',
+  'prepared',
+  'timeline',
+] as const);
 const PEER_RANGE_MANIFEST_KEYS = Object.freeze([
   'codec',
   'manifestByteLength',
@@ -239,6 +243,8 @@ export interface FilePlaybackProductHostSourceLeasePublicationCommit {
 }
 
 export interface ActivateFilePlaybackProductHostPreparedOptions {
+  /** Frozen by the runtime at the exact initial cohort admission boundary. */
+  readonly initialCohortAdmitted: boolean;
   readonly prepared: Readonly<HostPreparedLocalTrack>;
   readonly timeline: Readonly<PlaybackTimelineSnapshot>;
 }
@@ -1164,7 +1170,12 @@ export class FilePlaybackProductHostMediaOwner {
   ): Readonly<FilePlaybackProductHostPublicationCommit> {
     const input = snapshotExactRecord(options, ACTIVATE_PREPARED_KEYS);
     const record = this.#candidate;
-    if (!input || !record || input.prepared !== record.prepared) {
+    if (
+      !input ||
+      typeof input.initialCohortAdmitted !== 'boolean' ||
+      !record ||
+      input.prepared !== record.prepared
+    ) {
       throw new Error('Host prepared activation authority is stale');
     }
     this.#assertCandidateRecord(record);

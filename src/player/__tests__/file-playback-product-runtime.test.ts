@@ -1937,7 +1937,11 @@ describe('FilePlaybackProductRuntime', () => {
       peerRangeManifest,
       expect.any(AbortSignal),
     );
-    expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+    expect(activatePrepared).toHaveBeenCalledWith({
+      prepared,
+      timeline,
+      initialCohortAdmitted: true,
+    });
   });
 
   it('runs a playing seek through prepared cohort publication instead of direct room seek', async () => {
@@ -2049,7 +2053,11 @@ describe('FilePlaybackProductRuntime', () => {
     expect(publishPrepared).toHaveBeenCalledWith(prepared);
     expect(bindPrepared).toHaveBeenCalledWith(prepared);
     expect(whenPreparedRemoteReady).toHaveBeenCalledWith(prepared);
-    expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+    expect(activatePrepared).toHaveBeenCalledWith({
+      prepared,
+      timeline,
+      initialCohortAdmitted: true,
+    });
     expect(resolveSource).not.toHaveBeenCalled();
   });
 
@@ -2453,7 +2461,11 @@ describe('FilePlaybackProductRuntime', () => {
 
       await vi.advanceTimersByTimeAsync(2_500);
       await expect(committedTask).resolves.toMatchObject({ timeline });
-      expect(owners[0]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+      expect(owners[0]?.activatePrepared).toHaveBeenCalledWith({
+        prepared,
+        timeline,
+        initialCohortAdmitted: true,
+      });
       expect(owners[1]?.activatePrepared).not.toHaveBeenCalled();
       expect(owners[2]?.activatePrepared).not.toHaveBeenCalled();
       expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
@@ -2464,8 +2476,16 @@ describe('FilePlaybackProductRuntime', () => {
       expect(owners[0]?.bindPrepared).toHaveBeenCalledWith(prepared);
       expect(owners[1]?.bindPrepared).toHaveBeenCalledWith(prepared);
       expect(owners[2]?.bindPrepared).not.toHaveBeenCalled();
-      expect(owners[0]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
-      expect(owners[1]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+      expect(owners[0]?.activatePrepared).toHaveBeenCalledWith({
+        prepared,
+        timeline,
+        initialCohortAdmitted: true,
+      });
+      expect(owners[1]?.activatePrepared).toHaveBeenCalledWith({
+        prepared,
+        timeline,
+        initialCohortAdmitted: false,
+      });
       expect(owners[2]?.activatePrepared).not.toHaveBeenCalled();
       expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
 

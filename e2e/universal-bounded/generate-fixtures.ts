@@ -3,9 +3,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const OUTPUT_DIR = resolve('.vite/universal-fixtures');
+const MP3_SOURCE_PATH = resolve('e2e/fixtures/test-01.mp3');
 const SAMPLE_RATE_HZ = 48_000;
 const CHANNEL_COUNT = 2;
 const DURATION_SECONDS = 60;
+const MP3_XING_FRAME_BYTES = 384;
+const MP3_SOURCE_SHA256 = 'f39bd1784a7cb58675e61ab17906f8ed2d675defc11eea1e10a6bd0258d359f3';
+const MP3_NO_COUNT_SHA256 = '7862af77e2b6f27ecb9847ff3c1f3a75036bd342b34040b3e76477dfd9df48db';
 
 // FFmpeg 8.0.1, bitexact AAC-LC, 48 kHz stereo, two seconds of generated
 // silence. The bytes are fixed here so CI never needs an external encoder.
@@ -101,6 +105,27 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+function createNoFrameCountMp3(source: Buffer): Buffer {
+  if (sha256(source) !== MP3_SOURCE_SHA256) {
+    throw new Error('Tracked MP3 fixture no longer matches its exact SHA-256');
+  }
+  if (
+    source.byteLength <= MP3_XING_FRAME_BYTES ||
+    !source.subarray(0, 4).equals(Buffer.from([0xff, 0xfb, 0x94, 0x44])) ||
+    source.toString('ascii', 36, 40) !== 'Xing' ||
+    source.toString('ascii', 156, 160) !== 'LAME' ||
+    source[MP3_XING_FRAME_BYTES] !== 0xff ||
+    (source[MP3_XING_FRAME_BYTES + 1]! & 0xe0) !== 0xe0
+  ) {
+    throw new Error('Tracked MP3 fixture no longer has the exact 384-byte Xing/LAME frame');
+  }
+  const noFrameCount = source.subarray(MP3_XING_FRAME_BYTES);
+  if (sha256(noFrameCount) !== MP3_NO_COUNT_SHA256) {
+    throw new Error('Derived no-frame-count MP3 failed its exact SHA-256 check');
+  }
+  return noFrameCount;
+}
+
 async function writeExact(name: string, bytes: Buffer): Promise<void> {
   const path = resolve(OUTPUT_DIR, name);
   const current = await readFile(path).catch(() => null);
@@ -114,6 +139,7 @@ async function main(): Promise<void> {
   if (sha256(adtsSeed) !== ADTS_AAC_LC_SHA256) {
     throw new Error('Embedded ADTS fixture failed its exact SHA-256 check');
   }
+  const mp3 = createNoFrameCountMp3(await readFile(MP3_SOURCE_PATH));
   const adts = Buffer.concat([adtsSeed, adtsSeed, adtsSeed, adtsSeed]);
   const pcm16le = createPcm16(true);
   const pcm16be = createPcm16(false);
@@ -122,6 +148,7 @@ async function main(): Promise<void> {
     writeExact('bounded-tone.aiff', createAiffPcm16(pcm16be)),
     writeExact('bounded-tone.caf', createCafPcm16(pcm16le)),
     writeExact('bounded-tone.aac', adts),
+    writeExact('bounded-tone-no-count.mp3', mp3),
   ]);
 }
 

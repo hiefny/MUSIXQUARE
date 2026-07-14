@@ -5,6 +5,7 @@ import type { StreamingDecoderOpenOptions } from '../../streaming/decoder-adapte
 import { PCM_STREAM_PROTOCOL_VERSION } from '../../streaming/pcm-stream-protocol.ts';
 import { AacDecoderAdapter } from '../decoder-adapter.ts';
 import { createAacDecoderDescriptor, expectedAacOutputFrames } from '../decoder-helpers.ts';
+import { createAdtsDecoderTimelineEvidence } from '../decoder-timeline-evidence.ts';
 import {
   AAC_DECODER_PROTOCOL_VERSION,
   type AacDecoderBackendId,
@@ -144,7 +145,32 @@ function scanFixture(
   });
 }
 
-function harness(backendId: AacDecoderBackendId = 'webcodecs') {
+function timelineEvidenceFixture() {
+  const scan = scanFixture();
+  return createAdtsDecoderTimelineEvidence({
+    format: 'adts-decoder-timeline',
+    authority: 'none',
+    sourceIdentity: scan.sourceIdentity,
+    sourceSize: scan.sourceSize,
+    coreConfiguration: scan.coreConfiguration,
+    coreSampleRateHz: scan.coreSampleRateHz,
+    coreChannelCount: scan.coreChannelCount,
+    samplesPerFrame: scan.samplesPerFrame,
+    frameCount: scan.frameCount,
+    audioEndByteOffset: scan.audioEndByteOffset,
+    timeline: {
+      frameCount: scan.frameCount,
+      coreFramesPerAccessUnit: 1_024,
+      totalMediaFrames: scan.totalCoreSamples,
+    },
+    seekPoints: scan.seekPoints,
+  });
+}
+
+function harness(
+  backendId: AacDecoderBackendId = 'webcodecs',
+  planningKind: 'scan' | 'timeline-evidence' = 'scan',
+) {
   const workers: FakeWorker[] = [];
   const channels: FakeMessageChannel[] = [];
   const closeSource = vi.fn(async () => undefined);
@@ -167,12 +193,20 @@ function harness(backendId: AacDecoderBackendId = 'webcodecs') {
     channels.push(channel);
     return channel as unknown as MessageChannel;
   });
-  const adapter = new AacDecoderAdapter({
-    encodedSource: source,
-    scan: scanFixture(),
-    backendId,
-    runtime: { createWorker, createMessageChannel },
-  });
+  const adapter =
+    planningKind === 'scan'
+      ? new AacDecoderAdapter({
+          encodedSource: source,
+          scan: scanFixture(),
+          backendId,
+          runtime: { createWorker, createMessageChannel },
+        })
+      : new AacDecoderAdapter({
+          encodedSource: source,
+          timelineEvidence: timelineEvidenceFixture(),
+          backendId,
+          runtime: { createWorker, createMessageChannel },
+        });
   return {
     adapter,
     source,
@@ -278,6 +312,130 @@ describe('AacDecoderAdapter', () => {
         }),
     ).toThrow(/different encoded source/i);
     expect(foreignClose).not.toHaveBeenCalled();
+  });
+
+  it('accepts normalized timeline evidence with identical source binding and realm planning', async () => {
+    const h = harness('webcodecs', 'timeline-evidence');
+    expect(h.adapter.info).toEqual({
+      mediaSampleRateHz: 44_100,
+      channelCount: 2,
+      totalMediaFrames: TOTAL_FRAMES,
+    });
+    expect(h.readAt).not.toHaveBeenCalled();
+
+    await h.adapter.open(options());
+    const target = 5 * 1_024 + 29;
+    const pending = h.adapter.startGeneration(request(80, target, new FakeMessagePort()));
+    const worker = h.workers[0];
+    if (!worker) throw new Error('Expected evidence-backed AAC realm');
+    const command = openCommand(worker);
+    expect(command.descriptor).toEqual(
+      createAacDecoderDescriptor({
+        scan: scanFixture(),
+        outputSampleRateHz: 48_000,
+        mediaFrame: target,
+      }),
+    );
+    worker.emit(ready(command));
+    await pending;
+    await h.adapter.close();
+    expect(h.closeSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('binds evidence comparison and lifetime ownership to one source snapshot', async () => {
+    let sizeReads = 0;
+    let identityReads = 0;
+    const close = vi.fn(async () => undefined);
+    const source = {
+      kind: 'blob' as const,
+      get size() {
+        sizeReads += 1;
+        return sizeReads === 1 ? SOURCE_SIZE : SOURCE_SIZE + 1;
+      },
+      get identity() {
+        identityReads += 1;
+        return identityReads === 1 ? SOURCE_IDENTITY : `${SOURCE_IDENTITY}:changed`;
+      },
+      metadata: { name: 'fixture.aac', mime: 'audio/aac' },
+      readAt: async (_offset: number, length: number) => new Uint8Array(length),
+      close,
+    };
+    const adapter = new AacDecoderAdapter({
+      encodedSource: source,
+      timelineEvidence: timelineEvidenceFixture(),
+      backendId: 'webcodecs',
+      runtime: {
+        createWorker: () => new FakeWorker() as unknown as Worker,
+        createMessageChannel: () => new FakeMessageChannel() as unknown as MessageChannel,
+      },
+    });
+
+    expect(sizeReads).toBe(1);
+    expect(identityReads).toBe(1);
+    expect(adapter.info.totalMediaFrames).toBe(TOTAL_FRAMES);
+    await adapter.close();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(sizeReads).toBe(1);
+    expect(identityReads).toBe(1);
+  });
+
+  it('rejects timeline-evidence source mismatch and exact-one option violations before ownership', async () => {
+    const h = harness();
+    const foreignClose = vi.fn(async () => undefined);
+    const foreignSource = {
+      ...h.source,
+      identity: 'source:foreign-timeline-evidence',
+      close: foreignClose,
+    } satisfies EncodedAudioSource;
+    expect(
+      () =>
+        new AacDecoderAdapter({
+          encodedSource: foreignSource,
+          timelineEvidence: timelineEvidenceFixture(),
+          backendId: 'webcodecs',
+          runtime: { createWorker: h.createWorker, createMessageChannel: h.createMessageChannel },
+        }),
+    ).toThrow(/different encoded source/i);
+    expect(foreignClose).not.toHaveBeenCalled();
+
+    const unusedClose = vi.fn(async () => undefined);
+    const unusedSource = { ...h.source, close: unusedClose } satisfies EncodedAudioSource;
+    expect(
+      () =>
+        new AacDecoderAdapter({
+          encodedSource: unusedSource,
+          scan: scanFixture(),
+          timelineEvidence: timelineEvidenceFixture(),
+          backendId: 'webcodecs',
+          runtime: { createWorker: h.createWorker, createMessageChannel: h.createMessageChannel },
+        } as never),
+    ).toThrow(/exactly one/i);
+    expect(
+      () =>
+        new AacDecoderAdapter({
+          encodedSource: unusedSource,
+          backendId: 'webcodecs',
+          runtime: { createWorker: h.createWorker, createMessageChannel: h.createMessageChannel },
+        } as never),
+    ).toThrow(/exactly one/i);
+
+    let scanGetterReads = 0;
+    const accessorOptions = {
+      encodedSource: unusedSource,
+      backendId: 'webcodecs',
+      runtime: { createWorker: h.createWorker, createMessageChannel: h.createMessageChannel },
+    };
+    Object.defineProperty(accessorOptions, 'scan', {
+      enumerable: true,
+      get() {
+        scanGetterReads += 1;
+        return scanFixture();
+      },
+    });
+    expect(() => new AacDecoderAdapter(accessorOptions as never)).toThrow(/data property/i);
+    expect(scanGetterReads).toBe(0);
+    expect(unusedClose).not.toHaveBeenCalled();
+    await h.adapter.close();
   });
 
   it('uses fresh pinned-backend realms and preserves exact control EOF until successor retirement', async () => {

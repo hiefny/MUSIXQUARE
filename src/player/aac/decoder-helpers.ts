@@ -8,6 +8,10 @@ import {
   snapshotAacDecoderDescriptor,
   type AacDecoderDescriptor,
 } from './decoder-protocol.ts';
+import {
+  createAdtsDecoderTimelineEvidence,
+  type AdtsDecoderTimelineEvidence,
+} from './decoder-timeline-evidence.ts';
 import { ADTS_CORE_SAMPLES_PER_FRAME, type AdtsFrameScanResult } from './frame-scanner.ts';
 import { adtsCoreSampleRateHzForIndex, type AdtsSampleRateIndex } from './adts-header.ts';
 import type { AdtsCoreConfiguration } from './incremental-frame-reader.ts';
@@ -45,6 +49,15 @@ const CREATE_DESCRIPTOR_OPTION_KEYS = [
   ...CREATE_DESCRIPTOR_REQUIRED_KEYS,
   'prerollAccessUnits',
 ] as const;
+const CREATE_TIMELINE_DESCRIPTOR_REQUIRED_KEYS = [
+  'timelineEvidence',
+  'outputSampleRateHz',
+  'mediaFrame',
+] as const;
+const CREATE_TIMELINE_DESCRIPTOR_OPTION_KEYS = [
+  ...CREATE_TIMELINE_DESCRIPTOR_REQUIRED_KEYS,
+  'prerollAccessUnits',
+] as const;
 
 type StrictRecord = Readonly<Record<string, unknown>>;
 
@@ -55,8 +68,24 @@ export interface AacDecoderPlanningState {
   readonly seekPoints: readonly Readonly<AdtsSeekIndexPoint>[];
 }
 
+export interface AacDecoderTimelinePlanningState {
+  /** Detached planning data with no scanner or manifest-sealer authority. */
+  readonly evidence: Readonly<AdtsDecoderTimelineEvidence>;
+  readonly timeline: Readonly<AdtsCoreTimeline>;
+  readonly seekPoints: readonly Readonly<AdtsSeekIndexPoint>[];
+}
+
 export interface CreateAacDecoderDescriptorOptions {
   readonly scan: Readonly<AdtsFrameScanResult>;
+  readonly outputSampleRateHz: number;
+  /** Exact media/core coordinate. Exclusive EOF cannot open a fresh generation. */
+  readonly mediaFrame: number;
+  /** Defaults to one AU and may not exceed the protocol's bounded ceiling. */
+  readonly prerollAccessUnits?: number;
+}
+
+export interface CreateAacDecoderDescriptorFromTimelineEvidenceOptions {
+  readonly timelineEvidence: Readonly<AdtsDecoderTimelineEvidence>;
   readonly outputSampleRateHz: number;
   /** Exact media/core coordinate. Exclusive EOF cannot open a fresh generation. */
   readonly mediaFrame: number;
@@ -412,24 +441,41 @@ export function rebuildAacDecoderPlanningState(
   });
 }
 
+/** Rebuild decoder planning from normalized, externally admitted ADTS evidence. */
+export function rebuildAacDecoderTimelinePlanningState(
+  evidenceValue: Readonly<AdtsDecoderTimelineEvidence>,
+): Readonly<AacDecoderTimelinePlanningState> {
+  const evidence = createAdtsDecoderTimelineEvidence(evidenceValue);
+  return Object.freeze({
+    evidence,
+    timeline: evidence.timeline,
+    seekPoints: evidence.seekPoints,
+  });
+}
+
 interface DescriptorOptionsSnapshot {
-  readonly scan: unknown;
+  readonly planningEvidence: unknown;
   readonly outputSampleRateHz: number;
   readonly mediaFrame: number;
   readonly prerollAccessUnits: number;
 }
 
-function snapshotDescriptorOptions(value: unknown): DescriptorOptionsSnapshot {
+function snapshotDescriptorOptions(
+  value: unknown,
+  evidenceKey: 'scan' | 'timelineEvidence',
+): DescriptorOptionsSnapshot {
   const record = snapshotRecord(value);
+  const requiredKeys =
+    evidenceKey === 'scan'
+      ? CREATE_DESCRIPTOR_REQUIRED_KEYS
+      : CREATE_TIMELINE_DESCRIPTOR_REQUIRED_KEYS;
+  const optionKeys =
+    evidenceKey === 'scan' ? CREATE_DESCRIPTOR_OPTION_KEYS : CREATE_TIMELINE_DESCRIPTOR_OPTION_KEYS;
+  const optionKeySet: ReadonlySet<string> = new Set(optionKeys);
   if (
     !record ||
-    Object.keys(record).some(
-      (key) =>
-        !CREATE_DESCRIPTOR_OPTION_KEYS.includes(
-          key as (typeof CREATE_DESCRIPTOR_OPTION_KEYS)[number],
-        ),
-    ) ||
-    !CREATE_DESCRIPTOR_REQUIRED_KEYS.every((key) => Object.hasOwn(record, key))
+    Object.keys(record).some((key) => !optionKeySet.has(key)) ||
+    !requiredKeys.every((key) => Object.hasOwn(record, key))
   ) {
     throw new TypeError('AAC decoder descriptor options must be an exact data-only record');
   }
@@ -450,7 +496,7 @@ function snapshotDescriptorOptions(value: unknown): DescriptorOptionsSnapshot {
     AAC_DECODER_MAX_TRANSFORM_PREROLL_ACCESS_UNITS,
   );
   return Object.freeze({
-    scan: record.scan,
+    planningEvidence: record[evidenceKey],
     outputSampleRateHz: record.outputSampleRateHz,
     mediaFrame: record.mediaFrame,
     prerollAccessUnits,
@@ -476,18 +522,28 @@ function floorSeekAnchor(
   return anchor;
 }
 
-/**
- * Create one fully validated, deeply detached descriptor for a fresh Worker.
- *
- * The floor anchor is selected for the bounded decode start, not for the later
- * media target. This remains correct when deterministic index compaction has
- * retained a target-near point that lies after the chosen transform preroll.
- */
-export function createAacDecoderDescriptor(
-  optionsValue: CreateAacDecoderDescriptorOptions,
+interface AacDecoderDescriptorPlanningView {
+  readonly sourceIdentity: string;
+  readonly sourceSize: number;
+  readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
+  readonly coreSampleRateHz: number;
+  readonly coreChannelCount: 1 | 2;
+  readonly frameCount: number;
+  readonly audioEndByteOffset: number;
+  readonly timeline: Readonly<AdtsCoreTimeline>;
+  readonly seekPoints: readonly Readonly<AdtsSeekIndexPoint>[];
+}
+
+interface AacDecoderDescriptorTargetOptions {
+  readonly outputSampleRateHz: number;
+  readonly mediaFrame: number;
+  readonly prerollAccessUnits: number;
+}
+
+function createDescriptorFromPlanningView(
+  planning: AacDecoderDescriptorPlanningView,
+  options: AacDecoderDescriptorTargetOptions,
 ): Readonly<AacDecoderDescriptor> {
-  const options = snapshotDescriptorOptions(optionsValue);
-  const planning = rebuildAacDecoderPlanningState(options.scan as AdtsFrameScanResult);
   if (options.mediaFrame >= planning.timeline.totalMediaFrames) {
     throw new RangeError('AAC exclusive media EOF cannot create a decoder descriptor');
   }
@@ -508,7 +564,7 @@ export function createAacDecoderDescriptor(
   // Prove the complete resampled remainder fits every browser counter before
   // constructing a descriptor that could otherwise fail with a generic error.
   expectedLanczosOutputFrames({
-    inputSampleRate: planning.scan.coreSampleRateHz,
+    inputSampleRate: planning.coreSampleRateHz,
     outputSampleRate: options.outputSampleRateHz,
     totalSourceFrames: planning.timeline.totalMediaFrames,
     startSourceFrame: options.mediaFrame,
@@ -516,20 +572,72 @@ export function createAacDecoderDescriptor(
 
   const descriptor: AacDecoderDescriptor = Object.freeze({
     format: 'aac-adts',
-    sourceSize: planning.scan.sourceSize,
-    sourceIdentity: planning.scan.sourceIdentity,
-    coreConfiguration: planning.scan.coreConfiguration,
-    coreSampleRateHz: planning.scan.coreSampleRateHz,
+    sourceSize: planning.sourceSize,
+    sourceIdentity: planning.sourceIdentity,
+    coreConfiguration: planning.coreConfiguration,
+    coreSampleRateHz: planning.coreSampleRateHz,
     outputSampleRateHz: options.outputSampleRateHz,
-    channels: planning.scan.coreChannelCount,
-    frameCount: planning.scan.frameCount,
-    audioEndByteOffset: planning.scan.audioEndByteOffset,
+    channels: planning.coreChannelCount,
+    frameCount: planning.frameCount,
+    audioEndByteOffset: planning.audioEndByteOffset,
     timeline: planning.timeline,
     startPlan,
   });
   const snapshot = snapshotAacDecoderDescriptor(descriptor);
   if (!snapshot) throw new AacDecoderHelperError('AAC decoder descriptor failed validation');
   return snapshot;
+}
+
+/**
+ * Create one fully validated, deeply detached descriptor for a fresh Worker.
+ *
+ * The floor anchor is selected for the bounded decode start, not for the later
+ * media target. This remains correct when deterministic index compaction has
+ * retained a target-near point that lies after the chosen transform preroll.
+ */
+export function createAacDecoderDescriptor(
+  optionsValue: CreateAacDecoderDescriptorOptions,
+): Readonly<AacDecoderDescriptor> {
+  const options = snapshotDescriptorOptions(optionsValue, 'scan');
+  const planning = rebuildAacDecoderPlanningState(options.planningEvidence as AdtsFrameScanResult);
+  return createDescriptorFromPlanningView(
+    {
+      sourceIdentity: planning.scan.sourceIdentity,
+      sourceSize: planning.scan.sourceSize,
+      coreConfiguration: planning.scan.coreConfiguration,
+      coreSampleRateHz: planning.scan.coreSampleRateHz,
+      coreChannelCount: planning.scan.coreChannelCount,
+      frameCount: planning.scan.frameCount,
+      audioEndByteOffset: planning.scan.audioEndByteOffset,
+      timeline: planning.timeline,
+      seekPoints: planning.seekPoints,
+    },
+    options,
+  );
+}
+
+/** Create the same canonical descriptor from normalized decoder-only evidence. */
+export function createAacDecoderDescriptorFromTimelineEvidence(
+  optionsValue: CreateAacDecoderDescriptorFromTimelineEvidenceOptions,
+): Readonly<AacDecoderDescriptor> {
+  const options = snapshotDescriptorOptions(optionsValue, 'timelineEvidence');
+  const planning = rebuildAacDecoderTimelinePlanningState(
+    options.planningEvidence as AdtsDecoderTimelineEvidence,
+  );
+  return createDescriptorFromPlanningView(
+    {
+      sourceIdentity: planning.evidence.sourceIdentity,
+      sourceSize: planning.evidence.sourceSize,
+      coreConfiguration: planning.evidence.coreConfiguration,
+      coreSampleRateHz: planning.evidence.coreSampleRateHz,
+      coreChannelCount: planning.evidence.coreChannelCount,
+      frameCount: planning.evidence.frameCount,
+      audioEndByteOffset: planning.evidence.audioEndByteOffset,
+      timeline: planning.timeline,
+      seekPoints: planning.seekPoints,
+    },
+    options,
+  );
 }
 
 function requireDescriptor(value: unknown): Readonly<AacDecoderDescriptor> {

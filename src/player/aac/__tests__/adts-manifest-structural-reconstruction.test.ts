@@ -12,6 +12,7 @@ import {
   reconstructAdtsManifestStructure,
 } from '../adts-manifest-structural-reconstruction.ts';
 import { rebuildAacDecoderPlanningState } from '../decoder-helpers.ts';
+import { createAdtsDecoderTimelineEvidenceFromScanResult } from '../decoder-timeline-evidence.ts';
 import { type AdtsFrameScanResult, isScannerIssuedAdtsFrameScanResult } from '../frame-scanner.ts';
 import { ADTS_MAX_FRAME_BYTES } from '../incremental-frame-reader.ts';
 
@@ -390,6 +391,11 @@ describe('ADTS manifest structural reconstruction', () => {
     expect(() => rebuildAacDecoderPlanningState(result as unknown as AdtsFrameScanResult)).toThrow(
       /canonical|complete physical frame span/i,
     );
+    expect(() =>
+      createAdtsDecoderTimelineEvidenceFromScanResult(
+        result as unknown as Readonly<AdtsFrameScanResult>,
+      ),
+    ).toThrow(/exact scanner-issued result/i);
     expect(result).not.toHaveProperty('manifestSeal');
   });
 });

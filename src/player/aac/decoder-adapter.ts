@@ -25,9 +25,12 @@ import {
 import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
 import {
   createAacDecoderDescriptor,
+  createAacDecoderDescriptorFromTimelineEvidence,
   expectedAacOutputFrames,
   rebuildAacDecoderPlanningState,
+  rebuildAacDecoderTimelinePlanningState,
 } from './decoder-helpers.js';
+import type { AdtsDecoderTimelineEvidence } from './decoder-timeline-evidence.js';
 import {
   AAC_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ,
   AAC_DECODER_PROTOCOL_VERSION,
@@ -53,15 +56,29 @@ export interface AacDecoderAdapterRuntime {
   readonly createMessageChannel: () => MessageChannel;
 }
 
-export interface AacDecoderAdapterOptions {
+interface AacDecoderAdapterCommonOptions {
   /** Ownership transfers only after this constructor validates successfully. */
   readonly encodedSource: EncodedAudioSource;
-  /** Complete same-source scanner evidence. Encoded access-unit bodies are not retained. */
-  readonly scan: Readonly<AdtsFrameScanResult>;
   /** Exact room/cohort decoder choice. This adapter never substitutes another backend. */
   readonly backendId: AacDecoderBackendId;
   readonly runtime: AacDecoderAdapterRuntime;
 }
+
+export interface AacDecoderAdapterScanOptions extends AacDecoderAdapterCommonOptions {
+  /** Complete same-source scanner evidence. Encoded access-unit bodies are not retained. */
+  readonly scan: Readonly<AdtsFrameScanResult>;
+  readonly timelineEvidence?: never;
+}
+
+export interface AacDecoderAdapterTimelineEvidenceOptions extends AacDecoderAdapterCommonOptions {
+  /** Externally admitted decoder-only evidence; it carries no scanner/sealer authority. */
+  readonly timelineEvidence: Readonly<AdtsDecoderTimelineEvidence>;
+  readonly scan?: never;
+}
+
+export type AacDecoderAdapterOptions =
+  | AacDecoderAdapterScanOptions
+  | AacDecoderAdapterTimelineEvidenceOptions;
 
 interface Deferred {
   settled: boolean;
@@ -106,12 +123,30 @@ interface EofGeneration extends GenerationBase {
 
 type ActiveGeneration = WorkerRealm | EofGeneration;
 
-interface AdapterOptionSnapshot {
+interface AdapterScanOptionSnapshot {
+  readonly kind: 'scan';
   readonly encodedSource: unknown;
   readonly scan: unknown;
   readonly backendId: unknown;
   readonly runtime: unknown;
 }
+
+interface AdapterTimelineEvidenceOptionSnapshot {
+  readonly kind: 'timeline-evidence';
+  readonly encodedSource: unknown;
+  readonly timelineEvidence: unknown;
+  readonly backendId: unknown;
+  readonly runtime: unknown;
+}
+
+type AdapterOptionSnapshot = AdapterScanOptionSnapshot | AdapterTimelineEvidenceOptionSnapshot;
+
+type AdapterPlanningEvidence =
+  | { readonly kind: 'scan'; readonly scan: Readonly<AdtsFrameScanResult> }
+  | {
+      readonly kind: 'timeline-evidence';
+      readonly evidence: Readonly<AdtsDecoderTimelineEvidence>;
+    };
 
 function createDeferred(): Deferred {
   let resolvePromise!: () => void;
@@ -193,17 +228,63 @@ function stoppedBeforeReadyError(): Error {
 }
 
 function snapshotOptions(value: unknown): AdapterOptionSnapshot {
-  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+  if (typeof value !== 'object' || value === null) {
     throw new TypeError('AAC decoder adapter options are required');
   }
+
   try {
-    return Object.freeze({
-      encodedSource: Reflect.get(value, 'encodedSource'),
-      scan: Reflect.get(value, 'scan'),
-      backendId: Reflect.get(value, 'backendId'),
-      runtime: Reflect.get(value, 'runtime'),
-    });
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError('AAC decoder adapter options must use a plain or null prototype');
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value) as unknown as Record<
+      PropertyKey,
+      PropertyDescriptor | undefined
+    >;
+    const hasScan = Object.hasOwn(descriptors, 'scan');
+    const hasTimelineEvidence = Object.hasOwn(descriptors, 'timelineEvidence');
+    if (hasScan === hasTimelineEvidence) {
+      throw new TypeError(
+        'AAC decoder adapter options require exactly one of scan or timelineEvidence',
+      );
+    }
+    const keys = hasScan
+      ? (['encodedSource', 'scan', 'backendId', 'runtime'] as const)
+      : (['encodedSource', 'timelineEvidence', 'backendId', 'runtime'] as const);
+    const expected = new Set<PropertyKey>(keys);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.length !== keys.length || ownKeys.some((key) => !expected.has(key))) {
+      throw new TypeError('AAC decoder adapter options must be an exact data-only record');
+    }
+    const read = (key: (typeof keys)[number]): unknown => {
+      const descriptor = descriptors[key];
+      if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+        throw new TypeError(
+          `AAC decoder adapter option ${key} must be an enumerable data property`,
+        );
+      }
+      return descriptor.value;
+    };
+    const encodedSource = read('encodedSource');
+    const backendId = read('backendId');
+    const runtime = read('runtime');
+    return hasScan
+      ? Object.freeze({
+          kind: 'scan',
+          encodedSource,
+          scan: read('scan'),
+          backendId,
+          runtime,
+        })
+      : Object.freeze({
+          kind: 'timeline-evidence',
+          encodedSource,
+          timelineEvidence: read('timelineEvidence'),
+          backendId,
+          runtime,
+        });
   } catch (error) {
+    if (error instanceof TypeError) throw error;
     throw new TypeError('AAC decoder adapter options could not be inspected', { cause: error });
   }
 }
@@ -295,7 +376,7 @@ function snapshotBackendId(value: unknown): AacDecoderBackendId {
 export class AacDecoderAdapter implements StreamingDecoderAdapter {
   readonly info: Readonly<StreamingDecoderMediaInfo>;
 
-  readonly #scan: Readonly<AdtsFrameScanResult>;
+  readonly #planningEvidence: AdapterPlanningEvidence;
   readonly #backendId: AacDecoderBackendId;
   readonly #runtime: Readonly<AacDecoderAdapterRuntime>;
   readonly #sourceLifetime: EncodedAudioSourceLifetime;
@@ -323,26 +404,53 @@ export class AacDecoderAdapter implements StreamingDecoderAdapter {
     const runtime = snapshotRuntime(options.runtime);
     const backendId = snapshotBackendId(options.backendId);
 
-    let planning: ReturnType<typeof rebuildAacDecoderPlanningState>;
-    try {
-      planning = rebuildAacDecoderPlanningState(options.scan as AdtsFrameScanResult);
-    } catch (error) {
-      throw new TypeError('Streaming AAC scan evidence is invalid', { cause: error });
+    let sourceIdentity: string;
+    let sourceSize: number;
+    let mediaSampleRateHz: number;
+    let channelCount: 1 | 2;
+    let totalMediaFrames: number;
+    if (options.kind === 'scan') {
+      let planning: ReturnType<typeof rebuildAacDecoderPlanningState>;
+      try {
+        planning = rebuildAacDecoderPlanningState(options.scan as AdtsFrameScanResult);
+      } catch (error) {
+        throw new TypeError('Streaming AAC scan evidence is invalid', { cause: error });
+      }
+      sourceIdentity = planning.scan.sourceIdentity;
+      sourceSize = planning.scan.sourceSize;
+      mediaSampleRateHz = planning.scan.coreSampleRateHz;
+      channelCount = planning.scan.coreChannelCount;
+      totalMediaFrames = planning.timeline.totalMediaFrames;
+      this.#planningEvidence = Object.freeze({ kind: 'scan', scan: planning.scan });
+    } else {
+      let planning: ReturnType<typeof rebuildAacDecoderTimelinePlanningState>;
+      try {
+        planning = rebuildAacDecoderTimelinePlanningState(
+          options.timelineEvidence as AdtsDecoderTimelineEvidence,
+        );
+      } catch (error) {
+        throw new TypeError('Streaming AAC timeline evidence is invalid', { cause: error });
+      }
+      sourceIdentity = planning.evidence.sourceIdentity;
+      sourceSize = planning.evidence.sourceSize;
+      mediaSampleRateHz = planning.evidence.coreSampleRateHz;
+      channelCount = planning.evidence.coreChannelCount;
+      totalMediaFrames = planning.timeline.totalMediaFrames;
+      this.#planningEvidence = Object.freeze({
+        kind: 'timeline-evidence',
+        evidence: planning.evidence,
+      });
     }
-    if (
-      planning.scan.sourceSize !== source.size ||
-      planning.scan.sourceIdentity !== source.identity
-    ) {
-      throw new TypeError('Streaming AAC scan evidence belongs to a different encoded source');
+    if (sourceSize !== source.size || sourceIdentity !== source.identity) {
+      throw new TypeError('Streaming AAC planning evidence belongs to a different encoded source');
     }
 
-    this.#scan = planning.scan;
     this.#backendId = backendId;
     this.#runtime = runtime;
     this.info = Object.freeze({
-      mediaSampleRateHz: planning.scan.coreSampleRateHz,
-      channelCount: planning.scan.coreChannelCount,
-      totalMediaFrames: planning.timeline.totalMediaFrames,
+      mediaSampleRateHz,
+      channelCount,
+      totalMediaFrames,
     });
     // Final ownership boundary: every later field is already initialized and
     // this stable facade has passed the lifetime's full source validation.
@@ -414,11 +522,18 @@ export class AacDecoderAdapter implements StreamingDecoderAdapter {
     // request must preserve both the active realm and the caller-owned PCM port.
     let descriptor: Readonly<AacDecoderDescriptor>;
     try {
-      descriptor = createAacDecoderDescriptor({
-        scan: this.#scan,
-        outputSampleRateHz: request.outputSampleRateHz,
-        mediaFrame: request.targetMediaFrame,
-      });
+      descriptor =
+        this.#planningEvidence.kind === 'scan'
+          ? createAacDecoderDescriptor({
+              scan: this.#planningEvidence.scan,
+              outputSampleRateHz: request.outputSampleRateHz,
+              mediaFrame: request.targetMediaFrame,
+            })
+          : createAacDecoderDescriptorFromTimelineEvidence({
+              timelineEvidence: this.#planningEvidence.evidence,
+              outputSampleRateHz: request.outputSampleRateHz,
+              mediaFrame: request.targetMediaFrame,
+            });
     } catch (error) {
       return Promise.reject(error);
     }

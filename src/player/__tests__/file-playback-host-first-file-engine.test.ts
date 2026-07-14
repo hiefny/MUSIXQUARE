@@ -972,11 +972,42 @@ function expectBodyFree(value: unknown): void {
   const seen = new Set<object>();
   const visit = (candidate: unknown): void => {
     expect(candidate).not.toBeInstanceOf(Blob);
+    expect(candidate).not.toBeInstanceOf(ArrayBuffer);
+    expect(ArrayBuffer.isView(candidate)).toBe(false);
     if (candidate === null || typeof candidate !== 'object' || seen.has(candidate)) return;
     seen.add(candidate);
     for (const nested of Object.values(candidate)) visit(nested);
   };
   visit(value);
+}
+
+async function expectBlobManifestBundle(
+  source: Blob | EncodedAudioSource,
+  manifest: Uint8Array,
+  media: Uint8Array,
+  sourceIdentity: string,
+): Promise<void> {
+  expect(source).not.toBeInstanceOf(Blob);
+  if (source instanceof Blob) throw new Error('Expected a manifest-prefixed source');
+  expect(source).toMatchObject({
+    kind: 'blob',
+    identity: sourceIdentity,
+    size: manifest.byteLength + media.byteLength,
+  });
+  expect(await source.readAt(0, manifest.byteLength, new AbortController().signal)).toEqual(
+    manifest,
+  );
+  const boundaryOffset = manifest.byteLength - 2;
+  const expectedBoundary = new Uint8Array(4);
+  expectedBoundary.set(manifest.subarray(boundaryOffset), 0);
+  expectedBoundary.set(media.subarray(0, 2), 2);
+  expect(await source.readAt(boundaryOffset, 4, new AbortController().signal)).toEqual(
+    expectedBoundary,
+  );
+  expect(
+    await source.readAt(manifest.byteLength, media.byteLength, new AbortController().signal),
+  ).toEqual(media);
+  await source.close();
 }
 
 function errorTreeContains(value: unknown, target: unknown): boolean {
@@ -1316,6 +1347,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const source = await harness.engine.resolveWarmPeerRangeSource({
       sourceLease: warm.sourceLease!,
       sourceIdentity: warm.asset.binding.sourceIdentity,
+      peerRangeManifest: warm.asset.peerRangeManifest,
       signal: new AbortController().signal,
     });
     expect(source).toBe(blob);
@@ -1340,18 +1372,98 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       'admitProvisionalBlobAsset',
     );
     const promotion = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'promoteProvisionalAsset');
-    const harness = makeHarness([{ backend: 'bounded-stream' }], {
-      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
-    });
+    const holdBeforeWarmResult = deferred<void>();
+    const harness = makeHarness(
+      [{ backend: 'bounded-stream', prepareGate: holdBeforeWarmResult }],
+      {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      },
+    );
     const bytes = adtsFixtureFrame(37, 0x51);
     const blob = new Blob([bytes], { type: 'audio/aac' });
 
-    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const pendingWarm = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    await drainMicrotasks();
     const lease = provisionalAdmission.mock.results[0]?.value;
     const registry = provisionalAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
     const access = await installFixtureHostArtifact(registry, lease!, bytes);
+    holdBeforeWarmResult.resolve();
+    const warm = await pendingWarm;
+    const warmManifest = warm.asset.peerRangeManifest;
+    if (!warm.sourceLease || !warmManifest) {
+      throw new Error('Fixture expected a manifest-bearing warm source');
+    }
+    const manifestBytes =
+      codecTimelineHostArtifactLeaseStore.copyCodecTimelineHostArtifactManifestForLease(access);
+    if (!manifestBytes) throw new Error('Fixture manifest copy is unavailable');
+    expect(warm.asset.encodedSize).toBe(bytes.byteLength);
+    expect(warmManifest).toMatchObject({
+      codec: 'adts-aac-lc',
+      manifestByteLength: manifestBytes.byteLength,
+    });
+    expectBodyFree(warm);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease: warm.sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: null,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+    const copiedWarmManifest = Object.freeze({ ...warmManifest });
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease: warm.sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: copiedWarmManifest,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/exact issued authority/u);
+    await expectBlobManifestBundle(
+      await harness.engine.resolveWarmPeerRangeSource({
+        sourceLease: warm.sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warmManifest,
+        signal: new AbortController().signal,
+      }),
+      manifestBytes,
+      bytes,
+      warm.asset.binding.sourceIdentity,
+    );
+
     const prepared = await harness.engine.prepareLocalTrack(
       localTrackOptions(harness, Q1, blob, 0),
+    );
+    const preparedManifest = prepared.asset.peerRangeManifest;
+    if (!preparedManifest) throw new Error('Fixture expected a prepared manifest selector');
+    expect(preparedManifest).toEqual(warmManifest);
+    expect(preparedManifest).not.toBe(warmManifest);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease: warm.sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: preparedManifest,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/exact issued authority/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: warmManifest,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/exact issued authority/u);
+    await expectBlobManifestBundle(
+      await harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: preparedManifest,
+        signal: new AbortController().signal,
+      }),
+      manifestBytes,
+      bytes,
+      prepared.asset.binding.sourceIdentity,
     );
     await resolveLatestStart(
       harness,
@@ -1362,6 +1474,43 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(
       codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
     ).not.toBeNull();
+    const publication = harness.engine.currentPeerPublication();
+    const currentManifest = publication?.asset.peerRangeManifest;
+    if (!publication || !currentManifest) {
+      throw new Error('Fixture expected a current manifest publication');
+    }
+    expect(publication.asset.encodedSize).toBe(bytes.byteLength);
+    expect(currentManifest).toEqual(preparedManifest);
+    expect(currentManifest).not.toBe(preparedManifest);
+    expectBodyFree(publication);
+    await expect(
+      harness.engine.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: preparedManifest,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/exact issued authority/u);
+    await expectBlobManifestBundle(
+      await harness.engine.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: currentManifest,
+        signal: new AbortController().signal,
+      }),
+      manifestBytes,
+      bytes,
+      publication.asset.binding.sourceIdentity,
+    );
+    await expect(
+      harness.engine.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: null,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+    manifestBytes.fill(0);
     await harness.engine.close();
     expect(
       codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
@@ -1728,6 +1877,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const abortedResolution = harness.engine.resolveWarmPeerRangeSource({
       sourceLease,
       sourceIdentity: warm.asset.binding.sourceIdentity,
+      peerRangeManifest: warm.asset.peerRangeManifest,
       signal: aborted.signal,
     });
     aborted.abort(new Error('fixture warm resolution abort'));
@@ -1736,6 +1886,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: `${warm.asset.binding.sourceIdentity}:wrong`,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/not the exact lease/u);
@@ -1743,6 +1894,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1755,6 +1907,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1769,6 +1922,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1776,6 +1930,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1784,6 +1939,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1791,6 +1947,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1799,6 +1956,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1806,6 +1964,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1828,6 +1987,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1835,6 +1995,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1882,6 +2043,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease: failedLease,
         sourceIdentity: failedWarm.asset.binding.sourceIdentity,
+        peerRangeManifest: failedWarm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1889,6 +2051,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared: failedPrepared,
         sourceIdentity: failedPrepared.asset.binding.sourceIdentity,
+        peerRangeManifest: failedPrepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1896,6 +2059,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease: currentLease,
         sourceIdentity: currentWarm.asset.binding.sourceIdentity,
+        peerRangeManifest: currentWarm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(currentBlob);
@@ -1903,6 +2067,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared: currentPrepared,
         sourceIdentity: currentPrepared.asset.binding.sourceIdentity,
+        peerRangeManifest: currentPrepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(currentBlob);
@@ -1932,6 +2097,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1940,6 +2106,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -1947,6 +2114,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared: nextPrepared,
         sourceIdentity: nextPrepared.asset.binding.sourceIdentity,
+        peerRangeManifest: nextPrepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(nextBlob);
@@ -1964,6 +2132,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1971,6 +2140,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -1978,6 +2148,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared: nextPrepared,
         sourceIdentity: nextPrepared.asset.binding.sourceIdentity,
+        peerRangeManifest: nextPrepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(nextBlob);
@@ -1986,6 +2157,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared: nextPrepared,
         sourceIdentity: nextPrepared.asset.binding.sourceIdentity,
+        peerRangeManifest: nextPrepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(nextBlob);
@@ -2015,6 +2187,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         harness.engine.resolveWarmPeerRangeSource({
           sourceLease,
           sourceIdentity: warm.asset.binding.sourceIdentity,
+          peerRangeManifest: warm.asset.peerRangeManifest,
           signal: new AbortController().signal,
         }),
       ).resolves.toBe(blob);
@@ -2022,6 +2195,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         harness.engine.resolvePreparedPeerRangeSource({
           prepared,
           sourceIdentity: prepared.asset.binding.sourceIdentity,
+          peerRangeManifest: prepared.asset.peerRangeManifest,
           signal: new AbortController().signal,
         }),
       ).resolves.toBe(blob);
@@ -2036,6 +2210,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         harness.engine.resolveWarmPeerRangeSource({
           sourceLease,
           sourceIdentity: warm.asset.binding.sourceIdentity,
+          peerRangeManifest: warm.asset.peerRangeManifest,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow(/authority|retired|stale/u);
@@ -2043,6 +2218,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         harness.engine.resolvePreparedPeerRangeSource({
           prepared,
           sourceIdentity: prepared.asset.binding.sourceIdentity,
+          peerRangeManifest: prepared.asset.peerRangeManifest,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow(/authority|retired|stale/u);
@@ -2083,6 +2259,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         harness.engine.resolveWarmPeerRangeSource({
           sourceLease,
           sourceIdentity: warm.asset.binding.sourceIdentity,
+          peerRangeManifest: warm.asset.peerRangeManifest,
           signal: new AbortController().signal,
         }),
       ).resolves.toBe(blob);
@@ -2090,6 +2267,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         harness.engine.resolvePreparedPeerRangeSource({
           prepared,
           sourceIdentity: prepared.asset.binding.sourceIdentity,
+          peerRangeManifest: prepared.asset.peerRangeManifest,
           signal: new AbortController().signal,
         }),
       ).resolves.toBe(blob);
@@ -2123,6 +2301,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
+        peerRangeManifest: warm.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -2130,6 +2309,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authority|retired|stale/u);
@@ -2159,6 +2339,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       firstHarness.engine.resolveWarmPeerRangeSource({
         sourceLease: copiedLease,
         sourceIdentity: first.asset.binding.sourceIdentity,
+        peerRangeManifest: first.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/exact issued authority/u);
@@ -2166,6 +2347,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       secondHarness.engine.resolveWarmPeerRangeSource({
         sourceLease: firstLease,
         sourceIdentity: first.asset.binding.sourceIdentity,
+        peerRangeManifest: first.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/exact issued authority/u);
@@ -2182,6 +2364,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       firstHarness.engine.resolveWarmPeerRangeSource({
         sourceLease: firstLease,
         sourceIdentity: first.asset.binding.sourceIdentity,
+        peerRangeManifest: first.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/superseded|authority|cleared/u);
@@ -2189,6 +2372,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       firstHarness.engine.resolveWarmPeerRangeSource({
         sourceLease: replacementLease,
         sourceIdentity: replacement.asset.binding.sourceIdentity,
+        peerRangeManifest: replacement.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(firstBlob);
@@ -2204,6 +2388,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       firstHarness.engine.resolveWarmPeerRangeSource({
         sourceLease: replacementLease,
         sourceIdentity: replacement.asset.binding.sourceIdentity,
+        peerRangeManifest: replacement.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/superseded|authority|cleared/u);
@@ -2642,6 +2827,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const abortedResolution = harness.engine.resolvePreparedPeerRangeSource({
       prepared,
       sourceIdentity: prepared.asset.binding.sourceIdentity,
+      peerRangeManifest: prepared.asset.peerRangeManifest,
       signal: aborted.signal,
     });
     aborted.abort(new Error('fixture prepared resolution abort'));
@@ -2650,6 +2836,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -2664,6 +2851,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -2677,6 +2865,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolvePreparedPeerRangeSource({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest: prepared.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).resolves.toBe(blob);
@@ -2760,6 +2949,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const resolved = await harness.engine.resolveCurrentPeerRangeSource({
       publication: publication!,
       sourceIdentity: publication!.asset.binding.sourceIdentity,
+      peerRangeManifest: publication!.asset.peerRangeManifest,
       signal: new AbortController().signal,
     });
     expect(resolved).toBe(blob);
@@ -2769,6 +2959,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveCurrentPeerRangeSource({
         publication: publication!,
         sourceIdentity: publication!.asset.binding.sourceIdentity,
+        peerRangeManifest: publication!.asset.peerRangeManifest,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/publication|authority|current/iu);
@@ -2798,6 +2989,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const source = await harness.engine.resolveCurrentPeerRangeSource({
       publication: publication!,
       sourceIdentity: publication!.asset.binding.sourceIdentity,
+      peerRangeManifest: publication!.asset.peerRangeManifest,
       signal: new AbortController().signal,
     });
     expect(source).not.toBeInstanceOf(Blob);
@@ -2810,10 +3002,109 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       harness.engine.resolveCurrentPeerRangeSource({
         publication: publication!,
         sourceIdentity: publication!.asset.binding.sourceIdentity,
+        peerRangeManifest: publication!.asset.peerRangeManifest,
         signal: staleResolution.signal,
       }),
     ).rejects.toThrow(/fixture source became stale/u);
     expect(sourceClosed).toHaveBeenCalledTimes(2);
+    await harness.engine.close();
+  });
+
+  it('scrubs a copied manifest and closes its owned encoded source after post-construction abort', async () => {
+    const encodedAdmission = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'admitEncodedAsset');
+    const sourceClosed = vi.fn();
+    let abortOnAcquire: AbortController | null = null;
+    let admittedAsset: EncodedAudioAsset | null = null;
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      admitAsset: (registry, roomToken, binding, blob, metadata) => {
+        const asset = transferredAsset(blob, binding.sourceIdentity, metadata, sourceClosed, () => {
+          abortOnAcquire?.abort(new Error('fixture manifest resolution aborted after acquire'));
+        });
+        admittedAsset = asset;
+        return registry.admitEncodedAsset(roomToken, binding, asset);
+      },
+    });
+    const bytes = adtsFixtureFrame(41, 0x63);
+    const blob = new Blob([bytes], { type: 'audio/aac' });
+    await resolveLatestStart(harness, harness.start(blob, { name: 'abort.aac' }));
+
+    const lease = encodedAdmission.mock.results[0]?.value;
+    const registry = encodedAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
+    const access = await installFixtureHostArtifact(registry, lease!, bytes);
+    const publication = harness.engine.currentPeerPublication();
+    const selector = publication?.asset.peerRangeManifest;
+    if (!publication || !selector || !admittedAsset) {
+      throw new Error('Fixture expected a manifest-bearing encoded publication');
+    }
+
+    const originalCopy =
+      codecTimelineHostArtifactLeaseStore.copyCodecTimelineHostArtifactManifestForLease;
+    let temporaryCopy: Uint8Array | null = null;
+    const copySpy = vi
+      .spyOn(codecTimelineHostArtifactLeaseStore, 'copyCodecTimelineHostArtifactManifestForLease')
+      .mockImplementation((options) => {
+        const copied = originalCopy(options);
+        if (copied) temporaryCopy = copied;
+        return copied;
+      });
+    const abort = new AbortController();
+    abortOnAcquire = abort;
+    await expect(
+      harness.engine.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: selector,
+        signal: abort.signal,
+      }),
+    ).rejects.toThrow(/manifest resolution aborted after acquire/u);
+    expect(temporaryCopy).not.toBeNull();
+    expect(temporaryCopy && Array.from(temporaryCopy)).toEqual(
+      Array.from({ length: selector.manifestByteLength }, () => 0),
+    );
+    expect(sourceClosed).toHaveBeenCalledOnce();
+    expect(admittedAsset.activeLeaseCount).toBe(1);
+
+    abortOnAcquire = null;
+    copySpy.mockRestore();
+    const healthy = await harness.engine.resolveCurrentPeerRangeSource({
+      publication,
+      sourceIdentity: publication.asset.binding.sourceIdentity,
+      peerRangeManifest: selector,
+      signal: new AbortController().signal,
+    });
+    expect(healthy).not.toBeInstanceOf(Blob);
+    if (healthy instanceof Blob) throw new Error('Expected an encoded manifest bundle');
+    expect(healthy).toMatchObject({
+      kind: 'peer-range',
+      identity: publication.asset.binding.sourceIdentity,
+      size: selector.manifestByteLength + bytes.byteLength,
+    });
+    await healthy.close();
+    expect(sourceClosed).toHaveBeenCalledTimes(2);
+    expect(admittedAsset.activeLeaseCount).toBe(1);
+    expect(
+      codecTimelineHostArtifactLeaseStore.revokeCodecTimelineHostArtifactForLease(access),
+    ).toBe(true);
+    await expect(
+      harness.engine.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: selector,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/lease diagnostics changed/u);
+    const raw = await harness.engine.resolveCurrentPeerRangeSource({
+      publication,
+      sourceIdentity: publication.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
+      signal: new AbortController().signal,
+    });
+    expect(raw).not.toBeInstanceOf(Blob);
+    if (raw instanceof Blob) throw new Error('Expected a raw encoded source lease');
+    await raw.close();
+    expect(sourceClosed).toHaveBeenCalledTimes(3);
+    expect(admittedAsset.activeLeaseCount).toBe(1);
     await harness.engine.close();
   });
 

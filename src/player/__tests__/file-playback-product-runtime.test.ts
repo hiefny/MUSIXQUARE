@@ -25,6 +25,7 @@ import type {
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
   HostPeerPlaybackPublication,
+  HostPeerRangeManifestPublication,
   HostPeerRangeSource,
 } from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
@@ -293,6 +294,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
               mime: input.file.type || 'application/octet-stream',
             }),
             encodedSize: input.file.size,
+            peerRangeManifest: null,
           }),
           readiness: freezeCanonical({
             durationSeconds: 120,
@@ -871,6 +873,7 @@ describe('FilePlaybackProductRuntime', () => {
           binding: { queueItemId: Q1 },
           metadata: { name, mime },
           encodedSize: file.size,
+          peerRangeManifest: null,
         },
       });
       expect(room.clearWarmLocalTrackByLease).toHaveBeenCalledWith({
@@ -891,6 +894,7 @@ describe('FilePlaybackProductRuntime', () => {
         const source = await resolver({
           sourceLease: authority.sourceLease,
           sourceIdentity: authority.asset.binding.sourceIdentity,
+          peerRangeManifest: null,
           signal: new AbortController().signal,
         });
         expect(source).toBe(file);
@@ -1120,6 +1124,7 @@ describe('FilePlaybackProductRuntime', () => {
         }),
         metadata: freezeCanonical({ name: failedFile.name, mime: failedFile.type }),
         encodedSize: failedFile.size,
+        peerRangeManifest: null,
       }),
       sourceLease: null,
     }) as unknown as Readonly<HostPreparedLocalTrack>;
@@ -1314,6 +1319,7 @@ describe('FilePlaybackProductRuntime', () => {
         }),
         metadata: freezeCanonical({ name: currentFile.name, mime: currentFile.type }),
         encodedSize: currentFile.size,
+        peerRangeManifest: null,
       }),
       sourceLease: null,
     }) as unknown as Readonly<HostPreparedLocalTrack>;
@@ -1478,6 +1484,7 @@ describe('FilePlaybackProductRuntime', () => {
         await resolver({
           sourceLease: authority.sourceLease,
           sourceIdentity: authority.asset.binding.sourceIdentity,
+          peerRangeManifest: null,
           signal: new AbortController().signal,
         });
         return freezeCanonical({ schemaVersion: 1, sourceLease: authority.sourceLease }) as never;
@@ -1556,6 +1563,7 @@ describe('FilePlaybackProductRuntime', () => {
         await resolver({
           sourceLease: authority.sourceLease,
           sourceIdentity: authority.asset.binding.sourceIdentity,
+          peerRangeManifest: null,
           signal: resolverController.signal,
         });
         return freezeCanonical({ schemaVersion: 1, sourceLease: authority.sourceLease }) as never;
@@ -1785,12 +1793,18 @@ describe('FilePlaybackProductRuntime', () => {
       bindAttempt: vi.fn(async () => undefined),
     }) as unknown as Readonly<HostPreparedRemoteParticipant>;
     const bindGate = deferred<void>();
+    const peerRangeManifest = freezeCanonical({
+      codec: 'adts-aac-lc' as const,
+      manifestByteLength: 96,
+      manifestSha256B64: 'runtime-cohort-manifest-sha256',
+    }) satisfies Readonly<HostPeerRangeManifestPublication>;
     const publishPrepared = vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
       const resolver = ownerOptions?.resolvePreparedPeerRangeSource;
       if (!resolver) throw new Error('prepared resolver unavailable');
       const source = await resolver({
         prepared,
         sourceIdentity: prepared.asset.binding.sourceIdentity,
+        peerRangeManifest,
         signal: new AbortController().signal,
       });
       expect(source).toBe(blob);
@@ -1854,6 +1868,7 @@ describe('FilePlaybackProductRuntime', () => {
         }),
         metadata: freezeCanonical({ name: blob.name, mime: blob.type }),
         encodedSize: blob.size,
+        peerRangeManifest: null,
       }),
     }) as unknown as Readonly<HostPreparedLocalTrack>;
     const timeline = freezeCanonical({
@@ -1907,6 +1922,7 @@ describe('FilePlaybackProductRuntime', () => {
     );
     expect(resolveSource).toHaveBeenCalledWith(
       prepared.asset.binding.sourceIdentity,
+      peerRangeManifest,
       expect.any(AbortSignal),
     );
     expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
@@ -1981,6 +1997,7 @@ describe('FilePlaybackProductRuntime', () => {
         }),
         metadata: freezeCanonical({ name: file.name, mime: file.type }),
         encodedSize: file.size,
+        peerRangeManifest: null,
       }),
     }) as unknown as Readonly<HostPreparedLocalTrack>;
     const timeline = freezeCanonical({
@@ -2065,6 +2082,7 @@ describe('FilePlaybackProductRuntime', () => {
               const source = await resolver({
                 prepared,
                 sourceIdentity: prepared.asset.binding.sourceIdentity,
+                peerRangeManifest: null,
                 signal: lateOwnerSourceAuthority.signal,
               });
               expect(source).toBe(file);
@@ -2128,6 +2146,7 @@ describe('FilePlaybackProductRuntime', () => {
           }),
           metadata: freezeCanonical({ name: file.name, mime: file.type }),
           encodedSize: file.size,
+          peerRangeManifest: null,
         }),
       }) as unknown as Readonly<HostPreparedLocalTrack>;
       const timeline = freezeCanonical({
@@ -2143,10 +2162,16 @@ describe('FilePlaybackProductRuntime', () => {
           freezeCanonical({
             prepared,
             signal: input.signal,
-            resolveSource: vi.fn((_sourceIdentity: string, signal: AbortSignal) => {
-              expect(signal).toBe(lateOwnerSourceAuthority.signal);
-              return lateSourceGate.promise;
-            }),
+            resolveSource: vi.fn(
+              (
+                _sourceIdentity: string,
+                _peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
+                signal: AbortSignal,
+              ) => {
+                expect(signal).toBe(lateOwnerSourceAuthority.signal);
+                return lateSourceGate.promise;
+              },
+            ),
           }),
         );
         expect(remotes).toEqual([capabilities[0]]);

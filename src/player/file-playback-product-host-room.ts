@@ -19,6 +19,7 @@ import {
   type HostLocalTrackSourceLease,
   type HostLocalTrackWarmResult,
   type HostPeerPlaybackPublication,
+  type HostPeerRangeManifestPublication,
   type HostPeerRangeSource,
   type HostPreparedLocalTrack,
   type HostPreparedRemoteParticipant,
@@ -66,11 +67,13 @@ const COHORT_TRACK_KEYS = Object.freeze([...TRACK_KEYS, 'prepareRemoteParticipan
 const CURRENT_KEYS = Object.freeze(['signal'] as const);
 const SEEK_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
+  'peerRangeManifest',
   'publication',
   'signal',
   'sourceIdentity',
 ] as const);
 const RESOLVE_WARM_PEER_SOURCE_KEYS = Object.freeze([
+  'peerRangeManifest',
   'signal',
   'sourceIdentity',
   'sourceLease',
@@ -242,6 +245,7 @@ export interface FilePlaybackProductHostPreparedCohortContext {
   /** Resolves only the encoded source bound to `prepared`, under one exact peer-owner signal. */
   readonly resolveSource: (
     sourceIdentity: string,
+    peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
     signal: AbortSignal,
   ) => Promise<HostPeerRangeSource>;
 }
@@ -898,6 +902,8 @@ export class FilePlaybackProductHostRoom {
       !input ||
       !(input.signal instanceof AbortSignal) ||
       typeof input.sourceIdentity !== 'string' ||
+      (input.peerRangeManifest !== null &&
+        (typeof input.peerRangeManifest !== 'object' || input.peerRangeManifest === null)) ||
       input.sourceLease === null ||
       typeof input.sourceLease !== 'object'
     ) {
@@ -918,6 +924,8 @@ export class FilePlaybackProductHostRoom {
       const source = await record.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity,
+        peerRangeManifest:
+          input.peerRangeManifest as Readonly<HostPeerRangeManifestPublication> | null,
         signal,
       });
       try {
@@ -1084,7 +1092,9 @@ export class FilePlaybackProductHostRoom {
     if (
       !input ||
       !(input.signal instanceof AbortSignal) ||
-      typeof input.sourceIdentity !== 'string'
+      typeof input.sourceIdentity !== 'string' ||
+      (input.peerRangeManifest !== null &&
+        (typeof input.peerRangeManifest !== 'object' || input.peerRangeManifest === null))
     ) {
       return Promise.reject(new TypeError('Product host peer-range source options are invalid'));
     }
@@ -1093,6 +1103,8 @@ export class FilePlaybackProductHostRoom {
       const source = await record.engine.resolveCurrentPeerRangeSource({
         publication: input.publication as Readonly<HostPeerPlaybackPublication>,
         sourceIdentity: input.sourceIdentity as string,
+        peerRangeManifest:
+          input.peerRangeManifest as Readonly<HostPeerRangeManifestPublication> | null,
         signal: operation.controller.signal,
       });
       try {
@@ -1441,15 +1453,22 @@ export class FilePlaybackProductHostRoom {
     try {
       const resolveSource = async (
         sourceIdentity: string,
+        peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
         signal: AbortSignal,
       ): Promise<HostPeerRangeSource> => {
-        if (typeof sourceIdentity !== 'string' || !(signal instanceof AbortSignal)) {
+        if (
+          typeof sourceIdentity !== 'string' ||
+          (peerRangeManifest !== null &&
+            (typeof peerRangeManifest !== 'object' || peerRangeManifest === null)) ||
+          !(signal instanceof AbortSignal)
+        ) {
           throw new TypeError('Product prepared peer-range source identity is invalid');
         }
         this.#assertPreparedSourceRoomReady(record, signal);
         const source = await record.engine.resolvePreparedPeerRangeSource({
           prepared,
           sourceIdentity,
+          peerRangeManifest,
           signal,
         });
         try {

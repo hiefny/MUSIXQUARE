@@ -28,6 +28,7 @@ import type {
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
   HostPeerPlaybackPublication,
+  HostPeerRangeManifestPublication,
   HostPeerRangeSource,
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
@@ -290,6 +291,7 @@ interface HostPreparedCohortCycle {
   readonly signal: AbortSignal;
   readonly resolveSource: (
     sourceIdentity: string,
+    peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
     signal: AbortSignal,
   ) => Promise<HostPeerRangeSource>;
   readonly contexts: ReadonlySet<Readonly<FilePlaybackProductSessionRouterConnectionContext>>;
@@ -2219,7 +2221,11 @@ export class FilePlaybackProductRuntime {
     ) {
       throw new Error('File playback product prepared source authority is stale');
     }
-    const source = await cycle.resolveSource(options.sourceIdentity, options.signal);
+    const source = await cycle.resolveSource(
+      options.sourceIdentity,
+      options.peerRangeManifest,
+      options.signal,
+    );
     if (
       this.#hostPreparedCohorts.get(options.prepared) !== cycle ||
       (cycle.status !== 'preparing' && cycle.status !== 'committed') ||

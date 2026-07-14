@@ -56,6 +56,7 @@ import {
   type FilePlaybackTransitionResult,
 } from './file-playback-source.ts';
 import type { OrdinaryAudioDecoder } from './file-playback-source-factory.ts';
+import { derivePeerRangeManifestBundleSize } from './file-media-source-offer.ts';
 import type {
   FilePlaybackStopTransitionEvidence,
   FilePlaybackStopTransitionIntent,
@@ -76,16 +77,22 @@ import {
   type HostRendezvousParticipant,
 } from './rendezvous-coordinator.ts';
 import type { EncodedAudioSource } from './sources/encoded-audio-source.ts';
+import { ManifestPrefixedEncodedAudioSource } from './sources/manifest-prefixed-encoded-audio-source.ts';
 import {
   isFilePlaybackPeerRangeManifestCodecEnabled,
   snapshotFilePlaybackBoundedRoutePolicy,
   type FilePlaybackBoundedRoutePolicy,
 } from './file-playback-bounded-route-policy.ts';
-import { revokeCodecTimelineHostArtifactForLease } from './manifests/codec-timeline-host-artifact-lease-store.ts';
+import {
+  copyCodecTimelineHostArtifactManifestForLease,
+  describeCodecTimelineHostArtifactForLease,
+  revokeCodecTimelineHostArtifactForLease,
+} from './manifests/codec-timeline-host-artifact-lease-store.ts';
 
 const DEFAULT_MIME = 'application/octet-stream';
 const MAX_APPLICATION_SCOPE_ID_LENGTH = 128;
 const MAX_PARTICIPANT_ID_LENGTH = 256;
+const uint8ArrayFill = Uint8Array.prototype.fill;
 const OPTION_KEYS = Object.freeze([
   'controller',
   'roomGeneration',
@@ -134,16 +141,19 @@ const CURRENT_OPERATION_KEYS = Object.freeze(['signal'] as const);
 const SEEK_PLAYING_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const SEEK_PAUSED_KEYS = SEEK_PLAYING_KEYS;
 const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
+  'peerRangeManifest',
   'publication',
   'signal',
   'sourceIdentity',
 ] as const);
 const RESOLVE_PREPARED_PEER_SOURCE_KEYS = Object.freeze([
+  'peerRangeManifest',
   'prepared',
   'signal',
   'sourceIdentity',
 ] as const);
 const RESOLVE_WARM_PEER_SOURCE_KEYS = Object.freeze([
+  'peerRangeManifest',
   'signal',
   'sourceIdentity',
   'sourceLease',
@@ -333,11 +343,18 @@ export interface HostCurrentPlaybackTimelineCommittedEvent {
   readonly timeline: PlaybackTimelineSnapshot;
 }
 
+export interface HostPeerRangeManifestPublication {
+  readonly codec: 'adts-aac-lc' | 'mp3-no-frame-count';
+  readonly manifestByteLength: number;
+  readonly manifestSha256B64: string;
+}
+
 export interface HostPeerPlaybackAssetPublication {
   readonly kind: FilePlaybackAssetSnapshot['kind'];
   readonly binding: Readonly<FilePlaybackAssetBinding>;
   readonly metadata: Readonly<FilePlaybackAssetMetadata>;
   readonly encodedSize: number;
+  readonly peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null;
 }
 
 /**
@@ -400,18 +417,21 @@ export type HostPeerRangeSource = Blob | EncodedAudioSource;
 export interface ResolveHostPeerRangeSourceOptions {
   readonly publication: Readonly<HostPeerPlaybackPublication>;
   readonly sourceIdentity: string;
+  readonly peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null;
   readonly signal: AbortSignal;
 }
 
 export interface ResolvePreparedHostPeerRangeSourceOptions {
   readonly prepared: Readonly<HostPreparedLocalTrack>;
   readonly sourceIdentity: string;
+  readonly peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null;
   readonly signal: AbortSignal;
 }
 
 export interface ResolveWarmHostPeerRangeSourceOptions {
   readonly sourceLease: HostLocalTrackSourceLease;
   readonly sourceIdentity: string;
+  readonly peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null;
   readonly signal: AbortSignal;
 }
 
@@ -613,6 +633,8 @@ interface WarmSourceLeaseAuthority {
   readonly lease: HostLocalTrackSourceLease;
   readonly operation: WarmTrackOperation;
   readonly asset: Readonly<FilePlaybackAssetSnapshot>;
+  readonly backend: FilePlaybackBackend;
+  readonly peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null;
   preparedAuthority: PreparedTrackAuthority | null;
   retired: boolean;
 }
@@ -681,6 +703,22 @@ const trustedRendezvousCoordinatorClose = HostRendezvousCoordinator.prototype.cl
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function samePeerRangeManifestPublication(
+  left: Readonly<HostPeerRangeManifestPublication> | null,
+  right: Readonly<HostPeerRangeManifestPublication> | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.codec === right.codec &&
+    left.manifestByteLength === right.manifestByteLength &&
+    left.manifestSha256B64 === right.manifestSha256B64
+  );
+}
+
+function scrubManifestBytes(bytes: Uint8Array): void {
+  Reflect.apply(uint8ArrayFill, bytes, [0]);
 }
 
 function snapshotExactRecord(value: unknown, expectedKeys: readonly string[]): ExactRecord | null {
@@ -1553,16 +1591,7 @@ export class FilePlaybackHostFirstFileEngine {
         backend: renderer.backend,
         state,
         timeline,
-        asset: freezeCanonical({
-          kind: asset.kind,
-          binding: freezeCanonical({
-            queueItemId: asset.queueItemId,
-            sourceIdentity: asset.sourceIdentity,
-            transferSessionId: asset.transferSessionId,
-          }),
-          metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
-          encodedSize: asset.size,
-        }),
+        asset: this.#peerAssetPublication(asset, admitted.lease, renderer.backend),
       });
       const authority: PeerPublicationAuthority = {
         publication,
@@ -1596,49 +1625,22 @@ export class FilePlaybackHostFirstFileEngine {
     if (input.sourceIdentity !== authority.asset.sourceIdentity) {
       throw new Error('Host peer-range source identity is not the current publication');
     }
+    const peerRangeManifest = this.#requirePeerRangeManifestSelector(
+      input.peerRangeManifest,
+      authority.publication.asset.peerRangeManifest,
+      'Host peer-range source',
+    );
     throwIfAborted(signal);
     this.#assertPeerPublicationAuthority(authority);
-
-    const blobResolution = this.#registry.resolveBlobAsset(this.#roomToken, authority.lease);
-    if (blobResolution) {
-      if (
-        blobResolution.binding.queueItemId !== authority.asset.queueItemId ||
-        blobResolution.binding.sourceIdentity !== authority.asset.sourceIdentity ||
-        blobResolution.binding.transferSessionId !== authority.asset.transferSessionId ||
-        blobResolution.metadata.name !== authority.asset.name ||
-        blobResolution.metadata.mime !== authority.asset.mime ||
-        blobResolution.blob.size !== authority.asset.size
-      ) {
-        throw new Error('Host peer-range Blob resolution changed its exact binding');
-      }
-      await Promise.resolve();
-      throwIfAborted(signal);
-      this.#assertPeerPublicationAuthority(authority);
-      return blobResolution.blob;
-    }
-
-    let source: EncodedAudioSource | null = null;
-    try {
-      source = this.#registry.acquireSource(this.#roomToken, authority.lease);
-      if (
-        source.kind !== authority.asset.kind ||
-        source.identity !== authority.asset.sourceIdentity ||
-        source.size !== authority.asset.size ||
-        source.metadata.name !== authority.asset.name ||
-        source.metadata.mime !== authority.asset.mime
-      ) {
-        throw new Error('Host peer-range encoded source changed its exact binding');
-      }
-      await Promise.resolve();
-      throwIfAborted(signal);
-      this.#assertPeerPublicationAuthority(authority);
-      const resolved = source;
-      source = null;
-      return resolved;
-    } catch (error) {
-      if (source) await closeEncodedSourceWithoutMasking(source);
-      throw error;
-    }
+    return this.#resolvePeerRangeLeaseSource(
+      authority.lease,
+      authority.asset,
+      authority.publication.backend,
+      peerRangeManifest,
+      signal,
+      () => this.#assertPeerPublicationAuthority(authority),
+      'Host peer-range',
+    );
   }
 
   async resolvePreparedPeerRangeSource(
@@ -1658,52 +1660,22 @@ export class FilePlaybackHostFirstFileEngine {
     if (input.sourceIdentity !== asset.sourceIdentity) {
       throw new Error('Host prepared peer-range source identity is not the exact candidate');
     }
+    const peerRangeManifest = this.#requirePeerRangeManifestSelector(
+      input.peerRangeManifest,
+      authority.prepared.asset.peerRangeManifest,
+      'Host prepared peer-range source',
+    );
     throwIfAborted(signal);
     this.#assertPreparedSourceAuthority(authority);
-
-    const blobResolution = this.#registry.resolveBlobAsset(
-      this.#roomToken,
+    return this.#resolvePeerRangeLeaseSource(
       authority.input.asset.lease,
+      asset,
+      authority.prepared.backend,
+      peerRangeManifest,
+      signal,
+      () => this.#assertPreparedSourceAuthority(authority),
+      'Host prepared peer-range',
     );
-    if (blobResolution) {
-      if (
-        blobResolution.binding.queueItemId !== asset.queueItemId ||
-        blobResolution.binding.sourceIdentity !== asset.sourceIdentity ||
-        blobResolution.binding.transferSessionId !== asset.transferSessionId ||
-        blobResolution.metadata.name !== asset.name ||
-        blobResolution.metadata.mime !== asset.mime ||
-        blobResolution.blob.size !== asset.size
-      ) {
-        throw new Error('Host prepared peer-range Blob changed its exact binding');
-      }
-      await Promise.resolve();
-      throwIfAborted(signal);
-      this.#assertPreparedSourceAuthority(authority);
-      return blobResolution.blob;
-    }
-
-    let source: EncodedAudioSource | null = null;
-    try {
-      source = this.#registry.acquireSource(this.#roomToken, authority.input.asset.lease);
-      if (
-        source.kind !== asset.kind ||
-        source.identity !== asset.sourceIdentity ||
-        source.size !== asset.size ||
-        source.metadata.name !== asset.name ||
-        source.metadata.mime !== asset.mime
-      ) {
-        throw new Error('Host prepared peer-range encoded source changed its exact binding');
-      }
-      await Promise.resolve();
-      throwIfAborted(signal);
-      this.#assertPreparedSourceAuthority(authority);
-      const resolved = source;
-      source = null;
-      return resolved;
-    } catch (error) {
-      if (source) await closeEncodedSourceWithoutMasking(source);
-      throw error;
-    }
   }
 
   async resolveWarmPeerRangeSource(
@@ -1728,48 +1700,21 @@ export class FilePlaybackHostFirstFileEngine {
     if (input.sourceIdentity !== asset.sourceIdentity) {
       throw new Error('Host warm peer-range source identity is not the exact lease');
     }
+    const peerRangeManifest = this.#requirePeerRangeManifestSelector(
+      input.peerRangeManifest,
+      authority.peerRangeManifest,
+      'Host warm peer-range source',
+    );
     throwIfAborted(signal);
-
-    const blobResolution = this.#registry.resolveBlobAsset(this.#roomToken, admitted.lease);
-    if (blobResolution) {
-      if (
-        blobResolution.binding.queueItemId !== asset.queueItemId ||
-        blobResolution.binding.sourceIdentity !== asset.sourceIdentity ||
-        blobResolution.binding.transferSessionId !== asset.transferSessionId ||
-        blobResolution.metadata.name !== asset.name ||
-        blobResolution.metadata.mime !== asset.mime ||
-        blobResolution.blob.size !== asset.size
-      ) {
-        throw new Error('Host warm peer-range Blob changed its exact binding');
-      }
-      await Promise.resolve();
-      throwIfAborted(signal);
-      this.#assertWarmSourceLeaseAuthority(authority);
-      return blobResolution.blob;
-    }
-
-    let source: EncodedAudioSource | null = null;
-    try {
-      source = this.#registry.acquireSource(this.#roomToken, admitted.lease);
-      if (
-        source.kind !== asset.kind ||
-        source.identity !== asset.sourceIdentity ||
-        source.size !== asset.size ||
-        source.metadata.name !== asset.name ||
-        source.metadata.mime !== asset.mime
-      ) {
-        throw new Error('Host warm peer-range encoded source changed its exact binding');
-      }
-      await Promise.resolve();
-      throwIfAborted(signal);
-      this.#assertWarmSourceLeaseAuthority(authority);
-      const resolved = source;
-      source = null;
-      return resolved;
-    } catch (error) {
-      if (source) await closeEncodedSourceWithoutMasking(source);
-      throw error;
-    }
+    return this.#resolvePeerRangeLeaseSource(
+      admitted.lease,
+      asset,
+      authority.backend,
+      peerRangeManifest,
+      signal,
+      () => this.#assertWarmSourceLeaseAuthority(authority),
+      'Host warm peer-range',
+    );
   }
 
   recoverRemoteParticipant(
@@ -2690,6 +2635,11 @@ export class FilePlaybackHostFirstFileEngine {
     status: HostLocalTrackWarmResult['status'],
   ): Readonly<HostLocalTrackWarmResult> {
     const asset = authority.asset;
+    const admitted = operation.asset;
+    if (!admitted) {
+      throw new Error('Host warm result lost its admitted asset');
+    }
+    const publicationAsset = this.#peerAssetPublication(asset, admitted.lease, authority.backend);
     let sourceLease: HostLocalTrackSourceLease | null = null;
     if (status === 'warmed') {
       sourceLease = freezeCanonical({}) as HostLocalTrackSourceLease;
@@ -2698,6 +2648,8 @@ export class FilePlaybackHostFirstFileEngine {
         lease: sourceLease,
         operation,
         asset,
+        backend: authority.backend,
+        peerRangeManifest: publicationAsset.peerRangeManifest,
         preparedAuthority: null,
         retired: false,
       });
@@ -2707,16 +2659,7 @@ export class FilePlaybackHostFirstFileEngine {
       roomGeneration: this.#roomGeneration,
       status,
       backend: authority.backend,
-      asset: freezeCanonical({
-        kind: asset.kind,
-        binding: freezeCanonical({
-          queueItemId: asset.queueItemId,
-          sourceIdentity: asset.sourceIdentity,
-          transferSessionId: asset.transferSessionId,
-        }),
-        metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
-        encodedSize: asset.size,
-      }),
+      asset: publicationAsset,
       readiness: authority.readiness,
       sourceLease,
     });
@@ -3628,16 +3571,7 @@ export class FilePlaybackHostFirstFileEngine {
         state: staged.playbackState,
         positionSeconds: input.positionSeconds,
         playbackRate: input.playbackRate,
-        asset: freezeCanonical({
-          kind: asset.kind,
-          binding: freezeCanonical({
-            queueItemId: asset.queueItemId,
-            sourceIdentity: asset.sourceIdentity,
-            transferSessionId: asset.transferSessionId,
-          }),
-          metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
-          encodedSize: asset.size,
-        }),
+        asset: this.#peerAssetPublication(asset, input.asset.lease, staged.backend),
         sourceLease: claimedSourceLease,
       });
       const authority: PreparedTrackAuthority = {
@@ -3934,6 +3868,232 @@ export class FilePlaybackHostFirstFileEngine {
     this.#assertRoomClockAuthority();
   }
 
+  #peerAssetPublication(
+    asset: Readonly<FilePlaybackAssetSnapshot>,
+    lease: FilePlaybackAssetLease,
+    backend: FilePlaybackBackend,
+  ): Readonly<HostPeerPlaybackAssetPublication> {
+    const diagnostics = this.#eligiblePeerRangeManifestForLease(asset, lease, backend);
+    const peerRangeManifest = diagnostics
+      ? freezeCanonical({
+          codec: diagnostics.codec,
+          manifestByteLength: diagnostics.manifestByteLength,
+          manifestSha256B64: diagnostics.manifestSha256B64,
+        })
+      : null;
+    return freezeCanonical({
+      kind: asset.kind,
+      binding: freezeCanonical({
+        queueItemId: asset.queueItemId,
+        sourceIdentity: asset.sourceIdentity,
+        transferSessionId: asset.transferSessionId,
+      }),
+      metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
+      encodedSize: asset.size,
+      peerRangeManifest,
+    });
+  }
+
+  #eligiblePeerRangeManifestForLease(
+    asset: Readonly<FilePlaybackAssetSnapshot>,
+    lease: FilePlaybackAssetLease,
+    backend: FilePlaybackBackend,
+  ): Readonly<HostPeerRangeManifestPublication> | null {
+    const policy = this.#boundedRoutePolicy;
+    if (backend !== 'bounded-stream' || !policy) return null;
+    const diagnostics = describeCodecTimelineHostArtifactForLease({
+      registry: this.#registry,
+      roomToken: this.#roomToken,
+      lease,
+    });
+    if (!diagnostics) return null;
+    if (!isFilePlaybackPeerRangeManifestCodecEnabled(policy, diagnostics.codec)) return null;
+    if (derivePeerRangeManifestBundleSize(asset.size, diagnostics.manifestByteLength) === null) {
+      throw new Error('Host peer-range manifest bundle geometry is invalid');
+    }
+    return diagnostics;
+  }
+
+  #requirePeerRangeManifestSelector(
+    value: unknown,
+    issued: Readonly<HostPeerRangeManifestPublication> | null,
+    label: string,
+  ): Readonly<HostPeerRangeManifestPublication> | null {
+    if (value === null) return null;
+    if (issued === null || value !== issued) {
+      throw new Error(`${label} manifest selector is not the exact issued authority`);
+    }
+    return issued;
+  }
+
+  #copyPeerRangeManifestForLease(
+    asset: Readonly<FilePlaybackAssetSnapshot>,
+    lease: FilePlaybackAssetLease,
+    backend: FilePlaybackBackend,
+    expected: Readonly<HostPeerRangeManifestPublication>,
+  ): Readonly<{ bytes: Uint8Array; bundleSize: number }> {
+    const diagnostics = this.#eligiblePeerRangeManifestForLease(asset, lease, backend);
+    if (!diagnostics || !samePeerRangeManifestPublication(expected, diagnostics)) {
+      throw new Error('Host peer-range manifest lease diagnostics changed');
+    }
+    const bundleSize = derivePeerRangeManifestBundleSize(asset.size, expected.manifestByteLength);
+    if (bundleSize === null) {
+      throw new Error('Host peer-range manifest bundle geometry changed');
+    }
+    const bytes = copyCodecTimelineHostArtifactManifestForLease({
+      registry: this.#registry,
+      roomToken: this.#roomToken,
+      lease,
+    });
+    if (!bytes || bytes.byteLength !== expected.manifestByteLength) {
+      if (bytes) scrubManifestBytes(bytes);
+      throw new Error('Host peer-range manifest body changed during resolution');
+    }
+    return { bytes, bundleSize };
+  }
+
+  #assertManifestPrefixedSource(
+    source: ManifestPrefixedEncodedAudioSource,
+    asset: Readonly<FilePlaybackAssetSnapshot>,
+    manifest: Readonly<HostPeerRangeManifestPublication>,
+    bundleSize: number,
+  ): void {
+    if (
+      source.kind !== asset.kind ||
+      source.identity !== asset.sourceIdentity ||
+      source.metadata.name !== asset.name ||
+      source.metadata.mime !== asset.mime ||
+      source.mediaSize !== asset.size ||
+      source.manifestSize !== manifest.manifestByteLength ||
+      source.size !== bundleSize
+    ) {
+      throw new Error('Host manifest-prefixed source changed its exact binding');
+    }
+  }
+
+  async #resolvePeerRangeLeaseSource(
+    lease: FilePlaybackAssetLease,
+    asset: Readonly<FilePlaybackAssetSnapshot>,
+    backend: FilePlaybackBackend,
+    peerRangeManifest: Readonly<HostPeerRangeManifestPublication> | null,
+    signal: AbortSignal,
+    assertAuthority: () => void,
+    label: string,
+  ): Promise<HostPeerRangeSource> {
+    let manifestBytes: Uint8Array | null = null;
+    let bundleSize: number | null = null;
+    const scrubManifestCopy = () => {
+      const bytes = manifestBytes;
+      if (!bytes) return;
+      manifestBytes = null;
+      scrubManifestBytes(bytes);
+    };
+
+    try {
+      if (peerRangeManifest) {
+        const copied = this.#copyPeerRangeManifestForLease(
+          asset,
+          lease,
+          backend,
+          peerRangeManifest,
+        );
+        manifestBytes = copied.bytes;
+        bundleSize = copied.bundleSize;
+      }
+      throwIfAborted(signal);
+      assertAuthority();
+
+      const blobResolution = this.#registry.resolveBlobAsset(this.#roomToken, lease);
+      if (blobResolution) {
+        if (
+          blobResolution.binding.queueItemId !== asset.queueItemId ||
+          blobResolution.binding.sourceIdentity !== asset.sourceIdentity ||
+          blobResolution.binding.transferSessionId !== asset.transferSessionId ||
+          blobResolution.metadata.name !== asset.name ||
+          blobResolution.metadata.mime !== asset.mime ||
+          blobResolution.blob.size !== asset.size
+        ) {
+          throw new Error(`${label} Blob resolution changed its exact binding`);
+        }
+        if (!peerRangeManifest) {
+          await Promise.resolve();
+          throwIfAborted(signal);
+          assertAuthority();
+          return blobResolution.blob;
+        }
+
+        let prefixed: ManifestPrefixedEncodedAudioSource | null = null;
+        try {
+          if (!manifestBytes || bundleSize === null) {
+            throw new Error(`${label} manifest body is unavailable`);
+          }
+          prefixed = new ManifestPrefixedEncodedAudioSource({
+            manifestBytes,
+            media: blobResolution.blob,
+            identity: asset.sourceIdentity,
+            metadata: { name: asset.name, mime: asset.mime },
+          });
+          scrubManifestCopy();
+          this.#assertManifestPrefixedSource(prefixed, asset, peerRangeManifest, bundleSize);
+          await Promise.resolve();
+          throwIfAborted(signal);
+          assertAuthority();
+          const resolved = prefixed;
+          prefixed = null;
+          return resolved;
+        } catch (error) {
+          if (prefixed) await closeEncodedSourceWithoutMasking(prefixed);
+          throw error;
+        }
+      }
+
+      let source: EncodedAudioSource | null = null;
+      let prefixed: ManifestPrefixedEncodedAudioSource | null = null;
+      try {
+        source = this.#registry.acquireSource(this.#roomToken, lease);
+        if (
+          source.kind !== asset.kind ||
+          source.identity !== asset.sourceIdentity ||
+          source.size !== asset.size ||
+          source.metadata.name !== asset.name ||
+          source.metadata.mime !== asset.mime
+        ) {
+          throw new Error(`${label} encoded source changed its exact binding`);
+        }
+        if (!peerRangeManifest) {
+          await Promise.resolve();
+          throwIfAborted(signal);
+          assertAuthority();
+          const resolved = source;
+          source = null;
+          return resolved;
+        }
+        if (!manifestBytes || bundleSize === null) {
+          throw new Error(`${label} manifest body is unavailable`);
+        }
+        prefixed = new ManifestPrefixedEncodedAudioSource({
+          manifestBytes,
+          media: source,
+        });
+        source = null;
+        scrubManifestCopy();
+        this.#assertManifestPrefixedSource(prefixed, asset, peerRangeManifest, bundleSize);
+        await Promise.resolve();
+        throwIfAborted(signal);
+        assertAuthority();
+        const resolved = prefixed;
+        prefixed = null;
+        return resolved;
+      } catch (error) {
+        if (prefixed) await closeEncodedSourceWithoutMasking(prefixed);
+        if (source) await closeEncodedSourceWithoutMasking(source);
+        throw error;
+      }
+    } finally {
+      scrubManifestCopy();
+    }
+  }
+
   #samePeerAsset(
     left: Readonly<FilePlaybackAssetSnapshot>,
     right: Readonly<FilePlaybackAssetSnapshot>,
@@ -4034,7 +4194,12 @@ export class FilePlaybackHostFirstFileEngine {
     if (authority.preparedAuthority) {
       if (
         authority.preparedAuthority.sourceLease !== lease ||
-        authority.preparedAuthority.prepared.sourceLease !== lease
+        authority.preparedAuthority.prepared.sourceLease !== lease ||
+        authority.preparedAuthority.prepared.backend !== authority.backend ||
+        !samePeerRangeManifestPublication(
+          authority.preparedAuthority.prepared.asset.peerRangeManifest,
+          authority.peerRangeManifest,
+        )
       ) {
         throw new Error('Host warm source lease handoff changed');
       }
@@ -4096,7 +4261,13 @@ export class FilePlaybackHostFirstFileEngine {
       prepared.playbackRate !== input.playbackRate ||
       prepared.sourceLease !== sourceLease ||
       (sourceLease !== null &&
-        (sourceLeaseAuthority?.preparedAuthority !== authority || sourceLeaseAuthority.retired)) ||
+        (sourceLeaseAuthority?.preparedAuthority !== authority ||
+          sourceLeaseAuthority.retired ||
+          sourceLeaseAuthority.backend !== prepared.backend ||
+          !samePeerRangeManifestPublication(
+            sourceLeaseAuthority.peerRangeManifest,
+            prepared.asset.peerRangeManifest,
+          ))) ||
       staged.playbackState !== playbackState ||
       staged.asset.queueItemId !== playbackState.queueItemId ||
       prepared.asset.binding.queueItemId !== staged.asset.queueItemId ||
@@ -4197,7 +4368,13 @@ export class FilePlaybackHostFirstFileEngine {
       prepared.playbackRate !== input.playbackRate ||
       prepared.sourceLease !== sourceLease ||
       (sourceLease !== null &&
-        (sourceLeaseAuthority?.preparedAuthority !== authority || sourceLeaseAuthority.retired)) ||
+        (sourceLeaseAuthority?.preparedAuthority !== authority ||
+          sourceLeaseAuthority.retired ||
+          sourceLeaseAuthority.backend !== prepared.backend ||
+          !samePeerRangeManifestPublication(
+            sourceLeaseAuthority.peerRangeManifest,
+            prepared.asset.peerRangeManifest,
+          ))) ||
       staged.playbackState !== playbackState ||
       staged.asset.queueItemId !== playbackState.queueItemId ||
       prepared.asset.binding.queueItemId !== staged.asset.queueItemId ||

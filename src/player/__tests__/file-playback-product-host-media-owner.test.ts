@@ -174,6 +174,7 @@ function publication(
         mime: backend === 'bounded-stream' ? 'audio/flac' : 'audio/mpeg',
       }),
       encodedSize: blob.size,
+      peerRangeManifest: null,
     }),
   });
 }
@@ -204,6 +205,7 @@ function preparedTrack(
         mime: backend === 'bounded-stream' ? 'audio/flac' : 'audio/mpeg',
       }),
       encodedSize,
+      peerRangeManifest: null,
     }),
   });
 }
@@ -282,6 +284,7 @@ function warmAuthority(
         mime: 'audio/flac',
       }),
       encodedSize: 4,
+      peerRangeManifest: null,
     }),
     readiness: freezeCanonical({
       durationSeconds: 120,
@@ -562,11 +565,13 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       async (options: {
         prepared: Readonly<HostPreparedLocalTrack>;
         sourceIdentity: string;
+        peerRangeManifest: null;
         signal: AbortSignal;
       }): Promise<HostPeerRangeSource> => {
         if (
           options.prepared !== prepared ||
           options.sourceIdentity !== prepared.asset.binding.sourceIdentity ||
+          options.peerRangeManifest !== null ||
           options.signal.aborted
         ) {
           throw new Error('fixture prepared authority is stale');
@@ -648,6 +653,10 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(readAcknowledge).toHaveBeenCalledOnce();
     await drain(64);
     expect(resolvePrepared).toHaveBeenCalledTimes(2);
+    expect(resolvePrepared.mock.calls.map(([options]) => options.peerRangeManifest)).toEqual([
+      null,
+      null,
+    ]);
     expect(required.some((frame) => (frame as { type?: string }).type === 'chunk')).toBe(true);
 
     await expect(owner.whenPreparedRemoteReady(prepared)).rejects.toThrow(/stale/u);
@@ -1432,6 +1441,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(resolveCurrent).toHaveBeenCalledWith({
       publication: current,
       sourceIdentity: prepared.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
       signal: expect.any(AbortSignal),
     });
     expect(required.some((frame) => (frame as { type?: string }).type === 'chunk')).toBe(true);
@@ -1704,6 +1714,12 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     });
 
     await owner.publishCurrent();
+    expect(room.resolveCurrentPeerRangeSource).toHaveBeenCalledWith({
+      publication: current,
+      sourceIdentity: current.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
+      signal: expect.any(AbortSignal),
+    });
     expect(upload).toHaveBeenCalledOnce();
     expect(required[0]).toMatchObject({
       type: 'FILE_MEDIA_SOURCE_OFFER_V2',
@@ -2732,6 +2748,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       if (
         options.sourceLease !== sourceLease ||
         options.sourceIdentity !== authority.asset.binding.sourceIdentity ||
+        options.peerRangeManifest !== null ||
         options.signal.aborted
       ) {
         throw new Error('fixture warm Blob authority is stale');
@@ -2786,6 +2803,10 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(acknowledge).toHaveBeenCalledOnce();
     await drain(64);
     expect(resolveWarm).toHaveBeenCalledTimes(2);
+    expect(resolveWarm.mock.calls.map(([options]) => options.peerRangeManifest)).toEqual([
+      null,
+      null,
+    ]);
     expect(required.some((frame) => (frame as { type?: string }).type === 'chunk')).toBe(true);
 
     owner.port().revoke(pair.context);
@@ -2972,11 +2993,13 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(resolvePrepared).toHaveBeenLastCalledWith({
       prepared,
       sourceIdentity: current.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
       signal: expect.any(AbortSignal),
     });
     expect(resolveWarm).toHaveBeenLastCalledWith({
       sourceLease: warm.sourceLease,
       sourceIdentity: current.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
       signal: expect.any(AbortSignal),
     });
     expect(required.filter((frame) => (frame as { type?: string }).type === 'chunk')).toHaveLength(

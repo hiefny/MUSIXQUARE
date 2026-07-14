@@ -24,6 +24,7 @@ import type {
   HostCurrentPlaybackTimelineCommittedEvent,
   HostCurrentPlaybackTransitionScheduledEvent,
   HostPeerPlaybackPublication,
+  HostPeerRangeManifestPublication,
   HostPeerRangeSource,
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
@@ -64,6 +65,14 @@ let connectionSequence = 0;
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function manifestPublication(): Readonly<HostPeerRangeManifestPublication> {
+  return freezeCanonical({
+    codec: 'adts-aac-lc' as const,
+    manifestByteLength: 64,
+    manifestSha256B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+  });
 }
 
 function establishedHostChannel(): {
@@ -157,6 +166,8 @@ interface EnginePlan {
   readonly candidates?: OperationPlan[];
   readonly transitions?: OperationPlan[];
   readonly warmBackend?: FilePlaybackBackend;
+  readonly warmPeerRangeManifest?: Readonly<HostPeerRangeManifestPublication>;
+  readonly preparedPeerRangeManifest?: Readonly<HostPeerRangeManifestPublication>;
   readonly warmResultTransform?: (
     result: Readonly<HostLocalTrackWarmResult>,
   ) => Readonly<HostLocalTrackWarmResult>;
@@ -221,6 +232,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
           }),
           metadata: freezeCanonical({ name: input.name, mime }),
           encodedSize: input.blob.size,
+          peerRangeManifest: this.plan.warmPeerRangeManifest ?? null,
         }),
         readiness: freezeCanonical({
           durationSeconds: 180,
@@ -313,6 +325,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
             mime: input.mime || 'application/octet-stream',
           }),
           encodedSize: input.blob.size,
+          peerRangeManifest: this.plan.preparedPeerRangeManifest ?? null,
         }),
       });
       this.preparedInputs.set(prepared, input);
@@ -1040,12 +1053,14 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       setup.room.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity,
+        peerRangeManifest: null,
         signal: peerAuthority.signal,
       }),
     ).resolves.toBe(media);
     expect(setup.engines[0]?.resolveWarmPeerRangeSource).toHaveBeenCalledWith({
       sourceLease,
       sourceIdentity,
+      peerRangeManifest: null,
       signal: peerAuthority.signal,
     });
 
@@ -1072,9 +1087,33 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       setup.room.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity,
+        peerRangeManifest: null,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/stale/u);
+  });
+
+  it('preserves the exact warm manifest selector identity through the room facade', async () => {
+    const peerRangeManifest = manifestPublication();
+    const setup = makeHarness({
+      enginePlan: { warmBackend: 'bounded-stream', warmPeerRangeManifest: peerRangeManifest },
+    });
+    const media = file('manifest-warm.aac', 'audio/aac');
+    const result = await warm(setup.room, Q1, media);
+    if (!result.sourceLease) throw new Error('Fixture manifest warm lease is unavailable');
+
+    expect(result.asset.peerRangeManifest).toBe(peerRangeManifest);
+    await expect(
+      setup.room.resolveWarmPeerRangeSource({
+        sourceLease: result.sourceLease,
+        sourceIdentity: result.asset.binding.sourceIdentity,
+        peerRangeManifest,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(media);
+
+    const forwarded = setup.engines[0]?.resolveWarmPeerRangeSource.mock.calls[0]?.[0];
+    expect(forwarded?.peerRangeManifest).toBe(peerRangeManifest);
   });
 
   it('rejects copied and cross-room warm lease identities before engine authority', async () => {
@@ -1089,6 +1128,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     const options = (lease: HostLocalTrackSourceLease) => ({
       sourceLease: lease,
       sourceIdentity: result.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
       signal: new AbortController().signal,
     });
 
@@ -1129,6 +1169,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     const pending = setup.room.resolveWarmPeerRangeSource({
       sourceLease,
       sourceIdentity: result.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
       signal: peerAuthority.signal,
     });
     await drainMicrotasks();
@@ -1288,6 +1329,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         }),
         metadata: freezeCanonical({ name: started.asset.name, mime: started.asset.mime }),
         encodedSize: started.asset.size,
+        peerRangeManifest: null,
       }),
     });
     engine.currentPeerPublication.mockReturnValue(publication);
@@ -1331,6 +1373,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       setup.room.resolveCurrentPeerRangeSource({
         publication,
         sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: null,
         signal: sourceSignal,
       }),
     ).resolves.toBe(media);
@@ -1346,6 +1389,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(engine.resolveCurrentPeerRangeSource).toHaveBeenCalledWith({
       publication,
       sourceIdentity: publication.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
       signal: expect.any(AbortSignal),
     });
     expect(engine.recoverRemoteParticipant).toHaveBeenCalledWith({
@@ -1359,6 +1403,65 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(setup.getAudioContext).toHaveBeenCalledTimes(graphCalls.context);
     expect(setup.getDestination).toHaveBeenCalledTimes(graphCalls.destination);
     await setup.room.close();
+  });
+
+  it('preserves exact and copied current manifest selectors for engine authentication', async () => {
+    const setup = makeHarness();
+    const started = await first(setup.room, Q1, file('current-selector.aac', 'audio/aac'));
+    const issuedManifest = manifestPublication();
+    const copiedManifest = freezeCanonical({ ...issuedManifest });
+    const publication = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: started.roomGeneration,
+      backend: started.backend,
+      state: freezeCanonical({
+        queueItemId: started.attempt.queueItemId,
+        runId: started.attempt.runId,
+        revision: started.attempt.revision,
+      }),
+      timeline: started.timeline,
+      asset: freezeCanonical({
+        kind: started.asset.kind,
+        binding: freezeCanonical({
+          queueItemId: started.asset.queueItemId,
+          sourceIdentity: started.asset.sourceIdentity,
+          transferSessionId: started.asset.transferSessionId,
+        }),
+        metadata: freezeCanonical({ name: started.asset.name, mime: started.asset.mime }),
+        encodedSize: started.asset.size,
+        peerRangeManifest: issuedManifest,
+      }),
+    });
+    const engine = setup.engines[0]!;
+    engine.currentPeerPublication.mockReturnValue(publication);
+    engine.resolveCurrentPeerRangeSource
+      .mockResolvedValueOnce(file('resolved-selector.aac', 'audio/aac'))
+      .mockRejectedValueOnce(new Error('Fixture engine rejected copied manifest selector'));
+
+    await expect(
+      setup.room.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: issuedManifest,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBeInstanceOf(Blob);
+    expect(engine.resolveCurrentPeerRangeSource.mock.calls[0]?.[0].peerRangeManifest).toBe(
+      issuedManifest,
+    );
+
+    await expect(
+      setup.room.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        peerRangeManifest: copiedManifest,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/copied manifest selector/u);
+
+    const forwarded = engine.resolveCurrentPeerRangeSource.mock.calls[1]?.[0];
+    expect(forwarded?.peerRangeManifest).toBe(copiedManifest);
+    expect(forwarded?.peerRangeManifest).not.toBe(issuedManifest);
   });
 
   it.each([
@@ -1416,7 +1519,11 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         const createdEngine = setup.engines[0]!;
         createdEngine.resolvePreparedPeerRangeSource.mockResolvedValueOnce(media);
         await expect(
-          context.resolveSource(context.prepared.asset.binding.sourceIdentity, peerSource.signal),
+          context.resolveSource(
+            context.prepared.asset.binding.sourceIdentity,
+            null,
+            peerSource.signal,
+          ),
         ).resolves.toBe(media);
         const participant = new RemoteRendezvousParticipant({
           participantId: 'product-cohort-peer',
@@ -1449,6 +1556,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(createdEngine.resolvePreparedPeerRangeSource).toHaveBeenCalledWith({
       prepared: await prepared,
       sourceIdentity: context?.prepared.asset.binding.sourceIdentity,
+      peerRangeManifest: null,
       signal: peerSource.signal,
     });
     expect(createdEngine.startPreparedLocalTrack).toHaveBeenCalledOnce();
@@ -1465,6 +1573,28 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       schedule: { positionSeconds: 7.25 },
     });
     expect(containsBody(result)).toBe(false);
+  });
+
+  it('preserves the exact prepared manifest selector identity through the cohort bridge', async () => {
+    const peerRangeManifest = manifestPublication();
+    const setup = makeHarness({ enginePlan: { preparedPeerRangeManifest: peerRangeManifest } });
+    const media = file('prepared-selector.aac', 'audio/aac');
+
+    await trackWithCohort(setup.room, Q1, media, async (context) => {
+      expect(context.prepared.asset.peerRangeManifest).toBe(peerRangeManifest);
+      setup.engines[0]?.resolvePreparedPeerRangeSource.mockResolvedValueOnce(media);
+      await expect(
+        context.resolveSource(
+          context.prepared.asset.binding.sourceIdentity,
+          peerRangeManifest,
+          new AbortController().signal,
+        ),
+      ).resolves.toBe(media);
+      return [];
+    });
+
+    const forwarded = setup.engines[0]?.resolvePreparedPeerRangeSource.mock.calls[0]?.[0];
+    expect(forwarded?.peerRangeManifest).toBe(peerRangeManifest);
   });
 
   it('lets an exact peer source begun before commit finish after the room operation settles', async () => {
@@ -1485,6 +1615,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         );
         sourceResolution = context.resolveSource(
           context.prepared.asset.binding.sourceIdentity,
+          null,
           peerAuthority.signal,
         );
         void sourceResolution.catch(() => undefined);
@@ -1503,6 +1634,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(setup.engines[0]?.resolvePreparedPeerRangeSource).toHaveBeenCalledWith({
       prepared: setup.engines[0]?.startPreparedLocalTrack.mock.calls[0]?.[0].prepared,
       sourceIdentity: expect.any(String),
+      peerRangeManifest: null,
       signal: peerAuthority.signal,
     });
   });
@@ -1551,6 +1683,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         );
         await context.resolveSource(
           context.prepared.asset.binding.sourceIdentity,
+          null,
           peerSource.signal,
         );
         return [];

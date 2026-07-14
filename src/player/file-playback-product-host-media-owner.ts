@@ -1212,6 +1212,7 @@ export class FilePlaybackProductHostMediaOwner {
         resolve({
           sourceLease,
           sourceIdentity: asset.binding.sourceIdentity,
+          peerRangeManifest: null,
           signal: controller.signal,
         }),
       ),
@@ -1364,6 +1365,7 @@ export class FilePlaybackProductHostMediaOwner {
           this.#hostRoom.resolveCurrentPeerRangeSource({
             publication,
             sourceIdentity: publication.asset.binding.sourceIdentity,
+            peerRangeManifest: null,
             signal,
           }),
         ),
@@ -1519,6 +1521,7 @@ export class FilePlaybackProductHostMediaOwner {
         resolve({
           prepared,
           sourceIdentity: prepared.asset.binding.sourceIdentity,
+          peerRangeManifest: null,
           signal,
         }),
       ),
@@ -2496,6 +2499,7 @@ export class FilePlaybackProductHostMediaOwner {
       const source = await candidate.source.resolve({
         prepared: candidate.prepared,
         sourceIdentity,
+        peerRangeManifest: null,
         signal,
       });
       if (this.#closed || this.#candidate !== candidate || !hasPreparedSourceAuthority(candidate)) {
@@ -2514,6 +2518,7 @@ export class FilePlaybackProductHostMediaOwner {
       const source = await this.#hostRoom.resolveCurrentPeerRangeSource({
         publication: record.publication,
         sourceIdentity,
+        peerRangeManifest: null,
         signal,
       });
       if (this.#closed || this.#publication !== record) {
@@ -2540,6 +2545,7 @@ export class FilePlaybackProductHostMediaOwner {
     const source = await warm.resolve({
       sourceLease: warm.sourceLease,
       sourceIdentity,
+      peerRangeManifest: null,
       signal,
     });
     const stillWarm = this.#warmOffer === warm && warm.status === 'offered';

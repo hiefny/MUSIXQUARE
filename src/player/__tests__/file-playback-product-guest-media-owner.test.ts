@@ -40,6 +40,8 @@ import {
   type FilePlaybackProductGuestMediaOwnerOptions,
   type FilePlaybackProductGuestMediaOwnerRuntimeForTests,
 } from '../file-playback-product-guest-media-owner.ts';
+import type { FilePlaybackPeerRangeManifestAdmission } from '../file-playback-peer-range-manifest-acquisition.ts';
+import type { FilePlaybackPeerRangeManifestDecoderConstruction } from '../file-playback-peer-range-manifest-decoder-bridge.ts';
 import type { FilePlaybackProductSessionRouterConnectionContext } from '../file-playback-product-session-router.ts';
 import { createFilePlaybackRunBindingV2 } from '../file-playback-run-binding.ts';
 import { UnsupportedOrdinaryEncodedSourceError } from '../file-playback-source-factory.ts';
@@ -73,6 +75,23 @@ const TRANSFER_ID_3 = 'guest-owner-transfer-3';
 const HANDLE_ID_3 = 'guest-owner-handle-3';
 const ROOM_TOKEN = Object.freeze({ room: 'guest-owner' });
 const CUTOVER_PORT = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+const MP3_ONLY_MANIFEST_POLICY = Object.freeze({
+  mode: 'format-gated-v1' as const,
+  mp3: 'bounded-stream' as const,
+  m4aAacLc: 'current' as const,
+  rawAdtsAac: 'current' as const,
+});
+const ADTS_ONLY_MANIFEST_POLICY = Object.freeze({
+  mode: 'format-gated-v1' as const,
+  mp3: 'current' as const,
+  m4aAacLc: 'current' as const,
+  rawAdtsAac: 'webcodecs' as const,
+});
+
+type ManifestConstructionDiagnostics = Pick<
+  FilePlaybackPeerRangeManifestDecoderConstruction,
+  'codec' | 'queueItemId' | 'sourceIdentity' | 'sourceSize'
+>;
 
 let handshakeSequence = 0;
 
@@ -494,7 +513,7 @@ function audioGraph() {
 
 function stagedAssetSource(
   registry: FilePlaybackAssetRegistry,
-  options: StageFilePlaybackAssetSourceOptions,
+  options: Pick<StageFilePlaybackAssetSourceOptions, 'assetLease'>,
   cutoverPort: FilePlaybackCutoverCandidatePort = CUTOVER_PORT,
 ): Readonly<StagedFilePlaybackAssetSource> {
   const asset = registry.snapshotForLease(ROOM_TOKEN, options.assetLease);
@@ -534,6 +553,70 @@ function runtimeHarness(
     close: peerClose,
     closeHandle: peerCloseHandle,
   };
+  const manifestEvents: string[] = [];
+  const manifestAdmissions: FilePlaybackPeerRangeManifestAdmission[] = [];
+  const manifestConstructions: FilePlaybackPeerRangeManifestDecoderConstruction[] = [];
+  let manifestCodec: ManifestConstructionDiagnostics['codec'] = 'mp3-no-frame-count';
+  let manifestConstructionOverrides: Partial<ManifestConstructionDiagnostics> = {};
+  const acquireManifestAsset: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['acquireManifestAsset']
+  > = vi.fn(async ({ operation }) => {
+    if (operation.offer.transport !== 'peer-range-manifest') {
+      throw new Error('fixture expected a manifest operation');
+    }
+    manifestEvents.push('acquire');
+    const binding = freezeCanonical({
+      queueItemId: operation.binding.queueItemId,
+      sourceIdentity: operation.binding.sourceIdentity,
+      transferSessionId: operation.binding.transferSessionId,
+    });
+    const asset = new PeerRangeEncodedAudioAsset({
+      size: operation.offer.encodedSize,
+      identity: operation.offer.sourceIdentity,
+      metadata: { name: operation.offer.name, mime: operation.offer.mime },
+      transport: peerTransport,
+      handleId: operation.offer.handleId,
+    });
+    const assetLease = registry.admitEncodedAsset(ROOM_TOKEN, binding, asset);
+    const manifestAdmission = freezeCanonical({
+      sequence: manifestAdmissions.length + 1,
+    }) as unknown as FilePlaybackPeerRangeManifestAdmission;
+    manifestAdmissions.push(manifestAdmission);
+    return freezeCanonical({
+      assetLease,
+      asset: registry.snapshotForLease(ROOM_TOKEN, assetLease)!,
+      manifestAdmission,
+    });
+  });
+  const prepareManifestDecoderConstruction: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['prepareManifestDecoderConstruction']
+  > = vi.fn(async ({ assetLease }) => {
+    manifestEvents.push('prepare-construction');
+    const asset = registry.snapshotForLease(ROOM_TOKEN, assetLease);
+    if (!asset) throw new Error('missing admitted manifest asset');
+    const construction = freezeCanonical({
+      codec: manifestConstructionOverrides.codec ?? manifestCodec,
+      queueItemId: manifestConstructionOverrides.queueItemId ?? asset.queueItemId,
+      sourceIdentity: manifestConstructionOverrides.sourceIdentity ?? asset.sourceIdentity,
+      sourceSize: manifestConstructionOverrides.sourceSize ?? asset.size,
+    }) as unknown as FilePlaybackPeerRangeManifestDecoderConstruction;
+    manifestConstructions.push(construction);
+    return construction;
+  });
+  const retireManifestDecoderConstruction: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['retireManifestDecoderConstruction']
+  > = vi.fn(async () => {
+    manifestEvents.push('retire-construction');
+    return true;
+  });
+  const stageManifestAssetSource: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['stageManifestAssetSource']
+  > = vi.fn(async (options) => {
+    manifestEvents.push('stage-manifest');
+    const staged = stagedAssetSource(registry, options);
+    candidateBackend = staged.backend;
+    return staged;
+  });
   const r2Acquire = vi.fn(async (operation) => {
     const file = new File([new Uint8Array([1, 2, 3, 4])], operation.offer.name, {
       type: operation.offer.mime,
@@ -752,9 +835,13 @@ function runtimeHarness(
       close: r2Close,
     }),
     stageAssetSource,
+    stageManifestAssetSource,
     prepareWarmSource,
     handoffWarmSource,
     retireWarmSource,
+    acquireManifestAsset,
+    prepareManifestDecoderConstruction,
+    retireManifestDecoderConstruction,
     createParticipant: (options) => ({
       participantId: options.participantId,
       arm,
@@ -783,9 +870,16 @@ function runtimeHarness(
     r2Acquire,
     r2Close,
     stageAssetSource,
+    stageManifestAssetSource,
     prepareWarmSource,
     handoffWarmSource,
     retireWarmSource,
+    acquireManifestAsset,
+    prepareManifestDecoderConstruction,
+    retireManifestDecoderConstruction,
+    manifestEvents,
+    manifestAdmissions,
+    manifestConstructions,
     warmRecords,
     liveLeaseObservedAtHandoff: () => liveLeaseObservedAtHandoff,
     arm,
@@ -797,6 +891,12 @@ function runtimeHarness(
     pauseCurrent,
     seekCurrent,
     stopCurrent,
+    setManifestCodec(codec: ManifestConstructionDiagnostics['codec']) {
+      manifestCodec = codec;
+    },
+    setManifestConstructionOverrides(overrides: Partial<ManifestConstructionDiagnostics>) {
+      manifestConstructionOverrides = { ...overrides };
+    },
     setCurrentState(next: Readonly<PlaybackStateIdentity>) {
       currentState = next;
       currentPhase = 'playing';
@@ -845,10 +945,10 @@ function setup(
   return { ...pair, registry, manager, state, runtime, fatal, rendered, options, owner };
 }
 
-async function prepare(
+function startPreparation(
   h: ReturnType<typeof setup>,
   offer: Readonly<FileMediaSourceOfferV2> = peerOffer(h.context),
-): Promise<void> {
+): void {
   h.owner.onTimelineAdopted(timelineEvent(h.context));
   const offerAck = vi.fn();
   h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), offerAck);
@@ -857,6 +957,13 @@ async function prepare(
   const bindingAck = vi.fn();
   h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, binding), bindingAck);
   expect(bindingAck).toHaveBeenCalledOnce();
+}
+
+async function prepare(
+  h: ReturnType<typeof setup>,
+  offer: Readonly<FileMediaSourceOfferV2> = peerOffer(h.context),
+): Promise<void> {
+  startPreparation(h, offer);
   await vi.waitFor(() =>
     expect(
       h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
@@ -1021,12 +1128,374 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
 
     expect(offerAck).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.fatal.mock.calls[0]?.[1].cause).toMatchObject({
+      message: 'FILE_PLAYBACK_PEER_RANGE_MANIFEST_GATED_OFF',
+    });
     expect(h.options.getAudioGraph).not.toHaveBeenCalled();
     expect(leaseLookup).not.toHaveBeenCalled();
     expect(assetAdmission).not.toHaveBeenCalled();
     expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.acquireManifestAsset).not.toHaveBeenCalled();
+    expect(h.runtime.prepareManifestDecoderConstruction).not.toHaveBeenCalled();
+    expect(h.runtime.stageManifestAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.retireManifestDecoderConstruction).not.toHaveBeenCalled();
     expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+  });
+
+  it('acknowledges an opt-in manifest OFFER while keeping it completely cold', async () => {
+    const h = setup({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const leaseLookup = vi.spyOn(h.registry, 'leaseForBinding');
+    const assetAdmission = vi.spyOn(h.registry, 'admitEncodedAsset');
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const acknowledge = vi.fn();
+
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, gatedManifestOffer(h.context)),
+      acknowledge,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(acknowledge).toHaveBeenCalledOnce();
+    expect(h.options.getAudioGraph).not.toHaveBeenCalled();
+    expect(leaseLookup).not.toHaveBeenCalled();
+    expect(assetAdmission).not.toHaveBeenCalled();
+    expect(h.runtime.acquireManifestAsset).not.toHaveBeenCalled();
+    expect(h.runtime.prepareManifestDecoderConstruction).not.toHaveBeenCalled();
+    expect(h.runtime.stageManifestAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('pins universal policy and runs a manifest only through cold acquisition and its opaque decoder stager', async () => {
+    const requestedPolicy = {
+      mode: 'universal-v1' as const,
+      aacBackendId: 'webcodecs' as const,
+      m4aBackendId: 'webcodecs' as const,
+    };
+    const h = setup({ boundedRoutePolicy: requestedPolicy });
+    Reflect.set(requestedPolicy, 'mode', 'current');
+    const offer = gatedManifestOffer(h.context);
+
+    await prepare(h, offer);
+
+    expect(h.runtime.manifestEvents).toEqual(['acquire', 'prepare-construction', 'stage-manifest']);
+    expect(h.runtime.acquireManifestAsset).toHaveBeenCalledOnce();
+    expect(h.runtime.prepareManifestDecoderConstruction).toHaveBeenCalledOnce();
+    expect(h.runtime.stageManifestAssetSource).toHaveBeenCalledOnce();
+    const acquisitionOptions = h.runtime.acquireManifestAsset.mock.calls[0]![0];
+    const constructionOptions = h.runtime.prepareManifestDecoderConstruction.mock.calls[0]![0];
+    const stageOptions = h.runtime.stageManifestAssetSource.mock.calls[0]![0];
+    expect(acquisitionOptions.operation.offer).toEqual(offer);
+    expect(constructionOptions.assetLease).toBe(stageOptions.assetLease);
+    expect(constructionOptions.manifestAdmission).toBe(h.runtime.manifestAdmissions[0]);
+    expect(stageOptions.construction).toBe(h.runtime.manifestConstructions[0]);
+    expect(stageOptions.expectedBinding).toEqual({
+      queueItemId: offer.queueItemId,
+      sourceIdentity: offer.sourceIdentity,
+      transferSessionId: offer.transferSessionId,
+    });
+    expect(constructionOptions).not.toHaveProperty('manifest');
+    expect(constructionOptions).not.toHaveProperty('evidence');
+    expect(constructionOptions).not.toHaveProperty('source');
+    expect(stageOptions).not.toHaveProperty('manifest');
+    expect(stageOptions).not.toHaveProperty('evidence');
+    expect(stageOptions).not.toHaveProperty('source');
+    expect(stageOptions).not.toHaveProperty('decodeOrdinaryAudio');
+    expect(stageOptions).not.toHaveProperty('boundedRoutePolicy');
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toHaveLength(1);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('rejects the opposite manifest codec under MP3-only and ADTS-only policies after joining retirement', async () => {
+    const cases = [
+      {
+        policy: MP3_ONLY_MANIFEST_POLICY,
+        rejectedCodec: 'adts-aac-lc' as const,
+      },
+      {
+        policy: ADTS_ONLY_MANIFEST_POLICY,
+        rejectedCodec: 'mp3-no-frame-count' as const,
+      },
+    ];
+    for (const { policy, rejectedCodec } of cases) {
+      const h = setup({ boundedRoutePolicy: policy });
+      h.runtime.setManifestCodec(rejectedCodec);
+      const retirement = deferred<boolean>();
+      h.runtime.retireManifestDecoderConstruction.mockImplementationOnce(() => retirement.promise);
+
+      startPreparation(h, gatedManifestOffer(h.context));
+      await vi.waitFor(() =>
+        expect(h.runtime.retireManifestDecoderConstruction).toHaveBeenCalledOnce(),
+      );
+
+      expect(h.fatal).not.toHaveBeenCalled();
+      expect(h.runtime.retireManifestDecoderConstruction).toHaveBeenCalledWith(
+        h.runtime.manifestConstructions[0],
+      );
+      expect(h.runtime.stageManifestAssetSource).not.toHaveBeenCalled();
+      expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+      expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+      retirement.resolve(true);
+      await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+      expect(
+        h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toBe(false);
+      await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+    }
+  });
+
+  it('rejects every mismatched manifest construction diagnostic without a generic fallback', async () => {
+    const mismatches: readonly Partial<ManifestConstructionDiagnostics>[] = [
+      { queueItemId: QUEUE_ID_2 },
+      { sourceIdentity: SOURCE_ID_2 },
+      { sourceSize: 4_097 },
+    ];
+    for (const mismatch of mismatches) {
+      const h = setup({
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      });
+      h.runtime.setManifestConstructionOverrides(mismatch);
+
+      startPreparation(h, gatedManifestOffer(h.context));
+      await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+
+      expect(h.runtime.acquireManifestAsset).toHaveBeenCalledOnce();
+      expect(h.runtime.prepareManifestDecoderConstruction).toHaveBeenCalledOnce();
+      expect(h.runtime.retireManifestDecoderConstruction).toHaveBeenCalledOnce();
+      expect(h.runtime.stageManifestAssetSource).not.toHaveBeenCalled();
+      expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+      expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+      expect(
+        h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toBe(false);
+    }
+  });
+
+  it('joins repeat-safe construction retirement before fail-closing a manifest stage failure', async () => {
+    const h = setup({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const stageFailure = new Error('fixture manifest stage failure');
+    const retirement = deferred<boolean>();
+    h.runtime.stageManifestAssetSource.mockRejectedValueOnce(stageFailure);
+    h.runtime.retireManifestDecoderConstruction.mockImplementationOnce(() => retirement.promise);
+
+    startPreparation(h, gatedManifestOffer(h.context));
+    await vi.waitFor(() => expect(h.runtime.stageManifestAssetSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(h.runtime.retireManifestDecoderConstruction).toHaveBeenCalledOnce(),
+    );
+
+    expect(h.fatal).not.toHaveBeenCalled();
+    expect(h.runtime.retireManifestDecoderConstruction).toHaveBeenCalledWith(
+      h.runtime.manifestConstructions[0],
+    );
+    retirement.resolve(true);
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toBe(false);
+  });
+
+  it('retires a decoder construction that resolves after the manifest RUN is aborted', async () => {
+    const h = setup({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const offer = gatedManifestOffer(h.context);
+    const pendingConstruction =
+      deferred<Readonly<FilePlaybackPeerRangeManifestDecoderConstruction>>();
+    h.runtime.prepareManifestDecoderConstruction.mockImplementationOnce(
+      () => pendingConstruction.promise,
+    );
+    startPreparation(h, offer);
+    await vi.waitFor(() =>
+      expect(h.runtime.prepareManifestDecoderConstruction).toHaveBeenCalledOnce(),
+    );
+    const lateConstruction = freezeCanonical({
+      codec: 'mp3-no-frame-count' as const,
+      queueItemId: offer.queueItemId,
+      sourceIdentity: offer.sourceIdentity,
+      sourceSize: offer.encodedSize,
+    }) as unknown as FilePlaybackPeerRangeManifestDecoderConstruction;
+
+    h.owner.revoke(h.context);
+    pendingConstruction.resolve(lateConstruction);
+
+    await vi.waitFor(() =>
+      expect(h.runtime.retireManifestDecoderConstruction).toHaveBeenCalledWith(lateConstruction),
+    );
+    expect(h.runtime.retireManifestDecoderConstruction).toHaveBeenCalledOnce();
+    expect(h.runtime.stageManifestAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toBe(false);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('rescans and retires an initial manifest candidate staged in the same turn as owner revoke', async () => {
+    const pendingStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    const h = setup({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    h.runtime.stageManifestAssetSource.mockImplementationOnce(() => pendingStage.promise);
+    startPreparation(h, gatedManifestOffer(h.context));
+    await vi.waitFor(() => expect(h.runtime.stageManifestAssetSource).toHaveBeenCalledOnce());
+
+    const stageOptions = h.runtime.stageManifestAssetSource.mock.calls[0]![0];
+    const lateCandidatePort = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackCutoverCandidatePort;
+    expect(stageOptions.isCurrent()).toBe(true);
+
+    pendingStage.resolve(stagedAssetSource(h.registry, stageOptions, lateCandidatePort));
+    h.owner.revoke(h.context);
+
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, lateCandidatePort),
+    );
+    expect(h.runtime.retireCandidate).toHaveBeenCalledOnce();
+    expect(h.runtime.retireCurrent).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toBe(false);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('reuses one manifest admission for same-state recovery but creates a fresh decoder construction', async () => {
+    const h = setup({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const offer = gatedManifestOffer(h.context);
+    await prepare(h, offer);
+    const initial = await runHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    const recoveryAttempt = h.host.stageAttempt(initial.stateLease, RENDEZVOUS_ID_2);
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID_2,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.arm).toHaveBeenCalledTimes(2));
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: RENDEZVOUS_ID_2,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.commitAttempt).toHaveBeenCalledTimes(2));
+
+    expect(h.runtime.acquireManifestAsset).toHaveBeenCalledOnce();
+    expect(h.runtime.prepareManifestDecoderConstruction).toHaveBeenCalledTimes(2);
+    expect(h.runtime.stageManifestAssetSource).toHaveBeenCalledTimes(2);
+    const firstPrepare = h.runtime.prepareManifestDecoderConstruction.mock.calls[0]![0];
+    const recoveryPrepare = h.runtime.prepareManifestDecoderConstruction.mock.calls[1]![0];
+    expect(recoveryPrepare.assetLease).toBe(firstPrepare.assetLease);
+    expect(recoveryPrepare.manifestAdmission).toBe(firstPrepare.manifestAdmission);
+    expect(firstPrepare.manifestAdmission).toBe(h.runtime.manifestAdmissions[0]);
+    expect(h.runtime.manifestAdmissions).toHaveLength(1);
+    expect(h.runtime.manifestConstructions).toHaveLength(2);
+    expect(h.runtime.manifestConstructions[1]).not.toBe(h.runtime.manifestConstructions[0]);
+    expect(h.runtime.stageManifestAssetSource.mock.calls[0]![0].construction).toBe(
+      h.runtime.manifestConstructions[0],
+    );
+    expect(h.runtime.stageManifestAssetSource.mock.calls[1]![0].construction).toBe(
+      h.runtime.manifestConstructions[1],
+    );
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toHaveLength(1);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('rescans and retires a manifest recovery candidate staged in the same turn as owner revoke', async () => {
+    const h = setup({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const offer = gatedManifestOffer(h.context);
+    await prepare(h, offer);
+    const initial = await runHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    const sourceReadyCount = h.runtime.sent.filter(
+      (frame) => (frame as { kind?: string }).kind === 'source-ready',
+    ).length;
+    expect(sourceReadyCount).toBe(1);
+    const pendingRecoveryStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    h.runtime.stageManifestAssetSource.mockImplementationOnce(() => pendingRecoveryStage.promise);
+    const recoveryAttempt = h.host.stageAttempt(initial.stateLease, RENDEZVOUS_ID_2);
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID_2,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.stageManifestAssetSource).toHaveBeenCalledTimes(2));
+
+    const recoveryStageOptions = h.runtime.stageManifestAssetSource.mock.calls[1]![0];
+    const lateRecoveryPort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+    expect(recoveryStageOptions.isCurrent()).toBe(true);
+
+    pendingRecoveryStage.resolve(
+      stagedAssetSource(h.registry, recoveryStageOptions, lateRecoveryPort),
+    );
+    h.owner.revoke(h.context);
+
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, lateRecoveryPort),
+    );
+    expect(h.runtime.retireCandidate).toHaveBeenCalledOnce();
+    expect(h.runtime.retireCurrent).toHaveBeenCalledOnce();
+    expect(h.runtime.retireCurrent).toHaveBeenCalledWith(h.manager, CUTOVER_PORT);
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toHaveLength(sourceReadyCount);
+    expect(h.fatal).not.toHaveBeenCalled();
   });
 
   it('reuses one detached warm operation for an exact peer OFFER replay', async () => {

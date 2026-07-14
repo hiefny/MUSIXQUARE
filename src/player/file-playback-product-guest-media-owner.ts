@@ -23,6 +23,7 @@ import {
   type FilePlaybackProvisionalAssetLease,
 } from './file-playback-asset-registry.ts';
 import {
+  isFilePlaybackPeerRangeManifestCodecEnabled,
   snapshotFilePlaybackBoundedRoutePolicy,
   type FilePlaybackBoundedRoutePolicy,
 } from './file-playback-bounded-route-policy.ts';
@@ -31,8 +32,10 @@ import {
   prepareFilePlaybackAssetSourceWarm,
   retireFilePlaybackAssetSourceWarm,
   stageFilePlaybackAssetSource,
+  stageFilePlaybackPeerRangeManifestAssetSource,
   type FilePlaybackWarmSourceAuthority,
   type StageFilePlaybackAssetSourceOptions,
+  type StageFilePlaybackPeerRangeManifestAssetSourceOptions,
   type StagedFilePlaybackAssetSource,
 } from './file-playback-asset-source-stager.ts';
 import type { FilePlaybackClockBindings } from './file-playback-clock.ts';
@@ -51,6 +54,15 @@ import type {
   FilePlaybackProductSessionRouterConnectionContext,
   FilePlaybackProductSessionRouterGuestMediaOwnerPort,
 } from './file-playback-product-session-router.ts';
+import {
+  acquireFilePlaybackPeerRangeManifestAsset,
+  type FilePlaybackPeerRangeManifestAdmission,
+  type FilePlaybackPeerRangeManifestAcquisition,
+} from './file-playback-peer-range-manifest-acquisition.ts';
+import {
+  prepareFilePlaybackPeerRangeManifestDecoderConstruction,
+  retireFilePlaybackPeerRangeManifestDecoderConstruction,
+} from './file-playback-peer-range-manifest-decoder-bridge.ts';
 import {
   FilePlaybackR2WholeBlobAcquirer,
   type FilePlaybackR2WholeBlobAcquirerOptions,
@@ -136,9 +148,13 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
 );
 const RUNTIME_KEYS = Object.freeze([
   'stageAssetSource',
+  'stageManifestAssetSource',
   'prepareWarmSource',
   'handoffWarmSource',
   'retireWarmSource',
+  'acquireManifestAsset',
+  'prepareManifestDecoderConstruction',
+  'retireManifestDecoderConstruction',
   'createR2Acquirer',
   'createPeerTransport',
   'createParticipant',
@@ -198,6 +214,12 @@ const TIMELINE_KEYS = Object.freeze([
 ] as const);
 const RUN_KEYS = Object.freeze(['queueItemId', 'runId'] as const);
 const AUDIO_GRAPH_KEYS = Object.freeze(['audioContext', 'destination'] as const);
+const MANIFEST_CONSTRUCTION_KEYS = Object.freeze([
+  'codec',
+  'queueItemId',
+  'sourceIdentity',
+  'sourceSize',
+] as const);
 const DEFAULT_ARM_P95_MS = 75;
 const DEFAULT_READY_LEASE_MS = 30_000;
 const DEFAULT_RENDERER_HEALTH_LEASE_MS = 10_000;
@@ -212,6 +234,14 @@ type StageAssetSource = (
 type PrepareWarmSource = typeof prepareFilePlaybackAssetSourceWarm;
 type HandoffWarmSource = typeof handoffFilePlaybackAssetSourceWarm;
 type RetireWarmSource = typeof retireFilePlaybackAssetSourceWarm;
+type AcquireManifestAsset = typeof acquireFilePlaybackPeerRangeManifestAsset;
+type PrepareManifestDecoderConstruction =
+  typeof prepareFilePlaybackPeerRangeManifestDecoderConstruction;
+type RetireManifestDecoderConstruction =
+  typeof retireFilePlaybackPeerRangeManifestDecoderConstruction;
+type StageManifestAssetSource = (
+  options: StageFilePlaybackPeerRangeManifestAssetSourceOptions,
+) => Promise<Readonly<StagedFilePlaybackAssetSource>>;
 
 interface GuestR2AcquirerPort {
   acquire(
@@ -238,9 +268,13 @@ interface GuestRendezvousParticipantPort {
 
 interface RuntimeSnapshot {
   readonly stageAssetSource: StageAssetSource;
+  readonly stageManifestAssetSource: StageManifestAssetSource;
   readonly prepareWarmSource: PrepareWarmSource;
   readonly handoffWarmSource: HandoffWarmSource;
   readonly retireWarmSource: RetireWarmSource;
+  readonly acquireManifestAsset: AcquireManifestAsset;
+  readonly prepareManifestDecoderConstruction: PrepareManifestDecoderConstruction;
+  readonly retireManifestDecoderConstruction: RetireManifestDecoderConstruction;
   readonly createR2Acquirer: (
     options: FilePlaybackR2WholeBlobAcquirerOptions,
   ) => GuestR2AcquirerPort;
@@ -284,9 +318,13 @@ interface RuntimeSnapshot {
 
 export interface FilePlaybackProductGuestMediaOwnerRuntimeForTests {
   readonly stageAssetSource?: RuntimeSnapshot['stageAssetSource'];
+  readonly stageManifestAssetSource?: RuntimeSnapshot['stageManifestAssetSource'];
   readonly prepareWarmSource?: RuntimeSnapshot['prepareWarmSource'];
   readonly handoffWarmSource?: RuntimeSnapshot['handoffWarmSource'];
   readonly retireWarmSource?: RuntimeSnapshot['retireWarmSource'];
+  readonly acquireManifestAsset?: RuntimeSnapshot['acquireManifestAsset'];
+  readonly prepareManifestDecoderConstruction?: RuntimeSnapshot['prepareManifestDecoderConstruction'];
+  readonly retireManifestDecoderConstruction?: RuntimeSnapshot['retireManifestDecoderConstruction'];
   readonly createR2Acquirer?: RuntimeSnapshot['createR2Acquirer'];
   readonly createPeerTransport?: RuntimeSnapshot['createPeerTransport'];
   readonly createParticipant?: RuntimeSnapshot['createParticipant'];
@@ -341,6 +379,7 @@ interface GuestPreparedRun {
   state: Readonly<PlaybackStateIdentity>;
   readonly operation: Readonly<FilePlaybackConnectionMediaOperation>;
   assetLease: FilePlaybackAssetLease | null;
+  manifestAdmission: FilePlaybackPeerRangeManifestAdmission | null;
   audioGraph: Readonly<FilePlaybackProductGuestAudioGraph> | null;
   staged: Readonly<StagedFilePlaybackAssetSource> | null;
   participant: GuestRendezvousParticipantPort | null;
@@ -527,6 +566,10 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     stageAssetSource:
       (runtime.stageAssetSource as RuntimeSnapshot['stageAssetSource'] | undefined) ??
       stageFilePlaybackAssetSource,
+    stageManifestAssetSource:
+      (runtime.stageManifestAssetSource as
+        | RuntimeSnapshot['stageManifestAssetSource']
+        | undefined) ?? stageFilePlaybackPeerRangeManifestAssetSource,
     prepareWarmSource:
       (runtime.prepareWarmSource as RuntimeSnapshot['prepareWarmSource'] | undefined) ??
       prepareFilePlaybackAssetSourceWarm,
@@ -536,6 +579,17 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     retireWarmSource:
       (runtime.retireWarmSource as RuntimeSnapshot['retireWarmSource'] | undefined) ??
       retireFilePlaybackAssetSourceWarm,
+    acquireManifestAsset:
+      (runtime.acquireManifestAsset as RuntimeSnapshot['acquireManifestAsset'] | undefined) ??
+      acquireFilePlaybackPeerRangeManifestAsset,
+    prepareManifestDecoderConstruction:
+      (runtime.prepareManifestDecoderConstruction as
+        | RuntimeSnapshot['prepareManifestDecoderConstruction']
+        | undefined) ?? prepareFilePlaybackPeerRangeManifestDecoderConstruction,
+    retireManifestDecoderConstruction:
+      (runtime.retireManifestDecoderConstruction as
+        | RuntimeSnapshot['retireManifestDecoderConstruction']
+        | undefined) ?? retireFilePlaybackPeerRangeManifestDecoderConstruction,
     createR2Acquirer:
       (runtime.createR2Acquirer as RuntimeSnapshot['createR2Acquirer'] | undefined) ??
       ((options: FilePlaybackR2WholeBlobAcquirerOptions) =>
@@ -744,6 +798,13 @@ function sameAsset(
   );
 }
 
+function manifestOfferEnabled(policy: Readonly<FilePlaybackBoundedRoutePolicy>): boolean {
+  return (
+    isFilePlaybackPeerRangeManifestCodecEnabled(policy, 'adts-aac-lc') ||
+    isFilePlaybackPeerRangeManifestCodecEnabled(policy, 'mp3-no-frame-count')
+  );
+}
+
 function messageMatchesPrepared(
   message: Readonly<FilePlaybackWireMessage>,
   context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
@@ -890,6 +951,7 @@ class GuestMediaOwner {
   readonly #getAudioGraph: FilePlaybackProductGuestMediaOwnerOptions['getAudioGraph'];
   readonly #decodeOrdinaryAudio: OrdinaryAudioDecoder;
   readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | undefined;
+  readonly #manifestBoundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly #sendRequiredCallback: FilePlaybackProductGuestMediaOwnerOptions['sendRequired'];
   readonly #canSendPeerControl: FilePlaybackProductGuestMediaOwnerOptions['canSendPeerControl'];
   readonly #onFatalConnection: FilePlaybackProductGuestMediaOwnerOptions['onFatalConnection'];
@@ -918,10 +980,11 @@ class GuestMediaOwner {
 
   constructor(options: FilePlaybackProductGuestMediaOwnerOptions) {
     const input = snapshotAllowedOptions(options);
+    const manifestBoundedRoutePolicy = snapshotFilePlaybackBoundedRoutePolicy(
+      input?.boundedRoutePolicy,
+    );
     const boundedRoutePolicy =
-      input?.boundedRoutePolicy === undefined
-        ? undefined
-        : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
+      input?.boundedRoutePolicy === undefined ? undefined : manifestBoundedRoutePolicy;
     const context = exactContext(input?.context);
     const runtime = runtimeSnapshot(input?.runtimeForTests);
     if (!input || !context || !runtime) {
@@ -959,6 +1022,7 @@ class GuestMediaOwner {
       input.getAudioGraph as FilePlaybackProductGuestMediaOwnerOptions['getAudioGraph'];
     this.#decodeOrdinaryAudio = input.decodeOrdinaryAudio as OrdinaryAudioDecoder;
     this.#boundedRoutePolicy = boundedRoutePolicy;
+    this.#manifestBoundedRoutePolicy = manifestBoundedRoutePolicy;
     this.#sendRequiredCallback =
       input.sendRequired as FilePlaybackProductGuestMediaOwnerOptions['sendRequired'];
     this.#canSendPeerControl =
@@ -1130,7 +1194,10 @@ class GuestMediaOwner {
         if (!result.accepted) {
           throw new Error(`Guest source offer was rejected: ${result.reason}`);
         }
-        if (result.offer.transport === 'peer-range-manifest') {
+        if (
+          result.offer.transport === 'peer-range-manifest' &&
+          !manifestOfferEnabled(this.#manifestBoundedRoutePolicy)
+        ) {
           throw new Error('FILE_PLAYBACK_PEER_RANGE_MANIFEST_GATED_OFF');
         }
         acknowledge();
@@ -1191,6 +1258,7 @@ class GuestMediaOwner {
         state,
         operation,
         assetLease: null,
+        manifestAdmission: null,
         audioGraph: null,
         staged: null,
         participant: null,
@@ -1249,6 +1317,7 @@ class GuestMediaOwner {
             state: prepared.state,
             operation: prepared.operation,
             assetLease: prepared.assetLease,
+            manifestAdmission: prepared.manifestAdmission,
             audioGraph: prepared.audioGraph,
             staged: null,
             participant: null,
@@ -1382,33 +1451,30 @@ class GuestMediaOwner {
       this.#assertRunningAudioGraph(graph);
       this.#assertPrepared(room, prepared);
       prepared.audioGraph = graph;
-      const warmClaim = await this.#claimOfferWarm(room, prepared, graph);
+      const warmClaim =
+        operation.offer.transport === 'peer-range-manifest'
+          ? null
+          : await this.#claimOfferWarm(room, prepared, graph);
       this.#assertPrepared(room, prepared);
       let assetLease = warmClaim?.assetLease ?? null;
       let staged = warmClaim?.staged ?? null;
       if (!assetLease) {
-        const acquired = await this.#acquireAsset(operation);
-        this.#assertPrepared(room, prepared);
-        assetLease = acquired.assetLease;
+        if (operation.offer.transport === 'peer-range-manifest') {
+          const acquired = await this.#acquireManifestAsset(operation);
+          this.#assertPrepared(room, prepared);
+          assetLease = acquired.assetLease;
+          prepared.manifestAdmission = acquired.manifestAdmission;
+        } else {
+          const acquired = await this.#acquireAsset(operation);
+          this.#assertPrepared(room, prepared);
+          assetLease = acquired.assetLease;
+        }
       }
       prepared.assetLease = assetLease;
       if (!staged) {
         const clockBindings = await this.#awaitClockBindings(room, prepared, graph.audioContext);
         this.#assertPrepared(room, prepared);
-        staged = await this.#runtime.stageAssetSource({
-          registry: this.#registry,
-          roomToken: this.#roomToken,
-          assetLease,
-          expectedBinding: assetBinding(operation),
-          manager: this.#manager,
-          audioContext: graph.audioContext,
-          destination: graph.destination,
-          clockBindings,
-          signal: operation.fence.signal,
-          isCurrent: () => this.#preparedCurrent(room, prepared),
-          decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
-          ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
-        });
+        staged = await this.#stagePreparedAsset(room, prepared, graph, clockBindings);
         // A resolved stage has already transferred a candidate port into the
         // manager. Retain it before any fallible authority or binding check so
         // late revocation can still retire that exact port during close.
@@ -1480,20 +1546,12 @@ class GuestMediaOwner {
       prepared.audioGraph.audioContext,
     );
     this.#assertPrepared(room, prepared);
-    const staged = await this.#runtime.stageAssetSource({
-      registry: this.#registry,
-      roomToken: this.#roomToken,
-      assetLease: prepared.assetLease,
-      expectedBinding: assetBinding(prepared.operation),
-      manager: this.#manager,
-      audioContext: prepared.audioGraph.audioContext,
-      destination: prepared.audioGraph.destination,
+    const staged = await this.#stagePreparedAsset(
+      room,
+      prepared,
+      prepared.audioGraph,
       clockBindings,
-      signal: prepared.operation.fence.signal,
-      isCurrent: () => this.#preparedCurrent(room, prepared),
-      decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
-      ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
-    });
+    );
     // Recovery handoff has the same ownership boundary as initial staging:
     // close must see the manager-owned port even if authority flips now.
     prepared.staged = staged;
@@ -1519,6 +1577,90 @@ class GuestMediaOwner {
     prepared.participant = participant;
     prepared.readyPublished = true;
     prepared.status = 'ready';
+  }
+
+  async #stagePreparedAsset(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
+    clockBindings: Readonly<FilePlaybackClockBindings>,
+  ): Promise<Readonly<StagedFilePlaybackAssetSource>> {
+    const operation = prepared.operation;
+    const assetLease = prepared.assetLease;
+    if (!assetLease) throw new Error('Guest prepared source has no exact asset lease');
+    if (operation.offer.transport !== 'peer-range-manifest') {
+      return this.#runtime.stageAssetSource({
+        registry: this.#registry,
+        roomToken: this.#roomToken,
+        assetLease,
+        expectedBinding: assetBinding(operation),
+        manager: this.#manager,
+        audioContext: graph.audioContext,
+        destination: graph.destination,
+        clockBindings,
+        signal: operation.fence.signal,
+        isCurrent: () => this.#preparedCurrent(room, prepared),
+        decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
+        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
+      });
+    }
+
+    const manifestAdmission = prepared.manifestAdmission;
+    if (!manifestAdmission) {
+      throw new Error('Guest manifest source has no exact admission authority');
+    }
+    const construction = await this.#runtime.prepareManifestDecoderConstruction({
+      registry: this.#registry,
+      roomToken: this.#roomToken,
+      assetLease,
+      manifestAdmission,
+      signal: operation.fence.signal,
+    });
+    try {
+      this.#assertPrepared(room, prepared);
+      const diagnostics = snapshotExactRecord(construction, MANIFEST_CONSTRUCTION_KEYS);
+      if (
+        !diagnostics ||
+        (diagnostics.codec !== 'adts-aac-lc' && diagnostics.codec !== 'mp3-no-frame-count') ||
+        diagnostics.queueItemId !== operation.binding.queueItemId ||
+        diagnostics.sourceIdentity !== operation.binding.sourceIdentity ||
+        diagnostics.sourceSize !== operation.offer.encodedSize
+      ) {
+        throw new Error('Guest manifest decoder construction changed its exact asset binding');
+      }
+      if (
+        !isFilePlaybackPeerRangeManifestCodecEnabled(
+          this.#manifestBoundedRoutePolicy,
+          diagnostics.codec,
+        )
+      ) {
+        throw new Error('FILE_PLAYBACK_PEER_RANGE_MANIFEST_CODEC_GATED_OFF');
+      }
+      return await this.#runtime.stageManifestAssetSource({
+        construction,
+        registry: this.#registry,
+        roomToken: this.#roomToken,
+        assetLease,
+        expectedBinding: assetBinding(operation),
+        manager: this.#manager,
+        audioContext: graph.audioContext,
+        destination: graph.destination,
+        clockBindings,
+        signal: operation.fence.signal,
+        isCurrent: () => this.#preparedCurrent(room, prepared),
+      });
+    } catch (error) {
+      try {
+        await this.#runtime.retireManifestDecoderConstruction(construction);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          'Guest manifest decoder construction cleanup failed',
+          { cause: cleanupError },
+        );
+      }
+      throw error;
+    }
   }
 
   #scheduleOfferWarm(preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>): void {
@@ -1973,6 +2115,29 @@ class GuestMediaOwner {
       throw new Error('Guest peer-range asset registry admission was inconsistent');
     }
     return freezeCanonical({ assetLease, asset: snapshot });
+  }
+
+  async #acquireManifestAsset(
+    operation: Readonly<FilePlaybackConnectionMediaOperation>,
+  ): Promise<Readonly<FilePlaybackPeerRangeManifestAcquisition>> {
+    if (operation.offer.transport !== 'peer-range-manifest') {
+      throw new Error('Guest manifest acquisition requires an exact manifest operation');
+    }
+    const acquired = await this.#runtime.acquireManifestAsset({
+      operation,
+      registry: this.#registry,
+      roomToken: this.#roomToken,
+      transport: this.#peerTransport,
+    });
+    if (
+      !sameAsset(acquired.asset, assetBinding(operation), operation) ||
+      acquired.asset.kind !== 'peer-range' ||
+      acquired.manifestAdmission === null ||
+      typeof acquired.manifestAdmission !== 'object'
+    ) {
+      throw new Error('Guest manifest asset acquisition was inconsistent');
+    }
+    return acquired;
   }
 
   async #awaitClockBindings(
@@ -2593,23 +2758,36 @@ class GuestMediaOwner {
             closePeerTransport,
           )
         : Promise.resolve(closePeerTransport());
-    const preparedRuns = [this.#room?.current, this.#room?.candidate].filter(
-      (value): value is GuestPreparedRun => Boolean(value?.staged),
-    );
-    const ports = new Set(preparedRuns.map((prepared) => prepared.staged!.cutoverPort));
-    const retireTask = Promise.allSettled(
-      [...ports].map(async (port) => {
-        const current = this.#runtime.currentPort(this.#manager);
-        if (current === port) await this.#runtime.retireCurrent(this.#manager, port);
-        else await this.#runtime.retireCandidate(this.#manager, port);
-      }),
-    );
     const tasks = [...this.#tasks];
+    const retiredPorts = new Set<FilePlaybackCutoverCandidatePort>();
+    const retirePreparedPorts = async (): Promise<void> => {
+      const ports = new Set(
+        [this.#room?.current, this.#room?.candidate]
+          .filter((value): value is GuestPreparedRun => Boolean(value?.staged))
+          .map((prepared) => prepared.staged!.cutoverPort),
+      );
+      await Promise.allSettled(
+        [...ports]
+          .filter((port) => {
+            if (retiredPorts.has(port)) return false;
+            retiredPorts.add(port);
+            return true;
+          })
+          .map(async (port) => {
+            const current = this.#runtime.currentPort(this.#manager);
+            if (current === port) await this.#runtime.retireCurrent(this.#manager, port);
+            else await this.#runtime.retireCandidate(this.#manager, port);
+          }),
+      );
+    };
+    const initialRetirement = retirePreparedPorts();
+    const preparedRetirement = Promise.allSettled([initialRetirement, ...tasks]).then(() =>
+      retirePreparedPorts(),
+    );
     this.#closePromise = Promise.allSettled([
       this.#r2Acquirer.close(),
       peerCloseTask,
-      retireTask,
-      ...tasks,
+      preparedRetirement,
     ]).then(() => undefined);
     return this.#closePromise;
   }

@@ -20,6 +20,8 @@ const summarizeUniversalE2eFrame = (frame) => {
       status: typeof frame.status === 'string' ? frame.status : null,
       reasonCode: typeof frame.reasonCode === 'string' ? frame.reasonCode : null,
       backend: typeof frame.backend === 'string' ? frame.backend : null,
+      transport: typeof frame.transport === 'string' ? frame.transport : null,
+      codec: typeof frame.codec === 'string' ? frame.codec : null,
       controlSequence: Number.isSafeInteger(frame.controlSequence) ? frame.controlSequence : null,
       startAtRoomTimeMs: Number.isFinite(frame.startAtRoomTimeMs)
         ? frame.startAtRoomTimeMs

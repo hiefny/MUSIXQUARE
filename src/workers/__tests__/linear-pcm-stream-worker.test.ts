@@ -96,6 +96,29 @@ class MemoryEncodedAudioSource implements EncodedAudioSource {
   }
 }
 
+class SparseGeneratedEncodedAudioSource implements EncodedAudioSource {
+  readonly kind = 'peer-range' as const;
+  readonly identity = 'linear-pcm-worker-sparse-5-gib';
+  readonly metadata = Object.freeze({ name: 'sparse.wav', mime: 'audio/wav' });
+  readonly reads: ReadRecord[] = [];
+  closeCount = 0;
+
+  constructor(readonly size: number) {
+    validateExactRead(size, 0, 0);
+  }
+
+  async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
+    validateExactRead(this.size, offset, length);
+    throwIfAborted(signal);
+    this.reads.push({ offset, length });
+    return new Uint8Array(length).fill(144);
+  }
+
+  async close(): Promise<void> {
+    this.closeCount += 1;
+  }
+}
+
 interface FakeWorkerScope {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
   postMessage: ReturnType<typeof vi.fn>;
@@ -173,10 +196,7 @@ function sourceBytes(
   return bytes;
 }
 
-function openSource(
-  scope: FakeWorkerScope,
-  source: MemoryEncodedAudioSource,
-): EncodedSourcePortBroker {
+function openSource(scope: FakeWorkerScope, source: EncodedAudioSource): EncodedSourcePortBroker {
   const channel = new MessageChannel();
   openPorts.push(channel.port1, channel.port2);
   const broker = new EncodedSourcePortBroker({
@@ -351,6 +371,60 @@ describe.sequential('bounded linear PCM stream worker', () => {
     expect(Array.from(new Float32Array((pcm.channels as ArrayBuffer[])[0]))).toEqual([
       0.09375, 0.125,
     ]);
+  });
+
+  it('seeks and reaches EOF in a sparse 5 GiB PCM source with one bounded terminal read', async () => {
+    const gib = 1_024 * 1_024 * 1_024;
+    const sourceSize = 5 * gib;
+    const dataOffset = 128;
+    const channels = 2;
+    const frames = (sourceSize - dataOffset) / channels;
+    const layout = descriptor({
+      frames,
+      channels,
+      dataOffset,
+      targetSourceFrame: frames - 2,
+    });
+    expect(layout.logicalFileBytes).toBe(sourceSize);
+    const source = new SparseGeneratedEncodedAudioSource(sourceSize);
+    const scope = await loadWorker();
+    openSource(scope, source);
+    const pcmPort = initialize(scope, 11, layout);
+    await waitReady(scope, 11);
+
+    const received = nextPortMessage(pcmPort);
+    pcmPort.postMessage(demand(11));
+    const pcm = await received;
+
+    expect(pcm).toMatchObject({ type: 'pcm', generation: 11, frames: 2, final: true });
+    expect(source.reads).toEqual([{ offset: sourceSize - 4, length: 4 }]);
+    expect(source.reads[0]!.offset).toBeGreaterThan(4 * gib);
+    const buffers = pcm.channels as ArrayBuffer[];
+    expect(buffers).toHaveLength(channels);
+    expect(buffers.reduce((total, buffer) => total + buffer.byteLength, 0)).toBe(16);
+    expect(Array.from(new Float32Array(buffers[0]))).toEqual([0.125, 0.125]);
+    await vi.waitFor(() => {
+      expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'decoder-eof',
+          decoderGeneration: 11,
+          decodedInputBytes: 4,
+          decodedSourceFrames: 2,
+          producedOutputFrames: 2,
+        }),
+      );
+    });
+
+    const terminalPort = initialize(scope, 12, { ...layout, targetSourceFrame: frames });
+    await waitReady(scope, 12);
+    const terminalReceived = nextPortMessage(terminalPort);
+    terminalPort.postMessage(demand(12));
+    await expect(terminalReceived).resolves.toEqual({
+      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+      type: 'eof',
+      generation: 12,
+    });
+    expect(source.reads).toEqual([{ offset: sourceSize - 4, length: 4 }]);
   });
 
   it('keeps every physical read and PCM supply within their independent ceilings', async () => {

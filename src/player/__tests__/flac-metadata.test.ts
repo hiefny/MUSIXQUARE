@@ -1,11 +1,51 @@
 import { describe, expect, it } from 'vitest';
 
 import { readFlacMetadata } from '../flac/metadata.ts';
+import { FlacSeekIndex } from '../flac/seek-index.ts';
 import { BlobEncodedAudioSource } from '../sources/blob-encoded-audio-source.ts';
-import type {
-  EncodedAudioSource,
-  EncodedAudioSourceMetadata,
+import {
+  throwIfAborted,
+  validateExactRead,
+  type EncodedAudioSource,
+  type EncodedAudioSourceMetadata,
 } from '../sources/encoded-audio-source.ts';
+
+interface SparseRegion {
+  readonly offset: number;
+  readonly bytes: Uint8Array;
+}
+
+class SparseEncodedAudioSource implements EncodedAudioSource {
+  readonly kind = 'peer-range' as const;
+  readonly identity = 'sparse-large-flac';
+  readonly metadata: EncodedAudioSourceMetadata = Object.freeze({
+    name: 'seven-days.flac',
+    mime: 'audio/flac',
+  });
+  readonly reads: { readonly offset: number; readonly length: number }[] = [];
+
+  constructor(
+    readonly size: number,
+    private readonly regions: readonly SparseRegion[],
+  ) {
+    validateExactRead(size, 0, 0);
+  }
+
+  async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
+    const end = validateExactRead(this.size, offset, length);
+    throwIfAborted(signal);
+    this.reads.push({ offset, length });
+    const region = this.regions.find(
+      (candidate) =>
+        offset >= candidate.offset && end <= candidate.offset + candidate.bytes.byteLength,
+    );
+    if (!region) throw new Error(`Sparse FLAC fixture has no bytes for [${offset}, ${end})`);
+    const start = offset - region.offset;
+    return region.bytes.slice(start, start + length);
+  }
+
+  async close(): Promise<void> {}
+}
 
 const MAX_SOURCE_READ_BYTES = 64 * 1024;
 const SEEKPOINT_BYTES = 18;
@@ -187,6 +227,56 @@ describe('readFlacMetadata', () => {
       ),
     ).toBe(true);
     expect(repeated.seekPoints).toEqual(metadata.seekPoints);
+  });
+
+  it('indexes a seven-day sparse 5 GiB source without reading audio or retaining its span', async () => {
+    const gib = 1_024 * 1_024 * 1_024;
+    const sourceSize = 5 * gib;
+    const sampleRate = 48_000;
+    const totalSamples = sampleRate * 60 * 60 * 24 * 7;
+    const finalFrameSample = totalSamples - 4_096;
+    const marker = Uint8Array.of(0x66, 0x4c, 0x61, 0x43);
+    const streamInfoBlock = block(0, streamInfo({ sampleRate, totalSamples }));
+    const expectedFirstAudioFrameOffset = 64;
+    const finalFrameStreamOffset = sourceSize - expectedFirstAudioFrameOffset - 32_768;
+    const seekTableBlock = block(
+      3,
+      seekPoint(BigInt(finalFrameSample), BigInt(finalFrameStreamOffset)),
+      true,
+    );
+    const prefix = new Uint8Array([...marker, ...streamInfoBlock, ...seekTableBlock]);
+    expect(prefix.byteLength).toBe(expectedFirstAudioFrameOffset);
+    const source = new SparseEncodedAudioSource(sourceSize, [{ offset: 0, bytes: prefix }]);
+
+    const metadata = await readFlacMetadata(source, new AbortController().signal);
+
+    expect(metadata.streamInfo).toMatchObject({
+      sampleRate,
+      totalSamples,
+      duration: 7 * 24 * 60 * 60,
+    });
+    expect(metadata.seekPoints).toEqual([
+      {
+        sample: finalFrameSample,
+        streamOffset: finalFrameStreamOffset,
+        frameSamples: 4_096,
+      },
+    ]);
+    expect(source.reads.every((read) => read.offset + read.length <= prefix.byteLength)).toBe(true);
+    expect(Math.max(...source.reads.map((read) => read.length))).toBeLessThanOrEqual(
+      MAX_SOURCE_READ_BYTES,
+    );
+
+    const index = new FlacSeekIndex(metadata, sourceSize);
+    expect(index.snapshot()).toHaveLength(2);
+    expect(index.nearestBefore(totalSamples - 1)).toEqual({
+      sourceSample: finalFrameSample,
+      byteOffset: expectedFirstAudioFrameOffset + finalFrameStreamOffset,
+    });
+    const window = index.probeWindow(totalSamples - 1, MAX_SOURCE_READ_BYTES);
+    expect(window.length).toBe(MAX_SOURCE_READ_BYTES);
+    expect(window.offset).toBeGreaterThan(4 * gib);
+    expect(window.offset + window.length).toBeLessThanOrEqual(sourceSize);
   });
 
   it('keeps order, placeholder, and offset validation across SEEKTABLE page boundaries', async () => {

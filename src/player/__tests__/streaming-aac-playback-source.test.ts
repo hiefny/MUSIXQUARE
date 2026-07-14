@@ -7,6 +7,10 @@ import {
   type AacDecoderEvent,
   type AacDecoderOpenCommand,
 } from '../aac/decoder-protocol.ts';
+import {
+  createAdtsDecoderTimelineEvidenceFromScanResult,
+  type AdtsDecoderTimelineEvidence,
+} from '../aac/decoder-timeline-evidence.ts';
 import { scanAdtsFrames, type AdtsFrameScanResult } from '../aac/frame-scanner.ts';
 import { StreamingAacPlaybackSource } from '../backends/streaming-aac-playback-source.ts';
 import type { RendezvousArmIntent } from '../rendezvous-contract.ts';
@@ -125,6 +129,7 @@ class FakeAudioWorkletNode extends FakeAudioNode {
 
 interface HarnessOptions {
   readonly useDefaultWorker?: boolean;
+  readonly timelineEvidence?: Readonly<AdtsDecoderTimelineEvidence>;
 }
 
 function makeAdtsFrame(): Uint8Array {
@@ -214,17 +219,23 @@ function harness(options: HarnessOptions = {}) {
     createMessageChannel,
     ...(options.useDefaultWorker ? {} : { createWorker }),
   } satisfies Partial<BoundedStreamingCodecRuntime>;
-  const sourceOwner = new StreamingAacPlaybackSource({
+  const commonOptions = {
     queueItemId: QID,
     encodedSource: source,
-    scan,
     backendId: 'webcodecs',
     audioContext: context as unknown as AudioContext,
     nowRoomTimeMs: () => context.roomNowMs,
     roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1_000,
     localPerformanceMsToContextTime: (performanceTimeMs) => performanceTimeMs / 1_000,
     runtime,
-  });
+  } as const;
+  const sourceOwner =
+    options.timelineEvidence === undefined
+      ? new StreamingAacPlaybackSource({ ...commonOptions, scan })
+      : new StreamingAacPlaybackSource({
+          ...commonOptions,
+          timelineEvidence: options.timelineEvidence,
+        });
 
   return {
     source: sourceOwner,
@@ -350,6 +361,50 @@ afterAll(() => {
 });
 
 describe('StreamingAacPlaybackSource', () => {
+  it('requires exactly one timeline input at the wrapper boundary', () => {
+    const invalidSource = encodedSource(
+      async () => undefined,
+      async (offset, length) => fixtureBytes.slice(offset, offset + length),
+    );
+    const commonOptions = {
+      queueItemId: QID,
+      encodedSource: invalidSource,
+      backendId: 'webcodecs',
+      audioContext: new FakeAudioContext() as unknown as AudioContext,
+      nowRoomTimeMs: () => 1_000,
+      roomTimeMsToContextTime: (roomTimeMs: number) => roomTimeMs / 1_000,
+      localPerformanceMsToContextTime: (performanceTimeMs: number) => performanceTimeMs / 1_000,
+    };
+
+    expect(() => new StreamingAacPlaybackSource(commonOptions as never)).toThrow(/exactly one/i);
+    expect(
+      () =>
+        new StreamingAacPlaybackSource({
+          ...commonOptions,
+          scan,
+          timelineEvidence: createAdtsDecoderTimelineEvidenceFromScanResult(scan),
+        } as never),
+    ).toThrow(/exactly one/i);
+  });
+
+  it('passes normalized timeline evidence to the same bounded decoder path', async () => {
+    const legacy = harness();
+    const normalized = harness({
+      timelineEvidence: createAdtsDecoderTimelineEvidenceFromScanResult(scan),
+    });
+
+    await prepare(legacy);
+    await prepare(normalized);
+
+    expect(openCommand(normalized.workers[0] as FakeWorker).descriptor).toEqual(
+      openCommand(legacy.workers[0] as FakeWorker).descriptor,
+    );
+    expect(normalized.readAt).not.toHaveBeenCalled();
+
+    await legacy.source.destroy();
+    await normalized.source.destroy();
+  });
+
   it('keeps construction inert, rejects a non-WebCodecs cohort, and closes ownership once', async () => {
     const h = harness();
 

@@ -8,6 +8,10 @@ import {
   type Mp3DecoderEvent,
   type Mp3DecoderOpenCommand,
 } from '../mp3/decoder-protocol.ts';
+import {
+  createMp3DecoderTimelineEvidence,
+  type Mp3DecoderTimelineEvidence,
+} from '../mp3/decoder-timeline-evidence.ts';
 import { parseMpegLayer3FrameHeader } from '../mp3/frame-header.ts';
 import type { Mp3Metadata } from '../mp3/metadata.ts';
 import type { RendezvousArmIntent } from '../rendezvous-contract.ts';
@@ -20,6 +24,7 @@ import {
 } from '../streaming/pcm-stream-protocol.ts';
 
 const QID = '00000000-0000-4000-8000-000000000401' as QueueItemId;
+const SOURCE_IDENTITY = 'source:test-streaming-mp3';
 const OUTPUT_RATE = 48_000;
 const HEADER = parseMpegLayer3FrameHeader(Uint8Array.of(0xff, 0xfb, 0x90, 0x64));
 const AUDIO_FRAME_COUNT = 100;
@@ -172,6 +177,38 @@ function metadata(): Readonly<Mp3Metadata> {
   });
 }
 
+function timelineEvidence(): Readonly<Mp3DecoderTimelineEvidence> {
+  return createMp3DecoderTimelineEvidence({
+    format: 'mp3-decoder-timeline',
+    authority: 'none',
+    provenanceKind: 'scanner',
+    sourceIdentity: SOURCE_IDENTITY,
+    sourceSize: SOURCE_SIZE,
+    version: HEADER.version,
+    sampleRateHz: HEADER.sampleRateHz,
+    channels: HEADER.channelCount,
+    samplesPerFrame: HEADER.samplesPerFrame,
+    firstAudioFrameOffset: 0,
+    audioEndByteOffset: SOURCE_SIZE,
+    audioFrameCount: AUDIO_FRAME_COUNT,
+    tagFrame: null,
+    frameCountEvidence: 'verified-scan',
+    fullyVerifiedFrameSpan: true,
+    verifiedAudioFrameCount: AUDIO_FRAME_COUNT,
+    verifiedAudioBytes: SOURCE_SIZE,
+    timeline: {
+      totalRawSamples: TOTAL_MEDIA_FRAMES,
+      samplesPerFrame: HEADER.samplesPerFrame,
+      headTrimSamples: 0,
+      tailTrimSamples: 0,
+      rawEofSampleExclusive: TOTAL_MEDIA_FRAMES,
+      totalMediaFrames: TOTAL_MEDIA_FRAMES,
+    },
+    manifestEndpointEvidence: null,
+    seekPoints: [seekPoint(0), seekPoint(AUDIO_FRAME_COUNT - 1)],
+  });
+}
+
 function armIntent(): RendezvousArmIntent {
   return {
     protocolVersion: 2,
@@ -190,6 +227,7 @@ function armIntent(): RendezvousArmIntent {
 
 interface HarnessOptions {
   readonly useDefaultWorker?: boolean;
+  readonly timelineEvidence?: Readonly<Mp3DecoderTimelineEvidence>;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -207,7 +245,7 @@ function harness(options: HarnessOptions = {}) {
   const encodedSource: EncodedAudioSource = {
     kind: 'blob',
     size: SOURCE_SIZE,
-    identity: 'source:test-streaming-mp3',
+    identity: SOURCE_IDENTITY,
     metadata: { name: 'fixture.mp3', mime: 'audio/mpeg' },
     readAt,
     close: closeEncodedSource,
@@ -247,16 +285,22 @@ function harness(options: HarnessOptions = {}) {
     createMessageChannel,
     ...(options.useDefaultWorker ? {} : { createWorker }),
   } satisfies Partial<BoundedStreamingCodecRuntime>;
-  const source = new StreamingMp3PlaybackSource({
+  const commonOptions = {
     queueItemId: QID,
     encodedSource,
-    metadata: metadata(),
     audioContext: context as unknown as AudioContext,
     nowRoomTimeMs: () => context.roomNowMs,
     roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1_000,
     localPerformanceMsToContextTime: (performanceTimeMs) => performanceTimeMs / 1_000,
     runtime,
-  });
+  };
+  const source =
+    options.timelineEvidence === undefined
+      ? new StreamingMp3PlaybackSource({ ...commonOptions, metadata: metadata() })
+      : new StreamingMp3PlaybackSource({
+          ...commonOptions,
+          timelineEvidence: options.timelineEvidence,
+        });
 
   return {
     source,
@@ -350,6 +394,51 @@ afterEach(() => {
 });
 
 describe('StreamingMp3PlaybackSource', () => {
+  it('requires exactly one timeline input at the wrapper boundary', () => {
+    const invalidSource: EncodedAudioSource = {
+      kind: 'blob',
+      size: SOURCE_SIZE,
+      identity: SOURCE_IDENTITY,
+      metadata: { name: 'fixture.mp3', mime: 'audio/mpeg' },
+      readAt: async (_offset, length) => new Uint8Array(length),
+      close: async () => undefined,
+    };
+    const commonOptions = {
+      queueItemId: QID,
+      encodedSource: invalidSource,
+      audioContext: new FakeAudioContext() as unknown as AudioContext,
+      nowRoomTimeMs: () => 1_000,
+      roomTimeMsToContextTime: (roomTimeMs: number) => roomTimeMs / 1_000,
+      localPerformanceMsToContextTime: (performanceTimeMs: number) => performanceTimeMs / 1_000,
+    };
+
+    expect(() => new StreamingMp3PlaybackSource(commonOptions as never)).toThrow(/exactly one/i);
+    expect(
+      () =>
+        new StreamingMp3PlaybackSource({
+          ...commonOptions,
+          metadata: metadata(),
+          timelineEvidence: timelineEvidence(),
+        } as never),
+    ).toThrow(/exactly one/i);
+  });
+
+  it('passes normalized timeline evidence to the same bounded decoder path', async () => {
+    const legacy = harness();
+    const normalized = harness({ timelineEvidence: timelineEvidence() });
+
+    await prepare(legacy);
+    await prepare(normalized);
+
+    expect(openCommand(normalized.workers[0] as FakeWorker).descriptor).toEqual(
+      openCommand(legacy.workers[0] as FakeWorker).descriptor,
+    );
+    expect(normalized.readAt).not.toHaveBeenCalled();
+
+    await legacy.source.destroy();
+    await normalized.source.destroy();
+  });
+
   it('keeps construction inert and closes its encoded-source ownership exactly once', async () => {
     const h = harness();
 

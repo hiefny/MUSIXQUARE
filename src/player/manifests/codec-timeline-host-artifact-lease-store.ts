@@ -18,19 +18,6 @@ const uint8ArrayFill = Uint8Array.prototype.fill;
 
 type ExactRecord = Readonly<Record<string, unknown>>;
 
-export interface InstallCodecTimelineHostArtifactForLeaseOptions {
-  readonly registry: FilePlaybackAssetRegistry;
-  readonly roomToken: object;
-  readonly lease: FilePlaybackAssetLease;
-  readonly artifact: Readonly<CodecTimelineHostArtifact>;
-}
-
-export interface CodecTimelineHostArtifactLeaseAccessOptions {
-  readonly registry: FilePlaybackAssetRegistry;
-  readonly roomToken: object;
-  readonly lease: FilePlaybackAssetLease;
-}
-
 export interface CodecTimelineHostArtifactLeaseDiagnostics {
   readonly codec: Readonly<CodecTimelineHostArtifact>['codec'];
   readonly manifestByteLength: number;

@@ -1,9 +1,6 @@
 import type { QueueItemId } from '../../types/index.ts';
-import {
-  isScannerIssuedAdtsFrameScanResult,
-  type AdtsFrameScanResult,
-} from '../aac/frame-scanner.ts';
-import { scannerIssuedMp3MetadataSource, type Mp3Metadata } from '../mp3/metadata.ts';
+import { isScannerIssuedAdtsFrameScanResult } from '../aac/frame-scanner.ts';
+import { scannerIssuedMp3MetadataSource } from '../mp3/metadata.ts';
 import { throwIfAborted, type EncodedRandomAccessSource } from '../sources/encoded-audio-source.ts';
 import {
   sealAdtsFrameScanTimelineManifest,
@@ -48,13 +45,6 @@ export interface CodecTimelineHostArtifactBinding {
   readonly mime: string;
 }
 
-export interface CreateCodecTimelineHostArtifactOptions {
-  readonly binding: CodecTimelineHostArtifactBinding;
-  readonly source: EncodedRandomAccessSource;
-  readonly timeline: Readonly<AdtsFrameScanResult> | Readonly<Mp3Metadata>;
-  readonly signal: AbortSignal;
-}
-
 declare const codecTimelineHostArtifactBrand: unique symbol;
 
 /**
@@ -70,12 +60,6 @@ export interface CodecTimelineHostArtifact {
   readonly binding: Readonly<CodecTimelineHostArtifactBinding>;
   readonly manifestByteLength: number;
   readonly manifestSha256B64: string;
-}
-
-export interface CopyCodecTimelineHostArtifactManifestOptions {
-  readonly artifact: CodecTimelineHostArtifact;
-  /** Exact live source identity expected by the caller's owning registry. */
-  readonly binding: CodecTimelineHostArtifactBinding;
 }
 
 interface ArtifactRecord {

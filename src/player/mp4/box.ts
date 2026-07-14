@@ -1,8 +1,6 @@
 import { EncodedSourceIntegrityError } from '../sources/encoded-audio-source.ts';
 
 export const ISO_BMFF_BASE_BOX_HEADER_BYTES = 8;
-export const ISO_BMFF_LARGE_BOX_HEADER_BYTES = 16;
-export const ISO_BMFF_UUID_USER_TYPE_BYTES = 16;
 export const ISO_BMFF_MAX_BOX_HEADER_BYTES = 32;
 
 const UUID_BOX_TYPE = 'uuid';

@@ -6,8 +6,8 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The historical 17/52 count baselines intentionally remain unchanged until
- * the newly exact findings are reviewed. Fully-dead exports remain forbidden.
+ * The binding-aware 62/657 count baselines record the reviewed migration
+ * cohort. Fully-dead exports remain forbidden, and both counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
  * type-only imports, dynamic import(), and new URL(..., import.meta.url) worker
  * edges. It must not be treated as proof that a staged module is dead.
@@ -29,8 +29,8 @@ import { join, resolve } from 'node:path';
 import { analyzeDeadExports } from './lib/dead-export-analyzer.mjs';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const TEST_ONLY_BASELINE_COUNT = 17;
-const SELF_ONLY_BASELINE_COUNT = 52;
+const TEST_ONLY_BASELINE_COUNT = 62;
+const SELF_ONLY_BASELINE_COUNT = 657;
 
 function kindCounts(entries) {
   return entries.reduce(

@@ -16,7 +16,10 @@ import type {
   FilePlaybackWireStateLease,
 } from '../player/file-playback-wire-binding.ts';
 import type { FilePlaybackWireMessage } from '../player/file-playback-wire.ts';
-import { PEER_RANGE_PROTOCOL } from '../player/sources/peer-range-protocol.ts';
+import {
+  PEER_RANGE_MAX_CHUNK_BYTES,
+  PEER_RANGE_PROTOCOL,
+} from '../player/sources/peer-range-protocol.ts';
 import {
   FILE_PLAYBACK_CLOCK_PING_TYPE,
   FILE_PLAYBACK_CLOCK_PONG_TYPE,
@@ -65,6 +68,20 @@ const MAX_BOOTSTRAP_SNAPSHOT_NODES = 10_000;
 const MAX_BOOTSTRAP_SNAPSHOT_DEPTH = 8;
 const MAX_BOOTSTRAP_OBJECT_KEYS = 32;
 const MAX_AUXILIARY_OBJECT_KEYS = 32;
+const MAX_PEERJS_WIRE_DEPTH = 64;
+const MAX_PEERJS_WIRE_NODES = MAX_BOOTSTRAP_SNAPSHOT_NODES;
+const MAX_PEERJS_WIRE_KEYS = MAX_PEERJS_WIRE_NODES * MAX_BOOTSTRAP_OBJECT_KEYS;
+const MAX_PEERJS_WIRE_ARRAY_LENGTH = MAX_BOOTSTRAP_SNAPSHOT_NODES;
+const PEERJS_OBJECT_COMPATIBILITY_KEYS = new Set([
+  '__proto__',
+  'constructor',
+  'hasOwnProperty',
+  'prototype',
+]);
+const ARRAY_BUFFER_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  'byteLength',
+)?.get;
 
 const RECOVERABLE_CLOCK_SAMPLE_REJECTIONS = new Set<FilePlaybackClockExchangeRejectionReason>([
   'expired-ping',
@@ -312,6 +329,123 @@ function result(
   clockBecameReady = false,
 ): Readonly<FilePlaybackApplicationReceiveResult> {
   return Object.freeze({ handled, established, clockBecameReady });
+}
+
+/**
+ * PeerJS 1.5 BinaryPack assumes every record inherits `constructor` and
+ * `hasOwnProperty`. Our validated protocol snapshots intentionally have a
+ * null prototype, so sending them directly fails before RTC transmission.
+ *
+ * Rebuild only object/array shells at this final transport boundary. Exact
+ * ArrayBuffer bodies retain their identity, avoiding a second media allocation
+ * while internal parsers keep their inert null-prototype values.
+ */
+function materializePeerJsWireValue(
+  value: unknown,
+  ancestors: Set<object>,
+  budget: { nodes: number; keys: number; binaryBytes: number },
+  depth = 0,
+): unknown {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) {
+    return value;
+  }
+  if (typeof value !== 'object') {
+    throw new TypeError('File playback wire value is not PeerJS-serializable');
+  }
+  if (value instanceof ArrayBuffer) {
+    if (!ARRAY_BUFFER_BYTE_LENGTH_GETTER) {
+      throw new TypeError('ArrayBuffer validation is unavailable');
+    }
+    const byteLength = Reflect.apply(ARRAY_BUFFER_BYTE_LENGTH_GETTER, value, []) as number;
+    budget.binaryBytes += byteLength;
+    if (budget.binaryBytes > PEER_RANGE_MAX_CHUNK_BYTES) {
+      throw new RangeError('File playback wire binary body exceeds the peer-range chunk limit');
+    }
+    return value;
+  }
+  if (depth >= MAX_PEERJS_WIRE_DEPTH) {
+    throw new RangeError('File playback wire value exceeds the PeerJS nesting limit');
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError('File playback wire value must be acyclic');
+  }
+
+  ancestors.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    budget.nodes += 1;
+    budget.keys += keys.length;
+    if (budget.nodes > MAX_PEERJS_WIRE_NODES || budget.keys > MAX_PEERJS_WIRE_KEYS) {
+      throw new RangeError('File playback wire value exceeds the PeerJS structure limit');
+    }
+
+    if (Array.isArray(value)) {
+      const lengthDescriptor = descriptors.length;
+      if (
+        !lengthDescriptor ||
+        !Object.hasOwn(lengthDescriptor, 'value') ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0 ||
+        lengthDescriptor.value > MAX_PEERJS_WIRE_ARRAY_LENGTH ||
+        keys.length !== lengthDescriptor.value + 1
+      ) {
+        throw new TypeError('File playback wire arrays must be bounded and dense');
+      }
+      const output = new Array<unknown>(lengthDescriptor.value);
+      for (let index = 0; index < lengthDescriptor.value; index += 1) {
+        const descriptor = descriptors[`${index}`];
+        if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+          throw new TypeError('File playback wire arrays must contain only indexed data');
+        }
+        output[index] = materializePeerJsWireValue(descriptor.value, ancestors, budget, depth + 1);
+      }
+      return Object.freeze(output);
+    }
+
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError('File playback wire records must be plain data objects');
+    }
+    if (keys.length > MAX_BOOTSTRAP_OBJECT_KEYS) {
+      throw new RangeError('File playback wire record exceeds the key limit');
+    }
+    const output = {} as Record<string, unknown>;
+    for (const key of keys) {
+      if (typeof key !== 'string') {
+        throw new TypeError('File playback wire records must use string keys');
+      }
+      if (PEERJS_OBJECT_COMPATIBILITY_KEYS.has(key)) {
+        throw new TypeError('File playback wire record uses a reserved PeerJS key');
+      }
+      const descriptor = descriptors[key];
+      if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+        throw new TypeError('File playback wire records must not contain accessors');
+      }
+      Object.defineProperty(output, key, {
+        value: materializePeerJsWireValue(descriptor.value, ancestors, budget, depth + 1),
+        enumerable: true,
+        configurable: false,
+        writable: false,
+      });
+    }
+    return Object.freeze(output);
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function materializePeerJsWireFrame(frame: unknown): unknown {
+  return materializePeerJsWireValue(frame, new Set<object>(), {
+    nodes: 0,
+    keys: 0,
+    binaryBytes: 0,
+  });
 }
 
 function snapshotApplicationOptions(value: unknown): Readonly<Record<string, unknown>> | null {
@@ -1746,7 +1880,12 @@ export class FilePlaybackApplicationSessionManager {
       return false;
     }
     try {
-      record.conn.send(frame);
+      const wireFrame = materializePeerJsWireFrame(frame);
+      if (record.closing || this.#records.get(record.conn) !== record || !record.conn.open) {
+        this.#teardown(record, true);
+        return false;
+      }
+      record.conn.send(wireFrame);
       if (record.closing || this.#records.get(record.conn) !== record || !record.conn.open) {
         this.#teardown(record, true);
         return false;

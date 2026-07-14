@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pack, unpack } from 'peerjs-js-binarypack';
 
 import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
@@ -41,6 +42,7 @@ import {
   createPeerRangeChunkFrames,
   createPeerRangeReadFrame,
 } from '../../player/sources/peer-range-protocol.ts';
+import { createFilePlaybackProductReadyV2 } from '../../player/file-playback-product-baseline.ts';
 
 interface QueuedFrame {
   readonly from: 'host' | 'guest';
@@ -49,10 +51,19 @@ interface QueuedFrame {
 
 type TestConnection = DataConnection & {
   sent: unknown[];
+  wireInputs: unknown[];
   close: ReturnType<typeof vi.fn>;
   failWhen: ((value: unknown) => boolean) | null;
   reenterWhen: ((value: unknown) => void) | null;
 };
+
+function binaryPackRoundTrip(value: unknown): unknown {
+  const encoded = pack(value as never);
+  if (encoded instanceof Promise) {
+    throw new Error('Application-session fixture unexpectedly produced an asynchronous wire body');
+  }
+  return unpack(encoded);
+}
 
 function manualTimers(): {
   options: FilePlaybackApplicationSessionManagerOptions;
@@ -111,6 +122,8 @@ function fixture(
     readonly guestManager?: FilePlaybackApplicationSessionManager;
     readonly guestManagerOptions?: FilePlaybackApplicationSessionManagerOptions;
     readonly hostManagerOptions?: FilePlaybackApplicationSessionManagerOptions;
+    readonly binaryPackSends?: boolean;
+    readonly bootstrapList?: readonly unknown[];
   } = {},
 ) {
   fixtureSequence += 1;
@@ -124,13 +137,16 @@ function fixture(
       peer,
       open: true,
       sent: [] as unknown[],
+      wireInputs: [] as unknown[],
       close,
       failWhen: null as ((value: unknown) => boolean) | null,
       reenterWhen: null as ((value: unknown) => void) | null,
       send(value: unknown) {
         if (this.failWhen?.(value)) throw new Error(`${role} send failed`);
-        this.sent.push(value);
-        queue.push({ from: role, value });
+        this.wireInputs.push(value);
+        const delivered = options.binaryPackSends ? binaryPackRoundTrip(value) : value;
+        this.sent.push(delivered);
+        queue.push({ from: role, value: delivered });
         this.reenterWhen?.(value);
       },
       on: vi.fn(),
@@ -157,7 +173,7 @@ function fixture(
     const sent =
       send({
         type: MSG.PLAYLIST_UPDATE,
-        list: [],
+        list: options.bootstrapList ?? [],
         currentQueueItemId: null,
         revision: 0,
         bootstrap: true,
@@ -427,6 +443,191 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(guestTypes[0]).toBe(FILE_PLAYBACK_SESSION_HELLO_TYPE);
     expect(guestTypes.filter((type) => type === FILE_PLAYBACK_CLOCK_PING_TYPE)).toHaveLength(5);
     expect(guestTypes).toContain(FILE_PLAYBACK_SESSION_APPLIED_TYPE);
+  });
+
+  it('materializes canonical object shells for the exact PeerJS BinaryPack transport', () => {
+    const setup = fixture({
+      binaryPackSends: true,
+      bootstrapList: [
+        {
+          queueItemId: 'binarypack-track',
+          metadata: { title: 'Bounded tone', channels: [1, 2] },
+        },
+      ],
+    });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+
+    expect(setup.host.phase(setup.hostConn)).toBe('established');
+    expect(setup.guest.phase(setup.guestConn)).toBe('established');
+    expect(setup.host.establishedChannel(setup.hostConn)?.clockReady()).toBe(true);
+    expect(setup.guest.establishedChannel(setup.guestConn)?.clockReady()).toBe(true);
+
+    const hello = setup.guestConn.wireInputs[0] as Record<string, unknown>;
+    expect(Object.getPrototypeOf(hello)).toBe(Object.prototype);
+    expect(Object.isFrozen(hello)).toBe(true);
+    expect(hello.type).toBe(FILE_PLAYBACK_SESSION_HELLO_TYPE);
+
+    const playlist = setup.hostConn.wireInputs.find(
+      (value) => (value as { type?: string }).type === MSG.PLAYLIST_UPDATE,
+    ) as { list: Array<{ metadata: { channels: number[] } }> };
+    expect(Object.getPrototypeOf(playlist)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(playlist.list[0]!)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(playlist.list[0]!.metadata)).toBe(Object.prototype);
+    expect(playlist.list[0]!.metadata.channels).toEqual([1, 2]);
+
+    const descriptor = {
+      connectionId: 'binarypack-range-connection',
+      sourceIdentity: 'binarypack-range-source',
+      handleId: 'binarypack-range-handle',
+      requestId: 'binarypack-range-request',
+      offset: 0,
+      totalLength: 4,
+    } as const;
+    const bulk = createPeerRangeChunkFrames(descriptor, new Uint8Array([11, 22, 33, 44]))[0]!;
+    expect(setup.host.sendRequired(setup.hostConn, bulk)).toBe(true);
+
+    const wireBulk = setup.hostConn.wireInputs.at(-1) as { payload: ArrayBuffer };
+    const deliveredBulk = setup.hostConn.sent.at(-1) as { payload: ArrayBuffer };
+    expect(wireBulk.payload).toBe(bulk.payload);
+    expect([...new Uint8Array(deliveredBulk.payload)]).toEqual([11, 22, 33, 44]);
+  });
+
+  it('carries a canonical auxiliary frame through the exact PeerJS BinaryPack transport', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({
+      binaryPackSends: true,
+      hostManagerOptions: { adoptAuxiliaryMessage: adopted },
+    });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const binding = setup.guest.establishedChannel(setup.guestConn)?.establishedBinding();
+    if (!binding) throw new Error('Expected an established auxiliary channel');
+    const ready = createFilePlaybackProductReadyV2({
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      baselineId: 'binarypack-auxiliary-baseline',
+      guestParticipantId: binding.guestParticipantId,
+      playbackRevision: 0,
+      observedAtRoomTimeMs: 1_000,
+    });
+
+    expect(setup.guest.sendRequired(setup.guestConn, ready)).toBe(true);
+    const wireReady = setup.guestConn.wireInputs.at(-1) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(ready)).toBeNull();
+    expect(Object.getPrototypeOf(wireReady)).toBe(Object.prototype);
+    setup.pump();
+
+    expect(adopted).toHaveBeenCalledOnce();
+    expect(adopted.mock.calls[0]![0].frame).toMatchObject({
+      type: FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
+      baselineId: 'binarypack-auxiliary-baseline',
+    });
+  });
+
+  it.each([
+    ['Blob', () => new Blob(['unsupported'])],
+    ['typed array', () => new Uint8Array([1, 2, 3])],
+    [
+      'cycle',
+      () => {
+        const value: Record<string, unknown> = {};
+        value.self = value;
+        return value;
+      },
+    ],
+    [
+      'sparse array',
+      () => {
+        const value = new Array<unknown>(2);
+        value[0] = 'present';
+        return value;
+      },
+    ],
+    [
+      '33-key record',
+      () => Object.fromEntries(Array.from({ length: 33 }, (_value, index) => [`k${index}`, index])),
+    ],
+    ['reserved constructor key', () => ({ constructor: 'shadowed' })],
+    ['oversized binary body', () => new ArrayBuffer(16 * 1024 + 1)],
+  ] as const)('fails closed before transport send for a %s wire value', (_label, createValue) => {
+    const setup = fixture();
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const sendsBefore = setup.hostConn.wireInputs.length;
+
+    expect(setup.host.sendRequired(setup.hostConn, createValue())).toBe(false);
+    expect(setup.hostConn.wireInputs).toHaveLength(sendsBefore);
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+    expect(setup.hostConn.close).toHaveBeenCalledOnce();
+  });
+
+  it('does not invoke a wire accessor before failing closed', () => {
+    const setup = fixture();
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    let getterReads = 0;
+    const value = {} as Record<string, unknown>;
+    Object.defineProperty(value, 'hostile', {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return 'never';
+      },
+    });
+    const sendsBefore = setup.hostConn.wireInputs.length;
+
+    expect(setup.host.sendRequired(setup.hostConn, value)).toBe(false);
+    expect(getterReads).toBe(0);
+    expect(setup.hostConn.wireInputs).toHaveLength(sendsBefore);
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+  });
+
+  it('does not send after materialization reflection closes the exact connection', () => {
+    const setup = fixture();
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    let ownKeyReads = 0;
+    const value = new Proxy(
+      { type: 'MATERIALIZATION_REENTRY' },
+      {
+        ownKeys(target) {
+          ownKeyReads += 1;
+          setup.host.closeConnection(setup.hostConn, false);
+          return Reflect.ownKeys(target);
+        },
+      },
+    );
+    const sendsBefore = setup.hostConn.wireInputs.length;
+
+    expect(setup.host.sendRequired(setup.hostConn, value)).toBe(false);
+    expect(ownKeyReads).toBe(1);
+    expect(setup.hostConn.wireInputs).toHaveLength(sendsBefore);
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+  });
+
+  it('reads an ArrayBuffer byte length through the captured intrinsic only', () => {
+    const setup = fixture({ binaryPackSends: true });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    let getterReads = 0;
+    const payload = new ArrayBuffer(4);
+    new Uint8Array(payload).set([5, 6, 7, 8]);
+    Object.defineProperty(payload, 'byteLength', {
+      configurable: true,
+      get() {
+        getterReads += 1;
+        return 4;
+      },
+    });
+    const frame = { type: 'ARRAY_BUFFER_INTRINSIC', payload };
+
+    expect(setup.host.sendRequired(setup.hostConn, frame)).toBe(true);
+    expect(getterReads).toBe(0);
+    expect((setup.hostConn.wireInputs.at(-1) as { payload: ArrayBuffer }).payload).toBe(payload);
+    expect([
+      ...new Uint8Array((setup.hostConn.sent.at(-1) as { payload: ArrayBuffer }).payload),
+    ]).toEqual([5, 6, 7, 8]);
   });
 
   it('adopts recognized auxiliary frames synchronously in receive order with exact authority', () => {
@@ -762,7 +963,10 @@ describe('FilePlaybackApplicationSessionManager', () => {
 
   it('adopts each accepted canonical wire frame synchronously exactly once with exact leases', () => {
     const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
-    const setup = fixture({ hostManagerOptions: { adoptWireMessage: adopted } });
+    const setup = fixture({
+      binaryPackSends: true,
+      hostManagerOptions: { adoptWireMessage: adopted },
+    });
     expect(setup.startGuest()).toBe(true);
     setup.pump();
     const wire = bootstrapWirePair(setup);
@@ -775,6 +979,8 @@ describe('FilePlaybackApplicationSessionManager', () => {
       retryable: true,
     });
     expect(sent).not.toBeNull();
+    expect(Object.getPrototypeOf(sent!)).toBeNull();
+    expect(Object.getPrototypeOf(setup.guestConn.wireInputs.at(-1)!)).toBe(Object.prototype);
     setup.pump();
 
     expect(adopted).toHaveBeenCalledTimes(1);

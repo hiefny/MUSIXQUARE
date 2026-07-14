@@ -39,6 +39,31 @@ function encodedSource(
 }
 
 describe('OffsetEncodedAudioSource', () => {
+  it('rejects unpaired metadata surrogates and retains a valid non-BMP pair', () => {
+    for (const name of ['trailing-high\ud800', 'high-then-ascii\ud800x', 'lone-low\udc00']) {
+      expect(
+        () =>
+          new OffsetEncodedAudioSource({
+            source: encodedSource(Uint8Array.of(1), {
+              metadata: { name, mime: 'audio/mpeg' },
+            }),
+            mediaOffset: 0,
+            mediaSize: 1,
+          }),
+      ).toThrow(/name/i);
+    }
+    expect(
+      () =>
+        new OffsetEncodedAudioSource({
+          source: encodedSource(Uint8Array.of(1), {
+            metadata: { name: 'paired-\u{1f3b5}.mp3', mime: 'audio/mpeg' },
+          }),
+          mediaOffset: 0,
+          mediaSize: 1,
+        }),
+    ).not.toThrow();
+  });
+
   it('maps exact 0/1/boundary reads while preserving source identity and metadata', async () => {
     const bytes = pattern(PEER_RANGE_MAX_READ_BYTES + 300);
     const readAt = vi.fn(async (offset: number, length: number) =>

@@ -305,6 +305,8 @@ describe('codec timeline source binding validation', () => {
       descriptor(1, { name: ' '.repeat(3) }),
       descriptor(1, { name: 'x'.repeat(513) }),
       descriptor(1, { name: 'bad\ud800name' }),
+      descriptor(1, { name: 'trailing-high\ud800' }),
+      descriptor(1, { sourceIdentity: 'high-then-ascii\ud800x' }),
       descriptor(1, { sourceIdentity: 'bad\udc00id' }),
       descriptor(1, { mime: ' audio/mpeg' }),
       descriptor(1, { mime: `audio/${'x'.repeat(123)}` }),
@@ -315,6 +317,17 @@ describe('codec timeline source binding validation', () => {
         computeCodecTimelineSourceBindingSha256(value, source, new AbortController().signal),
       ).rejects.toMatchObject({ name: 'CodecTimelineSourceBindingError' });
     }
+
+    const pairedIdentity = 'source-\u{1f3b5}';
+    const pairedName = 'music-\u{1f3b5}.aac';
+    const pairedSource = new MemorySource(Uint8Array.of(1), pairedIdentity, pairedName, MIME);
+    await expect(
+      computeCodecTimelineSourceBindingSha256(
+        descriptor(1, { sourceIdentity: pairedIdentity, name: pairedName }),
+        pairedSource,
+        new AbortController().signal,
+      ),
+    ).resolves.toHaveLength(32);
 
     const wideIdentity = '한'.repeat(256);
     const wideName = '😀'.repeat(256);

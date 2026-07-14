@@ -246,6 +246,24 @@ describe('file media source offer V2', () => {
     expect(isAnyPeerRangeFileMediaSourceOfferV2(r2Offer())).toBe(false);
   });
 
+  it('rejects unpaired UTF-16 surrogates across every transport while retaining valid pairs', () => {
+    const paired = 'source:\u{1f3b5}';
+    expect(() => offer({ sourceIdentity: paired, name: 'music-\u{1f3b5}.flac' })).not.toThrow();
+    expect(() =>
+      manifestOffer({ sourceIdentity: paired, name: 'music-\u{1f3b5}.mp3' }),
+    ).not.toThrow();
+    expect(() => r2Offer({ sourceIdentity: paired, name: 'music-\u{1f3b5}.wav' })).not.toThrow();
+
+    for (const invalid of ['broken-\ud800', 'broken-\udc00']) {
+      expect(() => offer({ sourceIdentity: invalid })).toThrow();
+      expect(() => offer({ name: `${invalid}.flac` })).toThrow();
+      expect(() => manifestOffer({ sourceIdentity: invalid })).toThrow();
+      expect(() => manifestOffer({ name: `${invalid}.mp3` })).toThrow();
+      expect(() => r2Offer({ sourceIdentity: invalid })).toThrow();
+      expect(() => r2Offer({ name: `${invalid}.wav` })).toThrow();
+    }
+  });
+
   it('uses exact disjoint key sets for all three transport variants', () => {
     expect(
       parseFileMediaSourceOfferV2({

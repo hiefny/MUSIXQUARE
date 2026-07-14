@@ -202,6 +202,26 @@ describe('ManifestPrefixedEncodedAudioSource', () => {
           }),
         }),
     ).toThrow(/name/i);
+    for (const name of ['trailing-high\ud800', 'high-then-ascii\ud800x', 'lone-low\udc00']) {
+      expect(
+        () =>
+          new ManifestPrefixedEncodedAudioSource({
+            manifestBytes: new Uint8Array(CODEC_TIMELINE_MANIFEST_HEADER_BYTES),
+            media: encodedSource(Uint8Array.of(1), {
+              metadata: { name, mime: 'audio/flac' },
+            }),
+          }),
+      ).toThrow(/name/i);
+    }
+    expect(
+      () =>
+        new ManifestPrefixedEncodedAudioSource({
+          manifestBytes: new Uint8Array(CODEC_TIMELINE_MANIFEST_HEADER_BYTES),
+          media: encodedSource(Uint8Array.of(1), {
+            metadata: { name: 'paired-\u{1f3b5}.flac', mime: 'audio/flac' },
+          }),
+        }),
+    ).not.toThrow();
     expect(
       () =>
         new ManifestPrefixedEncodedAudioSource({

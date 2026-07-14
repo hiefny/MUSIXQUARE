@@ -1,27 +1,5 @@
 import type { QueueItemId } from '../types/index.ts';
 import {
-  createDefaultAacStreamingWorker,
-  StreamingAacPlaybackSource,
-  type StreamingAacPlaybackSourceOptions,
-} from './backends/streaming-aac-playback-source.ts';
-import {
-  StreamingMp3PlaybackSource,
-  type StreamingMp3PlaybackSourceOptions,
-} from './backends/streaming-mp3-playback-source.ts';
-import {
-  reconstructAdtsManifestStructure,
-  type AdtsManifestStructuralReconstruction,
-} from './aac/adts-manifest-structural-reconstruction.ts';
-import {
-  createAdtsDecoderTimelineEvidenceFromManifestReconstruction,
-  type AdtsDecoderTimelineEvidence,
-} from './aac/decoder-timeline-evidence.ts';
-import { AdtsIncrementalFrameReader } from './aac/incremental-frame-reader.ts';
-import {
-  probeAacWebCodecsAdtsFrameInWorker,
-  type AacWorkerCapabilityProbeRuntime,
-} from './aac/worker-capability-probe.ts';
-import {
   FilePlaybackAssetRegistry,
   type FilePlaybackAssetLease,
   type FilePlaybackAssetSnapshot,
@@ -32,17 +10,19 @@ import {
   type FilePlaybackPeerRangeManifestAdmission,
   type FilePlaybackPeerRangeManifestAdmissionEvidence,
 } from './file-playback-peer-range-manifest-acquisition.ts';
-import { createMp3DecoderTimelineEvidenceFromManifestReconstruction } from './mp3/decoder-helpers.ts';
-import type { Mp3DecoderTimelineEvidence } from './mp3/decoder-timeline-evidence.ts';
 import {
-  reconstructMp3ManifestStructure,
-  type Mp3ManifestStructuralReconstruction,
-} from './mp3/manifest-structural-reconstruction.ts';
+  bindManifestCodecHandler,
+  MANIFEST_CODEC_HANDLER_RUNTIME_OPTION_KEYS,
+  type ManifestCodecDecoderSource,
+  type ManifestCodecHandlerRuntimeForTests,
+  type ManifestCodecHandlerRuntimeOptions,
+  type PreparedManifestCodecHandler,
+} from './file-playback-peer-range-manifest-codec-handler.ts';
+import type { CodecTimelineManifestCodec } from './manifests/codec-timeline-manifest.ts';
 import {
   type EncodedAudioSource,
   EncodedSourceIntegrityError,
 } from './sources/encoded-audio-source.ts';
-import type { BoundedStreamingCodecRuntime } from './streaming/bounded-codec-runtime.ts';
 
 const PREPARE_OPTION_KEYS = Object.freeze([
   'registry',
@@ -50,15 +30,11 @@ const PREPARE_OPTION_KEYS = Object.freeze([
   'assetLease',
   'manifestAdmission',
   'signal',
-  'aacRuntime',
-  'mp3Runtime',
-  'runtimeForTests',
+  ...MANIFEST_CODEC_HANDLER_RUNTIME_OPTION_KEYS,
 ] as const);
-const PREPARE_OPTIONAL_KEYS = new Set<(typeof PREPARE_OPTION_KEYS)[number]>([
-  'aacRuntime',
-  'mp3Runtime',
-  'runtimeForTests',
-]);
+const PREPARE_OPTIONAL_KEYS = new Set<(typeof PREPARE_OPTION_KEYS)[number]>(
+  MANIFEST_CODEC_HANDLER_RUNTIME_OPTION_KEYS,
+);
 const CONSTRUCT_OPTION_KEYS = Object.freeze([
   'authority',
   'registry',
@@ -72,50 +48,19 @@ const CLOCK_KEYS = Object.freeze([
   'roomTimeMsToContextTime',
   'localPerformanceMsToContextTime',
 ] as const);
-const CODEC_RUNTIME_KEYS = Object.freeze([
-  'loadWorklet',
-  'createWorker',
-  'createWorkletNode',
-  'createMessageChannel',
-] as const satisfies readonly (keyof BoundedStreamingCodecRuntime)[]);
-const TEST_RUNTIME_KEYS = Object.freeze([
-  'aacCapabilityProbe',
-  'createStreamingAacSource',
-  'createStreamingMp3Source',
-] as const);
-
 type ExactRecord = Readonly<Record<string, unknown>>;
 type AnyMethod = (...args: never[]) => unknown;
 
-type AacCapabilityProbe = (
-  frame: Uint8Array,
-  signal: AbortSignal,
-  runtime: AacWorkerCapabilityProbeRuntime,
-) => Promise<void>;
-type CreateStreamingAacSource = (
-  options: StreamingAacPlaybackSourceOptions,
-) => StreamingAacPlaybackSource;
-type CreateStreamingMp3Source = (
-  options: StreamingMp3PlaybackSourceOptions,
-) => StreamingMp3PlaybackSource;
-
 /** Browser/native seams used only by focused bridge boundary tests. */
-export interface FilePlaybackPeerRangeManifestDecoderBridgeRuntimeForTests {
-  readonly aacCapabilityProbe?: AacCapabilityProbe;
-  readonly createStreamingAacSource?: CreateStreamingAacSource;
-  readonly createStreamingMp3Source?: CreateStreamingMp3Source;
-}
+export type FilePlaybackPeerRangeManifestDecoderBridgeRuntimeForTests =
+  ManifestCodecHandlerRuntimeForTests;
 
-export interface PrepareFilePlaybackPeerRangeManifestDecoderConstructionOptions {
+export interface PrepareFilePlaybackPeerRangeManifestDecoderConstructionOptions extends ManifestCodecHandlerRuntimeOptions {
   readonly registry: FilePlaybackAssetRegistry;
   readonly roomToken: object;
   readonly assetLease: FilePlaybackAssetLease;
   readonly manifestAdmission: FilePlaybackPeerRangeManifestAdmission;
   readonly signal: AbortSignal;
-  /** The same snapshotted worker authority is used by the ADTS canary and playback. */
-  readonly aacRuntime?: Partial<BoundedStreamingCodecRuntime>;
-  readonly mp3Runtime?: Partial<BoundedStreamingCodecRuntime>;
-  readonly runtimeForTests?: FilePlaybackPeerRangeManifestDecoderBridgeRuntimeForTests;
 }
 
 declare const manifestDecoderConstructionBrand: unique symbol;
@@ -126,7 +71,7 @@ declare const manifestDecoderConstructionBrand: unique symbol;
  */
 export interface FilePlaybackPeerRangeManifestDecoderConstruction {
   readonly [manifestDecoderConstructionBrand]: never;
-  readonly codec: 'adts-aac-lc' | 'mp3-no-frame-count';
+  readonly codec: CodecTimelineManifestCodec;
   readonly queueItemId: QueueItemId;
   readonly sourceIdentity: string;
   readonly sourceSize: number;
@@ -142,15 +87,7 @@ export interface ConstructFilePlaybackPeerRangeManifestDecoderOptions {
   readonly clockBindings: FilePlaybackClockBindings;
 }
 
-export type FilePlaybackPeerRangeManifestDecoderSource =
-  | StreamingAacPlaybackSource
-  | StreamingMp3PlaybackSource;
-
-interface TestRuntimeSnapshot {
-  readonly aacCapabilityProbe: AacCapabilityProbe;
-  readonly createStreamingAacSource: CreateStreamingAacSource;
-  readonly createStreamingMp3Source: CreateStreamingMp3Source;
-}
+export type FilePlaybackPeerRangeManifestDecoderSource = ManifestCodecDecoderSource;
 
 interface ConstructionRecord {
   readonly authority: Readonly<FilePlaybackPeerRangeManifestDecoderConstruction>;
@@ -161,11 +98,7 @@ interface ConstructionRecord {
   readonly admissionEvidence: Readonly<FilePlaybackPeerRangeManifestAdmissionEvidence>;
   readonly source: EncodedAudioSource;
   readonly signal: AbortSignal;
-  readonly codecRuntime: Readonly<Partial<BoundedStreamingCodecRuntime>>;
-  readonly runtimeForTests: TestRuntimeSnapshot;
-  readonly decoderEvidence:
-    | Readonly<AdtsDecoderTimelineEvidence>
-    | Readonly<Mp3DecoderTimelineEvidence>;
+  readonly codecHandler: Readonly<PreparedManifestCodecHandler>;
   status: 'available' | 'constructing' | 'consumed' | 'retiring' | 'retired';
   revoked: boolean;
   cleanupStarted: boolean;
@@ -243,86 +176,6 @@ function snapshotPrepareOptions(value: unknown): ExactRecord | null {
   } catch {
     return null;
   }
-}
-
-function snapshotOptionalMethods(
-  value: unknown,
-  keys: readonly string[],
-  label: string,
-): Readonly<Record<string, AnyMethod>> {
-  if (value === undefined) return Object.freeze(Object.create(null));
-  try {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-      throw new TypeError(`${label} must be an exact record`);
-    }
-    const prototype = Reflect.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      throw new TypeError(`${label} must be an exact record`);
-    }
-    const descriptors = Object.getOwnPropertyDescriptors(value);
-    const ownKeys = Reflect.ownKeys(descriptors);
-    const allowed = new Set<string>(keys);
-    if (ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key))) {
-      throw new TypeError(`${label} has unknown methods`);
-    }
-    const result = Object.create(null) as Record<string, AnyMethod>;
-    for (const key of keys) {
-      const descriptor = descriptors[key];
-      if (!descriptor) continue;
-      if (
-        !descriptor.enumerable ||
-        !Object.hasOwn(descriptor, 'value') ||
-        typeof descriptor.value !== 'function'
-      ) {
-        throw new TypeError(`${label} ${key} must be an enumerable data method`);
-      }
-      const method = descriptor.value as AnyMethod;
-      const receiver = value;
-      result[key] = ((...args: never[]) => Reflect.apply(method, receiver, args)) as AnyMethod;
-    }
-    return Object.freeze(result);
-  } catch (error) {
-    if (error instanceof TypeError && error.message.startsWith(label)) throw error;
-    throw new TypeError(`${label} could not be snapshotted`, { cause: error });
-  }
-}
-
-function snapshotCodecRuntime(
-  value: unknown,
-  codec: 'adts-aac-lc' | 'mp3-no-frame-count',
-): Readonly<Partial<BoundedStreamingCodecRuntime>> {
-  const methods = snapshotOptionalMethods(value, CODEC_RUNTIME_KEYS, `${codec} playback runtime`);
-  const runtime = Object.create(null) as Partial<BoundedStreamingCodecRuntime>;
-  for (const key of CODEC_RUNTIME_KEYS) {
-    const method = methods[key] as BoundedStreamingCodecRuntime[typeof key] | undefined;
-    if (method) Object.defineProperty(runtime, key, { enumerable: true, value: method });
-  }
-  if (codec === 'adts-aac-lc' && runtime.createWorker === undefined) {
-    Object.defineProperty(runtime, 'createWorker', {
-      enumerable: true,
-      value: createDefaultAacStreamingWorker,
-    });
-  }
-  return Object.freeze(runtime);
-}
-
-function snapshotTestRuntime(value: unknown): TestRuntimeSnapshot {
-  const methods = snapshotOptionalMethods(
-    value,
-    TEST_RUNTIME_KEYS,
-    'manifest decoder test runtime',
-  );
-  return Object.freeze({
-    aacCapabilityProbe:
-      (methods.aacCapabilityProbe as AacCapabilityProbe | undefined) ??
-      probeAacWebCodecsAdtsFrameInWorker,
-    createStreamingAacSource:
-      (methods.createStreamingAacSource as CreateStreamingAacSource | undefined) ??
-      ((options: StreamingAacPlaybackSourceOptions) => new StreamingAacPlaybackSource(options)),
-    createStreamingMp3Source:
-      (methods.createStreamingMp3Source as CreateStreamingMp3Source | undefined) ??
-      ((options: StreamingMp3PlaybackSourceOptions) => new StreamingMp3PlaybackSource(options)),
-  });
 }
 
 function exactRegistry(value: unknown): value is FilePlaybackAssetRegistry {
@@ -566,11 +419,7 @@ export async function prepareFilePlaybackPeerRangeManifestDecoderConstruction(
     assetLease as FilePlaybackAssetLease,
   );
   const manifest = admissionEvidence.manifest;
-  const codecRuntime = snapshotCodecRuntime(
-    manifest.codec === 'adts-aac-lc' ? input.aacRuntime : input.mp3Runtime,
-    manifest.codec,
-  );
-  const runtimeForTests = snapshotTestRuntime(input.runtimeForTests);
+  const boundCodecHandler = bindManifestCodecHandler(manifest, input);
 
   let source: EncodedAudioSource | null = null;
   let published = false;
@@ -580,64 +429,7 @@ export async function prepareFilePlaybackPeerRangeManifestDecoderConstruction(
     assertSourceMatchesAsset(acquiredSource, admissionEvidence.asset);
     abortThrowIfAborted(signal);
 
-    let reconstruction: AdtsManifestStructuralReconstruction | Mp3ManifestStructuralReconstruction;
-    let decoderEvidence:
-      | Readonly<AdtsDecoderTimelineEvidence>
-      | Readonly<Mp3DecoderTimelineEvidence>;
-    if (manifest.codec === 'adts-aac-lc') {
-      reconstruction = await reconstructAdtsManifestStructure({
-        manifest,
-        signal,
-        source: acquiredSource,
-      });
-      decoderEvidence = createAdtsDecoderTimelineEvidenceFromManifestReconstruction(reconstruction);
-
-      const firstFrameLength = reconstruction.endpointChecks.firstFrameByteLength;
-      const reader = new AdtsIncrementalFrameReader({
-        source: acquiredSource,
-        audioStartByte: manifest.audioStartByte,
-        start: { byteOffset: manifest.audioStartByte, frameOrdinal: 0 },
-        expectedConfig: reconstruction.coreConfiguration,
-        pageBytes: firstFrameLength,
-      });
-      const firstFrame = await reader.readNext(signal);
-      if (
-        !firstFrame ||
-        firstFrame.bytes.byteLength !== firstFrameLength ||
-        firstFrame.descriptor.frameOrdinal !== 0 ||
-        firstFrame.descriptor.byteOffset !== manifest.audioStartByte ||
-        firstFrame.descriptor.byteEndOffset !== manifest.audioStartByte + firstFrameLength ||
-        firstFrame.descriptor.header.frameLengthBytes !== firstFrameLength
-      ) {
-        throw new EncodedSourceIntegrityError(
-          'ADTS manifest canary reread contradicts its reconstructed first endpoint',
-        );
-      }
-      try {
-        const probeTask = runtimeForTests.aacCapabilityProbe(
-          firstFrame.bytes,
-          signal,
-          codecRuntime as AacWorkerCapabilityProbeRuntime,
-        );
-        if (!(probeTask instanceof Promise)) {
-          throw new TypeError('AAC manifest capability probe must return a native Promise');
-        }
-        await probeTask;
-      } finally {
-        try {
-          firstFrame.bytes.fill(0);
-        } catch {
-          // The one-frame canary copy is bounded and becomes unreachable here.
-        }
-      }
-    } else {
-      reconstruction = await reconstructMp3ManifestStructure({
-        manifest,
-        signal,
-        source: acquiredSource,
-      });
-      decoderEvidence = createMp3DecoderTimelineEvidenceFromManifestReconstruction(reconstruction);
-    }
+    const codecHandler = await boundCodecHandler.prepare(acquiredSource, signal);
 
     abortThrowIfAborted(signal);
     const liveEvidence = readFilePlaybackPeerRangeManifestAdmission(
@@ -650,7 +442,7 @@ export async function prepareFilePlaybackPeerRangeManifestDecoderConstruction(
     assertSourceMatchesAsset(acquiredSource, admissionEvidence.asset);
 
     const authority = freezeCanonical({
-      codec: manifest.codec,
+      codec: codecHandler.codec,
       queueItemId: admissionEvidence.asset.queueItemId as QueueItemId,
       sourceIdentity: admissionEvidence.asset.sourceIdentity,
       sourceSize: admissionEvidence.asset.size,
@@ -664,9 +456,7 @@ export async function prepareFilePlaybackPeerRangeManifestDecoderConstruction(
       admissionEvidence,
       source: acquiredSource,
       signal,
-      codecRuntime,
-      runtimeForTests,
-      decoderEvidence,
+      codecHandler,
       status: 'available',
       revoked: false,
       cleanupStarted: false,
@@ -742,26 +532,14 @@ export async function constructFilePlaybackPeerRangeManifestDecoder(
     if (record.revoked) {
       throw new Error('File playback manifest decoder construction was revoked');
     }
-    const common = {
+    const source = record.codecHandler.constructSource({
       queueItemId: record.authority.queueItemId,
       encodedSource: record.source,
       audioContext: input.audioContext as AudioContext,
       nowRoomTimeMs: clock.nowRoomTimeMs,
       roomTimeMsToContextTime: clock.roomTimeMsToContextTime,
       localPerformanceMsToContextTime: clock.localPerformanceMsToContextTime,
-      runtime: record.codecRuntime,
-    } as const;
-    const source: FilePlaybackPeerRangeManifestDecoderSource =
-      record.authority.codec === 'adts-aac-lc'
-        ? record.runtimeForTests.createStreamingAacSource({
-            ...common,
-            timelineEvidence: record.decoderEvidence as Readonly<AdtsDecoderTimelineEvidence>,
-            backendId: 'webcodecs',
-          })
-        : record.runtimeForTests.createStreamingMp3Source({
-            ...common,
-            timelineEvidence: record.decoderEvidence as Readonly<Mp3DecoderTimelineEvidence>,
-          });
+    });
     destroyConstructedSource = decoderSourceDestroyer(source);
     if (!destroyConstructedSource) {
       throw new TypeError('Manifest decoder factory returned an invalid destroyable source');

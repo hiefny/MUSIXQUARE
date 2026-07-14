@@ -1,5 +1,6 @@
 import { isEncodedAudioSourceIdentity } from '../sources/encoded-audio-source.ts';
 import type { MpegLayer3Version } from './frame-header.ts';
+import { MP3_MANIFEST_RECONSTRUCTION_MAX_PREFIX_FRAMES } from './manifest-structural-reconstruction.ts';
 import type { Mp3FrameCountEvidence } from './metadata.ts';
 import {
   MP3_SEEK_INDEX_MAX_POINTS,
@@ -10,6 +11,8 @@ import { createMp3SampleTimeline, type Mp3SampleTimeline } from './timeline.ts';
 import type { LameEncoderFamily, Mp3GaplessMetadata } from './vbr-metadata.ts';
 
 export type Mp3DecoderTagDeclarationKind = 'xing' | 'info' | 'vbri';
+export type Mp3DecoderTimelineProvenanceKind = 'scanner' | 'admitted-manifest';
+export type Mp3DecoderFrameCountEvidence = Mp3FrameCountEvidence | 'admitted-manifest';
 
 export interface Mp3DecoderTagDeclaration {
   readonly kind: Mp3DecoderTagDeclarationKind;
@@ -26,11 +29,30 @@ export interface Mp3DecoderTagFrameEvidence {
 }
 
 /**
+ * Exact endpoint observations retained by the bounded no-count manifest
+ * reconstruction. The contiguous prefix and terminal frame were read from the
+ * source; sparse points between them remain outer-admission planning anchors.
+ */
+export interface Mp3DecoderManifestEndpointEvidence {
+  readonly tagDeclaration: Readonly<Mp3DecoderTagDeclaration> | null;
+  readonly verifiedPrefixFrameCount: number;
+  readonly verifiedPrefixByteEnd: number;
+  readonly terminalFrameOrdinal: number;
+  readonly terminalFrameByteOffset: number;
+  readonly terminalFrameByteLength: number;
+  readonly terminalMainDataCapacityBytes: number;
+  readonly terminalMainDataBeginBytes: number;
+}
+
+/**
  * Canonical, source-bound decoder geometry after container metadata has been
  * validated. This is planning data, not transport or manifest authority.
  */
 export interface Mp3DecoderTimelineEvidence {
   readonly format: 'mp3-decoder-timeline';
+  /** Detached decoder evidence never grants scanner or admission authority. */
+  readonly authority: 'none';
+  readonly provenanceKind: Mp3DecoderTimelineProvenanceKind;
   readonly sourceIdentity: string;
   readonly sourceSize: number;
   readonly version: MpegLayer3Version;
@@ -45,11 +67,13 @@ export interface Mp3DecoderTimelineEvidence {
    * comes from the scanner or admitted-manifest issuer.
    */
   readonly tagFrame: Readonly<Mp3DecoderTagFrameEvidence> | null;
-  readonly frameCountEvidence: Mp3FrameCountEvidence;
+  readonly frameCountEvidence: Mp3DecoderFrameCountEvidence;
   readonly fullyVerifiedFrameSpan: boolean;
+  /** Actual contiguous source prefix only; a separately checked terminal is excluded. */
   readonly verifiedAudioFrameCount: number;
   readonly verifiedAudioBytes: number;
   readonly timeline: Readonly<Mp3SampleTimeline>;
+  readonly manifestEndpointEvidence: Readonly<Mp3DecoderManifestEndpointEvidence> | null;
   readonly seekPoints: readonly Readonly<MpegLayer3SeekIndexPoint>[];
 }
 
@@ -65,6 +89,8 @@ export class Mp3DecoderTimelineEvidenceError extends Error {
 
 const EVIDENCE_KEYS = Object.freeze([
   'format',
+  'authority',
+  'provenanceKind',
   'sourceIdentity',
   'sourceSize',
   'version',
@@ -80,6 +106,7 @@ const EVIDENCE_KEYS = Object.freeze([
   'verifiedAudioFrameCount',
   'verifiedAudioBytes',
   'timeline',
+  'manifestEndpointEvidence',
   'seekPoints',
 ] as const satisfies readonly (keyof Mp3DecoderTimelineEvidence)[]);
 
@@ -95,6 +122,17 @@ const DECLARATION_KEYS = Object.freeze([
   'streamBytes',
   'gapless',
 ] as const satisfies readonly (keyof Mp3DecoderTagDeclaration)[]);
+
+const MANIFEST_ENDPOINT_KEYS = Object.freeze([
+  'tagDeclaration',
+  'verifiedPrefixFrameCount',
+  'verifiedPrefixByteEnd',
+  'terminalFrameOrdinal',
+  'terminalFrameByteOffset',
+  'terminalFrameByteLength',
+  'terminalMainDataCapacityBytes',
+  'terminalMainDataBeginBytes',
+] as const satisfies readonly (keyof Mp3DecoderManifestEndpointEvidence)[]);
 
 const GAPLESS_KEYS = Object.freeze([
   'encoderFamily',
@@ -124,7 +162,6 @@ const MPEG_1_SAMPLE_RATES = Object.freeze([32_000, 44_100, 48_000] as const);
 const MPEG_2_SAMPLE_RATES = Object.freeze([16_000, 22_050, 24_000] as const);
 const MPEG_2_5_SAMPLE_RATES = Object.freeze([8_000, 11_025, 12_000] as const);
 const MAX_LAYER_3_FRAME_BYTES = 1_441;
-
 type StrictRecord = Readonly<Record<string, unknown>>;
 
 function exactDataRecord(value: unknown, keys: readonly string[], label: string): StrictRecord {
@@ -331,34 +368,15 @@ function canonicalGapless(
   });
 }
 
-function canonicalTagFrame(
+function canonicalTagDeclaration(
   value: unknown,
-  firstAudioFrameOffset: number,
+  tagFrameByteOffset: number,
   audioEndByteOffset: number,
   audioFrameCount: number,
   totalRawSamples: number,
-  samplesPerFrame: 576 | 1_152,
-): Readonly<Mp3DecoderTagFrameEvidence> | null {
-  if (value === null) return null;
-  const record = exactDataRecord(value, TAG_FRAME_KEYS, 'MP3 decoder tag frame');
-  const byteOffset = safeInteger(record.byteOffset, 'MP3 tag frame offset', 0);
-  const byteLength = safeInteger(
-    record.byteLength,
-    'MP3 tag frame length',
-    minimumFrameBytes(samplesPerFrame),
-    MAX_LAYER_3_FRAME_BYTES,
-  );
-  if (safeAdd(byteOffset, byteLength, 'MP3 tag frame end') !== firstAudioFrameOffset) {
-    throw new Mp3DecoderTimelineEvidenceError(
-      'MP3 tag frame must end exactly at the first audio frame',
-    );
-  }
-
-  const declarationRecord = exactDataRecord(
-    record.declaration,
-    DECLARATION_KEYS,
-    'MP3 decoder tag declaration',
-  );
+  label: string,
+): Readonly<Mp3DecoderTagDeclaration> {
+  const declarationRecord = exactDataRecord(value, DECLARATION_KEYS, label);
   if (
     declarationRecord.kind !== 'xing' &&
     declarationRecord.kind !== 'info' &&
@@ -379,7 +397,7 @@ function canonicalTagFrame(
       'MP3 tag declaration frame count contradicts the audio timeline',
     );
   }
-  if (streamBytes !== null && streamBytes !== audioEndByteOffset - byteOffset) {
+  if (streamBytes !== null && streamBytes !== audioEndByteOffset - tagFrameByteOffset) {
     throw new Mp3DecoderTimelineEvidenceError(
       'MP3 tag declaration stream bytes contradict the physical MPEG span',
     );
@@ -402,6 +420,39 @@ function canonicalTagFrame(
     streamBytes,
     gapless,
   });
+  return declaration;
+}
+
+function canonicalTagFrame(
+  value: unknown,
+  firstAudioFrameOffset: number,
+  audioEndByteOffset: number,
+  audioFrameCount: number,
+  totalRawSamples: number,
+  samplesPerFrame: 576 | 1_152,
+): Readonly<Mp3DecoderTagFrameEvidence> | null {
+  if (value === null) return null;
+  const record = exactDataRecord(value, TAG_FRAME_KEYS, 'MP3 decoder tag frame');
+  const byteOffset = safeInteger(record.byteOffset, 'MP3 tag frame offset', 0);
+  const byteLength = safeInteger(
+    record.byteLength,
+    'MP3 tag frame length',
+    minimumFrameBytes(samplesPerFrame),
+    MAX_LAYER_3_FRAME_BYTES,
+  );
+  if (safeAdd(byteOffset, byteLength, 'MP3 tag frame end') !== firstAudioFrameOffset) {
+    throw new Mp3DecoderTimelineEvidenceError(
+      'MP3 tag frame must end exactly at the first audio frame',
+    );
+  }
+  const declaration = canonicalTagDeclaration(
+    record.declaration,
+    byteOffset,
+    audioEndByteOffset,
+    audioFrameCount,
+    totalRawSamples,
+    'MP3 decoder tag declaration',
+  );
   return Object.freeze({ byteOffset, byteLength, declaration });
 }
 
@@ -491,6 +542,177 @@ function canonicalSeekPoint(
   });
 }
 
+function declarationsEqual(
+  left: Readonly<Mp3DecoderTagDeclaration> | null,
+  right: Readonly<Mp3DecoderTagDeclaration> | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.kind === right.kind &&
+    left.frameCount === right.frameCount &&
+    left.streamBytes === right.streamBytes &&
+    ((left.gapless === null && right.gapless === null) ||
+      (left.gapless !== null &&
+        right.gapless !== null &&
+        GAPLESS_KEYS.every((key) => left.gapless?.[key] === right.gapless?.[key])))
+  );
+}
+
+function canonicalManifestEndpointEvidence(
+  value: unknown,
+  options: {
+    readonly sourceSize: number;
+    readonly firstAudioFrameOffset: number;
+    readonly audioEndByteOffset: number;
+    readonly audioFrameCount: number;
+    readonly totalRawSamples: number;
+    readonly samplesPerFrame: 576 | 1_152;
+    readonly tagFrame: Readonly<Mp3DecoderTagFrameEvidence> | null;
+    readonly verifiedAudioFrameCount: number;
+    readonly verifiedAudioBytes: number;
+    readonly points: readonly Readonly<MpegLayer3SeekIndexPoint>[];
+  },
+): Readonly<Mp3DecoderManifestEndpointEvidence> {
+  const record = exactDataRecord(
+    value,
+    MANIFEST_ENDPOINT_KEYS,
+    'MP3 admitted-manifest endpoint evidence',
+  );
+  const expectedDeclaration = options.tagFrame?.declaration ?? null;
+  const tagDeclaration =
+    record.tagDeclaration === null
+      ? null
+      : canonicalTagDeclaration(
+          record.tagDeclaration,
+          options.tagFrame?.byteOffset ?? options.firstAudioFrameOffset,
+          options.audioEndByteOffset,
+          options.audioFrameCount,
+          options.totalRawSamples,
+          'MP3 admitted-manifest tag declaration',
+        );
+  if (!declarationsEqual(tagDeclaration, expectedDeclaration)) {
+    throw new Mp3DecoderTimelineEvidenceError(
+      'MP3 admitted-manifest endpoint declaration contradicts its tag frame',
+    );
+  }
+  if (
+    tagDeclaration !== null &&
+    (tagDeclaration.kind === 'vbri' ||
+      tagDeclaration.frameCount !== null ||
+      tagDeclaration.gapless !== null)
+  ) {
+    throw new Mp3DecoderTimelineEvidenceError(
+      'MP3 admitted no-count manifest cannot carry VBRI, a declared frame count, or gapless proof',
+    );
+  }
+
+  const verifiedPrefixFrameCount = safeInteger(
+    record.verifiedPrefixFrameCount,
+    'MP3 admitted verified-prefix frame count',
+    1,
+    options.audioFrameCount,
+  );
+  const expectedPrefixFrames = Math.min(
+    options.audioFrameCount,
+    MP3_MANIFEST_RECONSTRUCTION_MAX_PREFIX_FRAMES,
+  );
+  if (
+    verifiedPrefixFrameCount !== expectedPrefixFrames ||
+    verifiedPrefixFrameCount !== options.verifiedAudioFrameCount
+  ) {
+    throw new Mp3DecoderTimelineEvidenceError(
+      'MP3 admitted-manifest endpoint contradicts its actual contiguous prefix frame count',
+    );
+  }
+  const verifiedPrefixByteEnd = safeInteger(
+    record.verifiedPrefixByteEnd,
+    'MP3 admitted verified-prefix byte end',
+    options.firstAudioFrameOffset + 1,
+    options.audioEndByteOffset,
+  );
+  if (
+    verifiedPrefixByteEnd - options.firstAudioFrameOffset !== options.verifiedAudioBytes ||
+    (verifiedPrefixFrameCount === options.audioFrameCount) !==
+      (verifiedPrefixByteEnd === options.audioEndByteOffset)
+  ) {
+    throw new Mp3DecoderTimelineEvidenceError(
+      'MP3 admitted-manifest endpoint contradicts its actual contiguous prefix byte span',
+    );
+  }
+
+  for (const point of options.points) {
+    if (
+      (point.frameOrdinal < verifiedPrefixFrameCount &&
+        point.byteOffset >= verifiedPrefixByteEnd) ||
+      (point.frameOrdinal === verifiedPrefixFrameCount &&
+        point.byteOffset !== verifiedPrefixByteEnd) ||
+      (point.frameOrdinal > verifiedPrefixFrameCount && point.byteOffset <= verifiedPrefixByteEnd)
+    ) {
+      throw new Mp3DecoderTimelineEvidenceError(
+        'MP3 admitted-manifest seek anchor contradicts the exact verified-prefix boundary',
+      );
+    }
+  }
+
+  const terminalFrameOrdinal = safeInteger(
+    record.terminalFrameOrdinal,
+    'MP3 admitted terminal frame ordinal',
+    0,
+    options.audioFrameCount - 1,
+  );
+  const terminalFrameByteOffset = safeInteger(
+    record.terminalFrameByteOffset,
+    'MP3 admitted terminal frame offset',
+    options.firstAudioFrameOffset,
+    options.audioEndByteOffset - 1,
+  );
+  const terminalFrameByteLength = safeInteger(
+    record.terminalFrameByteLength,
+    'MP3 admitted terminal frame length',
+    minimumFrameBytes(options.samplesPerFrame),
+    MAX_LAYER_3_FRAME_BYTES,
+  );
+  const terminalMainDataCapacityBytes = safeInteger(
+    record.terminalMainDataCapacityBytes,
+    'MP3 admitted terminal main-data capacity',
+    1,
+    MAX_LAYER_3_FRAME_BYTES - 1,
+  );
+  const terminalMainDataBeginBytes = safeInteger(
+    record.terminalMainDataBeginBytes,
+    'MP3 admitted terminal main-data begin',
+    0,
+    options.samplesPerFrame === 1_152 ? 511 : 255,
+  );
+  const terminalPoint = options.points[options.points.length - 1];
+  if (
+    !terminalPoint ||
+    terminalFrameOrdinal !== options.audioFrameCount - 1 ||
+    terminalPoint.frameOrdinal !== terminalFrameOrdinal ||
+    terminalPoint.byteOffset !== terminalFrameByteOffset ||
+    terminalPoint.mainDataCapacityBytes !== terminalMainDataCapacityBytes ||
+    terminalPoint.mainDataBeginBytes !== terminalMainDataBeginBytes ||
+    safeAdd(terminalFrameByteOffset, terminalFrameByteLength, 'MP3 admitted terminal frame end') !==
+      options.audioEndByteOffset ||
+    options.audioEndByteOffset > options.sourceSize
+  ) {
+    throw new Mp3DecoderTimelineEvidenceError(
+      'MP3 admitted-manifest terminal endpoint contradicts its retained terminal anchor or EOF',
+    );
+  }
+
+  return Object.freeze({
+    tagDeclaration,
+    verifiedPrefixFrameCount,
+    verifiedPrefixByteEnd,
+    terminalFrameOrdinal,
+    terminalFrameByteOffset,
+    terminalFrameByteLength,
+    terminalMainDataCapacityBytes,
+    terminalMainDataBeginBytes,
+  });
+}
+
 /**
  * Snapshot and validate decoder timeline planning data without reading its
  * encoded source. The result is detached and deeply immutable.
@@ -501,6 +723,12 @@ export function createMp3DecoderTimelineEvidence(
   const record = exactDataRecord(value, EVIDENCE_KEYS, 'MP3 decoder timeline evidence');
   if (record.format !== 'mp3-decoder-timeline') {
     throw new TypeError('MP3 decoder timeline evidence format is invalid');
+  }
+  if (record.authority !== 'none') {
+    throw new TypeError('MP3 decoder timeline evidence cannot grant admission authority');
+  }
+  if (record.provenanceKind !== 'scanner' && record.provenanceKind !== 'admitted-manifest') {
+    throw new TypeError('MP3 decoder timeline evidence provenance is invalid');
   }
   if (!isEncodedAudioSourceIdentity(record.sourceIdentity)) {
     throw new TypeError('MP3 decoder timeline evidence source identity is invalid');
@@ -549,16 +777,31 @@ export function createMp3DecoderTimelineEvidence(
     record.frameCountEvidence !== 'verified-scan' &&
     record.frameCountEvidence !== 'xing' &&
     record.frameCountEvidence !== 'info' &&
-    record.frameCountEvidence !== 'vbri'
+    record.frameCountEvidence !== 'vbri' &&
+    record.frameCountEvidence !== 'admitted-manifest'
   ) {
     throw new TypeError('MP3 decoder frame-count evidence is invalid');
   }
   if (typeof record.fullyVerifiedFrameSpan !== 'boolean') {
     throw new TypeError('MP3 decoder fully-verified flag must be boolean');
   }
-  if ((record.frameCountEvidence === 'verified-scan') !== record.fullyVerifiedFrameSpan) {
+  if (record.provenanceKind === 'scanner') {
+    if (
+      record.frameCountEvidence === 'admitted-manifest' ||
+      (record.frameCountEvidence === 'verified-scan') !== record.fullyVerifiedFrameSpan ||
+      record.manifestEndpointEvidence !== null
+    ) {
+      throw new Mp3DecoderTimelineEvidenceError(
+        'MP3 scanner provenance contradicts its frame-count or endpoint evidence',
+      );
+    }
+  } else if (
+    record.frameCountEvidence !== 'admitted-manifest' ||
+    record.fullyVerifiedFrameSpan ||
+    record.manifestEndpointEvidence === null
+  ) {
     throw new Mp3DecoderTimelineEvidenceError(
-      'MP3 decoder frame-count evidence contradicts its verified-span authority',
+      'MP3 admitted-manifest provenance requires non-authoritative endpoint evidence',
     );
   }
   const tagFrame = canonicalTagFrame(
@@ -570,6 +813,7 @@ export function createMp3DecoderTimelineEvidence(
     fixed.samplesPerFrame,
   );
   if (
+    record.provenanceKind === 'scanner' &&
     record.frameCountEvidence !== 'verified-scan' &&
     (tagFrame?.declaration.kind !== record.frameCountEvidence ||
       tagFrame.declaration.frameCount !== audioFrameCount)
@@ -644,6 +888,7 @@ export function createMp3DecoderTimelineEvidence(
     throw new Mp3DecoderTimelineEvidenceError('MP3 evidence seek index has an invalid origin');
   }
   if (
+    record.provenanceKind === 'scanner' &&
     points.some(
       (point) =>
         point.frameOrdinal >= verifiedAudioFrameCount || point.byteOffset >= verifiedAudioEnd,
@@ -661,6 +906,21 @@ export function createMp3DecoderTimelineEvidence(
       'MP3 fully verified evidence must retain its terminal audio frame point',
     );
   }
+  const manifestEndpointEvidence =
+    record.provenanceKind === 'admitted-manifest'
+      ? canonicalManifestEndpointEvidence(record.manifestEndpointEvidence, {
+          sourceSize,
+          firstAudioFrameOffset,
+          audioEndByteOffset,
+          audioFrameCount,
+          totalRawSamples,
+          samplesPerFrame: fixed.samplesPerFrame,
+          tagFrame,
+          verifiedAudioFrameCount,
+          verifiedAudioBytes,
+          points,
+        })
+      : null;
   let index: MpegLayer3SeekIndex;
   try {
     index = new MpegLayer3SeekIndex({
@@ -704,6 +964,8 @@ export function createMp3DecoderTimelineEvidence(
 
   return Object.freeze({
     format: 'mp3-decoder-timeline' as const,
+    authority: 'none' as const,
+    provenanceKind: record.provenanceKind,
     sourceIdentity: record.sourceIdentity,
     sourceSize,
     version: fixed.version,
@@ -719,6 +981,7 @@ export function createMp3DecoderTimelineEvidence(
     verifiedAudioFrameCount,
     verifiedAudioBytes,
     timeline,
+    manifestEndpointEvidence,
     seekPoints,
   });
 }

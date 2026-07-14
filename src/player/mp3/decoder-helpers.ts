@@ -11,6 +11,7 @@ import {
   type Mp3DecoderTimelineEvidence,
 } from './decoder-timeline-evidence.ts';
 import type { MpegLayer3FrameHeader, MpegLayer3Version } from './frame-header.ts';
+import type { Mp3ManifestStructuralReconstruction } from './manifest-structural-reconstruction.ts';
 import { scannerIssuedMp3MetadataSource, type Mp3Metadata } from './metadata.ts';
 import {
   MP3_SEEK_INDEX_MAX_POINTS,
@@ -82,6 +83,41 @@ const POINT_KEYS = [
   'mainDataCapacityBytes',
   'mainDataBeginBytes',
 ] as const satisfies readonly (keyof MpegLayer3SeekIndexPoint)[];
+
+const MANIFEST_RECONSTRUCTION_KEYS = [
+  'evidenceKind',
+  'authority',
+  'sourceIdentity',
+  'sourceSize',
+  'id3Geometry',
+  'version',
+  'sampleRateHz',
+  'channels',
+  'samplesPerFrame',
+  'firstAudioFrameHeader',
+  'hasTagFrame',
+  'tagFrameOffset',
+  'tagFrameBytes',
+  'gapless',
+  'firstAudioFrameOffset',
+  'audioEndByteOffset',
+  'id3FreeMpegBytes',
+  'audioBytes',
+  'audioFrameCount',
+  'totalRawSamples',
+  'totalMediaFrames',
+  'seekPoints',
+  'endpointChecks',
+] as const satisfies readonly (keyof Mp3ManifestStructuralReconstruction)[];
+
+const MANIFEST_ID3_GEOMETRY_KEYS = [
+  'dataStart',
+  'audioEnd',
+  'leadingTagCount',
+  'trailingTagCount',
+  'hasTrailingId3v1',
+  'trailingId3v1Offset',
+] as const;
 
 type StrictRecord = Readonly<Record<string, unknown>>;
 
@@ -903,6 +939,8 @@ export function createMp3DecoderTimelineEvidenceFromMetadata(
       : null;
   return createMp3DecoderTimelineEvidence({
     format: 'mp3-decoder-timeline',
+    authority: 'none',
+    provenanceKind: 'scanner',
     sourceIdentity: binding.sourceIdentity,
     sourceSize: validated.geometry.sourceSize,
     version: validated.metadata.version,
@@ -918,7 +956,211 @@ export function createMp3DecoderTimelineEvidenceFromMetadata(
     verifiedAudioFrameCount: validated.metadata.verifiedAudioFrameCount,
     verifiedAudioBytes: validated.metadata.verifiedAudioBytes,
     timeline: validated.timeline,
+    manifestEndpointEvidence: null,
     seekPoints: validated.metadataSeekPoints,
+  });
+}
+
+/**
+ * Convert bounded no-count manifest reconstruction into detached decoder
+ * planning data without reading or taking ownership of an encoded source.
+ *
+ * This conversion deliberately does not validate live manifest admission and
+ * does not mint an authority, capability, lease, or scanner seal. An outer
+ * admission owner must keep the reconstruction tied to the same live source
+ * before supplying the returned planning evidence to the decoder adapter.
+ */
+export function createMp3DecoderTimelineEvidenceFromManifestReconstruction(
+  value: Readonly<Mp3ManifestStructuralReconstruction>,
+): Readonly<Mp3DecoderTimelineEvidence> {
+  const record = requireExactRecord(
+    value,
+    MANIFEST_RECONSTRUCTION_KEYS,
+    'MP3 manifest structural reconstruction',
+  );
+  if (
+    record.evidenceKind !== 'mp3-manifest-structural-reconstruction' ||
+    record.authority !== 'none' ||
+    record.gapless !== null
+  ) {
+    throw new TypeError('MP3 admitted planning requires non-authority no-count reconstruction');
+  }
+  if (!isEncodedAudioSourceIdentity(record.sourceIdentity)) {
+    throw new TypeError('MP3 manifest reconstruction source identity is invalid');
+  }
+  requireSafeInteger(record.sourceSize, 'MP3 manifest reconstruction source size', 1);
+  requireSafeInteger(record.sampleRateHz, 'MP3 manifest reconstruction sample rate', 1);
+  if (record.channels !== 1 && record.channels !== 2) {
+    throw new RangeError('MP3 manifest reconstruction channels must be one or two');
+  }
+  if (record.samplesPerFrame !== 576 && record.samplesPerFrame !== 1_152) {
+    throw new RangeError('MP3 manifest reconstruction samples per frame are invalid');
+  }
+  requireVersionGeometry(record.version, record.sampleRateHz, record.samplesPerFrame);
+  requireSafeInteger(
+    record.firstAudioFrameOffset,
+    'MP3 manifest reconstruction first audio offset',
+    0,
+  );
+  requireSafeInteger(
+    record.audioEndByteOffset,
+    'MP3 manifest reconstruction audio end',
+    1,
+    record.sourceSize,
+  );
+  requireSafeInteger(record.audioFrameCount, 'MP3 manifest reconstruction frame count', 1);
+  requireSafeInteger(record.audioBytes, 'MP3 manifest reconstruction audio bytes', 1);
+  requireSafeInteger(record.id3FreeMpegBytes, 'MP3 manifest reconstruction MPEG bytes', 1);
+  requireSafeInteger(record.tagFrameBytes, 'MP3 manifest reconstruction tag bytes', 0);
+  requireSafeInteger(record.totalRawSamples, 'MP3 manifest reconstruction raw samples', 1);
+  requireSafeInteger(record.totalMediaFrames, 'MP3 manifest reconstruction media frames', 1);
+  if (typeof record.hasTagFrame !== 'boolean') {
+    throw new TypeError('MP3 manifest reconstruction tag-frame flag is invalid');
+  }
+
+  const id3 = requireExactRecord(
+    record.id3Geometry,
+    MANIFEST_ID3_GEOMETRY_KEYS,
+    'MP3 manifest reconstruction ID3 geometry',
+  );
+  requireSafeInteger(id3.dataStart, 'MP3 manifest reconstruction ID3 data start', 0);
+  requireSafeInteger(id3.audioEnd, 'MP3 manifest reconstruction ID3 audio end', 1);
+  requireSafeInteger(id3.leadingTagCount, 'MP3 manifest reconstruction leading tag count', 0);
+  requireSafeInteger(id3.trailingTagCount, 'MP3 manifest reconstruction trailing tag count', 0);
+  if (typeof id3.hasTrailingId3v1 !== 'boolean') {
+    throw new TypeError('MP3 manifest reconstruction ID3v1 flag is invalid');
+  }
+  if (id3.trailingId3v1Offset !== null) {
+    requireSafeInteger(
+      id3.trailingId3v1Offset,
+      'MP3 manifest reconstruction ID3v1 offset',
+      record.audioEndByteOffset,
+      record.sourceSize - 1,
+    );
+  }
+
+  const geometry: Mp3Geometry = Object.freeze({
+    sourceSize: record.sourceSize,
+    firstAudioFrameOffset: record.firstAudioFrameOffset,
+    audioEndByteOffset: record.audioEndByteOffset,
+    audioFrameCount: record.audioFrameCount,
+    samplesPerFrame: record.samplesPerFrame,
+  });
+  if (
+    geometry.firstAudioFrameOffset >= geometry.audioEndByteOffset ||
+    record.audioBytes !== geometry.audioEndByteOffset - geometry.firstAudioFrameOffset ||
+    id3.audioEnd !== geometry.audioEndByteOffset ||
+    record.id3FreeMpegBytes !== id3.audioEnd - id3.dataStart ||
+    record.totalRawSamples !==
+      safeMultiply(
+        geometry.audioFrameCount,
+        geometry.samplesPerFrame,
+        'MP3 manifest reconstruction raw samples',
+      )
+  ) {
+    throw new Mp3DecoderHelperError(
+      'MP3 manifest reconstruction byte or sample geometry is inconsistent',
+    );
+  }
+  if (
+    record.hasTagFrame
+      ? record.tagFrameOffset !== id3.dataStart ||
+        record.tagFrameBytes <= 0 ||
+        geometry.firstAudioFrameOffset !== id3.dataStart + record.tagFrameBytes
+      : record.tagFrameOffset !== null ||
+        record.tagFrameBytes !== 0 ||
+        geometry.firstAudioFrameOffset !== id3.dataStart
+  ) {
+    throw new Mp3DecoderHelperError('MP3 manifest reconstruction tag geometry is inconsistent');
+  }
+
+  const header = requireHeader(
+    record.firstAudioFrameHeader,
+    record.version,
+    record.sampleRateHz,
+    record.channels,
+    record.samplesPerFrame,
+  );
+  const seekPoints = snapshotSeekPoints(
+    record.seekPoints,
+    geometry,
+    'MP3 admitted-manifest seek point',
+  );
+  const origin = seekPoints[0];
+  if (
+    !origin ||
+    origin.frameOrdinal !== 0 ||
+    origin.rawSample !== 0 ||
+    origin.byteOffset !== geometry.firstAudioFrameOffset ||
+    origin.mainDataCapacityBytes !== header.mainDataCapacityBytes ||
+    origin.mainDataBeginBytes !== 0
+  ) {
+    throw new Mp3DecoderHelperError(
+      'MP3 manifest reconstruction origin contradicts its exact first-frame header',
+    );
+  }
+
+  const endpointChecks = snapshotCanonicalMetadataRecord(
+    record.endpointChecks,
+    'MP3 manifest reconstruction endpoint checks',
+  );
+  const endpointTagDeclaration = endpointChecks.tagDeclaration;
+  const tagFrame = record.hasTagFrame
+    ? {
+        byteOffset: record.tagFrameOffset,
+        byteLength: record.tagFrameBytes,
+        declaration: endpointTagDeclaration,
+      }
+    : null;
+  if ((endpointTagDeclaration !== null) !== record.hasTagFrame) {
+    throw new Mp3DecoderHelperError(
+      'MP3 manifest reconstruction tag declaration contradicts its tag geometry',
+    );
+  }
+  const timeline = createMp3SampleTimeline({
+    totalRawSamples: record.totalRawSamples,
+    samplesPerFrame: record.samplesPerFrame,
+    gapless: null,
+  });
+  if (timeline.totalMediaFrames !== record.totalMediaFrames) {
+    throw new Mp3DecoderHelperError(
+      'MP3 manifest reconstruction media timeline contradicts its frame geometry',
+    );
+  }
+  requireSafeInteger(
+    endpointChecks.verifiedPrefixFrameCount,
+    'MP3 manifest reconstruction verified-prefix frame count',
+    1,
+    geometry.audioFrameCount,
+  );
+  requireSafeInteger(
+    endpointChecks.verifiedPrefixByteEnd,
+    'MP3 manifest reconstruction verified-prefix byte end',
+    geometry.firstAudioFrameOffset + 1,
+    geometry.audioEndByteOffset,
+  );
+
+  return createMp3DecoderTimelineEvidence({
+    format: 'mp3-decoder-timeline',
+    authority: 'none',
+    provenanceKind: 'admitted-manifest',
+    sourceIdentity: record.sourceIdentity,
+    sourceSize: geometry.sourceSize,
+    version: record.version,
+    sampleRateHz: record.sampleRateHz,
+    channels: record.channels,
+    samplesPerFrame: record.samplesPerFrame,
+    firstAudioFrameOffset: geometry.firstAudioFrameOffset,
+    audioEndByteOffset: geometry.audioEndByteOffset,
+    audioFrameCount: geometry.audioFrameCount,
+    tagFrame,
+    frameCountEvidence: 'admitted-manifest',
+    fullyVerifiedFrameSpan: false,
+    verifiedAudioFrameCount: endpointChecks.verifiedPrefixFrameCount,
+    verifiedAudioBytes: endpointChecks.verifiedPrefixByteEnd - geometry.firstAudioFrameOffset,
+    timeline,
+    manifestEndpointEvidence: endpointChecks,
+    seekPoints,
   });
 }
 

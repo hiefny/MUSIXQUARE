@@ -158,6 +158,8 @@ function metadata(): Readonly<Mp3Metadata> {
 function timelineEvidence(sourceIdentity = SOURCE_IDENTITY): Readonly<Mp3DecoderTimelineEvidence> {
   return createMp3DecoderTimelineEvidence({
     format: 'mp3-decoder-timeline',
+    authority: 'none',
+    provenanceKind: 'scanner',
     sourceIdentity,
     sourceSize: SOURCE_SIZE,
     version: HEADER.version,
@@ -180,6 +182,7 @@ function timelineEvidence(sourceIdentity = SOURCE_IDENTITY): Readonly<Mp3Decoder
       rawEofSampleExclusive: TOTAL_FRAMES,
       totalMediaFrames: TOTAL_FRAMES,
     },
+    manifestEndpointEvidence: null,
     seekPoints: [point(0), point(AUDIO_FRAME_COUNT - 1)],
   });
 }

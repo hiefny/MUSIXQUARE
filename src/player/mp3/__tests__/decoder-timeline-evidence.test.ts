@@ -172,6 +172,19 @@ function rawEvidence(evidence: Readonly<Mp3DecoderTimelineEvidence>): Record<str
         }
       : null,
     timeline: { ...evidence.timeline },
+    manifestEndpointEvidence: evidence.manifestEndpointEvidence
+      ? {
+          ...evidence.manifestEndpointEvidence,
+          tagDeclaration: evidence.manifestEndpointEvidence.tagDeclaration
+            ? {
+                ...evidence.manifestEndpointEvidence.tagDeclaration,
+                gapless: evidence.manifestEndpointEvidence.tagDeclaration.gapless
+                  ? { ...evidence.manifestEndpointEvidence.tagDeclaration.gapless }
+                  : null,
+              }
+            : null,
+        }
+      : null,
     seekPoints: evidence.seekPoints.map((point) => ({ ...point })),
   };
 }
@@ -185,6 +198,8 @@ describe('MP3 decoder timeline evidence', () => {
     expect(source.reads).toHaveLength(readsAfterMetadata);
     expect(evidence).toMatchObject({
       format: 'mp3-decoder-timeline',
+      authority: 'none',
+      provenanceKind: 'scanner',
       sourceIdentity: source.identity,
       sourceSize: source.size,
       audioFrameCount: AUDIO_FRAME_COUNT,
@@ -192,6 +207,7 @@ describe('MP3 decoder timeline evidence', () => {
       fullyVerifiedFrameSpan: true,
       verifiedAudioFrameCount: AUDIO_FRAME_COUNT,
       verifiedAudioBytes: source.size,
+      manifestEndpointEvidence: null,
     });
     expect(evidence.seekPoints[0]).toMatchObject({ frameOrdinal: 0, rawSample: 0 });
     expect(evidence.seekPoints.at(-1)).toMatchObject({

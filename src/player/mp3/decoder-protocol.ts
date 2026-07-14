@@ -37,10 +37,11 @@ export type Mp3DecoderGeneration = PcmStreamGeneration;
 /**
  * Worker-resolvable seek plan.
  *
- * The main thread supplies one scanner-verified anchor. The Worker scans from
- * that coordinate to the target frame, keeps only the declared rolling history,
- * and resolves the actual reservoir/synthesis prelude before constructing
- * mpg123. This single shape works for both sparse and already verified indexes.
+ * The main thread supplies one exact planning anchor established by a scanner
+ * or an outer admitted-manifest owner. The Worker scans from that coordinate to
+ * the target frame, keeps only the declared rolling history, and resolves the
+ * actual reservoir/synthesis prelude before constructing mpg123. This shape
+ * itself carries no admission authority and works for sparse or enriched indexes.
  */
 export interface Mp3DecoderStartPlan extends Mp3MediaFrameLocation {
   readonly scanAnchorByteOffset: number;

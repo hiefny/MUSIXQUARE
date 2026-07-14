@@ -7,7 +7,14 @@ import {
   throwIfAborted,
   validateExactRead,
 } from '../../sources/encoded-audio-source.ts';
-import { createMp3DecoderTimelineEvidence } from '../decoder-timeline-evidence.ts';
+import {
+  createMp3DecoderDescriptorFromTimelineEvidence,
+  createMp3DecoderTimelineEvidenceFromManifestReconstruction,
+} from '../decoder-helpers.ts';
+import {
+  createMp3DecoderTimelineEvidence,
+  type Mp3DecoderTimelineEvidence,
+} from '../decoder-timeline-evidence.ts';
 import { parseMpegLayer3FrameHeader } from '../frame-header.ts';
 import { scannerIssuedMp3MetadataSource } from '../metadata.ts';
 import {
@@ -258,6 +265,28 @@ function containsEncodedStorage(value: unknown, seen = new Set<unknown>()): bool
   return Object.values(value).some((nested) => containsEncodedStorage(nested, seen));
 }
 
+function mutableEvidence(evidence: Readonly<Mp3DecoderTimelineEvidence>): Record<string, unknown> {
+  return {
+    ...evidence,
+    tagFrame: evidence.tagFrame
+      ? {
+          ...evidence.tagFrame,
+          declaration: { ...evidence.tagFrame.declaration, gapless: null },
+        }
+      : null,
+    timeline: { ...evidence.timeline },
+    manifestEndpointEvidence: evidence.manifestEndpointEvidence
+      ? {
+          ...evidence.manifestEndpointEvidence,
+          tagDeclaration: evidence.manifestEndpointEvidence.tagDeclaration
+            ? { ...evidence.manifestEndpointEvidence.tagDeclaration, gapless: null }
+            : null,
+        }
+      : null,
+    seekPoints: evidence.seekPoints.map((point) => ({ ...point })),
+  };
+}
+
 describe('MP3 no-frame-count manifest structural reconstruction', () => {
   it('validates ID3, tag, four audio-prefix frames, and the terminal frame as non-authority', async () => {
     const scenario = makeScenario();
@@ -337,6 +366,121 @@ describe('MP3 no-frame-count manifest structural reconstruction', () => {
     expect(() => createMp3DecoderTimelineEvidence(result)).toThrow(/missing|unsupported/i);
   });
 
+  it('converts admitted sparse anchors into non-authority decoder planning evidence', async () => {
+    const scenario = makeScenario({ audioFrameCount: 600 });
+    const sparseManifest: Mp3NoFrameCountTimelineManifest = {
+      ...scenario.manifest,
+      points: [
+        scenario.manifest.points[0]!,
+        scenario.manifest.points[60]!,
+        scenario.manifest.points[599]!,
+      ],
+    };
+    const source = new MemorySource(scenario.bytes);
+    const reconstruction = await reconstructMp3ManifestStructure(options(source, sparseManifest));
+    const readsAfterReconstruction = source.reads.length;
+    const evidence = createMp3DecoderTimelineEvidenceFromManifestReconstruction(reconstruction);
+
+    expect(evidence).toMatchObject({
+      format: 'mp3-decoder-timeline',
+      authority: 'none',
+      provenanceKind: 'admitted-manifest',
+      sourceIdentity: reconstruction.sourceIdentity,
+      sourceSize: reconstruction.sourceSize,
+      frameCountEvidence: 'admitted-manifest',
+      fullyVerifiedFrameSpan: false,
+      verifiedAudioFrameCount: MP3_MANIFEST_RECONSTRUCTION_MAX_PREFIX_FRAMES,
+      verifiedAudioBytes:
+        reconstruction.endpointChecks.verifiedPrefixByteEnd - reconstruction.firstAudioFrameOffset,
+      timeline: {
+        totalRawSamples: reconstruction.totalRawSamples,
+        totalMediaFrames: reconstruction.totalMediaFrames,
+      },
+      manifestEndpointEvidence: reconstruction.endpointChecks,
+    });
+    expect(evidence.seekPoints.map((point) => point.frameOrdinal)).toEqual([0, 60, 599]);
+    expect(Object.isFrozen(evidence.manifestEndpointEvidence)).toBe(true);
+    expect(Object.isFrozen(evidence.manifestEndpointEvidence?.tagDeclaration)).toBe(true);
+    expect(containsEncodedStorage(evidence)).toBe(false);
+    expect(source.reads).toHaveLength(readsAfterReconstruction);
+    expect(source.closeCount).toBe(0);
+    expect(evidence).not.toHaveProperty('admission');
+    expect(evidence).not.toHaveProperty('lease');
+    expect(scannerIssuedMp3MetadataSource(evidence)).toBeNull();
+    expect(() => sealMp3MetadataTimelineManifest(evidence, new Uint8Array(32))).toThrow(
+      /exact scanner-issued/i,
+    );
+
+    const descriptor = createMp3DecoderDescriptorFromTimelineEvidence({
+      evidence,
+      mediaFrame: 580 * evidence.samplesPerFrame + 17,
+      minimumWarmupFrames: 0,
+    });
+    expect(descriptor.startPlan).toMatchObject({
+      audioFrameOrdinal: 580,
+      scanAnchorFrameOrdinal: 60,
+      scanAnchorByteOffset: scenario.audioOffsets[60],
+    });
+  });
+
+  it('cross-checks admitted provenance, exact prefix, tag, and terminal endpoint capsules', async () => {
+    const scenario = makeScenario();
+    const reconstruction = await reconstructMp3ManifestStructure(
+      options(new MemorySource(scenario.bytes), scenario.manifest),
+    );
+    const evidence = createMp3DecoderTimelineEvidenceFromManifestReconstruction(reconstruction);
+    const raw = mutableEvidence(evidence);
+
+    expect(() =>
+      createMp3DecoderTimelineEvidence({
+        ...raw,
+        provenanceKind: 'scanner',
+      }),
+    ).toThrow(/scanner provenance/i);
+    expect(() =>
+      createMp3DecoderTimelineEvidence({
+        ...raw,
+        frameCountEvidence: 'verified-scan',
+      }),
+    ).toThrow(/admitted-manifest provenance/i);
+    expect(() =>
+      createMp3DecoderTimelineEvidence({
+        ...raw,
+        fullyVerifiedFrameSpan: true,
+      }),
+    ).toThrow(/admitted-manifest provenance/i);
+    expect(() =>
+      createMp3DecoderTimelineEvidence({
+        ...raw,
+        verifiedAudioFrameCount: evidence.verifiedAudioFrameCount - 1,
+      }),
+    ).toThrow(/prefix frame count/i);
+    expect(() =>
+      createMp3DecoderTimelineEvidence({
+        ...raw,
+        manifestEndpointEvidence: {
+          ...evidence.manifestEndpointEvidence!,
+          tagDeclaration: null,
+        },
+      }),
+    ).toThrow(/declaration/i);
+    expect(() =>
+      createMp3DecoderTimelineEvidence({
+        ...raw,
+        manifestEndpointEvidence: {
+          ...evidence.manifestEndpointEvidence!,
+          terminalFrameByteOffset: evidence.manifestEndpointEvidence!.terminalFrameByteOffset - 1,
+        },
+      }),
+    ).toThrow(/terminal endpoint/i);
+    expect(() =>
+      createMp3DecoderTimelineEvidence({
+        ...raw,
+        seekPoints: evidence.seekPoints.slice(0, -1),
+      }),
+    ).toThrow(/terminal endpoint/i);
+  });
+
   it('supports a tag-free one-frame stream and reuses the prefix as its terminal check', async () => {
     const scenario = makeScenario({
       audioFrameCount: 1,
@@ -361,6 +505,17 @@ describe('MP3 no-frame-count manifest structural reconstruction', () => {
     });
     expect(source.reads.filter((read) => read.offset === 0 && read.length === 4)).toHaveLength(1);
     expect(source.closeCount).toBe(0);
+    expect(createMp3DecoderTimelineEvidenceFromManifestReconstruction(result)).toMatchObject({
+      provenanceKind: 'admitted-manifest',
+      tagFrame: null,
+      verifiedAudioFrameCount: 1,
+      verifiedAudioBytes: source.size,
+      manifestEndpointEvidence: {
+        tagDeclaration: null,
+        terminalFrameOrdinal: 0,
+        terminalFrameByteOffset: 0,
+      },
+    });
   });
 
   it.each([

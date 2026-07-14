@@ -144,12 +144,12 @@ function spanCanContainFrames(
 }
 
 /**
- * Exact, bounded index of verified MPEG Layer III frame boundaries.
+ * Exact, bounded index of caller-established MPEG Layer III frame boundaries.
  *
- * The index stores coordinates only, never encoded bytes. Progressive
- * compaction drops verified points without inventing interpolated ones, keeps
- * the immutable origin and terminal point, and preferentially preserves a
- * contiguous tail for bit-reservoir pre-roll.
+ * The index stores coordinates only, never encoded bytes or their authority.
+ * Progressive compaction drops points without inventing interpolated ones,
+ * keeps the immutable origin and terminal point, and preferentially preserves
+ * a contiguous tail for bit-reservoir pre-roll.
  */
 export class MpegLayer3SeekIndex {
   readonly origin: MpegLayer3SeekIndexPoint;
@@ -261,8 +261,11 @@ export class MpegLayer3SeekIndex {
   }
 
   /**
-   * Add a scanner-verified frame boundary.
+   * Add an exact planning frame boundary established by the caller.
    *
+   * Local callers use scanner-verified frames. Manifest callers may use sparse
+   * anchors only after an outer live-admission owner authenticated the manifest;
+   * this index validates geometry and never grants either authority itself.
    * False means that the candidate is invalid, conflicts with an existing
    * point, or cannot fit the fixed frame/sample/byte geometry.
    */

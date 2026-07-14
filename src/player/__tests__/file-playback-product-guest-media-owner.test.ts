@@ -492,6 +492,29 @@ function audioGraph() {
   });
 }
 
+function stagedAssetSource(
+  registry: FilePlaybackAssetRegistry,
+  options: StageFilePlaybackAssetSourceOptions,
+  cutoverPort: FilePlaybackCutoverCandidatePort = CUTOVER_PORT,
+): Readonly<StagedFilePlaybackAssetSource> {
+  const asset = registry.snapshotForLease(ROOM_TOKEN, options.assetLease);
+  if (!asset) throw new Error('missing staged asset');
+  const backend = asset.kind === 'blob' ? ('audio-buffer' as const) : ('bounded-stream' as const);
+  return freezeCanonical({
+    cutoverPort,
+    backend,
+    sourceIdentity: asset.sourceIdentity,
+    asset,
+    metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
+    readiness: freezeCanonical({
+      durationSeconds: 120,
+      bufferedAheadSeconds: asset.kind === 'blob' ? 120 : 8,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    }),
+  });
+}
+
 function runtimeHarness(
   registry: FilePlaybackAssetRegistry,
   state: Readonly<PlaybackStateIdentity>,
@@ -532,22 +555,9 @@ function runtimeHarness(
   });
   const r2Close = vi.fn(() => registry.close(ROOM_TOKEN));
   const stageAssetSource = vi.fn(async (options: StageFilePlaybackAssetSourceOptions) => {
-    const asset = registry.snapshotForLease(ROOM_TOKEN, options.assetLease);
-    if (!asset) throw new Error('missing staged asset');
-    candidateBackend = asset.kind === 'blob' ? 'audio-buffer' : 'bounded-stream';
-    return freezeCanonical({
-      cutoverPort: CUTOVER_PORT,
-      backend: candidateBackend,
-      sourceIdentity: asset.sourceIdentity,
-      asset,
-      metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
-      readiness: freezeCanonical({
-        durationSeconds: 120,
-        bufferedAheadSeconds: asset.kind === 'blob' ? 120 : 8,
-        outputSampleRateHz: 48_000,
-        channelCount: 2,
-      }),
-    }) satisfies Readonly<StagedFilePlaybackAssetSource>;
+    const staged = stagedAssetSource(registry, options);
+    candidateBackend = staged.backend;
+    return staged;
   });
   const warmRecords = new Map<
     FilePlaybackWarmSourceAuthority,
@@ -1823,6 +1833,91 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(
       h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
     ).toBe(false);
+  });
+
+  it('retires an initial candidate when channel authority closes immediately after staging resolves', async () => {
+    const pendingStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    const h = setup();
+    h.runtime.stageAssetSource.mockImplementationOnce(() => pendingStage.promise);
+    const offer = r2Offer(h.context);
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+
+    const stageOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
+    const lateCandidatePort = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackCutoverCandidatePort;
+    expect(stageOptions.isCurrent()).toBe(true);
+
+    pendingStage.resolve(stagedAssetSource(h.registry, stageOptions, lateCandidatePort));
+    h.guest.close();
+
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, lateCandidatePort),
+    );
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+    expect(h.runtime.retireCandidate).toHaveBeenCalledOnce();
+    expect(h.runtime.retireCurrent).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toBe(false);
+  });
+
+  it('retires a same-state recovery candidate when channel authority closes immediately after staging resolves', async () => {
+    const h = setup();
+    const offer = r2Offer(h.context);
+    await prepare(h, offer);
+    const initial = await runHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    const sourceReadyCount = h.runtime.sent.filter(
+      (frame) => (frame as { kind?: string }).kind === 'source-ready',
+    ).length;
+    expect(sourceReadyCount).toBe(1);
+    const pendingRecoveryStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    h.runtime.stageAssetSource.mockImplementationOnce(() => pendingRecoveryStage.promise);
+    const recoveryAttempt = h.host.stageAttempt(initial.stateLease, RENDEZVOUS_ID_2);
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID_2,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(2));
+
+    const recoveryStageOptions = h.runtime.stageAssetSource.mock.calls[1]![0];
+    const lateRecoveryPort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+    expect(recoveryStageOptions.isCurrent()).toBe(true);
+
+    pendingRecoveryStage.resolve(
+      stagedAssetSource(h.registry, recoveryStageOptions, lateRecoveryPort),
+    );
+    h.guest.close();
+
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, lateRecoveryPort),
+    );
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+    expect(h.runtime.retireCandidate).toHaveBeenCalledOnce();
+    expect(h.runtime.retireCurrent).toHaveBeenCalledOnce();
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toHaveLength(sourceReadyCount);
   });
 
   it('retains a stopped PRODUCT baseline and commits its first future run', async () => {

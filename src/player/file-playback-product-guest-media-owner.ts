@@ -1409,6 +1409,10 @@ class GuestMediaOwner {
           decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
           ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
         });
+        // A resolved stage has already transferred a candidate port into the
+        // manager. Retain it before any fallible authority or binding check so
+        // late revocation can still retire that exact port during close.
+        prepared.staged = staged;
       }
       this.#assertPrepared(room, prepared);
       if (
@@ -1418,7 +1422,6 @@ class GuestMediaOwner {
       ) {
         throw new Error('Guest staged source does not match its baseline operation');
       }
-      prepared.staged = staged;
       const quality = Reflect.apply(channelQuality, this.#context.channel, []);
       this.#assertPrepared(room, prepared);
       const participant = this.#runtime.createParticipant({
@@ -1491,6 +1494,9 @@ class GuestMediaOwner {
       decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
       ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
     });
+    // Recovery handoff has the same ownership boundary as initial staging:
+    // close must see the manager-owned port even if authority flips now.
+    prepared.staged = staged;
     this.#assertPrepared(room, prepared);
     if (
       staged.asset.queueItemId !== prepared.state.queueItemId ||
@@ -1499,7 +1505,6 @@ class GuestMediaOwner {
     ) {
       throw new Error('Guest recovery source changed its bound asset');
     }
-    prepared.staged = staged;
     const quality = Reflect.apply(channelQuality, this.#context.channel, []);
     const participant = this.#runtime.createParticipant({
       participantId: this.#context.guestParticipantId,
@@ -1727,6 +1732,9 @@ class GuestMediaOwner {
           signal: prepared.operation.fence.signal,
           isCurrent: () => this.#preparedCurrent(room, prepared),
         });
+        // Warm handoff is also a manager ownership transfer. Publish the port
+        // to teardown before checking whether the operation stayed current.
+        prepared.staged = staged;
         this.#assertPrepared(room, prepared);
         return freezeCanonical({ assetLease: promotedLease, staged });
       } finally {

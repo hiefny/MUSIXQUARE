@@ -2,6 +2,10 @@ import { MAX_FILE_PLAYBACK_ROOM_TIME_MS } from '../network/file-playback-clock-e
 import { FILE_MEDIA_SOURCE_OFFER_V2_TYPE } from '../network/file-playback-transport-contract.ts';
 import { REMOTE_SHARE_AES_GCM_TAG_BYTES, REMOTE_SHARE_MAX_BYTES } from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
+import {
+  CODEC_TIMELINE_MANIFEST_HEADER_BYTES,
+  CODEC_TIMELINE_MANIFEST_MAX_BYTES,
+} from './manifests/codec-timeline-manifest.ts';
 import { isQueueItemId } from './queue-model.ts';
 import {
   PEER_RANGE_MAX_CONNECTION_ID_LENGTH,
@@ -30,12 +34,34 @@ const AES_256_KEY_BYTES = 32;
 const AES_GCM_IV_BYTES = 12;
 const AES_256_KEY_BASE64_LENGTH = 44;
 const AES_GCM_IV_BASE64_LENGTH = 16;
+const SHA_256_BYTES = 32;
+const SHA_256_BASE64_LENGTH = 44;
 
 const PEER_RANGE_OFFER_KEYS = Object.freeze([
   'connectionId',
   'encodedSize',
   'expiresAtRoomTimeMs',
   'handleId',
+  'mime',
+  'name',
+  'prepareId',
+  'prepareRevision',
+  'protocolVersion',
+  'queueItemId',
+  'sessionId',
+  'sourceIdentity',
+  'transferSessionId',
+  'transport',
+  'type',
+] as const);
+
+const PEER_RANGE_MANIFEST_OFFER_KEYS = Object.freeze([
+  'connectionId',
+  'encodedSize',
+  'expiresAtRoomTimeMs',
+  'handleId',
+  'manifestByteLength',
+  'manifestSha256B64',
   'mime',
   'name',
   'prepareId',
@@ -133,6 +159,31 @@ export interface PeerRangeFileMediaSourceOfferV2 {
 }
 
 /**
+ * Peer-range transport whose one handle exposes `[manifest][encoded media]`.
+ * `encodedSize` remains the media size; bundle geometry is derived locally.
+ */
+export interface PeerRangeManifestFileMediaSourceOfferV2 {
+  readonly protocolVersion: typeof FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION;
+  readonly type: typeof FILE_MEDIA_SOURCE_OFFER_V2_TYPE;
+  readonly transport: 'peer-range-manifest';
+  readonly sessionId: string;
+  readonly connectionId: string;
+  readonly prepareId: string;
+  readonly prepareRevision: number;
+  readonly queueItemId: QueueItemId;
+  readonly sourceIdentity: string;
+  readonly transferSessionId: string;
+  readonly handleId: string;
+  /** Encoded media bytes only, excluding the manifest prefix. */
+  readonly encodedSize: number;
+  readonly manifestByteLength: number;
+  readonly manifestSha256B64: string;
+  readonly name: string;
+  readonly mime: string;
+  readonly expiresAtRoomTimeMs: number;
+}
+
+/**
  * Temporary whole-Blob object-storage transport for ordinary browser codecs.
  * The cleanup capability and endpoint URL are deliberately not wire fields.
  */
@@ -161,10 +212,20 @@ export interface R2WholeBlobFileMediaSourceOfferV2 {
 
 export type FileMediaSourceOfferV2 =
   | PeerRangeFileMediaSourceOfferV2
+  | PeerRangeManifestFileMediaSourceOfferV2
   | R2WholeBlobFileMediaSourceOfferV2;
+
+export type AnyPeerRangeFileMediaSourceOfferV2 =
+  | PeerRangeFileMediaSourceOfferV2
+  | PeerRangeManifestFileMediaSourceOfferV2;
 
 export type PeerRangeFileMediaSourceOfferV2Input = Omit<
   PeerRangeFileMediaSourceOfferV2,
+  'protocolVersion' | 'transport' | 'type'
+>;
+
+export type PeerRangeManifestFileMediaSourceOfferV2Input = Omit<
+  PeerRangeManifestFileMediaSourceOfferV2,
   'protocolVersion' | 'transport' | 'type'
 >;
 
@@ -239,6 +300,27 @@ function isCanonicalBase64(
 }
 
 /**
+ * Derive the exact `[manifest][media]` handle size without unsafe addition.
+ * Returns null for non-canonical manifest bounds or an overflowing bundle.
+ */
+export function derivePeerRangeManifestBundleSize(
+  encodedSize: unknown,
+  manifestByteLength: unknown,
+): number | null {
+  if (
+    !isPositiveSafeInteger(encodedSize) ||
+    typeof manifestByteLength !== 'number' ||
+    !Number.isSafeInteger(manifestByteLength) ||
+    manifestByteLength < CODEC_TIMELINE_MANIFEST_HEADER_BYTES ||
+    manifestByteLength > CODEC_TIMELINE_MANIFEST_MAX_BYTES
+  ) {
+    return null;
+  }
+  const bundleSize = encodedSize + manifestByteLength;
+  return Number.isSafeInteger(bundleSize) ? bundleSize : null;
+}
+
+/**
  * Creates an adapter-owned preparation occurrence ID using only a platform
  * CSPRNG. There is deliberately no timestamp or Math.random fallback.
  */
@@ -278,8 +360,13 @@ function freezeCanonical<T extends object>(value: T): Readonly<T> {
 
 function offerKeysForTransport(
   transport: unknown,
-): typeof PEER_RANGE_OFFER_KEYS | typeof R2_WHOLE_BLOB_OFFER_KEYS | null {
+):
+  | typeof PEER_RANGE_OFFER_KEYS
+  | typeof PEER_RANGE_MANIFEST_OFFER_KEYS
+  | typeof R2_WHOLE_BLOB_OFFER_KEYS
+  | null {
   if (transport === 'peer-range') return PEER_RANGE_OFFER_KEYS;
+  if (transport === 'peer-range-manifest') return PEER_RANGE_MANIFEST_OFFER_KEYS;
   if (transport === 'r2-whole-blob') return R2_WHOLE_BLOB_OFFER_KEYS;
   return null;
 }
@@ -393,6 +480,43 @@ function canonicalizePeerRange(
   return serializedByteLength(offer) <= FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES ? offer : null;
 }
 
+function canonicalizePeerRangeManifest(
+  snapshot: Snapshot,
+): Readonly<PeerRangeManifestFileMediaSourceOfferV2> | null {
+  if (
+    snapshot.transport !== 'peer-range-manifest' ||
+    !hasValidCommonFields(snapshot) ||
+    !isIdentifier(snapshot.handleId, PEER_RANGE_MAX_HANDLE_ID_LENGTH) ||
+    !hasDistinctCommonIdentities(snapshot, snapshot.handleId) ||
+    typeof snapshot.manifestByteLength !== 'number' ||
+    derivePeerRangeManifestBundleSize(snapshot.encodedSize, snapshot.manifestByteLength) === null ||
+    !isCanonicalBase64(snapshot.manifestSha256B64, SHA_256_BASE64_LENGTH, SHA_256_BYTES)
+  ) {
+    return null;
+  }
+
+  const offer = freezeCanonical({
+    protocolVersion: FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION,
+    type: FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+    transport: 'peer-range-manifest' as const,
+    sessionId: snapshot.sessionId,
+    connectionId: snapshot.connectionId,
+    prepareId: snapshot.prepareId,
+    prepareRevision: snapshot.prepareRevision,
+    queueItemId: snapshot.queueItemId as QueueItemId,
+    sourceIdentity: snapshot.sourceIdentity,
+    transferSessionId: snapshot.transferSessionId,
+    handleId: snapshot.handleId,
+    encodedSize: snapshot.encodedSize,
+    manifestByteLength: snapshot.manifestByteLength,
+    manifestSha256B64: snapshot.manifestSha256B64,
+    name: snapshot.name,
+    mime: snapshot.mime,
+    expiresAtRoomTimeMs: snapshot.expiresAtRoomTimeMs,
+  });
+  return serializedByteLength(offer) <= FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES ? offer : null;
+}
+
 function canonicalizeR2WholeBlob(
   snapshot: Snapshot,
 ): Readonly<R2WholeBlobFileMediaSourceOfferV2> | null {
@@ -441,6 +565,9 @@ function canonicalizeR2WholeBlob(
 
 function canonicalize(snapshot: Snapshot): Readonly<FileMediaSourceOfferV2> | null {
   if (snapshot.transport === 'peer-range') return canonicalizePeerRange(snapshot);
+  if (snapshot.transport === 'peer-range-manifest') {
+    return canonicalizePeerRangeManifest(snapshot);
+  }
   if (snapshot.transport === 'r2-whole-blob') return canonicalizeR2WholeBlob(snapshot);
   return null;
 }
@@ -457,6 +584,22 @@ export function createPeerRangeFileMediaSourceOfferV2(
   const parsed = parseFileMediaSourceOfferV2(candidate);
   if (!parsed || parsed.transport !== 'peer-range') {
     throw new TypeError('File media source offer is invalid');
+  }
+  return parsed;
+}
+
+export function createPeerRangeManifestFileMediaSourceOfferV2(
+  input: PeerRangeManifestFileMediaSourceOfferV2Input,
+): Readonly<PeerRangeManifestFileMediaSourceOfferV2> {
+  const candidate = {
+    protocolVersion: FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION,
+    type: FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+    transport: 'peer-range-manifest',
+    ...input,
+  };
+  const parsed = parseFileMediaSourceOfferV2(candidate);
+  if (!parsed || parsed.transport !== 'peer-range-manifest') {
+    throw new TypeError('Manifest file media source offer is invalid');
   }
   return parsed;
 }
@@ -483,6 +626,25 @@ export function parseFileMediaSourceOfferV2(
 ): Readonly<FileMediaSourceOfferV2> | null {
   const snapshot = snapshotExactOffer(value);
   return snapshot ? canonicalize(snapshot) : null;
+}
+
+export function isDirectPeerRangeFileMediaSourceOfferV2(
+  value: unknown,
+): value is PeerRangeFileMediaSourceOfferV2 {
+  return parseFileMediaSourceOfferV2(value)?.transport === 'peer-range';
+}
+
+export function isManifestPeerRangeFileMediaSourceOfferV2(
+  value: unknown,
+): value is PeerRangeManifestFileMediaSourceOfferV2 {
+  return parseFileMediaSourceOfferV2(value)?.transport === 'peer-range-manifest';
+}
+
+export function isAnyPeerRangeFileMediaSourceOfferV2(
+  value: unknown,
+): value is AnyPeerRangeFileMediaSourceOfferV2 {
+  const transport = parseFileMediaSourceOfferV2(value)?.transport;
+  return transport === 'peer-range' || transport === 'peer-range-manifest';
 }
 
 export function serializeFileMediaSourceOfferV2(value: unknown): string {

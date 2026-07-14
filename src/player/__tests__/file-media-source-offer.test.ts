@@ -10,14 +10,25 @@ import {
   FileMediaOfferRegistry,
   createFileMediaPrepareId,
   createPeerRangeFileMediaSourceOfferV2,
+  createPeerRangeManifestFileMediaSourceOfferV2,
   createR2WholeBlobFileMediaSourceOfferV2,
+  derivePeerRangeManifestBundleSize,
+  isAnyPeerRangeFileMediaSourceOfferV2,
+  isDirectPeerRangeFileMediaSourceOfferV2,
+  isManifestPeerRangeFileMediaSourceOfferV2,
   parseFileMediaSourceOfferV2,
   serializeFileMediaSourceOfferV2,
   type PeerRangeFileMediaSourceOfferV2,
   type PeerRangeFileMediaSourceOfferV2Input,
+  type PeerRangeManifestFileMediaSourceOfferV2,
+  type PeerRangeManifestFileMediaSourceOfferV2Input,
   type R2WholeBlobFileMediaSourceOfferV2,
   type R2WholeBlobFileMediaSourceOfferV2Input,
 } from '../file-media-source-offer.ts';
+import {
+  CODEC_TIMELINE_MANIFEST_HEADER_BYTES,
+  CODEC_TIMELINE_MANIFEST_MAX_BYTES,
+} from '../manifests/codec-timeline-manifest.ts';
 import { isQueueItemId } from '../queue-model.ts';
 import {
   PEER_RANGE_MAX_CONNECTION_ID_LENGTH,
@@ -33,6 +44,7 @@ const PREPARE_ONE = '10000000-0000-4000-8000-000000000001';
 const R2_OBJECT_ONE = '20000000-0000-4000-8000-000000000001';
 const R2_KEY_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 const R2_IV_B64 = 'AAAAAAAAAAAAAAAA';
+const MANIFEST_SHA256_B64 = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=';
 
 function uuidSuffix(value: number): string {
   return value.toString(16).padStart(12, '0');
@@ -70,6 +82,23 @@ function offer(
   overrides: Partial<PeerRangeFileMediaSourceOfferV2Input> = {},
 ): Readonly<PeerRangeFileMediaSourceOfferV2> {
   return createPeerRangeFileMediaSourceOfferV2(input(overrides));
+}
+
+function manifestInput(
+  overrides: Partial<PeerRangeManifestFileMediaSourceOfferV2Input> = {},
+): PeerRangeManifestFileMediaSourceOfferV2Input {
+  return {
+    ...input(),
+    manifestByteLength: CODEC_TIMELINE_MANIFEST_HEADER_BYTES,
+    manifestSha256B64: MANIFEST_SHA256_B64,
+    ...overrides,
+  };
+}
+
+function manifestOffer(
+  overrides: Partial<PeerRangeManifestFileMediaSourceOfferV2Input> = {},
+): Readonly<PeerRangeManifestFileMediaSourceOfferV2> {
+  return createPeerRangeManifestFileMediaSourceOfferV2(manifestInput(overrides));
 }
 
 function r2Input(
@@ -142,6 +171,14 @@ describe('file media source offer V2', () => {
     });
     expect(Object.getPrototypeOf(value)).toBeNull();
     expect(Object.isFrozen(value)).toBe(true);
+    expect(serialized).toBe(
+      JSON.stringify({
+        protocolVersion: 2,
+        type: 'FILE_MEDIA_SOURCE_OFFER_V2',
+        transport: 'peer-range',
+        ...input(),
+      }),
+    );
     expect(serialized).not.toMatch(/runId|rendezvous|sampleRate|channelCount|duration/u);
     expect(new TextEncoder().encode(serialized).byteLength).toBeLessThanOrEqual(
       FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES,
@@ -162,6 +199,15 @@ describe('file media source offer V2', () => {
     });
     expect(Object.getPrototypeOf(value)).toBeNull();
     expect(Object.isFrozen(value)).toBe(true);
+    expect(serialized).toBe(
+      JSON.stringify({
+        protocolVersion: 2,
+        type: 'FILE_MEDIA_SOURCE_OFFER_V2',
+        transport: 'r2-whole-blob',
+        encryption: 'aes-256-gcm-whole-v1',
+        ...r2Input(),
+      }),
+    );
     expect(serialized).not.toMatch(/downloadUrl|cleanupToken|https?:/u);
     expect(new TextEncoder().encode(serialized).byteLength).toBeLessThanOrEqual(
       FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES,
@@ -169,7 +215,38 @@ describe('file media source offer V2', () => {
     expect(parseFileMediaSourceOfferV2(JSON.parse(serialized))).toEqual(value);
   });
 
-  it('uses exact disjoint key sets for peer-range and R2 whole-Blob variants', () => {
+  it('creates one canonical manifest-prefixed peer-range contract with derived bundle geometry', () => {
+    const value = manifestOffer();
+    const serialized = serializeFileMediaSourceOfferV2(value);
+
+    expect(value).toEqual({
+      protocolVersion: 2,
+      type: 'FILE_MEDIA_SOURCE_OFFER_V2',
+      transport: 'peer-range-manifest',
+      ...manifestInput(),
+    });
+    expect(value.encodedSize).toBe(1_024);
+    expect(derivePeerRangeManifestBundleSize(value.encodedSize, value.manifestByteLength)).toBe(
+      1_024 + CODEC_TIMELINE_MANIFEST_HEADER_BYTES,
+    );
+    expect(Object.getPrototypeOf(value)).toBeNull();
+    expect(Object.isFrozen(value)).toBe(true);
+    expect(serialized).not.toMatch(/mediaOffset|bundleSize/u);
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThanOrEqual(
+      FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES,
+    );
+    expect(parseFileMediaSourceOfferV2(JSON.parse(serialized))).toEqual(value);
+
+    expect(isDirectPeerRangeFileMediaSourceOfferV2(offer())).toBe(true);
+    expect(isDirectPeerRangeFileMediaSourceOfferV2(value)).toBe(false);
+    expect(isManifestPeerRangeFileMediaSourceOfferV2(value)).toBe(true);
+    expect(isManifestPeerRangeFileMediaSourceOfferV2(offer())).toBe(false);
+    expect(isAnyPeerRangeFileMediaSourceOfferV2(offer())).toBe(true);
+    expect(isAnyPeerRangeFileMediaSourceOfferV2(value)).toBe(true);
+    expect(isAnyPeerRangeFileMediaSourceOfferV2(r2Offer())).toBe(false);
+  });
+
+  it('uses exact disjoint key sets for all three transport variants', () => {
     expect(
       parseFileMediaSourceOfferV2({
         ...offer(),
@@ -185,6 +262,76 @@ describe('file media source offer V2', () => {
     const missingObject = { ...r2Offer() } as Record<string, unknown>;
     delete missingObject.objectId;
     expect(parseFileMediaSourceOfferV2(missingObject)).toBeNull();
+
+    expect(parseFileMediaSourceOfferV2({ ...offer(), manifestByteLength: 128 })).toBeNull();
+    expect(
+      parseFileMediaSourceOfferV2({ ...manifestOffer(), storageRoomId: 'r2-room_one' }),
+    ).toBeNull();
+    expect(parseFileMediaSourceOfferV2({ ...manifestOffer(), mediaOffset: 128 })).toBeNull();
+    expect(parseFileMediaSourceOfferV2({ ...manifestOffer(), bundleSize: 1_152 })).toBeNull();
+
+    const missingManifestLength = { ...manifestOffer() } as Record<string, unknown>;
+    delete missingManifestLength.manifestByteLength;
+    expect(parseFileMediaSourceOfferV2(missingManifestLength)).toBeNull();
+    const missingManifestHash = { ...manifestOffer() } as Record<string, unknown>;
+    delete missingManifestHash.manifestSha256B64;
+    expect(parseFileMediaSourceOfferV2(missingManifestHash)).toBeNull();
+  });
+
+  it('validates canonical manifest hashes and bounded overflow-safe bundle sizes', () => {
+    const nonCanonicalHash = `${MANIFEST_SHA256_B64.slice(0, -2)}N=`;
+    expect(atob(nonCanonicalHash)).toBe(atob(MANIFEST_SHA256_B64));
+    expect(btoa(atob(nonCanonicalHash))).toBe(MANIFEST_SHA256_B64);
+
+    expect(() => manifestOffer({ manifestSha256B64: nonCanonicalHash })).toThrow();
+    expect(() => manifestOffer({ manifestSha256B64: btoa('\0'.repeat(31)) })).toThrow();
+    expect(() =>
+      manifestOffer({ manifestSha256B64: `${MANIFEST_SHA256_B64.slice(0, -1)}!` }),
+    ).toThrow();
+    expect(() =>
+      manifestOffer({ manifestByteLength: CODEC_TIMELINE_MANIFEST_HEADER_BYTES - 1 }),
+    ).toThrow();
+    expect(() =>
+      manifestOffer({ manifestByteLength: CODEC_TIMELINE_MANIFEST_MAX_BYTES + 1 }),
+    ).toThrow();
+    expect(() =>
+      manifestOffer({ manifestByteLength: CODEC_TIMELINE_MANIFEST_MAX_BYTES }),
+    ).not.toThrow();
+
+    const exactSafeEncodedSize = Number.MAX_SAFE_INTEGER - CODEC_TIMELINE_MANIFEST_HEADER_BYTES;
+    expect(
+      derivePeerRangeManifestBundleSize(exactSafeEncodedSize, CODEC_TIMELINE_MANIFEST_HEADER_BYTES),
+    ).toBe(Number.MAX_SAFE_INTEGER);
+    expect(
+      derivePeerRangeManifestBundleSize(
+        exactSafeEncodedSize + 1,
+        CODEC_TIMELINE_MANIFEST_HEADER_BYTES,
+      ),
+    ).toBeNull();
+    expect(() =>
+      manifestOffer({
+        encodedSize: exactSafeEncodedSize + 1,
+        manifestByteLength: CODEC_TIMELINE_MANIFEST_HEADER_BYTES,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects manifest accessors and confused transport identities without invoking code', () => {
+    const candidate = { ...manifestOffer() } as Record<string, unknown>;
+    let getterCalls = 0;
+    Object.defineProperty(candidate, 'manifestSha256B64', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return MANIFEST_SHA256_B64;
+      },
+    });
+    expect(parseFileMediaSourceOfferV2(candidate)).toBeNull();
+    expect(isManifestPeerRangeFileMediaSourceOfferV2(candidate)).toBe(false);
+    expect(getterCalls).toBe(0);
+
+    expect(() => manifestOffer({ handleId: 'source:one' })).toThrow();
+    expect(() => manifestOffer({ handleId: PREPARE_ONE })).toThrow();
   });
 
   it('requires a canonical 32-byte key and canonical 12-byte IV', () => {
@@ -370,6 +517,54 @@ describe('FileMediaOfferRegistry', () => {
       }),
     ).toEqual({ accepted: false, reason: 'conflict' });
     expect(setup.instance.isClosed()).toBe(true);
+  });
+
+  it('replays, supersedes, and revokes manifest-prefixed peer-range authority exactly', () => {
+    const setup = registry();
+    setup.instance.admitQueueItem(TOKEN, QUEUE_ONE);
+    const first = manifestOffer();
+
+    const firstAcceptance = setup.instance.accept(TOKEN, first);
+    expect(firstAcceptance).toMatchObject({ accepted: true, status: 'accepted', offer: first });
+    if (!firstAcceptance.accepted) throw new Error('Expected manifest offer acceptance');
+    const storedFirst = firstAcceptance.offer;
+    const firstLease = setup.instance.issueCurrentOfferLease(TOKEN, QUEUE_ONE);
+    expect(setup.instance.accept(TOKEN, { ...first })).toMatchObject({
+      accepted: true,
+      status: 'replayed',
+      offer: storedFirst,
+    });
+
+    const second = manifestOffer({
+      prepareId: prepareId(2),
+      prepareRevision: 2,
+      sourceIdentity: 'source:two',
+      transferSessionId: 'transfer:two',
+      handleId: 'handle:two',
+      manifestSha256B64: R2_KEY_B64,
+    });
+    const secondAcceptance = setup.instance.accept(TOKEN, second);
+    expect(secondAcceptance).toMatchObject({ accepted: true, status: 'superseded', offer: second });
+    if (!secondAcceptance.accepted) throw new Error('Expected manifest offer supersession');
+    expect(setup.instance.isCurrentOfferLease(TOKEN, firstLease)).toBe(false);
+    const secondLease = setup.instance.issueCurrentOfferLease(TOKEN, QUEUE_ONE);
+    expect(setup.instance.isCurrentOfferLease(TOKEN, secondLease)).toBe(true);
+
+    expect(setup.instance.removeQueueItem(TOKEN, QUEUE_ONE)).toBe(true);
+    expect(setup.instance.isCurrentOfferLease(TOKEN, secondLease)).toBe(false);
+    expect(setup.instance.activeOffer(TOKEN, QUEUE_ONE)).toBeNull();
+    expect(setup.instance.isClosed()).toBe(false);
+
+    const conflict = registry();
+    conflict.instance.admitQueueItem(TOKEN, QUEUE_ONE);
+    expect(conflict.instance.accept(TOKEN, first)).toMatchObject({ accepted: true });
+    expect(
+      conflict.instance.accept(TOKEN, {
+        ...first,
+        manifestSha256B64: R2_KEY_B64,
+      }),
+    ).toEqual({ accepted: false, reason: 'conflict' });
+    expect(conflict.instance.isClosed()).toBe(true);
   });
 
   it('binds inspection to the exact live token and exact session scope', () => {

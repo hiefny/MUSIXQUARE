@@ -497,6 +497,55 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     expect(JSON.stringify(port)).toBe('{}');
   });
 
+  it('promotes exact Worklet start evidence even before the main-thread clock reaches target', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1, 'bounded-stream');
+    const { port, finalization } = await stageArmFinalize(manager, source, destination);
+    context.currentTime = 0.999;
+
+    source.resolveStarted();
+
+    await expect(finalization.started).resolves.toEqual(
+      createStreamingPlaybackStartEvidence(48_000, 48_000),
+    );
+    expect(manager.currentCutoverPort()).toBe(port);
+    expect(source.source.destroy).not.toHaveBeenCalled();
+  });
+
+  it('still rejects AudioBuffer schedule evidence before the target clock passes', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1, 'audio-buffer');
+    const { finalization } = await stageArmFinalize(manager, source, destination);
+    context.currentTime = 0.999;
+
+    source.resolveStarted();
+
+    await expect(finalization.started).rejects.toThrow('evidence');
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(false);
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('still rejects mismatched Worklet start evidence before the target clock passes', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1, 'bounded-stream');
+    const { finalization } = await stageArmFinalize(manager, source, destination);
+    context.currentTime = 0.999;
+
+    source.started.resolve(createStreamingPlaybackStartEvidence(47_999, 47_999));
+
+    await expect(finalization.started).rejects.toThrow('evidence');
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(false);
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
   it('observes a hostile fulfilled start value without re-assimilating it', async () => {
     const context = new FakeAudioContext();
     const destination = destinationFor(context);
@@ -1208,7 +1257,7 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     const context = new FakeAudioContext();
     const destination = destinationFor(context);
     const manager = new FilePlaybackManager();
-    const candidate = makeSource(Q1, context, 1);
+    const candidate = makeSource(Q1, context, 1, 'audio-buffer');
     const { finalization } = await stageArmFinalize(manager, candidate, destination);
     context.currentTime = 1;
     context.onCurrentTimeRead = () => {

@@ -1478,12 +1478,13 @@ export class FilePlaybackManager {
           deferred.reject(error);
           return;
         }
-        const targetPassed = this.targetHasPassed(record);
+        const startBoundaryProven =
+          evidence.kind === 'worklet-observed' || this.targetHasPassed(record);
         if (!this.ownsLiveCandidate(record) || record.phase !== 'scheduled') {
           deferred.reject(cutoverError('start evidence completed after candidate revocation'));
           return;
         }
-        if (!targetPassed) {
+        if (!startBoundaryProven) {
           void this.retireCandidateRecord(record, 'start-evidence-before-target');
           deferred.reject(cutoverError('start evidence was invalid or stale'));
           return;

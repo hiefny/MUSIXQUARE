@@ -7,6 +7,7 @@ import {
 } from '../network/file-playback-application-session.ts';
 import { getPrimedFilePlaybackProductAudio } from '../audio/file-playback-audio-readiness.ts';
 import { bus } from '../core/events.ts';
+import { log } from '../core/log.ts';
 import { delay } from '../core/timers.ts';
 import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
 import type { DataConnection, QueueItemId } from '../types/index.ts';
@@ -1532,8 +1533,10 @@ export class FilePlaybackProductRuntime {
         },
         onFatalConnection: (
           ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+          error: Error,
         ) => {
           if (!this.#connectionContexts.has(ownerContext) || ownerContext !== context) return;
+          log.error('[FilePlayback] Guest media owner failed closed', error);
           try {
             sessions.closeConnection(context.connection);
           } catch {

@@ -951,6 +951,411 @@ function closeEncodedSourceOnce(source: EncodedAudioSource): () => Promise<void>
   };
 }
 
+const BOUNDED_CODEC_PROFILE_IDS = Object.freeze([
+  'native-flac',
+  'wave-linear-pcm',
+  'aiff-linear-pcm',
+  'caf-linear-pcm',
+  'raw-adts-aac',
+  'm4a-aac-lc',
+  'mp3',
+] as const);
+
+type BoundedCodecProfileId = (typeof BOUNDED_CODEC_PROFILE_IDS)[number];
+type BoundedCodecActivation = true | 'bounded-stream' | 'webcodecs';
+
+interface BoundedCodecRouteSnapshot {
+  readonly mp3: boolean;
+  readonly m4aAacLcBackendId: 'webcodecs' | null;
+  readonly rawAdtsAacBackendId: 'webcodecs' | null;
+}
+
+interface BoundedCodecProfileContext {
+  readonly options: CreateOwnedEncodedFilePlaybackSourceOptions;
+  readonly encodedSource: EncodedAudioSource;
+  readonly marker: Uint8Array;
+  readonly routes: Readonly<BoundedCodecRouteSnapshot>;
+  readonly factories: Readonly<BlobFilePlaybackBackendFactories>;
+  readonly codecTimelineHostArtifactBinding: Readonly<CodecTimelineHostArtifactBinding> | undefined;
+  readonly inspectOptionalFrameContent: () => Promise<Readonly<OptionalFrameContentClassification>>;
+}
+
+interface BoundedCodecAdmission {
+  readonly profileId: BoundedCodecProfileId;
+  readonly createSource: () => unknown;
+  readonly codecTimelineHostArtifact: Readonly<CodecTimelineHostArtifact> | null;
+}
+
+/**
+ * One compile-time codec admission definition. Route activation, content
+ * sniffing, bounded inspection, and backend construction stay inseparable so
+ * adding a format cannot accidentally register only part of its contract.
+ */
+interface BoundedCodecProfile<
+  Id extends BoundedCodecProfileId,
+  Activation extends BoundedCodecActivation,
+  Inspection,
+> {
+  readonly id: Id;
+  readonly route: (context: BoundedCodecProfileContext) => Activation | null;
+  /** Called even while the route is disabled so content authority stays route-independent. */
+  readonly sniff: (
+    context: BoundedCodecProfileContext,
+    activation: Activation | null,
+  ) => boolean | Promise<boolean>;
+  readonly inspect: (
+    context: BoundedCodecProfileContext,
+    activation: Activation,
+  ) => Promise<Inspection>;
+  readonly create: (
+    context: BoundedCodecProfileContext,
+    activation: Activation,
+    inspection: Inspection,
+  ) => unknown;
+  readonly codecTimelineHostArtifact?: (
+    inspection: Inspection,
+  ) => Readonly<CodecTimelineHostArtifact> | null;
+  readonly claimMismatchError?: (context: BoundedCodecProfileContext) => Error | null;
+}
+
+interface StaticBoundedCodecProfile<Id extends BoundedCodecProfileId = BoundedCodecProfileId> {
+  readonly id: Id;
+  readonly admit: (
+    context: BoundedCodecProfileContext,
+  ) => Promise<Readonly<BoundedCodecAdmission> | null>;
+  readonly claimMismatchError: (context: BoundedCodecProfileContext) => Error | null;
+}
+
+function defineBoundedCodecProfile<
+  const Id extends BoundedCodecProfileId,
+  Activation extends BoundedCodecActivation,
+  Inspection,
+>(
+  profile: Readonly<BoundedCodecProfile<Id, Activation, Inspection>>,
+): Readonly<StaticBoundedCodecProfile<Id>> {
+  return Object.freeze({
+    id: profile.id,
+    async admit(context: BoundedCodecProfileContext) {
+      const activation = profile.route(context);
+      const matches = await profile.sniff(context, activation);
+      if (!matches || activation === null) return null;
+      const inspection = await profile.inspect(context, activation);
+      return Object.freeze({
+        profileId: profile.id,
+        createSource: () => profile.create(context, activation, inspection),
+        codecTimelineHostArtifact: profile.codecTimelineHostArtifact?.(inspection) ?? null,
+      });
+    },
+    claimMismatchError: (context: BoundedCodecProfileContext) =>
+      profile.claimMismatchError?.(context) ?? null,
+  });
+}
+
+function snapshotBoundedCodecRoutes(
+  policy: Readonly<FilePlaybackBoundedRoutePolicy>,
+): Readonly<BoundedCodecRouteSnapshot> {
+  const universalRoute = policy.mode === 'universal-v1';
+  const formatGatedRoute = policy.mode === 'format-gated-v1';
+  return Object.freeze({
+    mp3: universalRoute || (formatGatedRoute && policy.mp3 === 'bounded-stream'),
+    m4aAacLcBackendId: universalRoute
+      ? policy.m4aBackendId
+      : formatGatedRoute && policy.m4aAacLc === 'webcodecs'
+        ? policy.m4aAacLc
+        : null,
+    rawAdtsAacBackendId: universalRoute
+      ? policy.aacBackendId
+      : formatGatedRoute && policy.rawAdtsAac === 'webcodecs'
+        ? policy.rawAdtsAac
+        : null,
+  });
+}
+
+function createBoundedCodecProfileContext(
+  options: CreateOwnedEncodedFilePlaybackSourceOptions,
+  encodedSource: EncodedAudioSource,
+  marker: Uint8Array,
+  boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy>,
+  factories: Readonly<BlobFilePlaybackBackendFactories>,
+  codecTimelineHostArtifactBinding: Readonly<CodecTimelineHostArtifactBinding> | undefined,
+): Readonly<BoundedCodecProfileContext> {
+  const routes = snapshotBoundedCodecRoutes(boundedRoutePolicy);
+  let optionalFrameContent: Promise<Readonly<OptionalFrameContentClassification>> | null = null;
+  return Object.freeze({
+    options,
+    encodedSource,
+    marker,
+    routes,
+    factories,
+    codecTimelineHostArtifactBinding,
+    inspectOptionalFrameContent: () => {
+      optionalFrameContent ??= classifyOptionalFrameContent(
+        encodedSource,
+        marker,
+        options.signal,
+        routes.mp3 || routes.rawAdtsAacBackendId !== null,
+      );
+      return optionalFrameContent;
+    },
+  });
+}
+
+function createStreamingLinearPcmSourceForProfile(
+  context: BoundedCodecProfileContext,
+  metadata: Readonly<LinearPcmMetadata>,
+): unknown {
+  const { options, encodedSource, factories } = context;
+  return factories.createStreamingLinearPcmSource({
+    queueItemId: options.queueItemId,
+    encodedSource,
+    metadata,
+    audioContext: options.audioContext,
+    nowRoomTimeMs: options.nowRoomTimeMs,
+    roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+    localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+    runtime: options.linearPcmRuntime,
+  });
+}
+
+const BOUNDED_CODEC_PROFILES_BY_ID = Object.freeze({
+  'native-flac': defineBoundedCodecProfile({
+    id: 'native-flac',
+    route: () => true,
+    sniff: (context) => hasMarker(context.marker, NATIVE_FLAC_MARKER),
+    inspect: async (context) => readFlacMetadata(context.encodedSource, context.options.signal),
+    create: (context, _activation, metadata) => {
+      const { options, encodedSource, factories } = context;
+      return factories.createStreamingFlacSource({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        metadata,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: options.flacRuntime,
+      });
+    },
+    claimMismatchError: (context) => {
+      if (!claimsFlac(context.encodedSource.metadata.name, context.encodedSource.metadata.mime)) {
+        return null;
+      }
+      return hasMarker(context.marker, OGG_MARKER)
+        ? new UnsupportedFlacContainerError(
+            'Ogg-FLAC is not supported by the streaming playback engine; native FLAC is required',
+          )
+        : new EncodedSourceIntegrityError(
+            'File claims to be FLAC but does not contain the native fLaC marker',
+          );
+    },
+  }),
+  'wave-linear-pcm': defineBoundedCodecProfile({
+    id: 'wave-linear-pcm',
+    route: () => true,
+    sniff: (context) => isWaveFamily(context.marker),
+    inspect: async (context) => readWavePcmMetadata(context.encodedSource, context.options.signal),
+    create: (context, _activation, metadata) =>
+      createStreamingLinearPcmSourceForProfile(context, metadata),
+    claimMismatchError: (context) =>
+      claimsWave(context.encodedSource.metadata.name, context.encodedSource.metadata.mime)
+        ? new EncodedSourceIntegrityError(
+            'File claims to be WAVE but does not contain a supported RIFF/RF64/BW64 WAVE header',
+          )
+        : null,
+  }),
+  'aiff-linear-pcm': defineBoundedCodecProfile({
+    id: 'aiff-linear-pcm',
+    route: () => true,
+    sniff: (context) => isAiffFamily(context.marker),
+    inspect: async (context) => readAiffPcmMetadata(context.encodedSource, context.options.signal),
+    create: (context, _activation, metadata) =>
+      createStreamingLinearPcmSourceForProfile(context, metadata),
+    claimMismatchError: (context) =>
+      claimsAiff(context.encodedSource.metadata.name, context.encodedSource.metadata.mime)
+        ? new EncodedSourceIntegrityError(
+            'File claims to be AIFF/AIFC but does not contain a supported FORM AIFF/AIFC header',
+          )
+        : null,
+  }),
+  'caf-linear-pcm': defineBoundedCodecProfile({
+    id: 'caf-linear-pcm',
+    route: () => true,
+    sniff: (context) => isCafFamily(context.marker),
+    inspect: async (context) =>
+      readCafLinearPcmMetadata(context.encodedSource, context.options.signal),
+    create: (context, _activation, metadata) =>
+      createStreamingLinearPcmSourceForProfile(context, metadata),
+    claimMismatchError: (context) =>
+      claimsCaf(context.encodedSource.metadata.name, context.encodedSource.metadata.mime)
+        ? new EncodedSourceIntegrityError(
+            'File claims to be CAF but does not contain a supported caff header',
+          )
+        : null,
+  }),
+  'raw-adts-aac': defineBoundedCodecProfile({
+    id: 'raw-adts-aac',
+    route: (context) => context.routes.rawAdtsAacBackendId,
+    sniff: async (context, activation) => {
+      const frameContent = await context.inspectOptionalFrameContent();
+      return (
+        frameContent.adts ||
+        (activation !== null &&
+          !isIsoBmffFileType(context.marker) &&
+          !frameContent.mp3 &&
+          claimsRawAac(context.encodedSource.metadata.name, context.encodedSource.metadata.mime) &&
+          !hasMarker(context.marker, ID3_MARKER))
+      );
+    },
+    inspect: async (context) => {
+      const { options, encodedSource } = context;
+      const frameContent = await context.inspectOptionalFrameContent();
+      const aacCapabilityProbe = snapshotAacCapabilityProbe(options.aacCapabilityProbe);
+      const aacRouteRuntime = snapshotAacRouteRuntime(options.aacRuntime);
+      const capabilityEvidence = await preflightRawAacCapability(
+        encodedSource,
+        frameContent.audioStartByte,
+        options.signal,
+        aacCapabilityProbe,
+        aacRouteRuntime.capabilityRuntime,
+      );
+      throwIfAborted(options.signal);
+      const scan = await scanAdtsFrames(encodedSource, options.signal, {
+        audioStartByte: frameContent.audioStartByte,
+      });
+      throwIfAborted(options.signal);
+      if (!sameAacCoreConfiguration(capabilityEvidence.coreConfiguration, scan.coreConfiguration)) {
+        throw new EncodedSourceIntegrityError(
+          'Raw AAC source configuration changed after capability admission',
+        );
+      }
+      const codecTimelineHostArtifact = await createOptionalCodecTimelineHostArtifact(
+        context.codecTimelineHostArtifactBinding,
+        options.queueItemId,
+        encodedSource,
+        scan,
+        options.signal,
+      );
+      throwIfAborted(options.signal);
+      return Object.freeze({ scan, aacRouteRuntime, codecTimelineHostArtifact });
+    },
+    create: (context, backendId, inspection) => {
+      const { options, encodedSource, factories } = context;
+      return factories.createStreamingAacSource({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        scan: inspection.scan,
+        backendId,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: inspection.aacRouteRuntime.playbackRuntime,
+      });
+    },
+    codecTimelineHostArtifact: (inspection) => inspection.codecTimelineHostArtifact,
+  }),
+  'm4a-aac-lc': defineBoundedCodecProfile({
+    id: 'm4a-aac-lc',
+    route: (context) => context.routes.m4aAacLcBackendId,
+    sniff: async (context, activation) => {
+      const frameContent = await context.inspectOptionalFrameContent();
+      return (
+        isIsoBmffFileType(context.marker) ||
+        (activation !== null &&
+          !frameContent.adts &&
+          !frameContent.mp3 &&
+          claimsM4a(context.encodedSource.metadata.name, context.encodedSource.metadata.mime))
+      );
+    },
+    inspect: async (context) => readM4aAacLcMetadata(context.encodedSource, context.options.signal),
+    create: (context, backendId, manifest) => {
+      const { options, encodedSource, factories } = context;
+      return factories.createStreamingM4aAacSource({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        manifest,
+        backendId,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: options.m4aRuntime,
+      });
+    },
+  }),
+  mp3: defineBoundedCodecProfile({
+    id: 'mp3',
+    route: (context) => (context.routes.mp3 ? 'bounded-stream' : null),
+    sniff: async (context, activation) => {
+      const frameContent = await context.inspectOptionalFrameContent();
+      return (
+        frameContent.mp3 ||
+        (activation !== null &&
+          !frameContent.adts &&
+          !isIsoBmffFileType(context.marker) &&
+          claimsMp3(context.encodedSource.metadata.name, context.encodedSource.metadata.mime))
+      );
+    },
+    inspect: async (context) => {
+      const { options, encodedSource } = context;
+      const metadata = await readMp3Metadata(encodedSource, options.signal);
+      throwIfAborted(options.signal);
+      const codecTimelineHostArtifact = isMp3MetadataTimelineManifestEligible(metadata)
+        ? await createOptionalCodecTimelineHostArtifact(
+            context.codecTimelineHostArtifactBinding,
+            options.queueItemId,
+            encodedSource,
+            metadata,
+            options.signal,
+          )
+        : null;
+      throwIfAborted(options.signal);
+      return Object.freeze({ metadata, codecTimelineHostArtifact });
+    },
+    create: (context, _activation, inspection) => {
+      const { options, encodedSource, factories } = context;
+      return factories.createStreamingMp3Source({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        metadata: inspection.metadata,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: options.mp3Runtime,
+      });
+    },
+    codecTimelineHostArtifact: (inspection) => inspection.codecTimelineHostArtifact,
+  }),
+} satisfies {
+  readonly [Id in BoundedCodecProfileId]: Readonly<StaticBoundedCodecProfile<Id>>;
+});
+
+/**
+ * Closed at compile time: the ID tuple determines both completeness and
+ * precedence, while the exact mapped table forbids runtime registration.
+ */
+const BOUNDED_CODEC_PROFILES: readonly Readonly<StaticBoundedCodecProfile>[] = Object.freeze(
+  BOUNDED_CODEC_PROFILE_IDS.map((id) => BOUNDED_CODEC_PROFILES_BY_ID[id]),
+);
+
+async function inspectBoundedCodecAdmission(
+  context: Readonly<BoundedCodecProfileContext>,
+): Promise<Readonly<BoundedCodecAdmission> | null> {
+  for (const profile of BOUNDED_CODEC_PROFILES) {
+    const admission = await profile.admit(context);
+    if (admission !== null) return admission;
+  }
+  return null;
+}
+
+function throwClaimedBoundedCodecMismatch(context: Readonly<BoundedCodecProfileContext>): void {
+  for (const profile of BOUNDED_CODEC_PROFILES) {
+    const error = profile.claimMismatchError(context);
+    if (error !== null) throw error;
+  }
+}
+
 /**
  * Select an encoded playback backend without preparing or connecting it.
  *
@@ -1013,19 +1418,18 @@ async function createOwnedEncodedFilePlaybackSource(
     }
     throwIfAborted(options.signal);
 
-    if (hasMarker(marker, NATIVE_FLAC_MARKER)) {
-      const metadata = await readFlacMetadata(encodedSource, options.signal);
+    const boundedCodecContext = createBoundedCodecProfileContext(
+      options,
+      encodedSource,
+      marker,
+      boundedRoutePolicy,
+      factories,
+      codecTimelineHostArtifactBinding,
+    );
+    const boundedCodecAdmission = await inspectBoundedCodecAdmission(boundedCodecContext);
+    if (boundedCodecAdmission !== null) {
       throwIfAborted(options.signal);
-      const returnedSource = factories.createStreamingFlacSource({
-        queueItemId: options.queueItemId,
-        encodedSource,
-        metadata,
-        audioContext: options.audioContext,
-        nowRoomTimeMs: options.nowRoomTimeMs,
-        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
-        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
-        runtime: options.flacRuntime,
-      });
+      const returnedSource = boundedCodecAdmission.createSource();
       const inspected = inspectCreatedSource(returnedSource);
       destroyCreatedSource = inspected.destroy;
       // A successful constructor return transfers exact encoded-source
@@ -1041,241 +1445,10 @@ async function createOwnedEncodedFilePlaybackSource(
         releaseConstructionLease: releaseNoConstructionLease,
       });
       completed = true;
-      return issueFilePlaybackSourceResult(result, null);
+      return issueFilePlaybackSourceResult(result, boundedCodecAdmission.codecTimelineHostArtifact);
     }
 
-    let linearPcmMetadata: Readonly<LinearPcmMetadata> | null = null;
-    if (isWaveFamily(marker)) {
-      linearPcmMetadata = await readWavePcmMetadata(encodedSource, options.signal);
-    } else if (isAiffFamily(marker)) {
-      linearPcmMetadata = await readAiffPcmMetadata(encodedSource, options.signal);
-    } else if (isCafFamily(marker)) {
-      linearPcmMetadata = await readCafLinearPcmMetadata(encodedSource, options.signal);
-    }
-
-    if (linearPcmMetadata !== null) {
-      throwIfAborted(options.signal);
-      const returnedSource = factories.createStreamingLinearPcmSource({
-        queueItemId: options.queueItemId,
-        encodedSource,
-        metadata: linearPcmMetadata,
-        audioContext: options.audioContext,
-        nowRoomTimeMs: options.nowRoomTimeMs,
-        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
-        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
-        runtime: options.linearPcmRuntime,
-      });
-      const inspected = inspectCreatedSource(returnedSource);
-      destroyCreatedSource = inspected.destroy;
-      streamingOwnsEncodedSource = true;
-      assertCreatedSource(inspected, 'bounded-stream', options.queueItemId);
-      throwIfAborted(options.signal);
-      const result = Object.freeze({
-        backend: 'bounded-stream' as const,
-        source: inspected.source as BoundedStreamSource,
-        sourceIdentity: encodedSource.identity,
-        releaseConstructionLease: releaseNoConstructionLease,
-      });
-      completed = true;
-      return issueFilePlaybackSourceResult(result, null);
-    }
-
-    const universalRoute = boundedRoutePolicy.mode === 'universal-v1';
-    const formatGatedRoute = boundedRoutePolicy.mode === 'format-gated-v1';
-    const mp3RouteEnabled =
-      universalRoute || (formatGatedRoute && boundedRoutePolicy.mp3 === 'bounded-stream');
-    const m4aBackendId = universalRoute
-      ? boundedRoutePolicy.m4aBackendId
-      : formatGatedRoute && boundedRoutePolicy.m4aAacLc === 'webcodecs'
-        ? boundedRoutePolicy.m4aAacLc
-        : null;
-    const rawAdtsAacBackendId = universalRoute
-      ? boundedRoutePolicy.aacBackendId
-      : formatGatedRoute && boundedRoutePolicy.rawAdtsAac === 'webcodecs'
-        ? boundedRoutePolicy.rawAdtsAac
-        : null;
-    // Content authority remains independent from activation. For example, an
-    // ADTS stream cannot enter an enabled MP3 route merely because raw AAC is
-    // disabled and its filename claims MP3.
-    const frameContent = await classifyOptionalFrameContent(
-      encodedSource,
-      marker,
-      options.signal,
-      mp3RouteEnabled || rawAdtsAacBackendId !== null,
-    );
-    const aacContentCandidate = frameContent.adts;
-    const m4aContentCandidate = isIsoBmffFileType(marker);
-    const mp3ContentCandidate = frameContent.mp3;
-    const aacClaim =
-      rawAdtsAacBackendId !== null &&
-      claimsRawAac(encodedSource.metadata.name, encodedSource.metadata.mime);
-    const m4aClaim =
-      m4aBackendId !== null && claimsM4a(encodedSource.metadata.name, encodedSource.metadata.mime);
-    const mp3Claim =
-      mp3RouteEnabled && claimsMp3(encodedSource.metadata.name, encodedSource.metadata.mime);
-
-    if (
-      rawAdtsAacBackendId !== null &&
-      (aacContentCandidate ||
-        (!m4aContentCandidate &&
-          !mp3ContentCandidate &&
-          aacClaim &&
-          !hasMarker(marker, ID3_MARKER)))
-    ) {
-      const aacCapabilityProbe = snapshotAacCapabilityProbe(options.aacCapabilityProbe);
-      const aacRouteRuntime = snapshotAacRouteRuntime(options.aacRuntime);
-      const capabilityEvidence = await preflightRawAacCapability(
-        encodedSource,
-        frameContent.audioStartByte,
-        options.signal,
-        aacCapabilityProbe,
-        aacRouteRuntime.capabilityRuntime,
-      );
-      throwIfAborted(options.signal);
-      const scan = await scanAdtsFrames(encodedSource, options.signal, {
-        audioStartByte: frameContent.audioStartByte,
-      });
-      throwIfAborted(options.signal);
-      if (!sameAacCoreConfiguration(capabilityEvidence.coreConfiguration, scan.coreConfiguration)) {
-        throw new EncodedSourceIntegrityError(
-          'Raw AAC source configuration changed after capability admission',
-        );
-      }
-      const codecTimelineHostArtifact = await createOptionalCodecTimelineHostArtifact(
-        codecTimelineHostArtifactBinding,
-        options.queueItemId,
-        encodedSource,
-        scan,
-        options.signal,
-      );
-      throwIfAborted(options.signal);
-      const returnedSource = factories.createStreamingAacSource({
-        queueItemId: options.queueItemId,
-        encodedSource,
-        scan,
-        backendId: rawAdtsAacBackendId,
-        audioContext: options.audioContext,
-        nowRoomTimeMs: options.nowRoomTimeMs,
-        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
-        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
-        runtime: aacRouteRuntime.playbackRuntime,
-      });
-      const inspected = inspectCreatedSource(returnedSource);
-      destroyCreatedSource = inspected.destroy;
-      streamingOwnsEncodedSource = true;
-      assertCreatedSource(inspected, 'bounded-stream', options.queueItemId);
-      throwIfAborted(options.signal);
-      const result = Object.freeze({
-        backend: 'bounded-stream' as const,
-        source: inspected.source as BoundedStreamSource,
-        sourceIdentity: encodedSource.identity,
-        releaseConstructionLease: releaseNoConstructionLease,
-      });
-      completed = true;
-      return issueFilePlaybackSourceResult(result, codecTimelineHostArtifact);
-    }
-
-    if (
-      m4aBackendId !== null &&
-      (m4aContentCandidate || (!aacContentCandidate && !mp3ContentCandidate && m4aClaim))
-    ) {
-      const manifest = await readM4aAacLcMetadata(encodedSource, options.signal);
-      throwIfAborted(options.signal);
-      const returnedSource = factories.createStreamingM4aAacSource({
-        queueItemId: options.queueItemId,
-        encodedSource,
-        manifest,
-        backendId: m4aBackendId,
-        audioContext: options.audioContext,
-        nowRoomTimeMs: options.nowRoomTimeMs,
-        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
-        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
-        runtime: options.m4aRuntime,
-      });
-      const inspected = inspectCreatedSource(returnedSource);
-      destroyCreatedSource = inspected.destroy;
-      streamingOwnsEncodedSource = true;
-      assertCreatedSource(inspected, 'bounded-stream', options.queueItemId);
-      throwIfAborted(options.signal);
-      const result = Object.freeze({
-        backend: 'bounded-stream' as const,
-        source: inspected.source as BoundedStreamSource,
-        sourceIdentity: encodedSource.identity,
-        releaseConstructionLease: releaseNoConstructionLease,
-      });
-      completed = true;
-      return issueFilePlaybackSourceResult(result, null);
-    }
-
-    if (
-      mp3RouteEnabled &&
-      (mp3ContentCandidate || (!aacContentCandidate && !m4aContentCandidate && mp3Claim))
-    ) {
-      const metadata = await readMp3Metadata(encodedSource, options.signal);
-      throwIfAborted(options.signal);
-      const codecTimelineHostArtifact = isMp3MetadataTimelineManifestEligible(metadata)
-        ? await createOptionalCodecTimelineHostArtifact(
-            codecTimelineHostArtifactBinding,
-            options.queueItemId,
-            encodedSource,
-            metadata,
-            options.signal,
-          )
-        : null;
-      throwIfAborted(options.signal);
-      const returnedSource = factories.createStreamingMp3Source({
-        queueItemId: options.queueItemId,
-        encodedSource,
-        metadata,
-        audioContext: options.audioContext,
-        nowRoomTimeMs: options.nowRoomTimeMs,
-        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
-        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
-        runtime: options.mp3Runtime,
-      });
-      const inspected = inspectCreatedSource(returnedSource);
-      destroyCreatedSource = inspected.destroy;
-      streamingOwnsEncodedSource = true;
-      assertCreatedSource(inspected, 'bounded-stream', options.queueItemId);
-      throwIfAborted(options.signal);
-      const result = Object.freeze({
-        backend: 'bounded-stream' as const,
-        source: inspected.source as BoundedStreamSource,
-        sourceIdentity: encodedSource.identity,
-        releaseConstructionLease: releaseNoConstructionLease,
-      });
-      completed = true;
-      return issueFilePlaybackSourceResult(result, codecTimelineHostArtifact);
-    }
-
-    if (claimsFlac(encodedSource.metadata.name, encodedSource.metadata.mime)) {
-      if (hasMarker(marker, OGG_MARKER)) {
-        throw new UnsupportedFlacContainerError(
-          'Ogg-FLAC is not supported by the streaming playback engine; native FLAC is required',
-        );
-      }
-      throw new EncodedSourceIntegrityError(
-        'File claims to be FLAC but does not contain the native fLaC marker',
-      );
-    }
-
-    if (claimsWave(encodedSource.metadata.name, encodedSource.metadata.mime)) {
-      throw new EncodedSourceIntegrityError(
-        'File claims to be WAVE but does not contain a supported RIFF/RF64/BW64 WAVE header',
-      );
-    }
-
-    if (claimsAiff(encodedSource.metadata.name, encodedSource.metadata.mime)) {
-      throw new EncodedSourceIntegrityError(
-        'File claims to be AIFF/AIFC but does not contain a supported FORM AIFF/AIFC header',
-      );
-    }
-
-    if (claimsCaf(encodedSource.metadata.name, encodedSource.metadata.mime)) {
-      throw new EncodedSourceIntegrityError(
-        'File claims to be CAF but does not contain a supported caff header',
-      );
-    }
+    throwClaimedBoundedCodecMismatch(boundedCodecContext);
 
     if (!ordinaryBinding) {
       throw new UnsupportedOrdinaryEncodedSourceError();

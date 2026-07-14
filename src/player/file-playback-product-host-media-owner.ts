@@ -240,6 +240,7 @@ interface PublicationRecord {
   readonly stateLease: FilePlaybackWireStateLease;
   readonly handleId: string | null;
   readonly commit: Readonly<FilePlaybackProductHostPublicationCommit>;
+  readonly transferredWarmSource: WarmSourceOfferRecord | null;
   participant: RemoteRendezvousParticipant | null;
   status: 'publishing' | 'published';
 }
@@ -260,6 +261,7 @@ interface PreparedPublicationRecord {
   readonly handleId: string | null;
   readonly source: CandidateSourceRecord;
   readonly commit: Readonly<FilePlaybackProductHostPreparedPublicationCommit>;
+  readonly transferredWarmSource: WarmSourceOfferRecord | null;
   readonly ready: Promise<Readonly<HostPreparedRemoteParticipant>>;
   readonly resolveReady: (value: Readonly<HostPreparedRemoteParticipant>) => void;
   readonly rejectReady: (error: Error) => void;
@@ -285,7 +287,7 @@ interface WarmSourceOfferRecord {
   expiryTimer: TimerHandle | null;
   offerSent: boolean;
   offerRevokeSent: boolean;
-  status: 'offering' | 'offered' | 'retired';
+  status: 'offering' | 'offered' | 'transferred' | 'retired';
 }
 
 interface PreparedRetirementRecord {
@@ -633,6 +635,7 @@ export class FilePlaybackProductHostMediaOwner {
   #warmOfferTaskAuthority: Readonly<FilePlaybackProductHostLocalTrackWarmResult> | null = null;
   #warmOfferTaskController: AbortController | null = null;
   readonly #warmOfferRetirements = new WeakMap<object, Promise<void>>();
+  readonly #promotedWarmSourceLeases = new WeakSet<object>();
   readonly #warmOfferAuthorities = new WeakMap<
     object,
     Readonly<FilePlaybackProductHostLocalTrackWarmResult>
@@ -829,6 +832,9 @@ export class FilePlaybackProductHostMediaOwner {
     if (this.#warmOfferRetirements.has(sourceLease)) {
       return Promise.reject(new Error('Host warm source offer authority was retired'));
     }
+    if (this.#promotedWarmSourceLeases.has(sourceLease)) {
+      return Promise.reject(new Error('Host warm source lease was promoted to prepared authority'));
+    }
     const knownAuthority = this.#warmOfferAuthorities.get(sourceLease);
     if (knownAuthority && knownAuthority !== authority) {
       return Promise.reject(new Error('Host warm source result is not the exact authority'));
@@ -888,6 +894,9 @@ export class FilePlaybackProductHostMediaOwner {
     }
     const replay = this.#warmOfferRetirements.get(sourceLease);
     if (replay) return replay;
+    if (this.#promotedWarmSourceLeases.has(sourceLease)) {
+      return Promise.reject(new Error('Host warm source offer authority was already promoted'));
+    }
     const pending =
       this.#warmOfferTaskAuthority?.sourceLease === sourceLease ? this.#warmOfferTask : null;
     const record = this.#warmOffer?.sourceLease === sourceLease ? this.#warmOffer : null;
@@ -923,11 +932,11 @@ export class FilePlaybackProductHostMediaOwner {
     if (this.#candidateRetirement) {
       return Promise.reject(new Error('Host prepared publication retirement is settling'));
     }
-    if (this.#candidate?.prepared === prepared && this.#candidate.status !== 'retired') {
-      return Promise.resolve(this.#candidate.commit);
-    }
     if (this.#candidateTask && this.#candidateTaskIdentity === prepared) {
       return this.#candidateTask;
+    }
+    if (this.#candidate?.prepared === prepared && this.#candidate.status !== 'retired') {
+      return Promise.resolve(this.#candidate.commit);
     }
     if (this.#candidate || this.#candidateTask || this.#candidateBindingTask) {
       return Promise.reject(new Error('Host prepared publication already has exact authority'));
@@ -1146,6 +1155,7 @@ export class FilePlaybackProductHostMediaOwner {
       stateLease,
       handleId: record.handleId,
       commit,
+      transferredWarmSource: record.transferredWarmSource,
       participant: record.participant,
       status: 'published',
     };
@@ -1430,6 +1440,7 @@ export class FilePlaybackProductHostMediaOwner {
       stateLease,
       handleId,
       commit,
+      transferredWarmSource: null,
       participant: null,
       status: 'publishing',
     };
@@ -1453,26 +1464,10 @@ export class FilePlaybackProductHostMediaOwner {
     this.#assertPreparedCandidateAuthority(prepared, epoch);
     const resolve = this.#resolvePreparedPeerRangeSource;
     if (!resolve) throw new Error('Host prepared source resolver is unavailable');
-    const prepareRevision = this.#nextPrepareRevision();
-    const prepareId = this.#freshMediaId([
-      prepared.state.queueItemId,
-      prepared.state.runId,
-      prepared.asset.binding.sourceIdentity,
-      prepared.asset.binding.transferSessionId,
-    ]);
-    const base = {
-      sessionId: this.#context.sessionId,
-      connectionId: this.#context.connectionId,
-      prepareId,
-      prepareRevision,
-      queueItemId: prepared.state.queueItemId,
-      sourceIdentity: prepared.asset.binding.sourceIdentity,
-      transferSessionId: prepared.asset.binding.transferSessionId,
-      encodedSize: prepared.asset.encodedSize,
-      name: prepared.asset.metadata.name,
-      mime: prepared.asset.metadata.mime,
-    } as const;
     const signal = this.#candidateSignal(epoch);
+    await this.#awaitPendingWarmSourceForPrepared(prepared, epoch, signal);
+    this.#assertPreparedCandidateAuthority(prepared, epoch);
+    const warmAtStart = this.#transferableWarmSourceForPrepared(prepared);
     const exactSource = await awaitWhileOwned(
       Promise.resolve().then(() =>
         resolve({
@@ -1502,14 +1497,35 @@ export class FilePlaybackProductHostMediaOwner {
       if (isEncodedSource(exactSource)) await exactSource.close().catch(() => undefined);
       throw new Error('Host prepared source changed its exact candidate binding');
     }
+
+    let exactSourceClosed = false;
+    if (warmAtStart && this.#canTransferWarmSourceToPrepared(prepared, warmAtStart)) {
+      if (isEncodedSource(exactSource)) {
+        await exactSource.close();
+        exactSourceClosed = true;
+      }
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+      if (this.#canTransferWarmSourceToPrepared(prepared, warmAtStart)) {
+        return this.#transferWarmSourceToPrepared(prepared, epoch, warmAtStart, resolve);
+      }
+    }
+
     let handleId: string | null = null;
     let offer: Readonly<FileMediaSourceOfferV2>;
     if (prepared.backend === 'bounded-stream') {
-      if (!isEncodedSource(exactSource)) {
-        throw new Error('Streaming prepared publication requires its exact encoded source');
+      if (isEncodedSource(exactSource) && !exactSourceClosed) {
+        await exactSource.close();
       }
-      await exactSource.close();
       this.#assertPreparedCandidateAuthority(prepared, epoch);
+      this.#fenceSameLeaseWarmSourceForPreparedRepair(prepared);
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+      const prepareRevision = this.#nextPrepareRevision();
+      const prepareId = this.#freshMediaId([
+        prepared.state.queueItemId,
+        prepared.state.runId,
+        prepared.asset.binding.sourceIdentity,
+        prepared.asset.binding.transferSessionId,
+      ]);
       handleId = this.#freshMediaId([
         prepareId,
         prepared.state.queueItemId,
@@ -1517,7 +1533,16 @@ export class FilePlaybackProductHostMediaOwner {
         prepared.asset.binding.transferSessionId,
       ]);
       offer = createPeerRangeFileMediaSourceOfferV2({
-        ...base,
+        sessionId: this.#context.sessionId,
+        connectionId: this.#context.connectionId,
+        prepareId,
+        prepareRevision,
+        queueItemId: prepared.state.queueItemId,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        transferSessionId: prepared.asset.binding.transferSessionId,
+        encodedSize: prepared.asset.encodedSize,
+        name: prepared.asset.metadata.name,
+        mime: prepared.asset.metadata.mime,
         handleId,
         expiresAtRoomTimeMs: this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
       });
@@ -1527,6 +1552,13 @@ export class FilePlaybackProductHostMediaOwner {
         throw new Error('Ordinary prepared publication requires its exact Blob source');
       }
       this.#assertPreparedCandidateAuthority(prepared, epoch);
+      const prepareRevision = this.#nextPrepareRevision();
+      const prepareId = this.#freshMediaId([
+        prepared.state.queueItemId,
+        prepared.state.runId,
+        prepared.asset.binding.sourceIdentity,
+        prepared.asset.binding.transferSessionId,
+      ]);
       const published = await awaitWhileOwned(
         this.#publisher.publish({
           queueItemId: prepared.state.queueItemId,
@@ -1544,7 +1576,16 @@ export class FilePlaybackProductHostMediaOwner {
         throw new Error('Host media owner epoch clock is invalid');
       }
       offer = createR2WholeBlobFileMediaSourceOfferV2({
-        ...base,
+        sessionId: this.#context.sessionId,
+        connectionId: this.#context.connectionId,
+        prepareId,
+        prepareRevision,
+        queueItemId: prepared.state.queueItemId,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        transferSessionId: prepared.asset.binding.transferSessionId,
+        encodedSize: prepared.asset.encodedSize,
+        name: prepared.asset.metadata.name,
+        mime: prepared.asset.metadata.mime,
         storageRoomId: published.storageRoomId,
         objectId: published.objectId,
         encryptedSize: published.encryptedSize,
@@ -1555,42 +1596,16 @@ export class FilePlaybackProductHostMediaOwner {
       });
     }
     this.#assertPreparedCandidateAuthority(prepared, epoch);
-    const binding = createFilePlaybackRunBindingV2({
-      sessionId: this.#context.sessionId,
-      connectionId: this.#context.connectionId,
-      prepareId: offer.prepareId,
-      prepareRevision: offer.prepareRevision,
-      queueItemId: offer.queueItemId,
-      sourceIdentity: offer.sourceIdentity,
-      transferSessionId: offer.transferSessionId,
-      runId: prepared.state.runId,
-      playbackRevision: prepared.state.revision,
-    });
-    const ready = deferredReadyCapability();
-    const commit = freezeCanonical({
-      schemaVersion: 1 as const,
-      prepared,
-      offer,
-      binding,
-    });
-    const record: PreparedPublicationRecord = {
+    const record = this.#createPreparedPublicationRecord({
       epoch,
       prepared,
       offer,
-      binding,
-      stateLease: null,
       handleId,
-      source: freezeCanonical({ prepared, resolve }),
-      commit,
-      ready: ready.promise,
-      resolveReady: ready.resolve,
-      rejectReady: ready.reject,
-      participant: null,
-      capability: null,
+      resolve,
+      transferredWarmSource: null,
       offerSent: false,
-      offerRevokeSent: false,
       status: 'offering',
-    };
+    });
     this.#candidate = record;
     await Promise.resolve();
     this.#assertCandidateRecord(record);
@@ -1598,7 +1613,224 @@ export class FilePlaybackProductHostMediaOwner {
     this.#sendRequiredFrame(offer);
     this.#assertCandidateRecord(record);
     record.status = 'offered';
-    return commit;
+    return record.commit;
+  }
+
+  #createPreparedPublicationRecord(
+    options: Readonly<{
+      epoch: number;
+      prepared: Readonly<HostPreparedLocalTrack>;
+      offer: Readonly<FileMediaSourceOfferV2>;
+      handleId: string | null;
+      resolve: NonNullable<
+        FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']
+      >;
+      transferredWarmSource: WarmSourceOfferRecord | null;
+      offerSent: boolean;
+      status: 'offering' | 'offered';
+    }>,
+  ): PreparedPublicationRecord {
+    const binding = createFilePlaybackRunBindingV2({
+      sessionId: this.#context.sessionId,
+      connectionId: this.#context.connectionId,
+      prepareId: options.offer.prepareId,
+      prepareRevision: options.offer.prepareRevision,
+      queueItemId: options.offer.queueItemId,
+      sourceIdentity: options.offer.sourceIdentity,
+      transferSessionId: options.offer.transferSessionId,
+      runId: options.prepared.state.runId,
+      playbackRevision: options.prepared.state.revision,
+    });
+    const ready = deferredReadyCapability();
+    const commit = freezeCanonical({
+      schemaVersion: 1 as const,
+      prepared: options.prepared,
+      offer: options.offer,
+      binding,
+    });
+    return {
+      epoch: options.epoch,
+      prepared: options.prepared,
+      offer: options.offer,
+      binding,
+      stateLease: null,
+      handleId: options.handleId,
+      source: freezeCanonical({ prepared: options.prepared, resolve: options.resolve }),
+      commit,
+      transferredWarmSource: options.transferredWarmSource,
+      ready: ready.promise,
+      resolveReady: ready.resolve,
+      rejectReady: ready.reject,
+      participant: null,
+      capability: null,
+      offerSent: options.offerSent,
+      offerRevokeSent: false,
+      status: options.status,
+    };
+  }
+
+  #transferableWarmSourceForPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): WarmSourceOfferRecord | null {
+    const sourceLease = prepared.sourceLease;
+    if (prepared.backend !== 'bounded-stream' || !sourceLease) return null;
+
+    const pending = this.#warmOfferTaskAuthority;
+    if (pending?.sourceLease === sourceLease) {
+      this.#assertPreparedMatchesWarmAuthority(prepared, pending);
+      return null;
+    }
+    const warm = this.#warmOffer;
+    if (!warm || warm.sourceLease !== sourceLease) return null;
+    this.#assertPreparedMatchesWarmSource(prepared, warm);
+    if (!this.#canTransferWarmSourceToPrepared(prepared, warm)) return null;
+    return warm;
+  }
+
+  async #awaitPendingWarmSourceForPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    epoch: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const sourceLease = prepared.sourceLease;
+    if (prepared.backend !== 'bounded-stream' || !sourceLease) return;
+    const authority = this.#warmOfferTaskAuthority;
+    const task = this.#warmOfferTask;
+    if (!authority || authority.sourceLease !== sourceLease || !task) return;
+    this.#assertPreparedMatchesWarmAuthority(prepared, authority);
+    try {
+      await awaitWhileOwned(task, signal);
+    } catch {
+      // Candidate cancellation only detaches this wait. A failed warm task may
+      // fall through to one fresh candidate offer while exact authority lives.
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+    }
+  }
+
+  #canTransferWarmSourceToPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    warm: WarmSourceOfferRecord,
+  ): boolean {
+    const sourceLease = prepared.sourceLease;
+    if (prepared.backend !== 'bounded-stream' || !sourceLease) return false;
+    const pending = this.#warmOfferTaskAuthority;
+    if (pending?.sourceLease === sourceLease) {
+      this.#assertPreparedMatchesWarmAuthority(prepared, pending);
+      return false;
+    }
+    const current = this.#warmOffer;
+    if (current?.sourceLease === sourceLease) {
+      this.#assertPreparedMatchesWarmSource(prepared, current);
+    }
+    if (current !== warm || warm.status !== 'offered') return false;
+    if (warm.offer.expiresAtRoomTimeMs <= this.#nowRoomTimeMs()) {
+      this.#expireWarmSourceOffer(warm);
+      return false;
+    }
+    return true;
+  }
+
+  #assertPreparedMatchesWarmSource(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    warm: WarmSourceOfferRecord,
+  ): void {
+    if (warm.sourceLease !== prepared.sourceLease) {
+      throw new Error('Host prepared source contradicts the exact warm offer');
+    }
+    this.#assertPreparedMatchesWarmAuthority(prepared, warm.authority);
+  }
+
+  #assertPreparedMatchesWarmAuthority(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>,
+  ): void {
+    const sourceLease = this.#requireWarmSourceOfferAuthority(authority);
+    const asset = authority.asset;
+    if (
+      prepared.backend !== 'bounded-stream' ||
+      prepared.sourceLease !== sourceLease ||
+      prepared.roomGeneration !== authority.roomGeneration ||
+      prepared.asset.kind !== asset.kind ||
+      prepared.asset.binding.queueItemId !== asset.binding.queueItemId ||
+      prepared.asset.binding.sourceIdentity !== asset.binding.sourceIdentity ||
+      prepared.asset.binding.transferSessionId !== asset.binding.transferSessionId ||
+      prepared.asset.metadata.name !== asset.metadata.name ||
+      prepared.asset.metadata.mime !== asset.metadata.mime ||
+      prepared.asset.encodedSize !== asset.encodedSize
+    ) {
+      throw new Error('Host prepared source contradicts the exact warm offer');
+    }
+  }
+
+  #fenceSameLeaseWarmSourceForPreparedRepair(prepared: Readonly<HostPreparedLocalTrack>): void {
+    const sourceLease = prepared.sourceLease;
+    if (prepared.backend !== 'bounded-stream' || !sourceLease) return;
+
+    const pending = this.#warmOfferTaskAuthority;
+    if (pending?.sourceLease === sourceLease) {
+      this.#assertPreparedMatchesWarmAuthority(prepared, pending);
+    }
+    const warm = this.#warmOffer;
+    if (warm?.sourceLease === sourceLease) {
+      this.#assertPreparedMatchesWarmSource(prepared, warm);
+    }
+
+    // Fence the lease before abort/revoke hooks can synchronously republish it.
+    this.#promotedWarmSourceLeases.add(sourceLease);
+    if (pending?.sourceLease === sourceLease) {
+      this.#warmOfferEpoch += 1;
+      this.#warmOfferTaskController?.abort(
+        new Error('Host warm source offer was superseded by prepared repair'),
+      );
+    }
+    if (warm?.sourceLease === sourceLease) {
+      this.#retireWarmSourceOffer(
+        warm,
+        new Error('Host warm source offer was superseded by prepared repair'),
+      );
+    }
+  }
+
+  #transferWarmSourceToPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    epoch: number,
+    warm: WarmSourceOfferRecord,
+    resolve: NonNullable<
+      FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']
+    >,
+  ): Readonly<FilePlaybackProductHostPreparedPublicationCommit> {
+    this.#assertPreparedCandidateAuthority(prepared, epoch);
+    this.#assertPreparedMatchesWarmSource(prepared, warm);
+    if (!this.#canTransferWarmSourceToPrepared(prepared, warm)) {
+      throw new Error('Host warm source offer transfer authority raced away');
+    }
+
+    const record = this.#createPreparedPublicationRecord({
+      epoch,
+      prepared,
+      offer: warm.offer,
+      handleId: warm.handleId,
+      resolve,
+      transferredWarmSource: warm,
+      offerSent: true,
+      status: 'offered',
+    });
+    const timer = warm.expiryTimer;
+    warm.expiryTimer = null;
+    warm.status = 'transferred';
+    this.#warmOffer = null;
+    this.#promotedWarmSourceLeases.add(warm.sourceLease);
+    this.#candidate = record;
+
+    if (timer !== null) {
+      try {
+        this.#runtime.cancelTimeout(timer);
+      } catch {
+        // Candidate authority already owns this exact offer and handle.
+      }
+    }
+    this.#assertCandidateRecord(record);
+    return record.commit;
   }
 
   #bindPreparedRun(
@@ -2239,7 +2471,8 @@ export class FilePlaybackProductHostMediaOwner {
       sourceIdentity,
       signal,
     });
-    if (this.#closed || this.#warmOffer !== warm || warm.status !== 'offered') {
+    const stillWarm = this.#warmOffer === warm && warm.status === 'offered';
+    if (this.#closed || (!stillWarm && !this.#hasTransferredWarmSourceAuthority(warm))) {
       if (isEncodedSource(source)) await source.close().catch(() => undefined);
       return null;
     }
@@ -2255,6 +2488,30 @@ export class FilePlaybackProductHostMediaOwner {
       throw new Error('Host warm peer source changed its exact offer binding');
     }
     return source;
+  }
+
+  #hasTransferredWarmSourceAuthority(warm: WarmSourceOfferRecord): boolean {
+    const candidate = this.#candidate;
+    if (
+      candidate?.transferredWarmSource === warm &&
+      candidate.offer === warm.offer &&
+      candidate.handleId === warm.handleId &&
+      candidate.prepared.sourceLease === warm.sourceLease &&
+      candidate.prepared.asset.binding.sourceIdentity ===
+        warm.authority.asset.binding.sourceIdentity &&
+      hasPreparedSourceAuthority(candidate)
+    ) {
+      return true;
+    }
+    const publication = this.#publication;
+    return Boolean(
+      publication?.transferredWarmSource === warm &&
+      publication.offer === warm.offer &&
+      publication.handleId === warm.handleId &&
+      publication.publication.asset.binding.sourceIdentity ===
+        warm.authority.asset.binding.sourceIdentity &&
+      publication.status === 'published',
+    );
   }
 
   #sendPeerRangeBulk(frame: PeerRangeBulkFrame): Promise<void> {
@@ -2456,7 +2713,7 @@ export class FilePlaybackProductHostMediaOwner {
     reason: Error,
     notifyGuest = true,
   ): boolean {
-    if (record.status === 'retired') return false;
+    if (record.status === 'retired' || record.status === 'transferred') return false;
     const timer = record.expiryTimer;
     record.expiryTimer = null;
     record.status = 'retired';
@@ -2676,7 +2933,7 @@ export class FilePlaybackProductHostMediaOwner {
     this.#assertConnection();
     if (
       this.#warmOffer !== record ||
-      record.status === 'retired' ||
+      (record.status !== 'offering' && record.status !== 'offered') ||
       record.controller.signal.aborted ||
       this.#requireWarmSourceOfferAuthority(record.authority) !== record.sourceLease
     ) {

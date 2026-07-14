@@ -13,6 +13,7 @@ import {
 } from '../streaming/pcm-stream-protocol.ts';
 import {
   type EncodedAudioSource,
+  type EncodedAudioSourceKind,
   isEncodedAudioSourceIdentity,
   throwIfAborted,
   validateExactRead,
@@ -24,8 +25,10 @@ import {
 import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
 import {
   createMp3DecoderDescriptor,
+  createMp3DecoderDescriptorFromTimelineEvidence,
   expectedMp3OutputFrames,
   rebuildMp3DecoderPlanningState,
+  rebuildMp3DecoderTimelinePlanningState,
 } from './decoder-helpers.js';
 import {
   MP3_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ,
@@ -42,9 +45,11 @@ import {
   type Mp3DecoderEvent,
 } from './decoder-protocol.js';
 import type { Mp3Metadata } from './metadata.js';
+import type { Mp3DecoderTimelineEvidence } from './decoder-timeline-evidence.js';
 import type { MpegLayer3SeekIndexPoint } from './seek-index.js';
 
 const MAX_FATAL_CODE_LENGTH = 256;
+const SOURCE_KINDS = new Set<EncodedAudioSourceKind>(['blob', 'peer-range', 'r2-records']);
 
 export interface Mp3DecoderAdapterRuntime {
   /** A fresh Worker must be returned for every invocation. */
@@ -52,11 +57,158 @@ export interface Mp3DecoderAdapterRuntime {
   readonly createMessageChannel: () => MessageChannel;
 }
 
-export interface Mp3DecoderAdapterOptions {
+interface Mp3DecoderAdapterBaseOptions {
   /** Ownership transfers only after this constructor validates successfully. */
   readonly encodedSource: EncodedAudioSource;
-  readonly metadata: Readonly<Mp3Metadata>;
   readonly runtime: Mp3DecoderAdapterRuntime;
+}
+
+export interface Mp3DecoderAdapterMetadataOptions extends Mp3DecoderAdapterBaseOptions {
+  readonly metadata: Readonly<Mp3Metadata>;
+  readonly timelineEvidence?: never;
+}
+
+export interface Mp3DecoderAdapterTimelineEvidenceOptions extends Mp3DecoderAdapterBaseOptions {
+  readonly metadata?: never;
+  /** Detached decoder planning data issued by a trusted scanner or admission owner. */
+  readonly timelineEvidence: Readonly<Mp3DecoderTimelineEvidence>;
+}
+
+export type Mp3DecoderAdapterOptions =
+  | Mp3DecoderAdapterMetadataOptions
+  | Mp3DecoderAdapterTimelineEvidenceOptions;
+
+interface Mp3DecoderAdapterOptionsSnapshot {
+  readonly kind: 'metadata' | 'timeline-evidence';
+  readonly encodedSource: unknown;
+  readonly metadata: unknown;
+  readonly timelineEvidence: unknown;
+  readonly runtime: unknown;
+}
+
+const ADAPTER_COMMON_OPTION_KEYS = Object.freeze(['encodedSource', 'runtime'] as const);
+const ADAPTER_METADATA_OPTION_KEYS = Object.freeze([
+  ...ADAPTER_COMMON_OPTION_KEYS,
+  'metadata',
+] as const);
+const ADAPTER_EVIDENCE_OPTION_KEYS = Object.freeze([
+  ...ADAPTER_COMMON_OPTION_KEYS,
+  'timelineEvidence',
+] as const);
+
+function snapshotAdapterOptions(value: unknown): Readonly<Mp3DecoderAdapterOptionsSnapshot> {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+    throw new TypeError('MP3 decoder adapter options are required');
+  }
+  let prototype: object | null;
+  let descriptors: PropertyDescriptorMap;
+  try {
+    prototype = Reflect.getPrototypeOf(value);
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch (error) {
+    throw new TypeError('MP3 decoder adapter options could not be snapshotted', { cause: error });
+  }
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError('MP3 decoder adapter options must use a plain or null prototype');
+  }
+  const hasMetadata = Object.hasOwn(descriptors, 'metadata');
+  const hasEvidence = Object.hasOwn(descriptors, 'timelineEvidence');
+  if (hasMetadata === hasEvidence) {
+    throw new TypeError('MP3 decoder adapter requires exactly one timeline evidence source');
+  }
+  const expected = hasMetadata ? ADAPTER_METADATA_OPTION_KEYS : ADAPTER_EVIDENCE_OPTION_KEYS;
+  const allowed = new Set<PropertyKey>(expected);
+  const keys = Reflect.ownKeys(descriptors);
+  if (keys.length !== expected.length || keys.some((key) => !allowed.has(key))) {
+    throw new TypeError('MP3 decoder adapter options have missing or extra fields');
+  }
+  const readData = (key: PropertyKey): unknown => {
+    const descriptor = descriptors[key];
+    if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(`MP3 decoder adapter ${String(key)} must be an enumerable data field`);
+    }
+    return descriptor.value;
+  };
+  return Object.freeze({
+    kind: hasMetadata ? ('metadata' as const) : ('timeline-evidence' as const),
+    encodedSource: readData('encodedSource'),
+    metadata: hasMetadata ? readData('metadata') : undefined,
+    timelineEvidence: hasEvidence ? readData('timelineEvidence') : undefined,
+    runtime: readData('runtime'),
+  });
+}
+
+/** Capture one stable facade without taking ownership until construction commits. */
+function snapshotEncodedSource(value: unknown): EncodedAudioSource {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+    throw new TypeError('Streaming MP3 requires an encoded source');
+  }
+  try {
+    const kind = Reflect.get(value, 'kind') as unknown;
+    const size = Reflect.get(value, 'size') as unknown;
+    const identity = Reflect.get(value, 'identity') as unknown;
+    const metadataValue = Reflect.get(value, 'metadata') as unknown;
+    const readAt = Reflect.get(value, 'readAt') as unknown;
+    const close = Reflect.get(value, 'close') as unknown;
+    if (!SOURCE_KINDS.has(kind as EncodedAudioSourceKind)) {
+      throw new TypeError('Streaming MP3 encoded source kind is invalid');
+    }
+    if (typeof size !== 'number') {
+      throw new TypeError('Streaming MP3 encoded source size is invalid');
+    }
+    validateExactRead(size, 0, 0);
+    if (size <= 0 || !isEncodedAudioSourceIdentity(identity)) {
+      throw new TypeError('Streaming MP3 requires a valid non-empty encoded source');
+    }
+    if (
+      metadataValue === null ||
+      (typeof metadataValue !== 'object' && typeof metadataValue !== 'function')
+    ) {
+      throw new TypeError('Streaming MP3 encoded source metadata is invalid');
+    }
+    const name = Reflect.get(metadataValue, 'name') as unknown;
+    const mime = Reflect.get(metadataValue, 'mime') as unknown;
+    if (typeof name !== 'string' || typeof mime !== 'string') {
+      throw new TypeError('Streaming MP3 encoded source metadata is invalid');
+    }
+    if (typeof readAt !== 'function' || typeof close !== 'function') {
+      throw new TypeError('Streaming MP3 encoded source methods are invalid');
+    }
+    const target = value;
+    return Object.freeze({
+      kind: kind as EncodedAudioSourceKind,
+      size,
+      identity,
+      metadata: Object.freeze({ name, mime }),
+      readAt: (offset: number, length: number, signal: AbortSignal) =>
+        Reflect.apply(readAt, target, [offset, length, signal]) as Promise<Uint8Array>,
+      close: () => Reflect.apply(close, target, []) as Promise<void>,
+    });
+  } catch (error) {
+    if (error instanceof TypeError || error instanceof RangeError) throw error;
+    throw new TypeError('Streaming MP3 encoded source could not be inspected', { cause: error });
+  }
+}
+
+function snapshotRuntime(value: unknown): Readonly<Mp3DecoderAdapterRuntime> {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+    throw new TypeError('Streaming MP3 decoder runtime is invalid');
+  }
+  try {
+    const createWorker = Reflect.get(value, 'createWorker') as unknown;
+    const createMessageChannel = Reflect.get(value, 'createMessageChannel') as unknown;
+    if (typeof createWorker !== 'function' || typeof createMessageChannel !== 'function') {
+      throw new TypeError('Streaming MP3 decoder runtime is invalid');
+    }
+    const target = value;
+    return Object.freeze({
+      createWorker: () => Reflect.apply(createWorker, target, []) as Worker,
+      createMessageChannel: () => Reflect.apply(createMessageChannel, target, []) as MessageChannel,
+    });
+  } catch (error) {
+    if (error instanceof TypeError) throw error;
+    throw new TypeError('Streaming MP3 decoder runtime could not be inspected', { cause: error });
+  }
 }
 
 interface Deferred {
@@ -186,7 +338,8 @@ function sameIndexPoint(
 export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
   readonly info: Readonly<StreamingDecoderMediaInfo>;
 
-  readonly #metadata: Readonly<Mp3Metadata>;
+  readonly #metadata: Readonly<Mp3Metadata> | null;
+  readonly #timelineEvidence: Readonly<Mp3DecoderTimelineEvidence> | null;
   readonly #runtime: Mp3DecoderAdapterRuntime;
   readonly #sourceLifetime: EncodedAudioSourceLifetime;
   readonly #seekIndex: ReturnType<typeof rebuildMp3DecoderPlanningState>['seekIndex'];
@@ -204,47 +357,53 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
   #closePromise: Promise<void> | null = null;
 
   constructor(options: Mp3DecoderAdapterOptions) {
-    if (!options || typeof options !== 'object') {
-      throw new TypeError('MP3 decoder adapter options are required');
-    }
-    const source = options.encodedSource;
-    if (
-      !source ||
-      typeof source.readAt !== 'function' ||
-      typeof source.close !== 'function' ||
-      !Number.isSafeInteger(source.size) ||
-      source.size <= 0 ||
-      !isEncodedAudioSourceIdentity(source.identity)
-    ) {
-      throw new TypeError('Streaming MP3 requires a valid non-empty encoded source');
-    }
-    validateExactRead(source.size, 0, 0);
-    if (
-      !options.runtime ||
-      typeof options.runtime.createWorker !== 'function' ||
-      typeof options.runtime.createMessageChannel !== 'function'
-    ) {
-      throw new TypeError('Streaming MP3 decoder runtime is invalid');
-    }
+    const snapshot = snapshotAdapterOptions(options);
+    const source = snapshotEncodedSource(snapshot.encodedSource);
+    const runtime = snapshotRuntime(snapshot.runtime);
 
-    let planning: ReturnType<typeof rebuildMp3DecoderPlanningState>;
-    try {
-      planning = rebuildMp3DecoderPlanningState({
-        metadata: options.metadata,
-        sourceSize: source.size,
+    if (snapshot.kind === 'timeline-evidence') {
+      let planning: ReturnType<typeof rebuildMp3DecoderTimelinePlanningState>;
+      try {
+        planning = rebuildMp3DecoderTimelinePlanningState({
+          evidence: snapshot.timelineEvidence as Readonly<Mp3DecoderTimelineEvidence>,
+        });
+      } catch (error) {
+        throw new TypeError('Streaming MP3 timeline evidence is invalid', { cause: error });
+      }
+      if (
+        planning.evidence.sourceSize !== source.size ||
+        planning.evidence.sourceIdentity !== source.identity
+      ) {
+        throw new TypeError('Streaming MP3 timeline evidence belongs to another encoded source');
+      }
+      this.#metadata = null;
+      this.#timelineEvidence = planning.evidence;
+      this.#seekIndex = planning.seekIndex;
+      this.info = Object.freeze({
+        mediaSampleRateHz: planning.evidence.sampleRateHz,
+        channelCount: planning.evidence.channels,
+        totalMediaFrames: planning.timeline.totalMediaFrames,
       });
-    } catch (error) {
-      throw new TypeError('Streaming MP3 metadata is invalid', { cause: error });
+    } else {
+      let planning: ReturnType<typeof rebuildMp3DecoderPlanningState>;
+      try {
+        planning = rebuildMp3DecoderPlanningState({
+          metadata: snapshot.metadata as Readonly<Mp3Metadata>,
+          sourceSize: source.size,
+        });
+      } catch (error) {
+        throw new TypeError('Streaming MP3 metadata is invalid', { cause: error });
+      }
+      this.#metadata = planning.metadata;
+      this.#timelineEvidence = null;
+      this.#seekIndex = planning.seekIndex;
+      this.info = Object.freeze({
+        mediaSampleRateHz: planning.metadata.sampleRateHz,
+        channelCount: planning.metadata.channels,
+        totalMediaFrames: planning.timeline.totalMediaFrames,
+      });
     }
-
-    this.#metadata = planning.metadata;
-    this.#runtime = options.runtime;
-    this.#seekIndex = planning.seekIndex;
-    this.info = Object.freeze({
-      mediaSampleRateHz: planning.metadata.sampleRateHz,
-      channelCount: planning.metadata.channels,
-      totalMediaFrames: planning.timeline.totalMediaFrames,
-    });
+    this.#runtime = runtime;
     // This is the final potentially throwing ownership boundary in a valid
     // constructor. The lifetime performs no reads and creates no native realm.
     this.#sourceLifetime = new EncodedAudioSourceLifetime({ source });
@@ -417,14 +576,22 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
     let broker: EncodedSourcePortBroker | null = null;
     let readiness: Deferred | null = null;
     try {
-      const descriptor = createMp3DecoderDescriptor({
-        metadata: this.#metadata,
-        sourceSize: this.#sourceLifetime.size,
-        sourceIdentity: this.#sourceLifetime.identity,
-        seekPoints: this.#seekIndex.snapshot(),
-        mediaFrame: request.targetMediaFrame,
-        outputSampleRate: request.outputSampleRateHz,
-      });
+      const seekPoints = this.#seekIndex.snapshot();
+      const descriptor = this.#timelineEvidence
+        ? createMp3DecoderDescriptorFromTimelineEvidence({
+            evidence: this.#timelineEvidence,
+            seekPoints,
+            mediaFrame: request.targetMediaFrame,
+            outputSampleRate: request.outputSampleRateHz,
+          })
+        : createMp3DecoderDescriptor({
+            metadata: this.#metadata!,
+            sourceSize: this.#sourceLifetime.size,
+            sourceIdentity: this.#sourceLifetime.identity,
+            seekPoints,
+            mediaFrame: request.targetMediaFrame,
+            outputSampleRate: request.outputSampleRateHz,
+          });
       lease = this.#sourceLifetime.acquireLease();
       worker = this.#runtime.createWorker();
       const sourceChannel = this.#runtime.createMessageChannel();

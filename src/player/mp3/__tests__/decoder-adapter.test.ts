@@ -14,6 +14,10 @@ import {
   type Mp3DecoderOpenCommand,
 } from '../decoder-protocol.ts';
 import { Mp3DecoderAdapter } from '../decoder-adapter.ts';
+import {
+  createMp3DecoderTimelineEvidence,
+  type Mp3DecoderTimelineEvidence,
+} from '../decoder-timeline-evidence.ts';
 import { parseMpegLayer3FrameHeader } from '../frame-header.ts';
 import type { Mp3Metadata } from '../metadata.ts';
 
@@ -151,7 +155,38 @@ function metadata(): Readonly<Mp3Metadata> {
   });
 }
 
-function harness() {
+function timelineEvidence(sourceIdentity = SOURCE_IDENTITY): Readonly<Mp3DecoderTimelineEvidence> {
+  return createMp3DecoderTimelineEvidence({
+    format: 'mp3-decoder-timeline',
+    sourceIdentity,
+    sourceSize: SOURCE_SIZE,
+    version: HEADER.version,
+    sampleRateHz: HEADER.sampleRateHz,
+    channels: HEADER.channelCount,
+    samplesPerFrame: HEADER.samplesPerFrame,
+    firstAudioFrameOffset: 0,
+    audioEndByteOffset: SOURCE_SIZE,
+    audioFrameCount: AUDIO_FRAME_COUNT,
+    tagFrame: null,
+    frameCountEvidence: 'verified-scan',
+    fullyVerifiedFrameSpan: true,
+    verifiedAudioFrameCount: AUDIO_FRAME_COUNT,
+    verifiedAudioBytes: SOURCE_SIZE,
+    timeline: {
+      totalRawSamples: TOTAL_FRAMES,
+      samplesPerFrame: HEADER.samplesPerFrame,
+      headTrimSamples: 0,
+      tailTrimSamples: 0,
+      rawEofSampleExclusive: TOTAL_FRAMES,
+      totalMediaFrames: TOTAL_FRAMES,
+    },
+    seekPoints: [point(0), point(AUDIO_FRAME_COUNT - 1)],
+  });
+}
+
+function harness(
+  options: { readonly timelineEvidence?: Readonly<Mp3DecoderTimelineEvidence> } = {},
+) {
   const workers: FakeWorker[] = [];
   const channels: FakeMessageChannel[] = [];
   const closeSource = vi.fn(async () => undefined);
@@ -174,11 +209,18 @@ function harness() {
     channels.push(channel);
     return channel as unknown as MessageChannel;
   });
-  const adapter = new Mp3DecoderAdapter({
-    encodedSource: source,
-    metadata: metadata(),
-    runtime: { createWorker, createMessageChannel },
-  });
+  const runtime = { createWorker, createMessageChannel };
+  const adapter = options.timelineEvidence
+    ? new Mp3DecoderAdapter({
+        encodedSource: source,
+        timelineEvidence: options.timelineEvidence,
+        runtime,
+      })
+    : new Mp3DecoderAdapter({
+        encodedSource: source,
+        metadata: metadata(),
+        runtime,
+      });
   return {
     adapter,
     workers,
@@ -232,6 +274,104 @@ function request(
 }
 
 describe('Mp3DecoderAdapter', () => {
+  it('opens byte-identical generations from normalized timeline evidence', async () => {
+    const legacy = harness();
+    const normalized = harness({ timelineEvidence: timelineEvidence() });
+    await legacy.adapter.open(options());
+    await normalized.adapter.open(options());
+    const target = 50 * HEADER.samplesPerFrame + 37;
+
+    const legacyReady = legacy.adapter.startGeneration(request(1, target, new FakeMessagePort()));
+    const normalizedReady = normalized.adapter.startGeneration(
+      request(1, target, new FakeMessagePort()),
+    );
+    const legacyWorker = legacy.workers[0];
+    const normalizedWorker = normalized.workers[0];
+    if (!legacyWorker || !normalizedWorker) throw new Error('Expected comparable MP3 realms');
+    const legacyCommand = openCommand(legacyWorker);
+    const normalizedCommand = openCommand(normalizedWorker);
+
+    expect(normalizedCommand.descriptor).toEqual(legacyCommand.descriptor);
+    expect(JSON.stringify(normalizedCommand.descriptor)).toBe(
+      JSON.stringify(legacyCommand.descriptor),
+    );
+    legacyWorker.emit(ready(legacyCommand));
+    normalizedWorker.emit(ready(normalizedCommand));
+    await Promise.all([legacyReady, normalizedReady]);
+    await Promise.all([legacy.adapter.close(), normalized.adapter.close()]);
+  });
+
+  it('rejects ambiguous or differently source-bound timeline evidence before ownership', () => {
+    const close = vi.fn(async () => undefined);
+    const source: EncodedAudioSource = {
+      kind: 'blob',
+      size: SOURCE_SIZE,
+      identity: SOURCE_IDENTITY,
+      metadata: { name: 'fixture.mp3', mime: 'audio/mpeg' },
+      readAt: async (_offset, length) => new Uint8Array(length),
+      close,
+    };
+    const runtime = {
+      createWorker: () => new FakeWorker() as unknown as Worker,
+      createMessageChannel: () => new FakeMessageChannel() as unknown as MessageChannel,
+    };
+
+    expect(
+      () =>
+        new Mp3DecoderAdapter({
+          encodedSource: source,
+          metadata: metadata(),
+          timelineEvidence: timelineEvidence(),
+          runtime,
+        } as never),
+    ).toThrow(/exactly one/i);
+    expect(
+      () =>
+        new Mp3DecoderAdapter({
+          encodedSource: source,
+          timelineEvidence: timelineEvidence(`${SOURCE_IDENTITY}:other`),
+          runtime,
+        }),
+    ).toThrow(/another encoded source/i);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('binds evidence comparison and lifetime ownership to one source snapshot', async () => {
+    let sizeReads = 0;
+    let identityReads = 0;
+    const close = vi.fn(async () => undefined);
+    const source = {
+      kind: 'blob' as const,
+      get size() {
+        sizeReads += 1;
+        return sizeReads === 1 ? SOURCE_SIZE : SOURCE_SIZE + 1;
+      },
+      get identity() {
+        identityReads += 1;
+        return identityReads === 1 ? SOURCE_IDENTITY : `${SOURCE_IDENTITY}:changed`;
+      },
+      metadata: { name: 'fixture.mp3', mime: 'audio/mpeg' },
+      readAt: async (_offset: number, length: number) => new Uint8Array(length),
+      close,
+    };
+    const adapter = new Mp3DecoderAdapter({
+      encodedSource: source,
+      timelineEvidence: timelineEvidence(),
+      runtime: {
+        createWorker: () => new FakeWorker() as unknown as Worker,
+        createMessageChannel: () => new FakeMessageChannel() as unknown as MessageChannel,
+      },
+    });
+
+    expect(sizeReads).toBe(1);
+    expect(identityReads).toBe(1);
+    expect(adapter.info.totalMediaFrames).toBe(TOTAL_FRAMES);
+    await adapter.close();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(sizeReads).toBe(1);
+    expect(identityReads).toBe(1);
+  });
+
   it('keeps construction/open inert and closes the encoded source exactly once', async () => {
     const h = harness();
     expect(h.adapter.info).toEqual({

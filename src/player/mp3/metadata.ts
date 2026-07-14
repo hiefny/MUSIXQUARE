@@ -1,6 +1,7 @@
 import {
   EncodedSourceIntegrityError,
   type EncodedAudioSource,
+  isEncodedAudioSourceIdentity,
   throwIfAborted,
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
@@ -77,6 +78,28 @@ export interface Mp3Metadata {
   readonly seekPoints: readonly MpegLayer3SeekIndexPoint[];
 }
 
+export interface ScannerIssuedMp3MetadataSource {
+  readonly sourceIdentity: string;
+  readonly sourceSize: number;
+}
+
+// Keep source binding and issuance authority out of Mp3Metadata's public exact
+// data shape. Decoder boundaries intentionally validate that shape strictly.
+// A structural copy therefore neither gains seal authority nor leaks a hidden
+// mutable marker into decoder metadata.
+const scannerIssuedMp3MetadataSources = new WeakMap<
+  object,
+  Readonly<ScannerIssuedMp3MetadataSource>
+>();
+
+/** Internal trust boundary used by the timeline-manifest sealer. */
+export function scannerIssuedMp3MetadataSource(
+  value: unknown,
+): Readonly<ScannerIssuedMp3MetadataSource> | null {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return null;
+  return scannerIssuedMp3MetadataSources.get(value) ?? null;
+}
+
 export class Mp3MetadataError extends EncodedSourceIntegrityError {
   constructor(message: string, cause?: unknown) {
     super(message);
@@ -115,6 +138,41 @@ function safeMultiply(left: number, right: number, label: string): number {
     throw new Mp3MetadataError(`${label} exceeds the browser safe-integer range`);
   }
   return result;
+}
+
+function snapshotSourceBinding(source: EncodedAudioSource): ScannerIssuedMp3MetadataSource {
+  let sourceSize: number;
+  let sourceIdentity: string;
+  try {
+    sourceSize = source.size;
+    sourceIdentity = source.identity;
+  } catch (error) {
+    throw new TypeError('MP3 metadata source binding could not be inspected safely', {
+      cause: error,
+    });
+  }
+  validateExactRead(sourceSize, 0, 0);
+  if (!isEncodedAudioSourceIdentity(sourceIdentity)) {
+    throw new TypeError('MP3 metadata source identity is invalid');
+  }
+  return Object.freeze({ sourceIdentity, sourceSize });
+}
+
+function assertSourceBindingStable(
+  source: EncodedAudioSource,
+  expected: Readonly<ScannerIssuedMp3MetadataSource>,
+): void {
+  let sourceSize: number;
+  let sourceIdentity: string;
+  try {
+    sourceSize = source.size;
+    sourceIdentity = source.identity;
+  } catch (error) {
+    throw new Mp3MetadataError('MP3 encoded source binding changed during metadata read', error);
+  }
+  if (sourceSize !== expected.sourceSize || sourceIdentity !== expected.sourceIdentity) {
+    throw new Mp3MetadataError('MP3 encoded source binding changed during metadata read');
+  }
 }
 
 function immutableDescriptor(
@@ -406,8 +464,8 @@ export async function readMp3Metadata(
   if (!(signal instanceof AbortSignal)) {
     throw new TypeError('MP3 metadata signal must be an AbortSignal');
   }
-  const sourceSize = source.size;
-  validateExactRead(sourceSize, 0, 0);
+  const sourceBinding = snapshotSourceBinding(source);
+  const sourceSize = sourceBinding.sourceSize;
   throwIfAborted(signal);
 
   const id3 = await readMp3Id3Boundaries(source, signal);
@@ -548,7 +606,8 @@ export async function readMp3Metadata(
   }
 
   throwIfAborted(signal);
-  return Object.freeze({
+  assertSourceBindingStable(source, sourceBinding);
+  const result: Readonly<Mp3Metadata> = Object.freeze({
     format: 'mp3' as const,
     id3,
     vbr,
@@ -580,4 +639,6 @@ export async function readMp3Metadata(
     verifiedAudioBytes,
     seekPoints,
   });
+  scannerIssuedMp3MetadataSources.set(result, sourceBinding);
+  return result;
 }

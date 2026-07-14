@@ -42,6 +42,22 @@ export interface AdtsFrameScanResult {
   readonly fullyVerifiedFrameSpan: true;
 }
 
+// Seal authority is intentionally not structural. Only the exact frozen
+// object returned after a successful EOF scan is registered here; spreads,
+// clones, deserialized values, and partially completed scans cannot inherit it.
+const scannerIssuedAdtsFrameScanResults = new WeakSet<object>();
+
+/** Internal trust boundary used by the timeline-manifest sealer. */
+export function isScannerIssuedAdtsFrameScanResult(
+  value: unknown,
+): value is Readonly<AdtsFrameScanResult> {
+  return (
+    (typeof value === 'object' || typeof value === 'function') &&
+    value !== null &&
+    scannerIssuedAdtsFrameScanResults.has(value)
+  );
+}
+
 export class AdtsFrameScanError extends EncodedSourceIntegrityError {
   constructor(message: string, cause?: unknown) {
     super(message);
@@ -325,7 +341,7 @@ export async function scanAdtsFrames(
   }
 
   const seekPoints = seekIndex.snapshot();
-  return Object.freeze({
+  const result: Readonly<AdtsFrameScanResult> = Object.freeze({
     sourceIdentity: sourceSnapshot.identity,
     sourceSize: sourceSnapshot.size,
     coreConfiguration,
@@ -338,4 +354,6 @@ export async function scanAdtsFrames(
     seekPoints,
     fullyVerifiedFrameSpan: true,
   });
+  scannerIssuedAdtsFrameScanResults.add(result);
+  return result;
 }

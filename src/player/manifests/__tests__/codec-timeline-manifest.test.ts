@@ -81,6 +81,10 @@ function mp3Manifest(
     mpegVersion: '1',
     layer: 3,
     hasFrameCountDeclaration: false,
+    hasTagFrame: false,
+    tagFrameBytes: 0,
+    gapless: null,
+    totalMediaFrames: 3 * 1_152,
     points: [
       { frameOrdinal: 0, byteOffset: 12, mainDataCapacityBytes: 75, mainDataBeginBytes: 0 },
       { frameOrdinal: 1, byteOffset: 108, mainDataCapacityBytes: 75, mainDataBeginBytes: 5 },
@@ -88,6 +92,45 @@ function mp3Manifest(
     ],
     ...patch,
   };
+}
+
+function gaplessMp3Manifest(
+  patch: Partial<Mp3NoFrameCountTimelineManifest> = {},
+): Mp3NoFrameCountTimelineManifest {
+  const tagFrameBytes = 417;
+  const frameBytes = 96;
+  const frameCount = 3;
+  return mp3Manifest({
+    sourceSize: tagFrameBytes + frameCount * frameBytes,
+    audioStartByte: tagFrameBytes,
+    audioEndByte: tagFrameBytes + frameCount * frameBytes,
+    hasTagFrame: true,
+    tagFrameBytes,
+    gapless: { encoderDelaySamples: 576, endPaddingSamples: 100 },
+    // Padding shorter than mpg123's 529-sample delay contributes no tail trim.
+    totalMediaFrames: frameCount * 1_152 - 576 - 529,
+    points: [
+      {
+        frameOrdinal: 0,
+        byteOffset: tagFrameBytes,
+        mainDataCapacityBytes: 75,
+        mainDataBeginBytes: 0,
+      },
+      {
+        frameOrdinal: 1,
+        byteOffset: tagFrameBytes + frameBytes,
+        mainDataCapacityBytes: 75,
+        mainDataBeginBytes: 5,
+      },
+      {
+        frameOrdinal: 2,
+        byteOffset: tagFrameBytes + 2 * frameBytes,
+        mainDataCapacityBytes: 75,
+        mainDataBeginBytes: 10,
+      },
+    ],
+    ...patch,
+  });
 }
 
 function dataView(bytes: Uint8Array): DataView {
@@ -110,7 +153,7 @@ function setUint64(view: DataView, offset: number, value: number): void {
 
 describe('codec timeline manifest canonical binary codec', () => {
   it('round-trips canonical ADTS AAC-LC and MP3 no-frame-count manifests', () => {
-    for (const manifest of [adtsManifest(), mp3Manifest()]) {
+    for (const manifest of [adtsManifest(), mp3Manifest(), gaplessMp3Manifest()]) {
       const encoded = encodeCodecTimelineManifest(manifest);
       const parsed = parseCodecTimelineManifest(encoded);
 
@@ -120,6 +163,9 @@ describe('codec timeline manifest canonical binary codec', () => {
       expect(Object.isFrozen(parsed.sourceBindingSha256)).toBe(true);
       expect(Object.isFrozen(parsed.points)).toBe(true);
       expect(parsed.points.every(Object.isFrozen)).toBe(true);
+      if (parsed.codec === 'mp3-no-frame-count' && parsed.gapless !== null) {
+        expect(Object.isFrozen(parsed.gapless)).toBe(true);
+      }
       expect(encodeCodecTimelineManifest(parsed)).toEqual(encoded);
     }
   });
@@ -155,6 +201,34 @@ describe('codec timeline manifest canonical binary codec', () => {
     );
     expect(mp3View.getUint16(CODEC_TIMELINE_MANIFEST_HEADER_BYTES + 16, false)).toBe(75);
     expect(mp3View.getUint32(CODEC_TIMELINE_MANIFEST_HEADER_BYTES + 20, false)).toBe(0);
+    expect(mp3View.getUint8(HEADER.codecConfiguration + 3)).toBe(0);
+    expect(mp3View.getUint16(HEADER.codecConfiguration + 4, false)).toBe(0);
+    expect(mp3View.getUint16(HEADER.codecConfiguration + 6, false)).toBe(0);
+    expect(mp3View.getUint16(HEADER.codecConfiguration + 8, false)).toBe(0);
+  });
+
+  it('canonically preserves MP3 tag and gapless timing with the 529-sample rule', () => {
+    const manifest = gaplessMp3Manifest();
+    const encoded = encodeCodecTimelineManifest(manifest);
+    const view = dataView(encoded);
+
+    expect(view.getUint8(HEADER.codecConfiguration + 3)).toBe(0b11);
+    expect(view.getUint16(HEADER.codecConfiguration + 4, false)).toBe(417);
+    expect(view.getUint16(HEADER.codecConfiguration + 6, false)).toBe(576);
+    expect(view.getUint16(HEADER.codecConfiguration + 8, false)).toBe(100);
+    const parsed = parseCodecTimelineManifest(encoded);
+    expect(parsed).toEqual(manifest);
+    expect(parsed.codec).toBe('mp3-no-frame-count');
+    if (parsed.codec !== 'mp3-no-frame-count') throw new Error('Expected MP3 manifest');
+    expect(parsed.totalMediaFrames).toBe(3 * 1_152 - 576 - 529);
+    expect(parsed.totalMediaFrames).not.toBe(3 * 1_152 - 576 - 100);
+    expect(Object.isFrozen(parsed.gapless)).toBe(true);
+    const repeated = parseCodecTimelineManifest(encoded);
+    if (repeated.codec !== 'mp3-no-frame-count') throw new Error('Expected MP3 manifest');
+    expect(repeated.gapless).toEqual(parsed.gapless);
+    expect(repeated.gapless).not.toBe(parsed.gapless);
+    encoded.fill(0);
+    expect(parsed.gapless).toEqual({ encoderDelaySamples: 576, endPaddingSamples: 100 });
   });
 
   it('accepts the maximum retained-point count while remaining below 256 KiB', () => {
@@ -191,6 +265,7 @@ describe('codec timeline manifest canonical binary codec', () => {
         sourceSize: 12 + CODEC_TIMELINE_MANIFEST_MAX_POINTS * 96,
         audioEndByte: 12 + CODEC_TIMELINE_MANIFEST_MAX_POINTS * 96,
         frameCount: CODEC_TIMELINE_MANIFEST_MAX_POINTS,
+        totalMediaFrames: CODEC_TIMELINE_MANIFEST_MAX_POINTS * 1_152,
         points: mp3Points,
       }),
     );
@@ -257,6 +332,28 @@ describe('codec timeline manifest canonical binary codec', () => {
       view.setUint32(HEADER.sourceSize + 4, 0, false);
     });
     expect(() => parseCodecTimelineManifest(over)).toThrow(/MAX_SAFE_INTEGER/i);
+  });
+
+  it('rejects raw sample products beyond Number.MAX_SAFE_INTEGER on encode and parse', () => {
+    const excessiveFrameCount = Math.floor(Number.MAX_SAFE_INTEGER / 1_152) + 1;
+    expect(() =>
+      encodeCodecTimelineManifest(
+        mp3Manifest({
+          sourceSize: Number.MAX_SAFE_INTEGER,
+          audioStartByte: 0,
+          audioEndByte: Number.MAX_SAFE_INTEGER,
+          frameCount: excessiveFrameCount,
+          totalMediaFrames: 1,
+        }),
+      ),
+    ).toThrow(/raw-sample timeline/i);
+
+    const encoded = encodeCodecTimelineManifest(mp3Manifest());
+    expect(() =>
+      parseCodecTimelineManifest(
+        mutate(encoded, (_copy, view) => setUint64(view, HEADER.frameCount, excessiveFrameCount)),
+      ),
+    ).toThrow(/raw-sample timeline/i);
   });
 
   it.each([
@@ -365,11 +462,77 @@ describe('codec timeline manifest canonical binary codec', () => {
     ['MPEG version', HEADER.codecConfiguration, 0],
     ['layer', HEADER.codecConfiguration + 1, 2],
     ['frame-count flag', HEADER.codecConfiguration + 2, 0],
-    ['header reserved field', HEADER.codecConfiguration + 3, 1],
+    ['unknown timeline flag', HEADER.codecConfiguration + 3, 4],
+    ['header reserved field', HEADER.codecConfiguration + 10, 1],
   ])('rejects noncanonical MP3 %s', (_label, offset, byte) => {
     const encoded = encodeCodecTimelineManifest(mp3Manifest());
     encoded[offset] = byte;
     expect(() => parseCodecTimelineManifest(encoded)).toThrow();
+  });
+
+  it('rejects contradictory MP3 tag/gapless flags, fields, and reserved 12-bit values', () => {
+    const plain = encodeCodecTimelineManifest(mp3Manifest());
+    expect(() =>
+      parseCodecTimelineManifest(
+        mutate(plain, (_copy, view) => view.setUint16(HEADER.codecConfiguration + 4, 96, false)),
+      ),
+    ).toThrow(/tag-frame|flags/i);
+    expect(() =>
+      parseCodecTimelineManifest(
+        mutate(plain, (_copy, view) => view.setUint16(HEADER.codecConfiguration + 6, 1, false)),
+      ),
+    ).toThrow(/non-gapless/i);
+    expect(() =>
+      parseCodecTimelineManifest(
+        mutate(plain, (copy) => {
+          copy[HEADER.codecConfiguration + 3] = 0b10;
+        }),
+      ),
+    ).toThrow(/tag-frame|flags/i);
+    expect(() =>
+      parseCodecTimelineManifest(
+        mutate(plain, (copy, view) => {
+          copy[HEADER.codecConfiguration + 3] = 0b01;
+          view.setUint16(HEADER.codecConfiguration + 4, 12, false);
+        }),
+      ),
+    ).toThrow(/tag-frame|flags/i);
+
+    const gapless = encodeCodecTimelineManifest(gaplessMp3Manifest());
+    expect(() =>
+      parseCodecTimelineManifest(
+        mutate(gapless, (_copy, view) =>
+          view.setUint16(HEADER.codecConfiguration + 6, 0x0fff, false),
+        ),
+      ),
+    ).toThrow(/gapless|reserved/i);
+    expect(() =>
+      encodeCodecTimelineManifest(
+        mp3Manifest({
+          gapless: { encoderDelaySamples: 1, endPaddingSamples: 1 },
+          totalMediaFrames: 3 * 1_152 - 1 - 529,
+        }),
+      ),
+    ).toThrow(/tag-frame|flags/i);
+  });
+
+  it('snapshots MP3 gapless metadata without invoking accessors', () => {
+    let reads = 0;
+    const hostile = Object.defineProperty({}, 'encoderDelaySamples', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return 576;
+      },
+    });
+    Object.defineProperty(hostile, 'endPaddingSamples', {
+      enumerable: true,
+      value: 100,
+    });
+    expect(() =>
+      encodeCodecTimelineManifest(gaplessMp3Manifest({ gapless: hostile as never })),
+    ).toThrow(/data property/i);
+    expect(reads).toBe(0);
   });
 
   it('rejects MP3 record reserved fields, reservoir bounds, and impossible capacities', () => {
@@ -394,6 +557,7 @@ describe('codec timeline manifest canonical binary codec', () => {
           mpegVersion: '2',
           sampleRateHz: 22_050,
           samplesPerFrame: 576,
+          totalMediaFrames: 3 * 576,
           points: [
             { frameOrdinal: 0, byteOffset: 12, mainDataCapacityBytes: 75, mainDataBeginBytes: 0 },
             {
@@ -429,9 +593,9 @@ describe('codec timeline manifest canonical binary codec', () => {
     expect(() => encodeCodecTimelineManifest(mp3Manifest({ audioStartByte: 300 }))).toThrow(
       /audio span/i,
     );
-    expect(() => encodeCodecTimelineManifest(mp3Manifest({ frameCount: 4 }))).toThrow(
-      /terminal|span/i,
-    );
+    expect(() =>
+      encodeCodecTimelineManifest(mp3Manifest({ frameCount: 4, totalMediaFrames: 4 * 1_152 })),
+    ).toThrow(/terminal|span/i);
   });
 
   it('snapshots encode input without getters, mutation, or extra shape', () => {

@@ -1,0 +1,99 @@
+name: Universal bounded release validation
+
+# This is an intentionally manual, validation-only release gate. The selected
+# workflow ref is pinned to its event SHA; no production deploy credentials or
+# deployment steps belong in this workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  universal-release-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    strategy:
+      matrix:
+        node-version: [22]
+
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact candidate SHA
+        shell: bash
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$GITHUB_SHA"
+          printf '%s\n' "$actual_sha" > universal-validation-sha.txt
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build and verify production bundle
+        run: npm run build:checked
+
+      - name: Install Universal E2E browsers
+        run: npx playwright install --with-deps chromium chrome
+
+      - name: Test Universal bounded candidate
+        run: npm run test:e2e:universal
+
+      # The E2E pre-script already performs this check immediately after both
+      # builds. Re-run it after Playwright so isolation is also the final gate.
+      - name: Verify Universal/current build isolation
+        run: npx --no-install tsx e2e/universal-bounded/verify-build-isolation.ts
+
+      - name: Assemble dependency and license evidence
+        shell: bash
+        run: |
+          evidence_dir="universal-release-validation-evidence"
+          mkdir -p "$evidence_dir/licenses"
+          cp universal-validation-sha.txt package.json package-lock.json LICENSE "$evidence_dir/"
+          cp -R public/licenses/. "$evidence_dir/licenses/"
+          npm ls --omit=dev --all --json > "$evidence_dir/runtime-dependency-tree.json"
+          (
+            cd "$evidence_dir"
+            find . -type f ! -name SHA256SUMS -print0 \
+              | sort -z \
+              | xargs -0 sha256sum > SHA256SUMS
+          )
+
+      - name: Upload dependency and license evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-release-validation-${{ github.sha }}
+          path: universal-release-validation-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-release-validation-playwright-${{ github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 30

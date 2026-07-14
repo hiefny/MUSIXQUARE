@@ -8,8 +8,12 @@ import {
 } from '../../network/file-playback-session-handshake.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
-import { FilePlaybackAssetRegistry } from '../file-playback-asset-registry.ts';
 import {
+  FilePlaybackAssetRegistry,
+  type FilePlaybackAssetLease,
+} from '../file-playback-asset-registry.ts';
+import {
+  FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY,
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
   type FilePlaybackBoundedRoutePolicy,
 } from '../file-playback-bounded-route-policy.ts';
@@ -63,8 +67,16 @@ import type {
 } from '../rendezvous-contract.ts';
 import type { HostRendezvousAttempt } from '../rendezvous-coordinator.ts';
 import type { EncodedAudioAsset } from '../sources/encoded-audio-asset.ts';
-import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
+import {
+  throwIfAborted,
+  validateExactRead,
+  type EncodedAudioSource,
+  type EncodedAudioSourceMetadata,
+} from '../sources/encoded-audio-source.ts';
 import type { RendererHealthWireMessage } from '../file-playback-wire.ts';
+import { scanAdtsFrames } from '../aac/frame-scanner.ts';
+import { createCodecTimelineHostArtifact } from '../manifests/codec-timeline-host-artifact.ts';
+import * as codecTimelineHostArtifactLeaseStore from '../manifests/codec-timeline-host-artifact-lease-store.ts';
 
 const Q1 = '96000000-0000-4000-8000-000000000001' as QueueItemId;
 const Q2 = '96000000-0000-4000-8000-000000000002' as QueueItemId;
@@ -177,6 +189,92 @@ class FakeAudioContext {
 
 function destinationFor(context: FakeAudioContext): AudioNode {
   return { context } as unknown as AudioNode;
+}
+
+class HostArtifactMemorySource implements EncodedAudioSource {
+  readonly kind = 'blob' as const;
+
+  constructor(
+    readonly bytes: Uint8Array,
+    readonly identity: string,
+    readonly metadata: EncodedAudioSourceMetadata,
+  ) {}
+
+  get size(): number {
+    return this.bytes.byteLength;
+  }
+
+  async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
+    const end = validateExactRead(this.size, offset, length);
+    throwIfAborted(signal);
+    return this.bytes.slice(offset, end);
+  }
+
+  async close(): Promise<void> {}
+}
+
+function adtsFixtureFrame(frameLengthBytes: number, fill: number): Uint8Array {
+  const bytes = new Uint8Array(frameLengthBytes).fill(fill);
+  const sampleRateIndex = 4;
+  const channelConfiguration = 2;
+  bytes[0] = 0xff;
+  bytes[1] = 0xf1;
+  bytes[2] = (1 << 6) | (sampleRateIndex << 2) | ((channelConfiguration >>> 2) & 1);
+  bytes[3] = ((channelConfiguration & 0b11) << 6) | ((frameLengthBytes >>> 11) & 0b11);
+  bytes[4] = (frameLengthBytes >>> 3) & 0xff;
+  bytes[5] = ((frameLengthBytes & 0b111) << 5) | 0b1_1111;
+  bytes[6] = 0b1111_1100;
+  return bytes;
+}
+
+async function issueFixtureHostArtifact(
+  bytes: Uint8Array,
+  binding: Readonly<{
+    queueItemId: QueueItemId;
+    sourceIdentity: string;
+    transferSessionId: string;
+    name: string;
+    mime: string;
+  }>,
+) {
+  const source = new HostArtifactMemorySource(
+    bytes,
+    binding.sourceIdentity,
+    Object.freeze({ name: binding.name, mime: binding.mime }),
+  );
+  const timeline = await scanAdtsFrames(source, new AbortController().signal);
+  return createCodecTimelineHostArtifact({
+    binding: { ...binding, encodedSize: bytes.byteLength },
+    source,
+    timeline,
+    signal: new AbortController().signal,
+  });
+}
+
+async function installFixtureHostArtifact(
+  registry: FilePlaybackAssetRegistry,
+  lease: FilePlaybackAssetLease,
+  bytes: Uint8Array,
+) {
+  const snapshot = registry.snapshotForLease(ROOM_TOKEN, lease);
+  if (!snapshot) throw new Error('Fixture asset lease is unavailable');
+  if (snapshot.size !== bytes.byteLength) throw new Error('Fixture artifact size changed');
+  const artifact = await issueFixtureHostArtifact(bytes, {
+    queueItemId: snapshot.queueItemId,
+    sourceIdentity: snapshot.sourceIdentity,
+    transferSessionId: snapshot.transferSessionId,
+    name: snapshot.name,
+    mime: snapshot.mime,
+  });
+  const access = { registry, roomToken: ROOM_TOKEN, lease };
+  codecTimelineHostArtifactLeaseStore.installCodecTimelineHostArtifactForLease({
+    ...access,
+    artifact,
+  });
+  expect(
+    codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+  ).not.toBeNull();
+  return access;
 }
 
 function armedReceipt(intent: RendezvousArmIntent): RendezvousArmReceipt {
@@ -511,6 +609,7 @@ interface EngineHarness {
   readonly engine: FilePlaybackHostFirstFileEngine;
   readonly sources: FakeSourceHarness[];
   readonly stageRequests: Array<Parameters<typeof stageFilePlaybackAssetSource>[0]>;
+  readonly factoryRequests: unknown[];
   readonly createRunId: ReturnType<typeof vi.fn>;
   readonly sendRequired: ReturnType<typeof vi.fn>;
   readonly closeConnection: ReturnType<typeof vi.fn>;
@@ -606,6 +705,7 @@ function makeHarness(
   let rendezvousSequence = 0;
   const sources: FakeSourceHarness[] = [];
   const stageRequests: Array<Parameters<typeof stageFilePlaybackAssetSource>[0]> = [];
+  const factoryRequests: unknown[] = [];
   const pendingPlans = [...plans];
   const warmStageGates = new Map<QueueItemId, ReturnType<typeof deferred<void>>>();
   const stageAssetSourceForTests: NonNullable<
@@ -626,12 +726,14 @@ function makeHarness(
     const staged = await stageFilePlaybackAssetSource({
       ...stageOptions,
       runtime: {
-        createBlobSource: vi.fn(async () =>
-          factoryResult(source, stageOptions.expectedBinding.sourceIdentity),
-        ),
-        createEncodedSource: vi.fn(async () =>
-          factoryResult(source, stageOptions.expectedBinding.sourceIdentity),
-        ),
+        createBlobSource: vi.fn(async (sourceOptions) => {
+          factoryRequests.push(sourceOptions);
+          return factoryResult(source, stageOptions.expectedBinding.sourceIdentity);
+        }),
+        createEncodedSource: vi.fn(async (sourceOptions) => {
+          factoryRequests.push(sourceOptions);
+          return factoryResult(source, stageOptions.expectedBinding.sourceIdentity);
+        }),
       },
     });
     if (plan.holdAfterStage) await plan.holdAfterStage.promise;
@@ -648,6 +750,7 @@ function makeHarness(
     localStartRuntimeForTests: { stageAssetSourceForTests },
     warmSourceRuntimeForTests: {
       createBlobSource: async (sourceOptions) => {
+        factoryRequests.push(sourceOptions);
         const plan = pendingPlans.shift();
         if (!plan) throw new Error('No warm source plan remains');
         if (plan.neverStage) return new Promise(() => undefined);
@@ -665,6 +768,7 @@ function makeHarness(
         return factoryResult(source, sourceOptions.sourceIdentity);
       },
       createEncodedSource: async (sourceOptions) => {
+        factoryRequests.push(sourceOptions);
         const plan = pendingPlans.shift();
         if (!plan) throw new Error('No warm source plan remains');
         if (plan.neverStage) return new Promise(() => undefined);
@@ -739,6 +843,7 @@ function makeHarness(
     engine,
     sources,
     stageRequests,
+    factoryRequests,
     createRunId,
     sendRequired,
     closeConnection,
@@ -874,6 +979,17 @@ function expectBodyFree(value: unknown): void {
   visit(value);
 }
 
+function errorTreeContains(value: unknown, target: unknown): boolean {
+  if (value === target) return true;
+  if (
+    value instanceof AggregateError &&
+    value.errors.some((entry) => errorTreeContains(entry, target))
+  ) {
+    return true;
+  }
+  return value instanceof Error && errorTreeContains(value.cause, target);
+}
+
 function transferredAsset(
   blob: Blob,
   identity: string,
@@ -993,6 +1109,54 @@ function remoteRecoveryHarness(
   };
 }
 
+const MANIFEST_POLICY_CASES: readonly Readonly<{
+  label: string;
+  policy: Readonly<FilePlaybackBoundedRoutePolicy> | undefined;
+  installs: boolean;
+}>[] = Object.freeze([
+  Object.freeze({ label: 'omitted', policy: undefined, installs: false }),
+  Object.freeze({
+    label: 'explicit current',
+    policy: FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY,
+    installs: false,
+  }),
+  Object.freeze({
+    label: 'M4A-only',
+    policy: Object.freeze({
+      mode: 'format-gated-v1' as const,
+      mp3: 'current' as const,
+      m4aAacLc: 'webcodecs' as const,
+      rawAdtsAac: 'current' as const,
+    }),
+    installs: false,
+  }),
+  Object.freeze({
+    label: 'ADTS manifest',
+    policy: Object.freeze({
+      mode: 'format-gated-v1' as const,
+      mp3: 'current' as const,
+      m4aAacLc: 'current' as const,
+      rawAdtsAac: 'webcodecs' as const,
+    }),
+    installs: true,
+  }),
+  Object.freeze({
+    label: 'MP3 manifest',
+    policy: Object.freeze({
+      mode: 'format-gated-v1' as const,
+      mp3: 'bounded-stream' as const,
+      m4aAacLc: 'current' as const,
+      rawAdtsAac: 'current' as const,
+    }),
+    installs: true,
+  }),
+  Object.freeze({
+    label: 'universal',
+    policy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    installs: true,
+  }),
+]);
+
 describe('FilePlaybackHostFirstFileEngine', () => {
   it('preserves policy omission and forwards its canonical fixed policy to local staging', async () => {
     const omitted = makeHarness([{ backend: 'audio-buffer' }]);
@@ -1021,6 +1185,48 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(optedIn.stageRequests[0]?.boundedRoutePolicy).not.toBe(requested);
     await optedIn.engine.close();
   });
+
+  it.each(MANIFEST_POLICY_CASES)(
+    'propagates the host artifact opt-in only for $label cold staging',
+    async ({ policy, installs }) => {
+      const harness = makeHarness([{ backend: 'bounded-stream' }], {
+        ...(policy ? { boundedRoutePolicy: policy } : {}),
+      });
+      await resolveLatestStart(
+        harness,
+        harness.start(new Blob([new Uint8Array([9, 8, 7])], { type: 'audio/mpeg' }), {
+          name: 'policy.mp3',
+        }),
+      );
+
+      if (installs) {
+        expect(harness.stageRequests[0]).toHaveProperty('installCodecTimelineHostArtifact', true);
+        expect(harness.factoryRequests[0]).toHaveProperty('codecTimelineHostArtifactBinding');
+      } else {
+        expect(harness.stageRequests[0]).not.toHaveProperty('installCodecTimelineHostArtifact');
+        expect(harness.factoryRequests[0]).not.toHaveProperty('codecTimelineHostArtifactBinding');
+      }
+      await harness.engine.close();
+    },
+  );
+
+  it.each(MANIFEST_POLICY_CASES)(
+    'propagates the host artifact opt-in only for $label warm preparation',
+    async ({ policy, installs }) => {
+      const harness = makeHarness([{ backend: 'bounded-stream' }], {
+        ...(policy ? { boundedRoutePolicy: policy } : {}),
+      });
+      const blob = new Blob([new Uint8Array([6, 5, 4])], { type: 'audio/mpeg' });
+      await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+
+      if (installs) {
+        expect(harness.factoryRequests[0]).toHaveProperty('codecTimelineHostArtifactBinding');
+      } else {
+        expect(harness.factoryRequests[0]).not.toHaveProperty('codecTimelineHostArtifactBinding');
+      }
+      await harness.engine.close();
+    },
+  );
 
   it('rejects an invalid fixed route policy before constructing engine-owned collaborators', () => {
     const managerFactory = vi.fn((manager: FilePlaybackManager) => manager);
@@ -1126,6 +1332,40 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(discard).not.toHaveBeenCalled();
     await harness.engine.close();
     expect(discard).not.toHaveBeenCalled();
+  });
+
+  it('retains an installed artifact across provisional promotion until room close', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const promotion = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'promoteProvisionalAsset');
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const bytes = adtsFixtureFrame(37, 0x51);
+    const blob = new Blob([bytes], { type: 'audio/aac' });
+
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const lease = provisionalAdmission.mock.results[0]?.value;
+    const registry = provisionalAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
+    const access = await installFixtureHostArtifact(registry, lease!, bytes);
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    await resolveLatestStart(
+      harness,
+      harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+
+    expect(promotion).toHaveBeenCalledWith(ROOM_TOKEN, lease);
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).not.toBeNull();
+    await harness.engine.close();
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).toBeNull();
   });
 
   it('keeps a direct non-warm start on live admission without provisional promotion', async () => {
@@ -1291,6 +1531,115 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(discard.mock.calls[0]?.[1]).toBe(provisionalAdmission.mock.results[0]?.value);
     await harness.engine.close();
     expect(discard).toHaveBeenCalledOnce();
+  });
+
+  it('revokes an installed artifact before clearing its provisional warm lease', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const bytes = adtsFixtureFrame(38, 0x65);
+    const blob = new Blob([bytes], { type: 'audio/aac' });
+
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const lease = provisionalAdmission.mock.results[0]?.value;
+    const registry = provisionalAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
+    const access = await installFixtureHostArtifact(registry, lease!, bytes);
+
+    await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q1 })).resolves.toBe(true);
+    expect(discard).toHaveBeenCalledWith(ROOM_TOKEN, lease);
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).toBeNull();
+    await harness.engine.close();
+  });
+
+  it('merges artifact revoke and provisional discard failures after attempting both', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const blob = new Blob([adtsFixtureFrame(38, 0x75)], { type: 'audio/aac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const revokeFailure = new Error('fixture artifact revoke failed');
+    const discardFailure = new Error('fixture provisional discard failed');
+    const revoke = vi
+      .spyOn(codecTimelineHostArtifactLeaseStore, 'revokeCodecTimelineHostArtifactForLease')
+      .mockImplementation(() => {
+        throw revokeFailure;
+      });
+    const discard = vi
+      .spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset')
+      .mockRejectedValue(discardFailure);
+
+    const cleanupError = await harness.engine.clearWarmLocalTrack({ queueItemId: Q1 }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(cleanupError).not.toBeNull();
+    expect(errorTreeContains(cleanupError, revokeFailure)).toBe(true);
+    expect(errorTreeContains(cleanupError, discardFailure)).toBe(true);
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(discard).toHaveBeenCalledOnce();
+
+    revoke.mockRestore();
+    discard.mockRestore();
+    await expect(harness.engine.close()).rejects.toThrow(/warm cleanup/u);
+  });
+
+  it('revokes an installed provisional artifact when source preparation fails', async () => {
+    const prepareGate = deferred<void>();
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const discard = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'discardProvisionalAsset');
+    const harness = makeHarness([{ backend: 'bounded-stream', prepareGate }], {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const bytes = adtsFixtureFrame(39, 0x66);
+    const blob = new Blob([bytes], { type: 'audio/aac' });
+    const warming = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    await drainMicrotasks();
+    const lease = provisionalAdmission.mock.results[0]?.value;
+    const registry = provisionalAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
+    const access = await installFixtureHostArtifact(registry, lease!, bytes);
+
+    prepareGate.reject(new Error('fixture warm preparation failed'));
+    await expect(warming).rejects.toThrow('fixture warm preparation failed');
+    expect(discard).toHaveBeenCalledWith(ROOM_TOKEN, lease);
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).toBeNull();
+    await harness.engine.close();
+  });
+
+  it('revokes the superseded provisional artifact before admitting its replacement', async () => {
+    const provisionalAdmission = vi.spyOn(
+      FilePlaybackAssetRegistry.prototype,
+      'admitProvisionalBlobAsset',
+    );
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }], {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    });
+    const firstBytes = adtsFixtureFrame(40, 0x67);
+    const firstBlob = new Blob([firstBytes], { type: 'audio/aac' });
+    const secondBlob = new Blob([adtsFixtureFrame(41, 0x68)], { type: 'audio/aac' });
+
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, firstBlob));
+    const firstLease = provisionalAdmission.mock.results[0]?.value;
+    const registry = provisionalAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
+    const access = await installFixtureHostArtifact(registry, firstLease!, firstBytes);
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, secondBlob));
+
+    expect(provisionalAdmission).toHaveBeenCalledTimes(2);
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).toBeNull();
+    await harness.engine.close();
   });
 
   it('coalesces failed candidate, abort, and close disposal of one claimed provisional lease', async () => {
@@ -3353,6 +3702,39 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await harness.engine.close();
   });
 
+  it('retains an installed live artifact across renderer failure and retry', async () => {
+    const holdAfterStage = deferred<void>();
+    const liveAdmission = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'admitBlob');
+    const harness = makeHarness(
+      [
+        { backend: 'bounded-stream', rejectArm: true, holdAfterStage },
+        { backend: 'bounded-stream' },
+      ],
+      { boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY },
+    );
+    const bytes = adtsFixtureFrame(42, 0x71);
+    const blob = new Blob([bytes], { type: 'audio/aac' });
+    const failed = harness.start(blob, { name: 'retry.aac' });
+    await drainMicrotasks();
+    const lease = liveAdmission.mock.results[0]?.value;
+    const registry = liveAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
+    const access = await installFixtureHostArtifact(registry, lease!, bytes);
+    holdAfterStage.resolve();
+
+    await expect(failed).rejects.toThrow(/retired|arm/u);
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).not.toBeNull();
+    await resolveLatestStart(harness, harness.start(blob, { name: 'retry.aac' }));
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).not.toBeNull();
+    await harness.engine.close();
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).toBeNull();
+  });
+
   it('rejects Q2 after a failed Q1 arm and accepts Q2 only through a fresh engine', async () => {
     const first = makeHarness([{ backend: 'audio-buffer', rejectArm: true }]);
     const q1Blob = new Blob([new Uint8Array([31])], { type: 'audio/mpeg' });
@@ -3540,6 +3922,53 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it('treats an absent host artifact association as harmless room cleanup', async () => {
+    const revoke = vi.spyOn(
+      codecTimelineHostArtifactLeaseStore,
+      'revokeCodecTimelineHostArtifactForLease',
+    );
+    const harness = makeHarness([{ backend: 'audio-buffer' }]);
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([0x31])], { type: 'audio/mpeg' })),
+    );
+
+    await expect(harness.engine.close()).resolves.toBeUndefined();
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(revoke.mock.results[0]?.value).toBe(false);
+  });
+
+  it('propagates artifact revoke failure only after registry close and reference release', async () => {
+    const terminalReferences = vi.fn();
+    const liveAdmission = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'admitBlob');
+    const registryClose = vi.spyOn(FilePlaybackAssetRegistry.prototype, 'close');
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      onTerminalReferencesReleased: terminalReferences,
+    });
+    const bytes = adtsFixtureFrame(44, 0x76);
+    const blob = new Blob([bytes], { type: 'audio/aac' });
+    await resolveLatestStart(harness, harness.start(blob, { name: 'close.aac' }));
+    const lease = liveAdmission.mock.results[0]?.value;
+    const registry = liveAdmission.mock.contexts[0] as FilePlaybackAssetRegistry;
+    const access = await installFixtureHostArtifact(registry, lease!, bytes);
+    const revokeFailure = new Error('fixture close artifact revoke failed');
+    const revoke = vi
+      .spyOn(codecTimelineHostArtifactLeaseStore, 'revokeCodecTimelineHostArtifactForLease')
+      .mockImplementation(() => {
+        throw revokeFailure;
+      });
+
+    await expect(harness.engine.close()).rejects.toBe(revokeFailure);
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(registryClose).toHaveBeenCalledWith(ROOM_TOKEN);
+    expect(registry.snapshotForLease(ROOM_TOKEN, lease!)).toBeNull();
+    expect(terminalReferences).toHaveBeenCalledOnce();
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(access),
+    ).toBeNull();
+  });
+
   it('propagates coordinator-close cleanup failure while still completing native cleanup', async () => {
     const coordinatorFailure = new Error('fixture coordinator close failure');
     const coordinatorClosed = vi.fn(() => {
@@ -3626,5 +4055,47 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await expect(harness.start(firstBlob, { name: 'fatal.mp3' })).rejects.toThrow(
       /closed|fixture/iu,
     );
+  });
+
+  it('revokes an installed artifact during fatal room close', async () => {
+    const bytes = adtsFixtureFrame(43, 0x72);
+    const artifact = await issueFixtureHostArtifact(bytes, {
+      queueItemId: Q1,
+      sourceIdentity: `mxq:q:${Q1}`,
+      transferSessionId: `mxq:s:${APPLICATION_SCOPE}:q:${Q1}`,
+      name: 'fatal.aac',
+      mime: 'audio/aac',
+    });
+    let artifactAccess:
+      | Readonly<{
+          registry: FilePlaybackAssetRegistry;
+          roomToken: object;
+          lease: FilePlaybackAssetLease;
+        }>
+      | undefined;
+    const harness = makeHarness([], {
+      fatalAfterAdmission: true,
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      admitAsset: (registry, roomToken, binding, blob, metadata) => {
+        const lease = registry.admitBlob(roomToken, binding, blob, metadata);
+        artifactAccess = Object.freeze({ registry, roomToken, lease });
+        codecTimelineHostArtifactLeaseStore.installCodecTimelineHostArtifactForLease({
+          ...artifactAccess,
+          artifact,
+        });
+        return lease;
+      },
+    });
+    const blob = new Blob([bytes], { type: 'audio/aac' });
+
+    await expect(harness.start(blob, { name: 'fatal.aac' })).rejects.toThrow(/fixture/iu);
+    await expect(harness.engine.close()).resolves.toBeUndefined();
+    expect(harness.fatal).toHaveBeenCalledOnce();
+    expect(artifactAccess).toBeDefined();
+    expect(
+      codecTimelineHostArtifactLeaseStore.describeCodecTimelineHostArtifactForLease(
+        artifactAccess!,
+      ),
+    ).toBeNull();
   });
 });

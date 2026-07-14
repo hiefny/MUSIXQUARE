@@ -77,9 +77,11 @@ import {
 } from './rendezvous-coordinator.ts';
 import type { EncodedAudioSource } from './sources/encoded-audio-source.ts';
 import {
+  isFilePlaybackPeerRangeManifestCodecEnabled,
   snapshotFilePlaybackBoundedRoutePolicy,
   type FilePlaybackBoundedRoutePolicy,
 } from './file-playback-bounded-route-policy.ts';
+import { revokeCodecTimelineHostArtifactForLease } from './manifests/codec-timeline-host-artifact-lease-store.ts';
 
 const DEFAULT_MIME = 'application/octet-stream';
 const MAX_APPLICATION_SCOPE_ID_LENGTH = 128;
@@ -1055,6 +1057,7 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #rendezvousCoordinator: HostRendezvousCoordinator;
   readonly #hostParticipantId: string;
   readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | null;
+  readonly #installCodecTimelineHostArtifact: boolean;
   readonly #onFatalRoom: (error: Error) => void;
   readonly #onTransitionScheduled:
     | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
@@ -1104,10 +1107,17 @@ export class FilePlaybackHostFirstFileEngine {
     if (!input || !runtime) {
       throw new TypeError('Host first-file engine options are invalid');
     }
+    const canonicalBoundedRoutePolicy = snapshotFilePlaybackBoundedRoutePolicy(
+      input.boundedRoutePolicy,
+    );
     const boundedRoutePolicy =
-      input.boundedRoutePolicy === undefined
-        ? null
-        : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
+      input.boundedRoutePolicy === undefined ? null : canonicalBoundedRoutePolicy;
+    const installCodecTimelineHostArtifact =
+      isFilePlaybackPeerRangeManifestCodecEnabled(canonicalBoundedRoutePolicy, 'adts-aac-lc') ||
+      isFilePlaybackPeerRangeManifestCodecEnabled(
+        canonicalBoundedRoutePolicy,
+        'mp3-no-frame-count',
+      );
     if (!isExactController(input.controller)) {
       throw new TypeError('Host first-file engine requires an exact application controller');
     }
@@ -1185,6 +1195,7 @@ export class FilePlaybackHostFirstFileEngine {
     });
     this.#hostParticipantId = input.hostParticipantId as string;
     this.#boundedRoutePolicy = boundedRoutePolicy;
+    this.#installCodecTimelineHostArtifact = installCodecTimelineHostArtifact;
     this.#onFatalRoom = input.onFatalRoom as (error: Error) => void;
     this.#onTransitionScheduled =
       (input.onTransitionScheduled as
@@ -2595,6 +2606,9 @@ export class FilePlaybackHostFirstFileEngine {
         isCurrent: () => this.#warmTrackAuthorityAllows(operation),
         decodeOrdinaryAudio: runtime.decodeOrdinaryAudio,
         ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
+        ...(this.#installCodecTimelineHostArtifact
+          ? { installCodecTimelineHostArtifact: true as const }
+          : {}),
         ...(this.#runtime.warmSourceRuntime ? { runtime: this.#runtime.warmSourceRuntime } : {}),
       });
       operation.authority = authority;
@@ -3318,21 +3332,45 @@ export class FilePlaybackHostFirstFileEngine {
       rejectDiscard = reject;
     });
     asset.discardPromise = task;
+    let cleanupFailure: unknown = null;
+    try {
+      revokeCodecTimelineHostArtifactForLease({
+        registry: this.#registry,
+        roomToken: this.#roomToken,
+        lease: asset.lease,
+      });
+    } catch (error) {
+      cleanupFailure = mergeCleanupFailure(cleanupFailure, error);
+    }
+
     try {
       const discard = this.#registry.discardProvisionalAsset(
         this.#roomToken,
         asset.lease as FilePlaybackProvisionalAssetLease,
       );
-      void discard.then((discarded) => {
-        if (!discarded) {
-          rejectDiscard(new Error('Host provisional asset lost exact discard authority'));
-          return;
-        }
-        asset.ownership = 'discarded';
-        resolveDiscard();
-      }, rejectDiscard);
+      void discard.then(
+        (discarded) => {
+          if (!discarded) {
+            cleanupFailure = mergeCleanupFailure(
+              cleanupFailure,
+              new Error('Host provisional asset lost exact discard authority'),
+            );
+          } else {
+            asset.ownership = 'discarded';
+          }
+          if (cleanupFailure !== null) {
+            rejectDiscard(cleanupFailure);
+          } else {
+            resolveDiscard();
+          }
+        },
+        (error: unknown) => {
+          rejectDiscard(mergeCleanupFailure(cleanupFailure, error));
+        },
+      );
     } catch (error) {
-      rejectDiscard(error);
+      rejectDiscard(mergeCleanupFailure(cleanupFailure, error));
+      return task;
     }
     return task;
   }
@@ -3554,6 +3592,9 @@ export class FilePlaybackHostFirstFileEngine {
             clockBindings: input.clockBindings,
             decodeOrdinaryAudio: input.decodeOrdinaryAudio,
             ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
+            ...(this.#installCodecTimelineHostArtifact
+              ? { installCodecTimelineHostArtifact: true as const }
+              : {}),
             ...participantOptions,
           });
       if (claimedWarm) {
@@ -4635,6 +4676,17 @@ export class FilePlaybackHostFirstFileEngine {
         this.#ownedPorts.clear();
       } catch (error) {
         cleanupFailure = mergeCleanupFailure(cleanupFailure, error);
+      }
+      for (const asset of this.#assets.values()) {
+        try {
+          revokeCodecTimelineHostArtifactForLease({
+            registry: this.#registry,
+            roomToken: this.#roomToken,
+            lease: asset.lease,
+          });
+        } catch (error) {
+          cleanupFailure = mergeCleanupFailure(cleanupFailure, error);
+        }
       }
     } finally {
       try {

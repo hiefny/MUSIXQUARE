@@ -30,7 +30,7 @@ import {
   type FilePlaybackBoundedRoutePolicy,
 } from './file-playback-bounded-route-policy.ts';
 import { AdtsHeaderError, parseAdtsHeader } from './aac/adts-header.ts';
-import { scanAdtsFrames } from './aac/frame-scanner.ts';
+import { scanAdtsFrames, type AdtsFrameScanResult } from './aac/frame-scanner.ts';
 import {
   ADTS_MAX_FRAME_BYTES,
   AdtsIncrementalFrameReader,
@@ -47,7 +47,7 @@ import type { LinearPcmMetadata } from './linear-pcm/sample-format.ts';
 import { readM4aAacLcMetadata } from './m4a/metadata.ts';
 import { MpegLayer3FrameHeaderError, parseMpegLayer3FrameHeader } from './mp3/frame-header.ts';
 import { readMp3Id3Boundaries } from './mp3/id3.ts';
-import { readMp3Metadata } from './mp3/metadata.ts';
+import { readMp3Metadata, type Mp3Metadata } from './mp3/metadata.ts';
 import { BlobEncodedAudioSource } from './sources/blob-encoded-audio-source.ts';
 import {
   type EncodedAudioSource,
@@ -59,6 +59,12 @@ import {
 } from './sources/encoded-audio-source.ts';
 import type { BoundedStreamingCodecRuntime } from './streaming/bounded-codec-runtime.ts';
 import { readWavePcmMetadata } from './wave/metadata.ts';
+import {
+  createCodecTimelineHostArtifact,
+  type CodecTimelineHostArtifact,
+  type CodecTimelineHostArtifactBinding,
+} from './manifests/codec-timeline-host-artifact.ts';
+import { isMp3MetadataTimelineManifestEligible } from './manifests/codec-timeline-manifest-seal.ts';
 
 const NATIVE_FLAC_MARKER = new Uint8Array([0x66, 0x4c, 0x61, 0x43]);
 const OGG_MARKER = new Uint8Array([0x4f, 0x67, 0x67, 0x53]);
@@ -163,6 +169,11 @@ interface FilePlaybackSourceFactoryCommonOptions {
   readonly m4aRuntime?: Partial<BoundedStreamingCodecRuntime>;
   /** MP3/raw AAC/M4A remain ordinary AudioBuffer routes unless explicitly opted in. */
   readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
+  /**
+   * Exact host registry binding for an optional reusable codec timeline.
+   * Omit on guest, ordinary, and feature-gated-off construction paths.
+   */
+  readonly codecTimelineHostArtifactBinding?: CodecTimelineHostArtifactBinding;
 }
 
 export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
@@ -293,6 +304,92 @@ export interface BoundedStreamFilePlaybackSourceResult extends FilePlaybackSourc
 export type BlobFilePlaybackSourceResult =
   | AudioBufferFilePlaybackSourceResult
   | BoundedStreamFilePlaybackSourceResult;
+
+const CODEC_TIMELINE_HOST_ARTIFACT_BINDING_KEYS = Object.freeze([
+  'queueItemId',
+  'sourceIdentity',
+  'transferSessionId',
+  'encodedSize',
+  'name',
+  'mime',
+] as const);
+const CODEC_TIMELINE_HOST_ARTIFACTS = new WeakMap<
+  object,
+  Readonly<CodecTimelineHostArtifact> | null
+>();
+
+/**
+ * Read the opaque host timeline authority attached to one authentic factory
+ * result. Structural copies and caller-created lookalikes deliberately return
+ * null, and the result's public enumerable shape remains unchanged.
+ */
+export function codecTimelineHostArtifactForFilePlaybackSourceResult(
+  value: unknown,
+): Readonly<CodecTimelineHostArtifact> | null {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return null;
+  return CODEC_TIMELINE_HOST_ARTIFACTS.get(value) ?? null;
+}
+
+function issueFilePlaybackSourceResult<T extends BlobFilePlaybackSourceResult>(
+  result: T,
+  artifact: Readonly<CodecTimelineHostArtifact> | null,
+): T {
+  CODEC_TIMELINE_HOST_ARTIFACTS.set(result, artifact);
+  return result;
+}
+
+function snapshotOptionalCodecTimelineHostArtifactBinding(
+  value: unknown,
+): Readonly<CodecTimelineHostArtifactBinding> | undefined {
+  if (value === undefined) return undefined;
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw new TypeError('Codec timeline host artifact binding must be an exact data record');
+    }
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError('Codec timeline host artifact binding must have a plain prototype');
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const expected = new Set<string>(CODEC_TIMELINE_HOST_ARTIFACT_BINDING_KEYS);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      throw new TypeError('Codec timeline host artifact binding fields are not exact');
+    }
+
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of CODEC_TIMELINE_HOST_ARTIFACT_BINDING_KEYS) {
+      const descriptor = descriptors[key];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new TypeError(`Codec timeline host artifact binding field ${key} must be data`);
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot) as Readonly<CodecTimelineHostArtifactBinding>;
+  } catch (error) {
+    if (error instanceof TypeError) throw error;
+    throw new TypeError('Codec timeline host artifact binding could not be inspected', {
+      cause: error,
+    });
+  }
+}
+
+async function createOptionalCodecTimelineHostArtifact(
+  binding: Readonly<CodecTimelineHostArtifactBinding> | undefined,
+  queueItemId: QueueItemId,
+  source: EncodedAudioSource,
+  timeline: Readonly<AdtsFrameScanResult> | Readonly<Mp3Metadata>,
+  signal: AbortSignal,
+): Promise<Readonly<CodecTimelineHostArtifact> | null> {
+  if (binding === undefined) return null;
+  if (binding.queueItemId !== queueItemId) {
+    throw new TypeError('Codec timeline host artifact binding queue item does not match playback');
+  }
+  return createCodecTimelineHostArtifact({ binding, source, timeline, signal });
+}
 
 /** A claimed FLAC whose bytes use a container the streaming engine cannot decode. */
 export class UnsupportedFlacContainerError extends EncodedSourceIntegrityError {
@@ -855,6 +952,9 @@ async function createOwnedEncodedFilePlaybackSource(
   let completed = false;
 
   try {
+    const codecTimelineHostArtifactBinding = snapshotOptionalCodecTimelineHostArtifactBinding(
+      options.codecTimelineHostArtifactBinding,
+    );
     assertFactoryInput(options);
     throwIfAborted(options.signal);
     const boundedRoutePolicy = snapshotFilePlaybackBoundedRoutePolicy(options.boundedRoutePolicy);
@@ -919,7 +1019,7 @@ async function createOwnedEncodedFilePlaybackSource(
         releaseConstructionLease: releaseNoConstructionLease,
       });
       completed = true;
-      return result;
+      return issueFilePlaybackSourceResult(result, null);
     }
 
     let linearPcmMetadata: Readonly<LinearPcmMetadata> | null = null;
@@ -955,7 +1055,7 @@ async function createOwnedEncodedFilePlaybackSource(
         releaseConstructionLease: releaseNoConstructionLease,
       });
       completed = true;
-      return result;
+      return issueFilePlaybackSourceResult(result, null);
     }
 
     const universalRoute = boundedRoutePolicy.mode === 'universal-v1';
@@ -1015,6 +1115,14 @@ async function createOwnedEncodedFilePlaybackSource(
           'Raw AAC source configuration changed after capability admission',
         );
       }
+      const codecTimelineHostArtifact = await createOptionalCodecTimelineHostArtifact(
+        codecTimelineHostArtifactBinding,
+        options.queueItemId,
+        encodedSource,
+        scan,
+        options.signal,
+      );
+      throwIfAborted(options.signal);
       const returnedSource = factories.createStreamingAacSource({
         queueItemId: options.queueItemId,
         encodedSource,
@@ -1038,7 +1146,7 @@ async function createOwnedEncodedFilePlaybackSource(
         releaseConstructionLease: releaseNoConstructionLease,
       });
       completed = true;
-      return result;
+      return issueFilePlaybackSourceResult(result, codecTimelineHostArtifact);
     }
 
     if (
@@ -1070,7 +1178,7 @@ async function createOwnedEncodedFilePlaybackSource(
         releaseConstructionLease: releaseNoConstructionLease,
       });
       completed = true;
-      return result;
+      return issueFilePlaybackSourceResult(result, null);
     }
 
     if (
@@ -1078,6 +1186,16 @@ async function createOwnedEncodedFilePlaybackSource(
       (mp3ContentCandidate || (!aacContentCandidate && !m4aContentCandidate && mp3Claim))
     ) {
       const metadata = await readMp3Metadata(encodedSource, options.signal);
+      throwIfAborted(options.signal);
+      const codecTimelineHostArtifact = isMp3MetadataTimelineManifestEligible(metadata)
+        ? await createOptionalCodecTimelineHostArtifact(
+            codecTimelineHostArtifactBinding,
+            options.queueItemId,
+            encodedSource,
+            metadata,
+            options.signal,
+          )
+        : null;
       throwIfAborted(options.signal);
       const returnedSource = factories.createStreamingMp3Source({
         queueItemId: options.queueItemId,
@@ -1101,7 +1219,7 @@ async function createOwnedEncodedFilePlaybackSource(
         releaseConstructionLease: releaseNoConstructionLease,
       });
       completed = true;
-      return result;
+      return issueFilePlaybackSourceResult(result, codecTimelineHostArtifact);
     }
 
     if (claimsFlac(encodedSource.metadata.name, encodedSource.metadata.mime)) {
@@ -1174,7 +1292,7 @@ async function createOwnedEncodedFilePlaybackSource(
       releaseConstructionLease,
     });
     completed = true;
-    return result;
+    return issueFilePlaybackSourceResult(result, null);
   } finally {
     if (!completed) {
       await destroyWithoutMasking(destroyCreatedSource);
@@ -1200,6 +1318,9 @@ export async function createBlobFilePlaybackSource(
   const decodeOrdinaryAudio = options.decodeOrdinaryAudio;
   const sourceIdentity = options.sourceIdentity;
   const rawSourceMetadata = options.sourceMetadata;
+  const codecTimelineHostArtifactBinding = snapshotOptionalCodecTimelineHostArtifactBinding(
+    options.codecTimelineHostArtifactBinding,
+  );
   const sourceMetadata =
     rawSourceMetadata === undefined ? undefined : canonicalSourceMetadata(rawSourceMetadata);
   if (rawSourceMetadata !== undefined && sourceMetadata === null) {
@@ -1232,6 +1353,7 @@ export async function createBlobFilePlaybackSource(
       aacCapabilityProbe: options.aacCapabilityProbe,
       m4aRuntime: options.m4aRuntime,
       boundedRoutePolicy: options.boundedRoutePolicy,
+      codecTimelineHostArtifactBinding,
       backendFactories: options.backendFactories,
     },
     {

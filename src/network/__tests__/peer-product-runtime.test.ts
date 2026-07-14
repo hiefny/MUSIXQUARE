@@ -85,6 +85,8 @@ function inertHostRoom(): FilePlaybackProductRuntimeHostRoomPort {
   return {
     warmLocalTrack: unsupported,
     clearWarmLocalTrack: unsupported,
+    clearWarmLocalTrackByLease: unsupported,
+    resolveWarmPeerRangeSource: unsupported,
     startFirstLocalFile: unsupported,
     startLocalTrack: unsupported,
     startLocalTrackWithCohort: unsupported,
@@ -102,7 +104,7 @@ function inertHostRoom(): FilePlaybackProductRuntimeHostRoomPort {
     currentRendererSnapshot: vi.fn(() => null),
     currentTerminalRendererObservation: vi.fn(() => null),
     positionAt: vi.fn(() => null),
-  } as FilePlaybackProductRuntimeHostRoomPort;
+  } satisfies FilePlaybackProductRuntimeHostRoomPort;
 }
 
 function readyPeer(id: string): TransportPeer & {

@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { defineConfig, mergeConfig, type Plugin } from 'vite';
 import baseConfig from '../vite.config.ts';
+import { UNIVERSAL_BUILD_PROFILE_EVIDENCE } from './universal-bounded/build-profile-evidence.ts';
 
 const PRODUCT_RUNTIME_MODULE = '/src/player/file-playback-product-runtime.ts';
 const PEER_RANGE_DIAGNOSTICS_IMPORT =
@@ -11,13 +12,21 @@ const filePlaybackProductRuntime = new FilePlaybackProductRuntime({
     ? { boundedRoutePolicy: filePlaybackProductBuildProfile.boundedRoutePolicy }
     : {}),
 });`;
+const UNIVERSAL_PROFILE_ID = JSON.stringify(UNIVERSAL_BUILD_PROFILE_EVIDENCE.profileId);
+const UNIVERSAL_POLICY_MODE = JSON.stringify(UNIVERSAL_BUILD_PROFILE_EVIDENCE.policyMode);
+const UNIVERSAL_SEMANTIC_COHORT_ID = JSON.stringify(
+  UNIVERSAL_BUILD_PROFILE_EVIDENCE.semanticPlaybackCohortId,
+);
+const UNIVERSAL_ARTIFACT_MARKER = JSON.stringify(UNIVERSAL_BUILD_PROFILE_EVIDENCE.artifactMarker);
 const UNIVERSAL_SINGLETON = `const universalE2eBuildProfile = getFilePlaybackBuildProfile();
+const universalE2eBuildProfileMarker = ${UNIVERSAL_ARTIFACT_MARKER};
 if (
-  universalE2eBuildProfile.id !== 'v2-universal-v1' ||
+  universalE2eBuildProfile.id !== ${UNIVERSAL_PROFILE_ID} ||
   universalE2eBuildProfile.engine !== 'v2' ||
-  universalE2eBuildProfile.boundedRouteMode !== 'universal-v1' ||
+  universalE2eBuildProfile.boundedRouteMode !== ${UNIVERSAL_POLICY_MODE} ||
   universalE2eBuildProfile.boundedRoutePolicy === null ||
-  universalE2eBuildProfile.boundedRoutePolicy.mode !== 'universal-v1'
+  universalE2eBuildProfile.boundedRoutePolicy.mode !== ${UNIVERSAL_POLICY_MODE} ||
+  universalE2eBuildProfile.semanticPlaybackCohortId !== ${UNIVERSAL_SEMANTIC_COHORT_ID}
 ) {
   throw new Error('Universal E2E build profile is not exact');
 }
@@ -103,7 +112,9 @@ Object.defineProperty(globalThis, '__MUSIXQUARE_FILE_PLAYBACK_E2E__', {
   writable: false,
   value: Object.freeze({
     schemaVersion: 1,
+    buildProfileMarker: universalE2eBuildProfileMarker,
     profileId: universalE2eBuildProfile.id,
+    engine: universalE2eBuildProfile.engine,
     policyMode: universalE2eBuildProfile.boundedRoutePolicy.mode,
     semanticPlaybackCohortId: universalE2eBuildProfile.semanticPlaybackCohortId,
     enabled: () => filePlaybackProductRuntime.enabled(),
@@ -128,6 +139,13 @@ function installUniversalBoundedCandidate(): Plugin {
     name: 'install-universal-bounded-e2e-candidate',
     apply: 'build',
     enforce: 'pre',
+    configResolved(config) {
+      if (config.mode !== 'e2e-universal') {
+        throw new Error(
+          `Universal E2E config requires exact e2e-universal mode, received ${config.mode}`,
+        );
+      }
+    },
     transform(source, rawId) {
       const id = rawId.replace(/\\/g, '/').split('?', 1)[0];
       if (!id?.endsWith(PRODUCT_RUNTIME_MODULE)) return null;

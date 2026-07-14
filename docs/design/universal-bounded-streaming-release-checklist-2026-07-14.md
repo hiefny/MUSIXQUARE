@@ -18,6 +18,22 @@ identified candidate origin. A passing subset, a supported format on only one
 browser, or a successful desktop-only run cannot enable the production route.
 Production enablement and rollback remain separate commits and deployments.
 
+The tracked production latch
+`FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` defaults to `false`. Remote
+environment flags cannot override it: every production flag combination stays
+`legacy-current` while the latch is off. After the latch turns on, the exact V2
+flag selects `v2-current`, and the additional exact universal flag selects
+`v2-universal-v1`. Approval and rollback each change only the latch line
+(`true` to enable, `false` to roll back) and rebuild the static application.
+The exact `e2e-universal` mode is the only latch-off exception, remains
+isolated from production, and still requires both exact flags.
+
+Attach three-artifact build evidence to every candidate: exact
+`e2e-universal` selecting the universal profile/cohort, production with the
+V2 flag on and universal flag off selecting legacy/V2-current according to the
+latch, and production with both flags on selecting legacy/universal according
+to the same latch.
+
 Allowed result values are exact:
 
 - **PASS:** every required step and measurement in the run passed, and all

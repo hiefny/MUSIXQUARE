@@ -30,9 +30,21 @@ export default defineConfig({
       use: { browserName: 'chromium', channel: 'chrome' },
     },
   ],
-  webServer: {
-    command: 'npm run preview:e2e:universal',
-    port: 4174,
-    reuseExistingServer: false,
-  },
+  webServer: [
+    {
+      command: 'npm run preview:e2e:universal',
+      port: 4174,
+      reuseExistingServer: false,
+    },
+    {
+      command: 'npm run preview:e2e:current',
+      port: 4175,
+      reuseExistingServer: false,
+    },
+    {
+      command: 'npm run preview:e2e:production-latch',
+      port: 4176,
+      reuseExistingServer: false,
+    },
+  ],
 });

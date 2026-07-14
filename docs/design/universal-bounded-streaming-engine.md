@@ -329,9 +329,30 @@ renderer backend.
 ## Release gate
 
 Do not install the optional MP3/ADTS/M4A bounded-route policy in the production
-singleton until all of the following pass. The independent V2 bootstrap flag
-has its own rollout and rollback decision; this document makes no claim about
-the value used by a deployed build.
+singleton until all of the following pass. Production selection is fail-closed:
+the V2 flag must equal the exact string `1` and the tracked constant
+`FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` must be `true`. The universal
+route additionally requires its own flag to equal the exact string `1`.
+With the latch off, every production flag combination remains
+`legacy-current`; remote builder flags are never sufficient authority. The
+constant remains `false` until release approval; enablement changes only that
+latch line to `true`, and rollback changes the same line back to `false` before
+rebuilding the static application.
+
+The exact Vite mode `e2e-universal` is the only latch exception. It still
+requires both exact build flags and exists solely to exercise the isolated
+candidate artifact; near-match mode names and ordinary production builds do
+not receive the exception.
+
+Every candidate checkpoint builds and verifies three mutually isolated
+profile/cohort artifacts:
+
+1. exact `e2e-universal`, which must select `v2-universal-v1`;
+2. production with the V2 flag on and universal flag off, which must select
+   `legacy-current` while the latch is off and `v2-current` after the one-line
+   enable; and
+3. production with both flags on, which must select `legacy-current` while the
+   latch is off and `v2-universal-v1` after the one-line enable.
 
 - unit fixtures for every enabled container/codec and malformed counterpart;
 - mono, stereo, 4-, 6-, and 8-channel rendering;
@@ -361,5 +382,6 @@ ship the exact MPL-2.0 covered source and local patch corresponding to the
 published artifact, the MPL license text, artifact/build manifest, and a stable
 source location tied to the release revision.
 
-Production enablement and rollback are separate commits. Until then the current
-live product and its rollback checkpoint remain unchanged.
+Production enablement and rollback are separate commits. Until then the tracked
+latch stays off, and the current live product and its rollback checkpoint remain
+unchanged.

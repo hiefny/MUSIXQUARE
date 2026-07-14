@@ -34,15 +34,22 @@ does not claim that the deployed build enables the separate V2 bootstrap gate.
 Engine selection is a document-lifetime decision:
 
 - development enables V2 only with one exact `?fileEngineV2=1` parameter;
-- production ignores URL parameters and accepts only the exact build flag
-  `VITE_MUSIXQUARE_FILE_ENGINE_V2=1`;
+- production ignores URL parameters and requires both the exact build flag
+  `VITE_MUSIXQUARE_FILE_ENGINE_V2=1` and the tracked
+  `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` latch;
+- while that latch is off, every production flag combination selects the
+  legacy engine; after it turns on, the optional exact universal flag selects
+  the universal profile and its absence preserves V2/current;
+- exact `e2e-universal` is the only latch-off exception and still requires both
+  exact build flags;
 - duplicate, conflicting, malformed, or unavailable configuration selects the
   legacy engine; and
 - no code may re-read configuration or switch engines after bootstrap.
 
-The first production enablement is an isolated gate commit. Reverting the
-static application to the recorded baseline restores the existing engine
-without requiring a Worker rollback.
+The first production enablement changes only the tracked latch line to `true`.
+Rollback changes the same line back to `false` and rebuilds the static
+application; reverting to the recorded baseline remains the deployment-level
+fallback and does not require a Worker rollback.
 
 Application-session hooks are installed only when the fixed gate is on. They
 must be installed before `initProtocol()` and before a connection can deliver

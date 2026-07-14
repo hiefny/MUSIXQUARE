@@ -1,28 +1,39 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const MODULE_PATH = '../file-playback-engine-gate.ts';
+const RELEASE_LATCH_MODULE_PATH = '../file-playback-production-release-latch.ts';
 
 function installEnvironment(options: {
   readonly dev: boolean;
   readonly prod: boolean;
+  readonly mode?: string;
   readonly productionFlag?: string;
+  readonly universalV1Flag?: string;
 }): void {
   vi.stubEnv('DEV', options.dev);
   vi.stubEnv('PROD', options.prod);
+  vi.stubEnv('MODE', options.mode);
   vi.stubEnv('VITE_MUSIXQUARE_FILE_ENGINE_V2', options.productionFlag);
+  vi.stubEnv('VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1', options.universalV1Flag);
 }
 
 function installLocation(search: unknown): void {
   vi.stubGlobal('location', { search });
 }
 
-async function loadGate() {
+async function loadGate(options: { readonly productionLatch?: boolean } = {}) {
+  if (options.productionLatch !== undefined) {
+    vi.doMock(RELEASE_LATCH_MODULE_PATH, () => ({
+      FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED: options.productionLatch,
+    }));
+  }
   return import(MODULE_PATH);
 }
 
 describe('file playback engine bootstrap gate', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock(RELEASE_LATCH_MODULE_PATH);
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
@@ -39,7 +50,7 @@ describe('file playback engine bootstrap gate', () => {
     installEnvironment({ ...mode, productionFlag: '1' });
     installLocation('?fileEngineV2=1');
 
-    const gate = await loadGate();
+    const gate = await loadGate({ productionLatch: true });
 
     expect(gate.getFilePlaybackEngineMode()).toBe('legacy');
     expect(gate.isFilePlaybackEngineV2Enabled()).toBe(false);
@@ -104,15 +115,62 @@ describe('file playback engine bootstrap gate', () => {
     expect(gate.getFilePlaybackEngineMode()).toBe('legacy');
   });
 
-  it('enables production only for the exact build-time value', async () => {
+  it('enables production V2 only for the exact build-time value after the tracked latch is ON', async () => {
     installEnvironment({ dev: false, prod: true, productionFlag: '1' });
     installLocation('?fileEngineV2=0');
 
-    const gate = await loadGate();
+    const gate = await loadGate({ productionLatch: true });
 
     expect(gate.getFilePlaybackEngineMode()).toBe('v2');
     expect(gate.isFilePlaybackEngineV2Enabled()).toBe(true);
   });
+
+  it.each([undefined, '0', '1'])(
+    'keeps production legacy with a stale exact V2 flag while the tracked latch is OFF (universal=%s)',
+    async (universalV1Flag) => {
+      installEnvironment({
+        dev: false,
+        prod: true,
+        mode: 'production',
+        productionFlag: '1',
+        universalV1Flag,
+      });
+
+      const gate = await loadGate();
+
+      expect(gate.getFilePlaybackEngineMode()).toBe('legacy');
+      expect(gate.isFilePlaybackEngineV2Enabled()).toBe(false);
+    },
+  );
+
+  it('allows the exact universal E2E artifact as the only latch-OFF production exception', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'e2e-universal',
+      productionFlag: '1',
+      universalV1Flag: '1',
+    });
+
+    const gate = await loadGate();
+
+    expect(gate.getFilePlaybackEngineMode()).toBe('v2');
+  });
+
+  it.each([undefined, '', 'true', '01', ' 1 ', '0'])(
+    'requires the exact universal flag for the latch-OFF E2E exception: %s',
+    async (universalV1Flag) => {
+      installEnvironment({
+        dev: false,
+        prod: true,
+        mode: 'e2e-universal',
+        productionFlag: '1',
+        universalV1Flag,
+      });
+
+      expect((await loadGate()).getFilePlaybackEngineMode()).toBe('legacy');
+    },
+  );
 
   it.each([undefined, '', 'true', '01', ' 1 ', '0'])(
     'rejects a non-exact production flag: %s',
@@ -120,7 +178,7 @@ describe('file playback engine bootstrap gate', () => {
       installEnvironment({ dev: false, prod: true, productionFlag });
       installLocation('');
 
-      const gate = await loadGate();
+      const gate = await loadGate({ productionLatch: true });
 
       expect(gate.getFilePlaybackEngineMode()).toBe('legacy');
     },

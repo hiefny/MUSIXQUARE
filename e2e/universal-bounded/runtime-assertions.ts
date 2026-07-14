@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { UNIVERSAL_BUILD_PROFILE_EVIDENCE } from './build-profile-evidence.ts';
 
 interface UniversalConsoleDiagnostic {
   readonly type: 'error' | 'warning';
@@ -88,7 +89,9 @@ export interface UniversalPeerRangePhysicalReadDiagnostics {
 
 export interface UniversalRuntimeSnapshot {
   readonly schemaVersion: number;
+  readonly buildProfileMarker: string;
   readonly profileId: string;
+  readonly engine: string;
   readonly policyMode: string;
   readonly semanticPlaybackCohortId: string;
   readonly enabled: boolean;
@@ -147,7 +150,9 @@ export async function readUniversalRuntime(page: Page): Promise<UniversalRuntime
         string,
         | {
             schemaVersion: number;
+            buildProfileMarker: string;
             profileId: string;
+            engine: string;
             policyMode: string;
             semanticPlaybackCohortId: string;
             enabled: () => boolean;
@@ -163,7 +168,9 @@ export async function readUniversalRuntime(page: Page): Promise<UniversalRuntime
     if (!bridge) throw new Error('Universal bounded runtime bridge is unavailable');
     return {
       schemaVersion: bridge.schemaVersion,
+      buildProfileMarker: bridge.buildProfileMarker,
       profileId: bridge.profileId,
+      engine: bridge.engine,
       policyMode: bridge.policyMode,
       semanticPlaybackCohortId: bridge.semanticPlaybackCohortId,
       enabled: bridge.enabled(),
@@ -184,10 +191,11 @@ export async function expectUniversalRoom(page: Page, role: 'host' | 'guest'): P
     })
     .toMatchObject({
       schemaVersion: 1,
-      profileId: 'v2-universal-v1',
-      policyMode: 'universal-v1',
-      semanticPlaybackCohortId:
-        'file-playback;session=v2;route=universal-v1;flac=wasm-0.2.10;linear-pcm=worker-v1;mp3=mpg123-1.0.3;adts-aac=webcodecs-v1;m4a-aac=webcodecs-v1',
+      buildProfileMarker: UNIVERSAL_BUILD_PROFILE_EVIDENCE.artifactMarker,
+      profileId: UNIVERSAL_BUILD_PROFILE_EVIDENCE.profileId,
+      engine: UNIVERSAL_BUILD_PROFILE_EVIDENCE.engine,
+      policyMode: UNIVERSAL_BUILD_PROFILE_EVIDENCE.policyMode,
+      semanticPlaybackCohortId: UNIVERSAL_BUILD_PROFILE_EVIDENCE.semanticPlaybackCohortId,
       enabled: true,
       controller: {
         roomRole: role,

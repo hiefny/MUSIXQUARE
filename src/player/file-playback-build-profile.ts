@@ -8,6 +8,7 @@ import {
   FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID,
   FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID,
 } from './file-playback-semantic-cohort.ts';
+import { FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED } from './file-playback-production-release-latch.ts';
 
 type FilePlaybackBuildProfileId = 'legacy-current' | 'v2-current' | 'v2-universal-v1';
 
@@ -47,7 +48,18 @@ const V2_UNIVERSAL_V1_PROFILE: Readonly<FilePlaybackBuildProfile> = Object.freez
 function universalV1BuildEnabled(): boolean {
   try {
     const environment = import.meta.env as Record<string, unknown> | undefined;
-    return environment?.VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1 === '1';
+    if (
+      environment?.VITE_MUSIXQUARE_FILE_ENGINE_V2 !== '1' ||
+      environment.VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1 !== '1'
+    ) {
+      return false;
+    }
+
+    // The isolated candidate build may exercise universal-v1 while the tracked
+    // production latch remains OFF. No other mode receives this exception.
+    if (environment.MODE === 'e2e-universal') return true;
+
+    return environment.PROD === true && FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED;
   } catch {
     return false;
   }

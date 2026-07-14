@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v134';
-const RETIRED_CACHE_VERSION = 'v133';
+const ACTIVE_CACHE_VERSION = 'v135';
+const RETIRED_CACHE_VERSION = 'v134';
 
 type FetchListener = (event: {
   request: Request;
@@ -81,7 +81,7 @@ describe('service worker cache policy', () => {
     messageListener = listeners.get('message') as MessageListener;
   });
 
-  async function dispatch(request: Request): Promise<Response> {
+  function intercept(request: Request): Promise<Response> | undefined {
     let responsePromise: Promise<Response> | undefined;
     fetchListener({
       request,
@@ -90,6 +90,11 @@ describe('service worker cache policy', () => {
       },
       waitUntil: vi.fn(),
     });
+    return responsePromise;
+  }
+
+  async function dispatch(request: Request): Promise<Response> {
+    const responsePromise = intercept(request);
     expect(responsePromise).toBeDefined();
     return await responsePromise!;
   }
@@ -136,6 +141,27 @@ describe('service worker cache policy', () => {
 
     await dispatch(new Request('https://musixquare.com/assets/app.js'));
 
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
+    expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it('bypasses AIFF and CAF media while keeping the iOS audio primer cacheable', async () => {
+    for (const extension of ['aif', 'aiff', 'aifc', 'caf']) {
+      const response = intercept(
+        new Request(`https://musixquare.com/media/orchestra.${extension}`),
+      );
+      expect(response).toBeUndefined();
+    }
+
+    expect(cacheMatch).not.toHaveBeenCalled();
+    expect(cacheOpen).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValue(new Response('primer', { status: 200 }));
+    const primer = await dispatch(new Request('https://musixquare.com/dummy_audio.mp3'));
+
+    expect(await primer.text()).toBe('primer');
     expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
   });

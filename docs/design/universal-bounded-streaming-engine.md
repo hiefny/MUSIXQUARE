@@ -100,20 +100,25 @@ capability exists; they must not silently fall back into an unbounded path.
 
 ## Implementation status
 
-This table records implementation progress, not production availability. The
-V2 product gate remains off for every row until the release gate below is
-satisfied.
+This table records repository implementation progress, not production
+availability. Native FLAC and supported linear PCM are selected only inside an
+enabled V2 document. MP3, ADTS, and M4A are additionally controlled by the
+immutable bounded-route policy. Their factories, owner/stager integration, and
+decoder paths are implemented, but the production singleton does not install
+that optional policy, so those formats retain their current route. This ADR
+does not assert that a deployed build enables the independent V2 bootstrap
+gate.
 
-| Capability                                                              | Status                                                                                   | Product route |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------- |
-| Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                                                        | gated off     |
-| Native FLAC                                                             | implemented on the common renderer                                                       | gated off     |
-| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker                                              | gated off     |
-| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                              | gated off     |
-| CAF LPCM                                                                | implemented on the shared linear-PCM worker                                              | gated off     |
-| MP3                                                                     | parser/index/timeline, decoder, Worker, adapter, wrapper, and lifecycle soak implemented | unavailable   |
-| ADTS AAC                                                                | scanner, WebCodecs backend, Worker generation, and decoder adapter implemented            | unavailable   |
-| M4A/MP4 AAC                                                             | authenticated metadata manifest and bounded ISO-BMFF/AAC sample tables implemented         | unavailable   |
+| Capability                                                              | Repository status                                                                                              | Product selection in this revision       |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                                                                              | depends on the independent V2 build gate |
+| Native FLAC                                                             | implemented on the common renderer                                                                             | selected only in an enabled V2 document  |
+| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker                                                                    | selected only in an enabled V2 document  |
+| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                                                    | selected only in an enabled V2 document  |
+| CAF LPCM                                                                | implemented on the shared linear-PCM worker                                                                    | selected only in an enabled V2 document  |
+| MP3                                                                     | parser, decoder, Worker, factory, direct/manifest peer source, and lifecycle integration implemented           | optional product policy not installed    |
+| ADTS AAC                                                                | scanner, WebCodecs decoder, factory, authenticated manifest peer source, and lifecycle integration implemented | optional product policy not installed    |
+| M4A/MP4 AAC                                                             | bounded ISO-BMFF parser, WebCodecs decoder, factory, peer source, and lifecycle integration implemented        | optional product policy not installed    |
 
 WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
 metadata readers normalize verified byte geometry into one linear-PCM decoder,
@@ -144,22 +149,28 @@ reservoir and synthesis history, discards to the exact global raw coordinate,
 and terminates the realm instead of invoking the upstream `reset()` or
 `free()` cleanup paths.
 
-The Worker, decoder adapter, and thin common-renderer wrapper are now
-implemented. A repeated-lifecycle soak covers 128 fresh decoder generations,
-256 retired leases whose physical reads ignore cancellation, and 3,300 serial
-bounded PCM demands over a real `MessageChannel`. The adapter remains absent
-from the format factory and product route; this checkpoint proves the isolated
-codec lifecycle, not production availability.
+The Worker, decoder adapter, thin common-renderer wrapper, format factory, and
+product owner/stager path are implemented. A repeated-lifecycle soak covers 128
+fresh decoder generations, 256 retired leases whose physical reads ignore
+cancellation, and 3,300 serial bounded PCM demands over a real
+`MessageChannel`. Peer delivery uses direct range reads when frame-count
+metadata makes guest reconstruction bounded, and an authenticated timeline
+manifest otherwise. The optional MP3 bounded-route policy remains absent from
+the production singleton, so this checkpoint does not claim production
+availability.
 
 ### ADTS AAC decoder checkpoint
 
 The first ADTS capability is intentionally narrower than the syntax that the
-header parser can describe. Initial playback admission is raw contiguous
-MPEG-4 AAC-LC with one raw data block per frame, no CRC, a constant sample
-rate/configuration, and mono or stereo channel configuration. MPEG-2, AAC
-Main/SSR/LTP/HE, CRC-protected frames, multiple raw data blocks, and in-band
-Program Config Elements fail explicitly until their own fixtures and decoder
-evidence exist.
+header parser can describe. After an optional bounded chain of validated
+leading ID3v2 tags, playback admission requires a contiguous MPEG-4 AAC-LC
+frame span with one raw data block per frame, no CRC, a constant sample
+rate/configuration, and mono or stereo channel configuration. The exact
+nonzero `audioStartByte` is preserved through host manifest sealing, guest
+reconstruction, scan, seek, and decode; the terminal frame must still end at
+the physical source EOF. MPEG-2, AAC Main/SSR/LTP/HE, CRC-protected frames,
+multiple raw data blocks, and in-band Program Config Elements fail explicitly
+until their own fixtures and decoder evidence exist.
 
 ADTS has no general byte-offset table or trustworthy gapless metadata. The
 adapter must therefore verify the complete frame span with bounded reads,
@@ -185,6 +196,13 @@ backend and the ready event echoes it. A Worker must fail if that backend is
 unavailable; it must not silently switch from WebCodecs to WASM inside the same
 generation. A retry selects a new backend in a fresh generation so room
 coordination can observe the change.
+
+The ADTS factory and host/guest owner path are implemented, including the
+authenticated manifest-prefixed peer-range source used to avoid a mandatory
+guest-side whole-file scan. The only implemented decoder cohort is still the
+strict WebCodecs cohort described above, and the optional ADTS product policy
+is not installed in the production singleton. Implementation therefore must
+not be read as a shipping support claim.
 
 AAC has two distinct consistency contracts:
 
@@ -254,8 +272,10 @@ remaining table pages are authenticated lazily. Codec, timeline, container
 diagnostics, and declared `mdat` ranges are canonicalized but are not reparsed
 during that reopen, so an external or otherwise untrusted manifest requires
 separate authentication before this boundary can accept it. Transferred
-normalized runs are never runtime authority on their own. This checkpoint is
-still isolated from the format factory and product route.
+normalized runs are never runtime authority on their own. The factory and
+product owner/stager path are implemented, but selection still requires the
+optional M4A bounded-route policy that the production singleton does not
+install.
 
 ## Memory model
 
@@ -302,7 +322,10 @@ renderer backend.
 
 ## Release gate
 
-The existing V2 product gate stays off until all of the following pass:
+Do not install the optional MP3/ADTS/M4A bounded-route policy in the production
+singleton until all of the following pass. The independent V2 bootstrap flag
+has its own rollout and rollback decision; this document makes no claim about
+the value used by a deployed build.
 
 - unit fixtures for every enabled container/codec and malformed counterpart;
 - mono, stereo, 4-, 6-, and 8-channel rendering;

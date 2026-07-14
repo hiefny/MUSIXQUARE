@@ -134,8 +134,11 @@ interface CurrentOfferLeaseRecord {
  *
  * This is deliberately not a playback run or rendezvous. A queue occurrence
  * may be prepared and superseded before any run exists. Codec/container
- * metadata is also deliberately absent: the guest must re-read and validate
- * it through EncodedAudioSource.
+ * Regular peer-range offers deliberately carry no codec/container metadata:
+ * the guest must re-read and validate it through EncodedAudioSource. The
+ * manifest-prefixed variant carries only authenticated bundle geometry in the
+ * offer; its bounded timeline manifest is still read from that exact source
+ * and structurally revalidated before decoder construction.
  *
  * The transport discriminant keeps peer-range handles disjoint from temporary
  * whole-Blob R2 descriptors. Record-encrypted R2 remains a future variant.
@@ -184,8 +187,9 @@ export interface PeerRangeManifestFileMediaSourceOfferV2 {
 }
 
 /**
- * Temporary whole-Blob object-storage transport for ordinary browser codecs.
- * The cleanup capability and endpoint URL are deliberately not wire fields.
+ * Temporary whole-Blob object-storage transport for a current-route browser
+ * decode fallback. The cleanup capability and endpoint URL are deliberately
+ * not wire fields.
  */
 export interface R2WholeBlobFileMediaSourceOfferV2 {
   readonly protocolVersion: typeof FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION;

@@ -27,7 +27,7 @@ export interface ManagedFilePlaybackPublicationOptions {
   readonly isCurrent: () => boolean;
   /** Cancels a pending activation without turning ordinary supersession into an error. */
   readonly signal?: AbortSignal;
-  /** Publish only the exact decoded buffer carried by an AudioBuffer factory result. */
+  /** Publish only the exact decoded buffer carried by a fallback AudioBuffer result. */
   readonly publishResident: (audioBuffer: AudioBuffer) => void;
   /** Identity-guarded cleanup; a same-queue-item successor must remain untouched. */
   readonly clearResidentIfOwned: (audioBuffer: AudioBuffer) => void;
@@ -121,10 +121,11 @@ async function settleActivation(
 /**
  * Atomically transfers one factory result into manager and resident ownership.
  *
- * The decoder construction lease stays live until both native-source activation
- * and (for ordinary codecs) exact AudioBuffer publication have succeeded. Every
- * rollback is object-identity based, so a newer source with the same queue item
- * ID cannot be retired or removed from the resident slot by a stale attempt.
+ * The decoder construction lease stays live until native-source activation and,
+ * only for a legacy/current-route fallback result, exact AudioBuffer publication
+ * have succeeded. Every rollback is object-identity based, so a newer source
+ * with the same queue item ID cannot be retired or removed from the resident
+ * slot by a stale attempt.
  */
 export async function publishManagedFilePlaybackSource(
   options: ManagedFilePlaybackPublicationOptions,

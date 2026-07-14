@@ -10,6 +10,8 @@
 > AudioBuffer fallback described below are superseded by
 > `universal-bounded-streaming-engine.md`. The synchronization, ownership,
 > rendezvous, recovery, and rollback decisions in this document remain active.
+> FLAC-only lab results and rollout steps below are retained as historical
+> evidence, not as the current format-availability matrix.
 
 ## Product goal
 
@@ -27,13 +29,14 @@ preload, queue ownership, effects, or participant recovery.
 
 ## Decisions
 
-### One playback coordinator, multiple decode backends
+### Original FLAC-first decoder decision (historical)
 
 The product has one authoritative playback timeline and one rendezvous
 coordinator. Decode/storage implementation is an adapter below that common
 clock:
 
-- `AudioBuffer` remains the decode backend for supported ordinary formats.
+- `AudioBuffer` was retained for current-route ordinary formats in the initial
+  product slice.
 - A streaming FLAC backend reads encoded bytes in bounded chunks, decodes and
   resamples in a worker, and feeds a bounded `AudioWorklet` ring.
 
@@ -43,10 +46,11 @@ health contract, and connect to the same existing MUSIXQUARE effects and
 channel-routing graph. A fake `AudioBuffer` must never be used to disguise a
 streaming source.
 
-The streaming backend is selected from verified FLAC metadata. Unsupported or
-invalid FLAC input fails explicitly; it does not fall through to a
-`MediaElement` clock. MP3, AAC, WAV, AIFF, CAF, Ogg, and MP4 retain their
-existing decode support under the common coordinator.
+In that slice, the streaming backend was selected from verified FLAC metadata.
+Unsupported or invalid FLAC input failed explicitly rather than falling
+through to a `MediaElement` clock. The universal ADR now governs bounded
+format selection; the `AudioBuffer` language here describes only the retained
+legacy/current-route fallback, not the target engine for every non-FLAC file.
 
 ### RAM-only and bounded memory
 
@@ -220,9 +224,10 @@ a new host handle or close a handle still used by its sibling.
 The renderer port returns the exact local target chosen by its backend. The
 manager schedules both outer gates against that same AudioContext frame; it
 does not independently remap room time. Streaming FLAC reports an observed
-Worklet start frame, while AudioBuffer reports only that its Web Audio schedule
-boundary has passed. Those evidence classes remain distinct and neither is
-upgraded into a stronger claim by the manager.
+Worklet start frame, while a legacy/current-route `AudioBuffer` fallback
+reports only that its Web Audio schedule boundary has passed. Those evidence
+classes remain distinct and neither is upgraded into a stronger claim by the
+manager.
 
 ### Clock quality and rendezvous
 
@@ -411,6 +416,9 @@ reservation, and rendezvous generations must compose with them:
 Each stage is committed and validated independently. Nothing is pushed until
 the owner explicitly approves the final production test.
 
+The FLAC-specific steps in this original sequence are historical milestones.
+The universal ADR supplies the current codec rollout and release gate.
+
 1. Freeze the rollback baseline and notification semantics.
 2. Add source, clock, timeline, and backend contracts with unit tests.
 3. Port the bounded FLAC worker/worklet and connect it to the product graph.
@@ -430,6 +438,9 @@ the owner explicitly approves the final production test.
 ## Verification gates
 
 Before a push is offered, the local branch must pass:
+
+The FLAC items below are retained from the original milestone and are additive
+to, not a replacement for, the universal format matrix.
 
 - all unit, type, formatting, import, lifecycle, security, font, and production
   build guards;

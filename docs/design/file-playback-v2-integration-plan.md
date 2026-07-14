@@ -9,7 +9,9 @@
 
 > **Scope update (2026-07-13):** Whole-Blob ordinary-codec decode remains only
 > a gated legacy/bootstrap behavior while the universal bounded adapters are
-> implemented. It is not the target architecture for long-form media.
+> implemented. It is not the target architecture for long-form media. The
+> slices below preserve the FLAC-first integration order; current format status
+> is authoritative only in `universal-bounded-streaming-engine.md`.
 
 ## Purpose
 
@@ -17,11 +19,15 @@ This plan defines how the tested V2 playback primitives enter the existing
 MUSIXQUARE product without allowing the legacy AudioBuffer transport and the
 new cutover manager to own one file at the same time.
 
-The product has one file-playback timeline and one audible file owner. Native
-FLAC uses bounded streaming; ordinary codecs use admitted whole-Blob decode.
-Both backends use the same rendezvous, cutover manager, product audio graph,
-queue identity, and UI projection. MediaElement, OPFS, IndexedDB media bodies,
-and a second playback clock are not fallback paths.
+The product has one file-playback timeline and one audible file owner. In an
+enabled V2 document, native FLAC and supported WAVE/AIFF/CAF linear PCM use
+bounded streaming. MP3, ADTS, and M4A bounded adapters are also wired into the
+product, but their optional route policy is not installed in the production
+singleton; current-route formats may therefore still use admitted whole-Blob
+decode. Both source classes use the same rendezvous, cutover manager, product
+audio graph, queue identity, and UI projection. MediaElement, OPFS, IndexedDB
+media bodies, and a second playback clock are not fallback paths. This plan
+does not claim that the deployed build enables the separate V2 bootstrap gate.
 
 ## Fixed bootstrap gate
 
@@ -76,8 +82,8 @@ The first executable product slice is deliberately small:
 The slice admits the Blob into the room asset registry, stages one exact
 source behind a silent manager gate, runs local ARM -> FINALIZE, waits for
 backend start evidence, commits the exact attempt, and only then publishes UI
-state. Ordinary files decode on activation. Native FLAC preparation stays
-bounded.
+state. In this original slice, current-route files decoded on activation while
+native FLAC preparation stayed bounded.
 
 This slice must not call `stopAllMedia()`, `loadAndBroadcastFile()`, legacy
 `play()`, or send `FILE_PREPARE`/`PLAY`. The legacy load path publishes an
@@ -107,8 +113,8 @@ The facade exposes JSON-safe projections for:
 Reorder preserves the asset, run, renderer, and transfer because
 `queueItemId` is unchanged. Removal fences each removed ID before successor
 selection and retires its candidate, run, renderer, asset, and late
-continuations. Ordinary preload owns only the Blob asset; it does not decode
-PCM until activation.
+continuations. A current-route whole-Blob preload owns only the Blob asset; it
+does not decode PCM until activation.
 
 ### Slice 4: whole-Blob LAN compatibility
 
@@ -119,9 +125,10 @@ media. Completion publishes the Blob to the exact source offer/run binding.
 
 Legacy `finalizeGuestFile()` and `loadPreloadedTrack()` are not used by V2.
 
-### Slice 5: peer-range native FLAC
+### Slice 5: peer-range bounded sources
 
-Large LAN FLAC uses a per-connection media session:
+The original slice introduced the per-connection media session with large LAN
+FLAC:
 
 1. host publishes an exact source offer;
 2. guest accepts the offer under its live channel token;
@@ -136,9 +143,13 @@ leases, peer-range client or responder, epoch, and abort signal for exactly
 one DataConnection. Revocation closes that record before the channel lease is
 released. A new connection object is required for re-entry.
 
-Peer range is native-FLAC-only. Ordinary codecs continue through whole-Blob
-admission because browser `decodeAudioData()` requires the complete encoded
-body.
+The peer-range transport is no longer native-FLAC-only. Supported FLAC and
+linear-PCM formats use direct bounded ranges. Implemented optional compressed
+routes use either direct ranges or an authenticated manifest-prefixed range
+handle when bounded guest reconstruction needs host-derived timeline evidence.
+MP3, ADTS, and M4A still retain their current route unless the immutable
+bounded-route policy explicitly enables them; a current-route
+`decodeAudioData()` fallback requires the complete encoded body.
 
 ### Slice 6: R2 records
 

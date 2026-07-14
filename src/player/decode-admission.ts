@@ -1,10 +1,12 @@
 /**
  * RAM admission for Web Audio file decoding.
  *
- * Playback remains AudioBuffer-only for sample-accurate synchronization. The
- * metadata-only HTMLAudioElement below is never played or connected to the
- * graph; it provides duration before decodeAudioData expands the whole file to
- * planar Float32 PCM. No media bytes are persisted to OPFS or IndexedDB.
+ * This module protects only the legacy/current-route whole-Blob AudioBuffer
+ * fallback. Bounded streaming backends use their own fixed read, decoder, and
+ * PCM-ring budgets. The metadata-only HTMLAudioElement below is never played or
+ * connected to the graph; it provides duration before decodeAudioData expands
+ * the whole file to planar Float32 PCM. Neither route persists media bytes to
+ * OPFS or IndexedDB.
  */
 
 import { probeAudioChannelCount } from './audio-header.ts';

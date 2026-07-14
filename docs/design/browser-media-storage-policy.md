@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Decision date:** 2026-07-10
-- **Last implementation check:** 2026-07-11
+- **Last implementation check:** 2026-07-14
 - **Applies to:** production file-transfer, preload, remote-share receive, and
   file-playback paths
 
@@ -15,10 +15,13 @@ pressure, and cleanup. In long iOS sessions that lifecycle was associated with
 unacceptable memory growth and WebContent/PWA crashes.
 
 The current implementation keeps incoming encoded chunks, finalized media
-blobs, preloads, and decoded playback buffers in memory. That design has a
-clearer lifetime: leaving or replacing a session drops app-owned references and
-makes its browser-local working set eligible for browser reclamation, without a
-disk-recovery path. The browser still controls the actual reclamation timing.
+blobs, preloads, current-route decoded buffers, and every bounded-engine working
+set in memory. That design has a clearer lifetime: leaving or replacing a
+session drops app-owned references and makes its browser-local working set
+eligible for browser reclamation, without a disk-recovery path. The browser
+still controls the actual reclamation timing. Mentioning the implemented
+bounded engine here does not claim its product policy or deployment gate is
+enabled.
 
 Temporary encrypted objects in Cloudflare R2 are outside the scope of this
 decision. They are server-side handoff objects with their own TTL and cleanup
@@ -53,27 +56,30 @@ also block diagnostics and legitimate future metadata work.
 
 RAM-only media has a device-dependent capacity ceiling. File admission must
 therefore account for the decoded audio footprint, not merely the encoded file
-size. Persistent storage would not remove the memory required by the current
-AudioBuffer playback engine.
+size. Persistent storage would not remove the memory required by a
+legacy/current-route whole-file `AudioBuffer` decode, nor the explicitly
+bounded working set required by the streaming engine.
 
-**Implementation note (2026-07-11):** every local, demo, preload, and received
-file passes the same AudioBuffer admission check before `arrayBuffer()` and
-native decode allocation. The check probes duration with an off-DOM muted
+**Implementation note (2026-07-14):** a local, demo, preload, or received file
+that enters the legacy/current-route whole-Blob decoder passes the same
+`AudioBuffer` admission check before `arrayBuffer()` and native decode
+allocation. The check probes duration with an off-DOM muted
 `HTMLAudioElement` used only for metadata; it is never played or connected to
-the audio graph, so synchronized playback remains AudioBuffer-only. It
-estimates Float32 PCM with headroom at a conservative 48 kHz floor, raised to
-the active AudioContext output rate when that rate is higher. A
-bounded WAV, AIFF, CAF, FLAC, Ogg, MP3, AAC, or MP4 header probe supplies the
-channel count; MP4 metadata is accepted only from verified box hierarchy and
-all verified audio tracks contribute to the maximum. An unknown layout reserves
-a conservative 32 channels. The estimate includes encoded copies,
-still-reachable decoded buffers, and concurrent whole-file remote transport in
-one in-flight memory ledger, then validates the actual AudioBuffer footprint
-again before publication. Missing duration metadata fails closed on iOS and
-other constrained devices; desktop tiers use a conservative encoded-size
-expansion.
+the audio graph. It estimates Float32 PCM with headroom at a conservative 48
+kHz floor, raised to the active AudioContext output rate when that rate is
+higher. A bounded WAVE, AIFF, CAF, FLAC, Ogg, MP3, AAC, or MP4 header probe
+supplies the channel count; MP4 metadata is accepted only from verified box
+hierarchy and all verified audio tracks contribute to the maximum. An unknown
+layout reserves a conservative 32 channels. The estimate includes encoded
+copies, still-reachable decoded buffers, and concurrent whole-file remote
+transport in one in-flight memory ledger, then validates the actual
+`AudioBuffer` footprint again before publication. Missing duration metadata
+fails closed on iOS and other constrained devices; desktop tiers use a
+conservative encoded-size expansion. Bounded streaming routes use their own
+fixed encoded-read, decoder-message, and PCM-ring budgets instead of this
+whole-track admission estimate.
 
-Current per-file PCM / decode-working-set ceilings are 192/320 MiB on iOS,
+Current whole-Blob PCM / decode-working-set ceilings are 192/320 MiB on iOS,
 256/448 MiB on constrained or other mobile devices, 384/768 MiB on standard
 desktop devices, and 512 MiB/1 GiB on desktops reporting at least 8 GiB of
 device memory. These are playback-memory budgets, not encoded-file limits.
@@ -81,12 +87,15 @@ Remote sharing retains a fixed 200 MiB protocol/storage ceiling, but its
 effective admission ceiling can be lower when the device's RAM budget or other
 in-flight work cannot safely hold the required whole-file copies.
 
-The accepted tradeoff is to reject a file that cannot fit the supported memory
-budget rather than introduce a storage or playback fallback with different
-synchronization behavior. The discarded large-file/OPFS implementation is not
-retained in production code or Cloudflare resources. Any future reconsideration
-starts as a separate proposal and implementation; it must not revive the
-discarded branch or wire old artifacts into the browser media path.
+The current-route tradeoff is to reject a whole-Blob file that cannot fit the
+supported memory budget rather than introduce a persistent-storage or
+different-clock fallback. Implemented bounded adapters can remove the
+duration-proportional `AudioBuffer` allocation after their independent product
+gates pass, but they remain RAM-only and do not make OPFS a fallback. The
+discarded large-file/OPFS implementation is not retained in production code or
+Cloudflare resources. Any future reconsideration starts as a separate proposal
+and implementation; it must not revive the discarded branch or wire old
+artifacts into the browser media path.
 
 ## OPFS Re-evaluation Gate
 

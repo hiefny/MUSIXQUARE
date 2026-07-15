@@ -10,6 +10,8 @@ const ru: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ОК',
   'common.cancel': 'Отмена',
+  'common.yes': 'Да',
+  'common.no': 'Нет',
   'common.close': 'Закрыть',
   'common.reset': 'Сброс',
   'common.refresh': 'Обновить',
@@ -310,8 +312,6 @@ const ru: Record<I18nKey, string> = {
     'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и гостями. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
   'chat.system_audio_stopped_system_message':
     'Общий доступ к системному звуку завершен. Хост может снова прибавить громкость, чтобы вернуться к роли динамика.',
-  'chat.remote_guest_detected_system_message':
-    'Удаленный гость вошел в комнату. Качество соединения может варьироваться в зависимости от стабильности сети.',
   'chat.remote_upload_limited_system_message':
     'Достигнут лимит загрузки файлов.\nУдаленные гости могут попробовать позже.',
   'chat.remote_upload_failed_system_message':
@@ -565,6 +565,8 @@ const ru: Record<I18nKey, string> = {
   'error.room_password_auth_timeout': 'Нестабильная сеть.\nПопробуйте ввести пароль еще раз.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
+  'dialog.file_drop.title': 'Добавить локальные файлы',
+  'dialog.file_drop.message': 'Добавить выбранные треки ({{count}})?',
   'dialog.return_home_title': 'Выйти из комнаты',
   'dialog.return_home_msg': 'Вернуться на стартовый экран?',
   'dialog.return_home_detail': 'Соединение с текущей комнатой будет разорвано.',

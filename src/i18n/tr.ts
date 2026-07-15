@@ -10,6 +10,8 @@ const tr: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'Tamam',
   'common.cancel': 'İptal',
+  'common.yes': 'Evet',
+  'common.no': 'Hayır',
   'common.close': 'Kapat',
   'common.reset': 'Sıfırla',
   'common.refresh': 'Yenile',
@@ -308,8 +310,6 @@ const tr: Record<I18nKey, string> = {
     'Sistem sesi paylaşımı başladı. Oda sahibi ile misafir cihazlar arasında hafif bir gecikme olması normaldir. Yankıyı önlemek için oda sahibinin cihaz sesini kısması önerilir.',
   'chat.system_audio_stopped_system_message':
     'Sistem sesi paylaşımı sona erdi. Oda sahibi, hoparlör rolüne dönmek için sesi tekrar açabilir.',
-  'chat.remote_guest_detected_system_message':
-    'Uzaktan bir misafir katıldı. Bağlantı kalitesi ağ koşullarına bağlı olarak değişebilir.',
   'chat.remote_upload_limited_system_message':
     'Dosya yükleme sınırına ulaşıldı.\nUzaktaki misafirler daha sonra tekrar deneyebilir.',
   'chat.remote_upload_failed_system_message':
@@ -561,6 +561,8 @@ const tr: Record<I18nKey, string> = {
   'error.room_password_auth_timeout': 'Ağ bağlantısı kararsız.\nŞifreyi tekrar girmeyi deneyin.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
+  'dialog.file_drop.title': 'Yerel dosyalar ekle',
+  'dialog.file_drop.message': '{{count}} parça eklensin mi?',
   'dialog.return_home_title': 'Odadan Ayrıl',
   'dialog.return_home_msg': 'Başlangıç ekranına dönmek istiyor musunuz?',
   'dialog.return_home_detail': 'Bağlantınız kesilecektir.',

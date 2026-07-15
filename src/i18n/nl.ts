@@ -14,6 +14,8 @@ const nl: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Annuleren',
+  'common.yes': 'Ja',
+  'common.no': 'Nee',
   'common.close': 'Sluiten',
   'common.reset': 'Resetten',
   'common.refresh': 'Vernieuwen',
@@ -306,8 +308,6 @@ const nl: Record<I18nKey, string> = {
     'Systeem-audio delen is gestart. Een kleine vertraging tussen host en gasten is normaal. Zet het volume van de host zo laag mogelijk om echo te voorkomen.',
   'chat.system_audio_stopped_system_message':
     'Systeem-audio delen is gestopt. Host, zet je volume gerust weer hoger om weer als luidspreker te fungeren.',
-  'chat.remote_guest_detected_system_message':
-    'Een externe deelnemer is gejoined. De verbindingskwaliteit kan per netwerk verschillen.',
   'chat.remote_upload_limited_system_message':
     'Uploadlimiet voor bestanden bereikt.\nExterne deelnemers moeten het later opnieuw proberen.',
   'chat.remote_upload_failed_system_message':
@@ -553,6 +553,8 @@ const nl: Record<I18nKey, string> = {
   'connect.slot_guide.title': 'Aantal deelnemers',
   'connect.slot_guide.body':
     'Hoe meer deelnemers er verbinden, hoe minder stabiel het systeem wordt.\n\n• Samen YouTube: tot 32\n• Lokaal bestanden delen: tot 8\n• Systeem-audio delen: tot 4 aanbevolen',
+  'dialog.file_drop.title': 'Lokale bestanden toevoegen',
+  'dialog.file_drop.message': '{{count}} nummers toevoegen?',
   'dialog.return_home_title': 'Sessie verlaten',
   'dialog.return_home_msg': 'Terug naar het startscherm?',
   'dialog.return_home_detail': 'Je wordt losgekoppeld van de huidige sessie.',

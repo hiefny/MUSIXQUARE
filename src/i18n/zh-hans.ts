@@ -13,6 +13,8 @@ const zhHans: Record<I18nKey, string> = {
   // Common
   'common.ok': '确定',
   'common.cancel': '取消',
+  'common.yes': '是',
+  'common.no': '否',
   'common.close': '关闭',
   'common.reset': '重置',
   'common.refresh': '刷新',
@@ -467,6 +469,8 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     '系统音频共享支持本地和远程参与者，但考虑主持人设备负载和延迟，建议最多约 4 位参与者。\n\n继续吗？',
   'dialog.continue': '继续',
+  'dialog.file_drop.title': '添加本地文件',
+  'dialog.file_drop.message': '要添加 {{count}} 首歌曲吗？',
   'dialog.return_home_title': '离开房间',
   'dialog.return_home_msg': '返回初始界面吗？',
   'dialog.return_home_detail': '你将与当前房间断开连接。',
@@ -518,7 +522,6 @@ const zhHans: Record<I18nKey, string> = {
     '系统音频共享已启动。主持人和嘉宾设备之间有轻微延迟是正常现象。为避免回音，建议尽量降低源设备音量。',
   'chat.system_audio_stopped_system_message':
     '系统音频共享已结束。主持人可以恢复设备音量，继续作为音箱播放。',
-  'chat.remote_guest_detected_system_message': '远程参与者已加入。连接质量可能因网络状况而变化。',
   'chat.remote_upload_limited_system_message': '文件上传已达到限制。\n远程参与者请稍后再试。',
   'chat.remote_upload_failed_system_message': '远程文件上传失败。\n远程参与者请稍后重试。',
   'chat.pinned_close': '关闭公告',

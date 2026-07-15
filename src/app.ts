@@ -78,6 +78,7 @@ import { initVisualizer } from './ui/visualizer.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
 import { initPlayerControls } from './ui/player-controls.ts';
+import { initGlobalFileDrop } from './ui/file-drop.ts';
 import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
 import { initConnect } from './ui/connect.ts';
@@ -464,6 +465,7 @@ async function bootstrap(): Promise<void> {
   safeInit('Chat', initChat);
   safeInit('PlaylistView', initPlaylistView);
   safeInit('PlayerControls', initPlayerControls);
+  safeInit('GlobalFileDrop', initGlobalFileDrop);
   safeInit('Settings', initSettings);
   safeInit('Connect', initConnect);
   safeInit('CustomScrollbars', initAllCustomScrollbars);

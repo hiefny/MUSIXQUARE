@@ -13,6 +13,8 @@ const fr: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Annuler',
+  'common.yes': 'Oui',
+  'common.no': 'Non',
   'common.close': 'Fermer',
   'common.reset': 'Réinitialiser',
   'common.refresh': 'Actualiser',
@@ -493,6 +495,8 @@ const fr: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'Le partage audio système prend en charge les participants locaux et distants, mais il est recommandé de se limiter à ~4 participants pour réduire la charge de l’hôte et la latence.\n\nContinuer ?',
   'dialog.continue': 'Continuer',
+  'dialog.file_drop.title': 'Ajouter des fichiers locaux',
+  'dialog.file_drop.message': 'Ajouter {{count}} morceaux ?',
   'dialog.return_home_title': 'Quitter la salle',
   'dialog.return_home_msg': 'Revenir à l’écran de départ ?',
   'dialog.return_home_detail': 'Vous serez déconnecté de la salle actuelle.',
@@ -548,8 +552,6 @@ const fr: Record<I18nKey, string> = {
     'Le partage audio système a démarré. Une légère latence entre l’hôte et les invités est normale. Nous recommandons de baisser le volume de l’appareil de l’hôte pour éviter les échos.',
   'chat.system_audio_stopped_system_message':
     'Le partage audio système est terminé. Hôte, vous pouvez remonter le volume pour reprendre votre rôle d’enceinte.',
-  'chat.remote_guest_detected_system_message':
-    'Un participant distant a rejoint. La qualité de connexion peut varier selon le réseau.',
   'chat.remote_upload_limited_system_message':
     'Limite d’envoi de fichier atteinte.\nLes participants distants devraient réessayer plus tard.',
   'chat.remote_upload_failed_system_message':

@@ -10,6 +10,8 @@ const pl: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Anuluj',
+  'common.yes': 'Tak',
+  'common.no': 'Nie',
   'common.close': 'Zamknij',
   'common.reset': 'Resetuj',
   'common.refresh': 'Odśwież',
@@ -311,8 +313,6 @@ const pl: Record<I18nKey, string> = {
     'Rozpoczęto udostępnianie dźwięku systemowego. Ponieważ opóźnienie między hostem a gośćmi jest nieuniknione, zalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
   'chat.system_audio_stopped_system_message':
     'Udostępnianie dźwięku systemowego zostało zakończone. Host może ponownie podgłośnić swoje urządzenie, aby powrócić do roli głośnika.',
-  'chat.remote_guest_detected_system_message':
-    'Dołączył gość zdalny. Jakość połączenia może się różnić w zależności od stabilności sieci.',
   'chat.remote_upload_limited_system_message':
     'Osiągnięto limit przesyłania plików.\nGoście zdalni mogą spróbować ponownie później.',
   'chat.remote_upload_failed_system_message':
@@ -564,6 +564,8 @@ const pl: Record<I18nKey, string> = {
   'error.room_password_auth_timeout': 'Niestabilna sieć.\nSpróbuj ponownie wpisać hasło.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
+  'dialog.file_drop.title': 'Dodaj pliki lokalne',
+  'dialog.file_drop.message': 'Dodać wybrane utwory ({{count}})?',
   'dialog.return_home_title': 'Wyjdź z pokoju',
   'dialog.return_home_msg': 'Czy chcesz powrócić do ekranu startowego?',
   'dialog.return_home_detail': 'Połączenie z obecnym pokojem zostanie przerwane.',

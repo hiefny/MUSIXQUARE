@@ -13,6 +13,8 @@ const zhHant: Record<I18nKey, string> = {
   // Common
   'common.ok': '確定',
   'common.cancel': '取消',
+  'common.yes': '是',
+  'common.no': '否',
   'common.close': '關閉',
   'common.reset': '重設',
   'common.refresh': '重新整理',
@@ -466,6 +468,8 @@ const zhHant: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     '系統音訊分享支援本機和遠端參與者，但考量主持人負載和延遲，建議最多約 4 位參與者。\n\n繼續嗎？',
   'dialog.continue': '繼續',
+  'dialog.file_drop.title': '加入本機檔案',
+  'dialog.file_drop.message': '要加入 {{count}} 首歌曲嗎？',
   'dialog.return_home_title': '離開房間',
   'dialog.return_home_msg': '要返回開始畫面嗎？',
   'dialog.return_home_detail': '你將與目前房間中斷連線。',
@@ -518,7 +522,6 @@ const zhHant: Record<I18nKey, string> = {
     '系統音訊分享已啟動。主持人與參與者裝置之間有些微延遲是正常現象。為避免回音，建議儘量降低來源裝置音量。',
   'chat.system_audio_stopped_system_message':
     '系統音訊分享已結束。主持人可以恢復裝置音量，繼續作為喇叭播放。',
-  'chat.remote_guest_detected_system_message': '遠端參與者已加入。連線品質可能因網路狀況而變化。',
   'chat.remote_upload_limited_system_message': '檔案上傳已達限制。\n遠端參與者請稍後再試。',
   'chat.remote_upload_failed_system_message': '遠端檔案上傳失敗。\n遠端參與者請稍後重試。',
   'chat.pinned_close': '關閉公告',

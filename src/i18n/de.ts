@@ -13,6 +13,8 @@ const de: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Abbrechen',
+  'common.yes': 'Ja',
+  'common.no': 'Nein',
   'common.close': 'Schließen',
   'common.reset': 'Zurücksetzen',
   'common.refresh': 'Aktualisieren',
@@ -485,6 +487,8 @@ const de: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'Systemaudio-Freigabe unterstützt lokale und Remote-Teilnehmer, empfohlen sind wegen Host-Last und Latenz aber bis zu ~4 Teilnehmer.\n\nFortfahren?',
   'dialog.continue': 'Fortfahren',
+  'dialog.file_drop.title': 'Lokale Dateien hinzufügen',
+  'dialog.file_drop.message': '{{count}} Titel hinzufügen?',
   'dialog.return_home_title': 'Raum verlassen',
   'dialog.return_home_msg': 'Zum Startbildschirm zurückkehren?',
   'dialog.return_home_detail': 'Du wirst vom aktuellen Raum getrennt.',
@@ -539,8 +543,6 @@ const de: Record<I18nKey, string> = {
     'Systemaudio-Freigabe gestartet. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
   'chat.system_audio_stopped_system_message':
     'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um als Lautsprecher zu fungieren.',
-  'chat.remote_guest_detected_system_message':
-    'Ein Remote-Teilnehmer ist beigetreten. Die Verbindungsqualität kann je nach Netzwerkbedingungen variieren.',
   'chat.remote_upload_limited_system_message':
     'Datei-Upload-Limit erreicht.\nRemote-Teilnehmer sollten es später erneut versuchen.',
   'chat.remote_upload_failed_system_message':

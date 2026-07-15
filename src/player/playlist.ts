@@ -1237,7 +1237,7 @@ function broadcastPlaylistSnapshot(): void {
   broadcast({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot() });
 }
 
-async function handleFilesSelected(files: FileList | null): Promise<void> {
+async function handleFilesSelected(files: FileList | readonly File[] | null): Promise<void> {
   if (!files || files.length === 0) return;
 
   const hostConn = getState('network.hostConn');
@@ -1247,8 +1247,8 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
   }
 
   // MUSIXQUARE is music-only — videos are served through the YouTube path.
-  // Screens the file picker's accept filter can miss (drag-and-drop isn't wired
-  // today, but "All files" override in the dialog still reaches here).
+  // Screens the file picker's accept filter can miss (both drag-and-drop and
+  // the native dialog's "All files" override reach this shared guard).
   const accepted: File[] = [];
   const rejected: string[] = [];
   for (let i = 0; i < files.length; i++) {

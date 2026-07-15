@@ -10,6 +10,8 @@ const it: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Annulla',
+  'common.yes': 'Sì',
+  'common.no': 'No',
   'common.close': 'Chiudi',
   'common.reset': 'Ripristina',
   'common.refresh': 'Aggiorna',
@@ -313,8 +315,6 @@ const it: Record<I18nKey, string> = {
     "La condivisione dell'audio di sistema è iniziata. Poiché è inevitabile un certo ritardo tra il gestore e gli ospiti, consigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.",
   'chat.system_audio_stopped_system_message':
     "La condivisione dell'audio di sistema è terminata. Il gestore può rialzare il volume per riprendere il ruolo di altoparlante.",
-  'chat.remote_guest_detected_system_message':
-    'Un ospite remoto è entrato nella stanza. La qualità della connessione potrebbe variare a seconda della rete.',
   'chat.remote_upload_limited_system_message':
     'Limite di caricamento raggiunto.\nGli ospiti remoti possono riprovare più tardi.',
   'chat.remote_upload_failed_system_message':
@@ -566,6 +566,8 @@ const it: Record<I18nKey, string> = {
   'error.room_password_auth_timeout': 'Rete instabile.\nRiprova a inserire la password.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
+  'dialog.file_drop.title': 'Aggiungi file locali',
+  'dialog.file_drop.message': 'Aggiungere {{count}} brani?',
   'dialog.return_home_title': 'Esci dalla stanza',
   'dialog.return_home_msg': 'Vuoi tornare alla schermata iniziale?',
   'dialog.return_home_detail': 'La connessione con la stanza corrente verrà interrotta.',

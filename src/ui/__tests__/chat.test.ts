@@ -59,6 +59,67 @@ afterEach(() => {
 });
 
 describe('Chat Module', () => {
+  describe('message entry motion hooks', () => {
+    function renderMessageShell(): void {
+      document.body.innerHTML = `
+        <div id="chat-drawer"></div>
+        <div id="chat-messages"><div class="chat-empty"></div></div>
+      `;
+    }
+
+    it('animates a new group and every continuation row from the same sender', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
+
+      try {
+        renderMessageShell();
+        const { addChatMessage } = await import('../chat-render.ts');
+
+        addChatMessage('Peer 1', 'first', false);
+        addChatMessage('Peer 1', 'second', false);
+        addChatMessage('Peer 1', 'third', false);
+
+        const groups = document.querySelectorAll<HTMLElement>('.chat-group');
+        expect(groups).toHaveLength(1);
+        expect(groups[0].classList.contains('chat-enter')).toBe(true);
+
+        const rows = groups[0].querySelectorAll<HTMLElement>('.chat-row');
+        expect(rows).toHaveLength(3);
+        expect(rows[0].classList.contains('chat-enter')).toBe(false);
+        expect(rows[1].classList.contains('chat-enter')).toBe(true);
+        expect(rows[2].classList.contains('chat-enter')).toBe(true);
+        expect(rows[1].matches('.chat-row + .chat-row:not(:last-child)')).toBe(true);
+        expect(rows[2].matches('.chat-row + .chat-row:last-child')).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('gives every standalone regular, system, and whisper group an entry motion hook', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
+
+      try {
+        renderMessageShell();
+        const { addChatMessage, addSystemChatMessage, addWhisperMessage } =
+          await import('../chat-render.ts');
+
+        addChatMessage('Peer 1', 'hello', false);
+        addChatMessage('Peer 2', 'hi', false);
+        addSystemChatMessage('system update');
+        addWhisperMessage('Peer 3', 'private hello', false);
+
+        const groups = document.querySelectorAll<HTMLElement>('.chat-group');
+        expect(groups).toHaveLength(4);
+        expect(Array.from(groups).every((group) => group.classList.contains('chat-enter'))).toBe(
+          true,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('Unread badge', () => {
     function renderChatShell(): void {
       document.body.innerHTML = `

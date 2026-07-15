@@ -10,6 +10,8 @@ const th: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ตกลง',
   'common.cancel': 'ยกเลิก',
+  'common.yes': 'ใช่',
+  'common.no': 'ไม่',
   'common.close': 'ปิด',
   'common.reset': 'รีเซ็ต',
   'common.refresh': 'รีเฟรช',
@@ -306,8 +308,6 @@ const th: Record<I18nKey, string> = {
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างโฮสต์กับอุปกรณ์ผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์โฮสต์เพื่อเลี่ยงเสียงก้อง',
   'chat.system_audio_stopped_system_message':
     'สิ้นสุดการแชร์เสียงระบบแล้ว โฮสต์สามารถเพิ่มระดับเสียงกลับเพื่อทำหน้าที่เป็นลำโพงได้เลย',
-  'chat.remote_guest_detected_system_message':
-    'มีผู้เข้าร่วมระยะไกลเข้ามา คุณภาพการเชื่อมต่ออาจเปลี่ยนตามสภาพเครือข่าย',
   'chat.remote_upload_limited_system_message':
     'ถึงขีดจำกัดการอัปโหลดไฟล์แล้ว\nผู้เข้าร่วมระยะไกลควรลองใหม่ภายหลัง',
   'chat.remote_upload_failed_system_message':
@@ -547,6 +547,8 @@ const th: Record<I18nKey, string> = {
   'error.room_password_auth_timeout': 'เครือข่ายไม่เสถียร\nใส่รหัสผ่านอีกครั้ง',
 
   // ─── Dialog ──────────────────────────────────────────────────────
+  'dialog.file_drop.title': 'เพิ่มไฟล์ในเครื่อง',
+  'dialog.file_drop.message': 'เพิ่มเพลง {{count}} เพลงไหม?',
   'dialog.return_home_title': 'ออกจากห้อง',
   'dialog.return_home_msg': 'กลับไปหน้าจอเริ่มต้น?',
   'dialog.return_home_detail': 'คุณจะถูกตัดการเชื่อมต่อจากห้องปัจจุบัน',

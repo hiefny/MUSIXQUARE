@@ -13,6 +13,8 @@ const id: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Batal',
+  'common.yes': 'Ya',
+  'common.no': 'Tidak',
   'common.close': 'Tutup',
   'common.reset': 'Atur ulang',
   'common.refresh': 'Muat ulang',
@@ -482,6 +484,8 @@ const id: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'Berbagi audio sistem mendukung peserta lokal dan jarak jauh, tetapi hingga sekitar 4 peserta disarankan untuk beban host dan latensi.\n\nLanjutkan?',
   'dialog.continue': 'Lanjutkan',
+  'dialog.file_drop.title': 'Tambahkan file lokal',
+  'dialog.file_drop.message': 'Tambahkan {{count}} lagu?',
   'dialog.return_home_title': 'Keluar ruang',
   'dialog.return_home_msg': 'Kembali ke layar awal?',
   'dialog.return_home_detail': 'Anda akan terputus dari ruang saat ini.',
@@ -536,8 +540,6 @@ const id: Record<I18nKey, string> = {
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
   'chat.system_audio_stopped_system_message':
     'Berbagi audio sistem berakhir. Host, naikkan kembali volume untuk menjadi speaker ruang.',
-  'chat.remote_guest_detected_system_message':
-    'Peserta jarak jauh bergabung. Kualitas koneksi dapat bervariasi sesuai kondisi jaringan.',
   'chat.remote_upload_limited_system_message':
     'Batas unggahan file tercapai.\nPeserta jarak jauh sebaiknya mencoba lagi nanti.',
   'chat.remote_upload_failed_system_message':

@@ -128,6 +128,22 @@ function isShown(o: OverlayDef): boolean {
   return !!el?.classList.contains(o.cls);
 }
 
+/**
+ * Return whether a modal/fullscreen layer currently owns the product surface.
+ *
+ * Most overlays live in the shared registry above. A few feature-specific
+ * diagnostic/sync layers are created outside that registry, so include them
+ * here as well. This keeps global gestures such as file drop from acting
+ * through a visible overlay while leaving ordinary drawers (for example,
+ * chat) interactive.
+ */
+export function isAnyOverlayShown(): boolean {
+  if (OVERLAYS.some(isShown)) return true;
+  if (document.getElementById('manual-sync-overlay')?.classList.contains('show')) return true;
+  if (document.getElementById('youtube-ios-sync-overlay')) return true;
+  return document.querySelector('.debug-memory-overlay') !== null;
+}
+
 // ─── Effect 1: body.overlay-open class ───────────────────────────
 // Exported for hot-path callers (setup-shared, player-controls) that
 // flip `.active` and want the body class updated synchronously without

@@ -1027,7 +1027,7 @@ interface BaseEventMap {
   'setup:app-entrance': [];
 
   // ── App ───────────────────────────────────────────────────────────
-  'app:files-selected': [files: FileList | null];
+  'app:files-selected': [files: FileList | readonly File[] | null];
 
   // ── System Audio Sharing ────────────────────────────────────────
   'system-audio:start': [];

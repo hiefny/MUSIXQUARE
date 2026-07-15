@@ -13,6 +13,8 @@ const vi: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Hủy',
+  'common.yes': 'Có',
+  'common.no': 'Không',
   'common.close': 'Đóng',
   'common.reset': 'Đặt lại',
   'common.refresh': 'Làm mới',
@@ -478,6 +480,8 @@ const vi: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'Chia sẻ âm thanh hệ thống hỗ trợ người tham gia cục bộ và từ xa, nhưng khuyến nghị tối đa khoảng 4 người tham gia để giảm tải host và độ trễ.\n\nTiếp tục?',
   'dialog.continue': 'Tiếp tục',
+  'dialog.file_drop.title': 'Thêm tệp trên thiết bị',
+  'dialog.file_drop.message': 'Thêm {{count}} bài hát?',
   'dialog.return_home_title': 'Rời phòng',
   'dialog.return_home_msg': 'Quay lại màn hình bắt đầu?',
   'dialog.return_home_detail': 'Bạn sẽ ngắt kết nối khỏi phòng hiện tại.',
@@ -532,8 +536,6 @@ const vi: Record<I18nKey, string> = {
     'Chia sẻ âm thanh hệ thống đã bắt đầu. Độ trễ giữa host và người tham gia là bình thường, nên host hãy giảm âm lượng thiết bị nguồn càng nhiều càng tốt.',
   'chat.system_audio_stopped_system_message':
     'Chia sẻ âm thanh hệ thống đã kết thúc. Host hãy tăng lại âm lượng để làm loa của phòng.',
-  'chat.remote_guest_detected_system_message':
-    'Một người tham gia từ xa đã vào. Chất lượng kết nối có thể thay đổi theo điều kiện mạng.',
   'chat.remote_upload_limited_system_message':
     'Đã đạt giới hạn tải tệp lên.\nNgười tham gia từ xa nên thử lại sau.',
   'chat.remote_upload_failed_system_message':

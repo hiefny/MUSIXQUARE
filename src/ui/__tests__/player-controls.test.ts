@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -255,6 +255,63 @@ describe('initPlayerControls playback mode rendering', () => {
 
     expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+  });
+});
+
+describe('initPlayerControls tab title marquee wiring', () => {
+  it('hydrates metadata when a remote guest is already playing during UI initialization', () => {
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'remote.flac',
+      title: 'Remote orchestra',
+    });
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+
+    expect(document.title).toBe('Remote orchestra · MUSIXQUARE');
+    expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
+  });
+
+  it('starts the new title when remote metadata arrives after the playing state', () => {
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+
+    expect(document.title).toBe('MUSIXQUARE · 뮤직스퀘어');
+    expect(getManagedTimer('tab-title-marquee')).toBeNull();
+
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'late.wav',
+      title: 'Late remote metadata',
+    });
+
+    expect(document.title).toBe('Late remote metadata · MUSIXQUARE');
+    expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
+  });
+
+  it('updates a paused track title immediately instead of waiting for playback to change', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'old.wav',
+      title: 'Old title',
+    });
+    initPlayerControls();
+
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'new.wav',
+      title: 'New paused title',
+    });
+
+    expect(document.title).toBe('New paused title · MUSIXQUARE');
+    expect(getManagedTimer('tab-title-marquee')).toBeNull();
   });
 });
 

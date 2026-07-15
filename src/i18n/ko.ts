@@ -9,6 +9,8 @@ const ko = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': '확인',
   'common.cancel': '취소',
+  'common.yes': '네',
+  'common.no': '아니요',
   'common.close': '닫기',
   'common.reset': '초기화',
   'common.refresh': '새로고침',
@@ -297,13 +299,11 @@ const ko = {
   'chat.cmd_slowmode_wait': '{{sec}}초 후에 메시지를 보낼 수 있어요',
   'chat.cmd_notice_prefix': '공지',
   'chat.system_sender': '시스템',
-  'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어갑니다',
+  'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어가요.',
   'chat.system_audio_started_system_message':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',
   'chat.system_audio_stopped_system_message':
     '시스템 오디오 공유가 종료됐어요. 방장은 다시 소리를 키워서 스피커 역할을 해주세요.',
-  'chat.remote_guest_detected_system_message':
-    '원격 참여자가 들어왔어요. 네트워크 환경에 따라 연결이 불안정할 수 있어요.',
   'chat.remote_upload_limited_system_message':
     '파일 업로드 제한에 걸렸어요.\n원격 참여자는 나중에 다시 시도해주세요.',
   'chat.remote_upload_failed_system_message':
@@ -545,6 +545,8 @@ const ko = {
   'error.room_password_auth_timeout': '네트워크가 불안정해요.\n암호를 다시 입력해 주세요.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
+  'dialog.file_drop.title': '로컬파일 추가',
+  'dialog.file_drop.message': '{{count}}곡을 추가할까요?',
   'dialog.return_home_title': '세션 나가기',
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',

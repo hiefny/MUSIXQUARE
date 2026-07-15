@@ -13,6 +13,8 @@ const es: Record<I18nKey, string> = {
   // Common
   'common.ok': 'Aceptar',
   'common.cancel': 'Cancelar',
+  'common.yes': 'Sí',
+  'common.no': 'No',
   'common.close': 'Cerrar',
   'common.reset': 'Restablecer',
   'common.refresh': 'Actualizar',
@@ -489,6 +491,8 @@ const es: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'El audio del sistema admite participantes locales y remotos, pero se recomiendan hasta ~4 participantes por carga y latencia del host.\n\n¿Continuar?',
   'dialog.continue': 'Continuar',
+  'dialog.file_drop.title': 'Agregar archivos locales',
+  'dialog.file_drop.message': '¿Agregar {{count}} pistas?',
   'dialog.return_home_title': 'Salir de la sala',
   'dialog.return_home_msg': '¿Volver a la pantalla inicial?',
   'dialog.return_home_detail': 'Te desconectarás de la sala actual.',
@@ -544,8 +548,6 @@ const es: Record<I18nKey, string> = {
     'Se inició la compartición de audio del sistema. Es normal que haya una leve latencia entre el host y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo host para evitar ecos.',
   'chat.system_audio_stopped_system_message':
     'Terminó la compartición de audio del sistema. Host, vuelve a subir el volumen para ser el altavoz de la sala.',
-  'chat.remote_guest_detected_system_message':
-    'Se unió un participante remoto. La calidad de conexión puede variar según la red.',
   'chat.remote_upload_limited_system_message':
     'Se alcanzó el límite de subida de archivos.\nLos participantes remotos deberían intentarlo más tarde.',
   'chat.remote_upload_failed_system_message':

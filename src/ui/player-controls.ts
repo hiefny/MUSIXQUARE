@@ -34,8 +34,9 @@ import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
+import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
-import { getPlaybackModeActivitySnapshot, scopePlaybackModeActivity } from './_state-hooks.ts';
+import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import {
   isPlaybackModeFile,
   isPlaybackModeSystemAudio,
@@ -146,6 +147,17 @@ function refreshTrackTitle(): void {
           : t('playlist.track_fallback', { idx: idx >= 0 ? idx + 1 : 1 });
     }
   }
+}
+
+function getTabTitleTrack(): string {
+  const item = getState('player.currentTrackMeta');
+  if (!item) return '';
+
+  return item.name === 'system-audio'
+    ? t('system_audio.sharing')
+    : item.name === 'system-audio-receiving'
+      ? t('system_audio.receiving')
+      : item.title || item.name || '';
 }
 
 function onVolInput(val: number): void {
@@ -647,6 +659,7 @@ export function initPlayerControls(): void {
   _busScope.dispose();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
+  initTabTitleMarquee();
 
   const $on = (id: string, evt: string, fn: EventListener) => {
     const el = document.getElementById(id);
@@ -662,8 +675,7 @@ export function initPlayerControls(): void {
     };
     const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
     const videoWrapper = document.querySelector('.video-wrapper') as
-      | (HTMLElement & { webkitRequestFullscreen?: () => void })
-      | null;
+      (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;
     const target = videoWrapper || el;
 
     const enterFake = () => {
@@ -898,17 +910,7 @@ export function initPlayerControls(): void {
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
   const refreshPlayerText = () => {
     refreshTrackTitle();
-    const item = getState('player.currentTrackMeta');
-    if (item) {
-      _tabTitleTrack =
-        item.name === 'system-audio'
-          ? t('system_audio.sharing')
-          : item.name === 'system-audio-receiving'
-            ? t('system_audio.receiving')
-            : item.title || item.name || '';
-    } else {
-      _tabTitleTrack = '';
-    }
+    setTabTitleTrack(getTabTitleTrack());
   };
   _busScope.on('i18n:changed', refreshPlayerText);
   _busScope.on('ui:player-panel-visible', refreshPlayerText);
@@ -1115,100 +1117,20 @@ export function initPlayerControls(): void {
 
   // ── Tab Title Marquee ───────────────────────────────────────────
 
-  const DEFAULT_TITLE = 'MUSIXQUARE · 뮤직스퀘어';
-  const MARQUEE_PAUSE_START = 3; // 3s pause at start
-  const MARQUEE_PAUSE_END = 1; // 1s pause at end
-  let _tabTitleTrack = '';
-  function startTabTitleMarquee(): void {
-    if (getManagedTimer('tab-title-marquee')) return;
-
-    let scrollPos = 0;
-    let startPause = 0;
-    let endPause = 0;
-
-    setManagedTimer(
-      'tab-title-marquee',
-      () => {
-        const playback = getPlaybackModeActivitySnapshot();
-        if (playback.activity === 'idle' || playback.activity === 'pending') {
-          stopTabTitleMarquee();
-          return;
-        }
-
-        const name = _tabTitleTrack || 'MUSIXQUARE';
-        if (playback.activity === 'paused') {
-          stopTabTitleMarquee();
-          document.title = `${name} · MUSIXQUARE`;
-          return;
-        }
-
-        const suffix = ' · MUSIXQUARE';
-        const full = name + suffix;
-
-        // Phase 1: start pause (3s)
-        if (scrollPos === 0 && startPause < MARQUEE_PAUSE_START) {
-          document.title = full;
-          startPause++;
-          return;
-        }
-
-        // Phase 3: end pause (1s)
-        const maxScroll = name.length + 3; // " · " length
-        if (scrollPos >= maxScroll) {
-          if (endPause < MARQUEE_PAUSE_END) {
-            document.title = 'MUSIXQUARE';
-            endPause++;
-            return;
-          }
-          scrollPos = 0;
-          startPause = 0;
-          endPause = 0;
-          return;
-        }
-
-        // Phase 2: scrolling — skip leading whitespace to prevent browser trimming
-        while (scrollPos < full.length && /\s/.test(full[scrollPos])) scrollPos++;
-        if (scrollPos >= maxScroll) {
-          scrollPos = maxScroll;
-          document.title = 'MUSIXQUARE';
-          return;
-        }
-        document.title = full.slice(scrollPos);
-        scrollPos++;
-      },
-      1000,
-      { interval: true },
-    );
-  }
-
-  function stopTabTitleMarquee(): void {
-    clearManagedTimer('tab-title-marquee');
-    document.title = _tabTitleTrack ? `${_tabTitleTrack} · MUSIXQUARE` : DEFAULT_TITLE;
-  }
-
+  // Metadata can arrive before or after the remote playback state. Keeping
+  // title and motion as independent inputs makes both event orders converge.
+  setTabTitleTrack(getTabTitleTrack());
   _busScope.on('state:player.currentTrackMeta', () => {
-    const item = getState('player.currentTrackMeta');
-    if (item) {
-      _tabTitleTrack =
-        item.name === 'system-audio'
-          ? t('system_audio.sharing')
-          : item.name === 'system-audio-receiving'
-            ? t('system_audio.receiving')
-            : item.title || item.name || '';
-    } else {
-      _tabTitleTrack = '';
-      document.title = DEFAULT_TITLE;
-    }
+    setTabTitleTrack(getTabTitleTrack());
   });
 
   scopePlaybackModeActivity(
     _busScope,
     (playback) => {
-      if (playback.activity === 'playing') {
-        startTabTitleMarquee();
-      } else {
-        stopTabTitleMarquee();
-      }
+      const playing =
+        playback.activity === 'playing' &&
+        (playback.mode !== 'youtube' || getYouTubePlayer()?.getPlayerState?.() === 1);
+      setTabTitlePlaying(playing);
     },
     { immediate: true },
   );
@@ -1216,13 +1138,7 @@ export function initPlayerControls(): void {
   // YouTube pause/play doesn't change playback activity — handle via play-state event
   _busScope.on('ui:update-play-state', (playing) => {
     if (!isPlaybackModeYouTube()) return;
-    if (playing) {
-      startTabTitleMarquee();
-    } else {
-      stopTabTitleMarquee();
-      const name = _tabTitleTrack || 'MUSIXQUARE';
-      document.title = `${name} · MUSIXQUARE`;
-    }
+    setTabTitlePlaying(playing);
   });
 
   log.info('[PlayerControls] Initialized');

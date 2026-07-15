@@ -13,6 +13,8 @@ const ja: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'キャンセル',
+  'common.yes': 'はい',
+  'common.no': 'いいえ',
   'common.close': '閉じる',
   'common.reset': 'リセット',
   'common.refresh': '更新',
@@ -482,6 +484,8 @@ const ja: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'システムオーディオ共有はローカル/リモートの参加者に対応していますが、ホスト負荷と遅延のため最大約4人を推奨します。\n\n続行しますか？',
   'dialog.continue': '続行',
+  'dialog.file_drop.title': 'ローカルファイルを追加',
+  'dialog.file_drop.message': '{{count}}曲を追加しますか？',
   'dialog.return_home_title': 'ルームを退出',
   'dialog.return_home_msg': '開始画面に戻りますか？',
   'dialog.return_home_detail': '現在のルームから切断されます。',
@@ -537,8 +541,6 @@ const ja: Record<I18nKey, string> = {
     'システムオーディオの共有を開始しました。ホストと参加者の間には一定の遅延が発生するため、ハウリングを防ぐためにホストデバイスの音量をできるだけ下げてご使用ください。',
   'chat.system_audio_stopped_system_message':
     'システムオーディオの共有を終了しました。ホストデバイスの音量を戻して、スピーカーとして再生してください。',
-  'chat.remote_guest_detected_system_message':
-    'リモート参加者が参加しました。接続品質はネットワーク状況により変わる場合があります。',
   'chat.remote_upload_limited_system_message':
     'ファイルアップロード制限に達しました。\nリモート参加者は後でもう一度お試しください。',
   'chat.remote_upload_failed_system_message':

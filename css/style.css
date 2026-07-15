@@ -107,6 +107,13 @@
     --scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
   }
 
+  /* Once an external file drag reaches the app, keep cross-origin media
+     iframes from swallowing subsequent dragover/drop events. The class is
+     removed on drop/dragend and by a short inactivity watchdog. */
+  html.file-drop-drag-active iframe {
+    pointer-events: none !important;
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
@@ -4748,7 +4755,12 @@
     display: flex;
     flex-direction: column;
     max-width: 90%;
-    animation: bubbleIn 0.2s ease-out;
+  }
+
+  /* A new sender animates as one group (label + first bubble). Messages that
+     join an existing sender group animate only their newly appended row. */
+  .chat-enter {
+    animation: bubbleIn 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .chat-group.mine {
@@ -4756,9 +4768,19 @@
     align-items: flex-end;
   }
 
+  .chat-group.mine,
+  .chat-group.mine .chat-row {
+    transform-origin: bottom right;
+  }
+
   .chat-group.others {
     align-self: flex-start;
     align-items: flex-start;
+  }
+
+  .chat-group.others,
+  .chat-group.others .chat-row {
+    transform-origin: bottom left;
   }
 
   .chat-row {
@@ -4776,6 +4798,10 @@
     line-height: 1.4;
     overflow-wrap: anywhere;
     word-break: break-word;
+    /* When a new same-sender bubble arrives, the former last bubble changes
+       from an outer round corner to a connected inner corner. Interpolate
+       that regrouping instead of snapping between the two shapes. */
+    transition: border-radius 280ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .chat-bubble.mine {
@@ -5622,7 +5648,10 @@
     font-size: 13px;
     cursor: pointer;
     margin: 0;
-    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition:
+      background-color 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-radius 280ms cubic-bezier(0.22, 1, 0.36, 1);
     width: 100%;
     max-width: 260px;
     box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
@@ -7028,6 +7057,15 @@
 
   /* ─── Accessibility: Reduced Motion ─────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
+    .chat-enter {
+      animation: none !important;
+    }
+
+    .chat-bubble,
+    .chat-youtube-btn {
+      transition: none !important;
+    }
+
     *,
     *::before,
     *::after {

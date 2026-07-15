@@ -30,14 +30,6 @@ import { showToast } from '../ui/toast.ts';
 
 // ─── Host: Incoming Connection ──────────────────────────────────────
 
-let remoteGuestMessageShown = false;
-
-function maybeBroadcastRemoteGuestMessage(): void {
-  if (remoteGuestMessageShown) return;
-  remoteGuestMessageShown = true;
-  broadcastSystemMessage('chat.remote_guest_detected_system_message');
-}
-
 export function handleHostIncomingConnection(conn: DataConnection): void {
   const peerId = conn.peer;
   const connectedPeers = getState('network.connectedPeers');
@@ -301,10 +293,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         log.info(`[Host] ${deviceName} connection type: ${type}`);
         broadcastDeviceList();
         bus.emit('orchestrator:peer-type-detected', peerId);
-        if (type === 'remote') {
-          maybeBroadcastRemoteGuestMessage();
-        }
-
         // Worst-case fallback: detectConnectionType returns 'remote' both for
         // genuine WAN peers and for LAN peers whose ICE never produced a
         // succeeded candidate-pair within the 10s polling window. Recheck once
@@ -604,10 +592,6 @@ bus.on('network:device-list', (list) => {
     setState('network.lastKnownDeviceList', list as DeviceInfo[]);
     bus.emit('network:device-list-update', list);
   }
-});
-
-bus.on('state:network.sessionCode', () => {
-  remoteGuestMessageShown = false;
 });
 
 // ─── Host: Rename Device ─────────────────────────────────────────

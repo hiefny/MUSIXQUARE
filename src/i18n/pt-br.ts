@@ -13,6 +13,8 @@ const ptBr: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Cancelar',
+  'common.yes': 'Sim',
+  'common.no': 'Não',
   'common.close': 'Fechar',
   'common.reset': 'Redefinir',
   'common.refresh': 'Atualizar',
@@ -488,6 +490,8 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'O compartilhamento de áudio do sistema aceita participantes locais e remotos, mas até ~4 participantes é recomendado por carga e latência do host.\n\nContinuar?',
   'dialog.continue': 'Continuar',
+  'dialog.file_drop.title': 'Adicionar arquivos locais',
+  'dialog.file_drop.message': 'Adicionar {{count}} faixas?',
   'dialog.return_home_title': 'Sair da sala',
   'dialog.return_home_msg': 'Voltar para a tela inicial?',
   'dialog.return_home_detail': 'Você será desconectado da sala atual.',
@@ -542,8 +546,6 @@ const ptBr: Record<I18nKey, string> = {
     'Compartilhamento de áudio do sistema iniciado. Um pequeno atraso entre o host e os participantes é normal, então recomendamos baixar ao máximo o volume do dispositivo do host.',
   'chat.system_audio_stopped_system_message':
     'Compartilhamento de áudio do sistema encerrado. Host, aumente o volume novamente para ser o alto-falante da sala.',
-  'chat.remote_guest_detected_system_message':
-    'Um participante remoto entrou. A qualidade da conexão pode variar conforme a rede.',
   'chat.remote_upload_limited_system_message':
     'Limite de upload de arquivo atingido.\nParticipantes remotos devem tentar novamente depois.',
   'chat.remote_upload_failed_system_message':

@@ -192,7 +192,10 @@ export function addChatMessage(
       }
 
       const row = document.createElement('div');
-      row.className = 'chat-row';
+      // The first message animates with its newly-created group. Continuation
+      // messages reuse that group, so mark the new row as the animation owner.
+      // Without this class only the first bubble from a sender ever animates.
+      row.className = 'chat-row chat-enter';
 
       const bubble = document.createElement('div');
       bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
@@ -222,7 +225,7 @@ export function addChatMessage(
       lastGroup.dataset.timeStr = timeStr;
     } else {
       const group = document.createElement('div');
-      group.className = `chat-group ${isMine ? 'mine' : 'others'}`;
+      group.className = `chat-group chat-enter ${isMine ? 'mine' : 'others'}`;
       group.dataset.senderId = sender;
       group.dataset.timeStr = timeStr;
 
@@ -313,7 +316,7 @@ export function addSystemChatMessage(text: string): void {
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
   const group = document.createElement('div');
-  group.className = 'chat-group others system';
+  group.className = 'chat-group chat-enter others system';
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender';
@@ -367,7 +370,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
   const group = document.createElement('div');
-  group.className = `chat-group ${isSent ? 'mine' : 'others'} whisper`;
+  group.className = `chat-group chat-enter ${isSent ? 'mine' : 'others'} whisper`;
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender whisper-label';

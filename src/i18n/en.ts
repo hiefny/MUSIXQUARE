@@ -11,6 +11,8 @@ const en: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
+  'common.yes': 'Yes',
+  'common.no': 'No',
   'common.close': 'Close',
   'common.reset': 'Reset',
   'common.refresh': 'Refresh',
@@ -304,8 +306,6 @@ const en: Record<I18nKey, string> = {
     'System audio sharing has started. A slight latency between host and guest devices is normal. We recommend lowering the host device volume to avoid echoes.',
   'chat.system_audio_stopped_system_message':
     'System audio sharing has ended. Host, feel free to turn your volume back up so this device can act as a speaker again.',
-  'chat.remote_guest_detected_system_message':
-    'A remote participant joined. Connection quality may vary depending on network conditions.',
   'chat.remote_upload_limited_system_message':
     'File upload limit reached.\nRemote participants should try again later.',
   'chat.remote_upload_failed_system_message':
@@ -548,6 +548,8 @@ const en: Record<I18nKey, string> = {
   'error.room_password_auth_timeout': 'Network is unstable.\nTry entering the password again.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
+  'dialog.file_drop.title': 'Add local files',
+  'dialog.file_drop.message': 'Add {{count}} tracks?',
   'dialog.return_home_title': 'Leave Session',
   'dialog.return_home_msg': 'Return to the start screen?',
   'dialog.return_home_detail': 'You will be disconnected from the current session.',

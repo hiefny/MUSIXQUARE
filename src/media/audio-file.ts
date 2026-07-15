@@ -13,6 +13,9 @@ const AUDIO_FILE_FALLBACK_EXTENSIONS = Object.freeze([
   'm4a',
   'aac',
   'ogg',
+  'oga',
+  'opus',
+  'webm',
   'aif',
   'aiff',
   'caf',
@@ -25,12 +28,22 @@ const AUDIO_MIME_BY_EXTENSION: Readonly<Record<string, string>> = Object.freeze(
   m4a: 'audio/mp4',
   aac: 'audio/aac',
   ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/opus',
+  webm: 'audio/webm',
   aif: 'audio/aiff',
   aiff: 'audio/aiff',
   caf: 'audio/x-caf',
 });
 
-const GENERIC_BINARY_MIME_ESSENCES = new Set(['application/octet-stream', 'binary/octet-stream']);
+const GENERIC_BINARY_MIME_ESSENCES = new Set([
+  'application/octet-stream',
+  'binary/octet-stream',
+  // These legacy container labels do not tell us whether the payload is
+  // audio. Let a recognized audio filename provide the more useful hint.
+  'application/ogg',
+  'application/x-ogg',
+]);
 
 export const AUDIO_FILE_ACCEPT = `${AUDIO_FILE_FALLBACK_EXTENSIONS.map((ext) => `.${ext}`).join(',')},audio/*`;
 

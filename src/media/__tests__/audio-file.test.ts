@@ -16,6 +16,9 @@ const extensionCases = [
   ['m4a', 'audio/mp4'],
   ['aac', 'audio/aac'],
   ['ogg', 'audio/ogg'],
+  ['oga', 'audio/ogg'],
+  ['opus', 'audio/opus'],
+  ['webm', 'audio/webm'],
   ['aif', 'audio/aiff'],
   ['aiff', 'audio/aiff'],
   ['caf', 'audio/x-caf'],
@@ -45,11 +48,18 @@ describe('local audio-file candidates', () => {
     expect(isCandidate('track.bin', ' Audio/MP4; codecs=mp4a.40.2 ')).toBe(true);
   });
 
+  it('lets legacy Ogg application MIME fall back to a recognized audio extension', () => {
+    expect(isCandidate('track.oga', 'application/ogg')).toBe(true);
+    expect(isCandidate('track.ogg', 'application/x-ogg; codecs=opus')).toBe(true);
+    expect(resolveAudioMime('track.oga', 'application/ogg')).toBe('audio/ogg');
+  });
+
   it('rejects unsupported or explicitly non-audio files', () => {
     expect(isCandidate('document.pdf', '')).toBe(false);
     expect(isCandidate('cover.png', 'image/png')).toBe(false);
     expect(isCandidate('renamed.mp3', 'application/pdf')).toBe(false);
     expect(isCandidate('mislabelled.m4a', 'video/mp4')).toBe(false);
+    expect(isCandidate('movie.webm', 'video/webm')).toBe(false);
   });
 
   it.each(extensionCases)('shares the .%s extension-to-MIME fallback', (extension, mime) => {
@@ -75,6 +85,8 @@ describe('local audio-file candidates', () => {
   });
 
   it('keeps the native file-picker hint aligned with the fallback list', () => {
-    expect(AUDIO_FILE_ACCEPT).toBe('.mp3,.wav,.flac,.m4a,.aac,.ogg,.aif,.aiff,.caf,audio/*');
+    expect(AUDIO_FILE_ACCEPT).toBe(
+      '.mp3,.wav,.flac,.m4a,.aac,.ogg,.oga,.opus,.webm,.aif,.aiff,.caf,audio/*',
+    );
   });
 });

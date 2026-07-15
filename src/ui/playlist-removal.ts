@@ -10,6 +10,7 @@ interface PlaylistRemovalControllerOptions {
   getItems: () => readonly PlaylistItem[];
   onDelete: (queueItemIds: QueueItemId[]) => void;
   onSelectionStart?: () => void;
+  onSelectionEnd?: () => void;
 }
 
 export interface PlaylistRemovalController {
@@ -69,6 +70,7 @@ export function createPlaylistRemovalController(
   const abortController = new AbortController();
   let lastTriggerQueueItemId: QueueItemId | null = null;
   let pendingFocusQueueItemId: QueueItemId | null | undefined;
+  let wasSelectionActive = false;
   let destroyed = false;
 
   const selectAllButton = panel.querySelector<HTMLButtonElement>(
@@ -108,6 +110,8 @@ export function createPlaylistRemovalController(
 
     const selectedCount = selectedQueueItemIds.size;
     const active = selectedCount > 0;
+    const selectionEnded = wasSelectionActive && !active;
+    wasSelectionActive = active;
     const allSelected = active && items.length > 0 && selectedCount === items.length;
     const itemsById = new Map(items.map((item) => [item.queueItemId, item]));
     list.classList.toggle('has-removal-selection', active);
@@ -165,6 +169,15 @@ export function createPlaylistRemovalController(
       if (options.isPlaylistVisible()) {
         queueMicrotask(() => restoreFocus(target));
       }
+    }
+
+    if (selectionEnded && options.isPlaylistVisible()) {
+      // Playback may have advanced while follow-scrolling was intentionally
+      // blocked by deletion mode. Resume it only after the selection UI has
+      // fully released ownership of the playlist.
+      queueMicrotask(() => {
+        if (!destroyed && options.isPlaylistVisible()) options.onSelectionEnd?.();
+      });
     }
   }
 

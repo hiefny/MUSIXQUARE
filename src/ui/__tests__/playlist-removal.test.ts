@@ -112,4 +112,47 @@ describe('playlist removal controller', () => {
       'is-visible',
     );
   });
+
+  it('releases playlist follow after visible deletion selection ends', async () => {
+    const items = [item(A, 'Alpha'), item(B, 'Beta')];
+    const list = document.getElementById('playlist-ui')!;
+    const onSelectionEnd = vi.fn();
+    controller = createPlaylistRemovalController({
+      list,
+      canRemove: () => true,
+      isPlaylistVisible: () => true,
+      getItems: () => items,
+      onDelete: vi.fn(),
+      onSelectionEnd,
+    });
+
+    controller.toggle(A);
+    controller.cancel();
+    expect(onSelectionEnd).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+    expect(onSelectionEnd).toHaveBeenCalledOnce();
+  });
+
+  it('does not resume playlist follow when the view hides before the release microtask', async () => {
+    const items = [item(A, 'Alpha'), item(B, 'Beta')];
+    const list = document.getElementById('playlist-ui')!;
+    const onSelectionEnd = vi.fn();
+    let visible = true;
+    controller = createPlaylistRemovalController({
+      list,
+      canRemove: () => true,
+      isPlaylistVisible: () => visible,
+      getItems: () => items,
+      onDelete: vi.fn(),
+      onSelectionEnd,
+    });
+
+    controller.toggle(A);
+    controller.cancel();
+    visible = false;
+    await Promise.resolve();
+
+    expect(onSelectionEnd).not.toHaveBeenCalled();
+  });
 });

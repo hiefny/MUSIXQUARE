@@ -206,7 +206,7 @@ describe('local file picker hint', () => {
     initPlayerControls();
 
     expect((document.getElementById('file-input') as HTMLInputElement).accept).toBe(
-      '.mp3,.wav,.flac,.m4a,.aac,.ogg,.aif,.aiff,.caf,audio/*',
+      '.mp3,.wav,.flac,.m4a,.aac,.ogg,.oga,.opus,.webm,.aif,.aiff,.caf,audio/*',
     );
   });
 });

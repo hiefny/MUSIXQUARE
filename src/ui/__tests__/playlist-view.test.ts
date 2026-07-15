@@ -54,6 +54,61 @@ function sampleItems(): PlaylistItem[] {
   ];
 }
 
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function configurePlaylistFollowLayout(): ReturnType<typeof vi.fn> {
+  const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+  Object.defineProperties(scroller, {
+    clientHeight: { configurable: true, value: 100 },
+    scrollHeight: { configurable: true, value: 300 },
+  });
+  scroller.getBoundingClientRect = () =>
+    ({
+      top: 0,
+      bottom: 100,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+  const baseTops = new Map([
+    [FILE_A, 0],
+    [YT_B, 200],
+  ]);
+  for (const row of document.querySelectorAll<HTMLElement>('.track-item[data-queue-item-id]')) {
+    const baseTop = baseTops.get(row.dataset.queueItemId || '') ?? 0;
+    row.getBoundingClientRect = () => {
+      const top = baseTop - scroller.scrollTop;
+      return {
+        top,
+        bottom: top + 40,
+        left: 0,
+        right: 300,
+        width: 300,
+        height: 40,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+  }
+
+  const scrollTo = vi.fn((options: ScrollToOptions) => {
+    scroller.scrollTop = Number(options.top ?? 0);
+  });
+  Object.defineProperty(scroller, 'scrollTo', {
+    configurable: true,
+    value: scrollTo,
+  });
+  return scrollTo;
+}
+
 describe('playlist empty state i18n', () => {
   it('keeps the empty-state row translatable after playlist rerenders', () => {
     updatePlaylistUI();
@@ -374,6 +429,63 @@ describe('playlist queue identity rendering and actions', () => {
       if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
       else Reflect.deleteProperty(window, 'matchMedia');
     }
+  });
+
+  it('does not recenter an unchanged current track when deletion selection is cancelled', async () => {
+    setState('playlist.items', sampleItems());
+    setState('playlist.currentQueueItemId', FILE_A);
+    initPlaylistView();
+    const scrollTo = configurePlaylistFollowLayout();
+    await nextAnimationFrame();
+    scrollTo.mockClear();
+
+    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
+    document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+    await Promise.resolve();
+    await nextAnimationFrame();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('resumes a pending active-track follow after deletion selection ends', async () => {
+    setState('playlist.items', sampleItems());
+    setState('playlist.currentQueueItemId', FILE_A);
+    initPlaylistView();
+    let scrollTo = configurePlaylistFollowLayout();
+    await nextAnimationFrame();
+
+    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
+    setState('playlist.currentQueueItemId', YT_B);
+    await nextAnimationFrame();
+    scrollTo = configurePlaylistFollowLayout();
+
+    document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+    await Promise.resolve();
+    await nextAnimationFrame();
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
+  });
+
+  it('keeps deletion survivor focus without starting an unrelated current-track follow', async () => {
+    const items = sampleItems();
+    setState('playlist.items', items);
+    setState('playlist.currentQueueItemId', FILE_A);
+    initPlaylistView();
+    const scrollTo = configurePlaylistFollowLayout();
+    await nextAnimationFrame();
+    scrollTo.mockClear();
+    bus.on('playlist:remove-tracks', () => setState('playlist.items', [items[0]!]));
+
+    document
+      .querySelector<HTMLButtonElement>(`.btn-playlist-remove[data-queue-item-id="${YT_B}"]`)!
+      .click();
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+    await Promise.resolve();
+    await nextAnimationFrame();
+    await Promise.resolve();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect((document.activeElement as HTMLElement | null)?.dataset.queueItemId).toBe(FILE_A);
   });
 
   it('does not expose removal or reorder controls while system audio owns playback', () => {

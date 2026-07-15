@@ -499,6 +499,10 @@ export function initPlaylistView(): void {
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
       onSelectionStart: () => _reorderController?.cancel(),
+      // Selection mode blocks follow without discarding its pending request.
+      // Resume only that request: forcing the current row here would recenter
+      // an unchanged playlist and fight deletion's survivor-focus restore.
+      onSelectionEnd: () => _followController?.afterRender(),
     });
   }
 

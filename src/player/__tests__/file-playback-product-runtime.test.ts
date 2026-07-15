@@ -35,6 +35,7 @@ import {
   FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT,
   type FilePlaybackProductHostMediaOwnerOptions,
 } from '../file-playback-product-host-media-owner.ts';
+import { getFilePlaybackUniversalLifecycleSnapshotForTests } from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 import type {
   ClearFilePlaybackProductHostLocalTrackWarmByLeaseOptions,
   ClearFilePlaybackProductHostLocalTrackWarmOptions,
@@ -773,6 +774,102 @@ describe('FilePlaybackProductRuntime', () => {
     ]);
   });
 
+  it.each([
+    ['rejects the current Q2 occurrence', Q2, false, 0],
+    ['allows Q2 while Q1 is current', Q1, true, 1],
+  ] as const)('%s at next-warm admission', async (_label, currentQueueItemId, expected, calls) => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom(`current-warm-admission-${currentQueueItemId}`);
+    const room = setup.hostRooms[0]!;
+    room.setCurrentPeerPublication(
+      freezeCanonical({
+        schemaVersion: 1 as const,
+        state: freezeCanonical({ queueItemId: currentQueueItemId }),
+      }) as unknown as Readonly<HostPeerPlaybackPublication>,
+    );
+    const file = localFile('current-warm-admission.flac');
+
+    await expect(setup.runtime.warmNextLocalTrack({ queueItemId: Q2, file })).resolves.toBe(
+      expected,
+    );
+    expect(room.warmLocalTrack).toHaveBeenCalledTimes(calls);
+
+    if (expected) await expect(setup.runtime.clearNextLocalTrackWarm()).resolves.toBe(true);
+    setup.runtime.endRoom();
+  });
+
+  it('rejects Q2 warm admission while a live Q2 prepared cohort is in flight', async () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('prepared-warm-admission-host');
+    const room = setup.hostRooms[0]!;
+    const file = localFile('prepared-warm-admission.flac');
+    const prepared = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      backend: 'bounded-stream' as const,
+      state: freezeCanonical({ queueItemId: Q2, runId: 'prepared-admission-run', revision: 1 }),
+      positionSeconds: 0,
+      playbackRate: 1,
+      asset: freezeCanonical({
+        kind: 'encoded' as const,
+        binding: freezeCanonical({
+          queueItemId: Q2,
+          sourceIdentity: 'prepared-admission-source',
+          transferSessionId: 'prepared-admission-transfer',
+        }),
+        metadata: freezeCanonical({ name: file.name, mime: file.type }),
+        encodedSize: file.size,
+        peerRangeManifest: null,
+      }),
+      sourceLease: null,
+    }) as unknown as Readonly<HostPreparedLocalTrack>;
+    const timeline = freezeCanonical({
+      revision: 1,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q2, runId: prepared.state.runId }),
+      positionSeconds: 0,
+      rate: 1,
+      anchorMonotonicMs: 11_000,
+    }) as Readonly<PlaybackTimelineSnapshot>;
+    const preparedEntered = deferred<void>();
+    const commitGate = deferred<Readonly<FilePlaybackProductHostLocalTrackCommit>>();
+    room.startLocalTrackWithCohort.mockImplementationOnce(async (input) => {
+      await input.prepareRemoteParticipants(
+        freezeCanonical({
+          prepared,
+          signal: input.signal,
+          resolveSource: vi.fn(async () => file),
+        }),
+      );
+      preparedEntered.resolve();
+      return commitGate.promise;
+    });
+    const start = setup.runtime.startLocalTrack({
+      queueItemId: Q2,
+      file,
+      positionSeconds: 0,
+      signal: new AbortController().signal,
+    });
+    await preparedEntered.promise;
+
+    await expect(setup.runtime.warmNextLocalTrack({ queueItemId: Q2, file })).resolves.toBe(false);
+    expect(room.warmLocalTrack).not.toHaveBeenCalled();
+
+    const commit = freezeCanonical({
+      ...candidateResult(
+        prepared.roomGeneration,
+        room.options.hostRoomSnapshot.applicationSessionId,
+        'prepared-admission',
+      ),
+      timeline,
+    }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+    commitGate.resolve(commit);
+    await expect(start).resolves.toBe(commit);
+    setup.runtime.endRoom();
+  });
+
   it('coalesces one exact next-file warm and aborts it before warming a replacement', async () => {
     const setup = harness();
     setup.runtime.initializeBeforeProtocol();
@@ -927,6 +1024,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       publishSourceLease,
       retireSourceLease: vi.fn(async () => undefined),
@@ -979,6 +1079,9 @@ describe('FilePlaybackProductRuntime', () => {
         adoptWireMessage: vi.fn(),
         adoptPeerRangeControl: vi.fn(),
         revoke: vi.fn(),
+        stageCurrentTransition: vi.fn(),
+        stageRemoteEnd: vi.fn(),
+        commitCurrentTimeline: vi.fn(),
         publishCurrent: vi.fn(async () => {
           events.push(`current-${index}`);
           if (index === 0) await slowCurrent.promise;
@@ -1044,6 +1147,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(async () => {
         throw new Error('required current publication failed');
       }),
@@ -1098,6 +1204,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(),
       publishSourceLease,
       retireSourceLease: vi.fn(async () => undefined),
@@ -1204,6 +1313,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(),
       publishSourceLease,
       retireSourceLease,
@@ -1287,6 +1399,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(),
       publishSourceLease,
       retireSourceLease: vi.fn(async () => undefined),
@@ -1388,6 +1503,167 @@ describe('FilePlaybackProductRuntime', () => {
     expect(owner.bindPrepared.mock.invocationCallOrder[0]).toBeLessThan(
       publishSourceLease.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it('fences a same-queue in-flight warm before prepared publication and retires its late lease', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const warmGate = deferred<Readonly<FilePlaybackProductHostLocalTrackWarmResult>>();
+    let warmSignal: AbortSignal | null = null;
+    const capability = freezeCanonical({
+      participant: freezeCanonical({ participantId: 'same-queue-warm-guest' }),
+      bindAttempt: vi.fn(async () => undefined),
+    }) as unknown as Readonly<HostPreparedRemoteParticipant>;
+    const publishSourceLease = vi.fn(
+      async (authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>) =>
+        freezeCanonical({ schemaVersion: 1, sourceLease: authority.sourceLease }) as never,
+    );
+    const owner = Object.freeze({
+      onHostReady: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeControl: vi.fn(),
+      revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
+      publishCurrent: vi.fn(),
+      publishSourceLease,
+      retireSourceLease: vi.fn(async () => undefined),
+      publishPrepared: vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+        expect(warmSignal?.aborted).toBe(true);
+        return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+      }),
+      bindPrepared: vi.fn(
+        async (prepared: Readonly<HostPreparedLocalTrack>) =>
+          freezeCanonical({ schemaVersion: 1, prepared }) as never,
+      ),
+      whenPreparedRemoteReady: vi.fn(async () => capability),
+      activatePrepared: vi.fn(() => freezeCanonical({ schemaVersion: 1 }) as never),
+      retirePrepared: vi.fn(async () => undefined),
+    });
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: () => owner,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('same-queue-in-flight-warm-host');
+    const context = routerContext('host', { suffix: 'same-queue-in-flight-warm' });
+    const wrapped = routers[0]!.options.createHostMediaOwner(context);
+    wrapped.onHostReady?.(hostReadySnapshot(setup, context));
+    const room = setup.hostRooms[0]!;
+    const file = new File([new Uint8Array([9, 8, 7])], 'same-queue-in-flight.flac', {
+      type: 'audio/flac',
+    });
+    room.warmLocalTrack.mockImplementationOnce(
+      (input: WarmFilePlaybackProductHostLocalTrackOptions) => {
+        warmSignal = input.signal;
+        return warmGate.promise;
+      },
+    );
+    const warming = setup.runtime.warmNextLocalTrack({ queueItemId: Q2, file });
+    await vi.waitFor(() => expect(room.warmLocalTrack).toHaveBeenCalledOnce());
+
+    const prepared = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      backend: 'bounded-stream' as const,
+      state: freezeCanonical({ queueItemId: Q2, runId: 'same-queue-prepared-run', revision: 1 }),
+      positionSeconds: 0,
+      playbackRate: 1,
+      asset: freezeCanonical({
+        kind: 'encoded' as const,
+        binding: freezeCanonical({
+          queueItemId: Q2,
+          sourceIdentity: 'same-queue-prepared-source',
+          transferSessionId: 'same-queue-prepared-transfer',
+        }),
+        metadata: freezeCanonical({ name: file.name, mime: file.type }),
+        encodedSize: file.size,
+        peerRangeManifest: null,
+      }),
+      sourceLease: null,
+    }) as unknown as Readonly<HostPreparedLocalTrack>;
+    const timeline = freezeCanonical({
+      revision: 1,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q2, runId: prepared.state.runId }),
+      positionSeconds: 0,
+      rate: 1,
+      anchorMonotonicMs: 13_000,
+    }) as Readonly<PlaybackTimelineSnapshot>;
+    room.startLocalTrackWithCohort.mockImplementationOnce(async (input) => {
+      const remotes = await input.prepareRemoteParticipants(
+        freezeCanonical({
+          prepared,
+          signal: input.signal,
+          resolveSource: vi.fn(async () => file),
+        }),
+      );
+      expect(remotes).toEqual([capability]);
+      return freezeCanonical({
+        ...candidateResult(
+          prepared.roomGeneration,
+          room.options.hostRoomSnapshot.applicationSessionId,
+          'same-queue-prepared',
+        ),
+        timeline,
+      }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+    });
+
+    await expect(
+      setup.runtime.startLocalTrack({
+        queueItemId: Q2,
+        file,
+        positionSeconds: 0,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({ timeline });
+    expect(warmSignal?.aborted).toBe(true);
+    expect(publishSourceLease).not.toHaveBeenCalled();
+
+    const sourceLease = freezeCanonical({}) as HostLocalTrackSourceLease;
+    const lateAuthority = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      applicationSessionId: room.options.hostRoomSnapshot.applicationSessionId,
+      hostParticipantId: room.options.hostRoomSnapshot.hostParticipantId,
+      status: 'warmed' as const,
+      backend: 'bounded-stream' as const,
+      asset: freezeCanonical({
+        kind: 'blob' as const,
+        binding: freezeCanonical({
+          queueItemId: Q2,
+          sourceIdentity: 'same-queue-late-warm-source',
+          transferSessionId: 'same-queue-late-warm-transfer',
+        }),
+        metadata: freezeCanonical({ name: file.name, mime: file.type }),
+        encodedSize: file.size,
+        peerRangeManifest: null,
+      }),
+      readiness: freezeCanonical({
+        durationSeconds: 120,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+      sourceLease,
+    }) as unknown as Readonly<FilePlaybackProductHostLocalTrackWarmResult>;
+    warmGate.resolve(lateAuthority);
+
+    await expect(warming).resolves.toBe(false);
+    expect(publishSourceLease).not.toHaveBeenCalled();
+    expect(room.clearWarmLocalTrackByLease).toHaveBeenCalledOnce();
+    expect(room.clearWarmLocalTrackByLease).toHaveBeenCalledWith({
+      sourceLease,
+      signal: expect.any(AbortSignal),
+    });
+    await expect(setup.runtime.clearNextLocalTrackWarm()).resolves.toBe(false);
+    setup.runtime.endRoom();
   });
 
   it('consumes an exact promoted warm lease only after canonical candidate commit', async () => {
@@ -1517,6 +1793,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(),
       publishSourceLease,
       retireSourceLease,
@@ -1595,6 +1874,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(),
       publishSourceLease,
       retireSourceLease: vi.fn(async () => undefined),
@@ -1726,6 +2008,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(),
       publishSourceLease: vi.fn(),
       retireSourceLease: vi.fn(),
@@ -1767,6 +2052,13 @@ describe('FilePlaybackProductRuntime', () => {
     expect(wrappedOwner).not.toBe(hostOwner);
     expect(hostOwnerOptions?.sendRequired(peer, freezeCanonical({ type: 'fixture' }))).toBe(true);
     expect(setup.sessions.sendRequired).toHaveBeenCalledWith(peer, { type: 'fixture' });
+
+    hostOwnerOptions?.closeConnection(peer);
+    expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledOnce();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledWith(peer);
+    vi.mocked(setup.sessions.closeConnection).mockClear();
 
     const healthMessage = freezeCanonical({
       schemaVersion: 1 as const,
@@ -1843,6 +2135,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       retireSourceLease: vi.fn(async () => undefined),
@@ -1921,6 +2216,7 @@ describe('FilePlaybackProductRuntime', () => {
       }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
     });
 
+    const timersBeforeCommit = getFilePlaybackUniversalLifecycleSnapshotForTests().kinds.timers;
     const commitTask = setup.runtime.startLocalTrack({
       queueItemId: Q1,
       file: blob,
@@ -1952,6 +2248,11 @@ describe('FilePlaybackProductRuntime', () => {
       timeline,
       initialCohortAdmitted: true,
     });
+    expect(getFilePlaybackUniversalLifecycleSnapshotForTests().kinds.timers).toMatchObject({
+      live: timersBeforeCommit.live,
+      retiring: timersBeforeCommit.retiring,
+      unconfirmed: timersBeforeCommit.unconfirmed,
+    });
   });
 
   it('runs a playing seek through prepared cohort publication instead of direct room seek', async () => {
@@ -1975,6 +2276,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       retireSourceLease: vi.fn(async () => undefined),
@@ -2096,6 +2400,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       retireSourceLease: vi.fn(async () => undefined),
@@ -2215,6 +2522,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent,
       publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       retireSourceLease: vi.fn(async () => undefined),
@@ -2331,6 +2641,9 @@ describe('FilePlaybackProductRuntime', () => {
         adoptWireMessage: vi.fn(),
         adoptPeerRangeControl: vi.fn(),
         revoke: vi.fn(),
+        stageCurrentTransition: vi.fn(),
+        stageRemoteEnd: vi.fn(),
+        commitCurrentTimeline: vi.fn(),
         publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
         publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
         retireSourceLease: vi.fn(async () => undefined),
@@ -2459,6 +2772,9 @@ describe('FilePlaybackProductRuntime', () => {
           adoptWireMessage: vi.fn(),
           adoptPeerRangeControl: vi.fn(),
           revoke: vi.fn(),
+          stageCurrentTransition: vi.fn(),
+          stageRemoteEnd: vi.fn(),
+          commitCurrentTimeline: vi.fn(),
           publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
           publishSourceLease: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
           retireSourceLease: vi.fn(async () => undefined),
@@ -2768,6 +3084,10 @@ describe('FilePlaybackProductRuntime', () => {
         FilePlaybackProductGuestMediaOwnerOptions['onFatalConnection']
       >[1],
     );
+    expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
+    wrappedOwner.revoke(context);
+    await Promise.resolve();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledOnce();
     expect(setup.sessions.closeConnection).toHaveBeenCalledWith(peer);
 
     Reflect.apply(registryFatal!, undefined, [registryRoomToken!, new Error('registry fatal')]);
@@ -2777,6 +3097,40 @@ describe('FilePlaybackProductRuntime', () => {
     expect(routers[0]?.close).not.toHaveBeenCalled();
     expect(manager.clear).toHaveBeenCalledOnce();
     expect(registry?.close).toHaveBeenCalledWith(registryRoomToken);
+  });
+
+  it('marks guest room ownership unconfirmed when physical manager cleanup rejects', async () => {
+    const failure = new Error('guest manager physical cleanup failed');
+    const manager = new FilePlaybackManager();
+    vi.spyOn(manager, 'clear').mockRejectedValue(failure);
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createGuestRegistry: (roomToken, onFatalRoom) =>
+          new FilePlaybackAssetRegistry({ liveRoomToken: roomToken, onFatalRoom }),
+        createGuestManager: () => manager,
+      },
+    });
+    const before = getFilePlaybackUniversalLifecycleSnapshotForTests();
+
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginGuestRoom();
+    expect(getFilePlaybackUniversalLifecycleSnapshotForTests().kinds.roomOwners.live).toBe(
+      before.kinds.roomOwners.live + 1,
+    );
+
+    setup.runtime.endRoom();
+    for (let index = 0; index < 8; index += 1) await Promise.resolve();
+
+    const retired = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    expect(retired.kinds.roomOwners).toMatchObject({
+      live: before.kinds.roomOwners.live,
+      retiring: before.kinds.roomOwners.retiring,
+      unconfirmed: before.kinds.roomOwners.unconfirmed + 1,
+      acquiredTotal: before.kinds.roomOwners.acquiredTotal + 1,
+      releasedTotal: before.kinds.roomOwners.releasedTotal,
+    });
+    expect(retired.forcedRetirements).toBe(before.forcedRetirements + 1);
+    expect(manager.clear).toHaveBeenCalledOnce();
   });
 
   it('reuses its one-shot document router across consecutive room generations', () => {
@@ -2883,6 +3237,9 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      stageCurrentTransition: vi.fn(),
+      stageRemoteEnd: vi.fn(),
+      commitCurrentTimeline: vi.fn(),
       publishCurrent: vi.fn(),
       publishSourceLease: vi.fn(),
       retireSourceLease: vi.fn(),
@@ -2943,6 +3300,212 @@ describe('FilePlaybackProductRuntime', () => {
     expect(guestOwnerOptions?.boundedRoutePolicy).toBe(
       FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
     );
+    setup.runtime.endRoom();
+  });
+
+  it('fans scheduled current transitions out to READY owners and isolates one broken peer', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const owners = [0, 1].map((index) =>
+      Object.freeze({
+        onHostReady: vi.fn(),
+        adoptWireMessage: vi.fn(),
+        adoptPeerRangeControl: vi.fn(),
+        revoke: vi.fn(),
+        stageCurrentTransition: vi.fn(() => {
+          if (index === 1) throw new Error('fixture successor send failed');
+        }),
+        stageRemoteEnd: vi.fn(),
+        commitCurrentTimeline: vi.fn(),
+        publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+        publishSourceLease: vi.fn(),
+        retireSourceLease: vi.fn(),
+        publishPrepared: vi.fn(),
+        bindPrepared: vi.fn(),
+        whenPreparedRemoteReady: vi.fn(),
+        activatePrepared: vi.fn(),
+        retirePrepared: vi.fn(),
+      }),
+    );
+    let ownerIndex = 0;
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: () => owners[ownerIndex++]!,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('current-transition-fanout-host');
+    setup.hostRooms[0]?.setCurrentPeerPublication(
+      freezeCanonical({ schemaVersion: 1 }) as unknown as Readonly<HostPeerPlaybackPublication>,
+    );
+    const contexts = [
+      routerContext('host', { suffix: 'current-transition-good' }),
+      routerContext('host', { suffix: 'current-transition-broken' }),
+    ];
+    const wrapped = contexts.map((context) => routers[0]!.options.createHostMediaOwner(context));
+    wrapped.forEach((owner, index) =>
+      owner.onHostReady?.(hostReadySnapshot(setup, contexts[index]!)),
+    );
+    await Promise.resolve();
+
+    const previous = freezeCanonical({
+      schemaVersion: 1 as const,
+      revision: 1,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: 'runtime-current-transition-run' }),
+      positionSeconds: 3,
+      anchorMonotonicMs: 1_000,
+      rate: 1,
+    });
+    const timeline = freezeCanonical({
+      ...previous,
+      revision: 2,
+      phase: 'paused' as const,
+      anchorMonotonicMs: 1_200,
+    });
+    const scheduled = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: setup.controller().snapshot().roomGeneration,
+      kind: 'pause' as const,
+      from: freezeCanonical({
+        queueItemId: Q1,
+        runId: 'runtime-current-transition-run',
+        revision: 1,
+      }),
+      to: freezeCanonical({
+        queueItemId: Q1,
+        runId: 'runtime-current-transition-run',
+        revision: 2,
+      }),
+      atRoomTimeMs: 1_200,
+      positionSeconds: null,
+    });
+    const committed = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: scheduled.roomGeneration,
+      kind: 'pause' as const,
+      previous,
+      timeline,
+    });
+
+    setup.hostRooms[0]?.options.onTransitionScheduled?.(scheduled);
+    setup.hostRooms[0]?.options.onTimelineCommitted?.(committed);
+
+    expect(owners[0]?.stageCurrentTransition).toHaveBeenCalledWith(scheduled);
+    expect(owners[0]?.commitCurrentTimeline).toHaveBeenCalledWith(committed);
+    expect(owners[1]?.stageCurrentTransition).toHaveBeenCalledWith(scheduled);
+    expect(owners[1]?.commitCurrentTimeline).not.toHaveBeenCalled();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledOnce();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledWith(contexts[1]?.connection);
+
+    setup.hostRooms[0]?.options.onTimelineCommitted?.(
+      freezeCanonical({ ...committed, kind: 'ended' as const }),
+    );
+    expect(owners[0]?.commitCurrentTimeline).toHaveBeenCalledOnce();
+    setup.runtime.endRoom();
+  });
+
+  it('fans natural end to the exact READY cohort and isolates a broken remote retirement', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const owners = [0, 1].map((index) =>
+      Object.freeze({
+        onHostReady: vi.fn(),
+        adoptWireMessage: vi.fn(),
+        adoptPeerRangeControl: vi.fn(),
+        revoke: vi.fn(),
+        stageCurrentTransition: vi.fn(),
+        stageRemoteEnd: vi.fn(() => {
+          if (index === 1) throw new Error('fixture remote-end send failed');
+        }),
+        commitCurrentTimeline: vi.fn(),
+        publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+        publishSourceLease: vi.fn(),
+        retireSourceLease: vi.fn(),
+        publishPrepared: vi.fn(),
+        bindPrepared: vi.fn(),
+        whenPreparedRemoteReady: vi.fn(),
+        activatePrepared: vi.fn(),
+        retirePrepared: vi.fn(),
+      }),
+    );
+    let ownerIndex = 0;
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: () => owners[ownerIndex++]!,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('natural-end-fanout-host');
+    setup.hostRooms[0]?.setCurrentPeerPublication(
+      freezeCanonical({ schemaVersion: 1 }) as unknown as Readonly<HostPeerPlaybackPublication>,
+    );
+    const contexts = [
+      routerContext('host', { suffix: 'natural-end-good' }),
+      routerContext('host', { suffix: 'natural-end-broken' }),
+    ];
+    const wrapped = contexts.map((context) => routers[0]!.options.createHostMediaOwner(context));
+    wrapped.forEach((owner, index) =>
+      owner.onHostReady?.(hostReadySnapshot(setup, contexts[index]!)),
+    );
+    await Promise.resolve();
+
+    const previous = freezeCanonical({
+      schemaVersion: 1 as const,
+      revision: 1,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: 'runtime-natural-end-run' }),
+      positionSeconds: 3,
+      anchorMonotonicMs: 1_000,
+      rate: 1,
+    });
+    const from = freezeCanonical({
+      queueItemId: Q1,
+      runId: 'runtime-natural-end-run',
+      revision: 1,
+    });
+    const to = freezeCanonical({ ...from, revision: 2 });
+    const required = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: setup.controller().snapshot().roomGeneration,
+      from,
+      to,
+      hostObservedAtRoomTimeMs: 1_500,
+    });
+    const committed = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: required.roomGeneration,
+      kind: 'ended' as const,
+      previous,
+      timeline: freezeCanonical({
+        schemaVersion: 1 as const,
+        revision: 2,
+        phase: 'stopped' as const,
+        run: null,
+        positionSeconds: 0,
+        anchorMonotonicMs: 1_500,
+        rate: 1,
+      }),
+    });
+
+    setup.hostRooms[0]?.options.onRemoteEndRequired?.(required);
+    setup.hostRooms[0]?.setCurrentPeerPublication(null);
+    setup.hostRooms[0]?.options.onTimelineCommitted?.(committed);
+
+    expect(owners[0]?.stageRemoteEnd).toHaveBeenCalledWith(required);
+    expect(owners[0]?.commitCurrentTimeline).toHaveBeenCalledWith(committed);
+    expect(owners[1]?.stageRemoteEnd).toHaveBeenCalledWith(required);
+    expect(owners[1]?.commitCurrentTimeline).not.toHaveBeenCalled();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledOnce();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledWith(contexts[1]?.connection);
     setup.runtime.endRoom();
   });
 

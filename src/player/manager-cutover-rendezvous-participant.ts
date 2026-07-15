@@ -49,8 +49,7 @@ const TRUSTED_PROMISE_THEN = Promise.prototype.then;
 const TRUSTED_MANAGER_ARM_CANDIDATE = FilePlaybackManager.prototype.armCutoverCandidate;
 const TRUSTED_MANAGER_FINALIZE_CANDIDATE = FilePlaybackManager.prototype.finalizeCutoverCandidate;
 const TRUSTED_MANAGER_CURRENT_PORT = FilePlaybackManager.prototype.currentCutoverPort;
-const TRUSTED_MANAGER_RETIRE_CANDIDATE = FilePlaybackManager.prototype.retireCutoverCandidate;
-const TRUSTED_MANAGER_RETIRE_CURRENT = FilePlaybackManager.prototype.retireCurrentCutover;
+const TRUSTED_MANAGER_RETIRE_EXACT = FilePlaybackManager.prototype.retireExactCutoverPort;
 
 export interface ManagerCutoverRendezvousParticipantOptions {
   readonly participantId: string;
@@ -614,27 +613,12 @@ export class ManagerCutoverRendezvousParticipant implements HostRendezvousPartic
     this.#rejectStarted(operation, new Error('Cutover start evidence was retired'));
     if (this.#retirementPromise) return this.#retirementPromise;
     this.#retirementPromise = Promise.resolve().then(() => this.#retireExactPort());
+    observeRejectedPromise(this.#retirementPromise);
     return this.#retirementPromise;
   }
 
   async #retireExactPort(): Promise<void> {
-    let retiredCandidate = false;
-    try {
-      retiredCandidate =
-        (await TRUSTED_REFLECT_APPLY(TRUSTED_MANAGER_RETIRE_CANDIDATE, this.#manager, [
-          this.#candidatePort,
-        ])) === true;
-    } catch {
-      // A candidate may have promoted between observation and retirement.
-    }
-    if (retiredCandidate) return;
-    try {
-      await TRUSTED_REFLECT_APPLY(TRUSTED_MANAGER_RETIRE_CURRENT, this.#manager, [
-        this.#candidatePort,
-      ]);
-    } catch {
-      // Exact-port retirement is best effort and never touches another port.
-    }
+    await TRUSTED_REFLECT_APPLY(TRUSTED_MANAGER_RETIRE_EXACT, this.#manager, [this.#candidatePort]);
   }
 
   #rejectedArm(

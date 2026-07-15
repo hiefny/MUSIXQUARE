@@ -11,7 +11,9 @@ import {
 const mocks = vi.hoisted(() => ({
   lanczosInitializations: 0,
   resamplerInstances: 0,
+  resamplerFreeAttempts: 0,
   resamplerFrees: 0,
+  resamplerFreeFailures: 0,
 }));
 
 vi.mock('lanczos-resampler/loader.js', async (importOriginal) => {
@@ -36,8 +38,13 @@ vi.mock('lanczos-resampler/loader.js', async (importOriginal) => {
     free(): void {
       if (this.freed) return;
       this.freed = true;
-      mocks.resamplerFrees += 1;
+      mocks.resamplerFreeAttempts += 1;
       this.inner.free();
+      mocks.resamplerFrees += 1;
+      if (mocks.resamplerFreeFailures > 0) {
+        mocks.resamplerFreeFailures -= 1;
+        throw new Error('synthetic resampler free failure');
+      }
     }
   }
   return {
@@ -262,7 +269,9 @@ describe.sequential('bounded linear PCM stream worker', () => {
   beforeEach(() => {
     mocks.lanczosInitializations = 0;
     mocks.resamplerInstances = 0;
+    mocks.resamplerFreeAttempts = 0;
     mocks.resamplerFrees = 0;
+    mocks.resamplerFreeFailures = 0;
     sourceBrokers.length = 0;
     openPorts.length = 0;
   });
@@ -472,6 +481,44 @@ describe.sequential('bounded linear PCM stream worker', () => {
     });
   });
 
+  it('continues terminal cleanup but suppresses retirement ACKs when a resampler free throws', async () => {
+    const layout = descriptor({
+      frames: 8,
+      channels: 2,
+      sourceSampleRate: 96_000,
+      outputSampleRate: 48_000,
+    });
+    const source = new MemoryEncodedAudioSource(sourceBytes(layout));
+    const scope = await loadWorker();
+    openSource(scope, source);
+    const pcmPort = initialize(scope, 10, layout);
+    await waitReady(scope, 10);
+    mocks.resamplerFreeFailures = 1;
+
+    const received = nextPortMessage(pcmPort);
+    pcmPort.postMessage(demand(10));
+    await received;
+    await vi.waitFor(() => expect(mocks.resamplerFreeAttempts).toBe(2));
+    expect(mocks.resamplerFrees).toBe(2);
+
+    dispatch(scope, {
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+      type: 'close-source',
+      sourceLifetimeGeneration: 1,
+    });
+    await vi.waitFor(() => expect(source.closeCount).toBe(1));
+
+    expect(scope.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'source-closed', sourceLifetimeGeneration: 1 }),
+    );
+    expect(scope.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'decoder-retired', decoderGeneration: 10 }),
+    );
+    expect(scope.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'worker-retired', sourceLifetimeGeneration: 1 }),
+    );
+  });
+
   it('pads and trims a short resampling EOF to the exact timeline', async () => {
     const layout = descriptor({
       frames: 1,
@@ -598,10 +645,65 @@ describe.sequential('bounded linear PCM stream worker', () => {
         expect.objectContaining({ type: 'decoder-stopped', decoderGeneration: 9 }),
       );
       expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'decoder-retired', decoderGeneration: 9 }),
+      );
+      expect(scope.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'source-closed', sourceLifetimeGeneration: 1 }),
+      );
+      expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'worker-retired', sourceLifetimeGeneration: 1 }),
       );
     });
     await broker.close();
     expect(source.closeCount).toBe(1);
+  });
+
+  it('publishes source retirement before a hostile PCM close reenters close-source', async () => {
+    const layout = descriptor({ frames: 4 });
+    const source = new MemoryEncodedAudioSource(sourceBytes(layout));
+    const scope = await loadWorker();
+    openSource(scope, source);
+    const channel = new MessageChannel();
+    openPorts.push(channel.port1, channel.port2);
+    let reentries = 0;
+    const nativeClose = channel.port1.close.bind(channel.port1);
+    const portClose = vi.spyOn(channel.port1, 'close').mockImplementation(() => {
+      if (reentries === 0) {
+        reentries += 1;
+        dispatch(scope, {
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+          type: 'close-source',
+          sourceLifetimeGeneration: 1,
+        });
+      }
+      nativeClose();
+    });
+    dispatch(scope, {
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+      type: 'init-decoder',
+      sourceLifetimeGeneration: 1,
+      decoderGeneration: 11,
+      descriptor: layout,
+      pcmPort: channel.port1,
+    });
+    await waitReady(scope, 11);
+
+    dispatch(scope, {
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+      type: 'close-source',
+      sourceLifetimeGeneration: 1,
+    });
+
+    await vi.waitFor(() => expect(source.closeCount).toBe(1));
+    await vi.waitFor(() => {
+      const messages = scope.postMessage.mock.calls.map(
+        ([message]) => message as Record<string, unknown>,
+      );
+      expect(messages.filter((message) => message.type === 'decoder-retired')).toHaveLength(1);
+      expect(messages.filter((message) => message.type === 'source-closed')).toHaveLength(1);
+      expect(messages.filter((message) => message.type === 'worker-retired')).toHaveLength(1);
+    });
+    expect(reentries).toBe(1);
+    expect(portClose).toHaveBeenCalledOnce();
   });
 });

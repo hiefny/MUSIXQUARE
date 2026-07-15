@@ -140,6 +140,19 @@ export type FlacDecoderEvent =
     }
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+      /** Emitted only after pending demand, native decoder, PCM port, and resamplers retire. */
+      readonly type: 'decoder-retired';
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
+    }
+  | {
+      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+      /** Final worker ACK after every decoder and the encoded-source client retire. */
+      readonly type: 'worker-retired';
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+    }
+  | {
+      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'frame-index-point';
       readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
       readonly decoderGeneration: FlacDecoderGeneration;

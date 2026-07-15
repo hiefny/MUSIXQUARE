@@ -103,6 +103,7 @@ const OPTION_KEYS = Object.freeze([
   'boundedRoutePolicy',
   'onFatalRoom',
   'onTransitionScheduled',
+  'onRemoteEndRequired',
   'onTimelineCommitted',
   'runtimeForTests',
 ] as const);
@@ -110,6 +111,7 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
   (key) =>
     key !== 'boundedRoutePolicy' &&
     key !== 'onTransitionScheduled' &&
+    key !== 'onRemoteEndRequired' &&
     key !== 'onTimelineCommitted' &&
     key !== 'runtimeForTests',
 );
@@ -227,6 +229,7 @@ export interface FilePlaybackHostFirstFileEngineOptions {
   readonly onTransitionScheduled?: (
     event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
   ) => void;
+  readonly onRemoteEndRequired?: (event: Readonly<HostRemoteEndRequiredEvent>) => void;
   readonly onTimelineCommitted?: (
     event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
   ) => void;
@@ -332,6 +335,18 @@ export interface HostCurrentPlaybackTransitionScheduledEvent {
   readonly to: Readonly<PlaybackStateIdentity>;
   readonly atRoomTimeMs: number;
   readonly positionSeconds: number | null;
+}
+
+/**
+ * Exact-next remote retirement required after the host renderer produced
+ * natural-end evidence, but before the host commits canonical stopped truth.
+ */
+export interface HostRemoteEndRequiredEvent {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly from: Readonly<PlaybackStateIdentity>;
+  readonly to: Readonly<PlaybackStateIdentity>;
+  readonly hostObservedAtRoomTimeMs: number;
 }
 
 /** Canonical room truth published only after physical transition evidence. */
@@ -1100,6 +1115,7 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #onTransitionScheduled:
     | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
     | null;
+  readonly #onRemoteEndRequired: ((event: Readonly<HostRemoteEndRequiredEvent>) => void) | null;
   readonly #onTimelineCommitted:
     | ((event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) => void)
     | null;
@@ -1178,6 +1194,8 @@ export class FilePlaybackHostFirstFileEngine {
       typeof input.onFatalRoom !== 'function' ||
       (input.onTransitionScheduled !== undefined &&
         typeof input.onTransitionScheduled !== 'function') ||
+      (input.onRemoteEndRequired !== undefined &&
+        typeof input.onRemoteEndRequired !== 'function') ||
       (input.onTimelineCommitted !== undefined && typeof input.onTimelineCommitted !== 'function')
     ) {
       throw new TypeError('Host first-file engine callbacks are invalid');
@@ -1238,6 +1256,10 @@ export class FilePlaybackHostFirstFileEngine {
     this.#onTransitionScheduled =
       (input.onTransitionScheduled as
         | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
+        | undefined) ?? null;
+    this.#onRemoteEndRequired =
+      (input.onRemoteEndRequired as
+        | ((event: Readonly<HostRemoteEndRequiredEvent>) => void)
         | undefined) ?? null;
     this.#onTimelineCommitted =
       (input.onTimelineCommitted as
@@ -2380,6 +2402,7 @@ export class FilePlaybackHostFirstFileEngine {
     operation.physicalBoundaryClaimed = true;
     const evidence = await pending;
     this.#assertTransitionCommitFence(operation, intent, false);
+    this.#notifyRemoteEndRequired(intent);
     this.#runtime.beforeTransitionControllerCommit?.();
     this.#assertTransitionCommitFence(operation, intent, false);
     const committed = Reflect.apply(trustedControllerEndedCommit, this.#controller, [
@@ -2428,6 +2451,24 @@ export class FilePlaybackHostFirstFileEngine {
     } catch {
       // A failed per-connection observer must never roll back a native frame
       // schedule which the local renderer has already accepted.
+    }
+  }
+
+  #notifyRemoteEndRequired(intent: Readonly<FilePlaybackEndedTransitionIntent>): void {
+    const notify = this.#onRemoteEndRequired;
+    if (!notify) return;
+    const event = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: this.#roomGeneration,
+      from: intent.from,
+      to: intent.to,
+      hostObservedAtRoomTimeMs: intent.observedAtRoomTimeMs,
+    });
+    try {
+      notify(event);
+    } catch {
+      // Host physical end evidence already exists. A failed connection observer
+      // is isolated and must never roll the local renderer back into playing.
     }
   }
 

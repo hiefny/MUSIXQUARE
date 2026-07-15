@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import type { FilePlaybackEndedTransitionIntent } from '../file-playback-ended-transition.ts';
+import type { FilePlaybackRemoteEndedTransitionIntent } from '../file-playback-remote-ended-transition.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
@@ -180,6 +181,15 @@ function currentEndedIntent(revision = 1): FilePlaybackEndedTransitionIntent {
     from: { queueItemId: Q1, runId: `run-${Q1}`, revision },
     to: { queueItemId: Q1, runId: `run-${Q1}`, revision: revision + 1 },
     observedAtRoomTimeMs: 60_000,
+  };
+}
+
+function currentRemoteEndedIntent(revision = 1): FilePlaybackRemoteEndedTransitionIntent {
+  return {
+    kind: 'file-playback-remote-ended-transition',
+    from: { queueItemId: Q1, runId: `run-${Q1}`, revision },
+    to: { queueItemId: Q1, runId: `run-${Q1}`, revision: revision + 1 },
+    hostObservedAtRoomTimeMs: 60_000,
   };
 }
 
@@ -685,6 +695,46 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     expect(candidate.source.destroy).toHaveBeenCalledOnce();
   });
 
+  it('waits for every fail-silent cleanup before replaying an exact post-target failure', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    current.gateDestroy();
+    await startFirst(manager, current, destination, context);
+    const candidate = makeSource(Q2, context, 2);
+    candidate.gateDestroy();
+    const { port } = await stageArmFinalize(manager, candidate, destination);
+    const failure = new Error('fixture post-target candidate cleanup failed');
+    context.currentTime = 2;
+
+    const exact = manager.retireExactCutoverPort(port);
+    let settled = false;
+    void exact.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await vi.waitFor(() => {
+      expect(candidate.source.destroy).toHaveBeenCalledOnce();
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+    });
+    candidate.destroyGate.reject(failure);
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(true);
+    current.destroyGate.resolve();
+    await expect(exact).rejects.toBe(failure);
+    await expect(manager.retireExactCutoverPort(port)).rejects.toBe(failure);
+    expect(candidate.source.destroy).toHaveBeenCalledOnce();
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+  });
+
   it('rejects a source target from another AudioContext without touching current audio', async () => {
     const context = new FakeAudioContext();
     const otherContext = new FakeAudioContext();
@@ -832,6 +882,89 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     expect(manager.finalizeCutoverCandidate(port, { ...finalize })).toBe(firstFinalize);
     expect(source.source.armForCutover).toHaveBeenCalledOnce();
     expect(source.source.finalize).toHaveBeenCalledOnce();
+  });
+
+  it('joins an exact candidate retirement that is already physically cleaning up', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1);
+    source.gateDestroy();
+    const port = await manager.stageCutoverCandidate({ source: source.source, destination });
+
+    const retirement = manager.retireCutoverCandidate(port);
+    await vi.waitFor(() => expect(source.source.destroy).toHaveBeenCalledOnce());
+    let exactSettled = false;
+    const exact = manager.retireExactCutoverPort(port).then(() => {
+      exactSettled = true;
+    });
+    await Promise.resolve();
+
+    expect(exactSettled).toBe(false);
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+    source.destroyGate.resolve();
+    await expect(retirement).resolves.toBe(true);
+    await expect(exact).resolves.toBeUndefined();
+    await expect(manager.retireExactCutoverPort(port)).resolves.toBeUndefined();
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('replays an exact physical cleanup rejection without repeating destruction', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1);
+    const failure = new Error('fixture cutover cleanup failed');
+    source.gateDestroy();
+    const port = await manager.stageCutoverCandidate({ source: source.source, destination });
+
+    const exact = manager.retireExactCutoverPort(port);
+    await vi.waitFor(() => expect(source.source.destroy).toHaveBeenCalledOnce());
+    source.destroyGate.reject(failure);
+
+    await expect(exact).rejects.toBe(failure);
+    await expect(manager.retireExactCutoverPort(port)).rejects.toBe(failure);
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('tombstones the strict exact-port postcondition failure itself', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1);
+    source.gateDestroy();
+    const port = await manager.stageCutoverCandidate({ source: source.source, destination });
+    const exactRecord = Reflect.get(manager, 'cutoverCandidate');
+    expect(exactRecord).not.toBeNull();
+
+    const first = manager.retireExactCutoverPort(port);
+    await vi.waitFor(() => expect(source.source.destroy).toHaveBeenCalledOnce());
+    expect(manager.retireExactCutoverPort(port)).toBe(first);
+    expect(Reflect.set(manager, 'cutoverCandidate', exactRecord)).toBe(true);
+    source.destroyGate.resolve();
+
+    let postconditionFailure: unknown;
+    try {
+      await first;
+    } catch (error) {
+      postconditionFailure = error;
+    }
+    expect(postconditionFailure).toBeInstanceOf(Error);
+    expect((postconditionFailure as Error).message).toContain(
+      'exact port remained owned after terminal cleanup',
+    );
+    const replay = manager.retireExactCutoverPort(port);
+    expect(replay).toBe(first);
+    await expect(replay).rejects.toBe(postconditionFailure);
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('treats a completely unknown exact cutover capability as an idempotent no-op', async () => {
+    const manager = new FilePlaybackManager();
+
+    await expect(
+      manager.retireExactCutoverPort({} as FilePlaybackCutoverCandidatePort),
+    ).resolves.toBeUndefined();
   });
 
   it('forgets a retired candidate capability after exact cleanup settles', async () => {
@@ -1985,5 +2118,177 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     );
     expect(manager.currentCutoverPort()).toBe(port);
     expect(current.source.destroy).not.toHaveBeenCalled();
+  });
+
+  it.each(['playing', 'paused', 'ended'] as const)(
+    'atomically retires the exact remote-ended renderer observed while %s',
+    async (observedPhase) => {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      current.phase(observedPhase);
+      current.gateDestroy();
+      const intent = currentRemoteEndedIntent();
+
+      const first = manager.retireRemoteEndedCurrent(port, intent);
+      const retry = manager.retireRemoteEndedCurrent(port, { ...intent });
+
+      expect(retry).toBe(first);
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(context.gains[0]?.gain.valueAt(context.currentTime)).toBe(0);
+      expect(context.gains[0]?.disconnect).toHaveBeenCalledOnce();
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      current.destroyGate.resolve();
+      await expect(first).resolves.toEqual({
+        kind: 'remote-ended-renderer-retired',
+        from: intent.from,
+        to: intent.to,
+        hostObservedAtRoomTimeMs: intent.hostObservedAtRoomTimeMs,
+        observedPhase,
+      });
+      expect(JSON.stringify(await first)).not.toContain('targetFrame');
+    },
+  );
+
+  it('publishes the exact remote-ended retry tombstone before native gate retirement can re-enter', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    current.gateDestroy();
+    const intent = currentRemoteEndedIntent();
+    let reentrantRetry: Promise<unknown> | null = null;
+    context.gains[0]!.gain.onSet = (value) => {
+      if (value === 0 && reentrantRetry === null) {
+        reentrantRetry = manager.retireRemoteEndedCurrent(port, { ...intent });
+      }
+    };
+
+    const first = manager.retireRemoteEndedCurrent(port, intent);
+
+    expect(reentrantRetry).toBe(first);
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+    current.destroyGate.resolve();
+    await expect(first).resolves.toMatchObject({
+      kind: 'remote-ended-renderer-retired',
+      from: intent.from,
+      to: intent.to,
+    });
+  });
+
+  it('never emits remote-ended evidence after current authority expires', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    let authorityLive = true;
+    const { port } = await startFirst(manager, current, destination, context, () => authorityLive);
+    const intent = currentRemoteEndedIntent();
+    authorityLive = false;
+
+    await expect(manager.retireRemoteEndedCurrent(port, intent)).rejects.toThrow(
+      'authority expired',
+    );
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(true);
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+    await expect(manager.retireRemoteEndedCurrent(port, { ...intent })).rejects.toThrow('stale');
+  });
+
+  it('never emits remote-ended evidence when its authority callback re-entrantly retires current', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    let port: FilePlaybackCutoverCandidatePort | null = null;
+    let reenterAuthority = false;
+    let reentrantCleanup: Promise<boolean> | null = null;
+    const authority = (): boolean => {
+      if (reenterAuthority && reentrantCleanup === null) {
+        if (!port) throw new Error('Remote-ended authority re-entry has no exact port');
+        reentrantCleanup = manager.retireCurrentCutover(port);
+      }
+      return true;
+    };
+    ({ port } = await startFirst(manager, current, destination, context, authority));
+    current.gateDestroy();
+    const intent = currentRemoteEndedIntent();
+    reenterAuthority = true;
+
+    await expect(manager.retireRemoteEndedCurrent(port, intent)).rejects.toThrow(
+      'authority expired',
+    );
+    expect(reentrantCleanup).not.toBeNull();
+    expect(manager.currentCutoverPort()).toBeNull();
+    await expect(manager.retireRemoteEndedCurrent(port, { ...intent })).rejects.toThrow('stale');
+    current.destroyGate.resolve();
+    await expect(reentrantCleanup!).resolves.toBe(true);
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('rejects stale remote-ended state and every live replacement candidate', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+
+    await expect(
+      manager.retireRemoteEndedCurrent(port, currentRemoteEndedIntent(2)),
+    ).rejects.toThrow('not current');
+    expect(manager.currentCutoverPort()).toBe(port);
+
+    const successor = makeSource(Q2, context, 3);
+    const staging = manager.stageCutoverCandidate({ source: successor.source, destination });
+    await expect(
+      manager.retireRemoteEndedCurrent(port, currentRemoteEndedIntent()),
+    ).rejects.toThrow('conflicting transition');
+    await staging;
+    await expect(
+      manager.retireRemoteEndedCurrent(port, currentRemoteEndedIntent()),
+    ).rejects.toThrow('conflicting transition');
+    expect(manager.currentCutoverPort()).toBe(port);
+    expect(current.source.destroy).not.toHaveBeenCalled();
+    await manager.clear();
+  });
+
+  it('rejects remote-ended retirement while a physical revision transition is pending', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    const pausing = await manager.pauseCurrentCutover(port, currentPauseIntent());
+
+    await expect(
+      manager.retireRemoteEndedCurrent(port, currentRemoteEndedIntent()),
+    ).rejects.toThrow('conflicting transition');
+    expect(manager.currentCutoverPort()).toBe(port);
+    current.applyTransition();
+    if (pausing.status === 'scheduled') await pausing.applied;
+    await manager.clear();
+  });
+
+  it('never emits remote-ended evidence from a snapshot that re-entrantly retires current', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    const snapshot = current.source.getSnapshot();
+    vi.mocked(current.source.getSnapshot).mockImplementationOnce(() => {
+      void manager.retireCurrentCutover(port);
+      return snapshot;
+    });
+
+    await expect(
+      manager.retireRemoteEndedCurrent(port, currentRemoteEndedIntent()),
+    ).rejects.toThrow('changed during snapshot preflight');
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(current.source.destroy).toHaveBeenCalledOnce();
   });
 });

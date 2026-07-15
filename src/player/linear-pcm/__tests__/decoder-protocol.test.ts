@@ -20,8 +20,8 @@ import {
 
 describe('linear PCM decoder protocol leaf contract', () => {
   it('shares PCM ring bounds but keeps a distinct decoder-control protocol version', () => {
-    expect(LINEAR_PCM_DECODER_PROTOCOL_VERSION).toBe(1);
-    expect(PCM_STREAM_PROTOCOL_VERSION).toBe(2);
+    expect(LINEAR_PCM_DECODER_PROTOCOL_VERSION).toBe(2);
+    expect(PCM_STREAM_PROTOCOL_VERSION).toBe(3);
     expect(LINEAR_PCM_STREAM_MAX_CHANNELS).toBe(PCM_STREAM_MAX_CHANNELS);
     expect(LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES).toBe(PCM_STREAM_MAX_MESSAGE_FRAMES);
     expect(LINEAR_PCM_STREAM_MAX_READ_BYTES).toBe(ENCODED_SOURCE_PORT_MAX_READ_BYTES);

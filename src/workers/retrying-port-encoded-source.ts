@@ -45,6 +45,8 @@ interface RetryingPortEncodedSourceOptions {
   readonly identity: string;
   /** Ownership transfers after all constructor validation succeeds. */
   readonly client: RetryingPortEncodedSourceClient;
+  /** PII-free worker telemetry mirrored by the owning main-thread adapter. */
+  readonly onRetryWaitDelta?: (delta: 1 | -1, activeRetryWaits: number) => void;
 }
 
 function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
@@ -87,8 +89,11 @@ export class RetryingPortEncodedSource implements EncodedRandomAccessSource {
   readonly identity: string;
 
   readonly #client: RetryingPortEncodedSourceClient;
+  readonly #onRetryWaitDelta: ((delta: 1 | -1, activeRetryWaits: number) => void) | null;
   #closed = false;
   #closePromise: Promise<void> | null = null;
+  #activeRetryWaits = 0;
+  readonly #retryWaitDrainResolvers = new Set<() => void>();
 
   constructor(options: RetryingPortEncodedSourceOptions) {
     if (!options || typeof options !== 'object') {
@@ -108,6 +113,22 @@ export class RetryingPortEncodedSource implements EncodedRandomAccessSource {
     this.size = options.size;
     this.identity = options.identity;
     this.#client = options.client;
+    if (options.onRetryWaitDelta !== undefined && typeof options.onRetryWaitDelta !== 'function') {
+      throw new TypeError('Retry wait delta observer must be a function');
+    }
+    this.#onRetryWaitDelta = options.onRetryWaitDelta ?? null;
+  }
+
+  get activeRetryWaitCount(): number {
+    return this.#activeRetryWaits;
+  }
+
+  whenRetryWaitsDrained(): Promise<void> {
+    if (this.#activeRetryWaits === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.#retryWaitDrainResolvers.add(resolve);
+      if (this.#activeRetryWaits === 0 && this.#retryWaitDrainResolvers.delete(resolve)) resolve();
+    });
   }
 
   async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
@@ -142,7 +163,12 @@ export class RetryingPortEncodedSource implements EncodedRandomAccessSource {
           BUSY_MAX_DELAY_MS,
           BUSY_INITIAL_DELAY_MS * 2 ** Math.min(attempt, 5),
         );
-        await abortableDelay(delay, signal);
+        this.#changeRetryWaits(1);
+        try {
+          await abortableDelay(delay, signal);
+        } finally {
+          this.#changeRetryWaits(-1);
+        }
       }
     }
     throw new RetryingPortEncodedSourceError(
@@ -169,5 +195,26 @@ export class RetryingPortEncodedSource implements EncodedRandomAccessSource {
       rejectClose(error);
     }
     return closePromise;
+  }
+
+  #changeRetryWaits(delta: 1 | -1): void {
+    const next = this.#activeRetryWaits + delta;
+    if (!Number.isSafeInteger(next) || next < 0) {
+      throw new RetryingPortEncodedSourceError(
+        'source-busy-timeout',
+        'Encoded source retry wait accounting became inconsistent',
+      );
+    }
+    this.#activeRetryWaits = next;
+    try {
+      this.#onRetryWaitDelta?.(delta, next);
+    } catch {
+      // Diagnostics are observational and cannot change decoder behavior.
+    }
+    if (next === 0) {
+      const resolvers = [...this.#retryWaitDrainResolvers];
+      this.#retryWaitDrainResolvers.clear();
+      for (const resolve of resolvers) resolve();
+    }
   }
 }

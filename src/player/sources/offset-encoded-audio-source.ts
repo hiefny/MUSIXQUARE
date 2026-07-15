@@ -14,6 +14,11 @@ import {
   snapshotEncodedAudioSource,
 } from './encoded-audio-source-view-internals.ts';
 import { PEER_RANGE_MAX_READ_BYTES } from './peer-range-protocol.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from '../diagnostics/file-playback-universal-lifecycle-retirement.ts';
 
 export interface OffsetEncodedAudioSourceOptions {
   /** Ownership transfers only after this constructor validates successfully. */
@@ -37,6 +42,7 @@ export class OffsetEncodedAudioSource implements EncodedAudioSource {
 
   readonly #source: ReturnType<typeof snapshotEncodedAudioSource>;
   readonly #mediaOffset: number;
+  readonly #lifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #activeReads = new Set<AbortController>();
   readonly #physicalTasks = new Set<Promise<Uint8Array>>();
   #closed = false;
@@ -63,6 +69,7 @@ export class OffsetEncodedAudioSource implements EncodedAudioSource {
     this.identity = source.identity;
     this.metadata = source.metadata;
     this.mediaOffset = mediaOffset;
+    this.#lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('encodedSources');
     Object.freeze(this);
   }
 
@@ -102,11 +109,17 @@ export class OffsetEncodedAudioSource implements EncodedAudioSource {
     this.#closePromise = closePromise;
     this.#closed = true;
     closeReadControllers(this.#activeReads);
+    let ownedSourceClose: Promise<void>;
     try {
-      void Promise.resolve(this.#source.close()).catch(() => undefined);
-    } catch {
-      // Local ownership is already terminal; cleanup remains best-effort.
+      ownedSourceClose = Promise.resolve(this.#source.close());
+    } catch (error) {
+      ownedSourceClose = Promise.reject(error);
     }
+    const cleanup = Promise.allSettled([...this.#physicalTasks])
+      .then(() => ownedSourceClose)
+      .then(() => undefined);
+    void confirmFilePlaybackUniversalLifecycleRetirement(this.#lifecycleLease, () => cleanup);
+    void cleanup.catch(() => undefined);
     return closePromise;
   }
 }

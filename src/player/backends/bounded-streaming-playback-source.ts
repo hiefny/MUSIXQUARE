@@ -53,6 +53,11 @@ import {
   type StreamingMediaTimeline,
 } from '../streaming/media-timeline.ts';
 import type { StreamingDecoderAdapter } from '../streaming/decoder-adapter.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleRetirement,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 import { isPlaybackRevision } from '../playback-identity.ts';
 import {
   readRendezvousArmIntent,
@@ -65,10 +70,11 @@ import {
   type RevisionedPlaybackRun,
 } from '../rendezvous-contract.ts';
 
-const PROCESSOR_NAME = 'musixquare-pcm-ring-v2';
+const PROCESSOR_NAME = 'musixquare-pcm-ring-v3';
 const DEFAULT_PREPARE_TIMEOUT_MS = 60_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 4_000;
 const START_EVIDENCE_GRACE_MS = 2_500;
+const MAX_PLATFORM_TIMER_DELAY_MS = 2_147_483_647;
 const MAX_IDENTIFIER_LENGTH = 256;
 
 type WorkletNodeFactory = (
@@ -100,6 +106,8 @@ export interface BoundedStreamingPlaybackSourceOptions {
   readonly localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
   readonly prepareTimeoutMs?: number;
   readonly commandTimeoutMs?: number;
+  /** Local monotonic seam used only for bounded post-finalize evidence waits. */
+  readonly nowMonotonicMs?: () => number;
   /** Explicit runtime seam for deterministic browser-boundary tests. */
   readonly runtime?: Partial<BoundedStreamingPlaybackRuntime>;
 }
@@ -112,6 +120,50 @@ interface GenerationReadiness {
   readonly promise: Promise<void>;
   readonly resolve: () => void;
   readonly reject: (error: unknown) => void;
+}
+
+interface WorkletRetirementReadiness {
+  settled: boolean;
+  readonly promise: Promise<boolean>;
+  readonly resolve: (confirmed: boolean) => void;
+}
+
+type TrackedLifecycleState = 'live' | 'retiring' | 'released' | 'unconfirmed';
+
+interface TrackedLifecycle {
+  readonly lease: FilePlaybackUniversalLifecycleLease;
+  retirement: FilePlaybackUniversalLifecycleRetirement | null;
+  state: TrackedLifecycleState;
+}
+
+function acquireTrackedLifecycle(
+  kind: 'playbackSources' | 'ports' | 'rings' | 'timers',
+): TrackedLifecycle {
+  return {
+    lease: acquireFilePlaybackUniversalLifecycleLease(kind),
+    retirement: null,
+    state: 'live',
+  };
+}
+
+function beginTrackedRetirement(tracked: TrackedLifecycle): void {
+  if (tracked.state !== 'live') return;
+  tracked.retirement = tracked.lease.beginRetire();
+  tracked.state = 'retiring';
+}
+
+function releaseTrackedLifecycle(tracked: TrackedLifecycle): void {
+  beginTrackedRetirement(tracked);
+  if (tracked.state !== 'retiring' || !tracked.retirement) return;
+  tracked.retirement.release();
+  tracked.state = 'released';
+}
+
+function forceTrackedLifecycleUnconfirmed(tracked: TrackedLifecycle): void {
+  if (tracked.state === 'released' || tracked.state === 'unconfirmed') return;
+  if (tracked.state === 'live') tracked.lease.forceUnconfirmed();
+  else tracked.retirement?.forceUnconfirmed();
+  tracked.state = 'unconfirmed';
 }
 
 interface PendingAck {
@@ -158,6 +210,8 @@ interface ActiveArm {
   readonly cutoverTarget: FilePlaybackCutoverTarget;
   readonly startEvidence: StartEvidenceDeferred;
   readonly cutoverResult: Extract<FilePlaybackCutoverArmResult, { readonly status: 'armed' }>;
+  readonly startEvidenceDeadlineFrame: number;
+  startEvidenceDeadlineMonotonicMs: number | null;
   startEvidenceTimerHandle: ReturnType<typeof globalThis.setTimeout> | null;
   finalizeIssuedIntent: RendezvousFinalizeIntent | null;
   finalized: boolean;
@@ -288,6 +342,9 @@ function isPcmRingEventBoundary(value: unknown): value is PcmRingEvent {
       );
     case 'finished':
       return isFrame(value.mediaFrame);
+    case 'pcm-port-retired':
+    case 'processor-retired':
+      return true;
     case 'status':
       return (
         (value.state === 'priming' ||
@@ -462,21 +519,23 @@ function abortError(signal: AbortSignal): unknown {
   return new DOMException('Streaming playback preparation was aborted', 'AbortError');
 }
 
-function safeDisconnect(node: AudioNode | null): void {
-  if (!node) return;
+function safeDisconnect(node: AudioNode | null): boolean {
+  if (!node) return true;
   try {
     node.disconnect();
+    return true;
   } catch {
-    // Native graph cleanup is intentionally idempotent.
+    return false;
   }
 }
 
-function safeClosePort(port: MessagePort | null): void {
-  if (!port) return;
+function safeClosePort(port: MessagePort | null): boolean {
+  if (!port) return true;
   try {
     port.close();
+    return true;
   } catch {
-    // A transferred or previously closed port no longer belongs to this realm.
+    return false;
   }
 }
 
@@ -507,6 +566,23 @@ function createReadiness(generation: number): GenerationReadiness {
       if (readiness.settled) return;
       readiness.settled = true;
       rejectPromise(error);
+    },
+  };
+  return readiness;
+}
+
+function createWorkletRetirementReadiness(): WorkletRetirementReadiness {
+  let resolvePromise!: (confirmed: boolean) => void;
+  const promise = new Promise<boolean>((resolve) => {
+    resolvePromise = resolve;
+  });
+  const readiness: WorkletRetirementReadiness = {
+    settled: false,
+    promise,
+    resolve: (confirmed) => {
+      if (readiness.settled) return;
+      readiness.settled = true;
+      resolvePromise(confirmed);
     },
   };
   return readiness;
@@ -619,9 +695,11 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
   readonly #prepareTimeoutMs: number;
   readonly #commandTimeoutMs: number;
   readonly #runtime: BoundedStreamingPlaybackRuntime;
+  readonly #nowMonotonicMs: () => number;
   readonly #timeline: StreamingMediaTimeline;
   readonly #lifetimeAbort = new AbortController();
   readonly #timerPrefix: string;
+  readonly #sourceLifecycle: TrackedLifecycle;
 
   #phase: FilePlaybackSourcePhase = 'new';
   #ingressEpoch = 0;
@@ -631,7 +709,16 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
   #errorCode: string | null = null;
   #destination: AudioNode | null = null;
   #node: AudioWorkletNode | null = null;
+  #retiringNode: AudioWorkletNode | null = null;
   #teardownPromise: Promise<void> | null = null;
+  #ringLifecycle: TrackedLifecycle | null = null;
+  #controlPortLifecycle: TrackedLifecycle | null = null;
+  readonly #pcmPortLifecycles = new Map<number, TrackedLifecycle>();
+  #workletRetirementReadiness: WorkletRetirementReadiness | null = null;
+  #workletRetirementTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  #workletRetirementTimerLifecycle: TrackedLifecycle | null = null;
+  #workletFaulted = false;
+  #sourceCleanupFaulted = false;
   #generation = 0;
   #readiness: GenerationReadiness | null = null;
   #preparePromise: Promise<FilePlaybackSourceSnapshot> | null = null;
@@ -687,6 +774,10 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
       DEFAULT_COMMAND_TIMEOUT_MS,
       'commandTimeoutMs',
     );
+    const nowMonotonicMs = options.nowMonotonicMs ?? (() => globalThis.performance.now());
+    if (typeof nowMonotonicMs !== 'function') {
+      throw new TypeError('Bounded streaming monotonic clock is invalid');
+    }
     const runtime = resolveRuntime(options.runtime);
     const sourceInstance = boundedSourceInstanceCounter + 1;
     if (!Number.isSafeInteger(sourceInstance) || sourceInstance <= 0) {
@@ -709,6 +800,14 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
       throw error;
     }
 
+    let sourceLifecycle: TrackedLifecycle;
+    try {
+      sourceLifecycle = acquireTrackedLifecycle('playbackSources');
+    } catch (error) {
+      closeReturnedDecoderBestEffort(decoder);
+      throw error;
+    }
+
     boundedSourceInstanceCounter = sourceInstance;
     this.queueItemId = options.queueItemId;
     this.#timerPrefix = `bounded-streaming-${sourceInstance.toString(36)}`;
@@ -721,6 +820,8 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     this.#prepareTimeoutMs = prepareTimeoutMs;
     this.#commandTimeoutMs = commandTimeoutMs;
     this.#runtime = runtime;
+    this.#nowMonotonicMs = nowMonotonicMs;
+    this.#sourceLifecycle = sourceLifecycle;
   }
 
   async prepare(signal?: AbortSignal): Promise<FilePlaybackSourceSnapshot> {
@@ -1102,6 +1203,11 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
       cutoverTarget,
       startEvidence,
       cutoverResult,
+      startEvidenceDeadlineFrame: Math.min(
+        Number.MAX_SAFE_INTEGER,
+        targetFrame + Math.ceil((START_EVIDENCE_GRACE_MS * this.#audioContext.sampleRate) / 1_000),
+      ),
+      startEvidenceDeadlineMonotonicMs: null,
       startEvidenceTimerHandle: null,
       finalizeIssuedIntent: null,
       finalized: false,
@@ -1400,7 +1506,10 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
       null,
       Math.min(acceptedAtRoomTimeMs, intent.startAtRoomTimeMs),
     );
-    this.#scheduleStartEvidenceDeadline(active, acceptedAtRoomTimeMs);
+    // Room-clock freshness authorized this exact FINALIZE. Once accepted, it
+    // must not become a second start gate: the fixed render target plus grace
+    // is converted once into a local monotonic hard deadline instead.
+    this.#scheduleStartEvidenceDeadline(active);
     if (this.#activeArm !== active) {
       return this.#finalizeReceipt(
         intent,
@@ -1859,27 +1968,44 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
         primeSeconds: PCM_RING_TARGET_PRIME_SECONDS,
         maxRingBytes: PCM_RING_DEFAULT_MAX_BYTES,
       });
-      this.#node = this.#runtime.createWorkletNode(this.#audioContext, PROCESSOR_NAME, {
-        numberOfInputs: 0,
-        numberOfOutputs: 1,
-        outputChannelCount: [this.#decoder.info.channelCount],
-        channelCount: this.#decoder.info.channelCount,
-        channelCountMode: 'explicit',
-        channelInterpretation: 'discrete',
-        processorOptions: {
-          channels: this.#decoder.info.channelCount,
-          generation: this.#generation,
-          mediaFrame: 0,
-          capacitySeconds: PCM_RING_TARGET_CAPACITY_SECONDS,
-          primeSeconds: PCM_RING_TARGET_PRIME_SECONDS,
-          maxRingBytes: PCM_RING_DEFAULT_MAX_BYTES,
-          ...ringPlan,
-        },
-      });
+      try {
+        this.#ringLifecycle = acquireTrackedLifecycle('rings');
+        this.#controlPortLifecycle = acquireTrackedLifecycle('ports');
+        this.#node = this.#runtime.createWorkletNode(this.#audioContext, PROCESSOR_NAME, {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [this.#decoder.info.channelCount],
+          channelCount: this.#decoder.info.channelCount,
+          channelCountMode: 'explicit',
+          channelInterpretation: 'discrete',
+          processorOptions: {
+            channels: this.#decoder.info.channelCount,
+            generation: this.#generation,
+            mediaFrame: 0,
+            capacitySeconds: PCM_RING_TARGET_CAPACITY_SECONDS,
+            primeSeconds: PCM_RING_TARGET_PRIME_SECONDS,
+            maxRingBytes: PCM_RING_DEFAULT_MAX_BYTES,
+            ...ringPlan,
+          },
+        });
+      } catch (error) {
+        this.#markWorkletFaulted();
+        if (this.#ringLifecycle) forceTrackedLifecycleUnconfirmed(this.#ringLifecycle);
+        if (this.#controlPortLifecycle) {
+          forceTrackedLifecycleUnconfirmed(this.#controlPortLifecycle);
+        }
+        throw error;
+      }
       this.#node.port.onmessage = (event: MessageEvent<unknown>) =>
         this.#handleWorkletEvent(event.data);
-      this.#node.port.onmessageerror = () => this.#fail('worklet-message-error');
-      this.#node.onprocessorerror = () => this.#fail('worklet-processor-error');
+      this.#node.port.onmessageerror = () => {
+        this.#markWorkletFaulted();
+        this.#fail('worklet-message-error');
+      };
+      this.#node.onprocessorerror = () => {
+        this.#markWorkletFaulted();
+        this.#fail('worklet-processor-error');
+      };
       this.#statusRenderFrame = this.#currentRenderFrame;
       await this.#startGeneration(0, 0, this.#generation, operation.signal);
     } finally {
@@ -1899,6 +2025,7 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     this.#retireActiveArm('generation-reset');
     this.#pendingPause = null;
     this.#clearAcks('generation-reset');
+    this.#beginPcmPortRetirement(oldGeneration);
     this.#decoder.stopGeneration(oldGeneration);
     const sourceSample = this.#positionToMediaFrame(positionSeconds);
     const mediaFrame = outputFrameAtMediaFrame(this.#timeline, sourceSample);
@@ -1950,6 +2077,20 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     this.#underrunCount = 0;
 
     const channel = this.#runtime.createMessageChannel();
+    let portLifecycle: TrackedLifecycle;
+    try {
+      portLifecycle = acquireTrackedLifecycle('ports');
+    } catch (error) {
+      safeClosePort(channel.port1);
+      safeClosePort(channel.port2);
+      throw error;
+    }
+    const previousPortLifecycle = this.#pcmPortLifecycles.get(generation);
+    if (previousPortLifecycle) forceTrackedLifecycleUnconfirmed(previousPortLifecycle);
+    this.#pcmPortLifecycles.set(generation, portLifecycle);
+    let transferredToWorklet = false;
+    let decoderAcceptedPcmPort = false;
+    let decoderPcmPortAcceptanceOpen = true;
     try {
       node.port.postMessage(
         {
@@ -1960,13 +2101,36 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
         } satisfies PcmRingCommand,
         [channel.port2],
       );
-      const decoderReady = this.#decoder.startGeneration({
-        generation,
-        targetMediaFrame: startSourceSample,
-        outputSampleRateHz: this.#audioContext.sampleRate,
-        pcmPort: channel.port1,
-        signal,
-      });
+      transferredToWorklet = true;
+      const decoderReady = this.#decoder
+        .startGeneration({
+          generation,
+          targetMediaFrame: startSourceSample,
+          outputSampleRateHz: this.#audioContext.sampleRate,
+          pcmPort: channel.port1,
+          acceptPcmPortOwnership: () => {
+            if (!decoderPcmPortAcceptanceOpen) {
+              throw new Error('Streaming decoder accepted the PCM port after request settlement');
+            }
+            if (decoderAcceptedPcmPort) {
+              throw new Error('Streaming decoder accepted the PCM port more than once');
+            }
+            decoderAcceptedPcmPort = true;
+          },
+          signal,
+        })
+        .then(
+          () => {
+            decoderPcmPortAcceptanceOpen = false;
+            if (!decoderAcceptedPcmPort) {
+              throw new Error('Streaming decoder became ready without accepting the PCM port');
+            }
+          },
+          (error: unknown) => {
+            decoderPcmPortAcceptanceOpen = false;
+            throw error;
+          },
+        );
       void decoderReady.then(
         () => {
           if (this.#readiness !== readiness || readiness.generation !== generation) return;
@@ -1977,11 +2141,27 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
       );
       await this.#raceAbort(readiness.promise, signal);
     } catch (error) {
+      decoderPcmPortAcceptanceOpen = false;
       this.#decoder.stopGeneration(generation);
-      // Closing a successfully transferred port is harmless in the sender;
-      // closing an untransferred port prevents partial initialization leaks.
-      safeClosePort(channel.port1);
-      safeClosePort(channel.port2);
+      if (transferredToWorklet) {
+        // port2 is Worklet-owned and retires only through its ACK. Until the
+        // explicit decoder commit, port1 remains ours and must be closed here.
+        if (!decoderAcceptedPcmPort && !safeClosePort(channel.port1)) {
+          this.#sourceCleanupFaulted = true;
+        }
+        beginTrackedRetirement(portLifecycle);
+      } else {
+        const decoderPortClosed = safeClosePort(channel.port1);
+        const workletPortClosed = safeClosePort(channel.port2);
+        if (decoderPortClosed && workletPortClosed) releaseTrackedLifecycle(portLifecycle);
+        else {
+          forceTrackedLifecycleUnconfirmed(portLifecycle);
+          this.#sourceCleanupFaulted = true;
+        }
+        if (this.#pcmPortLifecycles.get(generation) === portLifecycle) {
+          this.#pcmPortLifecycles.delete(generation);
+        }
+      }
       throw error;
     } finally {
       if (this.#readiness === readiness) this.#readiness = null;
@@ -1989,18 +2169,24 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
   }
 
   #handleWorkletEvent(value: unknown): void {
-    if (
-      !isRecord(value) ||
-      value.protocolVersion !== PCM_STREAM_PROTOCOL_VERSION ||
-      value.generation !== this.#generation
-    ) {
+    if (!isRecord(value) || value.protocolVersion !== PCM_STREAM_PROTOCOL_VERSION) {
       return;
     }
-    if (this.#phase === 'destroyed' || this.#phase === 'failed') return;
     if (!isPcmRingEventBoundary(value)) {
+      this.#markWorkletFaulted();
       this.#fail('worklet-invalid-event');
       return;
     }
+    if (value.type === 'pcm-port-retired') {
+      this.#releasePcmPortLifecycle(value.generation);
+      return;
+    }
+    if (value.type === 'processor-retired') {
+      this.#settleWorkletRetirement(this.#pcmPortLifecycles.size === 0);
+      return;
+    }
+    if (value.generation !== this.#generation) return;
+    if (this.#phase === 'destroyed' || this.#phase === 'failed') return;
     if (this.#phase === 'cancelled' && value.type !== 'interrupted' && value.type !== 'rejected') {
       return;
     }
@@ -2654,34 +2840,72 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     return active;
   }
 
-  #scheduleStartEvidenceDeadline(active: ActiveArm, observedRoomTimeMs?: number): void {
+  #scheduleStartEvidenceDeadline(active: ActiveArm): void {
     if (active.startEvidence.settled) {
       this.#clearStartEvidenceTimer(active);
       return;
     }
-    if (this.#activeArm !== active) {
+    if (this.#activeArm !== active || !active.finalized) {
       this.#rejectStartEvidence(active, 'operation-superseded');
       return;
     }
-    const roomNow = observedRoomTimeMs ?? this.#roomNow();
-    if (this.#activeArm !== active) {
-      this.#rejectStartEvidence(active, 'operation-superseded');
+
+    const monotonicNowMs = this.#monotonicNow();
+    if (this.#activeArm !== active || !active.finalized || active.startEvidence.settled) {
+      if (!active.startEvidence.settled) {
+        this.#rejectStartEvidence(active, 'operation-superseded');
+      }
       return;
     }
-    if (roomNow === null) {
-      this.#rejectStartEvidence(active, 'clock-unavailable');
-      return;
-    }
-    const deadlineRoomTimeMs = active.intent.startAtRoomTimeMs + START_EVIDENCE_GRACE_MS;
-    if (roomNow > deadlineRoomTimeMs) {
+    if (monotonicNowMs === null) {
       this.#rejectStartEvidence(active, 'start-evidence-timeout');
       return;
     }
+
+    let currentRenderFrame: number;
+    try {
+      currentRenderFrame = this.#currentRenderFrame;
+    } catch {
+      this.#rejectStartEvidence(active, 'start-evidence-timeout');
+      return;
+    }
+    if (this.#activeArm !== active || !active.finalized || active.startEvidence.settled) {
+      if (!active.startEvidence.settled) {
+        this.#rejectStartEvidence(active, 'operation-superseded');
+      }
+      return;
+    }
+
+    const remainingRenderMs =
+      (Math.max(0, active.startEvidenceDeadlineFrame - currentRenderFrame) /
+        this.#audioContext.sampleRate) *
+      1_000;
+    const deadlineMonotonicMs = monotonicNowMs + remainingRenderMs;
+    if (
+      remainingRenderMs <= 0 ||
+      !Number.isFinite(deadlineMonotonicMs) ||
+      deadlineMonotonicMs < monotonicNowMs
+    ) {
+      this.#rejectStartEvidence(active, 'start-evidence-timeout');
+      return;
+    }
+    active.startEvidenceDeadlineMonotonicMs = deadlineMonotonicMs;
+
     this.#clearStartEvidenceTimer(active);
-    const delayMs = Math.min(250, Math.max(4, deadlineRoomTimeMs - roomNow));
+    const delayMs = Math.max(4, Math.ceil(remainingRenderMs));
+    if (!Number.isSafeInteger(delayMs) || delayMs > MAX_PLATFORM_TIMER_DELAY_MS) {
+      this.#rejectStartEvidence(active, 'start-evidence-timeout');
+      return;
+    }
     active.startEvidenceTimerHandle = globalThis.setTimeout(() => {
       active.startEvidenceTimerHandle = null;
-      this.#scheduleStartEvidenceDeadline(active);
+      if (active.startEvidence.settled) return;
+      if (active.startEvidenceDeadlineMonotonicMs !== deadlineMonotonicMs) return;
+      if (this.#activeArm !== active || !active.finalized) {
+        this.#rejectStartEvidence(active, 'operation-superseded');
+        return;
+      }
+      this.#rejectStartEvidence(active, 'start-evidence-timeout');
     }, delayMs);
   }
 
@@ -2715,6 +2939,7 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     try {
       this.#node?.port.postMessage(command);
     } catch (error) {
+      this.#markWorkletFaulted();
       this.#fail('worklet-command-failed', error);
     }
   }
@@ -2753,6 +2978,15 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     try {
       const roomTimeMs = this.#nowRoomTimeMs();
       return Number.isFinite(roomTimeMs) && roomTimeMs >= 0 ? roomTimeMs : null;
+    } catch {
+      return null;
+    }
+  }
+
+  #monotonicNow(): number | null {
+    try {
+      const monotonicTimeMs = this.#nowMonotonicMs();
+      return Number.isFinite(monotonicTimeMs) && monotonicTimeMs >= 0 ? monotonicTimeMs : null;
     } catch {
       return null;
     }
@@ -2936,26 +3170,152 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
 
   #teardownRuntime(): Promise<void> {
     if (this.#teardownPromise) return this.#teardownPromise;
+    beginTrackedRetirement(this.#sourceLifecycle);
     const node = this.#node;
     this.#node = null;
+    const workletRetirement = this.#beginWorkletRetirement(node);
+    let decoderCleanup: Promise<void>;
+    try {
+      decoderCleanup = Promise.resolve(this.#decoder.close());
+    } catch (error) {
+      decoderCleanup = Promise.reject(error);
+    }
+    let decoderError: unknown;
+    const decoderSettlement = decoderCleanup.then(
+      () => true,
+      (error: unknown) => {
+        decoderError = error;
+        return false;
+      },
+    );
+    this.#teardownPromise = Promise.all([decoderSettlement, workletRetirement]).then(
+      ([decoderConfirmed, workletConfirmed]) => {
+        if (decoderConfirmed && workletConfirmed && !this.#sourceCleanupFaulted) {
+          releaseTrackedLifecycle(this.#sourceLifecycle);
+        } else {
+          forceTrackedLifecycleUnconfirmed(this.#sourceLifecycle);
+        }
+        if (!decoderConfirmed) throw decoderError;
+      },
+    );
+    return this.#teardownPromise;
+  }
+
+  #beginPcmPortRetirement(generation: number): void {
+    const lifecycle = this.#pcmPortLifecycles.get(generation);
+    if (lifecycle) beginTrackedRetirement(lifecycle);
+  }
+
+  #releasePcmPortLifecycle(generation: number): void {
+    const lifecycle = this.#pcmPortLifecycles.get(generation);
+    if (!lifecycle) return;
+    releaseTrackedLifecycle(lifecycle);
+    this.#pcmPortLifecycles.delete(generation);
+  }
+
+  #beginWorkletRetirement(node: AudioWorkletNode | null): Promise<boolean> {
+    if (!node) return Promise.resolve(!this.#workletFaulted);
+    this.#retiringNode = node;
+    if (this.#ringLifecycle) beginTrackedRetirement(this.#ringLifecycle);
+    if (this.#controlPortLifecycle) beginTrackedRetirement(this.#controlPortLifecycle);
+    for (const lifecycle of this.#pcmPortLifecycles.values()) {
+      beginTrackedRetirement(lifecycle);
+    }
+    const readiness = createWorkletRetirementReadiness();
+    this.#workletRetirementReadiness = readiness;
+    // Disconnect before posting so even a synchronous test ACK cannot release
+    // the graph lease before the page-side physical graph edge is gone.
+    if (!safeDisconnect(node)) this.#workletFaulted = true;
+    let posted = false;
+    try {
+      node.port.postMessage({
+        protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+        type: 'stop',
+        generation: this.#generation,
+      } satisfies PcmRingCommand);
+      posted = true;
+    } catch {
+      this.#workletFaulted = true;
+    }
+    if (!posted || this.#workletFaulted) this.#settleWorkletRetirement(false);
+    else if (!readiness.settled) {
+      try {
+        const timerLifecycle = acquireTrackedLifecycle('timers');
+        this.#workletRetirementTimerLifecycle = timerLifecycle;
+        this.#workletRetirementTimer = globalThis.setTimeout(() => {
+          this.#workletRetirementTimer = null;
+          if (this.#workletRetirementTimerLifecycle === timerLifecycle) {
+            this.#workletRetirementTimerLifecycle = null;
+          }
+          releaseTrackedLifecycle(timerLifecycle);
+          this.#settleWorkletRetirement(false);
+        }, this.#commandTimeoutMs);
+      } catch {
+        this.#settleWorkletRetirement(false);
+      }
+    }
+    return readiness.promise;
+  }
+
+  #settleWorkletRetirement(confirmed: boolean): void {
+    const readiness = this.#workletRetirementReadiness;
+    if (!readiness || readiness.settled) return;
+    this.#clearWorkletRetirementTimer();
+    const node = this.#retiringNode;
+    this.#retiringNode = null;
+    let pageCleanupConfirmed = node !== null;
     if (node) {
       try {
-        node.port.postMessage({
-          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
-          type: 'stop',
-          generation: this.#generation,
-        } satisfies PcmRingCommand);
+        node.port.onmessage = null;
       } catch {
-        // AudioWorklet may already have stopped.
+        pageCleanupConfirmed = false;
       }
-      node.port.onmessage = null;
-      node.port.onmessageerror = null;
-      node.onprocessorerror = null;
-      safeClosePort(node.port);
-      safeDisconnect(node);
+      try {
+        node.port.onmessageerror = null;
+      } catch {
+        pageCleanupConfirmed = false;
+      }
+      try {
+        node.onprocessorerror = null;
+      } catch {
+        pageCleanupConfirmed = false;
+      }
+      if (!safeClosePort(node.port)) pageCleanupConfirmed = false;
     }
-    this.#teardownPromise = Promise.resolve(this.#decoder.close());
-    return this.#teardownPromise;
+    const exactConfirmation =
+      confirmed &&
+      !this.#workletFaulted &&
+      this.#pcmPortLifecycles.size === 0 &&
+      pageCleanupConfirmed;
+    if (exactConfirmation) {
+      if (this.#ringLifecycle) releaseTrackedLifecycle(this.#ringLifecycle);
+      if (this.#controlPortLifecycle) releaseTrackedLifecycle(this.#controlPortLifecycle);
+    } else {
+      for (const lifecycle of this.#pcmPortLifecycles.values()) {
+        forceTrackedLifecycleUnconfirmed(lifecycle);
+      }
+      this.#pcmPortLifecycles.clear();
+      if (this.#ringLifecycle) forceTrackedLifecycleUnconfirmed(this.#ringLifecycle);
+      if (this.#controlPortLifecycle) {
+        forceTrackedLifecycleUnconfirmed(this.#controlPortLifecycle);
+      }
+    }
+    readiness.resolve(exactConfirmation);
+  }
+
+  #clearWorkletRetirementTimer(): void {
+    if (this.#workletRetirementTimer !== null) {
+      globalThis.clearTimeout(this.#workletRetirementTimer);
+      this.#workletRetirementTimer = null;
+    }
+    const lifecycle = this.#workletRetirementTimerLifecycle;
+    this.#workletRetirementTimerLifecycle = null;
+    if (lifecycle) releaseTrackedLifecycle(lifecycle);
+  }
+
+  #markWorkletFaulted(): void {
+    this.#workletFaulted = true;
+    if (this.#workletRetirementReadiness) this.#settleWorkletRetirement(false);
   }
 
   #assertNotDestroyed(): void {

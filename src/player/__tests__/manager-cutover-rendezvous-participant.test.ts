@@ -168,6 +168,7 @@ function acceptedReceipt(intent: RendezvousFinalizeIntent): RendezvousFinalizeRe
 
 interface FakeSourceOptions {
   readonly holdDestroy?: boolean;
+  readonly destroyError?: unknown;
   readonly holdArm?: boolean;
   readonly invalidArmResult?: boolean;
   readonly startedPromise?: Promise<FilePlaybackStartEvidence>;
@@ -307,6 +308,7 @@ function makeSource(
       stats.destroyCalls += 1;
       phase = 'destroyed';
       if (options.holdDestroy) await destroyGate.promise;
+      if (options.destroyError !== undefined) throw options.destroyError;
     },
   };
 
@@ -527,6 +529,56 @@ describe('ManagerCutoverRendezvousParticipant', () => {
     expect(h.fake.stats.destroyCalls).toBe(1);
     h.fake.releaseDestroy();
     await cancellation;
+  });
+
+  it('joins manager-owned cleanup that was already retiring before participant cancellation', async () => {
+    const h = await stagedFixture({ holdDestroy: true });
+    await h.adapter.arm(armIntent());
+    const managerRetirement = h.manager.retireCutoverCandidate(h.port);
+    await drainMicrotasks();
+    expect(h.fake.stats.destroyCalls).toBe(1);
+
+    let cancellationSettled = false;
+    const cancellation = h.adapter.cancel(cancelIntent()).then(() => {
+      cancellationSettled = true;
+    });
+    await drainMicrotasks();
+
+    expect(cancellationSettled).toBe(false);
+    expect(h.fake.stats.destroyCalls).toBe(1);
+    h.fake.releaseDestroy();
+    await expect(managerRetirement).resolves.toBe(true);
+    await expect(cancellation).resolves.toBeUndefined();
+    expect(h.fake.stats.destroyCalls).toBe(1);
+  });
+
+  it('propagates and replays the exact manager cleanup rejection', async () => {
+    const failure = new Error('fixture participant cleanup failed');
+    const h = await stagedFixture({ destroyError: failure });
+    await h.adapter.arm(armIntent());
+
+    const first = h.adapter.cancel(cancelIntent());
+    const retry = h.adapter.cancel({ ...cancelIntent() });
+
+    expect(retry).toBe(first);
+    await expect(first).rejects.toBe(failure);
+    await expect(h.adapter.cancel(cancelIntent())).rejects.toBe(failure);
+    expect(h.fake.stats.destroyCalls).toBe(1);
+  });
+
+  it('retains a fast automatic manager cleanup failure for later exact cancellation', async () => {
+    const failure = new Error('fixture fast automatic cleanup failed');
+    const h = await stagedFixture({ invalidArmResult: true, destroyError: failure });
+    const arm = h.adapter.arm(armIntent());
+    const started = h.adapter.started(identity());
+
+    await expect(arm).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'cutover-manager-arm-failed',
+    });
+    await expect(started).rejects.toThrow('retired');
+    await expect(h.adapter.cancel(cancelIntent())).rejects.toBe(failure);
+    expect(h.fake.stats.destroyCalls).toBe(1);
   });
 
   it('retires an exact promoted current before commit but makes committed cancellation a no-op', async () => {

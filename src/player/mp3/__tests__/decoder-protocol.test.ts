@@ -156,8 +156,8 @@ function closeChannels(...channels: MessageChannel[]): void {
 
 describe('MP3 decoder protocol', () => {
   it('keeps codec control separate while reusing the common PCM supply protocol', () => {
-    expect(MP3_DECODER_PROTOCOL_VERSION).toBe(1);
-    expect(PCM_STREAM_PROTOCOL_VERSION).toBe(2);
+    expect(MP3_DECODER_PROTOCOL_VERSION).toBe(2);
+    expect(PCM_STREAM_PROTOCOL_VERSION).toBe(3);
     expect(MP3_DECODER_MAX_PROGRESSIVE_INDEX_EVENTS).toBe(8_192);
 
     const supply: PcmSupplyMessage = {
@@ -165,7 +165,7 @@ describe('MP3 decoder protocol', () => {
       type: 'eof',
       generation: 29,
     };
-    expect(supply).toEqual({ protocolVersion: 2, type: 'eof', generation: 29 });
+    expect(supply).toEqual({ protocolVersion: 3, type: 'eof', generation: 29 });
   });
 
   it.each([
@@ -353,7 +353,7 @@ describe('MP3 decoder protocol', () => {
     const pcm = new MessageChannel();
     const parsed = parseMp3DecoderCommand(openCommand(source.port2, pcm.port2));
     expect(parsed).toMatchObject({
-      protocolVersion: 1,
+      protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
       type: 'open-decoder',
       sourceLifetimeGeneration: 11,
       decoderGeneration: 29,
@@ -391,7 +391,7 @@ describe('MP3 decoder protocol', () => {
     const valid = openCommand(source.port2, pcm.port2);
     expect(parseMp3DecoderCommand({ ...valid, extra: true })).toBeNull();
     expect(parseMp3DecoderCommand({ ...valid, [Symbol('extra')]: true })).toBeNull();
-    expect(parseMp3DecoderCommand({ ...valid, protocolVersion: 2 })).toBeNull();
+    expect(parseMp3DecoderCommand({ ...valid, protocolVersion: 1 })).toBeNull();
     expect(parseMp3DecoderCommand({ ...valid, sourceLifetimeGeneration: 0 })).toBeNull();
     expect(parseMp3DecoderCommand({ ...valid, decoderGeneration: 1.5 })).toBeNull();
     expect(parseMp3DecoderCommand({ ...valid, sourcePort: {} })).toBeNull();
@@ -439,6 +439,20 @@ describe('MP3 decoder protocol', () => {
       { ...eventIdentity(), type: 'decoder-stopped' },
       { ...eventIdentity(), type: 'decoder-error', code: 'decode-failed', message: 'failed' },
       { ...eventIdentity(), type: 'frame-index-point', ...point(5) },
+      { ...eventIdentity(), type: 'decoder-retired' },
+      {
+        ...eventIdentity(),
+        type: 'worker-retired',
+        retryWaitSequence: 2,
+        activeRetryWaits: 0,
+      },
+      {
+        ...eventIdentity(),
+        type: 'retry-wait-delta',
+        delta: 1,
+        retryWaitSequence: 1,
+        activeRetryWaits: 1,
+      },
     ];
     for (const event of events) expect(parseMp3DecoderEvent(event)).toEqual(event);
 
@@ -459,6 +473,15 @@ describe('MP3 decoder protocol', () => {
     ).toBeNull();
     expect(
       parseMp3DecoderEvent({ ...events[5], mainDataCapacityBytes: MAX_SAFE_FRAME_BYTES }),
+    ).toBeNull();
+    expect(
+      parseMp3DecoderEvent({
+        ...eventIdentity(),
+        type: 'retry-wait-delta',
+        delta: -1,
+        retryWaitSequence: 2,
+        activeRetryWaits: -1,
+      }),
     ).toBeNull();
   });
 

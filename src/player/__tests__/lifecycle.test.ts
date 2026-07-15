@@ -38,6 +38,35 @@ beforeEach(() => {
 
 // ─── FROM IDLE ─────────────────────────────────────────────────────
 
+describe('lifecycle: authoritative V2 renderer projection', () => {
+  const STATES = Object.values(PLAYBACK_STATE);
+
+  it.each(STATES)('projects playing from %s through the FSM-owned writer', (from) => {
+    expect(step(from, { type: 'PRODUCT_TIMELINE_RENDERED', phase: 'playing' })).toEqual({
+      next: PLAYBACK_STATE.PLAYING,
+    });
+  });
+
+  it.each(STATES)('projects paused from %s through the FSM-owned writer', (from) => {
+    expect(step(from, { type: 'PRODUCT_TIMELINE_RENDERED', phase: 'paused' })).toEqual({
+      next: PLAYBACK_STATE.PAUSED,
+    });
+  });
+
+  it('supersedes an external mode only for committed V2 renderer evidence', () => {
+    setPlaybackYouTubePlaying();
+    expect(transition({ type: 'PLAY', time: 0, queueItemId: null, sameTrack: false })).toBe(
+      PLAYBACK_STATE.IDLE,
+    );
+
+    expect(transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase: 'playing' })).toBe(
+      PLAYBACK_STATE.PLAYING,
+    );
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PLAYING);
+    expect(getState('playback.mode')).toBe('file');
+  });
+});
+
 describe('lifecycle: from IDLE', () => {
   const FROM = PLAYBACK_STATE.IDLE;
 

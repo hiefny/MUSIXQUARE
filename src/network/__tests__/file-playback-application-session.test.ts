@@ -1681,7 +1681,16 @@ describe('FilePlaybackApplicationSessionManager', () => {
 
       now = 3_000;
       timers.runDelay(1_000);
-      expect(setup.queue).toHaveLength(0);
+      expect(
+        setup.queue.filter(
+          ({ from, value }) =>
+            from === 'guest' && (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
+        ),
+      ).toHaveLength(1);
+      const secondPing = setup.deliverNext();
+      expect((secondPing?.value as { type?: string }).type).toBe(FILE_PLAYBACK_CLOCK_PING_TYPE);
+      const secondLatePong = setup.queue.shift();
+      expect((secondLatePong?.value as { type?: string }).type).toBe(FILE_PLAYBACK_CLOCK_PONG_TYPE);
 
       now = 4_101;
       timers.runDelay(1_000);
@@ -1701,8 +1710,49 @@ describe('FilePlaybackApplicationSessionManager', () => {
       expect(setup.guest.receive(latePong!.value, setup.guestConn)).toMatchObject({
         handled: true,
       });
+      expect(secondLatePong).toBeDefined();
+      expect(setup.guest.receive(secondLatePong!.value, setup.guestConn)).toMatchObject({
+        handled: true,
+      });
       expect(setup.guestConn.close).not.toHaveBeenCalled();
       expect(timers.pending()).toBe(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('sends one renewal per maintenance tick while bounding lost pending pings', () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const timers = manualTimers();
+      const setup = fixture({ guestManagerOptions: timers.options });
+      expect(setup.startGuest()).toBe(true);
+      setup.pump();
+      expect(setup.guest.clockCalibrationState(setup.guestConn)).toBe('ready');
+      const sentPingCount = () =>
+        setup.guestConn.sent.filter(
+          (value) => (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
+        ).length;
+      const calibrationPingCount = sentPingCount();
+
+      now = 2_000;
+      for (let pending = 1; pending <= 5; pending += 1) {
+        timers.runDelay(1_000);
+        expect(sentPingCount()).toBe(calibrationPingCount + pending);
+      }
+      timers.runDelay(1_000);
+      timers.runDelay(1_000);
+
+      expect(sentPingCount()).toBe(calibrationPingCount + 5);
+      expect(
+        setup.queue.filter(
+          ({ from, value }) =>
+            from === 'guest' && (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,
+        ),
+      ).toHaveLength(5);
+      expect(timers.pending()).toBe(1);
+      expect(setup.guestConn.close).not.toHaveBeenCalled();
     } finally {
       nowSpy.mockRestore();
     }

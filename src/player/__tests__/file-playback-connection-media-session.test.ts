@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const channelFault = vi.hoisted(() => ({ failRetireMedia: false, failStageAttempt: false }));
+const channelFault = vi.hoisted(() => ({
+  failRetireAttempt: false,
+  failRetireMedia: false,
+  failStageAttempt: false,
+}));
 
 vi.mock('../../network/file-playback-connection-channel.ts', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../network/file-playback-connection-channel.ts')>();
   const prototype = actual.FilePlaybackConnectionChannel.prototype;
   const stageAttempt = prototype.stageAttempt;
+  const retireAttempt = prototype.retireAttempt;
   const retireMedia = prototype.retireMedia;
   Object.defineProperties(prototype, {
     stageAttempt: {
@@ -14,6 +19,14 @@ vi.mock('../../network/file-playback-connection-channel.ts', async (importOrigin
       value(this: FilePlaybackConnectionChannel, ...args: Parameters<typeof stageAttempt>) {
         if (channelFault.failStageAttempt) throw new Error('injected stage-attempt failure');
         return Reflect.apply(stageAttempt, this, args);
+      },
+      writable: true,
+    },
+    retireAttempt: {
+      configurable: true,
+      value(this: FilePlaybackConnectionChannel, ...args: Parameters<typeof retireAttempt>) {
+        if (channelFault.failRetireAttempt) throw new Error('injected retire-attempt failure');
+        return Reflect.apply(retireAttempt, this, args);
       },
       writable: true,
     },
@@ -83,6 +96,7 @@ const RUN_IDS = [
 let pairSequence = 0;
 
 afterEach(() => {
+  channelFault.failRetireAttempt = false;
   channelFault.failRetireMedia = false;
   channelFault.failStageAttempt = false;
   clearAllManagedTimers();
@@ -277,7 +291,7 @@ function admitRemoteSuccessor(
   binding: Readonly<FilePlaybackRunBindingV2>,
   expected: Readonly<PlaybackStateIdentity>,
   successor: Readonly<PlaybackStateIdentity>,
-  kind: 'file-playback-pause' | 'file-playback-seek' | 'file-playback-stop',
+  kind: 'file-playback-pause' | 'file-playback-seek' | 'file-playback-stop' | 'file-playback-ended',
 ): FilePlaybackWireStateLease {
   h.hostChannel.bootstrapCurrentMedia({
     run: expected,
@@ -293,7 +307,6 @@ function admitRemoteSuccessor(
     expectedQueueItemId: expected.queueItemId,
     expectedRunId: expected.runId,
     expectedRevision: expected.revision,
-    atRoomTimeMs: 1_500,
   };
   const message =
     kind === 'file-playback-seek'
@@ -301,14 +314,22 @@ function admitRemoteSuccessor(
           kind,
           ...common,
           positionSeconds: 12,
+          atRoomTimeMs: 1_500,
         })
-      : h.hostChannel.createWire(lease, { kind, ...common });
+      : kind === 'file-playback-ended'
+        ? h.hostChannel.createWire(lease, {
+            kind,
+            ...common,
+            hostObservedAtRoomTimeMs: 1_500,
+          })
+        : h.hostChannel.createWire(lease, { kind, ...common, atRoomTimeMs: 1_500 });
   const received = h.channel.receive(message, h.token);
   if (!received.accepted || received.frame !== 'wire') {
     throw new Error('Guest did not admit remote successor');
   }
-  if (kind === 'file-playback-stop') h.hostChannel.commitStop(lease, expected);
-  else h.hostChannel.commitMedia(lease);
+  if (kind === 'file-playback-stop' || kind === 'file-playback-ended') {
+    h.hostChannel.commitStop(lease, expected);
+  } else h.hostChannel.commitMedia(lease);
   return received.stateLease;
 }
 
@@ -393,6 +414,40 @@ function admitRemoteStatePreparation(
     throw new Error('Guest did not admit remote state preparation');
   }
   return { hostStateLease, guestStateLease: received.stateLease };
+}
+
+function admitRemoteStateAttempt(
+  h: Harness,
+  hostStateLease: FilePlaybackWireStateLease,
+  rendezvousId: string,
+): Readonly<{
+  hostAttemptLease: FilePlaybackWireAttemptLease;
+  guestStateLease: FilePlaybackWireStateLease;
+  guestAttemptLease: FilePlaybackWireAttemptLease;
+}> {
+  const hostAttemptLease = h.hostChannel.stageAttempt(hostStateLease, rendezvousId);
+  const message = h.hostChannel.createWire(hostAttemptLease, {
+    kind: 'rendezvous-arm',
+    rendezvousId,
+    positionSeconds: 12,
+    playbackRate: 1,
+    startAtRoomTimeMs: 1_500,
+    finalizeByRoomTimeMs: 1_500,
+  });
+  const received = h.channel.receive(message, h.token);
+  if (
+    !received.accepted ||
+    received.frame !== 'wire' ||
+    received.message.kind !== 'rendezvous-arm' ||
+    !received.attemptLease
+  ) {
+    throw new Error('Guest did not admit the prepared state rendezvous attempt');
+  }
+  return {
+    hostAttemptLease,
+    guestStateLease: received.stateLease,
+    guestAttemptLease: received.attemptLease,
+  };
 }
 
 function stagePreparedNewRunSuccessor(h: Harness) {
@@ -1558,6 +1613,175 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(h.fatal).not.toHaveBeenCalled();
   });
 
+  it('retires only the exact candidate ARM and reuses the same PREPARE for a fresh attempt', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const admitted = admitRemoteStatePreparation(h, prepared.binding, current, successor);
+    const preparation = h.session.adoptAdmittedSameRunStatePreparation(
+      prepared.operation,
+      current,
+      successor,
+      admitted.guestStateLease,
+    );
+    const firstAdmission = admitRemoteStateAttempt(
+      h,
+      admitted.hostStateLease,
+      'rendezvous:prepared-state:first',
+    );
+    const first = h.session.attachAdmittedSameRunStateAttempt(
+      preparation,
+      'rendezvous:prepared-state:first',
+      firstAdmission.guestStateLease,
+      firstAdmission.guestAttemptLease,
+    );
+    const forged = Object.freeze({ ...first }) as FilePlaybackConnectionMediaStateOperation;
+
+    expect(first.fence).not.toBe(preparation.fence);
+    expect(first.fence.isCurrent()).toBe(true);
+    expect(preparation.fence.isCurrent()).toBe(true);
+    expect(() => h.session.retireStateSuccessorAttempt(forged)).toThrow(/forged/u);
+    expect(first.fence.isCurrent()).toBe(true);
+
+    expect(h.session.retireStateSuccessorAttempt(first)).toBe(preparation);
+    expect(first.fence.signal.aborted).toBe(true);
+    expect(first.fence.isCurrent()).toBe(false);
+    expect(preparation.fence.signal.aborted).toBe(false);
+    expect(preparation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      currentState: current,
+      candidateState: { previous: current, state: successor, rendezvousId: null },
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+    expect(() => h.session.retireStateSuccessorAttempt(first)).toThrow(/retired/u);
+    expect(() =>
+      h.session.createStateAttemptWire(first, {
+        kind: 'rendezvous-armed',
+        rendezvousId: 'rendezvous:prepared-state:first',
+        status: 'armed',
+        observedAtRoomTimeMs: 1_450,
+        bufferedAheadSeconds: 8,
+        reasonCode: null,
+      }),
+    ).toThrow(/retired/u);
+    expect(() =>
+      h.session.attachAdmittedSameRunStateAttempt(
+        preparation,
+        'rendezvous:prepared-state:first',
+        firstAdmission.guestStateLease,
+        firstAdmission.guestAttemptLease,
+      ),
+    ).toThrow(/retired/u);
+
+    h.hostChannel.retireAttempt(firstAdmission.hostAttemptLease);
+    const secondAdmission = admitRemoteStateAttempt(
+      h,
+      admitted.hostStateLease,
+      'rendezvous:prepared-state:second',
+    );
+    const second = h.session.attachAdmittedSameRunStateAttempt(
+      preparation,
+      'rendezvous:prepared-state:second',
+      secondAdmission.guestStateLease,
+      secondAdmission.guestAttemptLease,
+    );
+
+    expect(second).not.toBe(first);
+    expect(second.fence).not.toBe(first.fence);
+    expect(second.fence.isCurrent()).toBe(true);
+    expect(preparation.fence.isCurrent()).toBe(true);
+    expect(
+      h.session.createStateAttemptWire(second, {
+        kind: 'rendezvous-armed',
+        rendezvousId: 'rendezvous:prepared-state:second',
+        status: 'armed',
+        observedAtRoomTimeMs: 1_450,
+        bufferedAheadSeconds: 8,
+        reasonCode: null,
+      }),
+    ).toMatchObject({ kind: 'rendezvous-armed', revision: 2 });
+
+    h.session.retireStateSuccessor(second);
+    expect(second.fence.signal.aborted).toBe(true);
+    expect(preparation.fence.signal.aborted).toBe(true);
+    expect(preparation.fence.isCurrent()).toBe(false);
+    expect(h.session.snapshot()).toMatchObject({
+      currentState: current,
+      candidateState: null,
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the channel rejects exact state-attempt retirement', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const admitted = admitRemoteStatePreparation(h, prepared.binding, current, successor);
+    const preparation = h.session.adoptAdmittedSameRunStatePreparation(
+      prepared.operation,
+      current,
+      successor,
+      admitted.guestStateLease,
+    );
+    const attemptAdmission = admitRemoteStateAttempt(
+      h,
+      admitted.hostStateLease,
+      'rendezvous:prepared-state:retire-failure',
+    );
+    const operation = h.session.attachAdmittedSameRunStateAttempt(
+      preparation,
+      'rendezvous:prepared-state:retire-failure',
+      attemptAdmission.guestStateLease,
+      attemptAdmission.guestAttemptLease,
+    );
+
+    channelFault.failRetireAttempt = true;
+    expect(() => h.session.retireStateSuccessorAttempt(operation)).toThrow(
+      FilePlaybackConnectionMediaSessionFatalError,
+    );
+    expect(operation.fence.signal.aborted).toBe(true);
+    expect(operation.fence.isCurrent()).toBe(false);
+    expect(preparation.fence.signal.aborted).toBe(true);
+    expect(preparation.fence.isCurrent()).toBe(false);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'revoked',
+      current: null,
+      currentState: null,
+      candidateState: null,
+    });
+    expect(h.fatal).toHaveBeenCalledOnce();
+  });
+
+  it('does not retire an already committed state attempt while it owns current playback', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const operation = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      successor,
+      'rendezvous:committed-attempt',
+    );
+    h.session.commitStateSuccessor(operation, successor, () => true);
+
+    expect(() => h.session.retireStateSuccessorAttempt(operation)).toThrow(/exact candidate/u);
+    expect(operation.fence.signal.aborted).toBe(false);
+    expect(operation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      currentState: successor,
+      candidateState: null,
+      committedRevisionWatermark: 2,
+      admittedRevisionWatermark: 2,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
   it('retires a state-only PREPARE without inventing an attempt or reviving its lease', () => {
     const h = harness(true);
     const prepared = commitBaseline(h);
@@ -2303,6 +2527,34 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(h.fatal).not.toHaveBeenCalled();
   });
 
+  it('commits a remotely admitted ENDED lease through the same exact stop contract', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const stopped = { ...current, revision: 2 };
+    const lease = admitRemoteSuccessor(
+      h,
+      prepared.binding,
+      current,
+      stopped,
+      'file-playback-ended',
+    );
+
+    expect(
+      h.session.commitAdmittedStop(prepared.operation, current, stopped, lease, () => true),
+    ).toMatchObject({
+      status: 'stopped',
+      current: null,
+      currentState: null,
+      committedRevisionWatermark: 2,
+      admittedRevisionWatermark: 2,
+    });
+    expect(
+      h.session.commitAdmittedStop(prepared.operation, current, stopped, lease, () => true),
+    ).toMatchObject({ status: 'stopped', committedRevisionWatermark: 2 });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
   it('retires an admitted STOP which lost controller authority and rejects its replay', () => {
     const h = harness(true);
     const prepared = commitBaseline(h);
@@ -2786,7 +3038,8 @@ describe('FilePlaybackConnectionMediaSession', () => {
       forgedAdmitted.stateLease,
       forgedAttemptLease,
     );
-    expect(() =>
+    let forgedWireError: unknown;
+    try {
       forged.session.createPreparedRunAttemptWire(forgedAttempt, {
         kind: 'rendezvous-armed',
         rendezvousId: 'rendezvous:prepared-forged',
@@ -2794,8 +3047,14 @@ describe('FilePlaybackConnectionMediaSession', () => {
         observedAtRoomTimeMs: 1_450,
         bufferedAheadSeconds: 4,
         reasonCode: null,
-      }),
-    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+      });
+    } catch (error) {
+      forgedWireError = error;
+    }
+    expect(forgedWireError).toBeInstanceOf(FilePlaybackConnectionMediaSessionFatalError);
+    expect((forgedWireError as Error).cause).toMatchObject({
+      message: expect.stringMatching(/forged|retired/u),
+    });
     expect(forged.fatal).toHaveBeenCalledOnce();
 
     const reentered = harness(true);

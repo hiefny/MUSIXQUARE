@@ -13,6 +13,11 @@ import {
   PEER_RANGE_MAX_SOURCE_IDENTITY_LENGTH,
   validatePeerRangeOpaqueId,
 } from './peer-range-protocol.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from '../diagnostics/file-playback-universal-lifecycle-retirement.ts';
 
 export { PEER_RANGE_MAX_READ_BYTES } from './peer-range-protocol.ts';
 
@@ -144,7 +149,9 @@ export class PeerRangeEncodedAudioSource implements EncodedAudioSource {
   readonly #transport: PeerRangeTransport;
   readonly #maxReadBytes: number;
   readonly #handleId: string;
+  readonly #lifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #activeReads = new Map<string, AbortController>();
+  readonly #physicalReads = new Set<Promise<ArrayBuffer | Uint8Array>>();
   #closed = false;
   #closePromise: Promise<void> | null = null;
 
@@ -171,6 +178,7 @@ export class PeerRangeEncodedAudioSource implements EncodedAudioSource {
     );
     this.#transport = options.transport;
     this.#maxReadBytes = positiveReadLimit(options.maxReadBytes ?? PEER_RANGE_MAX_READ_BYTES);
+    this.#lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('encodedSources');
   }
 
   async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
@@ -194,21 +202,24 @@ export class PeerRangeEncodedAudioSource implements EncodedAudioSource {
     this.#activeReads.set(id, controller);
 
     try {
-      const response = await Promise.race([
-        Promise.resolve().then(() => {
-          throwIfAborted(controller.signal);
-          if (this.#closed) throw new EncodedSourceClosedError();
-          return this.#transport.read({
-            sourceIdentity: this.identity,
-            handleId: this.#handleId,
-            requestId: id,
-            offset,
-            length,
-            signal: controller.signal,
-          });
-        }),
-        abortGate.promise,
-      ]);
+      const physicalRead = Promise.resolve().then(() => {
+        throwIfAborted(controller.signal);
+        if (this.#closed) throw new EncodedSourceClosedError();
+        return this.#transport.read({
+          sourceIdentity: this.identity,
+          handleId: this.#handleId,
+          requestId: id,
+          offset,
+          length,
+          signal: controller.signal,
+        });
+      });
+      this.#physicalReads.add(physicalRead);
+      void physicalRead.then(
+        () => this.#physicalReads.delete(physicalRead),
+        () => this.#physicalReads.delete(physicalRead),
+      );
+      const response = await Promise.race([physicalRead, abortGate.promise]);
 
       throwIfAborted(signal);
       throwIfAborted(controller.signal);
@@ -230,6 +241,16 @@ export class PeerRangeEncodedAudioSource implements EncodedAudioSource {
 
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
+    let resolveClose!: () => void;
+    let rejectClose!: (reason: unknown) => void;
+    const closePromise = new Promise<void>((resolve, reject) => {
+      resolveClose = resolve;
+      rejectClose = reject;
+    });
+    // Transport abort listeners may synchronously reenter close(). Claim the
+    // one public result and cleanup right before dispatching either abort or
+    // transport-owned close hooks so every caller joins this exact barrier.
+    this.#closePromise = closePromise;
     this.#closed = true;
     for (const controller of this.#activeReads.values()) {
       if (!controller.signal.aborted) controller.abort(new EncodedSourceClosedError());
@@ -240,15 +261,31 @@ export class PeerRangeEncodedAudioSource implements EncodedAudioSource {
     // transport owns any async control frame and scopes cleanup to this exact
     // handle so a stale close cannot tear down a successor with the same byte
     // identity.
-    this.#closePromise = Promise.resolve().then(() => {
-      try {
-        void Promise.resolve(this.#transport.closeHandle?.(this.#handleId, this.identity)).catch(
-          () => undefined,
-        );
-      } catch {
-        // Local ownership is already closed; transport cleanup is best-effort.
+    const closeHandle = Promise.resolve().then(() =>
+      this.#transport.closeHandle?.(this.#handleId, this.identity),
+    );
+    // Public logical close stays prompt once the local handle-close operation
+    // settles. Abort-resistant transport promises are diagnostic/physical
+    // ownership, not a reason to hang room teardown or an aborted acquisition.
+    void closeHandle.then(resolveClose, rejectClose);
+    const physicalClosePromise = Promise.allSettled([
+      Promise.allSettled([...this.#physicalReads]).then(() => undefined),
+      closeHandle,
+    ]).then((settlements) => {
+      const failures = settlements
+        .filter(
+          (settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected',
+        )
+        .map((settlement) => settlement.reason);
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Multiple peer-range source cleanup operations failed');
       }
     });
-    return this.#closePromise;
+    void confirmFilePlaybackUniversalLifecycleRetirement(
+      this.#lifecycleLease,
+      () => physicalClosePromise,
+    ).catch(() => undefined);
+    return closePromise;
   }
 }

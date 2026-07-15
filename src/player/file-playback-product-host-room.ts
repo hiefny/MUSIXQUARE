@@ -2,6 +2,11 @@ import { ensureRunning } from '../audio/context.ts';
 import { getAudioContext, getFilePlaybackDestination, initAudio } from '../audio/engine.ts';
 import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
 import type { QueueItemId } from '../types/index.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from './diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from './diagnostics/file-playback-universal-lifecycle-retirement.ts';
 import { FilePlaybackApplicationController } from './file-playback-application-controller.ts';
 import {
   snapshotFilePlaybackBoundedRoutePolicy,
@@ -13,6 +18,7 @@ import {
   type HostCurrentPlaybackOperationOptions,
   type HostCurrentPlaybackTimelineCommittedEvent,
   type HostCurrentPlaybackTransitionScheduledEvent,
+  type HostRemoteEndRequiredEvent,
   type HostCurrentPlaybackTransitionCommit,
   type ClearHostLocalTrackWarmOptions,
   type HostFirstLocalFilePlaybackCommit,
@@ -46,6 +52,7 @@ const OPTION_KEYS = Object.freeze([
   'hostRoomSnapshot',
   'boundedRoutePolicy',
   'onFatalRoom',
+  'onRemoteEndRequired',
   'onTimelineCommitted',
   'onTransitionScheduled',
   'roomClock',
@@ -54,6 +61,7 @@ const OPTION_KEYS = Object.freeze([
 const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
   (key) =>
     key !== 'boundedRoutePolicy' &&
+    key !== 'onRemoteEndRequired' &&
     key !== 'onTimelineCommitted' &&
     key !== 'onTransitionScheduled' &&
     key !== 'roomClock' &&
@@ -203,6 +211,7 @@ export interface FilePlaybackProductHostRoomOptions {
   readonly onTransitionScheduled?: (
     event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
   ) => void;
+  readonly onRemoteEndRequired?: (event: Readonly<HostRemoteEndRequiredEvent>) => void;
   readonly onTimelineCommitted?: (
     event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
   ) => void;
@@ -751,6 +760,7 @@ function readFileIntent(
  * recovery are forwarded without initializing or retaining another audio graph.
  */
 export class FilePlaybackProductHostRoom {
+  readonly #lifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #controller: FilePlaybackApplicationController;
   readonly #hostRoom: Readonly<FilePlaybackProductHostRoomAuthority>;
   readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | null;
@@ -760,6 +770,7 @@ export class FilePlaybackProductHostRoom {
   readonly #onTransitionScheduled:
     | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
     | null;
+  readonly #onRemoteEndRequired: ((event: Readonly<HostRemoteEndRequiredEvent>) => void) | null;
   readonly #onTimelineCommitted:
     | ((event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) => void)
     | null;
@@ -796,6 +807,8 @@ export class FilePlaybackProductHostRoom {
       typeof input.onFatalRoom !== 'function' ||
       (input.onTransitionScheduled !== undefined &&
         typeof input.onTransitionScheduled !== 'function') ||
+      (input.onRemoteEndRequired !== undefined &&
+        typeof input.onRemoteEndRequired !== 'function') ||
       (input.onTimelineCommitted !== undefined && typeof input.onTimelineCommitted !== 'function')
     ) {
       throw new TypeError('File playback product host room callback is invalid');
@@ -820,6 +833,10 @@ export class FilePlaybackProductHostRoom {
       (input.onTransitionScheduled as
         | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
         | undefined) ?? null;
+    this.#onRemoteEndRequired =
+      (input.onRemoteEndRequired as
+        | ((event: Readonly<HostRemoteEndRequiredEvent>) => void)
+        | undefined) ?? null;
     this.#onTimelineCommitted =
       (input.onTimelineCommitted as
         | ((event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) => void)
@@ -830,6 +847,7 @@ export class FilePlaybackProductHostRoom {
     if (timeline.phase !== 'stopped' || timeline.run !== null) {
       throw new Error('File playback product host room requires stopped initial authority');
     }
+    this.#lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('roomOwners');
   }
 
   warmLocalTrack(
@@ -1296,6 +1314,7 @@ export class FilePlaybackProductHostRoom {
       }
     }
     const cleanup = this.#closeOwnedRoom(operations, engineClose, synchronousFailure);
+    void confirmFilePlaybackUniversalLifecycleRetirement(this.#lifecycleLease, () => cleanup);
     void cleanup.then(resolveClose, rejectClose);
     return closePromise;
   }
@@ -1747,6 +1766,7 @@ export class FilePlaybackProductHostRoom {
       ...(this.#onTransitionScheduled
         ? { onTransitionScheduled: this.#onTransitionScheduled }
         : {}),
+      ...(this.#onRemoteEndRequired ? { onRemoteEndRequired: this.#onRemoteEndRequired } : {}),
       ...(this.#onTimelineCommitted ? { onTimelineCommitted: this.#onTimelineCommitted } : {}),
     });
     if (!isEnginePort(engine, this.#runtime.allowStructuralEngine)) {

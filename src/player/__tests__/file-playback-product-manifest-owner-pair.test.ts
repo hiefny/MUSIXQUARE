@@ -683,6 +683,7 @@ describe('paired product manifest media owners', () => {
             throw new Error('paused paired manifest test unexpectedly started');
           }),
           commitAttempt: vi.fn(() => false),
+          cancel: vi.fn(async () => undefined),
         }),
         currentPort: () => null,
         currentSnapshot: () => null,

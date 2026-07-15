@@ -610,6 +610,255 @@ describe('FilePlaybackConnectionChannel', () => {
     });
   });
 
+  it('continues only the exact ARM attempt across automatic calibration reset', () => {
+    const setup = channels();
+    calibrate(setup);
+    const leases = bindPair(setup);
+
+    // The last calibration sample arrived at local 1,420 ms. Admit ARM one
+    // millisecond before its normal 3,000 ms freshness lease expires.
+    setup.guestNow.set(4_419);
+    setup.hostNow.set(4_519);
+    const arm = setup.host.createWire(leases.host.attempt, {
+      kind: 'rendezvous-arm',
+      rendezvousId: 'rendezvous-1',
+      positionSeconds: 0,
+      playbackRate: 1,
+      startAtRoomTimeMs: 5_000,
+      finalizeByRoomTimeMs: 4_900,
+    });
+    const admitted = setup.guest.receive(arm, setup.guestToken);
+    expect(admitted).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: leases.guest.attempt,
+    });
+
+    setup.guest.resetGuestClockCalibrationForRenewal();
+    setup.guestNow.set(4_421);
+    setup.hostNow.set(4_521);
+    expect(setup.guest.clockReady()).toBe(false);
+
+    let hostilePayloadTraps = 0;
+    const hostilePayload = new Proxy(
+      {},
+      {
+        ownKeys() {
+          hostilePayloadTraps += 1;
+          throw new Error('unindexed authority must not inspect payload');
+        },
+      },
+    );
+    expect(() => setup.guest.createWire({} as never, hostilePayload as never)).toThrow(
+      /not calibrated/u,
+    );
+    expect(hostilePayloadTraps).toBe(0);
+
+    expect(() =>
+      setup.guest.createWire(leases.guest.state, {
+        kind: 'source-not-ready',
+        observedAtRoomTimeMs: 4_521,
+        reasonCode: 'fresh-only',
+        retryable: true,
+      }),
+    ).toThrow(/not calibrated/u);
+    expect(() =>
+      setup.guest.createWire(leases.guest.attempt, {
+        kind: 'renderer-health',
+        rendezvousId: 'rendezvous-1',
+        value: 'healthy',
+        observedAtRoomTimeMs: 4_521,
+        leaseUntilRoomTimeMs: 9_521,
+        renderedFrame: 0,
+        underrunCount: 0,
+        reasonCode: null,
+      }),
+    ).toThrow(/not calibrated/u);
+    expect(() =>
+      setup.guest.createWire(leases.guest.attempt, {
+        kind: 'rendezvous-armed',
+        rendezvousId: 'rendezvous-wrong',
+        status: 'armed',
+        observedAtRoomTimeMs: 4_521,
+        bufferedAheadSeconds: 5,
+        reasonCode: null,
+      }),
+    ).toThrow(/not calibrated/u);
+
+    const armed = setup.guest.createWire(leases.guest.attempt, {
+      kind: 'rendezvous-armed',
+      rendezvousId: 'rendezvous-1',
+      status: 'armed',
+      observedAtRoomTimeMs: 4_521,
+      bufferedAheadSeconds: 5,
+      reasonCode: null,
+    });
+    expect(armed.controlSequence).toBe(1);
+    expect(setup.host.receive(armed, setup.hostToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: leases.host.attempt,
+    });
+
+    const lateNewArm = setup.host.createWire(leases.host.attempt, {
+      kind: 'rendezvous-arm',
+      rendezvousId: 'rendezvous-1',
+      positionSeconds: 0,
+      playbackRate: 1,
+      startAtRoomTimeMs: 5_000,
+      finalizeByRoomTimeMs: 4_900,
+    });
+    expect(setup.guest.receive(lateNewArm, setup.guestToken)).toEqual({
+      accepted: false,
+      reason: 'clock-uncalibrated',
+    });
+
+    const finalize = setup.host.createWire(leases.host.attempt, {
+      kind: 'rendezvous-finalize',
+      rendezvousId: 'rendezvous-1',
+      startAtRoomTimeMs: 5_000,
+      finalizedAtRoomTimeMs: 4_521,
+    });
+    expect(
+      setup.guest.receive(
+        { ...finalize, connectionId: `${finalize.connectionId}-wrong` },
+        setup.guestToken,
+      ),
+    ).toEqual({ accepted: false, reason: 'wire-rejected' });
+    expect(
+      setup.guest.receive({ ...finalize, rendezvousId: 'rendezvous-wrong' }, setup.guestToken),
+    ).toEqual({ accepted: false, reason: 'clock-uncalibrated' });
+    expect(
+      setup.guest.receive({ ...finalize, startAtRoomTimeMs: 5_001 }, setup.guestToken),
+    ).toEqual({ accepted: false, reason: 'clock-uncalibrated' });
+    expect(setup.guest.receive(finalize, setup.guestToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: leases.guest.attempt,
+    });
+
+    const finalized = setup.guest.createWire(leases.guest.attempt, {
+      kind: 'rendezvous-finalized',
+      rendezvousId: 'rendezvous-1',
+      status: 'accepted',
+      observedAtRoomTimeMs: 4_521,
+      reasonCode: null,
+    });
+    expect(finalized.controlSequence).toBe(2);
+    expect(setup.host.receive(finalized, setup.hostToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: leases.host.attempt,
+    });
+  });
+
+  it.each(['wake', 'clock-reversal', 'corridor-expiry'] as const)(
+    'keeps only exact reducing CANCEL after %s invalidates temporal continuation',
+    (boundary) => {
+      const setup = channels();
+      calibrate(setup);
+      const leases = bindPair(setup);
+      setup.guestNow.set(4_419);
+      setup.hostNow.set(4_519);
+      const arm = setup.host.createWire(leases.host.attempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: 'rendezvous-1',
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: boundary === 'corridor-expiry' ? 5_000 : 7_000,
+        finalizeByRoomTimeMs: boundary === 'corridor-expiry' ? 4_900 : 6_900,
+      });
+      expect(setup.guest.receive(arm, setup.guestToken)).toMatchObject({
+        accepted: true,
+        frame: 'wire',
+        attemptLease: leases.guest.attempt,
+      });
+
+      if (boundary === 'wake') setup.guest.handleWake();
+      else if (boundary === 'clock-reversal') setup.guestNow.set(4_000);
+      else {
+        // Captured room time reaches start + effective 250 ms skew while the
+        // opaque continuation token itself would otherwise still be live.
+        setup.guestNow.set(5_150);
+      }
+      expect(() =>
+        setup.guest.createWire(leases.guest.attempt, {
+          kind: 'rendezvous-armed',
+          rendezvousId: 'rendezvous-1',
+          status: 'armed',
+          observedAtRoomTimeMs: 4_521,
+          bufferedAheadSeconds: 5,
+          reasonCode: null,
+        }),
+      ).toThrow(/not calibrated/u);
+
+      const cancel = setup.host.createWire(leases.host.attempt, {
+        kind: 'file-playback-cancel',
+        rendezvousId: 'rendezvous-1',
+        reasonCode: `cleanup-after-${boundary}`,
+      });
+      expect(
+        setup.guest.receive({ ...cancel, rendezvousId: 'rendezvous-wrong' }, setup.guestToken),
+      ).toEqual({ accepted: false, reason: 'clock-uncalibrated' });
+      expect(setup.guest.receive(cancel, setup.guestToken)).toMatchObject({
+        accepted: true,
+        frame: 'wire',
+        attemptLease: leases.guest.attempt,
+      });
+      expect(setup.guest.receive(cancel, setup.guestToken)).toEqual({
+        accepted: false,
+        reason: 'wire-rejected',
+      });
+    },
+  );
+
+  it.each(['attempt', 'state'] as const)(
+    'retires the exact cleanup index with its %s authority',
+    (retirement) => {
+      const setup = channels();
+      calibrate(setup);
+      const leases = bindPair(setup);
+      setup.guestNow.set(4_419);
+      setup.hostNow.set(4_519);
+      const arm = setup.host.createWire(leases.host.attempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: 'rendezvous-1',
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 5_000,
+        finalizeByRoomTimeMs: 4_900,
+      });
+      expect(setup.guest.receive(arm, setup.guestToken)).toMatchObject({
+        accepted: true,
+        frame: 'wire',
+      });
+      const cancel = setup.host.createWire(leases.host.attempt, {
+        kind: 'file-playback-cancel',
+        rendezvousId: 'rendezvous-1',
+        reasonCode: `${retirement}-retired`,
+      });
+
+      if (retirement === 'attempt') setup.guest.retireAttempt(leases.guest.attempt);
+      else setup.guest.retireMedia(leases.guest.state);
+      setup.guestNow.set(4_421);
+
+      expect(() =>
+        setup.guest.createWire(leases.guest.attempt, {
+          kind: 'rendezvous-armed',
+          rendezvousId: 'rendezvous-1',
+          status: 'armed',
+          observedAtRoomTimeMs: 4_521,
+          bufferedAheadSeconds: 5,
+          reasonCode: null,
+        }),
+      ).toThrow(/not calibrated/u);
+      expect(setup.guest.receive(cancel, setup.guestToken)).toEqual({
+        accepted: false,
+        reason: 'clock-uncalibrated',
+      });
+    },
+  );
+
   it('requires the exact live token and never inspects a wrong-token frame', () => {
     const setup = channels();
     let traps = 0;
@@ -1056,6 +1305,62 @@ describe('FilePlaybackConnectionChannel', () => {
         atRoomTimeMs: 2_100,
       }),
     ).toThrow(/forged|retired/u);
+  });
+
+  it('carries host-only ENDED through exact stop authority with replay and stale fencing', () => {
+    const setup = channels();
+    calibrate(setup);
+    const leases = bindPair(setup);
+    setup.hostNow.set(2_100);
+    setup.guestNow.set(2_000);
+
+    expect(() =>
+      setup.guest.createWire(leases.guest.state, {
+        kind: 'file-playback-ended',
+        ...expectedCurrent,
+        hostObservedAtRoomTimeMs: 2_100,
+      }),
+    ).toThrow(/guest cannot send file-playback-ended/u);
+
+    const hostEnded = setup.host.stageMedia(SUCCESSOR);
+    const ended = setup.host.createWire(hostEnded, {
+      kind: 'file-playback-ended',
+      ...expectedCurrent,
+      hostObservedAtRoomTimeMs: 2_100,
+    });
+    const laterDuplicate = setup.host.createWire(hostEnded, {
+      kind: 'file-playback-ended',
+      ...expectedCurrent,
+      hostObservedAtRoomTimeMs: 2_100,
+    });
+    const received = setup.guest.receive(ended, setup.guestToken);
+    expect(received).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: null,
+      message: {
+        kind: 'file-playback-ended',
+        revision: 2,
+        expectedRevision: 1,
+        hostObservedAtRoomTimeMs: 2_100,
+      },
+    });
+    if (!received.accepted || received.frame !== 'wire') {
+      throw new Error('Expected remote natural-end admission');
+    }
+    expect(() => setup.guest.commitMedia(received.stateLease)).toThrow(/candidate state/u);
+    setup.guest.commitStop(received.stateLease, MEDIA.run);
+    setup.host.commitStop(hostEnded, MEDIA.run);
+    expect(setup.guest.receive(ended, setup.guestToken)).toMatchObject({
+      accepted: false,
+      reason: 'wire-rejected',
+    });
+    expect(setup.guest.receive(laterDuplicate, setup.guestToken)).toEqual({
+      accepted: true,
+      frame: 'wire-stale',
+      scope: 'state',
+      controlSequence: 2,
+    });
   });
 
   it('keeps current and recovery attempts live together and stale-drops promoted candidate cancel', () => {

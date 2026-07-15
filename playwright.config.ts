@@ -2,6 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // Universal bounded tests require their dedicated build profiles, ports,
+  // browser channel, and runtime bridge from playwright.universal.config.ts.
+  testIgnore: '**/universal-bounded/**',
   timeout: 60_000,
   expect: { timeout: 15_000 },
   retries: 0,

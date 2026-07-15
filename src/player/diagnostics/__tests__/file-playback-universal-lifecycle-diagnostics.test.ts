@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS,
-  createFilePlaybackUniversalLifecycleDiagnostics,
-  type FilePlaybackUniversalLifecycleKind,
-  type FilePlaybackUniversalLifecycleSnapshot,
+  createFilePlaybackUniversalLifecycleDiagnosticsForTests as createFilePlaybackUniversalLifecycleDiagnostics,
+  filePlaybackUniversalLifecycleKindsForTests as FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS,
+  type FilePlaybackUniversalLifecycleKindForTests as FilePlaybackUniversalLifecycleKind,
+  type FilePlaybackUniversalLifecycleSnapshotForTests as FilePlaybackUniversalLifecycleSnapshot,
 } from '../file-playback-universal-lifecycle-diagnostics.ts';
 
 function outstanding(

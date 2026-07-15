@@ -9,6 +9,10 @@ const forbiddenMarkers = [
   '__MUSIXQUARE_GET_STATE__',
   '__MUSIXQUARE_SET_STATE__',
   '__MUSIXQUARE_BUS__',
+  '__MUSIXQUARE_GET_PLAYBACK_PROJECTION__',
+  '__MUSIXQUARE_FILE_PLAYBACK_E2E__',
+  '__MUSIXQUARE_FILE_PLAYBACK_CURRENT_ISOLATION__',
+  '__MUSIXQUARE_FILE_PLAYBACK_PRODUCTION_LATCH_ISOLATION__',
 ];
 
 async function* walkFiles(dir) {
@@ -47,7 +51,9 @@ if (hits.length > 0) {
   for (const hit of hits) {
     console.error(`  - ${hit.file}: ${hit.marker}`);
   }
-  console.error('[prod-hook-guard] Use npm run build:checked for production and npm run build:e2e only for tests.');
+  console.error(
+    '[prod-hook-guard] Use npm run build:checked for production and npm run build:e2e only for tests.',
+  );
   process.exit(1);
 }
 

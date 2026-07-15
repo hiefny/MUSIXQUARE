@@ -1601,7 +1601,7 @@ export class FilePlaybackApplicationSessionManager {
     const clock = record.channel ?? record.clock;
     if (!clock) return false;
     if (resetClock) {
-      clock.handleWake();
+      this.#resetGuestCalibrationForRenewal(clock);
       record.clockReadyNotified = false;
     }
     const count = Math.min(
@@ -1762,7 +1762,7 @@ export class FilePlaybackApplicationSessionManager {
           return;
         }
         try {
-          if (record.calibrationPendingPingIds.size === 0) {
+          if (record.calibrationPendingPingIds.size < MAX_OUTSTANDING_CLOCK_PINGS) {
             const ping =
               clock instanceof FilePlaybackConnectionChannel
                 ? clock.createClockPing()
@@ -1817,7 +1817,7 @@ export class FilePlaybackApplicationSessionManager {
       return;
     }
     try {
-      clock.handleWake();
+      this.#resetGuestCalibrationForRenewal(clock);
     } catch (error) {
       log.warn('[AppSession] Failed to invalidate expired guest clock', error);
       this.#teardown(record, true);
@@ -1827,6 +1827,16 @@ export class FilePlaybackApplicationSessionManager {
     if (this.#records.get(record.conn) !== record || record.closing) return;
     if (!this.#beginGuestCalibration(record) && this.#records.get(record.conn) === record) {
       this.#teardown(record, true);
+    }
+  }
+
+  #resetGuestCalibrationForRenewal(
+    clock: FilePlaybackConnectionChannel | FilePlaybackClockExchange,
+  ): void {
+    if (clock instanceof FilePlaybackConnectionChannel) {
+      clock.resetGuestClockCalibrationForRenewal();
+    } else {
+      clock.resetGuestCalibrationForRenewal();
     }
   }
 

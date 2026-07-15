@@ -6,7 +6,7 @@ import {
 import type { LinearPcmStreamDescriptor } from './stream-protocol.js';
 
 /** Control protocol shared by every fixed-frame linear-PCM container. */
-export const LINEAR_PCM_DECODER_PROTOCOL_VERSION = 1 as const;
+export const LINEAR_PCM_DECODER_PROTOCOL_VERSION = 2 as const;
 
 export type LinearPcmSourceLifetimeGeneration = number;
 export type LinearPcmDecoderGeneration = PcmStreamGeneration;
@@ -109,6 +109,19 @@ export type LinearPcmDecoderEvent =
       readonly type: 'decoder-stopped';
       readonly sourceLifetimeGeneration: LinearPcmSourceLifetimeGeneration;
       readonly decoderGeneration: LinearPcmDecoderGeneration;
+    }
+  | {
+      readonly protocolVersion: typeof LINEAR_PCM_DECODER_PROTOCOL_VERSION;
+      /** Emitted only after pending demand, PCM port, carry, and resamplers are gone. */
+      readonly type: 'decoder-retired';
+      readonly sourceLifetimeGeneration: LinearPcmSourceLifetimeGeneration;
+      readonly decoderGeneration: LinearPcmDecoderGeneration;
+    }
+  | {
+      readonly protocolVersion: typeof LINEAR_PCM_DECODER_PROTOCOL_VERSION;
+      /** Final worker ACK after every decoder and the encoded-source client retire. */
+      readonly type: 'worker-retired';
+      readonly sourceLifetimeGeneration: LinearPcmSourceLifetimeGeneration;
     }
   | {
       readonly protocolVersion: typeof LINEAR_PCM_DECODER_PROTOCOL_VERSION;

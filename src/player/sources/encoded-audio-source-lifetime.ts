@@ -9,6 +9,11 @@ import {
   throwIfAborted,
   validateExactRead,
 } from './encoded-audio-source.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from '../diagnostics/file-playback-universal-lifecycle-retirement.ts';
 
 export const ENCODED_SOURCE_LIFETIME_DEFAULT_MAX_READ_TASKS = 8;
 export const ENCODED_SOURCE_LIFETIME_MAX_READ_TASKS = 64;
@@ -238,6 +243,7 @@ export class EncodedAudioSourceLifetime {
   readonly maxReadTasks: number;
 
   readonly #source: SourceSnapshot;
+  readonly #lifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #readTasks = new Set<Promise<Uint8Array>>();
   #activeLease: LeaseState | null = null;
   #nextLeaseGeneration = 1;
@@ -255,6 +261,7 @@ export class EncodedAudioSourceLifetime {
     this.identity = source.identity;
     this.metadata = source.metadata;
     this.maxReadTasks = configuredReadTaskLimit(options.maxReadTasks);
+    this.#lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('encodedSources');
   }
 
   get closed(): boolean {
@@ -308,11 +315,17 @@ export class EncodedAudioSourceLifetime {
     this.#closed = true;
     const active = this.#activeLease;
     if (active) void this.#closeLease(active);
+    let ownedSourceClose: Promise<void>;
     try {
-      void Promise.resolve(this.#source.close()).catch(() => undefined);
-    } catch {
-      // Closing is best-effort after the local lifetime reaches its terminal state.
+      ownedSourceClose = Promise.resolve(this.#source.close());
+    } catch (error) {
+      ownedSourceClose = Promise.reject(error);
     }
+    const cleanup = Promise.allSettled([...this.#readTasks])
+      .then(() => ownedSourceClose)
+      .then(() => undefined);
+    void confirmFilePlaybackUniversalLifecycleRetirement(this.#lifecycleLease, () => cleanup);
+    void cleanup.catch(() => undefined);
     return closePromise;
   }
 

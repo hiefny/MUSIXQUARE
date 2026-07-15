@@ -6,7 +6,7 @@ import {
   planPcmRingCapacity,
 } from '../../player/streaming/pcm-ring-capacity.ts';
 
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 const SAMPLE_RATE = 48_000;
 const processorSource = readFileSync(
   new URL('../worklets/pcm-ring-processor.js', import.meta.url),
@@ -20,6 +20,8 @@ class FakeMessagePort {
   onmessage: ((event: { data: WorkletMessage }) => void) | null = null;
   started = false;
   closed = false;
+  closeAttempts = 0;
+  throwOnClose = false;
 
   postMessage(message: WorkletMessage): void {
     if (this.closed) throw new Error('port is closed');
@@ -31,6 +33,8 @@ class FakeMessagePort {
   }
 
   close(): void {
+    this.closeAttempts += 1;
+    if (this.throwOnClose) throw new Error('synthetic PCM port close failure');
     this.closed = true;
   }
 
@@ -141,7 +145,7 @@ function createHarness(
   };
 
   vm.runInNewContext(processorSource, sandbox, { filename: 'pcm-ring-processor.js' });
-  expect(registeredName).toBe('musixquare-pcm-ring-v2');
+  expect(registeredName).toBe('musixquare-pcm-ring-v3');
   if (!ProcessorConstructor) throw new Error('processor was not registered');
 
   const processor = new ProcessorConstructor({
@@ -214,7 +218,7 @@ function armAndFinalize(
   harness.control.dispatch(command('finalize', generation, RUN));
 }
 
-describe('musixquare-pcm-ring-v2', () => {
+describe('musixquare-pcm-ring-v3', () => {
   it.each([
     { sampleRate: 48_000, channels: 2 },
     { sampleRate: 96_000, channels: 8 },
@@ -423,6 +427,9 @@ describe('musixquare-pcm-ring-v2', () => {
 
     harness.control.dispatch(command('reset', 2, { mediaFrame: 1_000 }));
     expect(oldPort.closed).toBe(true);
+    expect(events(harness.control, 'pcm-port-retired')).toEqual([
+      expect.objectContaining({ generation: 1 }),
+    ]);
     const pcmPort = harness.bind(2);
     const eventCount = harness.control.messages.length;
 
@@ -616,7 +623,28 @@ describe('musixquare-pcm-ring-v2', () => {
     harness.control.dispatch(command('stop'));
     harness.control.dispatch(command('stop'));
     expect(pcmPort.closed).toBe(true);
-    expect(harness.control.closed).toBe(true);
+    // The page closes the control endpoint only after receiving processor-retired.
+    expect(harness.control.closed).toBe(false);
+    expect(harness.control.closeAttempts).toBe(0);
+    expect(harness.processor.rings).toEqual([]);
+    expect(events(harness.control, 'pcm-port-retired')).toHaveLength(1);
+    expect(events(harness.control, 'processor-retired')).toEqual([
+      expect.objectContaining({ generation: 1 }),
+    ]);
     expect(harness.processor.process([], [[new Float32Array(128)]])).toBe(false);
+  });
+
+  it('suppresses both terminal ACKs when the decoder-facing PCM port cannot close', () => {
+    const harness = createHarness(1);
+    const pcmPort = harness.bind();
+    pcmPort.throwOnClose = true;
+
+    harness.control.dispatch(command('stop'));
+
+    expect(pcmPort.closeAttempts).toBe(1);
+    expect(harness.processor.rings).toEqual([]);
+    expect(harness.processor.process([], [[new Float32Array(128)]])).toBe(false);
+    expect(events(harness.control, 'pcm-port-retired')).toHaveLength(0);
+    expect(events(harness.control, 'processor-retired')).toHaveLength(0);
   });
 });

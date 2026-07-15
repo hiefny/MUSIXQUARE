@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
   backendCloseCounts: [] as number[],
   factoryCalls: 0,
   factoryOptions: [] as unknown[],
+  throwOnBackendClose: false,
   factoryImpl: null as ((...args: unknown[]) => Promise<AacDecoderBackend>) | null,
   decodeImpl: null as
     | ((
@@ -261,6 +262,7 @@ function createBackend(firstAccessUnitOrdinal: number): AacDecoderBackend {
     },
     close() {
       mocks.backendCloseCounts[backendIndex] = (mocks.backendCloseCounts[backendIndex] ?? 0) + 1;
+      if (mocks.throwOnBackendClose) throw new Error('failed native AAC backend close');
     },
   };
   mocks.backends.push(backend);
@@ -292,6 +294,7 @@ function openDecoder(
   source: MemoryEncodedAudioSource,
   descriptor: Readonly<AacDecoderDescriptor>,
   decoderGeneration = 1,
+  configureWorkerPcmPort?: (port: MessagePort) => void,
 ): MessagePort {
   const sourceChannel = new MessageChannel();
   const pcmChannel = new MessageChannel();
@@ -302,6 +305,7 @@ function openDecoder(
     generation: 1,
   });
   sourceBrokers.push(broker);
+  configureWorkerPcmPort?.(pcmChannel.port1);
   dispatch(scope, {
     protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
     type: 'open-decoder',
@@ -387,6 +391,7 @@ describe.sequential('bounded AAC stream worker', () => {
     mocks.backendCloseCounts.length = 0;
     mocks.factoryCalls = 0;
     mocks.factoryOptions.length = 0;
+    mocks.throwOnBackendClose = false;
     mocks.decodeImpl = null;
     mocks.factoryImpl = async (_id, options) => {
       const firstAccessUnitOrdinal = (options as { readonly firstAccessUnitOrdinal: number })
@@ -719,11 +724,70 @@ describe.sequential('bounded AAC stream worker', () => {
 
     const lateRawBatch = mocks.decodeCalls[0]!.rawBatch;
     expect(lateRawBatch.planes.some((plane) => !allZero(plane))).toBe(true);
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
     pending.resolve(lateRawBatch);
     await vi.waitFor(() => {
       expect(lateRawBatch.planes.every(allZero)).toBe(true);
       expect(mocks.backendCloseCounts).toEqual([1]);
+      expect(controlMessages(scope, 'decoder-retired')).toHaveLength(1);
+      expect(controlMessages(scope, 'worker-retired')).toHaveLength(1);
     });
+  });
+
+  it('withholds retirement ACKs when native backend cleanup throws', async () => {
+    mocks.factoryImpl = () => Promise.resolve(createBackend(0));
+    const media = fixture({ actualFrameCount: 2 });
+    const source = new MemoryEncodedAudioSource(media.bytes);
+    const scope = await loadWorker();
+    openDecoder(scope, source, media.descriptor, 8);
+    await waitReady(scope, 8);
+
+    mocks.throwOnBackendClose = true;
+    stop(scope, 8);
+    await vi.waitFor(() => {
+      expect(controlMessages(scope, 'decoder-stopped')).toHaveLength(1);
+      expect(mocks.backendCloseCounts).toEqual([1]);
+      expect(source.closeCount).toBe(1);
+    });
+    await Promise.resolve();
+
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
+  });
+
+  it('publishes one terminal barrier before a hostile PCM-port close reenters stop', async () => {
+    const media = fixture({ actualFrameCount: 2 });
+    const source = new MemoryEncodedAudioSource(media.bytes);
+    const scope = await loadWorker();
+    let reentries = 0;
+    openDecoder(scope, source, media.descriptor, 81, (workerPort) => {
+      const nativeClose = workerPort.close.bind(workerPort);
+      vi.spyOn(workerPort, 'close').mockImplementation(() => {
+        if (reentries === 0) {
+          reentries += 1;
+          try {
+            stop(scope, 81);
+          } finally {
+            nativeClose();
+          }
+          return;
+        }
+        nativeClose();
+      });
+    });
+    await waitReady(scope, 81);
+
+    expect(() => stop(scope, 81)).not.toThrow();
+    await vi.waitFor(() => {
+      expect(source.closeCount).toBe(1);
+      expect(mocks.backendCloseCounts).toEqual([1]);
+    });
+
+    expect(reentries).toBe(1);
+    expect(controlMessages(scope, 'decoder-stopped')).toHaveLength(1);
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
   });
 
   it('closes a backend that resolves after stop during factory initialization exactly once', async () => {
@@ -744,6 +808,30 @@ describe.sequential('bounded AAC stream worker', () => {
     pendingFactory.resolve(lateBackend);
     await vi.waitFor(() => expect(mocks.backendCloseCounts).toEqual([1]));
     expect(controlMessages(scope, 'decoder-ready')).toHaveLength(0);
+  });
+
+  it('withholds retirement ACKs when closing a late factory backend throws', async () => {
+    const pendingFactory = deferred<AacDecoderBackend>();
+    mocks.factoryImpl = () => pendingFactory.promise;
+    const media = fixture({ actualFrameCount: 2 });
+    const source = new MemoryEncodedAudioSource(media.bytes);
+    const scope = await loadWorker();
+    openDecoder(scope, source, media.descriptor, 10);
+    await vi.waitFor(() => expect(mocks.factoryCalls).toBe(1));
+
+    stop(scope, 10);
+    await vi.waitFor(() => {
+      expect(controlMessages(scope, 'decoder-stopped')).toHaveLength(1);
+      expect(source.closeCount).toBe(1);
+    });
+    mocks.throwOnBackendClose = true;
+    pendingFactory.resolve(createBackend(0));
+    await vi.waitFor(() => expect(mocks.backendCloseCounts).toEqual([1]));
+    await Promise.resolve();
+
+    expect(controlMessages(scope, 'decoder-ready')).toHaveLength(0);
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
   });
 
   it('rejects a verified frame count that ends before exact physical EOF', async () => {

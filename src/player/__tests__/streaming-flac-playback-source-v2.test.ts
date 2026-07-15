@@ -66,6 +66,7 @@ class FakeMessagePort {
   closeCount = 0;
   startCount = 0;
   throwOnType: string | null = null;
+  autoRetireOnStop = true;
   readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
@@ -88,6 +89,26 @@ class FakeMessagePort {
       throw new Error(`Synthetic ${this.throwOnType} post failure`);
     }
     this.messages.push({ message, transfer });
+    if (
+      this.autoRetireOnStop &&
+      message !== null &&
+      typeof message === 'object' &&
+      (message as Record<string, unknown>).type === 'stop'
+    ) {
+      const generation = (message as Record<string, unknown>).generation as number;
+      queueMicrotask(() => {
+        this.emit({
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'pcm-port-retired',
+          generation,
+        });
+        this.emit({
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'processor-retired',
+          generation,
+        });
+      });
+    }
   }
 
   start(): void {
@@ -126,6 +147,33 @@ class FakeWorker {
           sourceLifetimeGeneration: message.sourceLifetimeGeneration,
           sourceSize: message.sourceSize,
           sourceIdentity: message.sourceIdentity,
+        });
+      });
+    }
+    if (message.type === 'close-source') {
+      queueMicrotask(() => {
+        const generations = new Set(
+          this.messages.flatMap(({ message: candidate }) =>
+            candidate.type === 'init-decoder' ? [candidate.decoderGeneration] : [],
+          ),
+        );
+        for (const decoderGeneration of generations) {
+          this.emit({
+            protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+            type: 'decoder-retired',
+            sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+            decoderGeneration,
+          });
+        }
+        this.emit({
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'source-closed',
+          sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+        });
+        this.emit({
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'worker-retired',
+          sourceLifetimeGeneration: message.sourceLifetimeGeneration,
         });
       });
     }
@@ -257,7 +305,7 @@ function harness(
     },
     createWorker: () => worker as unknown as Worker,
     createWorkletNode: (_audioContext, name, options) => {
-      expect(name).toBe('musixquare-pcm-ring-v2');
+      expect(name).toBe('musixquare-pcm-ring-v3');
       nodeOptions = options;
       return node as unknown as AudioWorkletNode;
     },
@@ -471,12 +519,12 @@ describe('StreamingFlacPlaybackSource v2', () => {
       phase: 'failed',
       errorCode: 'decoder-source-open-mismatch',
     });
-    expect(h.worker.terminateCount).toBe(1);
+    await vi.waitFor(() => expect(h.worker.terminateCount).toBe(1));
     expect(h.nodeOptions).toBeNull();
     expect(h.channels).toHaveLength(1);
     await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
     expect(h.channels[0]?.port1.closeCount).toBeGreaterThan(0);
-    expect(h.channels[0]?.port2.closeCount).toBeGreaterThan(0);
+    expect(h.channels[0]?.port2.closeCount).toBe(0);
 
     await h.source.destroy();
     expect(h.closeEncodedSource).toHaveBeenCalledTimes(1);
@@ -500,7 +548,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       phase: 'failed',
       errorCode: 'prepare-failed',
     });
-    expect(h.worker.terminateCount).toBe(1);
+    await vi.waitFor(() => expect(h.worker.terminateCount).toBe(1));
     await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
     await h.source.destroy();
   });
@@ -524,7 +572,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       phase: 'failed',
       errorCode: 'prepare-failed',
     });
-    expect(h.worker.terminateCount).toBe(1);
+    await vi.waitFor(() => expect(h.worker.terminateCount).toBe(1));
     await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
     await h.source.destroy();
   });
@@ -1318,7 +1366,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
     });
   });
 
-  it('bounds missing Worklet start evidence by the authoritative room clock', async () => {
+  it('bounds missing Worklet start evidence by the captured local/render deadline', async () => {
     vi.useFakeTimers();
     const h = harness();
     try {
@@ -1348,7 +1396,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       await finalizing;
       h.context.state = 'suspended';
       h.context.roomNowMs = 4_501;
-      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(2_800);
       await expect(armed.started).rejects.toMatchObject({
         name: 'FilePlaybackStartEvidenceError',
         code: 'start-evidence-timeout',
@@ -1898,7 +1946,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       phase: 'failed',
       errorCode: 'worklet-command-failed',
     });
-    expect(h.worker.terminateCount).toBe(1);
+    await vi.waitFor(() => expect(h.worker.terminateCount).toBe(1));
     await h.source.destroy();
   });
 
@@ -2524,9 +2572,10 @@ describe('StreamingFlacPlaybackSource v2', () => {
       phase: 'failed',
       errorCode: 'worklet:ring-underrun',
     });
-    expect(h.worker.terminateCount).toBe(1);
+    expect(h.worker.terminateCount).toBe(0);
     expect(h.node.disconnectCount).toBe(1);
     await h.source.destroy();
+    expect(h.worker.terminateCount).toBe(1);
   });
 
   it('fails closed when the AudioWorklet processor crashes', async () => {
@@ -2539,9 +2588,10 @@ describe('StreamingFlacPlaybackSource v2', () => {
       phase: 'failed',
       errorCode: 'worklet-processor-error',
     });
-    expect(h.worker.terminateCount).toBe(1);
+    expect(h.worker.terminateCount).toBe(0);
     expect(h.node.disconnectCount).toBe(1);
     await h.source.destroy();
+    expect(h.worker.terminateCount).toBe(1);
   });
 
   it('resets to a fresh generation and re-primes a paused seek without replacing the node', async () => {

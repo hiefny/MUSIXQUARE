@@ -438,7 +438,7 @@ describe('AAC decoder command boundary', () => {
     const pcm = new MessageChannel();
     const parsed = parseAacDecoderCommand(openCommand(source.port2, pcm.port2));
     expect(parsed).toMatchObject({
-      protocolVersion: 1,
+      protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
       type: 'open-decoder',
       sourceLifetimeGeneration: 11,
       decoderGeneration: 29,
@@ -477,7 +477,7 @@ describe('AAC decoder command boundary', () => {
     const valid = openCommand(source.port2, pcm.port2);
     expect(parseAacDecoderCommand({ ...valid, extra: true })).toBeNull();
     expect(parseAacDecoderCommand({ ...valid, [Symbol('extra')]: true })).toBeNull();
-    expect(parseAacDecoderCommand({ ...valid, protocolVersion: 2 })).toBeNull();
+    expect(parseAacDecoderCommand({ ...valid, protocolVersion: 1 })).toBeNull();
     expect(parseAacDecoderCommand({ ...valid, backendId: 'automatic' })).toBeNull();
     expect(parseAacDecoderCommand({ ...valid, sourceLifetimeGeneration: 0 })).toBeNull();
     expect(parseAacDecoderCommand({ ...valid, decoderGeneration: 0 })).toBeNull();
@@ -543,6 +543,20 @@ describe('AAC decoder event boundary', () => {
       },
       { ...eventIdentity(), type: 'decoder-stopped' },
       { ...eventIdentity(), type: 'decoder-error', code: 'decode-failed', message: 'failed' },
+      { ...eventIdentity(), type: 'decoder-retired' },
+      {
+        ...eventIdentity(),
+        type: 'worker-retired',
+        retryWaitSequence: 2,
+        activeRetryWaits: 0,
+      },
+      {
+        ...eventIdentity(),
+        type: 'retry-wait-delta',
+        delta: 1,
+        retryWaitSequence: 1,
+        activeRetryWaits: 1,
+      },
     ];
 
     for (const event of events) {
@@ -573,6 +587,15 @@ describe('AAC decoder event boundary', () => {
       decoderGeneration: 11,
     });
     expect(parseAacDecoderEvent({ ...eventIdentity(), type: 'frame-index-point' })).toBeNull();
+    expect(
+      parseAacDecoderEvent({
+        ...eventIdentity(),
+        type: 'retry-wait-delta',
+        delta: 0,
+        retryWaitSequence: 1,
+        activeRetryWaits: 0,
+      }),
+    ).toBeNull();
     expect(
       parseAacDecoderEvent({
         ...eventIdentity(),

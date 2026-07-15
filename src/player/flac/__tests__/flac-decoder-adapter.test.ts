@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { EncodedAudioSource } from '../../sources/encoded-audio-source.ts';
+import { getFilePlaybackUniversalLifecycleSnapshotForTests as getFilePlaybackUniversalLifecycleSnapshot } from '../../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import type { StreamingDecoderOpenOptions } from '../../streaming/decoder-adapter.ts';
 import { FlacDecoderAdapter } from '../flac-decoder-adapter.ts';
 import type { FlacMetadata } from '../metadata.ts';
 import {
@@ -38,6 +40,15 @@ class FakeMessagePort {
   close(): void {
     this.closeCount += 1;
   }
+
+  emitMessage(message: unknown): void {
+    const event = { data: message } as MessageEvent<unknown>;
+    for (const listener of this.listeners.get('message') ?? []) {
+      if (typeof listener === 'function') listener(event);
+      else listener.handleEvent(event);
+    }
+    this.onmessage?.(event);
+  }
 }
 
 class FakeMessageChannel {
@@ -51,6 +62,9 @@ class FakeWorker {
   onmessageerror: ((event: MessageEvent) => void) | null = null;
   readonly messages: Array<{ message: FlacDecoderCommand; transfer: readonly Transferable[] }> = [];
   autoOpenSource = true;
+  autoRetireOnClose = true;
+  onCloseSource: (() => void) | null = null;
+  readonly retiredGenerations = new Set<number>();
   terminateCount = 0;
 
   postMessage(message: FlacDecoderCommand, transfer: readonly Transferable[] = []): void {
@@ -66,6 +80,35 @@ class FakeWorker {
         });
       });
     }
+    if (message.type === 'close-source' && this.autoRetireOnClose) {
+      this.onCloseSource?.();
+      queueMicrotask(() => {
+        const generations = new Set(
+          this.messages.flatMap(({ message: candidate }) =>
+            candidate.type === 'init-decoder' ? [candidate.decoderGeneration] : [],
+          ),
+        );
+        for (const decoderGeneration of generations) {
+          if (this.retiredGenerations.has(decoderGeneration)) continue;
+          this.emit({
+            protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+            type: 'decoder-retired',
+            sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+            decoderGeneration,
+          });
+        }
+        this.emit({
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'source-closed',
+          sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+        });
+        this.emit({
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'worker-retired',
+          sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+        });
+      });
+    }
   }
 
   terminate(): void {
@@ -73,6 +116,15 @@ class FakeWorker {
   }
 
   emit(message: FlacDecoderEvent): void {
+    const sourceLifetimeGeneration = this.messages.find(
+      ({ message: candidate }) => candidate.type === 'open-source',
+    )?.message.sourceLifetimeGeneration;
+    if (
+      message.type === 'decoder-retired' &&
+      message.sourceLifetimeGeneration === sourceLifetimeGeneration
+    ) {
+      this.retiredGenerations.add(message.decoderGeneration);
+    }
     this.onmessage?.({ data: message } as MessageEvent<FlacDecoderEvent>);
   }
 }
@@ -148,6 +200,55 @@ function initCommand(worker: FakeWorker) {
   return command;
 }
 
+function openOptions(
+  patch: Partial<StreamingDecoderOpenOptions> = {},
+): StreamingDecoderOpenOptions {
+  return {
+    signal: new AbortController().signal,
+    lifetimeSignal: new AbortController().signal,
+    onFatal: vi.fn(),
+    onGenerationStopped: vi.fn(),
+    ...patch,
+  };
+}
+
+function readyEvent(command: ReturnType<typeof initCommand>): FlacDecoderEvent {
+  return {
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'decoder-ready',
+    sourceLifetimeGeneration: command.sourceLifetimeGeneration,
+    decoderGeneration: command.decoderGeneration,
+    descriptor: command.descriptor,
+  };
+}
+
+function lifecycleDelta(
+  before: ReturnType<typeof getFilePlaybackUniversalLifecycleSnapshot>,
+  after: ReturnType<typeof getFilePlaybackUniversalLifecycleSnapshot>,
+  kind: 'workers' | 'decoderGenerations' | 'ports' | 'timers',
+  field: 'live' | 'retiring' | 'unconfirmed' | 'releasedTotal',
+): number {
+  return after.kinds[kind][field] - before.kinds[kind][field];
+}
+
+async function startReadyGeneration(
+  h: ReturnType<typeof harness>,
+  generation: number,
+): Promise<ReturnType<typeof initCommand>> {
+  const pending = h.adapter.startGeneration({
+    generation,
+    targetMediaFrame: 0,
+    outputSampleRateHz: 48_000,
+    pcmPort: new FakeMessagePort() as unknown as MessagePort,
+    acceptPcmPortOwnership: vi.fn(),
+    signal: new AbortController().signal,
+  });
+  const init = initCommand(h.worker);
+  h.worker.emit(readyEvent(init));
+  await pending;
+  return init;
+}
+
 describe('FlacDecoderAdapter', () => {
   it('keeps construction inert and closes its encoded source exactly once before open', async () => {
     const h = harness();
@@ -187,11 +288,13 @@ describe('FlacDecoderAdapter', () => {
     expect(h.channels[0]?.port1.startCount).toBe(1);
 
     const pcmPort = new FakeMessagePort();
+    const acceptPcmPortOwnership = vi.fn();
     const ready = h.adapter.startGeneration({
       generation: 1,
       targetMediaFrame: 24_000,
       outputSampleRateHz: 48_000,
       pcmPort: pcmPort as unknown as MessagePort,
+      acceptPcmPortOwnership,
       signal: controller.signal,
     });
     const init = initCommand(h.worker);
@@ -224,6 +327,7 @@ describe('FlacDecoderAdapter', () => {
     };
     h.worker.emit(exactReady);
     await ready;
+    expect(acceptPcmPortOwnership).toHaveBeenCalledTimes(1);
     h.worker.emit(exactReady);
     expect(fatal).not.toHaveBeenCalled();
 
@@ -244,6 +348,191 @@ describe('FlacDecoderAdapter', () => {
     await h.adapter.close();
     expect(h.worker.terminateCount).toBe(1);
     expect(h.closeSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves caller PCM ownership when a duplicate generation is rejected pre-commit', async () => {
+    const h = harness();
+    const controller = new AbortController();
+    await h.adapter.open({
+      signal: controller.signal,
+      lifetimeSignal: controller.signal,
+      onFatal: vi.fn(),
+      onGenerationStopped: vi.fn(),
+    });
+    const firstPending = h.adapter.startGeneration({
+      generation: 2,
+      targetMediaFrame: 0,
+      outputSampleRateHz: 48_000,
+      pcmPort: new FakeMessagePort() as unknown as MessagePort,
+      acceptPcmPortOwnership: vi.fn(),
+      signal: controller.signal,
+    });
+    const first = initCommand(h.worker);
+    const rejectedPort = new FakeMessagePort();
+    const rejectedAccept = vi.fn();
+
+    await expect(
+      h.adapter.startGeneration({
+        generation: 2,
+        targetMediaFrame: 1,
+        outputSampleRateHz: 48_000,
+        pcmPort: rejectedPort as unknown as MessagePort,
+        acceptPcmPortOwnership: rejectedAccept,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/already created/i);
+    expect(rejectedPort.closeCount).toBe(0);
+    expect(rejectedAccept).not.toHaveBeenCalled();
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-ready',
+      sourceLifetimeGeneration: first.sourceLifetimeGeneration,
+      decoderGeneration: first.decoderGeneration,
+      descriptor: first.descriptor,
+    });
+    await firstPending;
+    await h.adapter.close();
+  });
+
+  it('keeps generation leases live for wrong-realm and premature retirement ACKs', async () => {
+    const h = harness();
+    const fatal = vi.fn();
+    await h.adapter.open(openOptions({ onFatal: fatal }));
+    const init = await startReadyGeneration(h, 80);
+    const before = getFilePlaybackUniversalLifecycleSnapshot();
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-retired',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration + 1,
+      decoderGeneration: init.decoderGeneration,
+    });
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-retired',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+    });
+
+    const after = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(after.kinds.decoderGenerations.live).toBe(before.kinds.decoderGenerations.live);
+    expect(after.kinds.decoderGenerations.releasedTotal).toBe(
+      before.kinds.decoderGenerations.releasedTotal,
+    );
+    expect(fatal).toHaveBeenCalledTimes(2);
+    await h.adapter.close();
+  });
+
+  it('accepts one exact retiring ACK and rejects its duplicate without a second release', async () => {
+    const h = harness();
+    const fatal = vi.fn();
+    await h.adapter.open(openOptions({ onFatal: fatal }));
+    const init = await startReadyGeneration(h, 81);
+    h.adapter.stopGeneration(init.decoderGeneration);
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-retired',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+    });
+    const released = getFilePlaybackUniversalLifecycleSnapshot();
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-retired',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+    });
+    const duplicate = getFilePlaybackUniversalLifecycleSnapshot();
+
+    expect(duplicate.kinds.decoderGenerations.releasedTotal).toBe(
+      released.kinds.decoderGenerations.releasedTotal,
+    );
+    expect(fatal).toHaveBeenCalledWith('decoder-invalid-event', undefined);
+    await h.adapter.close();
+  });
+
+  it('moves a natural EOF generation to retiring before accepting its exact ACK', async () => {
+    const h = harness();
+    const fatal = vi.fn();
+    await h.adapter.open(openOptions({ onFatal: fatal }));
+    const init = await startReadyGeneration(h, 82);
+    const before = getFilePlaybackUniversalLifecycleSnapshot();
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-eof',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+      decodedInputBytes: 1,
+      decodedSourceSamples: 1,
+      producedOutputFrames: 1,
+    });
+    const eof = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(lifecycleDelta(before, eof, 'decoderGenerations', 'retiring')).toBe(1);
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-retired',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+    });
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(lifecycleDelta(before, retired, 'decoderGenerations', 'releasedTotal')).toBe(1);
+    expect(fatal).not.toHaveBeenCalled();
+    await h.adapter.close();
+  });
+
+  it('publishes one stable close Promise before close-source can re-enter', async () => {
+    const h = harness();
+    await h.adapter.open(openOptions());
+    let reentered: Promise<void> | null = null;
+    h.worker.onCloseSource = () => {
+      h.worker.onCloseSource = null;
+      reentered = h.adapter.close();
+    };
+
+    const closing = h.adapter.close();
+    expect(reentered).toBe(closing);
+    expect(h.adapter.close()).toBe(closing);
+    await closing;
+    expect(h.worker.messages.filter(({ message }) => message.type === 'close-source')).toHaveLength(
+      1,
+    );
+  });
+
+  it('bounds close after timeout even when an encoded read never physically settles', async () => {
+    const h = harness();
+    h.readAt.mockImplementationOnce(() => new Promise<Uint8Array>(() => {}));
+    await h.adapter.open(openOptions());
+    const opened = openCommand(h.worker);
+    h.channels[0]?.port1.emitMessage({
+      type: 'encoded-source:read',
+      generation: opened.sourceLifetimeGeneration,
+      decoderGeneration: 1,
+      requestId: 1,
+      offset: 0,
+      length: 1,
+    });
+    await vi.waitFor(() => expect(h.readAt).toHaveBeenCalledTimes(1));
+    h.worker.autoRetireOnClose = false;
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+
+    vi.useFakeTimers();
+    try {
+      const closing = h.adapter.close();
+      await vi.advanceTimersByTimeAsync(4_000);
+      await closing;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const timedOut = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(lifecycleDelta(baseline, timedOut, 'workers', 'unconfirmed')).toBe(1);
+    expect(lifecycleDelta(baseline, timedOut, 'ports', 'unconfirmed')).toBeGreaterThanOrEqual(1);
+    expect(h.closeSource).toHaveBeenCalledTimes(1);
+    expect(h.worker.terminateCount).toBe(1);
   });
 
   it('fails a mismatched source-open echo and permits exact-once partial cleanup', async () => {
@@ -276,7 +565,7 @@ describe('FlacDecoderAdapter', () => {
     expect(fatalCodes).toEqual(['decoder-source-open-mismatch']);
     expect(h.worker.terminateCount).toBe(1);
     expect(h.closeSource).toHaveBeenCalledTimes(1);
-    expect(h.channels[0]?.port1.closeCount).toBeGreaterThan(0);
-    expect(h.channels[0]?.port2.closeCount).toBeGreaterThan(0);
+    expect(h.channels[0]?.port1.closeCount).toBe(1);
+    expect(h.channels[0]?.port2.closeCount).toBe(0);
   });
 });

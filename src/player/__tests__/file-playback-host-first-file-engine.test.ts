@@ -23,6 +23,7 @@ import {
   type FilePlaybackHostFirstFileEngineRuntimeForTests,
   type HostCurrentPlaybackTimelineCommittedEvent,
   type HostCurrentPlaybackTransitionScheduledEvent,
+  type HostRemoteEndRequiredEvent,
   type HostPeerPlaybackPublication,
   type HostPreparedLocalTrack,
   type StartHostFirstLocalFileOptions,
@@ -636,6 +637,7 @@ function makeHarness(
     readonly onTransitionScheduled?: (
       event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
     ) => void;
+    readonly onRemoteEndRequired?: (event: Readonly<HostRemoteEndRequiredEvent>) => void;
     readonly onTimelineCommitted?: (
       event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
     ) => void;
@@ -831,6 +833,7 @@ function makeHarness(
     ...(options.onTransitionScheduled
       ? { onTransitionScheduled: options.onTransitionScheduled }
       : {}),
+    ...(options.onRemoteEndRequired ? { onRemoteEndRequired: options.onRemoteEndRequired } : {}),
     ...(options.onTimelineCommitted ? { onTimelineCommitted: options.onTimelineCommitted } : {}),
     runtimeForTests,
   });
@@ -1075,6 +1078,7 @@ function remoteRecoveryHarness(
   publication: Readonly<
     Pick<HostPeerPlaybackPublication, 'asset' | 'state'> | HostPreparedLocalTrack
   >,
+  dispatchOrder?: string[],
 ): RemoteRecoveryHarness {
   const arms: RendezvousArmIntent[] = [];
   const finalizes: RendezvousFinalizeIntent[] = [];
@@ -1093,9 +1097,15 @@ function remoteRecoveryHarness(
     rttP95Ms: 40,
     armP95Ms: 80,
     nowRoomTimeMs: () => nowRoomTimeMs,
-    dispatchArm: (intent) => arms.push(intent),
+    dispatchArm: (intent) => {
+      dispatchOrder?.push('rendezvous-arm');
+      arms.push(intent);
+    },
     dispatchFinalize: (intent) => finalizes.push(intent),
-    dispatchCancel: (intent) => cancels.push(intent),
+    dispatchCancel: (intent) => {
+      dispatchOrder?.push('file-playback-cancel');
+      cancels.push(intent);
+    },
   });
   return {
     participant,
@@ -3162,7 +3172,12 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   });
 
   it('fences same-participant ABA and cancels only stale recovery on revision or close', async () => {
-    const harness = makeHarness([{ backend: 'bounded-stream' }]);
+    const recoveryTransitionOrder: string[] = [];
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
+      onTransitionScheduled: (event) => {
+        recoveryTransitionOrder.push(`state-successor:${event.kind}`);
+      },
+    });
     await resolveLatestStart(
       harness,
       harness.start(new Blob([new Uint8Array([10])], { type: 'audio/flac' })),
@@ -3196,7 +3211,11 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       participantId: 'recovery-aba-peer',
     });
 
-    const revision = remoteRecoveryHarness('recovery-revision-peer', publication);
+    const revision = remoteRecoveryHarness(
+      'recovery-revision-peer',
+      publication,
+      recoveryTransitionOrder,
+    );
     const revisionTask = harness.engine.recoverRemoteParticipant({
       publication,
       participant: revision.participant,
@@ -3206,6 +3225,14 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const pause = harness.engine.pauseCurrent({ signal: new AbortController().signal });
     await expect(revisionTask).rejects.toThrow(/transition|superseded|recovery/iu);
     await drainMicrotasks();
+    expect(revision.cancels).toEqual([
+      expect.objectContaining({ reasonCode: 'remote-recovery-pause-transition' }),
+    ]);
+    expect(recoveryTransitionOrder).toEqual([
+      'rendezvous-arm',
+      'file-playback-cancel',
+      'state-successor:pause',
+    ]);
     expect(harness.sources[0]?.hasPendingPause()).toBe(true);
     harness.sources[0]?.resolvePause();
     await expect(pause).resolves.toMatchObject({ kind: 'pause' });
@@ -4015,7 +4042,25 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   it.each(['audio-buffer', 'bounded-stream'] as const)(
     'settles natural end for a %s renderer without synthesizing a scheduled stop',
     async (backend) => {
-      const harness = makeHarness([{ backend }]);
+      const order: string[] = [];
+      const scheduledEvents: Readonly<HostCurrentPlaybackTransitionScheduledEvent>[] = [];
+      const remoteEndEvents: Readonly<HostRemoteEndRequiredEvent>[] = [];
+      const committedEvents: Readonly<HostCurrentPlaybackTimelineCommittedEvent>[] = [];
+      const harness = makeHarness([{ backend }], {
+        onTransitionScheduled: (event) => {
+          scheduledEvents.push(event);
+          order.push('scheduled');
+        },
+        onRemoteEndRequired: (event) => {
+          remoteEndEvents.push(event);
+          order.push('remote-end-required');
+          throw new Error('one remote-end observer failed');
+        },
+        onTimelineCommitted: (event) => {
+          committedEvents.push(event);
+          order.push('committed');
+        },
+      });
       const blob = new Blob([new Uint8Array([67])], {
         type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
       });
@@ -4032,6 +4077,22 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         kind: 'ended',
         evidence: { kind: 'ended-renderer-retired', to: { revision: 2 } },
         timeline: { phase: 'stopped', revision: 2, run: null },
+      });
+      expect(scheduledEvents).toEqual([]);
+      expect(order).toEqual(['remote-end-required', 'committed']);
+      expect(remoteEndEvents).toHaveLength(1);
+      expect(remoteEndEvents[0]).toMatchObject({
+        schemaVersion: 1,
+        roomGeneration: 1,
+        from: { revision: previous.revision },
+        to: { revision: previous.revision + 1 },
+        hostObservedAtRoomTimeMs: 2_000,
+      });
+      expect(Object.isFrozen(remoteEndEvents[0])).toBe(true);
+      expect(committedEvents[0]).toMatchObject({
+        kind: 'ended',
+        previous,
+        timeline: { phase: 'stopped', revision: previous.revision + 1, run: null },
       });
       expect(harness.manager.currentCutoverPort()).toBeNull();
       expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);

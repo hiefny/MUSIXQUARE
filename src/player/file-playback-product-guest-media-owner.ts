@@ -3,8 +3,8 @@ import type {
   FilePlaybackPeerRangeAdoptionEvent,
   FilePlaybackWireAdoptionEvent,
 } from '../network/file-playback-application-session.ts';
-import { delay } from '../core/timers.ts';
 import { FilePlaybackConnectionChannel } from '../network/file-playback-connection-channel.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
   FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
@@ -52,6 +52,11 @@ import {
   isExactFilePlaybackManager,
   type FilePlaybackCutoverCandidatePort,
 } from './file-playback-manager.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from './diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from './diagnostics/file-playback-universal-lifecycle-retirement.ts';
 import type {
   FilePlaybackProductSessionRouterConnectionContext,
   FilePlaybackProductSessionRouterGuestMediaOwnerPort,
@@ -72,12 +77,17 @@ import {
 } from './file-playback-r2-whole-blob-acquirer.ts';
 import {
   readFilePlaybackStartEvidence,
+  type FilePlaybackCancelIntent,
   type FilePlaybackSourceSnapshot,
   type FilePlaybackStartEvidence,
   type FilePlaybackPauseTransitionIntent,
   type FilePlaybackSeekTransitionIntent,
 } from './file-playback-source.ts';
 import type { FilePlaybackStopTransitionIntent } from './file-playback-stop-transition.ts';
+import {
+  readFilePlaybackRemoteEndedTransitionEvidence,
+  type FilePlaybackRemoteEndedTransitionIntent,
+} from './file-playback-remote-ended-transition.ts';
 import type { OrdinaryAudioDecoder } from './file-playback-source-factory.ts';
 import { parseFilePlaybackRunBindingV2 } from './file-playback-run-binding.ts';
 import type {
@@ -162,12 +172,16 @@ const RUNTIME_KEYS = Object.freeze([
   'createParticipant',
   'currentPort',
   'currentSnapshot',
+  'recoveryRequired',
   'retireCandidate',
   'retireCurrent',
   'pauseCurrent',
   'seekCurrent',
   'stopCurrent',
+  'remoteEndCurrent',
   'waitForClockPoll',
+  'scheduleTimeoutForTests',
+  'cancelTimeoutForTests',
 ] as const);
 const AUXILIARY_EVENT_KEYS = Object.freeze([
   'channel',
@@ -175,6 +189,26 @@ const AUXILIARY_EVENT_KEYS = Object.freeze([
   'connectionToken',
   'frame',
 ] as const);
+
+async function settlePhysicalCleanupStrictly(
+  tasks: readonly Promise<unknown>[],
+  message: string,
+): Promise<void> {
+  const settlements = await Promise.allSettled(tasks);
+  const failures = settlements
+    .filter((settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected')
+    .map((settlement) => settlement.reason);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, message);
+}
+
+function invokePhysicalCleanup(cleanup: () => void | PromiseLike<void>): Promise<void> {
+  try {
+    return Promise.resolve(cleanup());
+  } catch (cause) {
+    return Promise.reject(cause);
+  }
+}
 const PEER_EVENT_KEYS = Object.freeze([
   'channel',
   'connection',
@@ -225,8 +259,19 @@ const MANIFEST_CONSTRUCTION_KEYS = Object.freeze([
 const DEFAULT_ARM_P95_MS = 75;
 const DEFAULT_READY_LEASE_MS = 30_000;
 const DEFAULT_RENDERER_HEALTH_LEASE_MS = 10_000;
+const RENDERER_HEALTH_HEARTBEAT_DIVISOR = 3;
 const CLOCK_POLL_MS = 20;
 const WARM_CLOSE_GRACE_MS = 2_000;
+const TERMINAL_REMOTE_RECOVERY_CANCEL_REASONS = new Set([
+  'remote-recovery-pause-transition',
+  'remote-recovery-seek-transition',
+  'remote-recovery-stop-transition',
+  'remote-recovery-ended-transition',
+]);
+
+function isTerminalRemoteRecoveryCancelReason(reasonCode: string): boolean {
+  return TERMINAL_REMOTE_RECOVERY_CANCEL_REASONS.has(reasonCode);
+}
 
 type ExactRecord = Readonly<Record<string, unknown>>;
 type MaybePromiseBoolean = boolean | PromiseLike<boolean>;
@@ -244,6 +289,8 @@ type RetireManifestDecoderConstruction =
 type StageManifestAssetSource = (
   options: StageFilePlaybackPeerRangeManifestAssetSourceOptions,
 ) => Promise<Readonly<StagedFilePlaybackAssetSource>>;
+type TimerHandle = string;
+let rendererHealthTimerSequence = 0;
 
 interface GuestR2AcquirerPort {
   acquire(
@@ -266,6 +313,7 @@ interface GuestRendezvousParticipantPort {
   finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt>;
   started(identity: PlaybackAttemptIdentity): Promise<FilePlaybackStartEvidence>;
   commitAttempt(identity: PlaybackAttemptIdentity): boolean;
+  cancel(intent: FilePlaybackCancelIntent): Promise<void>;
 }
 
 interface RuntimeSnapshot {
@@ -295,6 +343,7 @@ interface RuntimeSnapshot {
     manager: FilePlaybackManager,
     port: FilePlaybackCutoverCandidatePort,
   ) => FilePlaybackSourceSnapshot | null;
+  readonly recoveryRequired: (manager: FilePlaybackManager) => boolean;
   readonly retireCandidate: (
     manager: FilePlaybackManager,
     port: FilePlaybackCutoverCandidatePort,
@@ -315,7 +364,13 @@ interface RuntimeSnapshot {
     manager: FilePlaybackManager,
     ...args: Parameters<FilePlaybackManager['stopCurrentCutover']>
   ) => ReturnType<FilePlaybackManager['stopCurrentCutover']>;
+  readonly remoteEndCurrent: (
+    manager: FilePlaybackManager,
+    ...args: Parameters<FilePlaybackManager['retireRemoteEndedCurrent']>
+  ) => ReturnType<FilePlaybackManager['retireRemoteEndedCurrent']>;
   readonly waitForClockPoll: (signal: AbortSignal) => Promise<void>;
+  readonly scheduleTimeout: (callback: () => void, delayMs: number) => TimerHandle;
+  readonly cancelTimeout: (handle: TimerHandle) => void;
 }
 
 export interface FilePlaybackProductGuestMediaOwnerRuntimeForTests {
@@ -332,9 +387,13 @@ export interface FilePlaybackProductGuestMediaOwnerRuntimeForTests {
   readonly createParticipant?: RuntimeSnapshot['createParticipant'];
   readonly currentPort?: RuntimeSnapshot['currentPort'];
   readonly currentSnapshot?: RuntimeSnapshot['currentSnapshot'];
+  readonly recoveryRequired?: RuntimeSnapshot['recoveryRequired'];
   readonly retireCandidate?: RuntimeSnapshot['retireCandidate'];
   readonly retireCurrent?: RuntimeSnapshot['retireCurrent'];
+  readonly remoteEndCurrent?: RuntimeSnapshot['remoteEndCurrent'];
   readonly waitForClockPoll?: RuntimeSnapshot['waitForClockPoll'];
+  readonly scheduleTimeoutForTests?: RuntimeSnapshot['scheduleTimeout'];
+  readonly cancelTimeoutForTests?: RuntimeSnapshot['cancelTimeout'];
 }
 
 export interface FilePlaybackProductGuestMediaOwnerOptions {
@@ -382,7 +441,8 @@ interface GuestPreparedRun {
   readonly operation: Readonly<FilePlaybackConnectionMediaOperation>;
   statePreparation: Readonly<FilePlaybackConnectionMediaStatePreparation> | null;
   stateOperation: Readonly<FilePlaybackConnectionMediaStateOperation> | null;
-  readonly rendezvousTarget: Readonly<GuestRendezvousTarget> | null;
+  rendezvousTarget: Readonly<GuestRendezvousTarget> | null;
+  recoveryTargetAllowed: boolean;
   assetLease: FilePlaybackAssetLease | null;
   manifestAdmission: FilePlaybackPeerRangeManifestAdmission | null;
   audioGraph: Readonly<FilePlaybackProductGuestAudioGraph> | null;
@@ -445,6 +505,17 @@ interface GuestAttempt {
   armTask: Promise<void>;
   finalizeTask: Promise<void> | null;
   committed: boolean;
+  cancelled: boolean;
+}
+
+interface GuestRendererHealthHeartbeat {
+  readonly generation: number;
+  readonly room: GuestRoomState;
+  readonly prepared: GuestPreparedRun;
+  readonly attempt: GuestAttempt;
+  readonly renderedFrame: number;
+  timerHandle: TimerHandle | null;
+  timerLifecycleLease: FilePlaybackUniversalLifecycleLease | null;
 }
 
 const channelRole = FilePlaybackConnectionChannel.prototype.role;
@@ -457,6 +528,7 @@ const channelNowRoomTime = FilePlaybackConnectionChannel.prototype.nowRoomTimeMs
 const channelQuality = FilePlaybackConnectionChannel.prototype.quality;
 const channelCreateWire = FilePlaybackConnectionChannel.prototype.createWire;
 const channelCommitAttempt = FilePlaybackConnectionChannel.prototype.commitAttempt;
+const channelRetireAttempt = FilePlaybackConnectionChannel.prototype.retireAttempt;
 const registryAdmitEncoded = FilePlaybackAssetRegistry.prototype.admitEncodedAsset;
 const registryAdmitProvisionalEncoded =
   FilePlaybackAssetRegistry.prototype.admitProvisionalEncodedAsset;
@@ -465,11 +537,13 @@ const registryDiscardProvisional = FilePlaybackAssetRegistry.prototype.discardPr
 const registrySnapshot = FilePlaybackAssetRegistry.prototype.snapshotForLease;
 const managerCurrentPort = FilePlaybackManager.prototype.currentCutoverPort;
 const managerCurrentSnapshot = FilePlaybackManager.prototype.currentCutoverSnapshot;
+const managerRecoveryRequired = FilePlaybackManager.prototype.cutoverRecoveryRequired;
 const managerRetireCandidate = FilePlaybackManager.prototype.retireCutoverCandidate;
 const managerRetireCurrent = FilePlaybackManager.prototype.retireCurrentCutover;
 const managerPauseCurrent = FilePlaybackManager.prototype.pauseCurrentCutover;
 const managerSeekCurrent = FilePlaybackManager.prototype.seekCurrentCutover;
 const managerStopCurrent = FilePlaybackManager.prototype.stopCurrentCutover;
+const managerRemoteEndCurrent = FilePlaybackManager.prototype.retireRemoteEndedCurrent;
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
@@ -561,13 +635,28 @@ function snapshotOptionalRuntime(value: unknown): Readonly<Record<string, unknow
   }
 }
 
+function lifecycleDelay(delayMs: number): Promise<void> {
+  const timerLease = acquireFilePlaybackUniversalLifecycleLease('timers');
+  return new Promise<void>((resolve, reject) => {
+    try {
+      globalThis.setTimeout(() => {
+        timerLease.beginRetire().release();
+        resolve();
+      }, delayMs);
+    } catch (error) {
+      timerLease.beginRetire().release();
+      reject(error);
+    }
+  });
+}
+
 function waitForClockPoll(signal: AbortSignal): Promise<void> {
   if (signal.aborted) {
     return Promise.reject(
       signal.reason ?? new DOMException('Guest media owner was revoked', 'AbortError'),
     );
   }
-  return delay(CLOCK_POLL_MS);
+  return lifecycleDelay(CLOCK_POLL_MS);
 }
 
 function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
@@ -620,6 +709,9 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
       (runtime.currentSnapshot as RuntimeSnapshot['currentSnapshot'] | undefined) ??
       ((manager: FilePlaybackManager, port: FilePlaybackCutoverCandidatePort) =>
         Reflect.apply(managerCurrentSnapshot, manager, [port])),
+    recoveryRequired:
+      (runtime.recoveryRequired as RuntimeSnapshot['recoveryRequired'] | undefined) ??
+      ((manager: FilePlaybackManager) => Reflect.apply(managerRecoveryRequired, manager, [])),
     retireCandidate:
       (runtime.retireCandidate as RuntimeSnapshot['retireCandidate'] | undefined) ??
       ((manager: FilePlaybackManager, port: FilePlaybackCutoverCandidatePort) =>
@@ -649,9 +741,26 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
         port: FilePlaybackCutoverCandidatePort,
         intent: FilePlaybackStopTransitionIntent,
       ) => Reflect.apply(managerStopCurrent, manager, [port, intent])),
+    remoteEndCurrent:
+      (runtime.remoteEndCurrent as RuntimeSnapshot['remoteEndCurrent'] | undefined) ??
+      ((
+        manager: FilePlaybackManager,
+        port: FilePlaybackCutoverCandidatePort,
+        intent: FilePlaybackRemoteEndedTransitionIntent,
+      ) => Reflect.apply(managerRemoteEndCurrent, manager, [port, intent])),
     waitForClockPoll:
       (runtime.waitForClockPoll as RuntimeSnapshot['waitForClockPoll'] | undefined) ??
       waitForClockPoll,
+    scheduleTimeout:
+      (runtime.scheduleTimeoutForTests as RuntimeSnapshot['scheduleTimeout'] | undefined) ??
+      ((callback: () => void, delayMs: number) => {
+        const name = `file-playback-guest-renderer-health-${++rendererHealthTimerSequence}`;
+        setManagedTimer(name, callback, delayMs);
+        return name;
+      }),
+    cancelTimeout:
+      (runtime.cancelTimeoutForTests as RuntimeSnapshot['cancelTimeout'] | undefined) ??
+      ((handle: TimerHandle) => clearManagedTimer(handle)),
   });
 }
 
@@ -936,7 +1045,8 @@ function isParticipant(
     typeof (value as GuestRendezvousParticipantPort).arm === 'function' &&
     typeof (value as GuestRendezvousParticipantPort).finalize === 'function' &&
     typeof (value as GuestRendezvousParticipantPort).started === 'function' &&
-    typeof (value as GuestRendezvousParticipantPort).commitAttempt === 'function'
+    typeof (value as GuestRendezvousParticipantPort).commitAttempt === 'function' &&
+    typeof (value as GuestRendezvousParticipantPort).cancel === 'function'
   );
 }
 
@@ -954,7 +1064,15 @@ class GuestOfferWarmCleanupError extends Error {
   }
 }
 
+class GuestRendezvousAttemptCancelledError extends Error {
+  constructor() {
+    super('Guest rendezvous attempt was cancelled');
+    this.name = 'GuestRendezvousAttemptCancelledError';
+  }
+}
+
 class GuestMediaOwner {
+  readonly #lifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
   readonly #roomToken: object;
   readonly #registry: FilePlaybackAssetRegistry;
@@ -988,6 +1106,8 @@ class GuestMediaOwner {
   #fatalPublished = false;
   #timelineCallbackActive = false;
   #audioGraphPromise: Promise<Readonly<FilePlaybackProductGuestAudioGraph>> | null = null;
+  #rendererHealthHeartbeatGeneration = 0;
+  #rendererHealthHeartbeat: GuestRendererHealthHeartbeat | null = null;
 
   constructor(options: FilePlaybackProductGuestMediaOwnerOptions) {
     const input = snapshotAllowedOptions(options);
@@ -1091,6 +1211,13 @@ class GuestMediaOwner {
         if (token === this.#roomToken) this.#fatal('Guest R2 whole-Blob acquisition failed', error);
       },
     });
+    try {
+      this.#lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('connectionOwners');
+    } catch (error) {
+      void invokePhysicalCleanup(() => this.#peerTransport.close(error)).catch(() => undefined);
+      void invokePhysicalCleanup(() => this.#r2Acquirer.close()).catch(() => undefined);
+      throw error;
+    }
   }
 
   onTimelineAdopted(value: FilePlaybackApplicationTimelineAdoptedEvent): void {
@@ -1271,6 +1398,7 @@ class GuestMediaOwner {
         statePreparation: null,
         stateOperation: null,
         rendezvousTarget: null,
+        recoveryTargetAllowed: false,
         assetLease: null,
         manifestAdmission: null,
         audioGraph: null,
@@ -1361,6 +1489,7 @@ class GuestMediaOwner {
             positionSeconds: message.positionSeconds,
             playbackRate: message.playbackRate,
           }),
+          recoveryTargetAllowed: false,
           assetLease: current.assetLease,
           manifestAdmission: current.manifestAdmission,
           audioGraph: current.audioGraph,
@@ -1374,7 +1503,7 @@ class GuestMediaOwner {
         acknowledge();
         this.#enqueue('same-run state successor preparation', async () => {
           await this.#prepareSameSourceCandidate(room, candidate);
-          await this.#publishSameRunStateReady(room, candidate);
+          await this.#publishSameSourceReady(room, candidate);
         });
         return;
       }
@@ -1394,7 +1523,11 @@ class GuestMediaOwner {
             operation: prepared.operation,
             statePreparation: null,
             stateOperation: null,
-            rendezvousTarget: null,
+            rendezvousTarget: freezeCanonical({
+              positionSeconds: message.positionSeconds,
+              playbackRate: message.playbackRate,
+            }),
+            recoveryTargetAllowed: false,
             assetLease: prepared.assetLease,
             manifestAdmission: prepared.manifestAdmission,
             audioGraph: prepared.audioGraph,
@@ -1422,12 +1555,23 @@ class GuestMediaOwner {
         if (prepared.attempt) throw new Error('Guest prepared run already owns an attempt');
         if (
           prepared.kind === 'state-successor' &&
-          (!prepared.statePreparation ||
-            !prepared.rendezvousTarget ||
-            message.positionSeconds !== prepared.rendezvousTarget.positionSeconds ||
-            message.playbackRate !== prepared.rendezvousTarget.playbackRate)
+          (!prepared.statePreparation || prepared.rendezvousTarget === null)
         ) {
           throw new Error('Guest same-run ARM disagreed with its exact PREPARE target');
+        }
+        if (
+          prepared.rendezvousTarget !== null &&
+          (message.playbackRate !== prepared.rendezvousTarget.playbackRate ||
+            (!prepared.recoveryTargetAllowed &&
+              message.positionSeconds !== prepared.rendezvousTarget.positionSeconds))
+        ) {
+          throw new Error('Guest rendezvous ARM disagreed with its canonical target');
+        }
+        if (prepared.rendezvousTarget === null) {
+          prepared.rendezvousTarget = freezeCanonical({
+            positionSeconds: message.positionSeconds,
+            playbackRate: message.playbackRate,
+          });
         }
         const stateOperation =
           prepared.kind === 'state-successor'
@@ -1459,6 +1603,7 @@ class GuestMediaOwner {
           admittedAttempt,
           stateOperation,
         );
+        prepared.recoveryTargetAllowed = false;
         prepared.attempt = attempt;
         acknowledge();
         this.#enqueue('rendezvous arm', async () => {
@@ -1494,6 +1639,47 @@ class GuestMediaOwner {
         });
         return;
       }
+      if (message.kind === 'file-playback-cancel') {
+        const prepared = this.#preparedForMessage(room, message);
+        const attempt = prepared?.attempt;
+        const terminalRecoveryCancel = isTerminalRemoteRecoveryCancelReason(message.reasonCode);
+        if (
+          !prepared ||
+          !attempt ||
+          !this.#cancelAuthorityIsCurrent(room, prepared, attempt) ||
+          event!.attemptLease !== attempt.attemptLease ||
+          message.rendezvousId !== attempt.rendezvousId ||
+          message.rendezvousId !== attempt.identity.rendezvousId ||
+          !sameState(prepared.state, attempt.identity)
+        ) {
+          throw new Error('Guest rendezvous cancel has no exact uncommitted attempt');
+        }
+        if (
+          terminalRecoveryCancel &&
+          (prepared.kind !== 'recovery' || room.candidate !== prepared)
+        ) {
+          throw new Error(
+            'Guest terminal recovery cancel did not own the exact recovery candidate',
+          );
+        }
+        const intent: Readonly<FilePlaybackCancelIntent> = freezeCanonical({
+          kind: 'file-playback-cancel' as const,
+          ...attempt.identity,
+          reasonCode: message.reasonCode,
+        });
+        // Reserve this exact attempt before acknowledging so a hostile
+        // synchronous acknowledgement re-entry cannot cancel it twice.
+        attempt.cancelled = true;
+        this.#cancelAttempt(
+          room,
+          prepared,
+          attempt,
+          intent,
+          terminalRecoveryCancel ? 'terminal' : 'retry',
+        );
+        acknowledge();
+        return;
+      }
       const current = room.current;
       if (!current || !messageMatchesCurrentSuccessor(message, this.#context, current)) {
         throw new Error('Guest successor wire does not match the exact current run');
@@ -1501,7 +1687,8 @@ class GuestMediaOwner {
       if (
         message.kind !== 'file-playback-pause' &&
         message.kind !== 'file-playback-seek' &&
-        message.kind !== 'file-playback-stop'
+        message.kind !== 'file-playback-stop' &&
+        message.kind !== 'file-playback-ended'
       ) {
         throw new Error(`Guest wire kind is unsupported: ${message.kind}`);
       }
@@ -1522,6 +1709,10 @@ class GuestMediaOwner {
       ) {
         throw new Error('Guest state wire is not the exact current successor');
       }
+      // The host retires the current rendezvous lease before publishing this
+      // successor. Fence the old heartbeat before acknowledgement can re-enter
+      // or the scheduled native transition can yield back to the event loop.
+      this.#stopRendererHealthHeartbeat(current);
       acknowledge();
       this.#enqueue(message.kind, async () =>
         this.#applyStateSuccessor(
@@ -1641,7 +1832,6 @@ class GuestMediaOwner {
     prepared: GuestPreparedRun,
   ): Promise<void> {
     if (
-      (prepared.kind !== 'recovery' && prepared.kind !== 'state-successor') ||
       !prepared.assetLease ||
       !prepared.audioGraph ||
       (prepared.kind === 'state-successor' && !prepared.statePreparation)
@@ -1685,29 +1875,25 @@ class GuestMediaOwner {
       throw new TypeError('Guest recovery participant is invalid');
     }
     prepared.participant = participant;
-    prepared.readyPublished = prepared.kind === 'recovery';
+    prepared.readyPublished = false;
     prepared.status = 'ready';
   }
 
-  async #publishSameRunStateReady(
-    room: GuestRoomState,
-    prepared: GuestPreparedRun,
-  ): Promise<void> {
+  async #publishSameSourceReady(room: GuestRoomState, prepared: GuestPreparedRun): Promise<void> {
     this.#assertPrepared(room, prepared);
     const preparation = prepared.statePreparation;
     const staged = prepared.staged;
     if (
-      prepared.kind !== 'state-successor' ||
-      !preparation ||
       !staged ||
       !prepared.participant ||
       prepared.status !== 'ready' ||
-      prepared.readyPublished
+      prepared.readyPublished ||
+      (prepared.kind === 'state-successor' && !preparation)
     ) {
-      throw new Error('Guest same-run PREPARE did not produce an exact ready candidate');
+      throw new Error('Guest same-source preparation did not produce an exact ready candidate');
     }
     const observedAtRoomTimeMs = this.#nowRoomTimeMs();
-    const wire = this.#mediaSession.createStatePreparationSourceWire(preparation, {
+    const payload = {
       kind: 'source-ready',
       observedAtRoomTimeMs,
       readyLeaseUntilRoomTimeMs: observedAtRoomTimeMs + this.#readyLeaseMs,
@@ -1716,7 +1902,13 @@ class GuestMediaOwner {
       bufferedAheadSeconds: staged.readiness.bufferedAheadSeconds,
       outputSampleRateHz: staged.readiness.outputSampleRateHz,
       channelCount: staged.readiness.channelCount,
-    });
+    } as const;
+    const wire =
+      prepared.kind === 'state-successor'
+        ? this.#mediaSession.createStatePreparationSourceWire(preparation!, payload)
+        : prepared.kind === 'successor'
+          ? this.#mediaSession.createCandidateSourceReadyWire(prepared.operation, payload)
+          : this.#mediaSession.createPreparedSourceReadyWire(prepared.operation, payload);
     this.#assertPrepared(room, prepared);
     await this.#sendRequired(wire);
     this.#assertPrepared(room, prepared);
@@ -2067,7 +2259,7 @@ class GuestMediaOwner {
       const cleanup = this.#cleanupOfferWarmResources(operation);
       const completed = await Promise.race([
         cleanup.then(() => true),
-        delay(WARM_CLOSE_GRACE_MS).then(() => false),
+        lifecycleDelay(WARM_CLOSE_GRACE_MS).then(() => false),
       ]);
       if (!completed) {
         throw new GuestOfferWarmCleanupError('Guest warm resource cleanup timed out');
@@ -2434,6 +2626,16 @@ class GuestMediaOwner {
     ) {
       throw new Error('Guest manager lacks exact physical renderer evidence');
     }
+    const canonicalRendezvousTarget =
+      prepared.kind === 'successor' || prepared.kind === 'state-successor'
+        ? prepared.rendezvousTarget
+        : null;
+    if (
+      (prepared.kind === 'successor' || prepared.kind === 'state-successor') &&
+      canonicalRendezvousTarget === null
+    ) {
+      throw new Error('Guest successor has no canonical rendezvous target');
+    }
     this.#assertAttempt(room, prepared, attempt);
     if (!attempt.participant.commitAttempt(attempt.identity)) {
       throw new Error('Guest cutover participant rejected physical commit');
@@ -2470,7 +2672,7 @@ class GuestMediaOwner {
       room.physical = freezeCanonical({
         state: prepared.state,
         phase: 'playing' as const,
-        positionSeconds: attempt.armIntent.positionSeconds,
+        positionSeconds: canonicalRendezvousTarget!.positionSeconds,
       });
     } else if (prepared.kind === 'recovery') {
       const previous = room.current;
@@ -2491,11 +2693,7 @@ class GuestMediaOwner {
       underrunCount: afterCommit.underrunCount,
       reasonCode: null,
     } as const;
-    const healthWire = attempt.stateOperation
-      ? this.#mediaSession.createStateAttemptWire(attempt.stateOperation, healthPayload)
-      : attempt.admittedAttempt
-        ? this.#mediaSession.createPreparedRunAttemptWire(attempt.admittedAttempt, healthPayload)
-        : this.#createAttemptWire(attempt.attemptLease, healthPayload);
+    const healthWire = this.#createRendererHealthWire(attempt, healthPayload);
     await this.#sendRequired(healthWire);
     this.#assertAttempt(room, prepared, attempt);
     if (attempt.stateOperation && prepared.stateOperation === attempt.stateOperation) {
@@ -2503,6 +2701,259 @@ class GuestMediaOwner {
       // The prepared renderer must stop gating later pause/seek/stop work on
       // this fence because the next ordinary state successor retires it.
       prepared.stateOperation = null;
+    }
+    this.#startRendererHealthHeartbeat(room, prepared, attempt, renderedFrame);
+  }
+
+  #createRendererHealthWire(
+    attempt: GuestAttempt,
+    payload: Readonly<{
+      kind: 'renderer-health';
+      rendezvousId: string;
+      value: 'healthy';
+      observedAtRoomTimeMs: number;
+      leaseUntilRoomTimeMs: number;
+      renderedFrame: number;
+      underrunCount: number;
+      reasonCode: null;
+    }>,
+  ): FilePlaybackWireMessage {
+    return attempt.stateOperation
+      ? this.#mediaSession.createStateAttemptWire(attempt.stateOperation, payload)
+      : attempt.admittedAttempt
+        ? this.#mediaSession.createPreparedRunAttemptWire(attempt.admittedAttempt, payload)
+        : this.#createAttemptWire(attempt.attemptLease, payload);
+  }
+
+  #startRendererHealthHeartbeat(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    attempt: GuestAttempt,
+    renderedFrame: number,
+  ): void {
+    this.#stopRendererHealthHeartbeat();
+    const heartbeat: GuestRendererHealthHeartbeat = {
+      generation: this.#rendererHealthHeartbeatGeneration,
+      room,
+      prepared,
+      attempt,
+      renderedFrame,
+      timerHandle: null,
+      timerLifecycleLease: null,
+    };
+    this.#rendererHealthHeartbeat = heartbeat;
+    // A successor can be physically current before its canonical timeline
+    // update arrives. Retain the exact generation now, but do not publish a
+    // heartbeat until both authorities name the same playing state.
+    if (this.#rendererHealthSnapshot(heartbeat)) this.#scheduleRendererHealthHeartbeat(heartbeat);
+  }
+
+  #scheduleRendererHealthHeartbeat(heartbeat: GuestRendererHealthHeartbeat): void {
+    if (
+      this.#rendererHealthHeartbeat !== heartbeat ||
+      heartbeat.generation !== this.#rendererHealthHeartbeatGeneration ||
+      heartbeat.timerHandle !== null ||
+      heartbeat.timerLifecycleLease !== null
+    ) {
+      return;
+    }
+    if (!this.#rendererHealthSnapshot(heartbeat)) return;
+
+    const timerLifecycleLease = acquireFilePlaybackUniversalLifecycleLease('timers');
+    let timerHandle: TimerHandle | null = null;
+    let firedSynchronously = false;
+    let timerLifecycleSettled = false;
+    const releaseTimerLifecycle = (): void => {
+      if (timerLifecycleSettled) return;
+      timerLifecycleSettled = true;
+      timerLifecycleLease.beginRetire().release();
+    };
+    const forceTimerLifecycle = (): void => {
+      if (timerLifecycleSettled) return;
+      timerLifecycleSettled = true;
+      timerLifecycleLease.forceUnconfirmed();
+    };
+    try {
+      const scheduledHandle = this.#runtime.scheduleTimeout(
+        () => {
+          if (timerHandle === null) {
+            firedSynchronously = true;
+            return;
+          }
+          this.#rendererHealthHeartbeatTimerFired(heartbeat, timerHandle, timerLifecycleLease);
+        },
+        Math.max(1, Math.floor(this.#rendererHealthLeaseMs / RENDERER_HEALTH_HEARTBEAT_DIVISOR)),
+      );
+      if (typeof scheduledHandle !== 'string' || scheduledHandle.length === 0) {
+        throw new TypeError('Guest renderer-health timer handle is invalid');
+      }
+      timerHandle = scheduledHandle;
+      if (firedSynchronously) {
+        try {
+          this.#runtime.cancelTimeout(scheduledHandle);
+          releaseTimerLifecycle();
+        } catch {
+          forceTimerLifecycle();
+        }
+        throw new Error('Guest renderer-health timer fired synchronously while scheduling');
+      }
+    } catch (error) {
+      releaseTimerLifecycle();
+      throw error;
+    }
+    heartbeat.timerHandle = timerHandle;
+    heartbeat.timerLifecycleLease = timerLifecycleLease;
+  }
+
+  #rendererHealthHeartbeatTimerFired(
+    heartbeat: GuestRendererHealthHeartbeat,
+    timerHandle: TimerHandle,
+    timerLifecycleLease: FilePlaybackUniversalLifecycleLease,
+  ): void {
+    if (
+      this.#rendererHealthHeartbeat !== heartbeat ||
+      heartbeat.generation !== this.#rendererHealthHeartbeatGeneration ||
+      heartbeat.timerHandle !== timerHandle ||
+      heartbeat.timerLifecycleLease !== timerLifecycleLease
+    ) {
+      return;
+    }
+    heartbeat.timerHandle = null;
+    heartbeat.timerLifecycleLease = null;
+    timerLifecycleLease.beginRetire().release();
+    if (!this.#rendererHealthSnapshot(heartbeat)) {
+      this.#stopRendererHealthHeartbeat();
+      return;
+    }
+    this.#dispatchRendererHealthHeartbeat(heartbeat);
+  }
+
+  #dispatchRendererHealthHeartbeat(heartbeat: GuestRendererHealthHeartbeat): void {
+    // Candidate acquisition and decoder construction intentionally serialize on
+    // the media lane, but they must not consume the live renderer's health
+    // lease. This task has its own single-flight cadence (the next timeout is
+    // scheduled only after this send settles) while the exact heartbeat
+    // generation and attempt lease fence it from every transition and close.
+    // Defer the body by one microtask so this tracked identity is published
+    // before a send callback can synchronously re-enter revoke or transition.
+    const task = Promise.resolve().then(() => this.#publishRendererHealthHeartbeat(heartbeat));
+    const tracked = task.catch((error: unknown) => {
+      if (!this.#closed) this.#fatal('Guest media owner renderer-health heartbeat failed', error);
+    });
+    this.#tasks.add(tracked);
+    void tracked.then(() => this.#tasks.delete(tracked));
+  }
+
+  async #publishRendererHealthHeartbeat(heartbeat: GuestRendererHealthHeartbeat): Promise<void> {
+    const snapshot = this.#rendererHealthSnapshot(heartbeat);
+    if (!snapshot) {
+      this.#stopRendererHealthHeartbeat();
+      return;
+    }
+    const observedAtRoomTimeMs = this.#nowRoomTimeMs();
+    if (!this.#rendererHealthSnapshot(heartbeat)) {
+      this.#stopRendererHealthHeartbeat();
+      return;
+    }
+    const healthWire = this.#createRendererHealthWire(heartbeat.attempt, {
+      kind: 'renderer-health',
+      rendezvousId: heartbeat.attempt.rendezvousId,
+      value: 'healthy',
+      observedAtRoomTimeMs,
+      leaseUntilRoomTimeMs: observedAtRoomTimeMs + this.#rendererHealthLeaseMs,
+      renderedFrame: heartbeat.renderedFrame,
+      underrunCount: snapshot.underrunCount,
+      reasonCode: null,
+    });
+    if (!this.#rendererHealthSnapshot(heartbeat)) {
+      this.#stopRendererHealthHeartbeat();
+      return;
+    }
+    await this.#sendRequired(healthWire);
+    if (!this.#rendererHealthSnapshot(heartbeat)) {
+      this.#stopRendererHealthHeartbeat();
+      return;
+    }
+    this.#scheduleRendererHealthHeartbeat(heartbeat);
+  }
+
+  #rendererHealthSnapshot(
+    heartbeat: GuestRendererHealthHeartbeat,
+  ): FilePlaybackSourceSnapshot | null {
+    try {
+      const { room, prepared, attempt } = heartbeat;
+      const staged = prepared.staged;
+      const graph = prepared.audioGraph;
+      const timelineState = stateFromTimeline(room.timeline);
+      if (
+        this.#closed ||
+        this.#abort.signal.aborted ||
+        this.#rendererHealthHeartbeat !== heartbeat ||
+        heartbeat.generation !== this.#rendererHealthHeartbeatGeneration ||
+        room !== this.#room ||
+        room.current !== prepared ||
+        prepared.status !== 'current' ||
+        prepared.attempt !== attempt ||
+        !attempt.committed ||
+        attempt.cancelled ||
+        !sameState(prepared.state, attempt.identity) ||
+        room.timeline.phase !== 'playing' ||
+        !timelineState ||
+        !sameState(timelineState, prepared.state) ||
+        !staged ||
+        !graph ||
+        graph.audioContext.state !== 'running' ||
+        prepared.operation.fence.signal.aborted ||
+        prepared.operation.fence.isCurrent() !== true ||
+        this.#runtime.currentPort(this.#manager) !== staged.cutoverPort
+      ) {
+        return null;
+      }
+      if (
+        attempt.stateOperation &&
+        (attempt.stateOperation.fence.signal.aborted ||
+          attempt.stateOperation.fence.isCurrent() !== true)
+      ) {
+        return null;
+      }
+      if (
+        attempt.admittedAttempt &&
+        (attempt.admittedAttempt.fence.signal.aborted ||
+          attempt.admittedAttempt.fence.isCurrent() !== true)
+      ) {
+        return null;
+      }
+      const snapshot = this.#runtime.currentSnapshot(this.#manager, staged.cutoverPort);
+      return snapshot &&
+        snapshot.phase === 'playing' &&
+        snapshot.backend === staged.backend &&
+        snapshot.queueItemId === prepared.state.queueItemId &&
+        snapshot.run &&
+        sameState(snapshot.run, prepared.state) &&
+        this.#runtime.currentPort(this.#manager) === staged.cutoverPort
+        ? snapshot
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  #stopRendererHealthHeartbeat(prepared?: GuestPreparedRun): void {
+    const heartbeat = this.#rendererHealthHeartbeat;
+    if (prepared && heartbeat?.prepared !== prepared) return;
+    this.#rendererHealthHeartbeatGeneration += 1;
+    this.#rendererHealthHeartbeat = null;
+    if (!heartbeat) return;
+    const timerHandle = heartbeat.timerHandle;
+    const timerLifecycleLease = heartbeat.timerLifecycleLease;
+    heartbeat.timerHandle = null;
+    heartbeat.timerLifecycleLease = null;
+    if (timerHandle === null || timerLifecycleLease === null) return;
+    try {
+      this.#runtime.cancelTimeout(timerHandle);
+      timerLifecycleLease.beginRetire().release();
+    } catch {
+      timerLifecycleLease.forceUnconfirmed();
     }
   }
 
@@ -2536,7 +2987,136 @@ class GuestMediaOwner {
       armTask: Promise.resolve(),
       finalizeTask: null,
       committed: false,
+      cancelled: false,
     };
+  }
+
+  #cancelAuthorityIsCurrent(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    attempt: GuestAttempt,
+  ): boolean {
+    if (
+      attempt.cancelled ||
+      attempt.committed ||
+      prepared.attempt !== attempt ||
+      prepared.participant !== attempt.participant ||
+      !this.#preparedCurrent(room, prepared)
+    ) {
+      return false;
+    }
+    try {
+      if (attempt.stateOperation) {
+        return (
+          prepared.kind === 'state-successor' &&
+          prepared.stateOperation === attempt.stateOperation &&
+          attempt.admittedAttempt === null &&
+          !attempt.stateOperation.fence.signal.aborted &&
+          attempt.stateOperation.fence.isCurrent() === true
+        );
+      }
+      if (attempt.admittedAttempt) {
+        return (
+          prepared.kind === 'successor' &&
+          attempt.stateOperation === null &&
+          !attempt.admittedAttempt.fence.signal.aborted &&
+          attempt.admittedAttempt.fence.isCurrent() === true
+        );
+      }
+      return (
+        (prepared.kind === 'baseline' || prepared.kind === 'recovery') &&
+        attempt.stateOperation === null &&
+        attempt.admittedAttempt === null
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  #cancelAttempt(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    attempt: GuestAttempt,
+    intent: Readonly<FilePlaybackCancelIntent>,
+    disposition: 'retry' | 'terminal',
+  ): void {
+    const retiringStaged = prepared.staged;
+    if (!retiringStaged) {
+      throw new Error('Guest rendezvous cancellation lost its exact staged source');
+    }
+    const terminalCurrent = disposition === 'terminal' ? room.current : null;
+    const terminalSurvivor = terminalCurrent?.staged?.cutoverPort ?? null;
+    if (
+      disposition === 'terminal' &&
+      (!terminalCurrent ||
+        terminalCurrent === prepared ||
+        terminalSurvivor === null ||
+        this.#runtime.currentPort(this.#manager) !== terminalSurvivor ||
+        this.#runtime.recoveryRequired(this.#manager))
+    ) {
+      throw new Error('Guest terminal recovery cancellation has no exact current survivor');
+    }
+    const participantCancellation = invokePhysicalCleanup(() => attempt.participant.cancel(intent));
+    // The cancellation can reject before the ordered media lane reaches it.
+    // Attach a rejection observer now, while the lane still awaits and
+    // rethrows the original Promise for fail-close handling below.
+    void participantCancellation.catch(() => undefined);
+    let restageAfterCancellation = false;
+    // Track physical retirement immediately. The one-shot manager participant
+    // destroys its exact cutover port, so a valid retry must wait for that
+    // cleanup before re-staging from the retained in-memory asset.
+    this.#enqueuePhysicalCleanup('rendezvous cancel cleanup', async () => {
+      await participantCancellation;
+      if (this.#closed) return;
+      if (disposition === 'terminal') {
+        if (
+          prepared.staged !== retiringStaged ||
+          room.candidate !== prepared ||
+          room.current !== terminalCurrent ||
+          terminalCurrent?.staged?.cutoverPort !== terminalSurvivor ||
+          this.#runtime.currentPort(this.#manager) !== terminalSurvivor ||
+          this.#runtime.recoveryRequired(this.#manager)
+        ) {
+          throw new Error(
+            'Guest terminal recovery cancellation could not preserve the current renderer',
+          );
+        }
+        prepared.staged = null;
+        room.candidate = null;
+        return;
+      }
+      if (!restageAfterCancellation) return;
+      this.#assertPrepared(room, prepared);
+      if (prepared.staged !== retiringStaged) {
+        throw new Error('Guest rendezvous cancellation replaced its staged source');
+      }
+      // Keep the exact old port reachable until participant cancellation has
+      // physically retired it. A rejected cancellation closes the owner while
+      // this reference is still present, allowing forced retirement to find it.
+      prepared.staged = null;
+      await this.#prepareSameSourceCandidate(room, prepared);
+      await this.#publishSameSourceReady(room, prepared);
+    });
+    try {
+      if (attempt.stateOperation) {
+        const preparation = this.#mediaSession.retireStateSuccessorAttempt(attempt.stateOperation);
+        if (prepared.stateOperation === attempt.stateOperation) prepared.stateOperation = null;
+        prepared.statePreparation = preparation;
+      } else if (attempt.admittedAttempt) {
+        this.#mediaSession.retirePreparedRunAttempt(attempt.admittedAttempt);
+      } else {
+        Reflect.apply(channelRetireAttempt, this.#context.channel, [attempt.attemptLease]);
+      }
+      if (disposition === 'retry') {
+        prepared.recoveryTargetAllowed = true;
+        restageAfterCancellation = true;
+      }
+    } finally {
+      if (prepared.attempt === attempt) prepared.attempt = null;
+      prepared.readyPublished = false;
+      prepared.participant = null;
+      prepared.status = disposition === 'terminal' ? 'retired' : 'preparing';
+    }
   }
 
   async #applyStateSuccessor(
@@ -2547,16 +3127,52 @@ class GuestMediaOwner {
     message: Extract<
       FilePlaybackWireMessage,
       {
-        readonly kind: 'file-playback-pause' | 'file-playback-seek' | 'file-playback-stop';
+        readonly kind:
+          | 'file-playback-pause'
+          | 'file-playback-seek'
+          | 'file-playback-stop'
+          | 'file-playback-ended';
       }
     >,
     stateLease: FilePlaybackWireStateLease,
   ): Promise<void> {
     this.#assertPrepared(room, prepared);
-    this.#assertRunningAudioGraph(prepared.audioGraph);
+    if (message.kind === 'file-playback-ended') {
+      this.#assertAudioGraphIdentity(prepared.audioGraph);
+    } else {
+      this.#assertRunningAudioGraph(prepared.audioGraph);
+    }
     const port = prepared.staged?.cutoverPort;
     if (!port || this.#runtime.currentPort(this.#manager) !== port) {
       throw new Error('Guest state successor has no exact current renderer');
+    }
+    if (message.kind === 'file-playback-ended') {
+      const intent: Readonly<FilePlaybackRemoteEndedTransitionIntent> = freezeCanonical({
+        kind: 'file-playback-remote-ended-transition' as const,
+        from: expected,
+        to: successor,
+        hostObservedAtRoomTimeMs: message.hostObservedAtRoomTimeMs,
+      });
+      const evidence = await this.#runtime.remoteEndCurrent(this.#manager, port, intent);
+      this.#assertPrepared(room, prepared);
+      if (!readFilePlaybackRemoteEndedTransitionEvidence(evidence, intent)) {
+        throw new Error('Guest remote-end retirement evidence is invalid');
+      }
+      this.#mediaSession.commitAdmittedStop(
+        prepared.operation,
+        expected,
+        successor,
+        stateLease,
+        () => this.#room === room && room.current === prepared,
+      );
+      prepared.status = 'retired';
+      room.current = null;
+      room.physical = freezeCanonical({
+        state: successor,
+        phase: 'stopped' as const,
+        positionSeconds: 0,
+      });
+      return;
     }
     if (message.kind === 'file-playback-stop') {
       const graph = prepared.audioGraph!;
@@ -2677,6 +3293,8 @@ class GuestMediaOwner {
     room.timeline = timeline;
     room.physical = null;
     this.#assertRoom(room);
+    const heartbeat = this.#rendererHealthHeartbeat;
+    if (heartbeat) this.#scheduleRendererHealthHeartbeat(heartbeat);
     this.#timelineCallbackActive = true;
     try {
       Reflect.apply(this.#onTimelineRendered, undefined, [timeline]);
@@ -2831,6 +3449,7 @@ class GuestMediaOwner {
   }
 
   #assertAttempt(room: GuestRoomState, prepared: GuestPreparedRun, attempt: GuestAttempt): void {
+    if (attempt.cancelled) throw new GuestRendezvousAttemptCancelledError();
     this.#assertPrepared(room, prepared);
     if (prepared.attempt !== attempt) throw new Error('Guest rendezvous attempt is stale');
   }
@@ -2838,9 +3457,16 @@ class GuestMediaOwner {
   #assertRunningAudioGraph(
     graph: Readonly<FilePlaybackProductGuestAudioGraph> | null,
   ): asserts graph is Readonly<FilePlaybackProductGuestAudioGraph> {
-    if (!graph || graph.audioContext.state !== 'running') {
+    this.#assertAudioGraphIdentity(graph);
+    if (graph.audioContext.state !== 'running') {
       throw new Error('Guest file playback AudioContext is not running');
     }
+  }
+
+  #assertAudioGraphIdentity(
+    graph: Readonly<FilePlaybackProductGuestAudioGraph> | null,
+  ): asserts graph is Readonly<FilePlaybackProductGuestAudioGraph> {
+    if (!graph) throw new Error('Guest file playback audio graph is unavailable');
     let destinationContext: BaseAudioContext | null = null;
     try {
       destinationContext = graph.destination.context;
@@ -2893,6 +3519,20 @@ class GuestMediaOwner {
       this.#assertLive();
     });
     const tracked = task.catch((error: unknown) => {
+      if (error instanceof GuestRendezvousAttemptCancelledError) return;
+      if (!this.#closed) this.#fatal(`Guest media owner ${label} failed`, error);
+    });
+    this.#lane = tracked;
+    this.#tasks.add(tracked);
+    void tracked.then(() => this.#tasks.delete(tracked));
+  }
+
+  #enqueuePhysicalCleanup(label: string, operation: () => Promise<void>): void {
+    // Unlike ordinary media work, physical cleanup must run and settle even
+    // after an acknowledgement synchronously revokes this owner. Register its
+    // exact identity before ACK so close snapshots cannot miss the barrier.
+    const task = this.#lane.then(operation);
+    const tracked = task.catch((error: unknown) => {
       if (!this.#closed) this.#fatal(`Guest media owner ${label} failed`, error);
     });
     this.#lane = tracked;
@@ -2902,55 +3542,81 @@ class GuestMediaOwner {
 
   #beginClose(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
-    this.#closed = true;
-    const reason = this.#fatalError ?? new Error('Guest media owner revoked');
-    const warm = this.#offerWarm;
-    this.#pendingOfferWarm = null;
-    this.#abort.abort(reason);
-    this.#mediaSession.revoke();
-    const warmRetirement = warm ? this.#retireOfferWarm(warm, reason) : Promise.resolve();
-    const warmTasks = [...this.#warmTasks, warmRetirement];
-    const closePeerTransport = (): void => {
-      this.#peerTransport.close(reason);
-    };
-    const peerCloseTask =
-      warm || this.#warmTasks.size > 0
-        ? Promise.race([Promise.allSettled(warmTasks), delay(WARM_CLOSE_GRACE_MS)]).then(
-            closePeerTransport,
-          )
-        : Promise.resolve(closePeerTransport());
-    const tasks = [...this.#tasks];
-    const retiredPorts = new Set<FilePlaybackCutoverCandidatePort>();
-    const retirePreparedPorts = async (): Promise<void> => {
-      const ports = new Set(
-        [this.#room?.current, this.#room?.candidate]
-          .filter((value): value is GuestPreparedRun => Boolean(value?.staged))
-          .map((prepared) => prepared.staged!.cutoverPort),
-      );
-      await Promise.allSettled(
-        [...ports]
-          .filter((port) => {
-            if (retiredPorts.has(port)) return false;
-            retiredPorts.add(port);
-            return true;
-          })
-          .map(async (port) => {
-            const current = this.#runtime.currentPort(this.#manager);
-            if (current === port) await this.#runtime.retireCurrent(this.#manager, port);
-            else await this.#runtime.retireCandidate(this.#manager, port);
-          }),
-      );
-    };
-    const initialRetirement = retirePreparedPorts();
-    const preparedRetirement = Promise.allSettled([initialRetirement, ...tasks]).then(() =>
-      retirePreparedPorts(),
+    let settleClose!: () => void;
+    const stableClosePromise = new Promise<void>((resolve) => {
+      settleClose = resolve;
+    });
+    // Publish the one stable close identity before abort/revoke/transport code
+    // can synchronously re-enter through a callback.
+    this.#closePromise = stableClosePromise;
+    const physicalRetirement = (() => {
+      try {
+        this.#stopRendererHealthHeartbeat();
+        this.#closed = true;
+        const reason = this.#fatalError ?? new Error('Guest media owner revoked');
+        const warm = this.#offerWarm;
+        this.#pendingOfferWarm = null;
+        this.#abort.abort(reason);
+        this.#mediaSession.revoke();
+        const warmRetirement = warm ? this.#retireOfferWarm(warm, reason) : Promise.resolve();
+        const warmTasks = [...this.#warmTasks, warmRetirement];
+        const closePeerTransport = (): Promise<void> =>
+          invokePhysicalCleanup(() => this.#peerTransport.close(reason));
+        const peerCloseTask =
+          warm || this.#warmTasks.size > 0
+            ? Promise.race([
+                Promise.allSettled(warmTasks),
+                lifecycleDelay(WARM_CLOSE_GRACE_MS),
+              ]).then(closePeerTransport)
+            : closePeerTransport();
+        const tasks = [...this.#tasks];
+        const retiredPorts = new Set<FilePlaybackCutoverCandidatePort>();
+        const retirePreparedPorts = async (): Promise<void> => {
+          const ports = new Set(
+            [this.#room?.current, this.#room?.candidate]
+              .filter((value): value is GuestPreparedRun => Boolean(value?.staged))
+              .map((prepared) => prepared.staged!.cutoverPort),
+          );
+          await settlePhysicalCleanupStrictly(
+            [...ports]
+              .filter((port) => {
+                if (retiredPorts.has(port)) return false;
+                retiredPorts.add(port);
+                return true;
+              })
+              .map(async (port) => {
+                const current = this.#runtime.currentPort(this.#manager);
+                if (current === port) await this.#runtime.retireCurrent(this.#manager, port);
+                else await this.#runtime.retireCandidate(this.#manager, port);
+              }),
+            'Multiple prepared guest playback ports failed to retire',
+          );
+        };
+        const initialRetirement = retirePreparedPorts();
+        const operationDrain = Promise.allSettled(tasks).then(() => undefined);
+        const finalPreparedRetirement = operationDrain.then(() => retirePreparedPorts());
+        const preparedRetirement = settlePhysicalCleanupStrictly(
+          [initialRetirement, finalPreparedRetirement],
+          'Multiple guest playback port retirement barriers failed',
+        );
+        return settlePhysicalCleanupStrictly(
+          [
+            invokePhysicalCleanup(() => this.#r2Acquirer.close()),
+            peerCloseTask,
+            preparedRetirement,
+          ],
+          'Multiple guest media owner cleanup operations failed',
+        );
+      } catch (cause) {
+        return Promise.reject(cause);
+      }
+    })();
+    void physicalRetirement.then(settleClose, settleClose);
+    void confirmFilePlaybackUniversalLifecycleRetirement(
+      this.#lifecycleLease,
+      () => physicalRetirement,
     );
-    this.#closePromise = Promise.allSettled([
-      this.#r2Acquirer.close(),
-      peerCloseTask,
-      preparedRetirement,
-    ]).then(() => undefined);
-    return this.#closePromise;
+    return stableClosePromise;
   }
 
   #fatal(message: string, cause?: unknown): FilePlaybackProductGuestMediaOwnerFatalError {

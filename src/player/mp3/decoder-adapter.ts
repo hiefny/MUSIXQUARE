@@ -22,6 +22,11 @@ import {
   EncodedAudioSourceLifetime,
   type EncodedAudioSourceLease,
 } from '../sources/encoded-audio-source-lifetime.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from '../diagnostics/file-playback-universal-lifecycle-retirement.ts';
 import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
 import {
   createMp3DecoderDescriptor,
@@ -236,7 +241,27 @@ interface WorkerRealm extends GenerationBase {
   readonly sourcePort: MessagePort;
   readonly pcmPort: MessagePort;
   readonly readiness: Deferred;
+  readonly decoderRetired: Deferred;
+  readonly workerRetired: Deferred;
+  readonly generationLifecycle: FilePlaybackUniversalLifecycleLease;
+  readonly workerLifecycle: FilePlaybackUniversalLifecycleLease;
+  readonly sourcePortLifecycle: FilePlaybackUniversalLifecycleLease;
+  readonly pcmPortLifecycle: FilePlaybackUniversalLifecycleLease;
+  readonly retryWaitLifecycles: Array<{
+    readonly wait: FilePlaybackUniversalLifecycleLease;
+    readonly timer: FilePlaybackUniversalLifecycleLease;
+  }>;
   transferred: boolean;
+  posting: boolean;
+  transferUncertain: boolean;
+  stopSent: boolean;
+  decoderRetiredAcknowledged: boolean;
+  workerRetiredAcknowledged: boolean;
+  retryWaitSequence: number;
+  readonly cleanupCompletion: Deferred;
+  cleanupPromise: Promise<void> | null;
+  cleanupStarted: boolean;
+  retirementFaulted: boolean;
   ready: boolean;
   progressiveIndexEvents: number;
   decodedInputBytes: number;
@@ -248,6 +273,9 @@ interface EofGeneration extends GenerationBase {
   readonly kind: 'eof';
   readonly port: MessagePort;
   replied: boolean;
+  terminal: { readonly cause: unknown } | null;
+  readonly generationLifecycle: FilePlaybackUniversalLifecycleLease;
+  readonly portLifecycle: FilePlaybackUniversalLifecycleLease;
 }
 
 type ActiveGeneration = WorkerRealm | EofGeneration;
@@ -281,12 +309,14 @@ function safeErrorCode(value: unknown, fallback: string): string {
   return value.slice(0, MAX_FATAL_CODE_LENGTH);
 }
 
-function safeClosePort(port: MessagePort | null): void {
-  if (!port) return;
+function safeClosePort(port: MessagePort | null): boolean {
+  if (!port) return true;
   try {
     port.close();
+    return true;
   } catch {
     // A transferred or previously closed endpoint no longer belongs here.
+    return false;
   }
 }
 
@@ -299,6 +329,111 @@ function safeTerminateWorker(worker: Worker | null): void {
   }
 }
 
+function safeDetachPortHandlers(port: MessagePort): void {
+  try {
+    port.onmessage = null;
+  } catch {
+    // Closing the owned endpoint below remains the terminal boundary.
+  }
+  try {
+    port.onmessageerror = null;
+  } catch {
+    // Closing the owned endpoint below remains the terminal boundary.
+  }
+}
+
+function safeDetachWorkerHandlers(worker: Worker): void {
+  try {
+    worker.onmessage = null;
+  } catch {
+    // Best-effort detach after a confirmed or forced terminal boundary.
+  }
+  try {
+    worker.onerror = null;
+  } catch {
+    // Best-effort detach after a confirmed or forced terminal boundary.
+  }
+  try {
+    worker.onmessageerror = null;
+  } catch {
+    // Best-effort detach after a confirmed or forced terminal boundary.
+  }
+}
+
+function safeRemoveAbortListener(signal: AbortSignal, listener: () => void): void {
+  try {
+    signal.removeEventListener('abort', listener);
+  } catch {
+    // Owned resource teardown must continue even across an injected EventTarget.
+  }
+}
+
+function reinforceTerminalWorkerRealm(realm: WorkerRealm): void {
+  safeRemoveAbortListener(realm.signal, realm.onAbort);
+  safeDetachWorkerHandlers(realm.worker);
+}
+
+function reinforceTerminalEofGeneration(generation: EofGeneration): void {
+  safeRemoveAbortListener(generation.signal, generation.onAbort);
+  safeDetachPortHandlers(generation.port);
+}
+
+function initiateWorkerRealmCleanup(realm: WorkerRealm): void {
+  try {
+    void realm.broker.close().catch(() => undefined);
+  } catch {
+    // The logical lease close below still severs this generation immediately.
+  }
+  try {
+    void realm.lease.close().catch(() => undefined);
+  } catch {
+    // Sticky lifecycle diagnostics already record the forced boundary.
+  }
+}
+
+function releaseLocalLifecycleLease(lease: FilePlaybackUniversalLifecycleLease | null): void {
+  if (!lease) return;
+  lease.beginRetire().release();
+}
+
+interface EofGenerationRequestSnapshot {
+  readonly generation: number;
+  readonly signal: AbortSignal;
+  readonly pcmPort: MessagePort;
+}
+
+function snapshotEofGenerationRequest(
+  request: StreamingDecoderGenerationRequest,
+): EofGenerationRequestSnapshot {
+  return {
+    generation: request.generation,
+    signal: request.signal,
+    pcmPort: request.pcmPort,
+  };
+}
+
+function acquireAcceptedEofLifecycles(request: StreamingDecoderGenerationRequest): {
+  readonly generation: FilePlaybackUniversalLifecycleLease;
+  readonly port: FilePlaybackUniversalLifecycleLease;
+} {
+  const generation = acquireFilePlaybackUniversalLifecycleLease('decoderGenerations');
+  let port: FilePlaybackUniversalLifecycleLease;
+  try {
+    port = acquireFilePlaybackUniversalLifecycleLease('ports');
+  } catch (error) {
+    releaseLocalLifecycleLease(generation);
+    throw error;
+  }
+  try {
+    request.acceptPcmPortOwnership();
+  } catch (error) {
+    releaseLocalLifecycleLease(port);
+    releaseLocalLifecycleLease(generation);
+    throw error;
+  }
+  return { generation, port };
+}
+
 function isMessagePortLike(value: unknown): value is MessagePort {
   return (
     typeof value === 'object' &&
@@ -306,6 +441,18 @@ function isMessagePortLike(value: unknown): value is MessagePort {
     typeof (value as MessagePort).postMessage === 'function' &&
     typeof (value as MessagePort).close === 'function'
   );
+}
+
+function isRetryWaitDeltaEnvelope(value: unknown): boolean {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return false;
+  try {
+    const descriptor = Reflect.getOwnPropertyDescriptor(value, 'type');
+    return (
+      !!descriptor && Object.hasOwn(descriptor, 'value') && descriptor.value === 'retry-wait-delta'
+    );
+  } catch {
+    return false;
+  }
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -352,6 +499,8 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
     void this.close();
   };
   #activeGeneration: ActiveGeneration | null = null;
+  readonly #retirementPromises = new Set<Promise<void>>();
+  #pendingWorkerRetirement: Promise<void> | null = null;
   #opened = false;
   #closed = false;
   #closePromise: Promise<void> | null = null;
@@ -432,7 +581,19 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
       throwIfAborted(options.lifetimeSignal);
       if (this.#closed) throw new Error('MP3 decoder adapter is closed');
       this.#lifetimeSignal = options.lifetimeSignal;
-      options.lifetimeSignal.addEventListener('abort', this.#onLifetimeAbort, { once: true });
+      try {
+        options.lifetimeSignal.addEventListener('abort', this.#onLifetimeAbort, { once: true });
+      } catch (error) {
+        if (this.#closed || this.#lifetimeSignal !== options.lifetimeSignal) {
+          safeRemoveAbortListener(options.lifetimeSignal, this.#onLifetimeAbort);
+          throw new Error('MP3 decoder adapter is closed', { cause: error });
+        }
+        throw error;
+      }
+      if (this.#closed || this.#lifetimeSignal !== options.lifetimeSignal) {
+        safeRemoveAbortListener(options.lifetimeSignal, this.#onLifetimeAbort);
+        throw new Error('MP3 decoder adapter is closed');
+      }
       if (options.lifetimeSignal.aborted) {
         this.#onLifetimeAbort();
         throw abortReason(options.lifetimeSignal);
@@ -454,6 +615,7 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
       request.outputSampleRateHz <= 0 ||
       request.outputSampleRateHz > MP3_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ ||
       !isMessagePortLike(request.pcmPort) ||
+      typeof request.acceptPcmPortOwnership !== 'function' ||
       !(request.signal instanceof AbortSignal)
     ) {
       return Promise.reject(new TypeError('MP3 decoder generation request is invalid'));
@@ -465,37 +627,40 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
     }
 
     const previous = this.#activeGeneration;
-    if (previous) this.#retireGeneration(previous, stoppedBeforeReadyError());
+    const previousRetirement = previous
+      ? this.#retireGeneration(previous, stoppedBeforeReadyError())
+      : this.#pendingWorkerRetirement;
     if (request.targetMediaFrame === this.info.totalMediaFrames) {
-      return this.#startEofGeneration(request);
+      return previousRetirement
+        ? this.#startEofGenerationAfterRetirement(request, previousRetirement)
+        : this.#startEofGeneration(request);
     }
-    return this.#startWorkerGeneration(request);
+    return previousRetirement
+      ? this.#startWorkerGenerationAfterRetirement(request, previousRetirement)
+      : this.#startWorkerGeneration(request);
   }
 
   stopGeneration(generation: number): void {
     if (!isMp3DecoderGeneration(generation)) return;
     const active = this.#activeGeneration;
     if (!active || active.generation !== generation) return;
-    if (active.kind === 'worker' && !active.retired) {
-      try {
-        active.worker.postMessage({
-          protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
-          type: 'stop-decoder',
-          sourceLifetimeGeneration: active.sourceLifetimeGeneration,
-          decoderGeneration: active.generation,
-        } satisfies Mp3DecoderStopCommand);
-      } catch (error) {
-        this.#fatal('decoder-command-failed', error);
-      }
-    }
     this.#retireGeneration(active, stoppedBeforeReadyError());
   }
 
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
+    let resolveClose!: () => void;
+    const closePromise = new Promise<void>((resolve) => {
+      resolveClose = resolve;
+    });
+    // Publish the stable terminal promise before any retirement or source
+    // callback can re-enter close().
+    this.#closePromise = closePromise;
     this.#closed = true;
     this.#opened = false;
-    this.#lifetimeSignal?.removeEventListener('abort', this.#onLifetimeAbort);
+    if (this.#lifetimeSignal) {
+      safeRemoveAbortListener(this.#lifetimeSignal, this.#onLifetimeAbort);
+    }
     this.#lifetimeSignal = null;
     const active = this.#activeGeneration;
     if (active) {
@@ -506,75 +671,135 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
     }
     this.#fatalHandler = null;
     this.#generationStoppedHandler = null;
+    let sourceClose: Promise<void>;
     try {
-      this.#closePromise = this.#sourceLifetime.close();
+      sourceClose = this.#sourceLifetime.close();
     } catch {
-      this.#closePromise = Promise.resolve();
+      sourceClose = Promise.resolve();
     }
-    return this.#closePromise;
+    const drainRetirements = async (): Promise<void> => {
+      await Promise.allSettled([sourceClose]);
+      while (this.#retirementPromises.size > 0) {
+        await Promise.allSettled([...this.#retirementPromises]);
+      }
+    };
+    void drainRetirements().then(resolveClose, resolveClose);
+    return closePromise;
   }
 
   #startEofGeneration(request: StreamingDecoderGenerationRequest): Promise<void> {
+    let snapshot: EofGenerationRequestSnapshot;
+    try {
+      snapshot = snapshotEofGenerationRequest(request);
+      this.#assertGenerationCanStart(snapshot.signal);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    let lifecycles: ReturnType<typeof acquireAcceptedEofLifecycles>;
+    try {
+      lifecycles = acquireAcceptedEofLifecycles(request);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const generationLifecycle = lifecycles.generation;
+    const portLifecycle = lifecycles.port;
     const generation: EofGeneration = {
       kind: 'eof',
-      generation: request.generation,
-      signal: request.signal,
+      generation: snapshot.generation,
+      signal: snapshot.signal,
       onAbort: () => {
         if (this.#activeGeneration === generation) {
           this.#retireGeneration(
             generation,
-            asError(abortReason(request.signal), 'MP3 EOF aborted'),
+            asError(abortReason(snapshot.signal), 'MP3 EOF aborted'),
           );
         }
       },
-      port: request.pcmPort,
+      port: snapshot.pcmPort,
       replied: false,
+      terminal: null,
       retired: false,
+      generationLifecycle,
+      portLifecycle,
     };
     this.#activeGeneration = generation;
-    request.signal.addEventListener('abort', generation.onAbort, { once: true });
-    generation.port.onmessage = (event: MessageEvent<unknown>) => {
-      if (this.#closed || this.#activeGeneration !== generation || generation.retired) return;
-      const demand = parsePcmDemandMessage(event.data);
-      if (!demand || demand.generation !== generation.generation || generation.replied) {
-        this.#failGeneration(generation, 'decoder-invalid-pcm-demand');
-        return;
-      }
-      generation.replied = true;
-      const eof: PcmSupplyMessage = {
-        protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
-        type: 'eof',
-        generation: generation.generation,
-      };
-      try {
-        generation.port.postMessage(eof);
-      } catch (error) {
-        this.#failGeneration(generation, 'decoder-pcm-port-failed', error);
-      }
-    };
-    generation.port.onmessageerror = () => {
-      this.#failGeneration(generation, 'decoder-pcm-message-error');
-    };
     try {
+      this.#assertGenerationCanStart(snapshot.signal);
+      snapshot.signal.addEventListener('abort', generation.onAbort, { once: true });
+      if (generation.retired) {
+        reinforceTerminalEofGeneration(generation);
+        return Promise.reject(generation.terminal?.cause);
+      }
+      generation.port.onmessage = (event: MessageEvent<unknown>) => {
+        if (this.#closed || this.#activeGeneration !== generation || generation.retired) return;
+        const demand = parsePcmDemandMessage(event.data);
+        if (!demand || demand.generation !== generation.generation || generation.replied) {
+          this.#failGeneration(generation, 'decoder-invalid-pcm-demand');
+          return;
+        }
+        generation.replied = true;
+        const eof: PcmSupplyMessage = {
+          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+          type: 'eof',
+          generation: generation.generation,
+        };
+        try {
+          generation.port.postMessage(eof);
+        } catch (error) {
+          this.#failGeneration(generation, 'decoder-pcm-port-failed', error);
+        }
+      };
+      if (generation.retired) {
+        reinforceTerminalEofGeneration(generation);
+        return Promise.reject(generation.terminal?.cause);
+      }
+      generation.port.onmessageerror = () => {
+        this.#failGeneration(generation, 'decoder-pcm-message-error');
+      };
+      if (generation.retired) {
+        reinforceTerminalEofGeneration(generation);
+        return Promise.reject(generation.terminal?.cause);
+      }
       generation.port.start();
     } catch (error) {
-      this.#failGeneration(generation, 'decoder-pcm-port-failed', error);
+      if (generation.retired) {
+        reinforceTerminalEofGeneration(generation);
+        return Promise.reject(generation.terminal?.cause);
+      }
+      this.#retireGeneration(generation, asError(error, 'MP3 EOF setup failed'));
+      if (!this.#closed) this.#fatal('decoder-pcm-port-failed', error);
       return Promise.reject(error);
     }
-    if (request.signal.aborted) {
+    if (generation.retired) {
+      reinforceTerminalEofGeneration(generation);
+      return Promise.reject(generation.terminal?.cause);
+    }
+    if (snapshot.signal.aborted) {
       generation.onAbort();
-      return Promise.reject(abortReason(request.signal));
+      return Promise.reject(abortReason(snapshot.signal));
     }
     return Promise.resolve();
   }
 
   #startWorkerGeneration(request: StreamingDecoderGenerationRequest): Promise<void> {
+    try {
+      this.#assertGenerationCanStart(request.signal);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     let lease: EncodedAudioSourceLease | null = null;
     let worker: Worker | null = null;
     let brokerPort: MessagePort | null = null;
     let sourcePort: MessagePort | null = null;
     let broker: EncodedSourcePortBroker | null = null;
+    let brokerConstructionStarted = false;
     let readiness: Deferred | null = null;
+    let realm: WorkerRealm | null = null;
+    let generationLifecycle: FilePlaybackUniversalLifecycleLease | null = null;
+    let workerLifecycle: FilePlaybackUniversalLifecycleLease | null = null;
+    let sourcePortLifecycle: FilePlaybackUniversalLifecycleLease | null = null;
+    let pcmPortLifecycle: FilePlaybackUniversalLifecycleLease | null = null;
+    let pcmPortOwnershipAccepted = false;
     try {
       const seekPoints = this.#seekIndex.snapshot();
       const descriptor = this.#timelineEvidence
@@ -597,6 +822,7 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
       const sourceChannel = this.#runtime.createMessageChannel();
       brokerPort = sourceChannel.port1;
       sourcePort = sourceChannel.port2;
+      brokerConstructionStarted = true;
       broker = new EncodedSourcePortBroker({
         source: lease,
         port: brokerPort,
@@ -604,7 +830,15 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
         lifetimeSignal: this.#lifetimeSignal ?? undefined,
       });
       readiness = createDeferred();
-      const realm: WorkerRealm = {
+      generationLifecycle = acquireFilePlaybackUniversalLifecycleLease('decoderGenerations');
+      workerLifecycle = acquireFilePlaybackUniversalLifecycleLease('workers');
+      sourcePortLifecycle = acquireFilePlaybackUniversalLifecycleLease('ports');
+      pcmPortLifecycle = acquireFilePlaybackUniversalLifecycleLease('ports');
+      this.#assertGenerationCanStart(request.signal);
+      request.acceptPcmPortOwnership();
+      pcmPortOwnershipAccepted = true;
+      this.#assertGenerationCanStart(request.signal);
+      const createdRealm: WorkerRealm = {
         kind: 'worker',
         generation: request.generation,
         sourceLifetimeGeneration: lease.leaseGeneration,
@@ -616,16 +850,33 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
         sourcePort,
         pcmPort: request.pcmPort,
         readiness,
+        decoderRetired: createDeferred(),
+        workerRetired: createDeferred(),
+        generationLifecycle,
+        workerLifecycle,
+        sourcePortLifecycle,
+        pcmPortLifecycle,
+        retryWaitLifecycles: [],
         signal: request.signal,
         onAbort: () => {
-          if (this.#activeGeneration === realm) {
+          if (this.#activeGeneration === createdRealm) {
             this.#retireGeneration(
-              realm,
+              createdRealm,
               asError(abortReason(request.signal), 'MP3 decoder generation aborted'),
             );
           }
         },
         transferred: false,
+        posting: false,
+        transferUncertain: false,
+        stopSent: false,
+        decoderRetiredAcknowledged: false,
+        workerRetiredAcknowledged: false,
+        retryWaitSequence: 0,
+        cleanupCompletion: createDeferred(),
+        cleanupPromise: null,
+        cleanupStarted: false,
+        retirementFaulted: false,
         ready: false,
         retired: false,
         progressiveIndexEvents: 0,
@@ -633,57 +884,197 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
         decodedRawSamples: descriptor.startPlan.scanAnchorFrameOrdinal * descriptor.samplesPerFrame,
         producedOutputFrames: 0,
       };
-      this.#activeGeneration = realm;
-      request.signal.addEventListener('abort', realm.onAbort, { once: true });
+      realm = createdRealm;
+      this.#activeGeneration = createdRealm;
+      request.signal.addEventListener('abort', createdRealm.onAbort, { once: true });
+      if (!this.#revalidateWorkerRealmSetup(createdRealm)) {
+        reinforceTerminalWorkerRealm(createdRealm);
+        return createdRealm.readiness.promise;
+      }
       worker.onmessage = (event: MessageEvent<unknown>) =>
-        this.#handleWorkerEvent(realm, event.data);
-      worker.onerror = () => this.#failGeneration(realm, 'decoder-worker-error');
-      worker.onmessageerror = () => this.#failGeneration(realm, 'decoder-message-error');
+        this.#handleWorkerEvent(createdRealm, event.data);
+      if (!this.#revalidateWorkerRealmSetup(createdRealm)) {
+        reinforceTerminalWorkerRealm(createdRealm);
+        return createdRealm.readiness.promise;
+      }
+      worker.onerror = () => this.#handleWorkerFailure(createdRealm, 'decoder-worker-error');
+      if (!this.#revalidateWorkerRealmSetup(createdRealm)) {
+        reinforceTerminalWorkerRealm(createdRealm);
+        return createdRealm.readiness.promise;
+      }
+      worker.onmessageerror = () =>
+        this.#handleWorkerFailure(createdRealm, 'decoder-message-error');
+      if (!this.#revalidateWorkerRealmSetup(createdRealm)) {
+        reinforceTerminalWorkerRealm(createdRealm);
+        return createdRealm.readiness.promise;
+      }
 
       const command: Mp3DecoderOpenCommand = {
         protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
         type: 'open-decoder',
-        sourceLifetimeGeneration: realm.sourceLifetimeGeneration,
-        decoderGeneration: realm.generation,
-        descriptor: realm.descriptor,
-        sourcePort: realm.sourcePort,
-        pcmPort: realm.pcmPort,
+        sourceLifetimeGeneration: createdRealm.sourceLifetimeGeneration,
+        decoderGeneration: createdRealm.generation,
+        descriptor: createdRealm.descriptor,
+        sourcePort: createdRealm.sourcePort,
+        pcmPort: createdRealm.pcmPort,
       };
-      worker.postMessage(command, mp3DecoderCommandTransferables(command));
-      realm.transferred = true;
-      if (request.signal.aborted) realm.onAbort();
+      createdRealm.posting = true;
+      try {
+        worker.postMessage(command, mp3DecoderCommandTransferables(command));
+      } catch (error) {
+        createdRealm.posting = false;
+        createdRealm.transferUncertain = true;
+        if (createdRealm.retired) this.#cleanupWorkerRealm(createdRealm);
+        throw error;
+      }
+      createdRealm.posting = false;
+      createdRealm.transferred = true;
+      if (!this.#revalidateWorkerRealmSetup(createdRealm)) {
+        if (createdRealm.retired) this.#cleanupWorkerRealm(createdRealm);
+        return createdRealm.readiness.promise;
+      }
       return readiness.promise;
     } catch (error) {
-      const active = this.#activeGeneration;
-      if (active?.kind === 'worker' && active.readiness === readiness) {
-        this.#retireGeneration(active, asError(error, 'MP3 decoder generation failed'));
+      if (realm) {
+        const alreadyRetired = realm.retired;
+        if (!alreadyRetired) {
+          this.#retireGeneration(realm, asError(error, 'MP3 decoder generation failed'));
+        } else {
+          this.#cleanupWorkerRealm(realm);
+        }
+        reinforceTerminalWorkerRealm(realm);
         // Transfer failed before the caller could receive the readiness Promise.
-        void active.readiness.promise.catch(() => undefined);
+        void realm.readiness.promise.catch(() => undefined);
+        if (alreadyRetired) return realm.readiness.promise;
       } else {
         readiness?.reject(error);
         if (readiness) void readiness.promise.catch(() => undefined);
         if (broker) void broker.close().catch(() => undefined);
         else {
-          safeClosePort(brokerPort);
+          if (!brokerConstructionStarted) safeClosePort(brokerPort);
           if (lease) void lease.close().catch(() => undefined);
         }
-        safeClosePort(sourcePort);
-        safeClosePort(request.pcmPort);
+        const sourcePortClosed = safeClosePort(sourcePort);
+        const pcmPortClosed = !pcmPortOwnershipAccepted || safeClosePort(request.pcmPort);
         safeTerminateWorker(worker);
+        if (sourcePortLifecycle) {
+          if (sourcePortClosed) releaseLocalLifecycleLease(sourcePortLifecycle);
+          else sourcePortLifecycle.forceUnconfirmed();
+        }
+        if (pcmPortLifecycle) {
+          if (pcmPortClosed) releaseLocalLifecycleLease(pcmPortLifecycle);
+          else pcmPortLifecycle.forceUnconfirmed();
+        }
+        generationLifecycle?.forceUnconfirmed();
+        workerLifecycle?.forceUnconfirmed();
       }
       return Promise.reject(error);
     }
   }
 
+  async #startWorkerGenerationAfterRetirement(
+    request: StreamingDecoderGenerationRequest,
+    initialRetirement: Promise<void>,
+  ): Promise<void> {
+    let retirement: Promise<void> | null = initialRetirement;
+    while (retirement) {
+      await retirement;
+      const active = this.#activeGeneration;
+      retirement = active
+        ? this.#retireGeneration(active, stoppedBeforeReadyError())
+        : this.#pendingWorkerRetirement;
+    }
+    return this.#startWorkerGeneration(request);
+  }
+
+  async #startEofGenerationAfterRetirement(
+    request: StreamingDecoderGenerationRequest,
+    initialRetirement: Promise<void>,
+  ): Promise<void> {
+    let retirement: Promise<void> | null = initialRetirement;
+    while (retirement) {
+      await retirement;
+      const active = this.#activeGeneration;
+      retirement = active
+        ? this.#retireGeneration(active, stoppedBeforeReadyError())
+        : this.#pendingWorkerRetirement;
+    }
+    return this.#startEofGeneration(request);
+  }
+
   #handleWorkerEvent(realm: WorkerRealm, value: unknown): void {
-    if (this.#closed || this.#activeGeneration !== realm || realm.retired) return;
+    if (!realm.transferred && !realm.transferUncertain) {
+      if (realm.retired) {
+        this.#rejectWorkerRetirement(realm, new Error('Invalid MP3 retirement event'));
+      } else {
+        this.#failGeneration(realm, 'decoder-invalid-event');
+      }
+      return;
+    }
+    const retryWaitDeltaEnvelope = isRetryWaitDeltaEnvelope(value);
     const event = parseMp3DecoderEvent(value);
     if (
       !event ||
       event.sourceLifetimeGeneration !== realm.sourceLifetimeGeneration ||
       event.decoderGeneration !== realm.generation
     ) {
-      this.#failGeneration(realm, 'decoder-invalid-event');
+      if (retryWaitDeltaEnvelope) this.#markUnknownRetryWait(realm);
+      if (realm.retired)
+        this.#rejectWorkerRetirement(realm, new Error('Invalid MP3 retirement event'));
+      else this.#failGeneration(realm, 'decoder-invalid-event');
+      return;
+    }
+
+    if (event.type === 'retry-wait-delta') {
+      this.#acceptRetryWaitDelta(
+        realm,
+        event.delta,
+        event.retryWaitSequence,
+        event.activeRetryWaits,
+      );
+      return;
+    }
+    if (event.type === 'decoder-retired') {
+      if (!realm.retired || !realm.stopSent) {
+        if (!realm.retired) this.#failGeneration(realm, 'decoder-premature-retirement');
+        this.#rejectWorkerRetirement(realm, new Error('Premature MP3 decoder retirement ACK'));
+        return;
+      }
+      if (realm.decoderRetiredAcknowledged) {
+        this.#rejectWorkerRetirement(realm, new Error('Duplicate MP3 decoder retirement ACK'));
+        return;
+      }
+      realm.decoderRetiredAcknowledged = true;
+      realm.decoderRetired.resolve();
+      return;
+    }
+    if (event.type === 'worker-retired') {
+      if (!realm.retired || !realm.stopSent) {
+        if (!realm.retired) this.#failGeneration(realm, 'decoder-premature-retirement');
+        this.#rejectWorkerRetirement(realm, new Error('Premature MP3 worker retirement ACK'));
+        return;
+      }
+      const retryStateMismatch =
+        event.retryWaitSequence !== realm.retryWaitSequence || event.activeRetryWaits !== 0;
+      if (
+        realm.workerRetiredAcknowledged ||
+        !realm.decoderRetiredAcknowledged ||
+        retryStateMismatch ||
+        realm.retryWaitLifecycles.length !== 0
+      ) {
+        if (retryStateMismatch) this.#markUnknownRetryWait(realm);
+        this.#rejectWorkerRetirement(realm, new Error('Invalid MP3 worker retirement ACK'));
+        return;
+      }
+      realm.workerRetiredAcknowledged = true;
+      realm.workerRetired.resolve();
+      return;
+    }
+    // A normal event may already be queued ahead of stop/retirement ACKs. Once
+    // logical retirement wins, exact-realm non-ACK telemetry has no authority.
+    if (realm.retired) return;
+    if (this.#closed || this.#activeGeneration !== realm) {
+      this.#rejectWorkerRetirement(realm, new Error('MP3 event arrived outside its active realm'));
       return;
     }
 
@@ -716,6 +1107,72 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
     realm.readiness.reject(error);
     this.#retireGeneration(realm, error);
     this.#notifyGenerationStopped(realm.generation, error);
+  }
+
+  #handleWorkerFailure(realm: WorkerRealm, code: string): void {
+    if (realm.retired) {
+      this.#rejectWorkerRetirement(realm, new Error(code));
+      return;
+    }
+    this.#failGeneration(realm, code);
+  }
+
+  #acceptRetryWaitDelta(
+    realm: WorkerRealm,
+    delta: -1 | 1,
+    retryWaitSequence: number,
+    activeRetryWaits: number,
+  ): void {
+    const expected = realm.retryWaitLifecycles.length + delta;
+    if (
+      expected < 0 ||
+      retryWaitSequence !== realm.retryWaitSequence + 1 ||
+      activeRetryWaits !== expected ||
+      realm.workerRetiredAcknowledged
+    ) {
+      this.#markUnknownRetryWait(realm);
+      this.#rejectWorkerRetirement(realm, new Error('MP3 retry wait accounting mismatch'));
+      if (!realm.retired) this.#failGeneration(realm, 'decoder-retry-wait-accounting');
+      return;
+    }
+    if (delta === 1) {
+      let wait: FilePlaybackUniversalLifecycleLease | null = null;
+      try {
+        wait = acquireFilePlaybackUniversalLifecycleLease('retryWaits');
+        const timer = acquireFilePlaybackUniversalLifecycleLease('timers');
+        realm.retryWaitLifecycles.push({ wait, timer });
+        realm.retryWaitSequence = retryWaitSequence;
+      } catch (error) {
+        wait?.forceUnconfirmed();
+        this.#rejectWorkerRetirement(realm, error);
+        if (!realm.retired) this.#failGeneration(realm, 'decoder-retry-wait-accounting', error);
+      }
+      return;
+    }
+    const lifecycle = realm.retryWaitLifecycles.pop();
+    if (!lifecycle) return;
+    realm.retryWaitSequence = retryWaitSequence;
+    releaseLocalLifecycleLease(lifecycle.wait);
+    releaseLocalLifecycleLease(lifecycle.timer);
+  }
+
+  #markUnknownRetryWait(realm: WorkerRealm): void {
+    let wait: FilePlaybackUniversalLifecycleLease | null = null;
+    try {
+      wait = acquireFilePlaybackUniversalLifecycleLease('retryWaits');
+      const timer = acquireFilePlaybackUniversalLifecycleLease('timers');
+      wait.forceUnconfirmed();
+      timer.forceUnconfirmed();
+    } catch (error) {
+      wait?.forceUnconfirmed();
+      this.#rejectWorkerRetirement(realm, error);
+    }
+  }
+
+  #rejectWorkerRetirement(realm: WorkerRealm, cause: unknown): void {
+    realm.retirementFaulted = true;
+    realm.decoderRetired.reject(cause);
+    realm.workerRetired.reject(cause);
   }
 
   #acceptIndexEvent(
@@ -794,32 +1251,173 @@ export class Mp3DecoderAdapter implements StreamingDecoderAdapter {
     this.#fatal(code, cause ?? error);
   }
 
-  #retireGeneration(generation: ActiveGeneration, cause: Error): void {
-    if (generation.retired) return;
+  #retireGeneration(generation: ActiveGeneration, cause: Error): Promise<void> | null {
+    if (generation.retired) {
+      return generation.kind === 'worker' ? this.#ensureWorkerRetirementBarrier(generation) : null;
+    }
     generation.retired = true;
-    generation.signal.removeEventListener('abort', generation.onAbort);
+    const retirement =
+      generation.kind === 'worker' ? this.#ensureWorkerRetirementBarrier(generation) : null;
+    safeRemoveAbortListener(generation.signal, generation.onAbort);
     if (this.#activeGeneration === generation) this.#activeGeneration = null;
     if (generation.kind === 'eof') {
-      generation.port.onmessage = null;
-      generation.port.onmessageerror = null;
-      safeClosePort(generation.port);
-      return;
+      generation.terminal = { cause };
+      safeDetachPortHandlers(generation.port);
+      if (safeClosePort(generation.port)) releaseLocalLifecycleLease(generation.portLifecycle);
+      else generation.portLifecycle.forceUnconfirmed();
+      releaseLocalLifecycleLease(generation.generationLifecycle);
+      return null;
     }
 
     generation.readiness.reject(cause);
-    generation.worker.onmessage = null;
-    generation.worker.onerror = null;
-    generation.worker.onmessageerror = null;
-    safeTerminateWorker(generation.worker);
+    this.#cleanupWorkerRealm(generation);
+    return retirement;
+  }
+
+  #ensureWorkerRetirementBarrier(generation: WorkerRealm): Promise<void> {
+    if (!generation.cleanupPromise) {
+      generation.cleanupPromise = generation.cleanupCompletion.promise;
+      this.#trackRetirement(generation.cleanupPromise);
+    }
+    return generation.cleanupPromise;
+  }
+
+  #cleanupWorkerRealm(generation: WorkerRealm): Promise<void> {
+    const retirement = this.#ensureWorkerRetirementBarrier(generation);
+    if (generation.cleanupStarted || generation.posting) return retirement;
+    generation.cleanupStarted = true;
+
     if (!generation.transferred) {
-      safeClosePort(generation.sourcePort);
-      safeClosePort(generation.pcmPort);
+      generation.retirementFaulted = true;
+      const sourcePortClosed = safeClosePort(generation.sourcePort);
+      const pcmPortClosed = safeClosePort(generation.pcmPort);
+      if (generation.transferUncertain) {
+        generation.sourcePortLifecycle.forceUnconfirmed();
+        generation.pcmPortLifecycle.forceUnconfirmed();
+      } else {
+        if (sourcePortClosed) releaseLocalLifecycleLease(generation.sourcePortLifecycle);
+        else generation.sourcePortLifecycle.forceUnconfirmed();
+        if (pcmPortClosed) releaseLocalLifecycleLease(generation.pcmPortLifecycle);
+        else generation.pcmPortLifecycle.forceUnconfirmed();
+      }
+      generation.generationLifecycle.forceUnconfirmed();
+      generation.workerLifecycle.forceUnconfirmed();
+      for (const lifecycle of generation.retryWaitLifecycles.splice(0)) {
+        lifecycle.wait.forceUnconfirmed();
+        lifecycle.timer.forceUnconfirmed();
+      }
+      initiateWorkerRealmCleanup(generation);
+      safeTerminateWorker(generation.worker);
+      safeDetachWorkerHandlers(generation.worker);
+      void Promise.resolve().then(
+        generation.cleanupCompletion.resolve,
+        generation.cleanupCompletion.reject,
+      );
+      return retirement;
+    }
+
+    try {
+      generation.worker.postMessage({
+        protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
+        type: 'stop-decoder',
+        sourceLifetimeGeneration: generation.sourceLifetimeGeneration,
+        decoderGeneration: generation.generation,
+      } satisfies Mp3DecoderStopCommand);
+      generation.stopSent = true;
+    } catch (error) {
+      this.#rejectWorkerRetirement(generation, error);
+    }
+
+    const decoderOutcome = confirmFilePlaybackUniversalLifecycleRetirement(
+      generation.generationLifecycle,
+      () => generation.decoderRetired.promise,
+    );
+    const pcmPortOutcome = confirmFilePlaybackUniversalLifecycleRetirement(
+      generation.pcmPortLifecycle,
+      () => generation.decoderRetired.promise,
+    );
+    const sourcePortOutcome = confirmFilePlaybackUniversalLifecycleRetirement(
+      generation.sourcePortLifecycle,
+      () => generation.workerRetired.promise,
+    );
+    const workerOutcome = confirmFilePlaybackUniversalLifecycleRetirement(
+      generation.workerLifecycle,
+      async () => {
+        await generation.workerRetired.promise;
+        if (generation.retirementFaulted || generation.retryWaitLifecycles.length !== 0) {
+          throw new Error('MP3 worker retirement left mirrored retry waits');
+        }
+        await generation.broker.close();
+        if (generation.retirementFaulted) throw new Error('MP3 worker retirement protocol failed');
+        generation.worker.terminate();
+      },
+    );
+
+    const cleanupTask = Promise.all([
+      decoderOutcome,
+      pcmPortOutcome,
+      sourcePortOutcome,
+      workerOutcome,
+    ])
+      .then((outcomes) => {
+        if (outcomes.some((outcome) => outcome === 'unconfirmed')) {
+          generation.retirementFaulted = true;
+          for (const lifecycle of generation.retryWaitLifecycles.splice(0)) {
+            lifecycle.wait.forceUnconfirmed();
+            lifecycle.timer.forceUnconfirmed();
+          }
+          initiateWorkerRealmCleanup(generation);
+          safeTerminateWorker(generation.worker);
+        }
+      })
+      .finally(() => {
+        safeDetachWorkerHandlers(generation.worker);
+      });
+    void cleanupTask.then(
+      generation.cleanupCompletion.resolve,
+      generation.cleanupCompletion.reject,
+    );
+    return retirement;
+  }
+
+  #trackRetirement(retirement: Promise<void>): void {
+    this.#retirementPromises.add(retirement);
+    this.#pendingWorkerRetirement = retirement;
+    void retirement.then(
+      () => {
+        this.#retirementPromises.delete(retirement);
+        if (this.#pendingWorkerRetirement === retirement) this.#pendingWorkerRetirement = null;
+      },
+      () => {
+        this.#retirementPromises.delete(retirement);
+        if (this.#pendingWorkerRetirement === retirement) this.#pendingWorkerRetirement = null;
+      },
+    );
+  }
+
+  #assertGenerationCanStart(requestSignal: AbortSignal): void {
+    throwIfAborted(requestSignal);
+    if (this.#closed || !this.#opened || this.#sourceLifetime.closed) {
+      throw new DOMException('MP3 decoder adapter was closed', 'AbortError');
+    }
+  }
+
+  #revalidateWorkerRealmSetup(realm: WorkerRealm): boolean {
+    if (realm.retired) return false;
+    if (this.#activeGeneration !== realm || this.#closed) {
+      this.#retireGeneration(
+        realm,
+        new DOMException('MP3 decoder adapter lost setup authority', 'AbortError'),
+      );
+      return false;
     }
     try {
-      void generation.broker.close().catch(() => undefined);
-    } catch {
-      void generation.lease.close().catch(() => undefined);
+      this.#assertGenerationCanStart(realm.signal);
+    } catch (error) {
+      this.#retireGeneration(realm, asError(error, 'MP3 decoder setup authority was lost'));
+      return false;
     }
+    return !realm.retired && this.#activeGeneration === realm && !this.#closed;
   }
 
   #fatal(code: string, cause?: unknown): void {

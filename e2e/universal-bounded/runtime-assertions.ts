@@ -87,6 +87,43 @@ export interface UniversalPeerRangePhysicalReadDiagnostics {
   readonly maxConcurrentReadCount: number;
 }
 
+export const UNIVERSAL_LIFECYCLE_KINDS = Object.freeze([
+  'roomOwners',
+  'connectionOwners',
+  'playbackSources',
+  'encodedSources',
+  'decoderGenerations',
+  'workers',
+  'ports',
+  'rings',
+  'pendingReads',
+  'retryWaits',
+  'timers',
+] as const);
+
+export type UniversalLifecycleKind = (typeof UNIVERSAL_LIFECYCLE_KINDS)[number];
+
+export interface UniversalLifecycleKindSnapshot {
+  readonly live: number;
+  readonly retiring: number;
+  readonly unconfirmed: number;
+  readonly acquiredTotal: number;
+  readonly releasedTotal: number;
+  readonly highWater: number;
+}
+
+export interface UniversalLifecycleSnapshot {
+  readonly sequence: number;
+  readonly invariantFaults: number;
+  readonly forcedRetirements: number;
+  readonly quiescent: boolean;
+  readonly kinds: Readonly<Record<UniversalLifecycleKind, UniversalLifecycleKindSnapshot>>;
+}
+
+export type UniversalLifecycleOccupancy = Readonly<
+  Record<UniversalLifecycleKind, Readonly<{ live: number; retiring: number; unconfirmed: number }>>
+>;
+
 export interface UniversalRuntimeSnapshot {
   readonly schemaVersion: number;
   readonly buildProfileMarker: string;
@@ -99,6 +136,7 @@ export interface UniversalRuntimeSnapshot {
   readonly renderer: UniversalRendererSnapshot | null;
   readonly controller: UniversalControllerSnapshot | null;
   readonly peerRangePhysicalReads: UniversalPeerRangePhysicalReadDiagnostics;
+  readonly lifecycle: UniversalLifecycleSnapshot;
   readonly transportEvents: readonly unknown[];
 }
 
@@ -143,8 +181,79 @@ export async function expectUniversalObservationHooks(page: Page): Promise<void>
     });
 }
 
+function exactObjectKeys(
+  value: unknown,
+  keys: readonly string[],
+): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key))
+  );
+}
+
+function safeNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function validateUniversalLifecycleSnapshot(value: unknown): UniversalLifecycleSnapshot {
+  const rootKeys = ['sequence', 'invariantFaults', 'forcedRetirements', 'quiescent', 'kinds'];
+  if (!exactObjectKeys(value, rootKeys)) {
+    throw new Error('Universal lifecycle snapshot has unexpected root fields');
+  }
+  if (
+    !safeNonNegativeInteger(value.sequence) ||
+    !safeNonNegativeInteger(value.invariantFaults) ||
+    !safeNonNegativeInteger(value.forcedRetirements) ||
+    typeof value.quiescent !== 'boolean' ||
+    !exactObjectKeys(value.kinds, UNIVERSAL_LIFECYCLE_KINDS)
+  ) {
+    throw new Error('Universal lifecycle snapshot root is not numeric/boolean-only');
+  }
+  const counterKeys = [
+    'live',
+    'retiring',
+    'unconfirmed',
+    'acquiredTotal',
+    'releasedTotal',
+    'highWater',
+  ];
+  for (const kind of UNIVERSAL_LIFECYCLE_KINDS) {
+    const counters = value.kinds[kind];
+    if (!exactObjectKeys(counters, counterKeys)) {
+      throw new Error(`Universal lifecycle kind ${kind} is not fixed numeric-only data`);
+    }
+    const live = counters.live;
+    const retiring = counters.retiring;
+    const unconfirmed = counters.unconfirmed;
+    const acquiredTotal = counters.acquiredTotal;
+    const releasedTotal = counters.releasedTotal;
+    const highWater = counters.highWater;
+    if (
+      !safeNonNegativeInteger(live) ||
+      !safeNonNegativeInteger(retiring) ||
+      !safeNonNegativeInteger(unconfirmed) ||
+      !safeNonNegativeInteger(acquiredTotal) ||
+      !safeNonNegativeInteger(releasedTotal) ||
+      !safeNonNegativeInteger(highWater)
+    ) {
+      throw new Error(`Universal lifecycle kind ${kind} is not fixed numeric-only data`);
+    }
+    if (acquiredTotal !== releasedTotal + live + retiring + unconfirmed) {
+      throw new Error(`Universal lifecycle kind ${kind} violated its accounting invariant`);
+    }
+  }
+  const serialized = JSON.stringify(value);
+  if (JSON.stringify(JSON.parse(serialized)) !== serialized) {
+    throw new Error('Universal lifecycle snapshot is not an exact JSON round trip');
+  }
+  return value as unknown as UniversalLifecycleSnapshot;
+}
+
 export async function readUniversalRuntime(page: Page): Promise<UniversalRuntimeSnapshot> {
-  return page.evaluate(() => {
+  const runtime = await page.evaluate(() => {
     const bridge = (
       window as unknown as Record<
         string,
@@ -160,6 +269,10 @@ export async function readUniversalRuntime(page: Page): Promise<UniversalRuntime
             hostRendererSnapshot: () => unknown;
             controllerSnapshot: () => unknown;
             peerRangePhysicalReads: () => UniversalPeerRangePhysicalReadDiagnostics;
+            lifecycleDiagnostics: () => UniversalLifecycleSnapshot;
+            stopProductPlayback: () => Promise<unknown>;
+            endProductRoom: () => void;
+            injectForcedLifecycleRetirement: () => UniversalLifecycleSnapshot;
             transportEvents: () => readonly unknown[];
           }
         | undefined
@@ -178,8 +291,90 @@ export async function readUniversalRuntime(page: Page): Promise<UniversalRuntime
       renderer: bridge.hostRendererSnapshot(),
       controller: bridge.controllerSnapshot(),
       peerRangePhysicalReads: bridge.peerRangePhysicalReads(),
+      lifecycle: bridge.lifecycleDiagnostics(),
       transportEvents: bridge.transportEvents(),
     } as UniversalRuntimeSnapshot;
+  });
+  validateUniversalLifecycleSnapshot(runtime.lifecycle);
+  return runtime;
+}
+
+export function universalLifecycleOccupancy(
+  snapshot: UniversalLifecycleSnapshot,
+): UniversalLifecycleOccupancy {
+  return Object.freeze(
+    Object.fromEntries(
+      UNIVERSAL_LIFECYCLE_KINDS.map((kind) => {
+        const counters = snapshot.kinds[kind];
+        return [
+          kind,
+          Object.freeze({
+            live: counters.live,
+            retiring: counters.retiring,
+            unconfirmed: counters.unconfirmed,
+          }),
+        ];
+      }),
+    ) as Record<
+      UniversalLifecycleKind,
+      Readonly<{ live: number; retiring: number; unconfirmed: number }>
+    >,
+  );
+}
+
+export async function expectUniversalLifecycleOccupancy(
+  page: Page,
+  expected: UniversalLifecycleOccupancy,
+): Promise<void> {
+  await expect
+    .poll(async () => universalLifecycleOccupancy((await readUniversalRuntime(page)).lifecycle), {
+      message: 'Universal lifecycle occupancy did not return to its physical baseline',
+      timeout: 15_000,
+    })
+    .toEqual(expected);
+}
+
+export async function endUniversalProductRoom(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const bridge = (
+      window as unknown as Record<string, { endProductRoom?: () => void } | undefined>
+    ).__MUSIXQUARE_FILE_PLAYBACK_E2E__;
+    if (typeof bridge?.endProductRoom !== 'function') {
+      throw new Error('Universal room lifecycle bridge is unavailable');
+    }
+    bridge.endProductRoom();
+  });
+}
+
+export async function stopUniversalProductPlayback(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const bridge = (
+      window as unknown as Record<
+        string,
+        { stopProductPlayback?: () => Promise<unknown> } | undefined
+      >
+    ).__MUSIXQUARE_FILE_PLAYBACK_E2E__;
+    if (typeof bridge?.stopProductPlayback !== 'function') {
+      throw new Error('Universal playback retirement bridge is unavailable');
+    }
+    await bridge.stopProductPlayback();
+  });
+}
+
+export async function injectForcedUniversalLifecycleRetirement(
+  page: Page,
+): Promise<UniversalLifecycleSnapshot> {
+  return page.evaluate(() => {
+    const bridge = (
+      window as unknown as Record<
+        string,
+        { injectForcedLifecycleRetirement?: () => UniversalLifecycleSnapshot } | undefined
+      >
+    ).__MUSIXQUARE_FILE_PLAYBACK_E2E__;
+    if (typeof bridge?.injectForcedLifecycleRetirement !== 'function') {
+      throw new Error('Universal lifecycle fault bridge is unavailable');
+    }
+    return bridge.injectForcedLifecycleRetirement();
   });
 }
 

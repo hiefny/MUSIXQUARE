@@ -67,6 +67,16 @@ fallback.
 - Source, decoder generation, PCM ring, timers, range requests, and peer
   handles close exactly once after removal, replacement, leave, failure, or
   room teardown.
+- Natural EOF retires each exact physical renderer before stopped room truth is
+  rendered. A suspended or interrupted iOS AudioContext must not block this
+  retirement.
+- A fatal media owner closes only its exact failed connection, after the active
+  router mutation stack has unwound. It must not stop the healthy cohort or
+  obscure the primary error with router re-entry.
+- A stopped queue occurrence may retain one reusable encoded asset for replay;
+  decoder, Worker, port, ring, and playback-source ownership must still return
+  to the room baseline, and room teardown must return every asset to the page
+  baseline.
 
 Record policy-review evidence before device testing:
 
@@ -74,6 +84,7 @@ Record policy-review evidence before device testing:
 | ------------------------------------------------------ | ---------------------------------- |
 | Candidate commit                                       | `[full SHA]`                       |
 | Candidate build ID and asset digest                    | `[value]`                          |
+| Semantic cohort guard and full `semrev` digest         | `[PASS and s1-… value]`            |
 | Candidate origin                                       | `[URL]`                            |
 | Production gate-off proof                              | `[config/build log or screenshot]` |
 | RAM-only code-review result                            | `[PASS/FAIL — review link]`        |
@@ -81,6 +92,13 @@ Record policy-review evidence before device testing:
 | Whole-file allocation review                           | `[PASS/FAIL — review link]`        |
 | Declared encoded-read, PCM-message, and ring byte caps | `[values and source lines]`        |
 | Known-good rollback commit/build/deployment            | `[full identifiers]`               |
+
+The semantic-cohort evidence must include the exact hashed integration-root
+list and a clean repository-wide critical reverse-caller audit. A new product
+caller may not ship merely because the closed decoder core stayed unchanged.
+The currently broad roots intentionally make some unrelated edits revision
+bearing; narrow them only after dedicated integration adapters preserve the
+same host/guest/session/start/seek/pause/resume coverage.
 
 ## Device and role matrix
 
@@ -192,14 +210,53 @@ short fixture.
    stale generation.
 8. Seek backward, seek forward, and seek near EOF. Each seek must create only
    the expected fresh decoder generation and must not replay stale PCM.
-9. Reach EOF and replay from the beginning. Replay must not report missing
-   media and must not switch to another playback backend.
+9. Reach EOF and replay from the beginning. Confirm the dedicated natural-end
+   successor arrives before stopped timeline publication, both physical
+   renderers retire, and replay does not report missing media or switch to
+   another playback backend.
 10. Switch to the queued next track while the first track is active. Confirm a
     single atomic cutover, no cross-track audio, and no duration-sized memory
     spike.
 11. Remove a non-current queued item, then remove the current item during an
-    active read/decode. Confirm cancellation, correct next-track selection, and
-    no resurrection from late range or decoder callbacks.
+    active read/decode. Also cancel one already-armed rendezvous. Confirm exact
+    attempt cancellation, physical candidate retirement before re-staging,
+    exactly one fresh `SOURCE_READY`, and no repeated file offer, run binding,
+    download, or whole-file decode. Delay the first ARM receipt beyond its
+    finalize deadline, require a projected-position replacement ARM, then
+    accept the original canonical timeline base without disagreement. Keep the
+    recovered track playing longer than one renderer-health lease and confirm
+    multiple attempt-scoped renewals, no third rendezvous, correct next-track
+    selection, preserved current playback where applicable, and no resurrection
+    from late range or decoder callbacks. While a recovery ARM or FINALIZE is
+    pending, exercise the reachable pause, stop, and natural-end transitions;
+    separately verify the defensive paused-seek receiver contract. Confirm the
+    transition-scoped CANCEL registers its cleanup barrier before ACK, retires
+    the exact physical candidate before the successor runs, publishes no
+    replacement `SOURCE_READY`, and never commits the cancelled recovery
+    afterward. Queue a recovery rejection immediately before host CANCEL and
+    verify the host sends CANCEL before retiring its exact attempt or staging a
+    replacement ARM. Inject null-return and throw send failures; each must make
+    one CANCEL attempt, retire the captured lease, and then fail-close only
+    that connection without deleting a successor record. Verify that the
+    successor is applied only when the captured old
+    current port still survives exactly and recovery is not required. Inject
+    cleanup rejection, target-crossed rollback, current-port loss, and an
+    explicit recovery-required result; each must fail-close only that guest,
+    retain the exact ports for close fallback, and leave the host and healthy
+    peers running. Deterministically admit one exact ARM immediately before
+    the guest clock's three-second freshness boundary, finish physical ARM
+    after that boundary, and require its bounded `ARMED` -> matching
+    `FINALIZE`/`CANCEL` -> `FINALIZED` corridor without disconnecting. Prove a
+    new ARM, source-ready claim, renderer-health claim, wrong rendezvous,
+    retired attempt, expired corridor, and explicit wake cannot reuse that
+    continuation and do not allocate an outbound control sequence.
+    Also drop ordinary guest clock freshness immediately after an accepted
+    `FINALIZE`: the exact Worklet `started` record must still succeed before the
+    renderer's captured target-frame-plus-2.5-second local deadline. Withhold
+    `started` and prove a single bounded timeout with no rescheduling; cancel
+    that attempt and prove its old deadline cannot reject a revision-2
+    successor. Automatic freshness renewal may preserve only the original
+    exact corridor; explicit wake must still invalidate it immediately.
 12. Leave the room, close/reopen the playback surface, and verify all counters
     return to baseline. Inspect app-owned storage and confirm the candidate
     fixture/user-media byte delta is zero in OPFS, IndexedDB, app-owned Cache

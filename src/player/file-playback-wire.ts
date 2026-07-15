@@ -56,6 +56,7 @@ export const FILE_PLAYBACK_WIRE_KINDS = Object.freeze([
   'file-playback-seek',
   'file-playback-cancel',
   'file-playback-stop',
+  'file-playback-ended',
   'renderer-health',
 ] as const);
 
@@ -74,6 +75,7 @@ const SUCCESSOR_SCOPED_WIRE_KINDS = new Set<FilePlaybackWireKind>([
   'file-playback-pause',
   'file-playback-seek',
   'file-playback-stop',
+  'file-playback-ended',
 ]);
 
 export function isFilePlaybackAttemptScopedWireKind(kind: FilePlaybackWireKind): boolean {
@@ -205,6 +207,19 @@ export interface FilePlaybackStopWireMessage extends FilePlaybackWireEnvelope {
   readonly atRoomTimeMs: number;
 }
 
+/**
+ * Host-observed natural end of the exact current run. The envelope identifies
+ * its exact-next stopped successor while the expected fields fence the state
+ * which physically reached end of media.
+ */
+interface FilePlaybackEndedWireMessage extends FilePlaybackWireEnvelope {
+  readonly kind: 'file-playback-ended';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: PlaybackRevision;
+  readonly hostObservedAtRoomTimeMs: number;
+}
+
 export interface RendererHealthWireMessage extends FilePlaybackWireEnvelope {
   readonly kind: 'renderer-health';
   /** Exact renderer generation; same-run recovery allocates a new rendezvous. */
@@ -229,6 +244,7 @@ export type FilePlaybackWireMessage =
   | FilePlaybackSeekWireMessage
   | FilePlaybackCancelWireMessage
   | FilePlaybackStopWireMessage
+  | FilePlaybackEndedWireMessage
   | RendererHealthWireMessage;
 
 /** Optional binding checks supplied by the connection owner at receive time. */
@@ -372,6 +388,12 @@ const SPECIFIC_KEYS: Readonly<Record<FilePlaybackWireKind, readonly string[]>> =
     'expectedRunId',
     'expectedRevision',
     'atRoomTimeMs',
+  ]),
+  'file-playback-ended': Object.freeze([
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'hostObservedAtRoomTimeMs',
   ]),
   'renderer-health': Object.freeze([
     'rendezvousId',
@@ -700,6 +722,8 @@ function hasValidKindPayload(candidate: Record<string, unknown>): boolean {
       return isBoundedIdentifier(candidate.rendezvousId) && isBoundedReason(candidate.reasonCode);
     case 'file-playback-stop':
       return hasValidSuccessorState(candidate) && isRoomTime(candidate.atRoomTimeMs);
+    case 'file-playback-ended':
+      return hasValidSuccessorState(candidate) && isRoomTime(candidate.hostObservedAtRoomTimeMs);
     case 'renderer-health': {
       const healthy = candidate.value === 'healthy';
       if (!healthy && candidate.value !== 'unhealthy') return false;
@@ -937,7 +961,8 @@ function hasValidExpectationBindings(
 }
 
 function observedAtRoomTimeMs(message: FilePlaybackWireMessage): number | null {
-  return 'observedAtRoomTimeMs' in message ? message.observedAtRoomTimeMs : null;
+  if ('observedAtRoomTimeMs' in message) return message.observedAtRoomTimeMs;
+  return message.kind === 'file-playback-ended' ? message.hostObservedAtRoomTimeMs : null;
 }
 
 function hasValidTemporalBindings(
@@ -1114,6 +1139,15 @@ function canonicalMessage(candidate: Record<string, unknown>): FilePlaybackWireM
         expectedRevision: candidate.expectedRevision as PlaybackRevision,
         atRoomTimeMs: candidate.atRoomTimeMs as number,
       });
+    case 'file-playback-ended':
+      return freezeCanonical({
+        ...envelope,
+        kind: 'file-playback-ended',
+        expectedQueueItemId: candidate.expectedQueueItemId as QueueItemId,
+        expectedRunId: candidate.expectedRunId as string,
+        expectedRevision: candidate.expectedRevision as PlaybackRevision,
+        hostObservedAtRoomTimeMs: candidate.hostObservedAtRoomTimeMs as number,
+      });
     case 'renderer-health':
       return freezeCanonical({
         ...envelope,
@@ -1191,7 +1225,8 @@ function expectedStateFromMessage(
     | FilePlaybackPrepareWireMessage
     | FilePlaybackPauseWireMessage
     | FilePlaybackSeekWireMessage
-    | FilePlaybackStopWireMessage,
+    | FilePlaybackStopWireMessage
+    | FilePlaybackEndedWireMessage,
 ): Readonly<FilePlaybackWireExpectedStateIdentity> {
   return freezeCanonical({
     queueItemId: message.expectedQueueItemId,
@@ -1393,21 +1428,23 @@ export class FilePlaybackWireReceiver {
         message.kind !== 'file-playback-prepare' &&
         message.kind !== 'file-playback-pause' &&
         message.kind !== 'file-playback-seek' &&
-        message.kind !== 'file-playback-stop'
+        message.kind !== 'file-playback-stop' &&
+        message.kind !== 'file-playback-ended'
       ) {
         return receiverResult({ accepted: false as const, reason: 'malformed-frame' as const });
       }
       const expected = expectedStateFromMessage(message);
-      const resolved =
-        message.kind === 'file-playback-stop'
-          ? this.#bindings.resolveStopSuccessor(reference, expected)
-          : this.#bindings.resolveSuccessor(reference, expected);
+      const isStopSuccessor =
+        message.kind === 'file-playback-stop' || message.kind === 'file-playback-ended';
+      const resolved = isStopSuccessor
+        ? this.#bindings.resolveStopSuccessor(reference, expected)
+        : this.#bindings.resolveSuccessor(reference, expected);
       if (resolved.status === 'active') stateLease = resolved.stateLease;
       else if (resolved.status === 'stale') staleScope = 'state';
       else {
         remoteSuccessorAdmission = freezeCanonical({
           expected,
-          purpose: message.kind === 'file-playback-stop' ? ('stop' as const) : ('media' as const),
+          purpose: isStopSuccessor ? ('stop' as const) : ('media' as const),
         });
       }
     } else {
@@ -1496,7 +1533,7 @@ export class FilePlaybackWireReceiver {
     if (message.controlSequence <= this.#lastControlSequence) {
       return receiverResult({ accepted: false as const, reason: 'replayed-sequence' as const });
     }
-    if (message.kind === 'file-playback-stop') {
+    if (message.kind === 'file-playback-stop' || message.kind === 'file-playback-ended') {
       this.#bindings.markStopSuccessorLease(stateLease!, expectedStateFromMessage(message));
     }
     this.#lastControlSequence = message.controlSequence;

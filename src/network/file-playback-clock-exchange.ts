@@ -21,6 +21,12 @@ export const MAX_FILE_PLAYBACK_CLOCK_TIMESTAMP_MS = 10 * 366 * 24 * 60 * 60 * 1_
 export const MAX_FILE_PLAYBACK_CLOCK_OFFSET_MS = MAX_FILE_PLAYBACK_CLOCK_TIMESTAMP_MS;
 export const MAX_FILE_PLAYBACK_ROOM_TIME_MS =
   MAX_FILE_PLAYBACK_CLOCK_TIMESTAMP_MS + MAX_FILE_PLAYBACK_CLOCK_OFFSET_MS;
+/**
+ * A continuation lease is only a bounded holdover for work admitted while the
+ * guest clock was calibrated. It must never become a replacement calibration
+ * or authorize a new attempt after an arbitrary outage.
+ */
+export const MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS = 3_000;
 
 const DEFAULT_MAX_PENDING_PINGS = 32;
 const DEFAULT_PING_TIMEOUT_MS = 5_000;
@@ -105,6 +111,30 @@ export interface FilePlaybackClockExchangeBinding {
   readonly role: FilePlaybackClockRole;
   readonly sessionId: string;
   readonly connectionId: string;
+}
+
+declare const FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_BRAND: unique symbol;
+
+/**
+ * Body-free capability proving that this exact exchange admitted a short
+ * continuation while its guest clock was calibrated. Runtime authority lives
+ * exclusively in the issuing exchange's private WeakMap.
+ */
+export interface FilePlaybackClockTemporalContinuationLease {
+  readonly [FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_BRAND]: never;
+}
+
+interface TemporalContinuationLeaseRecord {
+  readonly epoch: object;
+  readonly sessionId: string;
+  readonly connectionId: string;
+  readonly expiresAtMs: number;
+  readonly offsetMs: number;
+}
+
+interface TemporalContinuationObservation {
+  readonly record: TemporalContinuationLeaseRecord;
+  readonly localNowMs: number;
 }
 
 interface PendingPing {
@@ -273,6 +303,11 @@ export class FilePlaybackClockExchange {
   readonly #pingTimeoutMs: number;
   readonly #pending = new Map<number, PendingPing>();
   readonly #retiredConnectionIds = new Set<string>();
+  readonly #temporalContinuationLeases = new WeakMap<
+    FilePlaybackClockTemporalContinuationLease,
+    TemporalContinuationLeaseRecord
+  >();
+  #temporalContinuationEpoch: object = Object.freeze(Object.create(null) as object);
   #role: FilePlaybackClockRole;
   #sessionId: string | null;
   #connectionId: string | null;
@@ -356,6 +391,101 @@ export class FilePlaybackClockExchange {
   bindAudioContext(context: AudioContext): FilePlaybackClockBindings {
     if (!context) throw new TypeError('AudioContext is required');
     return this.#getClock().bindAudioContext(context);
+  }
+
+  /**
+   * Admit one short, exact-epoch continuation while the guest clock is still
+   * calibrated. The returned token has no readable body; only this exchange
+   * can validate it.
+   */
+  mintCalibratedTemporalContinuationLease(
+    durationMs: number,
+  ): FilePlaybackClockTemporalContinuationLease {
+    if (
+      !Number.isFinite(durationMs) ||
+      durationMs <= 0 ||
+      durationMs > MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS
+    ) {
+      throw new RangeError(
+        `durationMs must be greater than zero and at most ${MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS}`,
+      );
+    }
+    if (this.#role !== 'guest') {
+      throw new Error('Only a guest can mint a temporal continuation lease');
+    }
+    const sessionId = this.#sessionId;
+    const connectionId = this.#connectionId;
+    if (!sessionId || !connectionId) {
+      throw new Error('Clock exchange has no active session');
+    }
+
+    const issuedAtMs = this.#captureNowOrThrow();
+    const quality = this.#getClock().qualityAtLocalTime(issuedAtMs);
+    if (!quality.calibrated) {
+      throw new Error('Guest clock must be calibrated to mint a temporal continuation lease');
+    }
+
+    const lease = Object.freeze(Object.create(null) as FilePlaybackClockTemporalContinuationLease);
+    this.#temporalContinuationLeases.set(
+      lease,
+      Object.freeze({
+        epoch: this.#temporalContinuationEpoch,
+        sessionId,
+        connectionId,
+        expiresAtMs: issuedAtMs + durationMs,
+        offsetMs: quality.offsetMs,
+      }),
+    );
+    return lease;
+  }
+
+  /**
+   * Validate an exact continuation without consulting current clock quality.
+   * The issuing monotonic source still bounds it, and every temporal or
+   * identity boundary rotates the private epoch before validation can pass.
+   */
+  validateTemporalContinuationLease(lease: unknown): boolean {
+    return this.#captureTemporalContinuationObservation(lease) !== null;
+  }
+
+  /**
+   * Read room time through the calibrated offset captured at admission. This
+   * deliberately exposes neither the offset nor any token body and cannot be
+   * used after the exact continuation corridor closes.
+   */
+  roomTimeMsForTemporalContinuationLease(lease: unknown): number | null {
+    const observation = this.#captureTemporalContinuationObservation(lease);
+    if (!observation) return null;
+    const roomTimeMs = observation.localNowMs + observation.record.offsetMs;
+    if (
+      !Number.isFinite(roomTimeMs) ||
+      roomTimeMs < 0 ||
+      roomTimeMs > MAX_FILE_PLAYBACK_ROOM_TIME_MS
+    ) {
+      this.#invalidateTemporalContinuationLeases();
+      return null;
+    }
+    return roomTimeMs;
+  }
+
+  #captureTemporalContinuationObservation(lease: unknown): TemporalContinuationObservation | null {
+    if ((typeof lease !== 'object' && typeof lease !== 'function') || lease === null) {
+      return null;
+    }
+    const record = this.#temporalContinuationLeases.get(
+      lease as FilePlaybackClockTemporalContinuationLease,
+    );
+    if (!record || !this.#matchesTemporalContinuationRecord(record)) return null;
+
+    const nowMs = this.#captureNow();
+    if (
+      nowMs === null ||
+      !this.#matchesTemporalContinuationRecord(record) ||
+      nowMs >= record.expiresAtMs
+    ) {
+      return null;
+    }
+    return { record, localNowMs: nowMs };
   }
 
   pendingPingCount(): number {
@@ -468,6 +598,26 @@ export class FilePlaybackClockExchange {
   handleWake(): void {
     this.#pending.clear();
     this.#lastObservedNowMs = null;
+    this.#invalidateTemporalContinuationLeases();
+    this.#getClock().handleWake();
+  }
+
+  /**
+   * Reset only ordinary guest calibration for an automatic freshness renewal.
+   *
+   * Unlike handleWake(), this preserves the monotonic observation boundary and
+   * exact continuation tokens minted by a fresh ARM. Those tokens remain
+   * bounded by their own expiry and are still invalidated by a real wake,
+   * reversal, unsafe clock value, or connection lifecycle boundary.
+   */
+  resetGuestCalibrationForRenewal(): void {
+    if (this.#role !== 'guest') {
+      throw new Error('Only a guest can reset calibration for renewal');
+    }
+    if (!this.#sessionId || !this.#connectionId) {
+      throw new Error('Clock exchange has no active session');
+    }
+    this.#pending.clear();
     this.#getClock().handleWake();
   }
 
@@ -562,6 +712,7 @@ export class FilePlaybackClockExchange {
   }
 
   #resetClockForRole(): void {
+    this.#invalidateTemporalContinuationLeases();
     this.#getClock().reset();
     this.#getClock().setHost(this.#role === 'host');
   }
@@ -589,6 +740,7 @@ export class FilePlaybackClockExchange {
 
   #resetAfterUnsafeClockValue(): void {
     this.#pending.clear();
+    this.#invalidateTemporalContinuationLeases();
     this.#getClock().handleWake();
   }
 
@@ -601,9 +753,23 @@ export class FilePlaybackClockExchange {
   #invalidateObservedClock(): void {
     this.#pending.clear();
     this.#clockReversalEpoch += 1;
+    this.#invalidateTemporalContinuationLeases();
     // Safe during an estimator read: handleWake() has no clock read of its
     // own and clears the estimator before the current observation commits.
     this.#clock?.handleWake();
+  }
+
+  #matchesTemporalContinuationRecord(record: TemporalContinuationLeaseRecord): boolean {
+    return (
+      record.epoch === this.#temporalContinuationEpoch &&
+      this.#role === 'guest' &&
+      record.sessionId === this.#sessionId &&
+      record.connectionId === this.#connectionId
+    );
+  }
+
+  #invalidateTemporalContinuationLeases(): void {
+    this.#temporalContinuationEpoch = Object.freeze(Object.create(null) as object);
   }
 
   #getClock(): FilePlaybackClock {

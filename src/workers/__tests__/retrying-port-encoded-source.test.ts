@@ -87,6 +87,41 @@ describe('RetryingPortEncodedSource', () => {
     expect(portClient.readAt).toHaveBeenCalledTimes(4);
   });
 
+  it('publishes balanced retry-wait deltas and resolves its drain barrier after abort', async () => {
+    vi.useFakeTimers();
+    const deltas: Array<readonly [1 | -1, number]> = [];
+    const portClient = client({
+      readAt: async () => {
+        throw new EncodedSourcePortError('busy');
+      },
+    });
+    const controller = new AbortController();
+    const reason = new Error('retire retry wait');
+    const encoded = new RetryingPortEncodedSource({
+      size: ENCODED_SOURCE_PORT_MAX_READ_BYTES * 2,
+      identity: 'worker-port-source:retry-diagnostics',
+      client: portClient,
+      onRetryWaitDelta: (delta, activeRetryWaits) => {
+        deltas.push([delta, activeRetryWaits]);
+      },
+    });
+    const read = encoded.readAt(0, 1, controller.signal).catch((error: unknown) => error);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(encoded.activeRetryWaitCount).toBe(1);
+    const drained = encoded.whenRetryWaitsDrained();
+
+    controller.abort(reason);
+    await vi.runAllTimersAsync();
+    await expect(read).resolves.toBe(reason);
+    await expect(drained).resolves.toBeUndefined();
+    expect(encoded.activeRetryWaitCount).toBe(0);
+    expect(deltas).toEqual([
+      [1, 1],
+      [-1, 0],
+    ]);
+  });
+
   it('stops at the fixed retry ceiling without accumulating an unbounded queue', async () => {
     vi.useFakeTimers();
     const portClient = client({

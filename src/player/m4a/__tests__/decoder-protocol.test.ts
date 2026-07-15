@@ -232,7 +232,7 @@ describe('M4A AAC decoder command boundary', () => {
     const pcm = new MessageChannel();
     const parsed = parseM4aAacDecoderCommand(openCommand(source.port2, pcm.port2));
     expect(parsed).toMatchObject({
-      protocolVersion: 1,
+      protocolVersion: M4A_AAC_DECODER_PROTOCOL_VERSION,
       type: 'open-decoder',
       sourceLifetimeGeneration: 7,
       decoderGeneration: 19,
@@ -269,7 +269,7 @@ describe('M4A AAC decoder command boundary', () => {
     const valid = openCommand(source.port2, pcm.port2);
     expect(parseM4aAacDecoderCommand({ ...valid, extra: true })).toBeNull();
     expect(parseM4aAacDecoderCommand({ ...valid, [Symbol('extra')]: true })).toBeNull();
-    expect(parseM4aAacDecoderCommand({ ...valid, protocolVersion: 2 })).toBeNull();
+    expect(parseM4aAacDecoderCommand({ ...valid, protocolVersion: 1 })).toBeNull();
     expect(parseM4aAacDecoderCommand({ ...valid, backendId: 'automatic' })).toBeNull();
     expect(parseM4aAacDecoderCommand({ ...valid, sourceLifetimeGeneration: 0 })).toBeNull();
     expect(parseM4aAacDecoderCommand({ ...valid, decoderGeneration: 0 })).toBeNull();
@@ -317,6 +317,20 @@ describe('M4A AAC decoder event boundary', () => {
       { ...eventIdentity(), type: 'decoder-eof', ...progress },
       { ...eventIdentity(), type: 'decoder-stopped' },
       { ...eventIdentity(), type: 'decoder-error', code: 'decode-failed', message: 'failed' },
+      { ...eventIdentity(), type: 'decoder-retired' },
+      {
+        ...eventIdentity(),
+        type: 'worker-retired',
+        retryWaitSequence: 2,
+        activeRetryWaits: 0,
+      },
+      {
+        ...eventIdentity(),
+        type: 'retry-wait-delta',
+        delta: 1,
+        retryWaitSequence: 1,
+        activeRetryWaits: 1,
+      },
     ];
 
     for (const event of events) {
@@ -344,6 +358,15 @@ describe('M4A AAC decoder event boundary', () => {
       parseM4aAacDecoderEvent({ ...progress, producedOutputFrames: Number.MAX_SAFE_INTEGER + 1 }),
     ).toBeNull();
     expect(parseM4aAacDecoderEvent({ ...progress, decoderGeneration: 0 })).toBeNull();
+    expect(
+      parseM4aAacDecoderEvent({
+        ...eventIdentity(),
+        type: 'retry-wait-delta',
+        delta: -1,
+        retryWaitSequence: 2,
+        activeRetryWaits: -1,
+      }),
+    ).toBeNull();
     expect(
       parseM4aAacDecoderEvent({
         ...eventIdentity(),

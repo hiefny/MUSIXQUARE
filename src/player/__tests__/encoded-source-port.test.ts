@@ -10,6 +10,7 @@ import {
   EncodedSourcePortClient,
   EncodedSourcePortError,
 } from '../sources/encoded-source-port.ts';
+import { getFilePlaybackUniversalLifecycleSnapshotForTests as getFilePlaybackUniversalLifecycleSnapshot } from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 
 type MessageListener = (event: MessageEvent<unknown>) => void;
 
@@ -19,9 +20,19 @@ class FakeMessagePort {
   readonly sent: unknown[] = [];
   peer: FakeMessagePort | null = null;
   closed = false;
+  closeCount = 0;
+  failAddType: string | null = null;
+  failRemoveType: string | null = null;
+  failClose = false;
   failPost = false;
+  onClose: (() => void) | null = null;
+  onPost: (() => void) | null = null;
+  onAddBeforeCommit: ((type: string, listener: EventListenerOrEventListenerObject) => void) | null =
+    null;
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (this.failAddType === type) throw new Error(`synthetic ${type} listener failure`);
+    this.onAddBeforeCommit?.(type, listener);
     if (type === 'message') {
       this.listeners.add(listener as MessageListener);
       return;
@@ -32,6 +43,7 @@ class FakeMessagePort {
   }
 
   removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (this.failRemoveType === type) throw new Error(`synthetic ${type} detach failure`);
     if (type === 'message') {
       this.listeners.delete(listener as MessageListener);
       return;
@@ -42,11 +54,15 @@ class FakeMessagePort {
   start(): void {}
 
   close(): void {
+    this.closeCount += 1;
+    this.onClose?.();
+    if (this.failClose) throw new Error('synthetic port close failure');
     this.closed = true;
   }
 
   postMessage(value: unknown): void {
     if (this.failPost || this.closed) throw new DOMException('port unavailable', 'DataCloneError');
+    this.onPost?.();
     this.sent.push(value);
     this.peer?.emit(value);
   }
@@ -1023,5 +1039,413 @@ describe('EncodedSourcePort bridge', () => {
       ),
     ).toHaveLength(1);
     await broker.close();
+  });
+
+  it('retires the page-side broker port only after awaited source cleanup settles', async () => {
+    const [brokerPort] = portPair();
+    let resolveSourceClose!: () => void;
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const broker = new EncodedSourcePortBroker({
+      source: encodedSource(async () => Uint8Array.of(1), {
+        close: () =>
+          new Promise<void>((resolve) => {
+            resolveSourceClose = resolve;
+          }),
+      }),
+      port: asPort(brokerPort),
+      generation: 214,
+    });
+
+    const active = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(active.kinds.ports.live).toBe(baseline.kinds.ports.live + 1);
+
+    const closing = broker.close();
+    await flushTasks();
+    const retiring = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(retiring.kinds.ports.live).toBe(baseline.kinds.ports.live);
+    expect(retiring.kinds.ports.retiring).toBe(baseline.kinds.ports.retiring + 1);
+
+    resolveSourceClose();
+    await closing;
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(retired.kinds.ports.retiring).toBe(baseline.kinds.ports.retiring);
+    expect(retired.kinds.ports.releasedTotal).toBe(baseline.kinds.ports.releasedTotal + 1);
+  });
+
+  it('closes its port exactly once without touching listeners or counters when validation fails', () => {
+    const [brokerPort] = portPair();
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot().kinds.ports;
+
+    expect(
+      () =>
+        new EncodedSourcePortBroker({
+          source: encodedSource(async () => Uint8Array.of(1)),
+          port: asPort(brokerPort),
+          generation: 215,
+          maxPhysicalReads: 0,
+        }),
+    ).toThrow(/maxPhysicalReads/);
+
+    expect(getFilePlaybackUniversalLifecycleSnapshot().kinds.ports).toEqual(baseline);
+    expect(brokerPort.closed).toBe(true);
+    expect(brokerPort.closeCount).toBe(1);
+    expect(brokerPort.listeners.size).toBe(0);
+    expect(brokerPort.lifecycleListeners.size).toBe(0);
+  });
+
+  it('marks an acquired port unconfirmed and closes it exactly once when installation fails', () => {
+    const [brokerPort] = portPair();
+    brokerPort.failAddType = 'messageerror';
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+
+    expect(
+      () =>
+        new EncodedSourcePortBroker({
+          source: encodedSource(async () => Uint8Array.of(1)),
+          port: asPort(brokerPort),
+          generation: 216,
+        }),
+    ).toThrow(/listener failure/);
+
+    const failed = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(failed.kinds.ports.live).toBe(baseline.kinds.ports.live);
+    expect(failed.kinds.ports.unconfirmed).toBe(baseline.kinds.ports.unconfirmed + 1);
+    expect(failed.forcedRetirements).toBe(baseline.forcedRetirements + 1);
+    expect(brokerPort.closeCount).toBe(1);
+    expect(brokerPort.listeners.size).toBe(0);
+  });
+
+  it('continues physical broker cleanup and marks the port unconfirmed when listener detach throws', async () => {
+    const [brokerPort] = portPair();
+    const closeSource = vi.fn(async () => undefined);
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const broker = new EncodedSourcePortBroker({
+      source: encodedSource(async () => new Uint8Array(0), { close: closeSource }),
+      port: asPort(brokerPort),
+      generation: 1,
+    });
+    brokerPort.failRemoveType = 'message';
+
+    await broker.close();
+
+    const failed = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(broker.closed).toBe(true);
+    expect(brokerPort.closeCount).toBe(1);
+    expect(closeSource).toHaveBeenCalledOnce();
+    expect(brokerPort.lifecycleListeners.get('messageerror')?.size ?? 0).toBe(0);
+    expect(brokerPort.lifecycleListeners.get('close')?.size ?? 0).toBe(0);
+    expect(failed.kinds.ports.live).toBe(baseline.kinds.ports.live);
+    expect(failed.kinds.ports.retiring).toBe(baseline.kinds.ports.retiring);
+    expect(failed.kinds.ports.unconfirmed).toBe(baseline.kinds.ports.unconfirmed + 1);
+    expect(failed.forcedRetirements).toBe(baseline.forcedRetirements + 1);
+  });
+
+  it('claims one broker close promise before hostile post and close-event reentry', async () => {
+    const [brokerPort] = portPair();
+    const closeSource = vi.fn(async () => undefined);
+    const broker = new EncodedSourcePortBroker({
+      source: encodedSource(async () => new Uint8Array(0), { close: closeSource }),
+      port: asPort(brokerPort),
+      generation: 218,
+    });
+    let reentered: Promise<void> | null = null;
+    brokerPort.onPost = () => {
+      brokerPort.emitLifecycle('close');
+      reentered = broker.close();
+    };
+    brokerPort.onClose = () => {
+      reentered ??= broker.close();
+    };
+
+    const closing = broker.close();
+
+    expect(reentered).toBe(closing);
+    expect(broker.close()).toBe(closing);
+    await expect(closing).resolves.toBeUndefined();
+    expect(closeSource).toHaveBeenCalledOnce();
+    expect(brokerPort.closeCount).toBe(1);
+  });
+
+  it('claims one client close promise before hostile worker-retired post reentry', async () => {
+    const [clientPort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 219,
+      size: 16,
+    });
+    let reentered: Promise<void> | null = null;
+    clientPort.onPost = () => {
+      reentered = client.close();
+      clientPort.emitLifecycle('close');
+    };
+    clientPort.onClose = () => {
+      reentered ??= client.close();
+    };
+
+    const closing = client.close();
+
+    expect(reentered).toBe(closing);
+    expect(client.close()).toBe(closing);
+    await expect(closing).rejects.toBeInstanceOf(EncodedSourcePortError);
+    expect(clientPort.closeCount).toBe(1);
+  });
+
+  it('settles a client read but leaves its timer sticky-unconfirmed when clearTimeout throws', async () => {
+    const [clientPort, remotePort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 220,
+      size: 16,
+    });
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const pending = client.readAt(0, 1, new AbortController().signal);
+    const clearTimeout = vi.spyOn(globalThis, 'clearTimeout').mockImplementationOnce(() => {
+      throw new Error('synthetic timer cancellation failure');
+    });
+    try {
+      remotePort.postMessage(
+        command({
+          type: 'encoded-source:result',
+          generation: 220,
+          decoderGeneration: 1,
+          requestId: 1,
+          offset: 0,
+          length: 1,
+          payload: Uint8Array.of(71).buffer,
+        }),
+      );
+
+      await expect(pending).resolves.toEqual(Uint8Array.of(71));
+    } finally {
+      clearTimeout.mockRestore();
+    }
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(client.pendingReadCount).toBe(0);
+    expect(retired.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(retired.kinds.timers.live).toBe(baseline.kinds.timers.live);
+    expect(retired.kinds.timers.unconfirmed).toBe(baseline.kinds.timers.unconfirmed + 1);
+    await client.close();
+  });
+
+  it('settles client close and marks a pending read unconfirmed when abort-listener detach throws', async () => {
+    const [clientPort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 221,
+      size: 16,
+    });
+    const signal = {
+      aborted: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(() => {
+        throw new Error('synthetic abort detach failure');
+      }),
+    } as unknown as AbortSignal;
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const read = client.readAt(0, 1, signal);
+
+    const closing = client.close();
+
+    await expect(read).rejects.toBeInstanceOf(EncodedSourceClosedError);
+    await expect(closing).rejects.toThrow(/abort detach failure/);
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(client.pendingReadCount).toBe(0);
+    expect(retired.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(retired.kinds.pendingReads.unconfirmed).toBe(
+      baseline.kinds.pendingReads.unconfirmed + 1,
+    );
+  });
+
+  it('releases client pending-read and timer leases even when listener detach throws', async () => {
+    const [clientPort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 1,
+      size: 16,
+    });
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const read = client.readAt(0, 4, new AbortController().signal);
+    expect(client.pendingReadCount).toBe(1);
+    clientPort.failRemoveType = 'message';
+
+    const closing = client.close();
+    expect(client.close()).toBe(closing);
+    await expect(closing).rejects.toThrow(/message detach failure/);
+    await expect(read).rejects.toBeInstanceOf(EncodedSourceClosedError);
+
+    const closed = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(client.pendingReadCount).toBe(0);
+    expect(clientPort.closeCount).toBe(1);
+    expect(closed.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(closed.kinds.pendingReads.retiring).toBe(baseline.kinds.pendingReads.retiring);
+    expect(closed.kinds.timers.live).toBe(baseline.kinds.timers.live);
+    expect(closed.kinds.timers.retiring).toBe(baseline.kinds.timers.retiring);
+  });
+
+  it('attempts every client cleanup and rejects stable close when close-listener detach and port close fail', async () => {
+    const [clientPort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 1,
+      size: 16,
+    });
+    clientPort.failRemoveType = 'close';
+    clientPort.failClose = true;
+
+    const closing = client.close();
+    expect(client.close()).toBe(closing);
+    await expect(closing).rejects.toMatchObject({
+      name: 'AggregateError',
+      message: 'Encoded source port physical cleanup could not be confirmed',
+      errors: [
+        expect.objectContaining({ message: 'synthetic close detach failure' }),
+        expect.objectContaining({ message: 'synthetic port close failure' }),
+      ],
+    });
+
+    expect(client.closed).toBe(true);
+    expect(client.pendingReadCount).toBe(0);
+    expect(clientPort.listeners.size).toBe(0);
+    expect(clientPort.lifecycleListeners.get('messageerror')?.size ?? 0).toBe(0);
+    expect(clientPort.lifecycleListeners.get('close')?.size ?? 0).toBe(1);
+    expect(clientPort.closeCount).toBe(1);
+  });
+
+  it('marks the page-side broker port unconfirmed after a protocol fault', () => {
+    const [brokerPort, remotePort] = portPair();
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    new EncodedSourcePortBroker({
+      source: encodedSource(async () => Uint8Array.of(1)),
+      port: asPort(brokerPort),
+      generation: 217,
+    });
+
+    remotePort.postMessage(command({ type: 'not-the-protocol', generation: 217 }));
+
+    const failed = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(failed.kinds.ports.live).toBe(baseline.kinds.ports.live);
+    expect(failed.kinds.ports.unconfirmed).toBe(baseline.kinds.ports.unconfirmed + 1);
+    expect(failed.forcedRetirements).toBe(baseline.forcedRetirements + 1);
+  });
+
+  it('terminally detaches a broker listener committed after synchronous constructor close', async () => {
+    const [brokerPort] = portPair();
+    let reentered = false;
+    brokerPort.onAddBeforeCommit = (type, listener) => {
+      if (type !== 'message' || reentered) return;
+      reentered = true;
+      const event = { data: { type: 'hostile-constructor-message' } } as MessageEvent<unknown>;
+      if (typeof listener === 'function') listener(event);
+      else listener.handleEvent(event);
+    };
+
+    const broker = new EncodedSourcePortBroker({
+      source: encodedSource(async () => Uint8Array.of(1)),
+      port: asPort(brokerPort),
+      generation: 222,
+    });
+
+    expect(broker.closed).toBe(true);
+    expect(brokerPort.listeners.size).toBe(0);
+    expect(brokerPort.lifecycleListeners.get('messageerror')?.size ?? 0).toBe(0);
+    expect(brokerPort.lifecycleListeners.get('close')?.size ?? 0).toBe(0);
+    expect(brokerPort.closeCount).toBe(1);
+    await expect(broker.close()).resolves.toBeUndefined();
+  });
+
+  it('terminally detaches a client listener committed after synchronous constructor close', async () => {
+    const [clientPort] = portPair();
+    let reentered = false;
+    clientPort.onAddBeforeCommit = (type, listener) => {
+      if (type !== 'message' || reentered) return;
+      reentered = true;
+      const event = { data: { type: 'hostile-constructor-message' } } as MessageEvent<unknown>;
+      if (typeof listener === 'function') listener(event);
+      else listener.handleEvent(event);
+    };
+
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 223,
+      size: 16,
+    });
+
+    expect(client.closed).toBe(true);
+    expect(clientPort.listeners.size).toBe(0);
+    expect(clientPort.lifecycleListeners.get('messageerror')?.size ?? 0).toBe(0);
+    expect(clientPort.lifecycleListeners.get('close')?.size ?? 0).toBe(0);
+    expect(clientPort.closeCount).toBe(1);
+    await expect(client.close()).resolves.toBeUndefined();
+  });
+
+  it('waits for timer publication when setTimeout synchronously reenters client close', async () => {
+    const [clientPort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 224,
+      size: 16,
+    });
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const nativeSetTimeout = globalThis.setTimeout;
+    let closing: Promise<void> | null = null;
+    const setTimeout = vi.spyOn(globalThis, 'setTimeout').mockImplementationOnce(((
+      callback,
+      delay,
+      ...args
+    ) => {
+      closing = client.close();
+      return nativeSetTimeout(callback, delay, ...args);
+    }) as typeof globalThis.setTimeout);
+    let read!: Promise<Uint8Array>;
+    try {
+      read = client.readAt(0, 1, new AbortController().signal);
+    } finally {
+      setTimeout.mockRestore();
+    }
+
+    await expect(read).rejects.toBeInstanceOf(EncodedSourceClosedError);
+    expect(closing).not.toBeNull();
+    await expect(closing!).resolves.toBeUndefined();
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(retired.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(retired.kinds.pendingReads.retiring).toBe(baseline.kinds.pendingReads.retiring);
+    expect(retired.kinds.timers.live).toBe(baseline.kinds.timers.live);
+    expect(retired.kinds.timers.retiring).toBe(baseline.kinds.timers.retiring);
+  });
+
+  it('rolls back a published timer and both leases when unref throws', async () => {
+    const [clientPort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 225,
+      size: 16,
+    });
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const syntheticTimer = {
+      unref: () => {
+        throw new Error('synthetic unref failure');
+      },
+    } as unknown as ReturnType<typeof globalThis.setTimeout>;
+    const setTimeout = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementationOnce((() => syntheticTimer) as typeof globalThis.setTimeout);
+    const clearTimeout = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementationOnce((timer) => expect(timer).toBe(syntheticTimer));
+    let read!: Promise<Uint8Array>;
+    try {
+      read = client.readAt(0, 1, new AbortController().signal);
+    } finally {
+      setTimeout.mockRestore();
+      clearTimeout.mockRestore();
+    }
+
+    await expect(read).rejects.toThrow(/unref failure/);
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(retired.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(retired.kinds.pendingReads.retiring).toBe(baseline.kinds.pendingReads.retiring);
+    expect(retired.kinds.timers.live).toBe(baseline.kinds.timers.live);
+    expect(retired.kinds.timers.retiring).toBe(baseline.kinds.timers.retiring);
+    await expect(client.close()).resolves.toBeUndefined();
   });
 });

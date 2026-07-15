@@ -31,6 +31,13 @@ import {
 } from './file-playback-source.ts';
 import { readPlaybackStateIdentity } from './playback-identity.ts';
 import {
+  createFilePlaybackRemoteEndedTransitionEvidence,
+  readFilePlaybackRemoteEndedTransitionIntent,
+  sameFilePlaybackRemoteEndedTransitionIntent,
+  type FilePlaybackRemoteEndedTransitionEvidence,
+  type FilePlaybackRemoteEndedTransitionIntent,
+} from './file-playback-remote-ended-transition.ts';
+import {
   createFilePlaybackStopTransitionEvidence,
   createFilePlaybackStopTransitionResult,
   readFilePlaybackStopTransitionIntent,
@@ -155,6 +162,12 @@ interface CompletedCutoverStop {
 interface CompletedCutoverEnd {
   readonly intent: Readonly<FilePlaybackEndedTransitionIntent>;
   readonly promise: WeakRef<Promise<Readonly<FilePlaybackEndedTransitionEvidence>>>;
+}
+
+/** Source-free tombstone used only for an exact remote-ended retirement retry. */
+interface CompletedCutoverRemoteEnd {
+  readonly intent: Readonly<FilePlaybackRemoteEndedTransitionIntent>;
+  readonly promise: WeakRef<Promise<Readonly<FilePlaybackRemoteEndedTransitionEvidence>>>;
 }
 
 const CURRENT_STOP_MAX_LEAD_SECONDS = 30;
@@ -548,8 +561,10 @@ export class FilePlaybackManager {
   private readonly sourceStates = new WeakMap<FilePlaybackSource, ManagedSource>();
   private readonly discardedQueueItems = new Set<QueueItemId>();
   private readonly cutoverPorts = new WeakMap<object, CutoverRecord>();
+  private readonly completedCutoverCleanups = new WeakMap<object, Promise<void>>();
   private readonly completedCutoverStops = new WeakMap<object, CompletedCutoverStop>();
   private readonly completedCutoverEnds = new WeakMap<object, CompletedCutoverEnd>();
+  private readonly completedCutoverRemoteEnds = new WeakMap<object, CompletedCutoverRemoteEnd>();
   private cutoverCurrent: CutoverRecord | null = null;
   private cutoverCandidate: CutoverRecord | null = null;
   private cutoverEpoch = 0;
@@ -703,6 +718,26 @@ export class FilePlaybackManager {
     const record = this.cutoverPorts.get(port);
     if (!record || !this.ownsLiveCandidate(record)) return Promise.resolve(false);
     return this.retireCandidateRecord(record, 'caller-retired').then(() => true);
+  }
+
+  /**
+   * Retires one exact opaque cutover capability, regardless of whether it is
+   * still the candidate, has promoted to current, or is already retiring.
+   * Completed outcomes remain replayable without retaining the native source.
+   */
+  retireExactCutoverPort(port: FilePlaybackCutoverCandidatePort): Promise<void> {
+    const completed = this.completedCutoverCleanups.get(port);
+    if (completed) return completed;
+
+    const record = this.cutoverPorts.get(port);
+    if (!record) return Promise.resolve();
+    if (record.cleanupPromise) return record.cleanupPromise;
+
+    if (this.ownsLiveCandidate(record)) {
+      return this.retireCandidateRecord(record, 'exact-port-retired');
+    }
+    if (this.ownsLiveCurrent(record)) return this.retireCurrentRecord(record);
+    return Promise.reject(cutoverError('exact port has ambiguous residual ownership'));
   }
 
   cutoverRecoveryRequired(): boolean {
@@ -865,6 +900,107 @@ export class FilePlaybackManager {
       promise: new WeakRef(completed),
     });
     return completed;
+  }
+
+  /**
+   * Atomically retires one exact guest renderer after the host reports natural
+   * end. The physical phase may still be playing or paused because the host's
+   * observation and the guest render clock are independent. Snapshot
+   * validation, gate revocation, disconnection, and source retirement all stay
+   * behind this manager boundary so callers cannot race a snapshot against a
+   * later generic retirement call.
+   */
+  retireRemoteEndedCurrent(
+    port: FilePlaybackCutoverCandidatePort,
+    value: FilePlaybackRemoteEndedTransitionIntent,
+  ): Promise<Readonly<FilePlaybackRemoteEndedTransitionEvidence>> {
+    const observedEpoch = this.cutoverEpoch;
+    const intent = readFilePlaybackRemoteEndedTransitionIntent(value);
+    const record = this.cutoverPorts.get(port);
+    if (!intent || !record || !this.ownsLiveCurrent(record)) {
+      return this.retryCompletedCutoverRemoteEnd(port, intent);
+    }
+    if (this.remoteEndedRetirementConflicts(record)) {
+      return Promise.reject(cutoverError('remote-ended renderer has a conflicting transition'));
+    }
+    if (!this.currentAuthorityAllows(record)) {
+      void this.enterFailSilent(record, 'remote-ended-renderer-authority-expired');
+      return Promise.reject(cutoverError('remote-ended renderer authority expired'));
+    }
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !this.ownsLiveCurrent(record) ||
+      this.remoteEndedRetirementConflicts(record)
+    ) {
+      return Promise.reject(
+        cutoverError('remote-ended renderer changed during authority preflight'),
+      );
+    }
+
+    let snapshot: FilePlaybackSourceSnapshot;
+    try {
+      snapshot = createFilePlaybackSourceSnapshot(record.source.getSnapshot());
+    } catch (error) {
+      if (this.ownsLiveCurrent(record)) {
+        void this.enterFailSilent(record, 'remote-ended-renderer-snapshot-unavailable');
+      }
+      return Promise.reject(error);
+    }
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !this.ownsLiveCurrent(record) ||
+      this.remoteEndedRetirementConflicts(record)
+    ) {
+      return Promise.reject(
+        cutoverError('remote-ended renderer changed during snapshot preflight'),
+      );
+    }
+    if (
+      !this.transitionSnapshotMatches(record, snapshot, intent.from) ||
+      (snapshot.phase !== 'playing' && snapshot.phase !== 'paused' && snapshot.phase !== 'ended')
+    ) {
+      return Promise.reject(cutoverError('remote-ended from state is not current'));
+    }
+    record.state.lastSnapshot = snapshot;
+
+    if (!this.currentAuthorityAllows(record)) {
+      void this.enterFailSilent(record, 'remote-ended-renderer-authority-expired');
+      return Promise.reject(cutoverError('remote-ended renderer authority expired'));
+    }
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !this.ownsLiveCurrent(record) ||
+      this.remoteEndedRetirementConflicts(record)
+    ) {
+      return Promise.reject(cutoverError('remote-ended renderer changed before retirement'));
+    }
+
+    const evidence = createFilePlaybackRemoteEndedTransitionEvidence(intent, snapshot.phase);
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !this.ownsLiveCurrent(record) ||
+      this.remoteEndedRetirementConflicts(record)
+    ) {
+      return Promise.reject(
+        cutoverError('remote-ended renderer changed during evidence validation'),
+      );
+    }
+
+    // Publish the exact retry tombstone before the first native gate mutation.
+    // AudioParam/GainNode test doubles and native wrappers may synchronously
+    // re-enter this API while retirement is muting or disconnecting the gate.
+    const completedDeferred =
+      createDeferredPromise<Readonly<FilePlaybackRemoteEndedTransitionEvidence>>();
+    this.completedCutoverRemoteEnds.set(port, {
+      intent,
+      promise: new WeakRef(completedDeferred.promise),
+    });
+    const cleanup = this.retireCurrentRecord(record);
+    void cleanup.then(
+      () => completedDeferred.resolve(evidence),
+      (error: unknown) => completedDeferred.reject(error),
+    );
+    return completedDeferred.promise;
   }
 
   activeSource(): FilePlaybackSource | null {
@@ -2118,6 +2254,23 @@ export class FilePlaybackManager {
     return promise;
   }
 
+  private retryCompletedCutoverRemoteEnd(
+    port: FilePlaybackCutoverCandidatePort,
+    intent: Readonly<FilePlaybackRemoteEndedTransitionIntent> | null,
+  ): Promise<Readonly<FilePlaybackRemoteEndedTransitionEvidence>> {
+    const completed = this.completedCutoverRemoteEnds.get(port);
+    const promise = completed?.promise.deref();
+    if (
+      !completed ||
+      !promise ||
+      !intent ||
+      !sameFilePlaybackRemoteEndedTransitionIntent(completed.intent, intent)
+    ) {
+      return Promise.reject(cutoverError('current port or remote-ended intent is stale'));
+    }
+    return promise;
+  }
+
   private rejectCurrentStopAfterScheduling(
     record: CutoverRecord,
     error: unknown,
@@ -2260,6 +2413,15 @@ export class FilePlaybackManager {
       run.runId === state.runId &&
       run.revision === state.revision &&
       (expectedPhase === undefined || snapshot.phase === expectedPhase)
+    );
+  }
+
+  private remoteEndedRetirementConflicts(record: CutoverRecord): boolean {
+    return (
+      this.cutoverStageReservations.size > 0 ||
+      this.cutoverCandidate !== null ||
+      record.currentTransitionPending ||
+      record.currentStopPending
     );
   }
 
@@ -2459,9 +2621,19 @@ export class FilePlaybackManager {
       this.disconnectGate(record);
       states.add(record.state);
     }
-    const cleanup = Promise.all([...states].map((state) => this.destroyIfUnowned(state))).then(
-      () => undefined,
-    );
+    let cleanupError: AuthorityError = { present: false };
+    const cleanup = Promise.all(
+      [...states].map((state) =>
+        this.destroyIfUnowned(state).then(
+          () => undefined,
+          (error: unknown) => {
+            if (!cleanupError.present) cleanupError = { present: true, error };
+          },
+        ),
+      ),
+    ).then(() => {
+      if (cleanupError.present) throw cleanupError.error;
+    });
     const records = new Set<CutoverRecord>();
     if (candidate) records.add(candidate);
     if (current) records.add(current);
@@ -2480,7 +2652,17 @@ export class FilePlaybackManager {
    */
   private bindTerminalCutoverCleanup(record: CutoverRecord, cleanup: Promise<void>): Promise<void> {
     if (record.cleanupPromise) return record.cleanupPromise;
-    const terminalCleanup = cleanup.finally(() => {
+    const verifiedCleanup = cleanup.then(() => {
+      if (
+        this.cutoverCandidate === record ||
+        this.cutoverCurrent === record ||
+        !record.revoked ||
+        record.cleanupPromise !== terminalCleanup
+      ) {
+        throw cutoverError('exact port remained owned after terminal cleanup');
+      }
+    });
+    const terminalCleanup = verifiedCleanup.finally(() => {
       if (
         record.cleanupPromise === terminalCleanup &&
         record.revoked &&
@@ -2491,14 +2673,16 @@ export class FilePlaybackManager {
       }
     });
     record.cleanupPromise = terminalCleanup;
+    this.completedCutoverCleanups.set(record.port, terminalCleanup);
+    void terminalCleanup.catch(() => undefined);
     this.trackCutoverCleanup(terminalCleanup);
     return terminalCleanup;
   }
 
   private trackCutoverCleanup(cleanup: Promise<void>): void {
-    this.cutoverRetirementBarrier = Promise.all([this.cutoverRetirementBarrier, cleanup]).then(
-      () => undefined,
-    );
+    const barrier = Promise.all([this.cutoverRetirementBarrier, cleanup]).then(() => undefined);
+    this.cutoverRetirementBarrier = barrier;
+    void barrier.catch(() => undefined);
   }
 
   private async waitForCutoverRetirements(): Promise<void> {
@@ -2948,15 +3132,18 @@ export class FilePlaybackManager {
     if (state.destroyPromise) return state.destroyPromise;
     state.destroyed = true;
 
-    let finish!: () => void;
-    state.destroyPromise = new Promise<void>((resolve) => {
-      finish = resolve;
+    let resolveDestroy!: () => void;
+    let rejectDestroy!: (error: unknown) => void;
+    state.destroyPromise = new Promise<void>((resolve, reject) => {
+      resolveDestroy = resolve;
+      rejectDestroy = reject;
     });
     try {
-      Promise.resolve(state.source.destroy()).then(finish, finish);
-    } catch {
-      finish();
+      Promise.resolve(state.source.destroy()).then(resolveDestroy, rejectDestroy);
+    } catch (error) {
+      rejectDestroy(error);
     }
+    void state.destroyPromise.catch(() => undefined);
     return state.destroyPromise;
   }
 

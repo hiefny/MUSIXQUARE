@@ -22,6 +22,11 @@ import {
   snapshotEncodedAudioSourceMetadata,
 } from './encoded-audio-source-view-internals.ts';
 import { PEER_RANGE_MAX_READ_BYTES } from './peer-range-protocol.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from '../diagnostics/file-playback-universal-lifecycle-retirement.ts';
 
 const blobSlice = Blob.prototype.slice;
 const blobArrayBuffer = Blob.prototype.arrayBuffer;
@@ -148,6 +153,7 @@ export class ManifestPrefixedEncodedAudioSource implements EncodedAudioSource {
   readonly #manifest: Uint8Array;
   readonly #manifestSize: number;
   readonly #media: MediaSnapshot;
+  readonly #lifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #activeReads = new Set<AbortController>();
   readonly #physicalTasks = new Set<Promise<Uint8Array>>();
   #closed = false;
@@ -181,6 +187,7 @@ export class ManifestPrefixedEncodedAudioSource implements EncodedAudioSource {
     this.metadata = media.metadata;
     this.manifestSize = manifestSize;
     this.mediaSize = media.size;
+    this.#lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('encodedSources');
     Object.freeze(this);
   }
 
@@ -232,19 +239,25 @@ export class ManifestPrefixedEncodedAudioSource implements EncodedAudioSource {
 
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
-    // Publish a settled local terminal sentinel before invoking source-owned
-    // cleanup so an async, reentrant source.close() cannot form a Promise cycle.
+    // Publish a settled local sentinel before source-owned cleanup. Custom
+    // source close callbacks may await this exact wrapper's close reentrantly.
     const closePromise = Promise.resolve();
     this.#closePromise = closePromise;
     this.#closed = true;
     closeReadControllers(this.#activeReads);
+    let ownedMediaClose = Promise.resolve();
     if (this.#media.close) {
       try {
-        void Promise.resolve(this.#media.close()).catch(() => undefined);
-      } catch {
-        // Local ownership is already terminal; cleanup remains best-effort.
+        ownedMediaClose = Promise.resolve(this.#media.close());
+      } catch (error) {
+        ownedMediaClose = Promise.reject(error);
       }
     }
+    const cleanup = Promise.allSettled([...this.#physicalTasks])
+      .then(() => ownedMediaClose)
+      .then(() => undefined);
+    void confirmFilePlaybackUniversalLifecycleRetirement(this.#lifecycleLease, () => cleanup);
+    void cleanup.catch(() => undefined);
     return closePromise;
   }
 }

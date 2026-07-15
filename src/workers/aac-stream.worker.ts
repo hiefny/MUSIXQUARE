@@ -114,11 +114,25 @@ interface DecoderSession {
   stopped: boolean;
   terminal: boolean;
   released: boolean;
+  releasePromise: Promise<void> | null;
+  activeOperations: number;
+  readonly operationDrainResolvers: Set<() => void>;
+  readonly cleanupFaults: unknown[];
+  readonly retryState: () => Readonly<{
+    retryWaitSequence: number;
+    activeRetryWaits: number;
+  }>;
 }
 
 interface CompletedGeneration {
   readonly sourceLifetimeGeneration: number;
   readonly decoderGeneration: number;
+  readonly cleanup: Promise<void>;
+  acknowledgementsPosted: boolean;
+  readonly retryState: () => Readonly<{
+    retryWaitSequence: number;
+    activeRetryWaits: number;
+  }>;
 }
 
 let activeSession: DecoderSession | null = null;
@@ -199,6 +213,7 @@ function awaitSessionOperation<T>(
   operation: Promise<T>,
   disposeLateValue?: (value: T) => void,
 ): Promise<T> {
+  session.activeOperations += 1;
   return new Promise<T>((resolve, reject) => {
     let decided = false;
     const signal = session.abortController.signal;
@@ -213,9 +228,16 @@ function awaitSessionOperation<T>(
     const disposeLate = (value: T): void => {
       try {
         disposeLateValue?.(value);
-      } catch {
-        // Late cleanup cannot replace the already-authoritative stop.
+      } catch (error) {
+        session.cleanupFaults.push(error);
       }
+    };
+    const finishOperation = (): void => {
+      session.activeOperations -= 1;
+      if (session.activeOperations !== 0) return;
+      const resolvers = [...session.operationDrainResolvers];
+      session.operationDrainResolvers.clear();
+      for (const resolveDrain of resolvers) resolveDrain();
     };
     const onAbort = (): void => {
       if (decided) return;
@@ -228,13 +250,16 @@ function awaitSessionOperation<T>(
       (value) => {
         if (decided) {
           disposeLate(value);
+          finishOperation();
           return;
         }
+        finishOperation();
         decided = true;
         removeAbortListener();
         resolve(value);
       },
       (error: unknown) => {
+        finishOperation();
         if (decided) return;
         decided = true;
         removeAbortListener();
@@ -244,6 +269,13 @@ function awaitSessionOperation<T>(
 
     signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) onAbort();
+  });
+}
+
+function whenSessionOperationsDrained(session: DecoderSession): Promise<void> {
+  if (session.activeOperations === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    session.operationDrainResolvers.add(resolve);
   });
 }
 
@@ -302,42 +334,118 @@ function clearRawPcmBatch(value: unknown): void {
 
 function closeBackend(backend: AacDecoderBackend | null): void {
   if (!backend) return;
+  backend.close();
+}
+
+function attemptTerminalCleanup(faults: unknown[], cleanup: () => void): void {
   try {
-    backend.close();
-  } catch {
-    // Fresh-realm teardown remains authoritative over native cleanup errors.
+    cleanup();
+  } catch (error) {
+    faults.push(error);
   }
 }
 
 /** One terminal cleanup order shared by stop, error, and normal EOF. */
-function releaseSession(session: DecoderSession): void {
-  if (session.released) return;
+function releaseSession(session: DecoderSession): Promise<void> {
+  if (session.releasePromise) return session.releasePromise;
+  let resolveRelease!: () => void;
+  let rejectRelease!: (reason: unknown) => void;
+  const releasePromise = new Promise<void>((resolve, reject) => {
+    resolveRelease = resolve;
+    rejectRelease = reject;
+  });
+  // Publish the one terminal barrier before aborting or touching any native,
+  // port, backend, or source cleanup hook. Those hooks may synchronously
+  // reenter worker command handling; every path must observe this same owner.
+  session.releasePromise = releasePromise;
   session.released = true;
+  const cleanupFaults = session.cleanupFaults;
   if (!session.abortController.signal.aborted) {
     session.abortController.abort(new SessionCancelledError());
   }
-  session.pcmPort.removeEventListener('message', session.pcmListener);
-  session.pcmPort.removeEventListener('messageerror', session.pcmMessageErrorListener);
-  session.pcmPort.onmessage = null;
-  closeBackend(session.backend);
+  attemptTerminalCleanup(cleanupFaults, () =>
+    session.pcmPort.removeEventListener('message', session.pcmListener),
+  );
+  attemptTerminalCleanup(cleanupFaults, () =>
+    session.pcmPort.removeEventListener('messageerror', session.pcmMessageErrorListener),
+  );
+  attemptTerminalCleanup(cleanupFaults, () => {
+    session.pcmPort.onmessage = null;
+  });
+  attemptTerminalCleanup(cleanupFaults, () => session.backend?.close());
   session.backend = null;
-  try {
-    session.output?.close();
-  } catch {
-    // Local terminal ownership is already published.
-  }
+  attemptTerminalCleanup(cleanupFaults, () => session.output?.close());
   session.output = null;
   session.decodeReader = null;
-  try {
-    void session.source.close().catch(() => undefined);
-  } catch {
-    // Source-port cleanup cannot replace the decoder terminal result.
-  }
-  closePort(session.pcmPort);
+  attemptTerminalCleanup(cleanupFaults, () => session.pcmPort.close());
+  const cleanup = Promise.allSettled([
+    Promise.resolve().then(() => session.source.close()),
+    session.source.whenRetryWaitsDrained(),
+    whenSessionOperationsDrained(session),
+  ]).then((results) => {
+    if (session.source.activeRetryWaitCount !== 0) {
+      throw new AacWorkerError(
+        'retry-wait-leak',
+        'AAC worker retired with an active encoded-source retry wait',
+      );
+    }
+    const rejected = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    const cause = cleanupFaults[0] ?? rejected?.reason;
+    if (cause !== undefined) {
+      throw new AacWorkerError(
+        'cleanup-unconfirmed',
+        'AAC worker terminal cleanup could not be confirmed',
+        cause,
+      );
+    }
+  });
+  void cleanup.then(resolveRelease, rejectRelease);
+  return releasePromise;
 }
 
 function detachSession(session: DecoderSession): void {
   if (activeSession === session) activeSession = null;
+}
+
+function completeSession(session: DecoderSession): CompletedGeneration {
+  const completed: CompletedGeneration = {
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
+    cleanup: releaseSession(session),
+    acknowledgementsPosted: false,
+    retryState: () => session.retryState(),
+  };
+  // Natural EOF/error keeps this generation until the owner's explicit stop.
+  // Observe a cleanup rejection now without converting the stable barrier.
+  void completed.cleanup.catch(() => undefined);
+  completedGeneration = completed;
+  return completed;
+}
+
+async function acknowledgeRetirement(completed: CompletedGeneration): Promise<void> {
+  if (completed.acknowledgementsPosted) return;
+  completed.acknowledgementsPosted = true;
+  try {
+    await completed.cleanup;
+    postControl({
+      protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
+      type: 'decoder-retired',
+      sourceLifetimeGeneration: completed.sourceLifetimeGeneration,
+      decoderGeneration: completed.decoderGeneration,
+    });
+    postControl({
+      protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
+      type: 'worker-retired',
+      sourceLifetimeGeneration: completed.sourceLifetimeGeneration,
+      decoderGeneration: completed.decoderGeneration,
+      ...completed.retryState(),
+    });
+    if (completedGeneration === completed) completedGeneration = null;
+  } catch {
+    // The adapter's bounded ACK deadline records this realm as unconfirmed.
+  }
 }
 
 function stopSession(session: DecoderSession): void {
@@ -353,7 +461,9 @@ function stopSession(session: DecoderSession): void {
     });
   } finally {
     detachSession(session);
-    releaseSession(session);
+    const completed = completeSession(session);
+    completedGeneration = null;
+    void acknowledgeRetirement(completed);
   }
 }
 
@@ -391,7 +501,7 @@ function failSession(session: DecoderSession, error: unknown): void {
     }
   } finally {
     detachSession(session);
-    releaseSession(session);
+    completeSession(session);
   }
 }
 
@@ -564,7 +674,11 @@ async function initializeSession(session: DecoderSession): Promise<void> {
     try {
       assertCurrent(session);
     } catch (error) {
-      closeBackend(candidate);
+      try {
+        closeBackend(candidate);
+      } catch (cleanupError) {
+        session.cleanupFaults.push(cleanupError);
+      }
       throw error;
     }
     session.backend = candidate;
@@ -846,14 +960,10 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
     decodedCoreFrames: session.decodedCoreFrames,
     producedOutputFrames: output.producedOutputFrames,
   });
-  completedGeneration = Object.freeze({
-    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
-    decoderGeneration: session.decoderGeneration,
-  });
   session.stopped = true;
   session.terminal = true;
   detachSession(session);
-  releaseSession(session);
+  completeSession(session);
 }
 
 async function satisfyDemand(session: DecoderSession, maxFrames: number): Promise<void> {
@@ -910,11 +1020,24 @@ function createSession(command: Readonly<AacDecoderOpenCommand>): DecoderSession
     maxPendingReads: 1,
   });
   let source: RetryingPortEncodedSource;
+  let retryWaitSequence = 0;
   try {
     source = new RetryingPortEncodedSource({
       size: command.descriptor.sourceSize,
       identity: command.descriptor.sourceIdentity,
       client: sourceClient,
+      onRetryWaitDelta: (delta, activeRetryWaits) => {
+        retryWaitSequence += 1;
+        postControl({
+          protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
+          type: 'retry-wait-delta',
+          sourceLifetimeGeneration: command.sourceLifetimeGeneration,
+          decoderGeneration: command.decoderGeneration,
+          delta,
+          retryWaitSequence,
+          activeRetryWaits,
+        });
+      },
     });
   } catch (error) {
     void sourceClient.close().catch(() => undefined);
@@ -952,6 +1075,14 @@ function createSession(command: Readonly<AacDecoderOpenCommand>): DecoderSession
     stopped: false,
     terminal: false,
     released: false,
+    releasePromise: null,
+    activeOperations: 0,
+    operationDrainResolvers: new Set(),
+    cleanupFaults: [],
+    retryState: () => ({
+      retryWaitSequence,
+      activeRetryWaits: source.activeRetryWaitCount,
+    }),
   };
   return session;
 }
@@ -1097,13 +1228,15 @@ function handleCommand(value: unknown): void {
     completedGeneration?.sourceLifetimeGeneration === command.sourceLifetimeGeneration &&
     completedGeneration.decoderGeneration === command.decoderGeneration
   ) {
+    const completed = completedGeneration;
+    completedGeneration = null;
     postControl({
       protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
       type: 'decoder-stopped',
       sourceLifetimeGeneration: command.sourceLifetimeGeneration,
       decoderGeneration: command.decoderGeneration,
     });
-    completedGeneration = null;
+    void acknowledgeRetirement(completed);
     return;
   }
   if (

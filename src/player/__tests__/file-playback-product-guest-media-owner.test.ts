@@ -13,6 +13,7 @@ import type {
   FilePlaybackWireAdoptionEvent,
 } from '../../network/file-playback-application-session.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
+import { getFilePlaybackUniversalLifecycleSnapshotForTests } from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 import { FilePlaybackAssetRegistry } from '../file-playback-asset-registry.ts';
 import {
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
@@ -27,6 +28,7 @@ import {
   FilePlaybackManager,
   type FilePlaybackCutoverCandidatePort,
 } from '../file-playback-manager.ts';
+import { createFilePlaybackRemoteEndedTransitionEvidence } from '../file-playback-remote-ended-transition.ts';
 import {
   createPeerRangeFileMediaSourceOfferV2,
   createPeerRangeManifestFileMediaSourceOfferV2,
@@ -539,10 +541,24 @@ function runtimeHarness(
   state: Readonly<PlaybackStateIdentity>,
 ) {
   let currentState = state;
-  let currentPhase: 'playing' | 'paused' = 'playing';
+  let currentPhase: 'playing' | 'paused' | 'ended' = 'playing';
   let hasCurrentPort = true;
+  let physicalRecoveryRequired = false;
   let candidateBackend: 'audio-buffer' | 'bounded-stream' = 'bounded-stream';
   let currentBackend: 'audio-buffer' | 'bounded-stream' = 'bounded-stream';
+  let timeoutSequence = 0;
+  const scheduledTimeouts = new Map<string, Readonly<{ callback: () => void; delayMs: number }>>();
+  const cancelledTimeouts = new Map<string, Readonly<{ callback: () => void; delayMs: number }>>();
+  const scheduleTimeoutForTests = vi.fn((callback: () => void, delayMs: number) => {
+    const handle = `guest-renderer-health-${++timeoutSequence}`;
+    scheduledTimeouts.set(handle, freezeCanonical({ callback, delayMs }));
+    return handle;
+  });
+  const cancelTimeoutForTests = vi.fn((handle: string) => {
+    const timer = scheduledTimeouts.get(handle);
+    if (timer) cancelledTimeouts.set(handle, timer);
+    scheduledTimeouts.delete(handle);
+  });
   const sent: unknown[] = [];
   const peerAcceptBulk = vi.fn(() => 'accepted' as never);
   const peerClose = vi.fn();
@@ -740,6 +756,8 @@ function runtimeHarness(
     }),
   );
   const commitAttempt = vi.fn(() => true);
+  const cancel = vi.fn(async () => undefined);
+  const recoveryRequired = vi.fn(() => physicalRecoveryRequired);
   const retireCandidate = vi.fn(async () => true);
   const retireCurrent = vi.fn(async () => true);
   const currentSnapshot = vi.fn(() => ({
@@ -827,6 +845,13 @@ function runtimeHarness(
         });
       }),
     }));
+  const remoteEndCurrent: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['remoteEndCurrent']
+  > = vi.fn(async (_manager, _port, intent) => {
+    const observedPhase = currentPhase;
+    hasCurrentPort = false;
+    return createFilePlaybackRemoteEndedTransitionEvidence(intent, observedPhase);
+  });
   const runtime: FilePlaybackProductGuestMediaOwnerRuntimeForTests = {
     createPeerTransport: () => peerTransport,
     createR2Acquirer: () => ({
@@ -848,14 +873,19 @@ function runtimeHarness(
       finalize,
       started,
       commitAttempt,
+      cancel,
     }),
     currentPort: () => (hasCurrentPort ? CUTOVER_PORT : null),
     currentSnapshot: (_manager, _port) => currentSnapshot(),
+    recoveryRequired,
     retireCandidate,
     retireCurrent,
     pauseCurrent,
     seekCurrent,
     stopCurrent,
+    remoteEndCurrent,
+    scheduleTimeoutForTests,
+    cancelTimeoutForTests,
   };
   return {
     runtime,
@@ -886,11 +916,31 @@ function runtimeHarness(
     finalize,
     started,
     commitAttempt,
+    cancel,
+    recoveryRequired,
     retireCandidate,
     retireCurrent,
     pauseCurrent,
     seekCurrent,
     stopCurrent,
+    remoteEndCurrent,
+    scheduleTimeoutForTests,
+    cancelTimeoutForTests,
+    pendingTimeouts: () => [...scheduledTimeouts.entries()],
+    fireNextTimeout() {
+      const next = scheduledTimeouts.entries().next().value as
+        | [string, Readonly<{ callback: () => void; delayMs: number }>]
+        | undefined;
+      if (!next) throw new Error('No guest renderer-health timeout is scheduled');
+      scheduledTimeouts.delete(next[0]);
+      next[1].callback();
+      return next;
+    },
+    fireCancelledTimeout(handle: string) {
+      const timer = cancelledTimeouts.get(handle);
+      if (!timer) throw new Error('No cancelled guest renderer-health timeout is recorded');
+      timer.callback();
+    },
     setManifestCodec(codec: ManifestConstructionDiagnostics['codec']) {
       manifestCodec = codec;
     },
@@ -902,6 +952,16 @@ function runtimeHarness(
       currentPhase = 'playing';
       currentBackend = candidateBackend;
       hasCurrentPort = true;
+      physicalRecoveryRequired = false;
+    },
+    setCurrentPhase(next: 'playing' | 'paused' | 'ended') {
+      currentPhase = next;
+    },
+    setPhysicalRecoveryRequired(next: boolean) {
+      physicalRecoveryRequired = next;
+    },
+    setHasCurrentPort(next: boolean) {
+      hasCurrentPort = next;
     },
   };
 }
@@ -942,7 +1002,7 @@ function setup(
     runtimeForTests: runtime.runtime,
   };
   const owner = createFilePlaybackProductGuestMediaOwner(options);
-  return { ...pair, registry, manager, state, runtime, fatal, rendered, options, owner };
+  return { ...pair, registry, manager, state, runtime, fatal, rendered, graph, options, owner };
 }
 
 function startPreparation(
@@ -1058,6 +1118,199 @@ async function runHostAttempt(
   h.host.commitAttempt(attempt.attemptLease);
   if (kind !== 'bootstrap-current') h.host.commitMedia(attempt.stateLease);
   return attempt;
+}
+
+async function stageSameRunArmedAttempt(h: ReturnType<typeof setup>) {
+  await prepare(h);
+  await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+  const successor = freezeCanonical({ ...h.state, revision: 2 });
+  const stateLease = h.host.stageMedia({
+    run: successor,
+    sourceIdentity: SOURCE_ID,
+    transferSessionId: TRANSFER_ID,
+  });
+  receiveHostWire(
+    h,
+    h.host.createWire(stateLease, {
+      kind: 'file-playback-prepare',
+      expectedQueueItemId: QUEUE_ID,
+      expectedRunId: RUN_ID,
+      expectedRevision: h.state.revision,
+      positionSeconds: 12,
+      playbackRate: 1,
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+          (frame as { revision?: number }).revision === successor.revision,
+      ),
+    ).toHaveLength(1),
+  );
+  const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
+  receiveHostWire(
+    h,
+    h.host.createWire(attemptLease, {
+      kind: 'rendezvous-arm',
+      rendezvousId: RENDEZVOUS_ID_2,
+      positionSeconds: 12,
+      playbackRate: 1,
+      startAtRoomTimeMs: 1_000,
+      finalizeByRoomTimeMs: 900,
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'rendezvous-armed' &&
+          (frame as { revision?: number }).revision === successor.revision,
+      ),
+    ).toHaveLength(1),
+  );
+  return { successor, stateLease, attemptLease };
+}
+
+type CancelRestagePreparedKind = 'baseline' | 'successor' | 'recovery';
+
+async function stageCancelablePreparedKind(
+  h: ReturnType<typeof setup>,
+  kind: CancelRestagePreparedKind,
+  stagedPort?: FilePlaybackCutoverCandidatePort,
+) {
+  await prepare(h);
+  if (kind === 'baseline') {
+    const staged = stageHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    receiveHostWire(
+      h,
+      h.host.createWire(staged.attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID,
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string }).kind === 'rendezvous-armed' &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID,
+        ),
+      ).toHaveLength(1),
+    );
+    return { state: h.state, ...staged, rendezvousId: RENDEZVOUS_ID, positionSeconds: 0 };
+  }
+
+  const initial = await runHostAttempt(
+    h,
+    h.state,
+    SOURCE_ID,
+    TRANSFER_ID,
+    RENDEZVOUS_ID,
+    'bootstrap-current',
+  );
+  if (kind === 'recovery') {
+    if (stagedPort) {
+      h.runtime.stageAssetSource.mockImplementationOnce(async (options) =>
+        stagedAssetSource(h.registry, options, stagedPort),
+      );
+    }
+    const attemptLease = h.host.stageAttempt(initial.stateLease, RENDEZVOUS_ID_2);
+    receiveHostWire(
+      h,
+      h.host.createWire(attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID_2,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string }).kind === 'rendezvous-armed' &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+        ),
+      ).toHaveLength(1),
+    );
+    return {
+      state: h.state,
+      stateLease: initial.stateLease,
+      attemptLease,
+      rendezvousId: RENDEZVOUS_ID_2,
+      positionSeconds: 2,
+    };
+  }
+
+  const offer = peerOffer2(h.context);
+  const state = freezeCanonical({
+    queueItemId: QUEUE_ID_2,
+    runId: RUN_ID_2,
+    revision: 2,
+  });
+  h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+  h.owner.adoptAuxiliaryMessage(
+    auxiliaryEvent(h.context, runBinding(offer, RUN_ID_2, state.revision)),
+    vi.fn(),
+  );
+  await vi.waitFor(() =>
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; queueItemId?: QueueItemId; runId?: string; revision?: number })
+            .kind === 'source-ready' &&
+          (frame as { queueItemId?: QueueItemId }).queueItemId === state.queueItemId &&
+          (frame as { runId?: string }).runId === state.runId &&
+          (frame as { revision?: number }).revision === state.revision,
+      ),
+    ).toHaveLength(1),
+  );
+  const staged = stageHostAttempt(
+    h,
+    state,
+    SOURCE_ID_2,
+    TRANSFER_ID_2,
+    RENDEZVOUS_ID_2,
+    'successor',
+  );
+  receiveHostWire(
+    h,
+    h.host.createWire(staged.attemptLease, {
+      kind: 'rendezvous-arm',
+      rendezvousId: RENDEZVOUS_ID_2,
+      positionSeconds: 12,
+      playbackRate: 1,
+      startAtRoomTimeMs: 1_000,
+      finalizeByRoomTimeMs: 900,
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; queueItemId?: QueueItemId; rendezvousId?: string }).kind ===
+            'rendezvous-armed' &&
+          (frame as { queueItemId?: QueueItemId }).queueItemId === state.queueItemId &&
+          (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+      ),
+    ).toHaveLength(1),
+  );
+  return { state, ...staged, rendezvousId: RENDEZVOUS_ID_2, positionSeconds: 12 };
 }
 
 describe('FilePlaybackProductGuestMediaOwner', () => {
@@ -1415,6 +1668,26 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       }),
     );
     await vi.waitFor(() => expect(h.runtime.commitAttempt).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string }).kind === 'renderer-health' &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+        ),
+      ).toHaveLength(1),
+    );
+    await vi.waitFor(() => expect(h.runtime.pendingTimeouts()).toHaveLength(1));
+    h.runtime.fireNextTimeout();
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string }).kind === 'renderer-health' &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+        ),
+      ).toHaveLength(2),
+    );
 
     expect(h.runtime.acquireManifestAsset).toHaveBeenCalledOnce();
     expect(h.runtime.prepareManifestDecoderConstruction).toHaveBeenCalledTimes(2);
@@ -2166,6 +2439,195 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(h.runtime.retireCurrent).toHaveBeenCalledOnce();
   });
 
+  it('renews renderer health from one exact current playing attempt with a self-rescheduling timeout', async () => {
+    const h = setup();
+    const lifecycleBefore = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+
+    expect(h.runtime.scheduleTimeoutForTests).toHaveBeenCalledOnce();
+    expect(h.runtime.scheduleTimeoutForTests).toHaveBeenLastCalledWith(
+      expect.any(Function),
+      Math.floor(10_000 / 3),
+    );
+    expect(h.runtime.pendingTimeouts()).toHaveLength(1);
+    const firstHeartbeatLifecycle = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    expect(firstHeartbeatLifecycle.kinds.timers.live).toBeGreaterThanOrEqual(1);
+    expect(firstHeartbeatLifecycle.kinds.timers.acquiredTotal).toBeGreaterThan(
+      lifecycleBefore.kinds.timers.acquiredTotal,
+    );
+    expect(firstHeartbeatLifecycle.invariantFaults).toBe(lifecycleBefore.invariantFaults);
+
+    h.runtime.fireNextTimeout();
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'renderer-health'),
+      ).toHaveLength(2),
+    );
+
+    const healthFrames = h.runtime.sent.filter(
+      (frame) => (frame as { kind?: string }).kind === 'renderer-health',
+    ) as FilePlaybackWireMessage[];
+    expect(healthFrames[1]).toMatchObject({
+      queueItemId: QUEUE_ID,
+      runId: RUN_ID,
+      revision: h.state.revision,
+      rendezvousId: RENDEZVOUS_ID,
+      value: 'healthy',
+      renderedFrame: 48_000,
+      underrunCount: 0,
+      reasonCode: null,
+    });
+    await vi.waitFor(() => {
+      expect(h.runtime.scheduleTimeoutForTests).toHaveBeenCalledTimes(2);
+      expect(h.runtime.pendingTimeouts()).toHaveLength(1);
+    });
+    const renewedHeartbeatLifecycle = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    expect(renewedHeartbeatLifecycle.kinds.timers.live).toBeGreaterThanOrEqual(1);
+    expect(renewedHeartbeatLifecycle.kinds.timers.acquiredTotal).toBeGreaterThan(
+      firstHeartbeatLifecycle.kinds.timers.acquiredTotal,
+    );
+    expect(renewedHeartbeatLifecycle.invariantFaults).toBe(lifecycleBefore.invariantFaults);
+
+    h.owner.revoke(h.context);
+    expect(h.runtime.cancelTimeoutForTests).toHaveBeenCalledOnce();
+    expect(h.runtime.pendingTimeouts()).toHaveLength(0);
+  });
+
+  it('renews current renderer health while next-run candidate preparation blocks the media lane', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const offer = peerOffer2(h.context);
+    const candidateAsset = new PeerRangeEncodedAudioAsset({
+      size: offer.encodedSize,
+      identity: offer.sourceIdentity,
+      metadata: { name: offer.name, mime: offer.mime },
+      transport: {
+        read: vi.fn(async (request) => new Uint8Array(request.length)),
+        closeHandle: vi.fn(),
+      },
+      handleId: offer.handleId,
+    });
+    h.registry.admitEncodedAsset(
+      ROOM_TOKEN,
+      {
+        queueItemId: offer.queueItemId,
+        sourceIdentity: offer.sourceIdentity,
+        transferSessionId: offer.transferSessionId,
+      },
+      candidateAsset,
+    );
+    const pendingStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    h.runtime.stageAssetSource.mockImplementationOnce(() => pendingStage.promise);
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, runBinding(offer, RUN_ID_2, 2)),
+      vi.fn(),
+    );
+    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+    const healthCountBefore = h.runtime.sent.filter(
+      (frame) => (frame as { kind?: string }).kind === 'renderer-health',
+    ).length;
+
+    h.runtime.fireNextTimeout();
+
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'renderer-health'),
+      ).toHaveLength(healthCountBefore + 1),
+    );
+    await vi.waitFor(() => expect(h.runtime.pendingTimeouts()).toHaveLength(1));
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    const stageOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
+    const candidatePort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+    pendingStage.resolve(stagedAssetSource(h.registry, stageOptions, candidatePort));
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === 2,
+        ),
+      ).toHaveLength(1),
+    );
+    h.owner.revoke(h.context);
+  });
+
+  it('cancels and generation-fences renderer health before acknowledging a current transition', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const [[timerHandle]] = h.runtime.pendingTimeouts();
+    const initialHealthCount = h.runtime.sent.filter(
+      (frame) => (frame as { kind?: string }).kind === 'renderer-health',
+    ).length;
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    const result = h.guest.receive(
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-pause',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: h.state.revision,
+        atRoomTimeMs: 300,
+      }),
+      h.guestConnection,
+    );
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected pause wire');
+    const acknowledge = vi.fn();
+
+    h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge);
+
+    expect(h.runtime.cancelTimeoutForTests).toHaveBeenCalledWith(timerHandle);
+    expect(acknowledge).toHaveBeenCalledOnce();
+    expect(h.runtime.cancelTimeoutForTests.mock.invocationCallOrder[0]).toBeLessThan(
+      acknowledge.mock.invocationCallOrder[0]!,
+    );
+    expect(h.runtime.pendingTimeouts()).toHaveLength(0);
+
+    // A platform timer which races after cancellation cannot publish or re-arm.
+    h.runtime.fireCancelledTimeout(timerHandle);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'renderer-health'),
+    ).toHaveLength(initialHealthCount);
+    expect(h.runtime.pendingTimeouts()).toHaveLength(0);
+    await vi.waitFor(() => expect(h.runtime.pauseCurrent).toHaveBeenCalledOnce());
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('does not renew or re-arm renderer health after the exact current renderer stops playing', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const initialHealthCount = h.runtime.sent.filter(
+      (frame) => (frame as { kind?: string }).kind === 'renderer-health',
+    ).length;
+    h.runtime.setCurrentPhase('paused');
+
+    h.runtime.fireNextTimeout();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'renderer-health'),
+    ).toHaveLength(initialHealthCount);
+    expect(h.runtime.pendingTimeouts()).toHaveLength(0);
+    expect(h.runtime.scheduleTimeoutForTests).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
   it('rejects invalid and hostile route policies before constructing media transports', () => {
     const h = setup();
     const createPeerTransport = vi.fn(h.runtime.runtime.createPeerTransport!);
@@ -2441,6 +2903,19 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     const rendered = activeTimeline(successor, 'playing', 12, 1_000);
     h.owner.onTimelineUpdated(timelineUpdated(h.context, rendered));
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(rendered));
+    await vi.waitFor(() => expect(h.runtime.pendingTimeouts()).toHaveLength(1));
+    h.runtime.fireNextTimeout();
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number; rendezvousId?: string }).kind ===
+              'renderer-health' &&
+            (frame as { revision?: number }).revision === successor.revision &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+        ),
+      ).toHaveLength(2),
+    );
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
   });
@@ -2529,6 +3004,19 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     const rendered = activeTimeline(successor, 'playing', 12, 1_000);
     h.owner.onTimelineUpdated(timelineUpdated(h.context, rendered));
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(rendered));
+    await vi.waitFor(() => expect(h.runtime.pendingTimeouts()).toHaveLength(1));
+    h.runtime.fireNextTimeout();
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number; rendezvousId?: string }).kind ===
+              'renderer-health' &&
+            (frame as { revision?: number }).revision === successor.revision &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+        ),
+      ).toHaveLength(2),
+    );
 
     expect(h.runtime.prepareWarmSource).toHaveBeenCalledOnce();
     expect(h.runtime.handoffWarmSource).toHaveBeenCalledOnce();
@@ -2608,6 +3096,860 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
+  });
+
+  it.each([
+    ['playing', 'running'],
+    ['paused', 'running'],
+    ['ended', 'running'],
+    ['playing', 'suspended'],
+    ['playing', 'interrupted'],
+  ] as const)(
+    'atomically retires an exact %s renderer with a %s context before accepting host natural-end metadata',
+    async (observedPhase, audioContextState) => {
+      const h = setup();
+      await prepare(h);
+      await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+      h.runtime.setCurrentPhase(observedPhase);
+      (h.graph.audioContext as unknown as { state: string }).state = audioContextState;
+      const hostObservedAtRoomTimeMs = h.host.nowRoomTimeMs();
+
+      const successor = freezeCanonical({ ...h.state, revision: 2 });
+      const stateLease = h.host.stageMedia({
+        run: successor,
+        sourceIdentity: SOURCE_ID,
+        transferSessionId: TRANSFER_ID,
+      });
+      const result = h.guest.receive(
+        h.host.createWire(stateLease, {
+          kind: 'file-playback-ended',
+          expectedQueueItemId: QUEUE_ID,
+          expectedRunId: RUN_ID,
+          expectedRevision: h.state.revision,
+          hostObservedAtRoomTimeMs,
+        }),
+        h.guestConnection,
+      );
+      if (!result.accepted || result.frame !== 'wire') {
+        throw new Error(`Guest remote-end receive failed: ${JSON.stringify(result)}`);
+      }
+      const acknowledge = vi.fn();
+      h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge);
+
+      expect(acknowledge).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(h.runtime.remoteEndCurrent).toHaveBeenCalledOnce());
+      expect(acknowledge.mock.invocationCallOrder[0]).toBeLessThan(
+        h.runtime.remoteEndCurrent.mock.invocationCallOrder[0]!,
+      );
+      expect(h.runtime.remoteEndCurrent).toHaveBeenCalledWith(
+        h.manager,
+        CUTOVER_PORT,
+        expect.objectContaining({
+          kind: 'file-playback-remote-ended-transition',
+          from: h.state,
+          to: successor,
+          hostObservedAtRoomTimeMs,
+        }),
+      );
+      expect(h.runtime.stopCurrent).not.toHaveBeenCalled();
+      expect(h.runtime.retireCurrent).not.toHaveBeenCalled();
+
+      h.host.commitStop(stateLease, h.state);
+      const stoppedProjection = stoppedTimeline(successor.revision, hostObservedAtRoomTimeMs);
+      h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
+      await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
+      expect(h.fatal).not.toHaveBeenCalled();
+      h.owner.revoke(h.context);
+    },
+  );
+
+  it('re-stages an exact cancelled same-run attempt before admitting a fresh rendezvous', async () => {
+    const h = setup();
+    const armed = await stageSameRunArmedAttempt(h);
+    const cancellation = deferred<void>();
+    h.runtime.cancel.mockImplementationOnce(() => cancellation.promise);
+    const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+    const readyCount = () =>
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+          (frame as { revision?: number }).revision === armed.successor.revision,
+      ).length;
+    expect(readyCount()).toBe(1);
+    const cancel = h.host.createWire(armed.attemptLease, {
+      kind: 'file-playback-cancel',
+      rendezvousId: RENDEZVOUS_ID_2,
+      reasonCode: 'replacement-rendezvous',
+    });
+    const result = h.guest.receive(cancel, h.guestConnection);
+    expect(result).toMatchObject({ accepted: true, frame: 'wire' });
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+    const acknowledge = vi.fn();
+
+    h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge);
+
+    expect(acknowledge).toHaveBeenCalledOnce();
+    expect(h.runtime.cancel).toHaveBeenCalledOnce();
+    expect(h.runtime.cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      acknowledge.mock.invocationCallOrder[0]!,
+    );
+    expect(h.runtime.cancel).toHaveBeenCalledWith({
+      kind: 'file-playback-cancel',
+      queueItemId: QUEUE_ID,
+      runId: RUN_ID,
+      revision: armed.successor.revision,
+      rendezvousId: RENDEZVOUS_ID_2,
+      reasonCode: 'replacement-rendezvous',
+    });
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel);
+    expect(readyCount()).toBe(1);
+    h.host.retireAttempt(armed.attemptLease);
+    cancellation.resolve();
+    await vi.waitFor(() => {
+      expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel + 1);
+      expect(readyCount()).toBe(2);
+    });
+
+    const retryRendezvousId = 'guest-owner-rendezvous-retry';
+    const retryAttemptLease = h.host.stageAttempt(armed.stateLease, retryRendezvousId);
+    receiveHostWire(
+      h,
+      h.host.createWire(retryAttemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: retryRendezvousId,
+        positionSeconds: 12.25,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number; rendezvousId?: string }).kind ===
+              'rendezvous-armed' &&
+            (frame as { revision?: number }).revision === armed.successor.revision &&
+            (frame as { rendezvousId?: string }).rendezvousId === retryRendezvousId,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.runtime.arm).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rendezvousId: retryRendezvousId,
+        positionSeconds: 12.25,
+      }),
+    );
+    h.runtime.setCurrentState(armed.successor);
+    receiveHostWire(
+      h,
+      h.host.createWire(retryAttemptLease, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: retryRendezvousId,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number; rendezvousId?: string }).kind ===
+              'renderer-health' &&
+            (frame as { revision?: number }).revision === armed.successor.revision &&
+            (frame as { rendezvousId?: string }).rendezvousId === retryRendezvousId,
+        ),
+      ).toHaveLength(1),
+    );
+    h.host.commitAttempt(retryAttemptLease);
+    h.host.commitMedia(armed.stateLease);
+
+    // The retry cuts over at the host's live projected position, but the
+    // canonical timeline publication still owns the original PREPARE base.
+    const rendered = activeTimeline(armed.successor, 'playing', 12, 1_000);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, rendered));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(rendered));
+
+    expect(h.fatal).not.toHaveBeenCalled();
+    expect(h.runtime.retireCurrent).not.toHaveBeenCalled();
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it.each(['baseline', 'successor', 'recovery'] as const)(
+    're-stages a cancelled %s attempt before admitting its fresh rendezvous',
+    async (kind) => {
+      const h = setup();
+      const armed = await stageCancelablePreparedKind(h, kind);
+      const sourceReadyCount = () =>
+        h.runtime.sent.filter(
+          (frame) =>
+            (
+              frame as {
+                kind?: string;
+                queueItemId?: QueueItemId;
+                runId?: string;
+                revision?: number;
+              }
+            ).kind === 'source-ready' &&
+            (frame as { queueItemId?: QueueItemId }).queueItemId === armed.state.queueItemId &&
+            (frame as { runId?: string }).runId === armed.state.runId &&
+            (frame as { revision?: number }).revision === armed.state.revision,
+        ).length;
+      const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+      const readyCountBeforeCancel = sourceReadyCount();
+      const cancel = h.host.createWire(armed.attemptLease, {
+        kind: 'file-playback-cancel',
+        rendezvousId: armed.rendezvousId,
+        reasonCode: 'replacement-rendezvous',
+      });
+      const result = h.guest.receive(cancel, h.guestConnection);
+      if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+      const acknowledge = vi.fn();
+
+      h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge);
+      h.host.retireAttempt(armed.attemptLease);
+
+      expect(acknowledge).toHaveBeenCalledOnce();
+      expect(h.runtime.cancel).toHaveBeenCalledOnce();
+      await vi.waitFor(() => {
+        if (h.fatal.mock.calls.length > 0) throw h.fatal.mock.calls[0]![1];
+        expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel + 1);
+        expect(sourceReadyCount()).toBe(readyCountBeforeCancel + 1);
+      });
+
+      const retryRendezvousId = `guest-owner-${kind}-retry`;
+      const retryPositionSeconds = armed.positionSeconds + 0.25;
+      const retryAttemptLease = h.host.stageAttempt(armed.stateLease, retryRendezvousId);
+      receiveHostWire(
+        h,
+        h.host.createWire(retryAttemptLease, {
+          kind: 'rendezvous-arm',
+          rendezvousId: retryRendezvousId,
+          positionSeconds: retryPositionSeconds,
+          playbackRate: 1,
+          startAtRoomTimeMs: 1_000,
+          finalizeByRoomTimeMs: 900,
+        }),
+      );
+      await vi.waitFor(() => {
+        if (h.fatal.mock.calls.length > 0) throw h.fatal.mock.calls[0]![1];
+        expect(
+          h.runtime.sent.filter(
+            (frame) =>
+              (frame as { kind?: string; rendezvousId?: string }).kind === 'rendezvous-armed' &&
+              (frame as { rendezvousId?: string }).rendezvousId === retryRendezvousId,
+          ),
+        ).toHaveLength(1);
+      });
+      expect(h.runtime.arm).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          rendezvousId: retryRendezvousId,
+          positionSeconds: retryPositionSeconds,
+        }),
+      );
+      expect(h.fatal).not.toHaveBeenCalled();
+
+      h.host.retireAttempt(retryAttemptLease);
+      h.owner.revoke(h.context);
+    },
+  );
+
+  it.each([
+    ['pause', 'remote-recovery-pause-transition'],
+    ['seek', 'remote-recovery-seek-transition'],
+    ['stop', 'remote-recovery-stop-transition'],
+    ['ended', 'remote-recovery-ended-transition'],
+  ] as const)(
+    'terminally retires an exact recovery before applying the following %s successor',
+    async (kind, reasonCode) => {
+      const h = setup();
+      const recovery = await stageCancelablePreparedKind(h, 'recovery');
+      const cancellation = deferred<void>();
+      h.runtime.cancel.mockImplementationOnce(() => cancellation.promise);
+      if (kind === 'seek') h.runtime.setCurrentPhase('paused');
+      if (kind === 'ended') h.runtime.setCurrentPhase('ended');
+      const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+      const readyCountBeforeCancel = h.runtime.sent.filter(
+        (frame) => (frame as { kind?: string }).kind === 'source-ready',
+      ).length;
+
+      receiveHostWire(
+        h,
+        h.host.createWire(recovery.attemptLease, {
+          kind: 'file-playback-cancel',
+          rendezvousId: recovery.rendezvousId,
+          reasonCode,
+        }),
+      );
+      h.host.retireAttempt(recovery.attemptLease);
+
+      const successor = freezeCanonical({
+        ...recovery.state,
+        revision: recovery.state.revision + 1,
+      });
+      const stateLease = h.host.stageMedia({
+        run: successor,
+        sourceIdentity: SOURCE_ID,
+        transferSessionId: TRANSFER_ID,
+      });
+      if (kind === 'pause') {
+        receiveHostWire(
+          h,
+          h.host.createWire(stateLease, {
+            kind: 'file-playback-pause',
+            expectedQueueItemId: recovery.state.queueItemId,
+            expectedRunId: recovery.state.runId,
+            expectedRevision: recovery.state.revision,
+            atRoomTimeMs: 300,
+          }),
+        );
+      } else if (kind === 'seek') {
+        receiveHostWire(
+          h,
+          h.host.createWire(stateLease, {
+            kind: 'file-playback-seek',
+            expectedQueueItemId: recovery.state.queueItemId,
+            expectedRunId: recovery.state.runId,
+            expectedRevision: recovery.state.revision,
+            positionSeconds: 24,
+            atRoomTimeMs: 300,
+          }),
+        );
+      } else if (kind === 'stop') {
+        receiveHostWire(
+          h,
+          h.host.createWire(stateLease, {
+            kind: 'file-playback-stop',
+            expectedQueueItemId: recovery.state.queueItemId,
+            expectedRunId: recovery.state.runId,
+            expectedRevision: recovery.state.revision,
+            atRoomTimeMs: 300,
+          }),
+        );
+      } else {
+        receiveHostWire(
+          h,
+          h.host.createWire(stateLease, {
+            kind: 'file-playback-ended',
+            expectedQueueItemId: recovery.state.queueItemId,
+            expectedRunId: recovery.state.runId,
+            expectedRevision: recovery.state.revision,
+            hostObservedAtRoomTimeMs: h.host.nowRoomTimeMs(),
+          }),
+        );
+      }
+
+      expect(h.runtime.cancel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queueItemId: recovery.state.queueItemId,
+          runId: recovery.state.runId,
+          revision: recovery.state.revision,
+          rendezvousId: recovery.rendezvousId,
+          reasonCode,
+        }),
+      );
+      expect(h.runtime.pauseCurrent).not.toHaveBeenCalled();
+      expect(h.runtime.seekCurrent).not.toHaveBeenCalled();
+      expect(h.runtime.stopCurrent).not.toHaveBeenCalled();
+      expect(h.runtime.remoteEndCurrent).not.toHaveBeenCalled();
+      expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel);
+      expect(
+        h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toHaveLength(readyCountBeforeCancel);
+
+      cancellation.resolve();
+      const transition =
+        kind === 'pause'
+          ? h.runtime.pauseCurrent
+          : kind === 'seek'
+            ? h.runtime.seekCurrent
+            : kind === 'stop'
+              ? h.runtime.stopCurrent
+              : h.runtime.remoteEndCurrent;
+      await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce());
+      expect(h.runtime.recoveryRequired).toHaveBeenCalledWith(h.manager);
+      expect(h.runtime.recoveryRequired).toHaveLastReturnedWith(false);
+
+      const timeline =
+        kind === 'stop' || kind === 'ended'
+          ? stoppedTimeline(successor.revision, 300)
+          : activeTimeline(successor, 'paused', kind === 'seek' ? 24 : 0, 300);
+      if (kind === 'stop' || kind === 'ended') h.host.commitStop(stateLease, recovery.state);
+      else h.host.commitMedia(stateLease);
+      h.owner.onTimelineUpdated(timelineUpdated(h.context, timeline));
+      await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(timeline));
+
+      expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel);
+      expect(
+        h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toHaveLength(readyCountBeforeCancel);
+      expect(h.fatal).not.toHaveBeenCalled();
+      h.owner.revoke(h.context);
+    },
+  );
+
+  it.each(['arm', 'finalize'] as const)(
+    'terminal recovery cancellation fences a blocked %s before the pause successor',
+    async (blockedPhase) => {
+      const h = setup();
+      await prepare(h);
+      const initial = await runHostAttempt(
+        h,
+        h.state,
+        SOURCE_ID,
+        TRANSFER_ID,
+        RENDEZVOUS_ID,
+        'bootstrap-current',
+      );
+      const stageCountBeforeRecovery = h.runtime.stageAssetSource.mock.calls.length;
+      const readyCountBeforeRecovery = h.runtime.sent.filter(
+        (frame) => (frame as { kind?: string }).kind === 'source-ready',
+      ).length;
+      const recoveryAttemptLease = h.host.stageAttempt(initial.stateLease, RENDEZVOUS_ID_2);
+      const blocked = deferred<never>();
+
+      if (blockedPhase === 'arm') {
+        h.runtime.arm.mockImplementationOnce(() => blocked.promise);
+      }
+      receiveHostWire(
+        h,
+        h.host.createWire(recoveryAttemptLease, {
+          kind: 'rendezvous-arm',
+          rendezvousId: RENDEZVOUS_ID_2,
+          positionSeconds: 2,
+          playbackRate: 1,
+          startAtRoomTimeMs: 1_000,
+          finalizeByRoomTimeMs: 900,
+        }),
+      );
+      await vi.waitFor(() => expect(h.runtime.arm).toHaveBeenCalledTimes(2));
+
+      if (blockedPhase === 'finalize') {
+        await vi.waitFor(() =>
+          expect(
+            h.runtime.sent.filter(
+              (frame) =>
+                (frame as { kind?: string; rendezvousId?: string }).kind === 'rendezvous-armed' &&
+                (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+            ),
+          ).toHaveLength(1),
+        );
+        h.runtime.finalize.mockImplementationOnce(() => blocked.promise);
+        receiveHostWire(
+          h,
+          h.host.createWire(recoveryAttemptLease, {
+            kind: 'rendezvous-finalize',
+            rendezvousId: RENDEZVOUS_ID_2,
+            startAtRoomTimeMs: 1_000,
+            finalizedAtRoomTimeMs: 155,
+          }),
+        );
+        await vi.waitFor(() => expect(h.runtime.finalize).toHaveBeenCalledTimes(2));
+      }
+
+      h.runtime.cancel.mockImplementationOnce(async () => blocked.resolve(undefined as never));
+      receiveHostWire(
+        h,
+        h.host.createWire(recoveryAttemptLease, {
+          kind: 'file-playback-cancel',
+          rendezvousId: RENDEZVOUS_ID_2,
+          reasonCode: 'remote-recovery-pause-transition',
+        }),
+      );
+      h.host.retireAttempt(recoveryAttemptLease);
+
+      const successor = freezeCanonical({ ...h.state, revision: h.state.revision + 1 });
+      const stateLease = h.host.stageMedia({
+        run: successor,
+        sourceIdentity: SOURCE_ID,
+        transferSessionId: TRANSFER_ID,
+      });
+      receiveHostWire(
+        h,
+        h.host.createWire(stateLease, {
+          kind: 'file-playback-pause',
+          expectedQueueItemId: h.state.queueItemId,
+          expectedRunId: h.state.runId,
+          expectedRevision: h.state.revision,
+          atRoomTimeMs: 300,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        if (h.fatal.mock.calls.length > 0) throw h.fatal.mock.calls[0]![1];
+        expect(h.runtime.pauseCurrent).toHaveBeenCalledOnce();
+      });
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string }).kind === 'renderer-health' &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+        ),
+      ).toHaveLength(0);
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string }).kind === 'rendezvous-armed' &&
+            (frame as { rendezvousId?: string }).rendezvousId === RENDEZVOUS_ID_2,
+        ),
+      ).toHaveLength(blockedPhase === 'arm' ? 0 : 1);
+      expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeRecovery + 1);
+      expect(
+        h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toHaveLength(readyCountBeforeRecovery);
+
+      h.host.commitMedia(stateLease);
+      const timeline = activeTimeline(successor, 'paused', 0, 300);
+      h.owner.onTimelineUpdated(timelineUpdated(h.context, timeline));
+      await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(timeline));
+      expect(h.fatal).not.toHaveBeenCalled();
+      h.owner.revoke(h.context);
+    },
+  );
+
+  it.each(['resolve', 'reject'] as const)(
+    'tracks cancelled-attempt physical cleanup before an ACK re-enters revoke (%s)',
+    async (outcome) => {
+      const lifecycleBefore = getFilePlaybackUniversalLifecycleSnapshotForTests();
+      const h = setup();
+      const armed = await stageSameRunArmedAttempt(h);
+      const cancellation = deferred<void>();
+      h.runtime.cancel.mockImplementationOnce(() => cancellation.promise);
+      const lifecycleWithOwner = getFilePlaybackUniversalLifecycleSnapshotForTests();
+      const cancel = h.host.createWire(armed.attemptLease, {
+        kind: 'file-playback-cancel',
+        rendezvousId: RENDEZVOUS_ID_2,
+        reasonCode: 'replacement-rendezvous',
+      });
+      const result = h.guest.receive(cancel, h.guestConnection);
+      if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+      const acknowledge = vi.fn(() => h.owner.revoke(h.context));
+
+      h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge);
+      h.host.retireAttempt(armed.attemptLease);
+
+      expect(h.runtime.cancel).toHaveBeenCalledOnce();
+      expect(acknowledge).toHaveBeenCalledOnce();
+      expect(h.runtime.cancel.mock.invocationCallOrder[0]).toBeLessThan(
+        acknowledge.mock.invocationCallOrder[0]!,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      const pendingCleanup = getFilePlaybackUniversalLifecycleSnapshotForTests();
+      expect(pendingCleanup.kinds.connectionOwners.live).toBe(
+        lifecycleBefore.kinds.connectionOwners.live,
+      );
+      expect(pendingCleanup.kinds.connectionOwners.retiring).toBe(
+        lifecycleWithOwner.kinds.connectionOwners.retiring + 1,
+      );
+
+      if (outcome === 'resolve') cancellation.resolve();
+      else cancellation.reject(new Error('fixture cancellation rejected after ACK revoke'));
+
+      await vi.waitFor(() => {
+        const settled = getFilePlaybackUniversalLifecycleSnapshotForTests();
+        expect(settled.kinds.connectionOwners.live).toBe(
+          lifecycleBefore.kinds.connectionOwners.live,
+        );
+        expect(settled.kinds.connectionOwners.retiring).toBe(
+          lifecycleBefore.kinds.connectionOwners.retiring,
+        );
+      });
+      expect(h.runtime.peerClose).toHaveBeenCalledOnce();
+      expect(h.runtime.r2Close).toHaveBeenCalledOnce();
+      expect(h.fatal).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retains terminal recovery ports for close fallback when strict cancellation rejects', async () => {
+    const h = setup();
+    const recoveryPort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+    const recovery = await stageCancelablePreparedKind(h, 'recovery', recoveryPort);
+    const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+    const readyCountBeforeCancel = h.runtime.sent.filter(
+      (frame) => (frame as { kind?: string }).kind === 'source-ready',
+    ).length;
+    h.runtime.cancel.mockRejectedValueOnce(new Error('strict recovery retirement failed'));
+
+    receiveHostWire(
+      h,
+      h.host.createWire(recovery.attemptLease, {
+        kind: 'file-playback-cancel',
+        rendezvousId: recovery.rendezvousId,
+        reasonCode: 'remote-recovery-pause-transition',
+      }),
+    );
+    h.host.retireAttempt(recovery.attemptLease);
+
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, recoveryPort),
+    );
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCurrent).toHaveBeenCalledWith(h.manager, CUTOVER_PORT),
+    );
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel);
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toHaveLength(readyCountBeforeCancel);
+    expect(h.runtime.pauseCurrent).not.toHaveBeenCalled();
+    expect(() => h.owner.revoke(h.context)).not.toThrow();
+  });
+
+  it.each(['current-lost', 'recovery-required'] as const)(
+    'fail-closes only the peer when terminal recovery cancellation reports an unsafe survivor (%s)',
+    async (failure) => {
+      const h = setup();
+      const recoveryPort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+      const recovery = await stageCancelablePreparedKind(h, 'recovery', recoveryPort);
+      const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+      const readyCountBeforeCancel = h.runtime.sent.filter(
+        (frame) => (frame as { kind?: string }).kind === 'source-ready',
+      ).length;
+      h.runtime.cancel.mockImplementationOnce(async () => {
+        if (failure === 'current-lost') h.runtime.setHasCurrentPort(false);
+        else h.runtime.setPhysicalRecoveryRequired(true);
+      });
+
+      receiveHostWire(
+        h,
+        h.host.createWire(recovery.attemptLease, {
+          kind: 'file-playback-cancel',
+          rendezvousId: recovery.rendezvousId,
+          reasonCode: 'remote-recovery-pause-transition',
+        }),
+      );
+      h.host.retireAttempt(recovery.attemptLease);
+      const successor = freezeCanonical({
+        ...recovery.state,
+        revision: recovery.state.revision + 1,
+      });
+      const stateLease = h.host.stageMedia({
+        run: successor,
+        sourceIdentity: SOURCE_ID,
+        transferSessionId: TRANSFER_ID,
+      });
+      receiveHostWire(
+        h,
+        h.host.createWire(stateLease, {
+          kind: 'file-playback-pause',
+          expectedQueueItemId: recovery.state.queueItemId,
+          expectedRunId: recovery.state.runId,
+          expectedRevision: recovery.state.revision,
+          atRoomTimeMs: 300,
+        }),
+      );
+
+      await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+      expect(h.runtime.pauseCurrent).not.toHaveBeenCalled();
+      expect(h.runtime.recoveryRequired).toHaveBeenCalled();
+      if (failure === 'recovery-required') {
+        expect(h.runtime.recoveryRequired).toHaveLastReturnedWith(true);
+      }
+      expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel);
+      expect(
+        h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toHaveLength(readyCountBeforeCancel);
+      await vi.waitFor(() =>
+        expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, recoveryPort),
+      );
+      expect(() => h.owner.revoke(h.context)).not.toThrow();
+    },
+  );
+
+  it('does not re-stage or refresh readiness when revoke wins cancelled-attempt cleanup', async () => {
+    const h = setup();
+    const armed = await stageSameRunArmedAttempt(h);
+    const cancellation = deferred<void>();
+    h.runtime.cancel.mockImplementationOnce(() => cancellation.promise);
+    const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+    const readyCountBeforeCancel = h.runtime.sent.filter(
+      (frame) =>
+        (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+        (frame as { revision?: number }).revision === armed.successor.revision,
+    ).length;
+    const cancel = h.host.createWire(armed.attemptLease, {
+      kind: 'file-playback-cancel',
+      rendezvousId: RENDEZVOUS_ID_2,
+      reasonCode: 'replacement-rendezvous',
+    });
+    const result = h.guest.receive(cancel, h.guestConnection);
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+
+    h.owner.adoptWireMessage(wireEvent(h.context, result), vi.fn());
+    h.host.retireAttempt(armed.attemptLease);
+    h.owner.revoke(h.context);
+    cancellation.resolve();
+
+    await vi.waitFor(() => expect(h.runtime.peerClose).toHaveBeenCalledOnce());
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel);
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+          (frame as { revision?: number }).revision === armed.successor.revision,
+      ),
+    ).toHaveLength(readyCountBeforeCancel);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('force-retires the exact staged ports when cancelled-attempt cleanup rejects', async () => {
+    const lifecycleBefore = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    const h = setup();
+    const cancelledCandidatePort = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackCutoverCandidatePort;
+    h.runtime.stageAssetSource.mockImplementationOnce(async (options) =>
+      stagedAssetSource(h.registry, options, cancelledCandidatePort),
+    );
+    const armed = await stageSameRunArmedAttempt(h);
+    const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+    const readyCountBeforeCancel = h.runtime.sent.filter(
+      (frame) =>
+        (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+        (frame as { revision?: number }).revision === armed.successor.revision,
+    ).length;
+    h.runtime.cancel.mockRejectedValueOnce(new Error('cancelled-attempt cleanup failed'));
+    const cancel = h.host.createWire(armed.attemptLease, {
+      kind: 'file-playback-cancel',
+      rendezvousId: RENDEZVOUS_ID_2,
+      reasonCode: 'replacement-rendezvous',
+    });
+    const result = h.guest.receive(cancel, h.guestConnection);
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+
+    h.owner.adoptWireMessage(wireEvent(h.context, result), vi.fn());
+    h.host.retireAttempt(armed.attemptLease);
+
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, cancelledCandidatePort),
+    );
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCurrent).toHaveBeenCalledWith(h.manager, CUTOVER_PORT),
+    );
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel);
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+          (frame as { revision?: number }).revision === armed.successor.revision,
+      ),
+    ).toHaveLength(readyCountBeforeCancel);
+
+    expect(() => h.owner.revoke(h.context)).not.toThrow();
+    await vi.waitFor(() => expect(h.runtime.peerClose).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(getFilePlaybackUniversalLifecycleSnapshotForTests().kinds.connectionOwners.live).toBe(
+        lifecycleBefore.kinds.connectionOwners.live,
+      ),
+    );
+    const lifecycleAfter = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    expect(lifecycleAfter.kinds.connectionOwners.retiring).toBe(
+      lifecycleBefore.kinds.connectionOwners.retiring,
+    );
+    expect(lifecycleAfter.kinds.connectionOwners.unconfirmed).toBe(
+      lifecycleBefore.kinds.connectionOwners.unconfirmed,
+    );
+    expect(lifecycleAfter.invariantFaults).toBe(lifecycleBefore.invariantFaults);
+    expect(lifecycleAfter.forcedRetirements).toBe(lifecycleBefore.forcedRetirements);
+    expect(h.runtime.retireCandidate).toHaveBeenCalledTimes(1);
+    expect(h.runtime.retireCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed without acknowledging a replayed stale rendezvous cancel', async () => {
+    const h = setup();
+    const armed = await stageSameRunArmedAttempt(h);
+    const cancel = h.host.createWire(armed.attemptLease, {
+      kind: 'file-playback-cancel',
+      rendezvousId: RENDEZVOUS_ID_2,
+      reasonCode: 'replacement-rendezvous',
+    });
+    const result = h.guest.receive(cancel, h.guestConnection);
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+    const event = wireEvent(h.context, result);
+    h.owner.adoptWireMessage(event, vi.fn());
+    expect(h.runtime.cancel).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+    const staleAcknowledge = vi.fn();
+
+    expect(() => h.owner.adoptWireMessage(event, staleAcknowledge)).toThrow(
+      /Guest playback wire adoption failed/u,
+    );
+
+    expect(staleAcknowledge).not.toHaveBeenCalled();
+    expect(h.runtime.cancel).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+  });
+
+  it('fails closed without acknowledging a cancel carrying another attempt lease', async () => {
+    const h = setup();
+    const armed = await stageSameRunArmedAttempt(h);
+    const cancel = h.host.createWire(armed.attemptLease, {
+      kind: 'file-playback-cancel',
+      rendezvousId: RENDEZVOUS_ID_2,
+      reasonCode: 'replacement-rendezvous',
+    });
+    const result = h.guest.receive(cancel, h.guestConnection);
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+    const exactEvent = wireEvent(h.context, result);
+    const mismatchedEvent = freezeCanonical({
+      ...exactEvent,
+      attemptLease: Object.freeze({ foreignAttempt: true }),
+    }) as unknown as Readonly<FilePlaybackWireAdoptionEvent>;
+    const acknowledge = vi.fn();
+
+    expect(() => h.owner.adoptWireMessage(mismatchedEvent, acknowledge)).toThrow(
+      /Guest playback wire adoption failed/u,
+    );
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(h.runtime.cancel).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+  });
+
+  it('fails closed without acknowledging a cancel for an already committed attempt', async () => {
+    const h = setup();
+    const armed = await stageSameRunArmedAttempt(h);
+    const cancel = h.host.createWire(armed.attemptLease, {
+      kind: 'file-playback-cancel',
+      rendezvousId: RENDEZVOUS_ID_2,
+      reasonCode: 'replacement-rendezvous',
+    });
+    const result = h.guest.receive(cancel, h.guestConnection);
+    if (!result.accepted || result.frame !== 'wire') throw new Error('Expected cancel wire');
+    h.runtime.setCurrentState(armed.successor);
+    receiveHostWire(
+      h,
+      h.host.createWire(armed.attemptLease, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: RENDEZVOUS_ID_2,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'renderer-health' &&
+            (frame as { revision?: number }).revision === armed.successor.revision,
+        ),
+      ).toHaveLength(1),
+    );
+    h.host.commitAttempt(armed.attemptLease);
+    h.host.commitMedia(armed.stateLease);
+    const acknowledge = vi.fn();
+
+    expect(() => h.owner.adoptWireMessage(wireEvent(h.context, result), acknowledge)).toThrow(
+      /Guest playback wire adoption failed/u,
+    );
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(h.runtime.cancel).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
   });
 
   it('fails closed when an exact-next same-run ARM arrives before PREPARE', async () => {
@@ -2890,5 +4232,29 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(h.runtime.peerClose).toHaveBeenCalledOnce();
     expect(() => h.owner.revoke(h.context)).not.toThrow();
     expect(h.runtime.r2Close).toHaveBeenCalledOnce();
+  });
+
+  it('publishes one stable close identity before synchronous cleanup re-entry', async () => {
+    const h = setup();
+    const before = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    h.runtime.r2Close.mockImplementationOnce(() => {
+      h.owner.revoke(h.context);
+      return Promise.resolve();
+    });
+
+    h.owner.revoke(h.context);
+
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.peerClose).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        getFilePlaybackUniversalLifecycleSnapshotForTests().kinds.connectionOwners.releasedTotal,
+      ).toBe(before.kinds.connectionOwners.releasedTotal + 1),
+    );
+    const retired = getFilePlaybackUniversalLifecycleSnapshotForTests();
+    expect(retired.invariantFaults).toBe(before.invariantFaults);
+    expect(retired.forcedRetirements).toBe(before.forcedRetirements);
+    expect(retired.kinds.connectionOwners.live).toBe(before.kinds.connectionOwners.live - 1);
+    expect(retired.kinds.connectionOwners.retiring).toBe(before.kinds.connectionOwners.retiring);
   });
 });

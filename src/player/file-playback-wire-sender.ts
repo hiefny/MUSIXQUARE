@@ -117,6 +117,14 @@ export interface FilePlaybackStopWirePayload {
   readonly atRoomTimeMs: number;
 }
 
+interface FilePlaybackEndedWirePayload {
+  readonly kind: 'file-playback-ended';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: number;
+  readonly hostObservedAtRoomTimeMs: number;
+}
+
 export interface RendererHealthWirePayload {
   readonly kind: 'renderer-health';
   readonly rendezvousId: string;
@@ -141,6 +149,7 @@ export interface FilePlaybackWirePayloadByKind {
   readonly 'file-playback-seek': FilePlaybackSeekWirePayload;
   readonly 'file-playback-cancel': FilePlaybackCancelWirePayload;
   readonly 'file-playback-stop': FilePlaybackStopWirePayload;
+  readonly 'file-playback-ended': FilePlaybackEndedWirePayload;
   readonly 'renderer-health': RendererHealthWirePayload;
 }
 
@@ -230,6 +239,13 @@ const PAYLOAD_KEYS: Readonly<Record<FilePlaybackWireKind, readonly string[]>> = 
     'expectedRunId',
     'expectedRevision',
     'atRoomTimeMs',
+  ]),
+  'file-playback-ended': Object.freeze([
+    'kind',
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'hostObservedAtRoomTimeMs',
   ]),
   'renderer-health': Object.freeze([
     'kind',
@@ -481,7 +497,8 @@ export class FilePlaybackWireSender {
     } else {
       stateLease = lease as FilePlaybackWireStateLease;
     }
-    const isStop = detached.kind === 'file-playback-stop';
+    const isStop =
+      detached.kind === 'file-playback-stop' || detached.kind === 'file-playback-ended';
     if (isFilePlaybackSuccessorScopedWireKind(detached.kind as FilePlaybackWireKind)) {
       const expected = {
         queueItemId: detached.expectedQueueItemId as QueueItemId,

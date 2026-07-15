@@ -2,6 +2,10 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { FilePlaybackConnectionChannel } from '../network/file-playback-connection-channel.ts';
 import type { QueueItemId } from '../types/index.ts';
 import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from './diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import {
   FileMediaOfferRegistry,
   type FileMediaOfferAcceptResult,
   type FileMediaSourceOfferV2,
@@ -274,6 +278,7 @@ interface OperationRecord {
   readonly sourcePreparation: OfferPreparationRecord | null;
   readonly expiryTimerName: string;
   expiryTimerArmed: boolean;
+  expiryTimerLifecycleLease: FilePlaybackUniversalLifecycleLease | null;
   status: 'candidate' | 'current' | 'retired';
 }
 
@@ -293,6 +298,7 @@ interface OfferPreparationRecord {
   readonly expiryTimerName: string;
   operation: OperationRecord | null;
   expiryTimerArmed: boolean;
+  expiryTimerLifecycleLease: FilePlaybackUniversalLifecycleLease | null;
   status: 'offered' | 'claimed' | 'consumed' | 'retired';
 }
 
@@ -307,6 +313,8 @@ interface StateOperationRecord {
   rendezvousId: string | null;
   readonly epoch: FilePlaybackConnectionMediaStateOperationEpoch;
   readonly abortController: AbortController;
+  operationEpoch: FilePlaybackConnectionMediaStateOperationEpoch | null;
+  operationAbortController: AbortController | null;
   status: 'candidate' | 'current' | 'retired';
 }
 
@@ -566,8 +574,8 @@ function stateOperationSnapshot(
 }
 
 export class FilePlaybackConnectionMediaSessionFatalError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'FilePlaybackConnectionMediaSessionFatalError';
   }
 }
@@ -633,9 +641,9 @@ export class FilePlaybackConnectionMediaSession {
     PreparedRunAttemptRecord
   >();
   readonly #retiredOperations = new WeakSet<FilePlaybackConnectionMediaOperation>();
-  readonly #retiredStatePreparations =
-    new WeakSet<FilePlaybackConnectionMediaStatePreparation>();
+  readonly #retiredStatePreparations = new WeakSet<FilePlaybackConnectionMediaStatePreparation>();
   readonly #retiredStateOperations = new WeakSet<FilePlaybackConnectionMediaStateOperation>();
+  readonly #retiredStateAttemptLeases = new WeakSet<object>();
   readonly #retiredPreparedRunAttempts =
     new WeakSet<FilePlaybackConnectionMediaPreparedRunAttempt>();
   readonly #retiredPreparedRunAttemptLeases = new WeakSet<object>();
@@ -1003,6 +1011,7 @@ export class FilePlaybackConnectionMediaSession {
         sourcePreparation,
         expiryTimerName: operationExpiryTimerName(runSnapshot.binding),
         expiryTimerArmed: false,
+        expiryTimerLifecycleLease: null,
         status: 'candidate',
       };
       this.#operations.set(operation, record);
@@ -1189,8 +1198,11 @@ export class FilePlaybackConnectionMediaSession {
           record.attemptLease,
           payload,
         ]) as FilePlaybackWireMessageForKind<Payload['kind']>;
-      } catch {
-        throw this.#fatal('The shared channel rejected the exact prepared-run attempt authority');
+      } catch (cause) {
+        throw this.#fatal(
+          'The shared channel rejected the exact prepared-run attempt authority',
+          cause,
+        );
       }
       this.#assertPreparedRunAttemptLive(record);
       return wire;
@@ -1339,12 +1351,8 @@ export class FilePlaybackConnectionMediaSession {
       if (!expected || !next || stateLease === null || typeof stateLease !== 'object') {
         throw new TypeError('File playback admitted state preparation authority is invalid');
       }
-      return this.#adoptAdmittedStatePreparationUnchecked(
-        prepared,
-        expected,
-        next,
-        stateLease,
-      ).preparation;
+      return this.#adoptAdmittedStatePreparationUnchecked(prepared, expected, next, stateLease)
+        .preparation;
     });
   }
 
@@ -1367,8 +1375,11 @@ export class FilePlaybackConnectionMediaSession {
           record.stateLease,
           payload,
         ]) as FilePlaybackWireMessageForKind<Payload['kind']>;
-      } catch {
-        throw this.#fatal('The shared channel rejected the exact state preparation authority');
+      } catch (cause) {
+        throw this.#fatal(
+          'The shared channel rejected the exact state preparation authority',
+          cause,
+        );
       }
       this.#assertStatePreparationCurrent(record);
       return wire;
@@ -1497,8 +1508,8 @@ export class FilePlaybackConnectionMediaSession {
           record.attemptLease,
           payload,
         ]) as FilePlaybackWireMessageForKind<Payload['kind']>;
-      } catch {
-        throw this.#fatal('The shared channel rejected the exact state attempt authority');
+      } catch (cause) {
+        throw this.#fatal('The shared channel rejected the exact state attempt authority', cause);
       }
       this.#assertStateOperationLive(record);
       return wire;
@@ -1616,6 +1627,20 @@ export class FilePlaybackConnectionMediaSession {
 
   retireStateSuccessor(operation: FilePlaybackConnectionMediaStateOperation): void {
     this.#mutate(() => this.#retireStateRecord(this.#requireStateOperation(operation)));
+  }
+
+  /**
+   * Retires only the exact candidate rendezvous attempt attached to a
+   * same-run PREPARE. The successor state lease, revision admission, and
+   * preparation fence remain current so a later ARM can attach a fresh
+   * attempt without restaging the successor.
+   */
+  retireStateSuccessorAttempt(
+    operation: FilePlaybackConnectionMediaStateOperation,
+  ): Readonly<FilePlaybackConnectionMediaStatePreparation> {
+    return this.#mutate(() =>
+      this.#retireStateAttemptRecord(this.#requireStateOperation(operation)),
+    );
   }
 
   /**
@@ -2027,12 +2052,7 @@ export class FilePlaybackConnectionMediaSession {
     stateLease: FilePlaybackWireStateLease,
     attemptLease: FilePlaybackWireAttemptLease,
   ): Readonly<FilePlaybackConnectionMediaStateOperation> {
-    const record = this.#createStatePreparation(
-      prepared,
-      previous,
-      state,
-      stateLease,
-    );
+    const record = this.#createStatePreparation(prepared, previous, state, stateLease);
     return this.#attachAdmittedStateAttemptUnchecked(
       record,
       rendezvousId,
@@ -2072,6 +2092,8 @@ export class FilePlaybackConnectionMediaSession {
       rendezvousId: null,
       epoch,
       abortController,
+      operationEpoch: null,
+      operationAbortController: null,
       status: 'candidate',
     };
     this.#statePreparations.set(preparation, record);
@@ -2129,10 +2151,7 @@ export class FilePlaybackConnectionMediaSession {
       throw this.#fatal('Inbound ARM did not target the exact prepared state lease');
     }
     if (record.operation) {
-      if (
-        record.rendezvousId === rendezvousId &&
-        record.attemptLease === attemptLease
-      ) {
+      if (record.rendezvousId === rendezvousId && record.attemptLease === attemptLease) {
         return record.operation;
       }
       throw this.#fatal('Inbound ARM replay disagreed with the exact prepared state attempt');
@@ -2140,17 +2159,32 @@ export class FilePlaybackConnectionMediaSession {
     if (record.rendezvousId || record.attemptLease) {
       throw this.#fatal('Prepared state attempt authority became partially attached');
     }
+    if (this.#retiredStateAttemptLeases.has(attemptLease)) {
+      throw new Error('File playback admitted state attempt is retired');
+    }
 
+    const operationEpoch = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackConnectionMediaStateOperationEpoch;
+    const operationAbortController = new AbortController();
+    const operationFence = freezeCanonical({
+      epoch: operationEpoch,
+      signal: operationAbortController.signal,
+      isCurrent: () => this.#isStateOperationEpochCurrent(operationEpoch),
+    });
     const operation = freezeCanonical({
       previous: record.previous,
       state: record.state,
       rendezvousId,
-      fence: record.preparation.fence,
+      fence: operationFence,
     }) as Readonly<FilePlaybackConnectionMediaStateOperation>;
     record.rendezvousId = rendezvousId;
     record.attemptLease = attemptLease;
     record.operation = operation;
+    record.operationEpoch = operationEpoch;
+    record.operationAbortController = operationAbortController;
     this.#stateOperations.set(operation, record);
+    this.#stateOperationEpochs.set(operationEpoch, record);
     return operation;
   }
 
@@ -2299,6 +2333,8 @@ export class FilePlaybackConnectionMediaSession {
       !record.operation ||
       !record.attemptLease ||
       !record.rendezvousId ||
+      !record.operationEpoch ||
+      !record.operationAbortController ||
       record.status === 'retired' ||
       (record.status === 'candidate' && record !== this.#candidateState) ||
       (record.status === 'current' && record !== this.#currentStateOperation)
@@ -2406,11 +2442,7 @@ export class FilePlaybackConnectionMediaSession {
     const record =
       value !== null && typeof value === 'object' ? this.#stateOperations.get(value) : undefined;
     if (!record || record.status === 'retired') {
-      if (
-        value !== null &&
-        typeof value === 'object' &&
-        this.#retiredStateOperations.has(value)
-      ) {
+      if (value !== null && typeof value === 'object' && this.#retiredStateOperations.has(value)) {
         throw new Error('File playback state operation is retired');
       }
       throw new Error('File playback state operation is forged or retired');
@@ -2574,6 +2606,7 @@ export class FilePlaybackConnectionMediaSession {
       expiryTimerName: offerPreparationExpiryTimerName(offer),
       operation: null,
       expiryTimerArmed: false,
+      expiryTimerLifecycleLease: null,
       status: 'offered',
     };
     this.#offerPreparations.set(preparation, record);
@@ -2605,6 +2638,7 @@ export class FilePlaybackConnectionMediaSession {
     const delayMs = Math.max(1, Math.ceil(Math.min(remainingMs, MAX_EXPIRY_TIMER_DELAY_MS)));
     record.expiryTimerArmed = true;
     try {
+      record.expiryTimerLifecycleLease = acquireFilePlaybackUniversalLifecycleLease('timers');
       setManagedTimer(
         record.expiryTimerName,
         () => this.#handleOfferPreparationExpiryTimer(record),
@@ -2612,6 +2646,9 @@ export class FilePlaybackConnectionMediaSession {
       );
     } catch {
       record.expiryTimerArmed = false;
+      const timerLease = record.expiryTimerLifecycleLease;
+      record.expiryTimerLifecycleLease = null;
+      timerLease?.beginRetire().release();
       this.#retireOfferPreparationLocally(record);
       throw this.#fatal('The source-offer preparation expiry timer is unavailable');
     }
@@ -2619,6 +2656,9 @@ export class FilePlaybackConnectionMediaSession {
 
   #handleOfferPreparationExpiryTimer(record: OfferPreparationRecord): void {
     record.expiryTimerArmed = false;
+    const timerLease = record.expiryTimerLifecycleLease;
+    record.expiryTimerLifecycleLease = null;
+    timerLease?.beginRetire().release();
     if (
       this.#revoked ||
       record.status !== 'offered' ||
@@ -2638,7 +2678,13 @@ export class FilePlaybackConnectionMediaSession {
     record.expiryTimerArmed = false;
     try {
       clearManagedTimer(record.expiryTimerName);
+      const timerLease = record.expiryTimerLifecycleLease;
+      record.expiryTimerLifecycleLease = null;
+      timerLease?.beginRetire().release();
     } catch {
+      const timerLease = record.expiryTimerLifecycleLease;
+      record.expiryTimerLifecycleLease = null;
+      timerLease?.forceUnconfirmed();
       // The exact record and fence remain authority-checked if the timer cannot be cleared.
     }
   }
@@ -2698,6 +2744,7 @@ export class FilePlaybackConnectionMediaSession {
     const delayMs = Math.max(1, Math.ceil(Math.min(remainingMs, MAX_EXPIRY_TIMER_DELAY_MS)));
     record.expiryTimerArmed = true;
     try {
+      record.expiryTimerLifecycleLease = acquireFilePlaybackUniversalLifecycleLease('timers');
       setManagedTimer(
         record.expiryTimerName,
         () => this.#handleCandidateExpiryTimer(record),
@@ -2705,12 +2752,18 @@ export class FilePlaybackConnectionMediaSession {
       );
     } catch {
       record.expiryTimerArmed = false;
+      const timerLease = record.expiryTimerLifecycleLease;
+      record.expiryTimerLifecycleLease = null;
+      timerLease?.beginRetire().release();
       throw this.#fatal('The candidate source offer expiry timer is unavailable');
     }
   }
 
   #handleCandidateExpiryTimer(record: OperationRecord): void {
     record.expiryTimerArmed = false;
+    const timerLease = record.expiryTimerLifecycleLease;
+    record.expiryTimerLifecycleLease = null;
+    timerLease?.beginRetire().release();
     if (this.#revoked || record.status !== 'candidate' || record !== this.#candidate) return;
     try {
       this.#mutate(() => {
@@ -2727,7 +2780,13 @@ export class FilePlaybackConnectionMediaSession {
     record.expiryTimerArmed = false;
     try {
       clearManagedTimer(record.expiryTimerName);
+      const timerLease = record.expiryTimerLifecycleLease;
+      record.expiryTimerLifecycleLease = null;
+      timerLease?.beginRetire().release();
     } catch {
+      const timerLease = record.expiryTimerLifecycleLease;
+      record.expiryTimerLifecycleLease = null;
+      timerLease?.forceUnconfirmed();
       // The record fence is still aborted and the timer callback is authority-checked.
     }
   }
@@ -2792,6 +2851,24 @@ export class FilePlaybackConnectionMediaSession {
     }
   }
 
+  #retireStateAttemptRecord(
+    record: StateOperationRecord,
+  ): Readonly<FilePlaybackConnectionMediaStatePreparation> {
+    this.#assertStateOperationCurrent(record);
+    const attemptLease = record.attemptLease;
+    if (!attemptLease) {
+      throw this.#fatal('The exact state candidate lost its rendezvous attempt authority');
+    }
+    try {
+      Reflect.apply(channelRetireAttempt, this.#channel, [attemptLease]);
+    } catch {
+      throw this.#fatal('The shared channel rejected exact state attempt retirement');
+    }
+    this.#retireStateAttemptLocally(record);
+    this.#assertStatePreparationCurrent(record);
+    return record.preparation;
+  }
+
   #retireStateRecord(record: StateOperationRecord): void {
     if (record.status === 'retired') {
       throw new Error('File playback state operation is already retired');
@@ -2820,12 +2897,42 @@ export class FilePlaybackConnectionMediaSession {
   }
 
   #abortStateOperationFence(record: StateOperationRecord): void {
-    if (record.abortController.signal.aborted) return;
-    try {
-      Reflect.apply(abortControllerAbort, record.abortController, []);
-    } catch {
-      // Record retirement remains authoritative if the platform is broken.
+    if (!record.abortController.signal.aborted) {
+      try {
+        Reflect.apply(abortControllerAbort, record.abortController, []);
+      } catch {
+        // Record retirement remains authoritative if the platform is broken.
+      }
     }
+    this.#abortStateAttemptFence(record);
+  }
+
+  #abortStateAttemptFence(record: StateOperationRecord): void {
+    const controller = record.operationAbortController;
+    if (!controller || controller.signal.aborted) return;
+    try {
+      Reflect.apply(abortControllerAbort, controller, []);
+    } catch {
+      // Attempt retirement remains authoritative if the platform is broken.
+    }
+  }
+
+  #retireStateAttemptLocally(record: StateOperationRecord): void {
+    this.#abortStateAttemptFence(record);
+    const operation = record.operation;
+    const attemptLease = record.attemptLease;
+    const operationEpoch = record.operationEpoch;
+    if (operation) {
+      this.#retiredStateOperations.add(operation);
+      this.#stateOperations.delete(operation);
+    }
+    if (attemptLease) this.#retiredStateAttemptLeases.add(attemptLease);
+    if (operationEpoch) this.#stateOperationEpochs.delete(operationEpoch);
+    record.operation = null;
+    record.attemptLease = null;
+    record.rendezvousId = null;
+    record.operationEpoch = null;
+    record.operationAbortController = null;
   }
 
   #retireStateRecordLocally(record: StateOperationRecord | null): void {
@@ -2834,10 +2941,7 @@ export class FilePlaybackConnectionMediaSession {
     record.status = 'retired';
     this.#retiredStatePreparations.add(record.preparation);
     this.#statePreparations.delete(record.preparation);
-    if (record.operation) {
-      this.#retiredStateOperations.add(record.operation);
-      this.#stateOperations.delete(record.operation);
-    }
+    this.#retireStateAttemptLocally(record);
     this.#stateOperationEpochs.delete(record.epoch);
     if (this.#candidateState === record) this.#candidateState = null;
     if (this.#currentStateOperation === record) this.#currentStateOperation = null;
@@ -2881,9 +2985,12 @@ export class FilePlaybackConnectionMediaSession {
     }
   }
 
-  #fatal(message: string): FilePlaybackConnectionMediaSessionFatalError {
+  #fatal(message: string, cause?: unknown): FilePlaybackConnectionMediaSessionFatalError {
     if (this.#fatalError) return this.#fatalError;
-    const error = new FilePlaybackConnectionMediaSessionFatalError(message);
+    const error = new FilePlaybackConnectionMediaSessionFatalError(
+      message,
+      cause === undefined ? undefined : { cause },
+    );
     this.#fatalError = error;
     this.#fatalCallbackPending = true;
     this.#revoked = true;
@@ -3050,11 +3157,19 @@ export class FilePlaybackConnectionMediaSession {
       return false;
     }
     const record = this.#stateOperationEpochs.get(epoch);
+    const isPreparationEpoch = record?.epoch === epoch;
+    const isAttemptEpoch = record?.operationEpoch === epoch;
     if (
       !record ||
-      record.epoch !== epoch ||
+      (!isPreparationEpoch && !isAttemptEpoch) ||
       record.status === 'retired' ||
-      record.abortController.signal.aborted ||
+      (isPreparationEpoch && record.abortController.signal.aborted) ||
+      (isAttemptEpoch &&
+        (!record.operation ||
+          !record.attemptLease ||
+          !record.rendezvousId ||
+          !record.operationAbortController ||
+          record.operationAbortController.signal.aborted)) ||
       record.prepared !== this.#current ||
       record.prepared.status !== 'current' ||
       (record !== this.#candidateState && record !== this.#currentStateOperation)

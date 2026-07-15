@@ -22,7 +22,7 @@ import {
 } from './timeline.ts';
 
 /** Worker-control version; PCM supply keeps its independent common version. */
-export const MP3_DECODER_PROTOCOL_VERSION = 1 as const;
+export const MP3_DECODER_PROTOCOL_VERSION = 2 as const;
 export const MP3_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ = 1_000_000;
 export const MP3_DECODER_MAX_PROGRESSIVE_INDEX_EVENTS = MP3_SEEK_INDEX_MAX_POINTS;
 export const MP3_DECODER_MAX_ERROR_CODE_LENGTH = 256;
@@ -152,7 +152,18 @@ export type Mp3DecoderEvent =
       readonly producedOutputFrames: number;
     })
   | (Mp3DecoderEventIdentity & {
-      readonly type: 'decoder-stopped';
+      readonly type: 'decoder-stopped' | 'decoder-retired';
+    })
+  | (Mp3DecoderEventIdentity & {
+      readonly type: 'worker-retired';
+      readonly retryWaitSequence: number;
+      readonly activeRetryWaits: number;
+    })
+  | (Mp3DecoderEventIdentity & {
+      readonly type: 'retry-wait-delta';
+      readonly delta: -1 | 1;
+      readonly retryWaitSequence: number;
+      readonly activeRetryWaits: number;
     })
   | (Mp3DecoderEventIdentity &
       MpegLayer3SeekIndexPoint & {
@@ -765,10 +776,36 @@ export function parseMp3DecoderEvent(value: unknown): Readonly<Mp3DecoderEvent> 
     }
     return Object.freeze({ ...record }) as unknown as Readonly<Mp3DecoderEvent>;
   }
-  if (record.type === 'decoder-stopped') {
+  if (record.type === 'decoder-stopped' || record.type === 'decoder-retired') {
     return hasExactKeys(record, EVENT_IDENTITY_KEYS)
       ? (Object.freeze({ ...record }) as unknown as Readonly<Mp3DecoderEvent>)
       : null;
+  }
+  if (record.type === 'worker-retired') {
+    if (
+      !hasExactKeys(record, [...EVENT_IDENTITY_KEYS, 'retryWaitSequence', 'activeRetryWaits']) ||
+      !validCounter(record.retryWaitSequence) ||
+      !validCounter(record.activeRetryWaits)
+    ) {
+      return null;
+    }
+    return Object.freeze({ ...record }) as unknown as Readonly<Mp3DecoderEvent>;
+  }
+  if (record.type === 'retry-wait-delta') {
+    if (
+      !hasExactKeys(record, [
+        ...EVENT_IDENTITY_KEYS,
+        'delta',
+        'retryWaitSequence',
+        'activeRetryWaits',
+      ]) ||
+      (record.delta !== -1 && record.delta !== 1) ||
+      !validCounter(record.retryWaitSequence) ||
+      !validCounter(record.activeRetryWaits)
+    ) {
+      return null;
+    }
+    return Object.freeze({ ...record }) as unknown as Readonly<Mp3DecoderEvent>;
   }
   if (record.type === 'frame-index-point') {
     if (!hasExactKeys(record, [...EVENT_IDENTITY_KEYS, ...MP3_INDEX_POINT_KEYS])) return null;

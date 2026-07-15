@@ -144,6 +144,16 @@ const messages: readonly FilePlaybackWireMessage[] = Object.freeze([
     positionSeconds: 99.5,
     playbackRate: 1,
   },
+  {
+    ...envelope,
+    kind: 'file-playback-ended',
+    controlSequence: 53,
+    revision: 11,
+    expectedQueueItemId: 'queue-item-1',
+    expectedRunId: 'run-7',
+    expectedRevision: 7,
+    hostObservedAtRoomTimeMs: 11_700,
+  },
 ]);
 
 function record(message: FilePlaybackWireMessage = messages[0]): Record<string, unknown> {
@@ -472,6 +482,33 @@ describe('file playback V2 control wire', () => {
     ).toBeNull();
   });
 
+  it('requires an exact ended successor and a finite nonnegative host observation time', () => {
+    const ended = messages[12];
+    for (const changes of [
+      { expectedQueueItemId: 'other-item' },
+      { expectedRunId: 'other-run' },
+      { expectedRevision: 11 },
+      { hostObservedAtRoomTimeMs: -1 },
+      { hostObservedAtRoomTimeMs: -0 },
+      { hostObservedAtRoomTimeMs: Number.NaN },
+      { hostObservedAtRoomTimeMs: Number.POSITIVE_INFINITY },
+    ]) {
+      expect(parseFilePlaybackWireMessage(replace(ended, changes))).toBeNull();
+    }
+    expect(
+      parseFilePlaybackWireMessage(record(ended), {
+        receivedAtRoomTimeMs: 11_400,
+        maxClockSkewMs: 250,
+      }),
+    ).toBeNull();
+    expect(
+      parseFilePlaybackWireMessage(record(ended), {
+        receivedAtRoomTimeMs: 11_500,
+        maxClockSkewMs: 250,
+      }),
+    ).not.toBeNull();
+  });
+
   it('requires an exact same-run successor and bounded media intent for PREPARE', () => {
     const prepare = messages[11];
     for (const changes of [
@@ -725,6 +762,52 @@ describe('file playback V2 control wire', () => {
       transferSessionId: null,
     });
     expect(() => receiver.commitMedia(next)).not.toThrow();
+  });
+
+  it('admits ENDED as exact stop authority, rejects replay, and stale-drops a later duplicate', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 13_200,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const ended = replace(messages[12], {
+      revision: 8,
+      controlSequence: 60,
+      hostObservedAtRoomTimeMs: 13_100,
+    });
+    const accepted = receiver.receive(ended);
+    expect(accepted).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: { kind: 'file-playback-ended', revision: 8, expectedRevision: 7 },
+      attemptLease: null,
+    });
+    if (!accepted.accepted || accepted.status !== 'message') {
+      throw new Error('Expected an admitted natural-end successor');
+    }
+    expect(() => receiver.commitMedia(accepted.stateLease)).toThrow(/candidate state/u);
+    receiver.commitStop(accepted.stateLease, {
+      queueItemId: 'queue-item-1',
+      runId: 'run-7',
+      revision: 7,
+    });
+    expect(receiver.receive(ended)).toEqual({
+      accepted: false,
+      reason: 'replayed-sequence',
+    });
+    expect(receiver.receive({ ...ended, controlSequence: 61 })).toEqual({
+      accepted: true,
+      status: 'stale',
+      scope: 'state',
+      controlSequence: 61,
+    });
   });
 
   it('does not consume a remote successor revision for replayed or temporal-invalid frames', () => {

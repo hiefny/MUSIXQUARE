@@ -46,8 +46,8 @@ formats depended on whole-file `decodeAudioData`.
    anchors, and container packet tables belong to adapters.
 8. A decoder generation is not ready until both the decoder adapter and PCM
    ring have acknowledged the same generation. Stale generations are inert.
-9. Arm, finalize, pause, seek, stop, start evidence, underrun health, and room
-   revision authority remain codec-neutral.
+9. Arm, finalize, cancel, pause, seek, stop, natural-end retirement, start
+   evidence, underrun health, and room revision authority remain codec-neutral.
 10. Encoded-source ownership transfers exactly once and every partial open,
     abort, failure, or destroy path closes it exactly once.
 
@@ -326,6 +326,116 @@ requests. R2 may later expose authenticated record/range reads through another
 clock. Multipart upload/resume is therefore infrastructure work, not a media
 renderer backend.
 
+Peer-range handle revocation keeps a bounded tombstone keyed by the exact
+connection token, handle, and source identity. A request already in flight may
+arrive after replay or source replacement; only that exact revoked tuple is
+allowed through the owner gate, where the responder returns a terminal revoked
+result without resolving bytes. A wrong source, unknown handle, or wrong
+connection still fails closed.
+
+## Product transition and retirement policy
+
+The host fans an ordinary pause, paused seek, or stop to the exact set of
+remote media owners that were READY when the physical transition was staged.
+Only that captured cohort receives the matching committed timeline. A peer
+that becomes READY between staging and commit receives fresh post-commit room
+truth instead of an orphan transition, and one failed peer is closed without
+rolling back the host or the healthy cohort.
+
+Natural EOF is not represented as a scheduled stop. After the host renderer
+produces exact end evidence, the host sends the dedicated
+`file-playback-ended` successor before committing canonical stopped truth. Each
+guest atomically validates and retires its exact current renderer, records
+physical stopped state, and only then renders the stopped timeline. This path
+accepts a guest source observed as playing, paused, or already ended, and does
+not require an iOS AudioContext to remain running; a suspended or interrupted
+context still retains graph-identity and current-port checks before retirement.
+
+A host cancel received after a rendezvous has been armed retires only that
+exact attempt. It preserves the admitted run or same-run PREPARE authority,
+state lease, reusable RAM asset, manifest admission, and audio graph. A manager
+cutover port is deliberately one-shot, so the guest first proves that the old
+physical candidate has retired, re-stages the retained asset into a fresh port,
+and publishes a fresh `SOURCE_READY`. The host may arm the replacement only
+after that exact readiness refresh. No file offer, run binding, download, or
+whole-file decode is repeated.
+
+The host captures the exact attempt record and publishes one idempotent CANCEL
+dispatch/retirement barrier before yielding to transport. Acceptance failure,
+recovery completion or rejection, and replacement ARM staging cannot retire
+or replace that lease until the CANCEL send settles. Both send success and
+send failure retire the captured lease first; failure then closes only that
+connection. Map deletion compares the captured record by identity, so an old
+barrier cannot remove a later attempt even if an identifier is replayed.
+
+Clock freshness remains mandatory when a guest admits a new ARM. Admission
+also captures one body-free temporal continuation for that exact attempt so a
+calibration lease cannot expire between the accepted ARM and its asynchronous
+physical response. The corridor is capped at three seconds and the ARM start
+deadline plus clock skew, belongs to the exact connection and opaque attempt
+lease, and permits only `ARMED`, the matching `FINALIZE`, and `FINALIZED`. A
+new ARM, source readiness, unrelated state, or renderer health still requires
+a freshly calibrated clock. Expiry, explicit wake, monotonic-clock reversal,
+attempt retirement, connection replacement, and connection close invalidate
+that timing corridor; none of these paths extends the global clock-quality
+lease. Automatic freshness renewal is not an explicit wake: it clears ordinary
+calibration samples and bounded pending pings while preserving only an already
+minted exact corridor until that corridor's own deadline. Maintenance may keep
+up to five bounded pings in flight so one lost response cannot suppress every
+renewal; it never mints a corridor or makes the ordinary clock ready. The exact
+full-identity attempt index remains only long enough to admit
+a matching `CANCEL` as clock-independent reducing cleanup. It cannot create a
+timed response and is removed by attempt/state retirement or connection close.
+
+An accepted `FINALIZE` is the last network-clock admission gate for that exact
+attempt. The renderer converts its exact target render frame plus a 2.5-second
+grace into one local monotonic, one-shot start-evidence deadline. It does not
+re-read clock freshness or renew that deadline afterward. Only the exact
+Worklet `started` record may prove success; absence of that record rejects by
+the fixed deadline. Cancellation, supersession, destruction, or interruption
+clears the old timer, and its exact active-attempt identity check prevents an
+old callback from rejecting a successor.
+
+State transitions are the deliberate exception to that retry policy. For the
+reachable pause, stop, and natural-end cases, the host-first engine orders an
+in-flight recovery as ARM, an exact transition-scoped CANCEL, and then the
+state successor; paused seek retains the same reserved receiver contract as a
+defensive boundary. The guest accepts terminal cancellation only for those
+four reserved transition reasons and only when the lease identifies its exact
+uncommitted recovery candidate. It registers the physical cleanup barrier
+before acknowledging the cancellation, so synchronous connection revocation
+cannot let owner retirement overtake native cleanup. The exact cutover port
+keeps one strict, replayable terminal-cleanup outcome; cleanup failure is never
+converted to best-effort success.
+
+After physical candidate retirement, the guest removes that candidate without
+re-staging or publishing `SOURCE_READY` only if the previously captured
+current port is still the exact manager current and the manager does not
+require recovery. It then applies the successor to that surviving renderer. A
+target-crossed rollback, lost current port, or ambiguous recovery state
+fail-closes only that guest connection while the host and healthy peers
+continue. A blocked ARM or FINALIZE is fenced by the same exact cancellation
+and cannot commit after the successor has begun.
+
+The replacement ARM may use the host's live projected position, while the
+canonical timeline keeps the original PREPARE base position and anchor. Those
+values describe the same continuous timeline but are different authorities and
+must not overwrite each other. While an exact current attempt is playing, the
+guest renews its attempt-scoped renderer-health lease every one third of the
+lease duration on a lane independent from source preparation. Paused playback
+uses local healthy renderer/media observations and does not run a pointless
+rendezvous.
+
+Fatal owner callbacks capture the exact failed transport and close it on the
+next microtask so a connection teardown cannot re-enter an in-progress router
+mutation or replace the primary failure with a secondary aggregate error.
+
+Stopping a renderer retires decoder, Worker, port, ring, and playback-source
+ownership. It intentionally does not evict the room registry's reusable encoded
+asset; that asset remains live for replay until its queue occurrence is removed
+or the room ends. Lifecycle assertions distinguish this deliberate residency
+from a physical renderer leak and require the full room baseline after teardown.
+
 ## Release gate
 
 Do not install the optional MP3/ADTS/M4A bounded-route policy in the production
@@ -354,13 +464,52 @@ profile/cohort artifacts:
 3. production with both flags on, which must select `legacy-current` while the
    latch is off and `v2-universal-v1` after the one-line enable.
 
+The universal cohort also carries a full SHA-256 semantic revision suffix.
+`npm run guard:file-playback-cohort` hashes a reviewed, exact production core
+manifest plus the complete runtime `package-lock.json` closure of the FLAC,
+mpg123, and Lanczos packages. Source normalization removes only a leading BOM
+and maps CRLF or CR to LF. Comments, spacing, quote choice, and token boundaries
+therefore change the digest; in particular, an automatic-semicolon-insertion
+boundary cannot collapse into the same revision.
+
+The cohort declaration is itself in the hashed core. Before hashing, the guard
+requires exactly one direct `export const` universal binding, derives its full
+canonical FLAC and mpg123 version prefix from the locked package closure, and
+replaces only that binding's `semrev` literal payload with a stable placeholder.
+Its validator, maximum length, regular expression, prefix, and all surrounding
+source remain digest inputs. The production release latch stays excluded so
+approval remains a one-line activation.
+
+Every core static value import/re-export, constant dynamic import, CommonJS or
+TypeScript require, and literal worker/worklet asset edge must resolve inside
+the core or an exact, reasoned support allowlist. Computed module loaders,
+unclassified `importScripts`, `import.meta` globs, direct worker/worklet URLs,
+fetch asset loads, and direct WebAssembly loaders fail closed.
+
+The guard separately hashes the complete source of an exact product-integration
+root set: `app`, host, guest, protocol, peer, Cloudflare signaling, playlist,
+transport, preload, and setup-start. Their ordinary app dependencies are opaque
+support boundaries and are not recursively pulled into the semantic core. A
+repository-wide reverse-edge audit requires every production caller of the
+session, handshake, build-profile, gate, controller, manager, runtime, router,
+and connection-session entry modules to be either core or one of those roots;
+a new reverse caller or a stale root fails the build. Hashing the whole root is
+an intentionally conservative safety boundary: an unrelated edit in one of
+these large files can require a cohort revision. Before enabling the production
+latch, dedicated narrow integration adapters may replace these broad roots and
+shrink the set without weakening reverse-caller coverage.
+
+Plain production and universal E2E builds run this guard automatically. The
+guard uses deterministic code-unit ordering and has no automatic update mode: a
+digest change requires semantic-diff review and an explicit suffix edit.
+
 - unit fixtures for every enabled container/codec and malformed counterpart;
 - mono, stereo, 4-, 6-, and 8-channel rendering;
 - 44.1, 48, 88.2, 96, 176.4, and 192 kHz, plus explicit high-rate rejection or
   bounded operation where claimed;
 - long-duration memory soak with no duration-proportional growth;
-- first start, pause/resume, seek, replay, next, late join, reconnect, and
-  background recovery;
+- first start, cancel-after-arm, pause/resume, seek, replay, natural EOF, next,
+  late join, reconnect, and background recovery;
 - iOS host to Windows guest and Windows host to iOS guest;
 - start/drift p95, underrun, and start-evidence measurements;
 - capability mismatch isolates only the unsupported participant;

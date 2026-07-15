@@ -32,6 +32,10 @@ import {
   type PeerRangeReadFrame,
   type PeerRangeRemoteErrorCode,
 } from './peer-range-protocol.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 
 const MAX_ACTIVE_REQUESTS = 64;
 const MAX_DELIVERY_TASKS = 256;
@@ -252,11 +256,29 @@ export class PeerRangeDeliveryTimeoutError extends PeerRangeConnectionFatalError
 interface DeliveryWaiter {
   readonly reject: (error: unknown) => void;
   timer: ReturnType<typeof globalThis.setTimeout> | null;
+  timerLease: FilePlaybackUniversalLifecycleLease | null;
+  timerArming: boolean;
+  timerFired: boolean;
+  timerRetireRequested: boolean;
   settled: boolean;
 }
 
 interface PhysicalDeliveryTask {
-  promise: Promise<void> | null;
+  readonly retirement: Promise<void>;
+  readonly release: () => void;
+  settled: boolean;
+}
+
+function reservePhysicalDeliveryTask(): PhysicalDeliveryTask {
+  let release!: () => void;
+  const retirement = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { retirement, release, settled: false };
+}
+
+function releaseLifecycleLease(lease: FilePlaybackUniversalLifecycleLease): void {
+  lease.beginRetire().release();
 }
 
 class LocalEgressCreditWindow {
@@ -341,11 +363,11 @@ class BoundedDeliveryTracker<TFrame> {
 
     // Reserve before either product callback. Both callbacks may synchronously
     // reenter close(), fatal handling, or another delivery attempt.
-    const physicalTask: PhysicalDeliveryTask = { promise: null };
+    const physicalTask = reservePhysicalDeliveryTask();
     this.#tasks.add(physicalTask);
 
     if (terminal && !this.#terminalCredits.consume()) {
-      this.#tasks.delete(physicalTask);
+      this.#releasePhysicalTask(physicalTask);
       const error = new PeerRangeConnectionFatalError(
         'Peer range terminal egress credit was exhausted',
       );
@@ -356,7 +378,7 @@ class BoundedDeliveryTracker<TFrame> {
     try {
       permitted = this.#canSend(frame) === true;
     } catch (cause) {
-      this.#tasks.delete(physicalTask);
+      this.#releasePhysicalTask(physicalTask);
       if (this.#quarantined) return Promise.reject(this.#quarantinedReason);
       const error = new PeerRangeConnectionFatalError(
         'Peer range channel backpressure check failed',
@@ -366,11 +388,11 @@ class BoundedDeliveryTracker<TFrame> {
       return Promise.reject(error);
     }
     if (this.#quarantined) {
-      this.#tasks.delete(physicalTask);
+      this.#releasePhysicalTask(physicalTask);
       return Promise.reject(this.#quarantinedReason);
     }
     if (!permitted) {
-      this.#tasks.delete(physicalTask);
+      this.#releasePhysicalTask(physicalTask);
       const error = new PeerRangeConnectionFatalError(
         'Peer range channel cannot accept bounded delivery',
       );
@@ -382,21 +404,21 @@ class BoundedDeliveryTracker<TFrame> {
     try {
       outcome = this.#send(frame);
     } catch (error) {
-      this.#tasks.delete(physicalTask);
+      this.#releasePhysicalTask(physicalTask);
       if (this.#quarantined) return Promise.reject(this.#quarantinedReason);
       const fatal = new PeerRangeConnectionFatalError('Peer range delivery threw', error);
       this.#onFatal(fatal);
       return Promise.reject(fatal);
     }
     if ((typeof outcome !== 'object' || outcome === null) && typeof outcome !== 'function') {
-      this.#tasks.delete(physicalTask);
+      this.#releasePhysicalTask(physicalTask);
       return this.#quarantined ? Promise.reject(this.#quarantinedReason) : Promise.resolve();
     }
     let task: Promise<void>;
     try {
       task = Promise.resolve(outcome);
     } catch (cause) {
-      this.#tasks.delete(physicalTask);
+      this.#releasePhysicalTask(physicalTask);
       if (this.#quarantined) return Promise.reject(this.#quarantinedReason);
       const fatal = new PeerRangeConnectionFatalError(
         'Peer range delivery promise registration failed',
@@ -406,10 +428,9 @@ class BoundedDeliveryTracker<TFrame> {
       return Promise.reject(fatal);
     }
 
-    physicalTask.promise = task;
     void task.then(
-      () => this.#tasks.delete(physicalTask),
-      () => this.#tasks.delete(physicalTask),
+      () => this.#releasePhysicalTask(physicalTask),
+      () => this.#releasePhysicalTask(physicalTask),
     );
     if (this.#quarantined) return Promise.reject(this.#quarantinedReason);
 
@@ -417,6 +438,10 @@ class BoundedDeliveryTracker<TFrame> {
       const waiter: DeliveryWaiter = {
         reject,
         timer: null,
+        timerLease: null,
+        timerArming: false,
+        timerFired: false,
+        timerRetireRequested: false,
         settled: false,
       };
       // Delivery deadlines are physical connection resources, not UI/session
@@ -424,31 +449,75 @@ class BoundedDeliveryTracker<TFrame> {
       // cleanup from silently removing the deadline while leaving this Promise
       // and its retained send task pending forever.
       this.#waiters.add(waiter);
-      waiter.timer = globalThis.setTimeout(() => {
-        if (waiter.settled) return;
+      try {
+        waiter.timerLease = acquireFilePlaybackUniversalLifecycleLease('timers');
+        waiter.timerArming = true;
+        const timer = globalThis.setTimeout(() => {
+          if (waiter.settled) return;
+          waiter.settled = true;
+          waiter.timerFired = true;
+          if (!waiter.timerArming) this.#cancelWaiterTimer(waiter);
+          this.#waiters.delete(waiter);
+          const error = new PeerRangeDeliveryTimeoutError();
+          reject(error);
+          this.#onFatal(error);
+        }, this.#timeoutMs);
+        waiter.timerArming = false;
+        if (waiter.timerFired) {
+          this.#cancelWaiterTimer(waiter);
+        } else {
+          waiter.timer = timer;
+          if (waiter.timerRetireRequested || waiter.settled || this.#quarantined) {
+            this.#cancelWaiterTimer(waiter);
+          }
+        }
+      } catch (cause) {
+        waiter.timerArming = false;
         waiter.settled = true;
-        waiter.timer = null;
         this.#waiters.delete(waiter);
-        const error = new PeerRangeDeliveryTimeoutError();
-        reject(error);
-        this.#onFatal(error);
-      }, this.#timeoutMs);
+        const timerLease = waiter.timerLease;
+        waiter.timerLease = null;
+        // A throwing timer primitive did not return a handle that we can
+        // cancel or observe firing. Do not manufacture a confirmed zero.
+        timerLease?.forceUnconfirmed();
+        const fatal = new PeerRangeConnectionFatalError(
+          'Peer range delivery deadline could not be armed',
+          cause,
+        );
+        reject(fatal);
+        this.#onFatal(fatal);
+        return;
+      }
       void task.then(
         () => {
           if (waiter.settled) return;
           waiter.settled = true;
-          if (waiter.timer !== null) globalThis.clearTimeout(waiter.timer);
-          waiter.timer = null;
+          const timerFailure = this.#cancelWaiterTimer(waiter);
           this.#waiters.delete(waiter);
-          resolve();
+          if (timerFailure === null) {
+            resolve();
+            return;
+          }
+          const fatal = new PeerRangeConnectionFatalError(
+            'Peer range delivery deadline cancellation failed',
+            timerFailure,
+          );
+          reject(fatal);
+          this.#onFatal(fatal);
         },
         (error: unknown) => {
           if (waiter.settled) return;
           waiter.settled = true;
-          if (waiter.timer !== null) globalThis.clearTimeout(waiter.timer);
-          waiter.timer = null;
+          const timerFailure = this.#cancelWaiterTimer(waiter);
           this.#waiters.delete(waiter);
-          const fatal = new PeerRangeConnectionFatalError('Peer range delivery rejected', error);
+          const cause =
+            timerFailure === null
+              ? error
+              : new AggregateError(
+                  [error, timerFailure],
+                  'Peer range delivery and deadline cancellation both failed',
+                );
+          const fatal = new PeerRangeConnectionFatalError('Peer range delivery rejected', cause);
           reject(fatal);
           this.#onFatal(fatal);
         },
@@ -463,11 +532,53 @@ class BoundedDeliveryTracker<TFrame> {
     for (const waiter of this.#waiters) {
       if (waiter.settled) continue;
       waiter.settled = true;
-      if (waiter.timer !== null) globalThis.clearTimeout(waiter.timer);
-      waiter.timer = null;
+      this.#cancelWaiterTimer(waiter);
       waiter.reject(reason);
     }
     this.#waiters.clear();
+  }
+
+  /** Waits for callback-owned delivery Promises, including quarantined ones. */
+  retire(): Promise<void> {
+    const tasks = [...this.#tasks].map((task) => task.retirement);
+    return Promise.allSettled(tasks).then(() => undefined);
+  }
+
+  #releasePhysicalTask(task: PhysicalDeliveryTask): void {
+    if (task.settled) return;
+    task.settled = true;
+    this.#tasks.delete(task);
+    task.release();
+  }
+
+  #cancelWaiterTimer(waiter: DeliveryWaiter): unknown | null {
+    const timerLease = waiter.timerLease;
+    if (!timerLease) return null;
+    if (waiter.timerArming) {
+      waiter.timerRetireRequested = true;
+      return null;
+    }
+
+    const timer = waiter.timer;
+    waiter.timer = null;
+    waiter.timerLease = null;
+    waiter.timerRetireRequested = false;
+    if (waiter.timerFired) {
+      releaseLifecycleLease(timerLease);
+      return null;
+    }
+    if (timer === null) {
+      timerLease.forceUnconfirmed();
+      return new Error('Peer range delivery timer handle was not published');
+    }
+    try {
+      globalThis.clearTimeout(timer);
+    } catch (cause) {
+      timerLease.forceUnconfirmed();
+      return cause;
+    }
+    releaseLifecycleLease(timerLease);
+    return null;
   }
 }
 
@@ -475,6 +586,10 @@ interface ClientRequestState {
   readonly descriptor: PeerRangeReadFrame;
   readonly signal: AbortSignal;
   readonly onAbort: () => void;
+  readonly lifecycleLease: FilePlaybackUniversalLifecycleLease;
+  lifecycleRetired: boolean;
+  listenerInstalling: boolean;
+  listenerRetireRequested: boolean;
 }
 
 export interface FramedPeerRangeClientTransportOptions {
@@ -509,8 +624,10 @@ export class FramedPeerRangeClientTransport implements PeerRangeTransport {
   readonly #assembler: PeerRangeResponseAssembler;
   readonly #deliveries: BoundedDeliveryTracker<PeerRangeControlFrame>;
   readonly #active = new Map<string, ClientRequestState>();
+  readonly #requestInstallations = new Set<PhysicalDeliveryTask>();
   #closed = false;
   #fatalError: PeerRangeConnectionFatalError | null = null;
+  #closePromise: Promise<void> | null = null;
 
   constructor(options: FramedPeerRangeClientTransportOptions) {
     if (typeof options.sendControl !== 'function') {
@@ -585,21 +702,67 @@ export class FramedPeerRangeClientTransport implements PeerRangeTransport {
       totalLength: request.length,
     });
     const key = descriptorKey(descriptor);
+    const lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('pendingReads');
+    let response: Promise<Uint8Array>;
+    try {
+      response = this.#assembler.open(descriptor, request.signal);
+    } catch (error) {
+      releaseLifecycleLease(lifecycleLease);
+      throw error;
+    }
     const state: ClientRequestState = {
       descriptor,
       signal: request.signal,
       onAbort: () => this.#cancel(state, abortReason(request.signal), true),
+      lifecycleLease,
+      lifecycleRetired: false,
+      listenerInstalling: true,
+      listenerRetireRequested: false,
     };
-    const response = this.#assembler.open(descriptor, request.signal);
-    this.#active.set(key, state);
-    request.signal.addEventListener('abort', state.onAbort, { once: true });
+    const listenerInstallation = reservePhysicalDeliveryTask();
+    this.#requestInstallations.add(listenerInstallation);
+    let listenerSetupError: unknown | null = null;
+    try {
+      this.#active.set(key, state);
+      request.signal.addEventListener('abort', state.onAbort, { once: true });
+    } catch (error) {
+      listenerSetupError = error;
+    } finally {
+      state.listenerInstalling = false;
+      if (
+        state.listenerRetireRequested ||
+        this.#active.get(key) !== state ||
+        this.#closed ||
+        listenerSetupError !== null
+      ) {
+        this.#retireRequestState(state);
+      }
+      this.#requestInstallations.delete(listenerInstallation);
+      listenerInstallation.release();
+    }
+    if (listenerSetupError !== null) {
+      this.#active.delete(key);
+      this.#retireRequestState(state);
+      try {
+        this.#assembler.cancel(descriptor, listenerSetupError);
+      } catch {
+        try {
+          this.#assembler.close(listenerSetupError);
+        } catch {
+          // The request's transport-owned listener is already accounted for.
+        }
+      }
+      void response.catch(() => undefined);
+      throw listenerSetupError;
+    }
+    if (this.#active.get(key) !== state || this.#closed) return await response;
 
     void this.#deliveries.deliver(descriptor, true).catch(() => undefined);
     try {
       return await response;
     } finally {
-      request.signal.removeEventListener('abort', state.onAbort);
       if (this.#active.get(key) === state) this.#active.delete(key);
+      this.#retireRequestState(state);
     }
   }
 
@@ -627,20 +790,34 @@ export class FramedPeerRangeClientTransport implements PeerRangeTransport {
     }
   }
 
-  close(reason: unknown = new PeerRangeAssemblerClosedError()): void {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#deliveries.quarantine(reason);
-    for (const state of [...this.#active.values()]) this.#cancel(state, reason, false);
-    this.#assembler.close(reason);
+  close(reason: unknown = new PeerRangeAssemblerClosedError()): Promise<void> {
+    if (!this.#closed) {
+      this.#closed = true;
+      this.#deliveries.quarantine(reason);
+      for (const state of [...this.#active.values()]) this.#cancel(state, reason, false);
+      this.#assembler.close(reason);
+    }
+    this.#closePromise ??= Promise.allSettled([
+      this.#deliveries.retire(),
+      ...[...this.#requestInstallations].map((task) => task.retirement),
+    ]).then(() => undefined);
+    return this.#closePromise;
   }
 
   #cancel(state: ClientRequestState, reason: unknown, sendRemote: boolean): void {
     const key = descriptorKey(state.descriptor);
     if (this.#active.get(key) !== state) return;
     this.#active.delete(key);
-    state.signal.removeEventListener('abort', state.onAbort);
-    this.#assembler.cancel(state.descriptor, reason);
+    this.#retireRequestState(state);
+    try {
+      this.#assembler.cancel(state.descriptor, reason);
+    } catch {
+      try {
+        this.#assembler.close(reason);
+      } catch {
+        // The exact connection will be quarantined by the caller if needed.
+      }
+    }
     if (sendRemote && !this.#closed && !this.#fatalError) {
       const cancel = createPeerRangeCancelFrame(state.descriptor);
       void this.#deliveries.deliver(cancel, true).catch(() => undefined);
@@ -655,16 +832,35 @@ export class FramedPeerRangeClientTransport implements PeerRangeTransport {
         : new PeerRangeConnectionFatalError('Peer range connection failed', error);
     this.#fatalError = fatal;
     this.#closed = true;
-    for (const state of this.#active.values()) {
-      state.signal.removeEventListener('abort', state.onAbort);
-    }
+    for (const state of this.#active.values()) this.#retireRequestState(state);
     this.#active.clear();
-    this.#assembler.close(fatal);
+    try {
+      this.#assembler.close(fatal);
+    } catch {
+      // Request leases already record any unconfirmed listener detach. The
+      // exact connection remains quarantined even if assembler cleanup fails.
+    }
     this.#deliveries.quarantine(fatal);
     try {
       this.#onFatalConnection(this.#connection, fatal);
     } catch {
       // Local state is already quarantined; the callback cannot reopen it.
+    }
+  }
+
+  #retireRequestState(state: ClientRequestState): void {
+    if (state.lifecycleRetired) return;
+    if (state.listenerInstalling) {
+      state.listenerRetireRequested = true;
+      return;
+    }
+    state.lifecycleRetired = true;
+    state.listenerRetireRequested = false;
+    try {
+      state.signal.removeEventListener('abort', state.onAbort);
+      releaseLifecycleLease(state.lifecycleLease);
+    } catch {
+      state.lifecycleLease.forceUnconfirmed();
     }
   }
 }
@@ -740,6 +936,7 @@ interface HostRequestState {
   readonly correlationKey: string;
   readonly controller: AbortController;
   readonly lease: HostSourceLease;
+  readonly lifecycleLease: FilePlaybackUniversalLifecycleLease;
 }
 
 function isEncodedAudioSource(value: PeerRangeHostSource): value is EncodedAudioSource {
@@ -812,11 +1009,13 @@ export class PeerRangeHostResponder {
   readonly #maxRevokedHandleClaims: number;
   readonly #active = new Map<string, HostRequestState>();
   readonly #physicalReadTasks = new Set<Promise<void>>();
+  readonly #sourceCloseTasks = new Set<Promise<void>>();
   readonly #settled = new Map<string, string>();
   readonly #leases = new Map<string, HostSourceLease>();
   readonly #revokedHandleClaims = new Map<string, string>();
   #closed = false;
   #fatalError: PeerRangeConnectionFatalError | null = null;
+  #closePromise: Promise<void> | null = null;
 
   /**
    * Document-lifetime, PII-free aggregate over physical host source reads.
@@ -953,17 +1152,40 @@ export class PeerRangeHostResponder {
     return !this.#fatalError;
   }
 
-  close(reason: unknown = new EncodedSourceClosedError()): void {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#deliveries.quarantine(reason);
-    for (const state of this.#active.values()) state.controller.abort(reason);
-    this.#active.clear();
-    for (const lease of this.#leases.values()) {
-      lease.revoked = true;
-      lease.controller.abort(reason);
-      this.#retireLease(lease, false);
+  /**
+   * Identifies only a handle/source claim which this exact connection has
+   * already revoked. Owners use this synchronous predicate to admit a control
+   * frame that was in flight before publication replacement without exposing
+   * arbitrary unknown handles to source resolution.
+   */
+  matchesRevokedHandle(token: object, handleId: string, sourceIdentity: string): boolean {
+    assertTrustedToken(this.#connection, token);
+    const canonical = createPeerRangeCloseHandleFrame({
+      connectionId: this.#connection.connectionId,
+      sourceIdentity,
+      handleId,
+    });
+    const lease = this.#leases.get(canonical.handleId);
+    if (lease) {
+      return lease.revoked && lease.sourceIdentity === canonical.sourceIdentity;
     }
+    return this.#revokedHandleClaims.get(canonical.handleId) === canonical.sourceIdentity;
+  }
+
+  close(reason: unknown = new EncodedSourceClosedError()): Promise<void> {
+    if (!this.#closed) {
+      this.#closed = true;
+      this.#deliveries.quarantine(reason);
+      for (const state of this.#active.values()) state.controller.abort(reason);
+      this.#active.clear();
+      for (const lease of this.#leases.values()) {
+        lease.revoked = true;
+        lease.controller.abort(reason);
+        this.#retireLease(lease, false);
+      }
+    }
+    this.#closePromise ??= this.#retirePhysicalResources();
+    return this.#closePromise;
   }
 
   #acceptRead(frame: PeerRangeReadFrame): PeerRangeHostControlStatus {
@@ -990,21 +1212,32 @@ export class PeerRangeHostResponder {
       return 'rejected';
     }
 
-    const lease = this.#claimLease(frame);
-    if (!lease) return 'rejected';
+    const lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('pendingReads');
+    let lease: HostSourceLease | null;
+    try {
+      lease = this.#claimLease(frame);
+    } catch (error) {
+      releaseLifecycleLease(lifecycleLease);
+      throw error;
+    }
+    if (!lease) {
+      releaseLifecycleLease(lifecycleLease);
+      return 'rejected';
+    }
     const state: HostRequestState = {
       descriptor: frame,
       correlationKey: key,
       controller: new AbortController(),
       lease,
+      lifecycleLease,
     };
     lease.physicalTaskCount += 1;
     this.#active.set(key, state);
     const task = this.#serve(state);
     this.#physicalReadTasks.add(task);
     void task.then(
-      () => this.#releasePhysicalReadTask(task, lease),
-      () => this.#releasePhysicalReadTask(task, lease),
+      () => this.#releasePhysicalReadTask(task, lease, state.lifecycleLease),
+      () => this.#releasePhysicalReadTask(task, lease, state.lifecycleLease),
     );
     return 'accepted';
   }
@@ -1211,8 +1444,13 @@ export class PeerRangeHostResponder {
     void this.#deliveries.deliver(frame, true).catch(() => undefined);
   }
 
-  #releasePhysicalReadTask(task: Promise<void>, lease: HostSourceLease): void {
+  #releasePhysicalReadTask(
+    task: Promise<void>,
+    lease: HostSourceLease,
+    lifecycleLease: FilePlaybackUniversalLifecycleLease,
+  ): void {
     this.#physicalReadTasks.delete(task);
+    releaseLifecycleLease(lifecycleLease);
     lease.physicalTaskCount = Math.max(0, lease.physicalTaskCount - 1);
     if (lease.revoked && lease.physicalTaskCount === 0) this.#releaseRevokedLease(lease);
   }
@@ -1237,10 +1475,25 @@ export class PeerRangeHostResponder {
     if (!source || lease.closeStarted) return;
     lease.closeStarted = true;
     try {
-      void Promise.resolve(source.close()).catch(() => undefined);
-    } catch {
-      // Cleanup failure cannot reopen the handle, mask its terminal state, or
-      // become an unhandled rejection.
+      const task = Promise.resolve(source.close());
+      this.#sourceCloseTasks.add(task);
+      void task.catch(() => undefined);
+    } catch (error) {
+      const task = Promise.reject(error);
+      this.#sourceCloseTasks.add(task);
+      void task.catch(() => undefined);
+    }
+  }
+
+  async #retirePhysicalResources(): Promise<void> {
+    await Promise.allSettled([this.#deliveries.retire(), ...this.#physicalReadTasks]);
+    const settlements = await Promise.allSettled(this.#sourceCloseTasks);
+    const failures = settlements
+      .filter((settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected')
+      .map((settlement) => settlement.reason);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Multiple peer-range responder source closes failed');
     }
   }
 

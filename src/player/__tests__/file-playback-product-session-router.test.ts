@@ -678,6 +678,33 @@ describe('FilePlaybackProductSessionRouter', () => {
     }
   });
 
+  it('fails the exact host record closed when peer-range responder adoption throws', () => {
+    const pair = channelPair();
+    const failure = new Error('peer-range responder acquisition failed');
+    const revoke = vi.fn();
+    const harness = makeHarness({
+      createHostMediaOwner: () =>
+        Object.freeze({
+          adoptWireMessage: (_event, acknowledge) => acknowledge(),
+          adoptPeerRangeControl: () => {
+            throw failure;
+          },
+          revoke,
+        }),
+    });
+    establish(harness, pair, 'host');
+    const acknowledge = vi.fn();
+
+    expect(() =>
+      harness.router
+        .applicationSessionHooks()
+        .adoptPeerRangeMessage(peerRange(pair, 'host', 'control'), acknowledge),
+    ).toThrow(failure);
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(harness.router.snapshot().activeConnectionCount).toBe(0);
+  });
+
   it.each([
     ['timeline update', FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE],
     ['source-offer revoke', FILE_MEDIA_SOURCE_OFFER_REVOKE_V2_TYPE],

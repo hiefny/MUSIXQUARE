@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   decoderDecodeQueue: [] as Promise<void>[],
   decoderBlockQueue: [] as number[],
   decoderInstances: [] as Array<{ free: ReturnType<typeof vi.fn> }>,
+  decoderFreeFailures: 0,
   decoderCalls: 0,
   defaultBlockSize: 4,
   channels: 2,
@@ -25,7 +26,12 @@ const sourceBrokers: EncodedSourcePortBroker[] = [];
 vi.mock('@wasm-audio-decoders/flac', () => ({
   FLACDecoder: class MockFlacDecoder {
     readonly ready = mocks.decoderReadyQueue.shift() ?? Promise.resolve();
-    readonly free = vi.fn();
+    readonly free = vi.fn(() => {
+      if (mocks.decoderFreeFailures > 0) {
+        mocks.decoderFreeFailures -= 1;
+        throw new Error('synthetic decoder free failure');
+      }
+    });
 
     constructor() {
       mocks.decoderInstances.push(this);
@@ -271,6 +277,7 @@ describe.sequential('bounded FLAC stream worker', () => {
     mocks.decoderDecodeQueue.length = 0;
     mocks.decoderBlockQueue.length = 0;
     mocks.decoderInstances.length = 0;
+    mocks.decoderFreeFailures = 0;
     mocks.decoderCalls = 0;
     mocks.defaultBlockSize = 4;
     mocks.channels = 2;
@@ -547,6 +554,12 @@ describe.sequential('bounded FLAC stream worker', () => {
         expect.objectContaining({ type: 'source-closed', sourceLifetimeGeneration: 1 }),
       ),
     );
+    expect(scope.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'decoder-retired', decoderGeneration: 61 }),
+    );
+    expect(scope.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'worker-retired', sourceLifetimeGeneration: 1 }),
+    );
     first.port2.close();
     second.port2.close();
     beginGeneration.mockRestore();
@@ -573,6 +586,85 @@ describe.sequential('bounded FLAC stream worker', () => {
     expect(scope.postMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'decoder-error', decoderGeneration: 30 }),
     );
+    channel.port2.close();
+  });
+
+  it('closes remaining resources but suppresses retirement ACKs when decoder free throws', async () => {
+    const scope = await loadWorker();
+    const channel = new MessageChannel();
+    const broker = dispatchInit(scope, 70, channel.port1);
+    await vi.waitFor(() =>
+      expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 70 }),
+      ),
+    );
+    mocks.decoderFreeFailures = 1;
+
+    dispatch(scope, {
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'close-source',
+      sourceLifetimeGeneration: 1,
+    });
+    await vi.waitFor(() => expect(broker.closed).toBe(true));
+    await vi.waitFor(() => expect(mocks.decoderInstances[0]?.free).toHaveBeenCalledOnce());
+
+    expect(scope.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'source-closed', sourceLifetimeGeneration: 1 }),
+    );
+    expect(scope.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'decoder-retired', decoderGeneration: 70 }),
+    );
+    expect(scope.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'worker-retired', sourceLifetimeGeneration: 1 }),
+    );
+    channel.port2.close();
+  });
+
+  it('publishes source retirement before a hostile PCM close reenters close-source', async () => {
+    const scope = await loadWorker();
+    const channel = new MessageChannel();
+    const broker = openSourceFixture(
+      scope,
+      sourceBlob([nativeFrame(0, mocks.defaultBlockSize)]),
+      'worker-hostile-close-source',
+    );
+    let reentries = 0;
+    const nativeClose = channel.port1.close.bind(channel.port1);
+    const portClose = vi.spyOn(channel.port1, 'close').mockImplementation(() => {
+      if (reentries === 0) {
+        reentries += 1;
+        dispatch(scope, {
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'close-source',
+          sourceLifetimeGeneration: 1,
+        });
+      }
+      nativeClose();
+    });
+    dispatchDecoderInit(scope, 71, channel.port1, streamDescriptor());
+    await vi.waitFor(() =>
+      expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 71 }),
+      ),
+    );
+
+    dispatch(scope, {
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'close-source',
+      sourceLifetimeGeneration: 1,
+    });
+
+    await vi.waitFor(() => expect(broker.closed).toBe(true));
+    await vi.waitFor(() => {
+      const messages = scope.postMessage.mock.calls.map(
+        ([message]) => message as Record<string, unknown>,
+      );
+      expect(messages.filter((message) => message.type === 'decoder-retired')).toHaveLength(1);
+      expect(messages.filter((message) => message.type === 'source-closed')).toHaveLength(1);
+      expect(messages.filter((message) => message.type === 'worker-retired')).toHaveLength(1);
+    });
+    expect(reentries).toBe(1);
+    expect(portClose).toHaveBeenCalledOnce();
     channel.port2.close();
   });
 

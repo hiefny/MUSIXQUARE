@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { getFilePlaybackUniversalLifecycleSnapshotForTests as getFilePlaybackUniversalLifecycleSnapshot } from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 
 import {
   EncodedSourceClosedError,
@@ -363,6 +364,77 @@ describe('FramedPeerRangeClientTransport', () => {
     expect(client.activeRequestCount).toBe(0);
   });
 
+  it('quarantines without stranding work when delivery timer cancellation throws', async () => {
+    const delivery = deferred<void>();
+    const fatalConnection = vi.fn();
+    const client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: allowSend,
+      sendControl: () => delivery.promise,
+      deliveryTimeoutMs: 60_000,
+    });
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const result = client.read(request({ requestId: 'request:timer-clear-failure' }));
+    const clearTimeout = vi.spyOn(globalThis, 'clearTimeout').mockImplementationOnce(() => {
+      throw new Error('synthetic peer timer cancellation failure');
+    });
+    try {
+      delivery.resolve();
+      await expect(result).rejects.toBeInstanceOf(PeerRangeConnectionFatalError);
+    } finally {
+      clearTimeout.mockRestore();
+    }
+
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(fatalConnection).toHaveBeenCalledOnce();
+    expect(client.activeRequestCount).toBe(0);
+    expect(client.physicalDeliveryTaskCount).toBe(0);
+    expect(retired.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(retired.kinds.timers.live).toBe(baseline.kinds.timers.live);
+    expect(retired.kinds.timers.unconfirmed).toBe(baseline.kinds.timers.unconfirmed + 1);
+    await client.close();
+  });
+
+  it('settles close but marks request ownership unconfirmed when listener detach throws', async () => {
+    const controller = new AbortController();
+    let removalCount = 0;
+    const signal = {
+      get aborted() {
+        return controller.signal.aborted;
+      },
+      get reason() {
+        return controller.signal.reason;
+      },
+      addEventListener: controller.signal.addEventListener.bind(controller.signal),
+      removeEventListener: (...args: Parameters<AbortSignal['removeEventListener']>) => {
+        removalCount += 1;
+        if (removalCount === 1) throw new Error('synthetic peer abort detach failure');
+        controller.signal.removeEventListener(...args);
+      },
+    } as unknown as AbortSignal;
+    const client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sendControl: () => undefined,
+    });
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const result = client.read(request({ requestId: 'request:detach-failure' }, signal));
+    const reason = new Error('close after detach failure');
+
+    await expect(client.close(reason)).resolves.toBeUndefined();
+    await expect(result).rejects.toBe(reason);
+
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(removalCount).toBeGreaterThanOrEqual(2);
+    expect(client.activeRequestCount).toBe(0);
+    expect(retired.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(retired.kinds.pendingReads.unconfirmed).toBe(
+      baseline.kinds.pendingReads.unconfirmed + 1,
+    );
+  });
+
   it('requires the exact locally bound connection token for inbound bulk routing', () => {
     const client = new FramedPeerRangeClientTransport({
       connection: CONNECTION,
@@ -446,6 +518,41 @@ describe('FramedPeerRangeClientTransport', () => {
     expect(client.physicalDeliveryTaskCount).toBe(0);
   });
 
+  it('retires a send reserved before synchronous client-close re-entry only after it settles', async () => {
+    const delivery = deferred<void>();
+    const reason = new Error('closed inside control sender');
+    let closing: Promise<void> | null = null;
+    let client!: FramedPeerRangeClientTransport;
+    client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sendControl: () => {
+        closing = client.close(reason);
+        return delivery.promise;
+      },
+      deliveryTimeoutMs: 60_000,
+    });
+
+    const result = client.read(request({ requestId: 'request:sender-close' }));
+    await expect(result).rejects.toBe(reason);
+    expect(closing).not.toBeNull();
+    expect(client.physicalDeliveryTaskCount).toBe(1);
+
+    let retired = false;
+    void closing!.then(() => {
+      retired = true;
+    });
+    await flush();
+    expect(retired).toBe(false);
+
+    delivery.resolve();
+    await expect(closing!).resolves.toBeUndefined();
+    expect(retired).toBe(true);
+    expect(client.physicalDeliveryTaskCount).toBe(0);
+    expect(client.close()).toBe(closing);
+  });
+
   it('reserves before a nested synchronous delivery and retains only the outer hung send', async () => {
     const never = new Promise<void>(() => undefined);
     const fatalConnection = vi.fn();
@@ -472,6 +579,112 @@ describe('FramedPeerRangeClientTransport', () => {
     expect(client.physicalDeliveryTaskCount).toBe(1);
     expect(client.activeRequestCount).toBe(0);
     expect(fatalConnection).toHaveBeenCalledOnce();
+  });
+
+  it('reconciles a timer handle published after synchronous close re-entry', async () => {
+    const reason = new Error('closed while peer timer was arming');
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    let closing: Promise<void> | null = null;
+    let client!: FramedPeerRangeClientTransport;
+    client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sendControl: () => Promise.resolve(),
+      deliveryTimeoutMs: 60_000,
+    });
+    const nativeSetTimeout = globalThis.setTimeout;
+    const setTimeout = vi.spyOn(globalThis, 'setTimeout').mockImplementationOnce(((
+      callback,
+      delay,
+      ...args
+    ) => {
+      closing = client.close(reason);
+      return nativeSetTimeout(callback, delay, ...args);
+    }) as typeof globalThis.setTimeout);
+    let result!: Promise<Uint8Array>;
+    try {
+      result = client.read(request({ requestId: 'request:timer-arm-reentry' }));
+    } finally {
+      setTimeout.mockRestore();
+    }
+
+    await expect(result).rejects.toBe(reason);
+    expect(closing).not.toBeNull();
+    await expect(closing!).resolves.toBeUndefined();
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(retired.kinds.timers.live).toBe(baseline.kinds.timers.live);
+    expect(retired.kinds.timers.retiring).toBe(baseline.kinds.timers.retiring);
+    expect(client.physicalDeliveryTaskCount).toBe(0);
+  });
+
+  it('retires a timer whose callback fires synchronously before handle publication', async () => {
+    const fatalConnection = vi.fn();
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+    const client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: allowSend,
+      sendControl: () => Promise.resolve(),
+      deliveryTimeoutMs: 60_000,
+    });
+    const syntheticTimer = 41 as unknown as ReturnType<typeof globalThis.setTimeout>;
+    const setTimeout = vi.spyOn(globalThis, 'setTimeout').mockImplementationOnce(((
+      callback: TimerHandler,
+    ) => {
+      if (typeof callback === 'function') callback();
+      return syntheticTimer;
+    }) as typeof globalThis.setTimeout);
+    let result!: Promise<Uint8Array>;
+    try {
+      result = client.read(request({ requestId: 'request:sync-timer-callback' }));
+    } finally {
+      setTimeout.mockRestore();
+    }
+
+    await expect(result).rejects.toBeInstanceOf(PeerRangeConnectionFatalError);
+    expect(fatalConnection).toHaveBeenCalledOnce();
+    await expect(client.close()).resolves.toBeUndefined();
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(retired.kinds.timers.live).toBe(baseline.kinds.timers.live);
+    expect(retired.kinds.timers.retiring).toBe(baseline.kinds.timers.retiring);
+  });
+
+  it('removes an abort listener committed after addEventListener reenters close', async () => {
+    const reason = new Error('closed during abort listener installation');
+    const listeners = new Set<EventListenerOrEventListenerObject>();
+    let addCount = 0;
+    let closing: Promise<void> | null = null;
+    let client!: FramedPeerRangeClientTransport;
+    const signal = {
+      aborted: false,
+      addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+        addCount += 1;
+        if (addCount === 2) closing = client.close(reason);
+        listeners.add(listener);
+      },
+      removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+        listeners.delete(listener);
+      },
+    } as unknown as AbortSignal;
+    client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sendControl: () => undefined,
+    });
+    const baseline = getFilePlaybackUniversalLifecycleSnapshot();
+
+    const result = client.read(request({ requestId: 'request:listener-reentry' }, signal));
+
+    await expect(result).rejects.toBe(reason);
+    expect(addCount).toBe(2);
+    expect(listeners.size).toBe(0);
+    expect(closing).not.toBeNull();
+    await expect(closing!).resolves.toBeUndefined();
+    const retired = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(retired.kinds.pendingReads.live).toBe(baseline.kinds.pendingReads.live);
+    expect(retired.kinds.pendingReads.retiring).toBe(baseline.kinds.pendingReads.retiring);
   });
 });
 
@@ -909,6 +1122,45 @@ describe('PeerRangeHostResponder', () => {
     expect(host.physicalDeliveryTaskCount).toBe(1);
   });
 
+  it('retires a send reserved before synchronous host-close re-entry only after it settles', async () => {
+    const delivery = deferred<void>();
+    const reason = new Error('closed inside bulk sender');
+    let closing: Promise<void> | null = null;
+    let host!: PeerRangeHostResponder;
+    host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => new Blob([Uint8Array.of(4)]) },
+      sendBulk: () => {
+        closing = host.close(reason);
+        return delivery.promise;
+      },
+      deliveryTimeoutMs: 60_000,
+    });
+    const read = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:sender-close', requestId: 'request:sender-close' }),
+    );
+
+    expect(host.acceptControl(CONNECTION_TOKEN, read)).toBe('accepted');
+    await vi.waitFor(() => expect(closing).not.toBeNull());
+    expect(host.physicalDeliveryTaskCount).toBe(1);
+
+    let retired = false;
+    void closing!.then(() => {
+      retired = true;
+    });
+    await flush();
+    expect(retired).toBe(false);
+
+    delivery.resolve();
+    await expect(closing!).resolves.toBeUndefined();
+    expect(retired).toBe(true);
+    expect(host.physicalDeliveryTaskCount).toBe(0);
+    expect(host.physicalReadTaskCount).toBe(0);
+    expect(host.close()).toBe(closing);
+  });
+
   it('fails the connection before hostile error egress can detach beyond its task budget', async () => {
     const never = new Promise<void>(() => undefined);
     const fatalConnection = vi.fn();
@@ -1139,7 +1391,14 @@ describe('PeerRangeHostResponder', () => {
     });
     const handleId = 'handle:locally-revoked-before-read';
 
+    expect(host.matchesRevokedHandle(CONNECTION_TOKEN, handleId, SOURCE_ID)).toBe(false);
     expect(host.revokeHandle(CONNECTION_TOKEN, handleId, SOURCE_ID)).toBe(true);
+    expect(host.matchesRevokedHandle(CONNECTION_TOKEN, handleId, SOURCE_ID)).toBe(true);
+    expect(host.matchesRevokedHandle(CONNECTION_TOKEN, handleId, 'sha256:different')).toBe(false);
+    expect(host.matchesRevokedHandle(CONNECTION_TOKEN, 'handle:unknown', SOURCE_ID)).toBe(false);
+    expect(() => host.matchesRevokedHandle(Object.freeze({}), handleId, SOURCE_ID)).toThrow(
+      /different connection/u,
+    );
     await Promise.resolve();
     const delayed = createPeerRangeReadFrame(
       descriptor({ handleId, requestId: 'request:delayed-after-local-revoke' }),
@@ -1226,7 +1485,12 @@ describe('PeerRangeHostResponder', () => {
 
     expect(host.acceptControl(CONNECTION_TOKEN, read)).toBe('accepted');
     await vi.waitFor(() => expect(readSignal).toBeDefined());
+    expect(host.matchesRevokedHandle(CONNECTION_TOKEN, read.handleId, SOURCE_ID)).toBe(false);
     expect(host.revokeHandle(CONNECTION_TOKEN, read.handleId, SOURCE_ID)).toBe(true);
+    expect(host.matchesRevokedHandle(CONNECTION_TOKEN, read.handleId, SOURCE_ID)).toBe(true);
+    expect(host.matchesRevokedHandle(CONNECTION_TOKEN, read.handleId, 'sha256:different')).toBe(
+      false,
+    );
     expect(readSignal?.aborted).toBe(true);
     expect(close).not.toHaveBeenCalled();
 
@@ -1472,6 +1736,65 @@ describe('PeerRangeHostResponder', () => {
     await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
     expect(output.filter((frame) => frame.type === 'chunk')).toHaveLength(2);
     expect(fatalConnection).not.toHaveBeenCalled();
+  });
+
+  it('waits for every owned source close before rejecting physical retirement', async () => {
+    const failure = new Error('first owned source close failed');
+    const secondCloseGate = deferred<void>();
+    const firstClose = vi.fn(() => Promise.reject(failure));
+    const secondClose = vi.fn(() => secondCloseGate.promise);
+    const ownedSource = (name: string, close: () => Promise<void>): EncodedAudioSource => ({
+      kind: 'peer-range',
+      size: 1,
+      identity: SOURCE_ID,
+      metadata: { name, mime: 'audio/flac' },
+      readAt: async () => Uint8Array.of(7),
+      close,
+    });
+    const sources = new Map([
+      ['handle:close-all-1', ownedSource('first.flac', firstClose)],
+      ['handle:close-all-2', ownedSource('second.flac', secondClose)],
+    ]);
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: {
+        resolve: () => {
+          throw new Error('handle-aware resolver required');
+        },
+        resolveHandle: (handleId) => sources.get(handleId)!,
+      },
+      sendBulk: () => undefined,
+    });
+    const first = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:close-all-1', requestId: 'request:close-all-1' }),
+    );
+    const second = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:close-all-2', requestId: 'request:close-all-2' }),
+    );
+    expect(host.acceptControl(CONNECTION_TOKEN, first)).toBe('accepted');
+    expect(host.acceptControl(CONNECTION_TOKEN, second)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+
+    const closing = host.close();
+    let settled = false;
+    void closing.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await vi.waitFor(() => expect(firstClose).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(secondClose).toHaveBeenCalledOnce());
+    await flush();
+    expect(settled).toBe(false);
+
+    secondCloseGate.resolve();
+    await expect(closing).rejects.toBe(failure);
+    expect(settled).toBe(true);
   });
 
   it('closes the owned source exactly once after a fatal sender failure settles', async () => {

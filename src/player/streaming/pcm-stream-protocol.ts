@@ -3,7 +3,7 @@
 // here would pull DOM-only application types into isolated audio runtimes.
 type PlaybackRevision = number;
 
-export const PCM_STREAM_PROTOCOL_VERSION = 2 as const;
+export const PCM_STREAM_PROTOCOL_VERSION = 3 as const;
 export const PCM_STREAM_MAX_CHANNELS = 8;
 export const PCM_STREAM_MAX_MESSAGE_FRAMES = 32_768;
 
@@ -133,6 +133,14 @@ export type PcmRingEvent =
   | (PcmRingGenerationEvent & {
       readonly type: 'finished';
       readonly mediaFrame: number;
+    })
+  | (PcmRingGenerationEvent & {
+      /** The generation's Worklet-side PCM MessagePort has been closed. */
+      readonly type: 'pcm-port-retired';
+    })
+  | (PcmRingGenerationEvent & {
+      /** The processor released its PCM port and ring allocation before exit. */
+      readonly type: 'processor-retired';
     })
   | (PcmRingGenerationEvent & {
       readonly type: 'status';

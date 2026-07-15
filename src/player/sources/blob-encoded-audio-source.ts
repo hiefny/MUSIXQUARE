@@ -6,6 +6,11 @@ import {
   throwIfAborted,
   validateExactRead,
 } from './encoded-audio-source.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from '../diagnostics/file-playback-universal-lifecycle-retirement.ts';
 
 const blobIdentities = new WeakMap<Blob, string>();
 let fallbackIdentityCounter = 0;
@@ -61,7 +66,10 @@ export class BlobEncodedAudioSource implements EncodedAudioSource {
   readonly metadata: EncodedAudioSourceMetadata;
 
   private readonly blob: Blob;
+  private readonly lifecycleLease: FilePlaybackUniversalLifecycleLease;
+  private readonly physicalReads = new Set<Promise<ArrayBuffer>>();
   private closed = false;
+  private closePromise: Promise<void> | null = null;
 
   constructor(blob: Blob, options: BlobEncodedAudioSourceOptions = {}) {
     const identity = options.identity?.trim() || getBlobObjectIdentity(blob);
@@ -73,6 +81,7 @@ export class BlobEncodedAudioSource implements EncodedAudioSource {
     this.size = blob.size;
     this.identity = identity;
     this.metadata = metadataForBlob(blob, options.metadata);
+    this.lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('encodedSources');
   }
 
   async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
@@ -81,7 +90,13 @@ export class BlobEncodedAudioSource implements EncodedAudioSource {
     throwIfAborted(signal);
     if (length === 0) return new Uint8Array(0);
 
-    const buffer = await this.blob.slice(offset, end).arrayBuffer();
+    const physicalRead = this.blob.slice(offset, end).arrayBuffer();
+    this.physicalReads.add(physicalRead);
+    void physicalRead.then(
+      () => this.physicalReads.delete(physicalRead),
+      () => this.physicalReads.delete(physicalRead),
+    );
+    const buffer = await physicalRead;
 
     // Blob.arrayBuffer() cannot be interrupted consistently. Recheck both the
     // source lifetime and the caller signal before publishing the bytes.
@@ -95,7 +110,14 @@ export class BlobEncodedAudioSource implements EncodedAudioSource {
     return new Uint8Array(buffer);
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
+    this.closePromise = Promise.allSettled([...this.physicalReads]).then(() => undefined);
+    void confirmFilePlaybackUniversalLifecycleRetirement(
+      this.lifecycleLease,
+      () => this.closePromise!,
+    );
+    return this.closePromise;
   }
 }

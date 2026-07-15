@@ -5,7 +5,7 @@
  * production asset, while the AudioWorklet global scope executes it directly.
  */
 
-const PCM_RING_PROTOCOL_VERSION = 2;
+const PCM_RING_PROTOCOL_VERSION = 3;
 const PCM_RING_MAX_CHANNELS = 8;
 const PCM_RING_MAX_MESSAGE_FRAMES = 32_768;
 const PCM_RING_MIN_SAMPLE_RATE_HZ = 44_100;
@@ -179,7 +179,7 @@ function identityFields(identity) {
   };
 }
 
-class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
+class MusixquarePcmRingV3Processor extends AudioWorkletProcessor {
   constructor(options) {
     super();
 
@@ -241,7 +241,7 @@ class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
   }
 
   postEvent(type, fields = {}) {
-    if (this.stopped && type !== 'status') return;
+    if (this.stopped && type !== 'processor-retired') return;
     try {
       this.port.postMessage({
         protocolVersion: PCM_RING_PROTOCOL_VERSION,
@@ -321,7 +321,8 @@ class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
       return;
     }
 
-    this.closePcmPort();
+    const pcmPortRetired = this.closePcmPort();
+    if (pcmPortRetired) this.postEvent('pcm-port-retired');
     for (const ring of this.rings) ring.fill(0);
 
     this.generation = message.generation;
@@ -368,13 +369,19 @@ class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
     this.pcmPort = null;
     this.requestOutstanding = false;
     this.requestedFrames = 0;
-    if (!port) return;
+    if (!port) return true;
+    let cleanupSucceeded = true;
     try {
       port.onmessage = null;
+    } catch {
+      cleanupSucceeded = false;
+    }
+    try {
       if (typeof port.close === 'function') port.close();
     } catch {
-      // MessagePort.close() is best-effort during teardown.
+      cleanupSucceeded = false;
     }
+    return cleanupSucceeded;
   }
 
   onPcmMessage(message) {
@@ -680,18 +687,29 @@ class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
 
   stop() {
     if (this.stopped) return;
+    const pcmPortRetired = this.closePcmPort();
+    if (pcmPortRetired) this.postEvent('pcm-port-retired');
     this.stopped = true;
     this.state = 'stopped';
     this.targetFrame = null;
     this.pauseTargetFrame = null;
     this.runIdentity = null;
-    this.closePcmPort();
+    // Drop every duration-independent ring reference before acknowledging the
+    // processor's physical retirement to the page-side lifecycle ledger.
+    this.rings = [];
+    this.readIndex = 0;
+    this.writeIndex = 0;
+    this.bufferedFrames = 0;
     try {
       this.port.onmessage = null;
-      if (typeof this.port.close === 'function') this.port.close();
     } catch {
-      // Closing an already-disconnected node is harmless.
+      // A control handler that cannot be detached makes retirement uncertain.
+      return;
     }
+    // The control endpoint deliberately stays open long enough to carry this
+    // terminal ACK. Its physical close belongs to the page after ACK receipt;
+    // the Worklet owns only its ring and decoder-facing PCM endpoint here.
+    if (pcmPortRetired) this.postEvent('processor-retired');
   }
 
   startAtTarget(absoluteFrame) {
@@ -834,4 +852,4 @@ class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('musixquare-pcm-ring-v2', MusixquarePcmRingV2Processor);
+registerProcessor('musixquare-pcm-ring-v3', MusixquarePcmRingV3Processor);

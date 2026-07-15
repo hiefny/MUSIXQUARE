@@ -235,6 +235,7 @@ function openDecoder(
   source: MemoryEncodedAudioSource,
   descriptor: Mp3DecoderDescriptor,
   decoderGeneration = 1,
+  configureWorkerPcmPort?: (port: MessagePort) => void,
 ): MessagePort {
   const sourceChannel = new MessageChannel();
   const pcmChannel = new MessageChannel();
@@ -245,6 +246,7 @@ function openDecoder(
     generation: 1,
   });
   sourceBrokers.push(broker);
+  configureWorkerPcmPort?.(pcmChannel.port1);
   dispatch(scope, {
     protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
     type: 'open-decoder',
@@ -294,6 +296,21 @@ async function waitReady(scope: FakeWorkerScope, generation = 1): Promise<void> 
       expect.objectContaining({ type: 'decoder-ready', decoderGeneration: generation }),
     );
   });
+}
+
+function stop(scope: FakeWorkerScope, decoderGeneration = 1): void {
+  dispatch(scope, {
+    protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
+    type: 'stop-decoder',
+    sourceLifetimeGeneration: 1,
+    decoderGeneration,
+  });
+}
+
+function controlMessages(scope: FakeWorkerScope, type: string): Record<string, unknown>[] {
+  return scope.postMessage.mock.calls
+    .map(([message]) => message as Record<string, unknown>)
+    .filter((message) => message.type === type);
 }
 
 describe.sequential('bounded MP3 stream worker', () => {
@@ -481,6 +498,35 @@ describe.sequential('bounded MP3 stream worker', () => {
     });
   });
 
+  it('finishes cleanup but suppresses retirement ACKs when decoder-error delivery throws', async () => {
+    const media = fixture({ frameCount: 2 });
+    const source = new MemoryEncodedAudioSource(media.bytes);
+    const scope = await loadWorker();
+    const pcmPort = openDecoder(scope, source, media.descriptor, 6);
+    await waitReady(scope, 6);
+    scope.postMessage.mockImplementation((message: Record<string, unknown>) => {
+      if (message.type === 'decoder-error') {
+        throw new Error('terminal control delivery failed');
+      }
+    });
+
+    const response = nextPortMessage(pcmPort);
+    pcmPort.postMessage({ ...demand(6), extra: true });
+    await expect(response).resolves.toMatchObject({
+      type: 'source-error',
+      generation: 6,
+      code: 'invalid-pcm-demand',
+    });
+    await vi.waitFor(() => expect(source.closeCount).toBe(1));
+
+    expect(() => stop(scope, 6)).not.toThrow();
+    await Promise.resolve();
+    expect(controlMessages(scope, 'decoder-stopped')).toHaveLength(1);
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
+    expect(source.closeCount).toBe(1);
+  });
+
   it('aborts an in-flight scan and acknowledges the exact stop generation', async () => {
     const media = fixture({ frameCount: 2 });
     const source = new MemoryEncodedAudioSource(media.bytes);
@@ -503,6 +549,37 @@ describe.sequential('bounded MP3 stream worker', () => {
       expect(source.abortCount).toBe(1);
     });
     expect(mocks.decoderInstances).toBe(0);
+  });
+
+  it('publishes one terminal barrier before a hostile PCM-port close reenters stop', async () => {
+    const media = fixture({ frameCount: 2 });
+    const source = new MemoryEncodedAudioSource(media.bytes);
+    const scope = await loadWorker();
+    let reentries = 0;
+    openDecoder(scope, source, media.descriptor, 8, (workerPort) => {
+      const nativeClose = workerPort.close.bind(workerPort);
+      vi.spyOn(workerPort, 'close').mockImplementation(() => {
+        if (reentries === 0) {
+          reentries += 1;
+          try {
+            stop(scope, 8);
+          } finally {
+            nativeClose();
+          }
+          return;
+        }
+        nativeClose();
+      });
+    });
+    await waitReady(scope, 8);
+
+    expect(() => stop(scope, 8)).not.toThrow();
+    await vi.waitFor(() => expect(source.closeCount).toBe(1));
+
+    expect(reentries).toBe(1);
+    expect(controlMessages(scope, 'decoder-stopped')).toHaveLength(1);
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   BlobEncodedAudioSource,
@@ -11,6 +11,15 @@ import {
   isEncodedAudioSourceIdentity,
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
+import { getFilePlaybackUniversalLifecycleSnapshotForTests as getFilePlaybackUniversalLifecycleSnapshot } from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 describe('validateExactRead', () => {
   it('accepts exact in-bounds and zero-length reads', () => {
@@ -86,5 +95,31 @@ describe('BlobEncodedAudioSource', () => {
     await expect(source.readAt(0, 1, new AbortController().signal)).rejects.toBeInstanceOf(
       EncodedSourceClosedError,
     );
+  });
+
+  it('stays retiring until an uncancellable Blob read physically settles', async () => {
+    const physical = deferred<ArrayBuffer>();
+    const arrayBuffer = vi
+      .spyOn(Blob.prototype, 'arrayBuffer')
+      .mockImplementationOnce(() => physical.promise);
+    const before = getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources;
+    const source = new BlobEncodedAudioSource(new Blob(['x']));
+    const read = source.readAt(0, 1, new AbortController().signal);
+    await Promise.resolve();
+
+    const closing = source.close();
+    const retiring = getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources;
+    expect(retiring.live).toBe(before.live);
+    expect(retiring.retiring).toBe(before.retiring + 1);
+
+    physical.resolve(Uint8Array.of(1).buffer);
+    await closing;
+    await expect(read).rejects.toBeInstanceOf(EncodedSourceClosedError);
+    await Promise.resolve();
+    const retired = getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources;
+    expect(retired.live).toBe(before.live);
+    expect(retired.retiring).toBe(before.retiring);
+    expect(retired.unconfirmed).toBe(before.unconfirmed);
+    arrayBuffer.mockRestore();
   });
 });

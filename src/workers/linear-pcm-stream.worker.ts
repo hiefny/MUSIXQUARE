@@ -70,6 +70,8 @@ interface SourceLifetime {
   readonly client: EncodedSourcePortClient;
   decoderStarted: boolean;
   closed: boolean;
+  cleanupFailed: boolean;
+  closePromise: Promise<void> | null;
 }
 
 interface SourcePcmCarry {
@@ -106,11 +108,16 @@ interface DecoderSession {
   demandPending: boolean;
   stopped: boolean;
   terminal: boolean;
+  abortRequested: boolean;
+  portReleased: boolean;
   released: boolean;
+  cleanupFailed: boolean;
+  retirementPromise: Promise<boolean> | null;
 }
 
 let activeSession: DecoderSession | null = null;
 let activeSource: SourceLifetime | null = null;
+const retiringSessions = new Set<Promise<boolean>>();
 let latestDecoderGeneration = 0;
 let lanczosReadyPromise: Promise<void> | null = null;
 
@@ -166,57 +173,105 @@ function postProgress(session: DecoderSession, force = false): void {
   });
 }
 
-function releaseSessionResources(session: DecoderSession): void {
-  if (session.released) return;
-  session.released = true;
-  session.abortController.abort(new DOMException('Linear PCM decoder stopped', 'AbortError'));
-  session.port.removeEventListener('message', session.portListener);
-  session.port.onmessage = null;
+function attemptSessionCleanup(session: DecoderSession, cleanup: () => void): void {
   try {
-    session.port.close();
+    cleanup();
   } catch {
-    // Closing an already-disentangled MessagePort is harmless.
+    session.cleanupFailed = true;
   }
-  for (const resampler of session.resamplers) {
-    try {
-      resampler.free();
-    } catch {
-      // A fatal WASM path may already have consumed an allocation.
-    }
-  }
+}
+
+function requestSessionAbort(session: DecoderSession, reason: unknown): void {
+  if (session.abortRequested) return;
+  session.abortRequested = true;
+  attemptSessionCleanup(session, () => session.abortController.abort(reason));
+}
+
+function releaseSessionPort(session: DecoderSession): void {
+  if (session.portReleased) return;
+  session.portReleased = true;
+  attemptSessionCleanup(session, () =>
+    session.port.removeEventListener('message', session.portListener),
+  );
+  attemptSessionCleanup(session, () => {
+    session.port.onmessage = null;
+  });
+  attemptSessionCleanup(session, () => session.port.close());
+}
+
+function releaseSessionResources(session: DecoderSession): boolean {
+  if (session.released) return !session.cleanupFailed;
+  session.released = true;
+  requestSessionAbort(session, new DOMException('Linear PCM decoder stopped', 'AbortError'));
+  releaseSessionPort(session);
+  const resamplers = session.resamplers;
   session.resamplers = [];
+  for (const resampler of resamplers) {
+    attemptSessionCleanup(session, () => resampler.free());
+  }
   session.sourceCarry = null;
   session.outputSegment = null;
+  return !session.cleanupFailed;
 }
 
 function detachActiveSession(session: DecoderSession): void {
   if (activeSession === session) activeSession = null;
 }
 
-function releaseAfterPendingDemand(session: DecoderSession): void {
-  const pending = session.requestChain;
-  void pending.catch(() => undefined).finally(() => releaseSessionResources(session));
+function retireAfterPendingDemand(session: DecoderSession): Promise<boolean> {
+  if (session.retirementPromise) return session.retirementPromise;
+  const retirement = session.requestChain
+    .catch(() => undefined)
+    .then(() => {
+      const cleanupSucceeded = releaseSessionResources(session);
+      if (!cleanupSucceeded) {
+        session.source.cleanupFailed = true;
+        return false;
+      }
+      try {
+        postControl({
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+          type: 'decoder-retired',
+          sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+          decoderGeneration: session.decoderGeneration,
+        });
+        return true;
+      } catch {
+        session.source.cleanupFailed = true;
+        return false;
+      }
+    });
+  session.retirementPromise = retirement;
+  retiringSessions.add(retirement);
+  void retirement.then(
+    () => retiringSessions.delete(retirement),
+    () => retiringSessions.delete(retirement),
+  );
+  return retirement;
 }
 
 function stopSession(session: DecoderSession): void {
   if (session.terminal) return;
   session.stopped = true;
   session.terminal = true;
-  session.abortController.abort(new DOMException('Linear PCM decoder stopped', 'AbortError'));
-  session.port.removeEventListener('message', session.portListener);
-  try {
-    session.port.close();
-  } catch {
-    // The owner may have already closed its half of the channel.
-  }
+  // Register the sole retirement barrier before any abort or MessagePort hook
+  // can synchronously reenter close-source/stop-decoder handling.
+  const retirement = retireAfterPendingDemand(session);
+  requestSessionAbort(session, new DOMException('Linear PCM decoder stopped', 'AbortError'));
+  releaseSessionPort(session);
   detachActiveSession(session);
-  postControl({
-    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
-    type: 'decoder-stopped',
-    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
-    decoderGeneration: session.decoderGeneration,
-  });
-  releaseAfterPendingDemand(session);
+  try {
+    postControl({
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+      type: 'decoder-stopped',
+      sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+      decoderGeneration: session.decoderGeneration,
+    });
+  } catch {
+    session.cleanupFailed = true;
+    session.source.cleanupFailed = true;
+  }
+  void retirement;
 }
 
 function failSession(session: DecoderSession, error: unknown): void {
@@ -224,6 +279,7 @@ function failSession(session: DecoderSession, error: unknown): void {
   if (error instanceof DOMException && error.name === 'AbortError' && session.stopped) return;
   session.stopped = true;
   session.terminal = true;
+  const retirement = retireAfterPendingDemand(session);
   const code = errorCode(error);
   try {
     const supply: PcmSupplyMessage = {
@@ -236,23 +292,23 @@ function failSession(session: DecoderSession, error: unknown): void {
   } catch {
     // The control-channel error remains authoritative if the PCM port is gone.
   }
-  postControl({
-    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
-    type: 'decoder-error',
-    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
-    decoderGeneration: session.decoderGeneration,
-    code,
-    message: errorMessage(error),
-  });
-  session.abortController.abort(error);
-  session.port.removeEventListener('message', session.portListener);
   try {
-    session.port.close();
+    postControl({
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+      type: 'decoder-error',
+      sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+      decoderGeneration: session.decoderGeneration,
+      code,
+      message: errorMessage(error),
+    });
   } catch {
-    // The PCM peer may already have closed after receiving source-error.
+    session.cleanupFailed = true;
+    session.source.cleanupFailed = true;
   }
+  requestSessionAbort(session, error);
+  releaseSessionPort(session);
   detachActiveSession(session);
-  releaseAfterPendingDemand(session);
+  void retirement;
 }
 
 function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
@@ -293,7 +349,7 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
   session.stopped = true;
   session.terminal = true;
   detachActiveSession(session);
-  releaseSessionResources(session);
+  void retireAfterPendingDemand(session);
 }
 
 function descriptorMinimumResamplerInput(session: DecoderSession): number {
@@ -730,7 +786,11 @@ function createSession(
     demandPending: false,
     stopped: false,
     terminal: false,
+    abortRequested: false,
+    portReleased: false,
     released: false,
+    cleanupFailed: false,
+    retirementPromise: null,
   };
   return session;
 }
@@ -967,6 +1027,8 @@ function openSource(message: LinearPcmSourceOpenMessage): void {
       client,
       decoderStarted: false,
       closed: false,
+      cleanupFailed: false,
+      closePromise: null,
     };
     latestDecoderGeneration = 0;
     postControl({
@@ -982,17 +1044,52 @@ function openSource(message: LinearPcmSourceOpenMessage): void {
   }
 }
 
-async function closeSource(source: SourceLifetime): Promise<void> {
-  if (source.closed) return;
+function closeSource(source: SourceLifetime): Promise<void> {
+  if (source.closePromise) return source.closePromise;
+  let resolveClose!: () => void;
+  const closePromise = new Promise<void>((resolve) => {
+    resolveClose = resolve;
+  });
+  // Publish source ownership before stopSession touches ports/resamplers. Any
+  // synchronous reentry must observe this same terminal barrier.
+  source.closePromise = closePromise;
   source.closed = true;
   if (activeSession?.sourceLifetimeGeneration === source.generation) stopSession(activeSession);
   if (activeSource === source) activeSource = null;
-  await source.client.close();
-  postControl({
-    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
-    type: 'source-closed',
-    sourceLifetimeGeneration: source.generation,
+  const cleanup = (async () => {
+    const retirements = await Promise.all([...retiringSessions]);
+    try {
+      await source.client.close();
+    } catch {
+      source.cleanupFailed = true;
+      return;
+    }
+    try {
+      postControl({
+        protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+        type: 'source-closed',
+        sourceLifetimeGeneration: source.generation,
+      });
+    } catch {
+      source.cleanupFailed = true;
+      return;
+    }
+    if (source.cleanupFailed || !retirements.every((succeeded) => succeeded)) return;
+    try {
+      postControl({
+        protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+        type: 'worker-retired',
+        sourceLifetimeGeneration: source.generation,
+      });
+    } catch {
+      source.cleanupFailed = true;
+    }
+  })();
+  void cleanup.then(resolveClose, () => {
+    source.cleanupFailed = true;
+    resolveClose();
   });
+  return closePromise;
 }
 
 function closeTransferredCommandPorts(value: unknown): void {

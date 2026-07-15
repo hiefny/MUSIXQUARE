@@ -87,11 +87,25 @@ interface DecoderSession {
   stopped: boolean;
   terminal: boolean;
   released: boolean;
+  releasePromise: Promise<void> | null;
+  activeOperations: number;
+  readonly operationDrainResolvers: Set<() => void>;
+  readonly cleanupFaults: unknown[];
+  readonly retryState: () => Readonly<{
+    retryWaitSequence: number;
+    activeRetryWaits: number;
+  }>;
 }
 
 interface CompletedGeneration {
   readonly sourceLifetimeGeneration: number;
   readonly decoderGeneration: number;
+  readonly cleanup: Promise<void>;
+  acknowledgementsPosted: boolean;
+  readonly retryState: () => Readonly<{
+    retryWaitSequence: number;
+    activeRetryWaits: number;
+  }>;
 }
 
 let activeSession: DecoderSession | null = null;
@@ -132,39 +146,160 @@ function closePort(port: MessagePort): void {
   }
 }
 
-function releaseSession(session: DecoderSession): void {
-  if (session.released) return;
+function attemptTerminalCleanup(faults: unknown[], cleanup: () => void): void {
+  try {
+    cleanup();
+  } catch (error) {
+    faults.push(error);
+  }
+}
+
+function finishSessionOperation(session: DecoderSession): void {
+  session.activeOperations -= 1;
+  if (session.activeOperations !== 0) return;
+  const resolvers = [...session.operationDrainResolvers];
+  session.operationDrainResolvers.clear();
+  for (const resolve of resolvers) resolve();
+}
+
+function trackSessionOperation<T>(session: DecoderSession, operation: Promise<T>): Promise<T> {
+  session.activeOperations += 1;
+  return operation.then(
+    (value) => {
+      finishSessionOperation(session);
+      return value;
+    },
+    (error: unknown) => {
+      finishSessionOperation(session);
+      throw error;
+    },
+  );
+}
+
+function whenSessionOperationsDrained(session: DecoderSession): Promise<void> {
+  if (session.activeOperations === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    session.operationDrainResolvers.add(resolve);
+  });
+}
+
+function releaseSession(session: DecoderSession): Promise<void> {
+  if (session.releasePromise) return session.releasePromise;
+  let resolveRelease!: () => void;
+  let rejectRelease!: (reason: unknown) => void;
+  const releasePromise = new Promise<void>((resolve, reject) => {
+    resolveRelease = resolve;
+    rejectRelease = reject;
+  });
+  // Publish the stable terminal owner before any abort, port, output, or
+  // source cleanup hook can synchronously reenter this worker.
+  session.releasePromise = releasePromise;
   session.released = true;
+  const cleanupFaults = session.cleanupFaults;
   if (!session.abortController.signal.aborted) {
     session.abortController.abort(new DOMException('MP3 decoder stopped', 'AbortError'));
   }
-  session.pcmPort.removeEventListener('message', session.pcmListener);
-  session.pcmPort.removeEventListener('messageerror', session.pcmMessageErrorListener);
-  session.pcmPort.onmessage = null;
-  closePort(session.pcmPort);
-  session.output?.close();
+  attemptTerminalCleanup(cleanupFaults, () =>
+    session.pcmPort.removeEventListener('message', session.pcmListener),
+  );
+  attemptTerminalCleanup(cleanupFaults, () =>
+    session.pcmPort.removeEventListener('messageerror', session.pcmMessageErrorListener),
+  );
+  attemptTerminalCleanup(cleanupFaults, () => {
+    session.pcmPort.onmessage = null;
+  });
+  attemptTerminalCleanup(cleanupFaults, () => session.pcmPort.close());
+  attemptTerminalCleanup(cleanupFaults, () => session.output?.close());
   session.output = null;
   session.decodeReader = null;
   session.decoder = null;
-  void session.source.close().catch(() => undefined);
+  const cleanup = Promise.allSettled([
+    Promise.resolve().then(() => session.source.close()),
+    session.source.whenRetryWaitsDrained(),
+    whenSessionOperationsDrained(session),
+  ]).then((results) => {
+    if (session.source.activeRetryWaitCount !== 0) {
+      throw new Mp3WorkerError(
+        'retry-wait-leak',
+        'MP3 worker retired with an active encoded-source retry wait',
+      );
+    }
+    const rejected = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    const cause = cleanupFaults[0] ?? rejected?.reason;
+    if (cause !== undefined) {
+      throw new Mp3WorkerError(
+        'cleanup-unconfirmed',
+        'MP3 worker terminal cleanup could not be confirmed',
+        cause,
+      );
+    }
+  });
+  void cleanup.then(resolveRelease, rejectRelease);
+  return releasePromise;
 }
 
 function detachSession(session: DecoderSession): void {
   if (activeSession === session) activeSession = null;
 }
 
+function completeSession(session: DecoderSession): CompletedGeneration {
+  const completed: CompletedGeneration = {
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
+    cleanup: releaseSession(session),
+    acknowledgementsPosted: false,
+    retryState: () => session.retryState(),
+  };
+  // Natural EOF/error keeps this generation until the owner's explicit stop.
+  // Observe a cleanup rejection now without converting the stable barrier.
+  void completed.cleanup.catch(() => undefined);
+  completedGeneration = completed;
+  return completed;
+}
+
+async function acknowledgeRetirement(completed: CompletedGeneration): Promise<void> {
+  if (completed.acknowledgementsPosted) return;
+  completed.acknowledgementsPosted = true;
+  try {
+    await completed.cleanup;
+    postControl({
+      protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
+      type: 'decoder-retired',
+      sourceLifetimeGeneration: completed.sourceLifetimeGeneration,
+      decoderGeneration: completed.decoderGeneration,
+    });
+    postControl({
+      protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
+      type: 'worker-retired',
+      sourceLifetimeGeneration: completed.sourceLifetimeGeneration,
+      decoderGeneration: completed.decoderGeneration,
+      ...completed.retryState(),
+    });
+    if (completedGeneration === completed) completedGeneration = null;
+  } catch {
+    // The adapter's bounded ACK deadline records this realm as unconfirmed.
+  }
+}
+
 function stopSession(session: DecoderSession): void {
   if (session.terminal) return;
   session.stopped = true;
   session.terminal = true;
-  postControl({
-    protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
-    type: 'decoder-stopped',
-    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
-    decoderGeneration: session.decoderGeneration,
-  });
-  detachSession(session);
-  releaseSession(session);
+  try {
+    postControl({
+      protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
+      type: 'decoder-stopped',
+      sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+      decoderGeneration: session.decoderGeneration,
+    });
+  } finally {
+    detachSession(session);
+    const completed = completeSession(session);
+    completedGeneration = null;
+    void acknowledgeRetirement(completed);
+  }
 }
 
 function failSession(session: DecoderSession, error: unknown): void {
@@ -173,33 +308,44 @@ function failSession(session: DecoderSession, error: unknown): void {
 
   session.stopped = true;
   session.terminal = true;
-  const code = boundedText(errorCode(error), MP3_DECODER_MAX_ERROR_CODE_LENGTH, 'decode-failed');
-  const message = boundedText(
-    errorMessage(error),
-    MP3_DECODER_MAX_ERROR_MESSAGE_LENGTH,
-    'MP3 decoder failed',
-  );
   try {
-    const supply: PcmSupplyMessage = {
-      protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
-      type: 'source-error',
-      generation: session.decoderGeneration,
-      code,
-    };
-    session.pcmPort.postMessage(supply);
-  } catch {
-    // The control-channel event remains authoritative if PCM delivery failed.
+    const code = boundedText(errorCode(error), MP3_DECODER_MAX_ERROR_CODE_LENGTH, 'decode-failed');
+    const message = boundedText(
+      errorMessage(error),
+      MP3_DECODER_MAX_ERROR_MESSAGE_LENGTH,
+      'MP3 decoder failed',
+    );
+    try {
+      const supply: PcmSupplyMessage = {
+        protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+        type: 'source-error',
+        generation: session.decoderGeneration,
+        code,
+      };
+      session.pcmPort.postMessage(supply);
+    } catch {
+      // The control-channel event remains authoritative if PCM delivery failed.
+    }
+    try {
+      postControl({
+        protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
+        type: 'decoder-error',
+        sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+        decoderGeneration: session.decoderGeneration,
+        code,
+        message,
+      });
+    } catch (controlFailure) {
+      // A failed terminal notification makes physical retirement
+      // unconfirmable, but it must never prevent owned resource cleanup.
+      session.cleanupFaults.push(controlFailure);
+    }
+  } catch (terminalFailure) {
+    session.cleanupFaults.push(terminalFailure);
+  } finally {
+    detachSession(session);
+    completeSession(session);
   }
-  postControl({
-    protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
-    type: 'decoder-error',
-    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
-    decoderGeneration: session.decoderGeneration,
-    code,
-    message,
-  });
-  detachSession(session);
-  releaseSession(session);
 }
 
 function pointForFrame(frame: MpegLayer3IncrementalFrame): MpegLayer3SeekIndexPoint {
@@ -294,7 +440,10 @@ async function scanPrelude(
 
   while (true) {
     assertCurrent(session);
-    const frame = await reader.readNext(session.abortController.signal);
+    const frame = await trackSessionOperation(
+      session,
+      reader.readNext(session.abortController.signal),
+    );
     assertCurrent(session);
     if (!frame || frame.descriptor.frameOrdinal > plan.audioFrameOrdinal) {
       throw new Mp3WorkerError(
@@ -346,7 +495,7 @@ async function initializeSession(session: DecoderSession): Promise<void> {
     if (session.descriptor.sourceSampleRate !== session.descriptor.outputSampleRate) {
       runtimePromises.push(ensureBoundedPcmOutputRuntimeReady());
     }
-    await Promise.all(runtimePromises);
+    await trackSessionOperation(session, Promise.all(runtimePromises));
     assertCurrent(session);
 
     session.output = new BoundedPcmOutput({
@@ -403,7 +552,10 @@ async function decodeNextFrame(session: DecoderSession): Promise<boolean> {
     throw new Mp3WorkerError('decoder-not-ready', 'MP3 decoder generation is incomplete');
   }
 
-  const frame = await reader.readNext(session.abortController.signal);
+  const frame = await trackSessionOperation(
+    session,
+    reader.readNext(session.abortController.signal),
+  );
   assertCurrent(session);
   if (!frame) {
     throw new Mp3WorkerError('unexpected-input-eof', 'MP3 input ended before the gapless EOF');
@@ -489,14 +641,10 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
     decodedRawSamples: session.decodedRawSamples,
     producedOutputFrames: output.producedOutputFrames,
   });
-  completedGeneration = Object.freeze({
-    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
-    decoderGeneration: session.decoderGeneration,
-  });
   session.stopped = true;
   session.terminal = true;
   detachSession(session);
-  releaseSession(session);
+  completeSession(session);
 }
 
 async function satisfyDemand(session: DecoderSession, maxFrames: number): Promise<void> {
@@ -552,10 +700,23 @@ function createSession(command: Readonly<Mp3DecoderOpenCommand>): DecoderSession
     size: command.descriptor.sourceSize,
     maxPendingReads: 1,
   });
+  let retryWaitSequence = 0;
   const source = new RetryingPortEncodedSource({
     size: command.descriptor.sourceSize,
     identity: command.descriptor.sourceIdentity,
     client: sourceClient,
+    onRetryWaitDelta: (delta, activeRetryWaits) => {
+      retryWaitSequence += 1;
+      postControl({
+        protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
+        type: 'retry-wait-delta',
+        sourceLifetimeGeneration: command.sourceLifetimeGeneration,
+        decoderGeneration: command.decoderGeneration,
+        delta,
+        retryWaitSequence,
+        activeRetryWaits,
+      });
+    },
   });
   const abortController = new AbortController();
   const session: DecoderSession = {
@@ -588,6 +749,14 @@ function createSession(command: Readonly<Mp3DecoderOpenCommand>): DecoderSession
     stopped: false,
     terminal: false,
     released: false,
+    releasePromise: null,
+    activeOperations: 0,
+    operationDrainResolvers: new Set(),
+    cleanupFaults: [],
+    retryState: () => ({
+      retryWaitSequence,
+      activeRetryWaits: source.activeRetryWaitCount,
+    }),
   };
   return session;
 }
@@ -657,13 +826,15 @@ function handleCommand(value: unknown): void {
     completedGeneration?.sourceLifetimeGeneration === command.sourceLifetimeGeneration &&
     completedGeneration.decoderGeneration === command.decoderGeneration
   ) {
+    const completed = completedGeneration;
+    completedGeneration = null;
     postControl({
       protocolVersion: MP3_DECODER_PROTOCOL_VERSION,
       type: 'decoder-stopped',
       sourceLifetimeGeneration: command.sourceLifetimeGeneration,
       decoderGeneration: command.decoderGeneration,
     });
-    completedGeneration = null;
+    void acknowledgeRetirement(completed);
     return;
   }
   if (

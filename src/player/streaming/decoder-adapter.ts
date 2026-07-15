@@ -28,11 +28,19 @@ export interface StreamingDecoderGenerationRequest {
   readonly targetMediaFrame: number;
   readonly outputSampleRateHz: number;
   /**
-   * Ownership transfers to the adapter when the decoder command is accepted.
-   * The worker owns a successfully transferred endpoint; the adapter closes an
-   * endpoint whose transfer fails.
+   * Caller-owned until acceptPcmPortOwnership() returns successfully. Preflight,
+   * descriptor, retirement-wait, and abort rejection must leave it untouched.
+   * After acceptance the adapter must close it or conservatively account for an
+   * uncertain worker transfer on every failure path.
    */
   readonly pcmPort: MessagePort;
+  /**
+   * Required one-shot ownership commit. For an accepted generation the adapter
+   * invokes this exactly once, synchronously at the point where it commits. A
+   * successful return transfers pcmPort ownership even if later setup throws.
+   * It must not be retained or invoked after startGeneration settles or stops.
+   */
+  readonly acceptPcmPortOwnership: () => void;
   readonly signal: AbortSignal;
 }
 

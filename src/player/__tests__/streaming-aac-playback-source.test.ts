@@ -64,6 +64,7 @@ class FakeMessagePort {
   readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
   startCount = 0;
   closeCount = 0;
+  autoRetireOnStop = true;
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
     const listeners = this.listeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
@@ -77,6 +78,26 @@ class FakeMessagePort {
 
   postMessage(message: unknown, transfer: readonly Transferable[] = []): void {
     this.messages.push({ message, transfer });
+    if (
+      this.autoRetireOnStop &&
+      message !== null &&
+      typeof message === 'object' &&
+      (message as Record<string, unknown>).type === 'stop'
+    ) {
+      const generation = (message as Record<string, unknown>).generation as number;
+      queueMicrotask(() => {
+        this.emit({
+          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+          type: 'pcm-port-retired',
+          generation,
+        } satisfies PcmRingEvent);
+        this.emit({
+          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+          type: 'processor-retired',
+          generation,
+        } satisfies PcmRingEvent);
+      });
+    }
   }
 
   start(): void {
@@ -111,6 +132,18 @@ class FakeWorker {
 
   postMessage(message: AacDecoderCommand, transfer: readonly Transferable[] = []): void {
     this.messages.push({ message, transfer });
+    if (message.type === 'stop-decoder') {
+      queueMicrotask(() => {
+        this.emit({ ...message, type: 'decoder-stopped' });
+        this.emit({ ...message, type: 'decoder-retired' });
+        this.emit({
+          ...message,
+          type: 'worker-retired',
+          retryWaitSequence: 0,
+          activeRetryWaits: 0,
+        });
+      });
+    }
   }
 
   terminate(): void {
@@ -192,7 +225,7 @@ function harness(options: HarnessOptions = {}) {
   });
   const createWorkletNode = vi.fn(
     (_context: AudioContext, name: string, workletOptions: AudioWorkletNodeOptions) => {
-      expect(name).toBe('musixquare-pcm-ring-v2');
+      expect(name).toBe('musixquare-pcm-ring-v3');
       expect(workletOptions.outputChannelCount).toEqual([CHANNELS]);
       return node as unknown as AudioWorkletNode;
     },
@@ -558,7 +591,7 @@ describe('StreamingAacPlaybackSource', () => {
     await vi.waitFor(() => expect(h.channels).toHaveLength(3));
 
     expect(h.workers).toHaveLength(1);
-    expect(firstWorker.terminateCount).toBe(1);
+    await vi.waitFor(() => expect(firstWorker.terminateCount).toBe(1));
     const eofPort = h.channels[2]?.port1;
     if (!eofPort) throw new Error('Expected exclusive EOF PCM port');
     expect(eofPort.messages).toHaveLength(0);

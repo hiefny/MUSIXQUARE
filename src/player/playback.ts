@@ -63,7 +63,6 @@ import {
   isSystemAudioOwner,
   isYouTubeOwner,
   setPlaybackIdle,
-  setPlaybackLifecycleState,
   setPlaybackTrackMeta,
   setPlaybackTransferState,
 } from './ownership.ts';
@@ -712,11 +711,11 @@ export function initPlayback(): void {
     setPlaybackTrackMeta(item);
     setState('player.pausedAt', positionSeconds);
     if (phase === 'playing') {
-      setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+      transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
       bus.emit('visualizer:start');
       bus.emit('ui:loop-start');
     } else {
-      setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+      transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
       bus.emit('visualizer:hold-frame');
     }
     bus.emit('ui:switch-tab', 'play');

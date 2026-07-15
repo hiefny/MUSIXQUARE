@@ -60,6 +60,22 @@ const BUFFERED_AMOUNT_ALLOWLIST = new Map([
         'unicastPreload single-peer degenerate pump — intentional divergence (_activePreloadUnicasts registry semantics)',
     },
   ],
+  [
+    'src/player/file-playback-product-host-media-owner.ts',
+    {
+      max: 1,
+      reason:
+        'one-shot bounded peer-range frame admission; delivery retirement is tracked separately and this is not a chunk loop',
+    },
+  ],
+  [
+    'src/player/file-playback-product-runtime.ts',
+    {
+      max: 1,
+      reason:
+        'guest peer-range control-frame admission; no multi-peer chunk iteration occurs in this callback',
+    },
+  ],
 ]);
 
 // ── Pump pairing ─────────────────────────────────────────────────

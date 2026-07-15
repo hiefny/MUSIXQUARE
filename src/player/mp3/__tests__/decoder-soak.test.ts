@@ -152,6 +152,17 @@ class SoakWorker {
       this.#ownedPorts = transfer.filter(
         (value) => value instanceof SoakMessagePort,
       ) as unknown as SoakMessagePort[];
+    } else {
+      queueMicrotask(() => {
+        this.emit({ ...message, type: 'decoder-stopped' });
+        this.emit({ ...message, type: 'decoder-retired' });
+        this.emit({
+          ...message,
+          type: 'worker-retired',
+          retryWaitSequence: 0,
+          activeRetryWaits: 0,
+        });
+      });
     }
   }
 
@@ -417,6 +428,7 @@ describe.sequential('bounded MP3 decoder soak', () => {
         targetMediaFrame,
         outputSampleRateHz: 48_000,
         pcmPort: pcmPort as unknown as MessagePort,
+        acceptPcmPortOwnership: vi.fn(),
         signal: new AbortController().signal,
       });
       const worker = workers[index];
@@ -432,7 +444,7 @@ describe.sequential('bounded MP3 decoder soak', () => {
       await pending;
       adapter.stopGeneration(generation);
 
-      expect(ledger.active).toBe(0);
+      await vi.waitFor(() => expect(ledger.active).toBe(0));
       expect(worker.terminateCount).toBe(1);
       staleCallback?.({ data: { malformed: true } } as MessageEvent<unknown>);
       expect(fatal).not.toHaveBeenCalled();

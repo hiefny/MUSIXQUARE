@@ -6,6 +6,11 @@ import type {
   StreamingDecoderMediaInfo,
   StreamingDecoderOpenOptions,
 } from '../streaming/decoder-adapter.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleRetirement,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 import { PCM_STREAM_MAX_CHANNELS } from '../streaming/pcm-stream-protocol.ts';
 import {
   type EncodedAudioSource,
@@ -26,6 +31,7 @@ import {
 } from './stream-protocol.ts';
 
 const MAX_IDENTIFIER_LENGTH = 256;
+const WORKER_RETIRE_TIMEOUT_MS = 4_000;
 const DESCRIPTOR_KEYS = [
   'sourceSampleRate',
   'outputSampleRate',
@@ -65,6 +71,49 @@ interface PendingGeneration {
   readonly generation: number;
   readonly descriptor: FlacStreamDescriptor;
   readonly readiness: Deferred;
+}
+
+type TrackedLifecycleState = 'live' | 'retiring' | 'released' | 'unconfirmed';
+
+interface TrackedLifecycle {
+  readonly lease: FilePlaybackUniversalLifecycleLease;
+  retirement: FilePlaybackUniversalLifecycleRetirement | null;
+  state: TrackedLifecycleState;
+}
+
+interface GenerationLifecycle {
+  readonly decoder: TrackedLifecycle;
+  readonly port: TrackedLifecycle;
+}
+
+function acquireTrackedLifecycle(
+  kind: 'decoderGenerations' | 'workers' | 'ports' | 'timers',
+): TrackedLifecycle {
+  return {
+    lease: acquireFilePlaybackUniversalLifecycleLease(kind),
+    retirement: null,
+    state: 'live',
+  };
+}
+
+function beginTrackedRetirement(tracked: TrackedLifecycle): void {
+  if (tracked.state !== 'live') return;
+  tracked.retirement = tracked.lease.beginRetire();
+  tracked.state = 'retiring';
+}
+
+function releaseTrackedLifecycle(tracked: TrackedLifecycle): void {
+  beginTrackedRetirement(tracked);
+  if (tracked.state !== 'retiring' || !tracked.retirement) return;
+  tracked.retirement.release();
+  tracked.state = 'released';
+}
+
+function forceTrackedLifecycleUnconfirmed(tracked: TrackedLifecycle): void {
+  if (tracked.state === 'released' || tracked.state === 'unconfirmed') return;
+  if (tracked.state === 'live') tracked.lease.forceUnconfirmed();
+  else tracked.retirement?.forceUnconfirmed();
+  tracked.state = 'unconfirmed';
 }
 
 let adapterInstanceCounter = 0;
@@ -126,12 +175,42 @@ function safeErrorCode(value: unknown, fallback: string): string {
   return value.slice(0, MAX_IDENTIFIER_LENGTH);
 }
 
-function safeClosePort(port: MessagePort | null): void {
-  if (!port) return;
+function safeClosePort(port: MessagePort | null): boolean {
+  if (!port) return true;
   try {
     port.close();
+    return true;
   } catch {
-    // A transferred or previously closed endpoint no longer belongs here.
+    return false;
+  }
+}
+
+function safeDetachWorkerHandlers(worker: Worker): void {
+  try {
+    worker.onmessage = null;
+  } catch {
+    // Termination below remains the native terminal boundary.
+  }
+  try {
+    worker.onerror = null;
+  } catch {
+    // Termination below remains the native terminal boundary.
+  }
+  try {
+    worker.onmessageerror = null;
+  } catch {
+    // Termination below remains the native terminal boundary.
+  }
+}
+
+function safeTerminateWorker(worker: Worker | null): boolean {
+  if (!worker) return true;
+  safeDetachWorkerHandlers(worker);
+  try {
+    worker.terminate();
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -197,6 +276,15 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
   readonly #sourceLifetimeGeneration: number;
 
   #worker: Worker | null = null;
+  #workerLifecycle: TrackedLifecycle | null = null;
+  #sourcePortLifecycle: TrackedLifecycle | null = null;
+  readonly #generationLifecycles = new Map<number, GenerationLifecycle>();
+  #workerRetirementReadiness: Deferred | null = null;
+  #workerRetirementTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  #workerRetirementTimerLifecycle: TrackedLifecycle | null = null;
+  #workerRetirementConfirmed = false;
+  #workerFaulted = false;
+  #sourceOpenedAcknowledged = false;
   #sourceBroker: EncodedSourcePortBroker | null = null;
   #sourceOpenReadiness: Deferred | null = null;
   #openPromise: Promise<void> | null = null;
@@ -301,6 +389,7 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
       request.outputSampleRateHz <= 0 ||
       !request.pcmPort ||
       typeof request.pcmPort.postMessage !== 'function' ||
+      typeof request.acceptPcmPortOwnership !== 'function' ||
       !(request.signal instanceof AbortSignal)
     ) {
       return Promise.reject(new TypeError('FLAC decoder generation request is invalid'));
@@ -315,6 +404,35 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
       request.targetMediaFrame,
       request.outputSampleRateHz,
     );
+    if (this.#currentGeneration > 0 && this.#currentGeneration !== request.generation) {
+      this.#beginGenerationRetirement(this.#currentGeneration);
+    }
+    if (this.#generationLifecycles.has(request.generation)) {
+      return Promise.reject(new Error('FLAC decoder generation was already created'));
+    }
+    let generationLifecycle: GenerationLifecycle;
+    try {
+      const decoder = acquireTrackedLifecycle('decoderGenerations');
+      try {
+        generationLifecycle = {
+          decoder,
+          port: acquireTrackedLifecycle('ports'),
+        };
+      } catch (error) {
+        releaseTrackedLifecycle(decoder);
+        throw error;
+      }
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    try {
+      request.acceptPcmPortOwnership();
+    } catch (error) {
+      releaseTrackedLifecycle(generationLifecycle.port);
+      releaseTrackedLifecycle(generationLifecycle.decoder);
+      return Promise.reject(error);
+    }
+    this.#generationLifecycles.set(request.generation, generationLifecycle);
     const readiness = createDeferred();
     const previous = this.#pendingGeneration;
     if (previous && !previous.readiness.settled)
@@ -339,6 +457,11 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
       if (this.#pendingGeneration?.readiness === readiness) this.#pendingGeneration = null;
       readiness.reject(error);
       safeClosePort(request.pcmPort);
+      // postMessage() throwing leaves transfer completion unknowable. Never
+      // convert that ambiguous decoder/port boundary into a clean release.
+      forceTrackedLifecycleUnconfirmed(generationLifecycle.port);
+      forceTrackedLifecycleUnconfirmed(generationLifecycle.decoder);
+      this.#generationLifecycles.delete(request.generation);
       return Promise.reject(error);
     }
 
@@ -351,6 +474,7 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
     const ownsGeneration =
       this.#currentGeneration === generation || pending?.generation === generation;
     if (!ownsGeneration) return;
+    this.#beginGenerationRetirement(generation);
     if (pending?.generation === generation) {
       this.#pendingGeneration = null;
       pending.readiness.reject(stoppedBeforeReadyError());
@@ -374,66 +498,135 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
 
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
-    this.#closed = true;
-    this.#opened = false;
-    const closedError = new DOMException('FLAC decoder adapter was closed', 'AbortError');
-    this.#sourceOpenReadiness?.reject(closedError);
-    this.#sourceOpenReadiness = null;
-    this.#pendingGeneration?.readiness.reject(closedError);
-    this.#pendingGeneration = null;
-    this.#currentDescriptor = null;
+    const completion = createDeferred();
+    // Publish the one stable terminal promise before postMessage(), deferred
+    // rejection, or source cleanup can synchronously re-enter close().
+    this.#closePromise = completion.promise;
     const worker = this.#worker;
     const broker = this.#sourceBroker;
-    this.#worker = null;
-    this.#sourceBroker = null;
-    this.#fatalHandler = null;
-    this.#generationStoppedHandler = null;
+    const retirement = createDeferred();
+    this.#workerRetirementReadiness = retirement;
+    try {
+      this.#closed = true;
+      this.#opened = false;
+      const closedError = new DOMException('FLAC decoder adapter was closed', 'AbortError');
+      this.#sourceOpenReadiness?.reject(closedError);
+      this.#sourceOpenReadiness = null;
+      this.#pendingGeneration?.readiness.reject(closedError);
+      this.#pendingGeneration = null;
+      this.#currentDescriptor = null;
+      this.#worker = null;
+      this.#sourceBroker = null;
+      for (const generation of this.#generationLifecycles.keys()) {
+        this.#beginGenerationRetirement(generation);
+      }
+      if (this.#workerLifecycle) beginTrackedRetirement(this.#workerLifecycle);
+      if (this.#sourcePortLifecycle) beginTrackedRetirement(this.#sourcePortLifecycle);
 
-    if (worker) {
-      try {
+      if (!worker) retirement.resolve();
+      else if (this.#workerFaulted || !this.#sourceOpenedAcknowledged) {
+        this.#settleWorkerRetirement(false);
+      } else {
         worker.postMessage({
           protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
           type: 'close-source',
           sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
         } satisfies FlacDecoderCommand);
-      } catch {
-        // Worker may already have crossed its terminal boundary.
+        if (!retirement.settled) {
+          const timerLifecycle = acquireTrackedLifecycle('timers');
+          this.#workerRetirementTimerLifecycle = timerLifecycle;
+          this.#workerRetirementTimer = globalThis.setTimeout(() => {
+            this.#workerRetirementTimer = null;
+            if (this.#workerRetirementTimerLifecycle === timerLifecycle) {
+              this.#workerRetirementTimerLifecycle = null;
+            }
+            releaseTrackedLifecycle(timerLifecycle);
+            this.#settleWorkerRetirement(false);
+          }, WORKER_RETIRE_TIMEOUT_MS);
+        }
       }
-      worker.onmessage = null;
-      worker.onerror = null;
-      worker.onmessageerror = null;
-      worker.terminate();
+    } catch {
+      this.#settleWorkerRetirement(false);
     }
 
-    let resolveClose!: () => void;
-    this.#closePromise = new Promise<void>((resolve) => {
-      resolveClose = resolve;
-    });
-    let cleanup: Promise<void>;
-    try {
-      cleanup = broker
-        ? broker.close()
-        : Promise.resolve(this.#encodedSource.close()).catch(() => undefined);
-    } catch {
-      cleanup = Promise.resolve();
-    }
-    void cleanup.then(resolveClose, resolveClose);
+    void retirement.promise
+      .then(() => {
+        let sourceCleanup = Promise.resolve();
+        try {
+          sourceCleanup = broker
+            ? broker.close().catch(() => undefined)
+            : Promise.resolve(this.#encodedSource.close()).catch(() => undefined);
+        } catch {
+          // Cleanup was initiated as far as the owned implementation allowed.
+        }
+        void sourceCleanup;
+
+        const terminated = safeTerminateWorker(worker);
+        if (this.#workerLifecycle) {
+          if (this.#workerRetirementConfirmed && terminated) {
+            releaseTrackedLifecycle(this.#workerLifecycle);
+          } else {
+            forceTrackedLifecycleUnconfirmed(this.#workerLifecycle);
+          }
+        }
+        this.#fatalHandler = null;
+        this.#generationStoppedHandler = null;
+      })
+      .then(
+        () => completion.resolve(),
+        () => {
+          if (this.#workerLifecycle) forceTrackedLifecycleUnconfirmed(this.#workerLifecycle);
+          try {
+            safeTerminateWorker(worker);
+          } finally {
+            this.#fatalHandler = null;
+            this.#generationStoppedHandler = null;
+            completion.resolve();
+          }
+        },
+      );
     return this.#closePromise;
   }
 
   async #open(options: StreamingDecoderOpenOptions): Promise<void> {
     throwIfAborted(options.signal);
     if (this.#closed) throw new Error('FLAC decoder adapter is closed');
-    const worker = this.#runtime.createWorker();
+    this.#workerLifecycle = acquireTrackedLifecycle('workers');
+    let worker: Worker;
+    try {
+      worker = this.#runtime.createWorker();
+    } catch (error) {
+      this.#workerFaulted = true;
+      forceTrackedLifecycleUnconfirmed(this.#workerLifecycle);
+      throw error;
+    }
     this.#worker = worker;
     worker.onmessage = (event: MessageEvent<unknown>) => this.#handleWorkerEvent(event.data);
-    worker.onerror = () => this.#fatal('decoder-worker-error');
-    worker.onmessageerror = () => this.#fatal('decoder-message-error');
+    worker.onerror = () => {
+      this.#markWorkerFaulted();
+      this.#fatal('decoder-worker-error');
+    };
+    worker.onmessageerror = () => {
+      this.#markWorkerFaulted();
+      this.#fatal('decoder-message-error');
+    };
 
     const sourceChannel = this.#runtime.createMessageChannel();
+    try {
+      this.#sourcePortLifecycle = acquireTrackedLifecycle('ports');
+    } catch (error) {
+      safeClosePort(sourceChannel.port1);
+      safeClosePort(sourceChannel.port2);
+      throw error;
+    }
+    let sourcePortTransferred = false;
+    let brokerConstructionInvoked = false;
     const readiness = createDeferred();
     this.#sourceOpenReadiness = readiness;
     try {
+      // EncodedSourcePortBroker owns port1 as soon as construction is invoked,
+      // including its throwing path. Never perform a fallback re-close here.
+      brokerConstructionInvoked = true;
       this.#sourceBroker = new EncodedSourcePortBroker({
         source: this.#encodedSource,
         port: sourceChannel.port1,
@@ -451,13 +644,21 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
         } satisfies FlacDecoderCommand,
         [sourceChannel.port2],
       );
+      sourcePortTransferred = true;
       await raceAbort(readiness.promise, options.signal);
       throwIfAborted(options.signal);
       if (this.#closed) throw new Error('FLAC decoder adapter is closed');
       this.#opened = true;
     } catch (error) {
-      safeClosePort(sourceChannel.port1);
-      safeClosePort(sourceChannel.port2);
+      if (!brokerConstructionInvoked) safeClosePort(sourceChannel.port1);
+      if (!sourcePortTransferred && this.#sourcePortLifecycle) {
+        if (safeClosePort(sourceChannel.port2)) {
+          releaseTrackedLifecycle(this.#sourcePortLifecycle);
+        } else {
+          forceTrackedLifecycleUnconfirmed(this.#sourcePortLifecycle);
+        }
+        this.#sourcePortLifecycle = null;
+      }
       throw error;
     } finally {
       if (this.#sourceOpenReadiness === readiness) this.#sourceOpenReadiness = null;
@@ -488,12 +689,47 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
   }
 
   #handleWorkerEvent(value: unknown): void {
-    if (this.#closed) return;
     const event = snapshotExactRecord(value);
     if (!event || event.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION) {
+      this.#markWorkerFaulted();
       this.#fatal('decoder-invalid-event');
       return;
     }
+    if (event.type === 'decoder-retired') {
+      if (
+        !hasExactKeys(event, [
+          'protocolVersion',
+          'type',
+          'sourceLifetimeGeneration',
+          'decoderGeneration',
+        ]) ||
+        event.sourceLifetimeGeneration !== this.#sourceLifetimeGeneration ||
+        !isFlacDecoderGeneration(event.decoderGeneration)
+      ) {
+        this.#markWorkerFaulted();
+        this.#fatal('decoder-invalid-event');
+        return;
+      }
+      if (!this.#releaseGenerationLifecycle(event.decoderGeneration)) {
+        this.#fatal('decoder-invalid-event');
+      }
+      return;
+    }
+    if (event.type === 'worker-retired') {
+      if (
+        !hasExactKeys(event, ['protocolVersion', 'type', 'sourceLifetimeGeneration']) ||
+        event.sourceLifetimeGeneration !== this.#sourceLifetimeGeneration ||
+        !this.#closed ||
+        !this.#workerRetirementReadiness
+      ) {
+        this.#markWorkerFaulted();
+        this.#fatal('decoder-invalid-event');
+        return;
+      }
+      this.#settleWorkerRetirement(this.#generationLifecycles.size === 0);
+      return;
+    }
+    if (this.#closed) return;
     if (event.type === 'source-opened') {
       const valid =
         hasExactKeys(event, [
@@ -513,6 +749,7 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
         this.#fatal('decoder-source-open-mismatch', error);
         return;
       }
+      this.#sourceOpenedAcknowledged = true;
       readiness.resolve();
       return;
     }
@@ -572,6 +809,7 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
         return;
       }
       if (!sameCurrentGeneration) return;
+      this.#beginGenerationRetirement(event.decoderGeneration);
       const error = new Error(event.message || 'FLAC decoder failed');
       this.#pendingGeneration?.readiness.reject(error);
       this.#fatal(`decoder:${safeErrorCode(event.code, 'unknown')}`, error);
@@ -589,6 +827,7 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
         this.#fatal('decoder-invalid-event');
         return;
       }
+      this.#beginGenerationRetirement(event.decoderGeneration);
       if (!sameCurrentGeneration) return;
       const pending = this.#pendingGeneration;
       const error = stoppedBeforeReadyError();
@@ -626,7 +865,7 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
       return;
     }
     if (event.type === 'decode-progress' || event.type === 'decoder-eof') {
-      if (
+      const invalid =
         !hasExactKeys(event, [
           'protocolVersion',
           'type',
@@ -638,9 +877,13 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
         ]) ||
         !isFrame(event.decodedInputBytes) ||
         !isFrame(event.decodedSourceSamples) ||
-        !isFrame(event.producedOutputFrames)
-      ) {
+        !isFrame(event.producedOutputFrames);
+      if (invalid) {
         this.#fatal('decoder-invalid-event');
+        return;
+      }
+      if (event.type === 'decoder-eof' && sameCurrentGeneration) {
+        this.#beginGenerationRetirement(event.decoderGeneration);
       }
       return;
     }
@@ -687,7 +930,81 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
     pending.readiness.resolve();
   }
 
+  #beginGenerationRetirement(generation: number): void {
+    const lifecycle = this.#generationLifecycles.get(generation);
+    if (!lifecycle) return;
+    beginTrackedRetirement(lifecycle.decoder);
+    beginTrackedRetirement(lifecycle.port);
+  }
+
+  #releaseGenerationLifecycle(generation: number): boolean {
+    const lifecycle = this.#generationLifecycles.get(generation);
+    if (
+      !lifecycle ||
+      lifecycle.decoder.state !== 'retiring' ||
+      lifecycle.port.state !== 'retiring'
+    ) {
+      return false;
+    }
+    releaseTrackedLifecycle(lifecycle.port);
+    releaseTrackedLifecycle(lifecycle.decoder);
+    this.#generationLifecycles.delete(generation);
+    return true;
+  }
+
+  #forceGenerationLifecyclesUnconfirmed(): void {
+    for (const lifecycle of this.#generationLifecycles.values()) {
+      forceTrackedLifecycleUnconfirmed(lifecycle.port);
+      forceTrackedLifecycleUnconfirmed(lifecycle.decoder);
+    }
+    this.#generationLifecycles.clear();
+  }
+
+  #settleWorkerRetirement(confirmed: boolean): void {
+    const readiness = this.#workerRetirementReadiness;
+    if (!readiness || readiness.settled) return;
+    this.#clearWorkerRetirementTimer();
+    const exactConfirmation =
+      confirmed && !this.#workerFaulted && this.#generationLifecycles.size === 0;
+    this.#workerRetirementConfirmed = exactConfirmation;
+    if (!exactConfirmation) {
+      this.#forceGenerationLifecyclesUnconfirmed();
+      if (this.#workerLifecycle) forceTrackedLifecycleUnconfirmed(this.#workerLifecycle);
+      if (this.#sourcePortLifecycle) {
+        forceTrackedLifecycleUnconfirmed(this.#sourcePortLifecycle);
+      }
+    } else if (this.#sourcePortLifecycle) {
+      releaseTrackedLifecycle(this.#sourcePortLifecycle);
+    }
+    readiness.resolve();
+  }
+
+  #clearWorkerRetirementTimer(): void {
+    if (this.#workerRetirementTimer !== null) {
+      globalThis.clearTimeout(this.#workerRetirementTimer);
+      this.#workerRetirementTimer = null;
+    }
+    const lifecycle = this.#workerRetirementTimerLifecycle;
+    this.#workerRetirementTimerLifecycle = null;
+    if (lifecycle) releaseTrackedLifecycle(lifecycle);
+  }
+
+  #markWorkerFaulted(): void {
+    this.#workerFaulted = true;
+    this.#workerRetirementConfirmed = false;
+    if (this.#workerLifecycle) forceTrackedLifecycleUnconfirmed(this.#workerLifecycle);
+    if (this.#sourcePortLifecycle) forceTrackedLifecycleUnconfirmed(this.#sourcePortLifecycle);
+    if (this.#closed) this.#settleWorkerRetirement(false);
+  }
+
   #fatal(code: string, cause?: unknown): void {
+    if (
+      code === 'decoder-invalid-event' ||
+      code === 'decoder-source-closed' ||
+      code.endsWith('-mismatch')
+    ) {
+      this.#markWorkerFaulted();
+    }
     if (this.#closed) return;
     const handler = this.#fatalHandler;
     if (!handler) return;

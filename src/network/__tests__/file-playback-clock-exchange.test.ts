@@ -4,6 +4,7 @@ import {
   FILE_PLAYBACK_CLOCK_PONG_TYPE,
   FILE_PLAYBACK_CLOCK_PROTOCOL_VERSION,
   FilePlaybackClockExchange,
+  MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS,
   MAX_FILE_PLAYBACK_CLOCK_TIMESTAMP_MS,
   parseFilePlaybackClockPingV2,
   parseFilePlaybackClockPongV2,
@@ -60,6 +61,30 @@ function exchangeSample(
     pong: hostResult.pong,
     result: guest.handlePong(hostResult.pong),
   };
+}
+
+function createCalibratedGuest(suffix: string) {
+  const guestNow = fakeNow();
+  const hostNow = fakeNow();
+  const guest = new FilePlaybackClockExchange({
+    role: 'guest',
+    sessionId: `room-continuation-${suffix}`,
+    connectionId: `connection-continuation-${suffix}`,
+    now: guestNow.now,
+  });
+  const host = new FilePlaybackClockExchange({
+    role: 'host',
+    sessionId: `room-continuation-${suffix}`,
+    connectionId: `connection-continuation-${suffix}`,
+    now: hostNow.now,
+  });
+  for (let index = 0; index < 5; index += 1) {
+    expect(
+      exchangeSample(guest, host, guestNow, hostNow, 1_000 + index * 100).result.accepted,
+    ).toBe(true);
+  }
+  expect(guest.quality().calibrated).toBe(true);
+  return { guest, guestNow };
 }
 
 describe('FilePlaybackClockExchange', () => {
@@ -152,6 +177,161 @@ describe('FilePlaybackClockExchange', () => {
     // Room 1,720ms is local 1,620ms, 200ms after the current local clock.
     expect(bindings.roomTimeMsToContextTime(1_720)).toBeCloseTo(5.2, 10);
     expect(bindings.localPerformanceMsToContextTime(1_620)).toBeCloseTo(5.2, 10);
+  });
+
+  it('mints a body-free bounded continuation that survives normal quality expiry', () => {
+    const { guest, guestNow } = createCalibratedGuest('bounded');
+    // Admit near the normal 3s quality boundary so the continuation corridor
+    // demonstrably outlives that quality without becoming an unbounded clock.
+    guestNow.set(3_900);
+    const lease = guest.mintCalibratedTemporalContinuationLease(
+      MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS,
+    );
+
+    expect(Object.getPrototypeOf(lease)).toBeNull();
+    expect(Object.isFrozen(lease)).toBe(true);
+    expect(Reflect.ownKeys(lease)).toEqual([]);
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(true);
+    expect(guest.roomTimeMsForTemporalContinuationLease(lease)).toBe(4_000);
+
+    guestNow.set(4_500);
+    expect(guest.quality().calibrated).toBe(false);
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(true);
+    expect(guest.roomTimeMsForTemporalContinuationLease(lease)).toBe(4_600);
+
+    guestNow.set(6_899.999);
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(true);
+    guestNow.set(6_900);
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(false);
+    expect(guest.roomTimeMsForTemporalContinuationLease(lease)).toBeNull();
+  });
+
+  it('resets ordinary renewal calibration without retiring an exact continuation', () => {
+    const { guest, guestNow } = createCalibratedGuest('renewal-reset');
+    guestNow.set(3_900);
+    const lease = guest.mintCalibratedTemporalContinuationLease(3_000);
+    guest.createPing();
+    expect(guest.pendingPingCount()).toBe(1);
+
+    guest.resetGuestCalibrationForRenewal();
+
+    expect(guest.pendingPingCount()).toBe(0);
+    expect(guest.quality()).toMatchObject({ calibrated: false, sampleCount: 0 });
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(true);
+    expect(guest.roomTimeMsForTemporalContinuationLease(lease)).toBe(4_000);
+    expect(() => guest.mintCalibratedTemporalContinuationLease(3_000)).toThrow(
+      /must be calibrated/,
+    );
+
+    guestNow.set(3_899);
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(false);
+  });
+
+  it('restricts renewal-only calibration reset to an active guest binding', () => {
+    const host = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: 'room-renewal-host',
+      connectionId: 'connection-renewal-host',
+      now: () => 1_000,
+    });
+    expect(() => host.resetGuestCalibrationForRenewal()).toThrow(/Only a guest/);
+
+    const guest = new FilePlaybackClockExchange({
+      role: 'guest',
+      sessionId: 'room-renewal-cleared',
+      connectionId: 'connection-renewal-cleared',
+      now: () => 1_000,
+    });
+    guest.clearSession();
+    expect(() => guest.resetGuestCalibrationForRenewal()).toThrow(/no active session/);
+  });
+
+  it('invalidates a renewal-preserved continuation on a later explicit wake', () => {
+    const { guest, guestNow } = createCalibratedGuest('renewal-then-wake');
+    guestNow.set(3_900);
+    const lease = guest.mintCalibratedTemporalContinuationLease(3_000);
+
+    guest.resetGuestCalibrationForRenewal();
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(true);
+    guest.handleWake();
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(false);
+    expect(guest.roomTimeMsForTemporalContinuationLease(lease)).toBeNull();
+  });
+
+  it('only mints bounded guest continuations from a calibrated active clock', () => {
+    const now = fakeNow();
+    const guest = new FilePlaybackClockExchange({
+      role: 'guest',
+      sessionId: 'room-continuation-admission',
+      connectionId: 'connection-continuation-admission',
+      now: now.now,
+    });
+    const host = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: 'room-continuation-admission',
+      connectionId: 'connection-continuation-admission',
+      now: now.now,
+    });
+
+    expect(() => guest.mintCalibratedTemporalContinuationLease(1_000)).toThrow(
+      /must be calibrated/,
+    );
+    expect(() => host.mintCalibratedTemporalContinuationLease(1_000)).toThrow(/Only a guest/);
+    expect(() => guest.mintCalibratedTemporalContinuationLease(0)).toThrow(RangeError);
+    expect(() => guest.mintCalibratedTemporalContinuationLease(Number.NaN)).toThrow(RangeError);
+    expect(() =>
+      guest.mintCalibratedTemporalContinuationLease(
+        MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS + 0.001,
+      ),
+    ).toThrow(RangeError);
+
+    guest.clearSession();
+    expect(() => guest.mintCalibratedTemporalContinuationLease(1_000)).toThrow(/no active session/);
+  });
+
+  it.each(['wake', 'role', 'session', 'clear'] as const)(
+    'invalidates an exact continuation across the %s lifecycle boundary',
+    (boundary) => {
+      const { guest, guestNow } = createCalibratedGuest(boundary);
+      guestNow.set(3_900);
+      const lease = guest.mintCalibratedTemporalContinuationLease(3_000);
+
+      if (boundary === 'wake') guest.handleWake();
+      else if (boundary === 'role') guest.setRole('host');
+      else if (boundary === 'session') {
+        guest.bindSession(`room-continuation-${boundary}-next`, `connection-${boundary}-next`);
+      } else guest.clearSession();
+
+      expect(guest.validateTemporalContinuationLease(lease)).toBe(false);
+      expect(guest.roomTimeMsForTemporalContinuationLease(lease)).toBeNull();
+    },
+  );
+
+  it('fails a continuation closed on performance reversal and never revives it', () => {
+    const { guest, guestNow } = createCalibratedGuest('reversal');
+    guestNow.set(3_900);
+    const lease = guest.mintCalibratedTemporalContinuationLease(3_000);
+
+    guestNow.set(3_899);
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(false);
+    guestNow.set(3_900);
+    expect(guest.validateTemporalContinuationLease(lease)).toBe(false);
+    expect(guest.roomTimeMsForTemporalContinuationLease(lease)).toBeNull();
+  });
+
+  it('rejects forged and foreign continuation tokens without exposing authority data', () => {
+    const first = createCalibratedGuest('issuer');
+    const second = createCalibratedGuest('foreign');
+    first.guestNow.set(3_900);
+    second.guestNow.set(3_900);
+    const lease = first.guest.mintCalibratedTemporalContinuationLease(3_000);
+
+    expect(second.guest.validateTemporalContinuationLease(lease)).toBe(false);
+    expect(second.guest.roomTimeMsForTemporalContinuationLease(lease)).toBeNull();
+    expect(first.guest.validateTemporalContinuationLease(Object.freeze(Object.create(null)))).toBe(
+      false,
+    );
+    expect(first.guest.validateTemporalContinuationLease(null)).toBe(false);
   });
 
   it('requires five stable samples before reporting calibrated guest quality', () => {

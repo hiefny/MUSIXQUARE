@@ -1,4 +1,4 @@
-export const FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS = Object.freeze([
+const FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS = Object.freeze([
   'roomOwners',
   'connectionOwners',
   'playbackSources',
@@ -12,10 +12,9 @@ export const FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS = Object.freeze([
   'timers',
 ] as const);
 
-export type FilePlaybackUniversalLifecycleKind =
-  (typeof FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS)[number];
+type FilePlaybackUniversalLifecycleKind = (typeof FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS)[number];
 
-export interface FilePlaybackUniversalLifecycleKindSnapshot {
+interface FilePlaybackUniversalLifecycleKindSnapshot {
   readonly live: number;
   readonly retiring: number;
   readonly unconfirmed: number;
@@ -24,11 +23,11 @@ export interface FilePlaybackUniversalLifecycleKindSnapshot {
   readonly highWater: number;
 }
 
-export type FilePlaybackUniversalLifecycleKindSnapshots = Readonly<{
+type FilePlaybackUniversalLifecycleKindSnapshots = Readonly<{
   [Kind in FilePlaybackUniversalLifecycleKind]: FilePlaybackUniversalLifecycleKindSnapshot;
 }>;
 
-export interface FilePlaybackUniversalLifecycleSnapshot {
+interface FilePlaybackUniversalLifecycleSnapshot {
   readonly sequence: number;
   readonly invariantFaults: number;
   readonly forcedRetirements: number;
@@ -53,14 +52,14 @@ export interface FilePlaybackUniversalLifecycleLease {
   readonly forceUnconfirmed: () => void;
 }
 
-export interface FilePlaybackUniversalLifecycleDiagnostics {
+interface FilePlaybackUniversalLifecycleDiagnostics {
   readonly acquire: (
     kind: FilePlaybackUniversalLifecycleKind,
   ) => FilePlaybackUniversalLifecycleLease;
   readonly snapshot: () => FilePlaybackUniversalLifecycleSnapshot;
 }
 
-export interface FilePlaybackUniversalLifecycleDiagnosticsOptions {
+interface FilePlaybackUniversalLifecycleDiagnosticsOptions {
   /**
    * The largest exactly projected counter value. New acquisitions are refused
    * before per-kind accounting could exceed this ceiling.
@@ -256,7 +255,7 @@ class FilePlaybackUniversalLifecycleDiagnosticsLedger implements FilePlaybackUni
   }
 }
 
-export function createFilePlaybackUniversalLifecycleDiagnostics(
+function createFilePlaybackUniversalLifecycleDiagnostics(
   options: FilePlaybackUniversalLifecycleDiagnosticsOptions = {},
 ): FilePlaybackUniversalLifecycleDiagnostics {
   const ledger = new FilePlaybackUniversalLifecycleDiagnosticsLedger(options);
@@ -268,12 +267,18 @@ export function createFilePlaybackUniversalLifecycleDiagnostics(
 
 const sharedDiagnostics = createFilePlaybackUniversalLifecycleDiagnostics();
 
+export const filePlaybackUniversalLifecycleKindsForTests = FILE_PLAYBACK_UNIVERSAL_LIFECYCLE_KINDS;
+export type FilePlaybackUniversalLifecycleKindForTests = FilePlaybackUniversalLifecycleKind;
+export type FilePlaybackUniversalLifecycleSnapshotForTests = FilePlaybackUniversalLifecycleSnapshot;
+export const createFilePlaybackUniversalLifecycleDiagnosticsForTests =
+  createFilePlaybackUniversalLifecycleDiagnostics;
+
 export function acquireFilePlaybackUniversalLifecycleLease(
   kind: FilePlaybackUniversalLifecycleKind,
 ): FilePlaybackUniversalLifecycleLease {
   return sharedDiagnostics.acquire(kind);
 }
 
-export function getFilePlaybackUniversalLifecycleSnapshot(): FilePlaybackUniversalLifecycleSnapshot {
+export function getFilePlaybackUniversalLifecycleSnapshotForTests(): FilePlaybackUniversalLifecycleSnapshot {
   return sharedDiagnostics.snapshot();
 }

@@ -4,7 +4,10 @@ import type { QueueItemId } from '../../types/index.ts';
 import { StreamingLinearPcmPlaybackSource } from '../backends/streaming-linear-pcm-playback-source.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
-import { PCM_STREAM_PROTOCOL_VERSION } from '../streaming/pcm-stream-protocol.ts';
+import {
+  PCM_STREAM_PROTOCOL_VERSION,
+  type PcmRingEvent,
+} from '../streaming/pcm-stream-protocol.ts';
 import type { LinearPcmMetadata } from '../linear-pcm/sample-format.ts';
 import {
   LINEAR_PCM_DECODER_PROTOCOL_VERSION,
@@ -30,6 +33,7 @@ class FakeMessagePort {
   readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
   closeCount = 0;
   startCount = 0;
+  autoRetireOnStop = true;
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
     const listeners = this.listeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
@@ -43,6 +47,26 @@ class FakeMessagePort {
 
   postMessage(message: unknown, transfer: readonly Transferable[] = []): void {
     this.messages.push({ message, transfer });
+    if (
+      this.autoRetireOnStop &&
+      message !== null &&
+      typeof message === 'object' &&
+      (message as Record<string, unknown>).type === 'stop'
+    ) {
+      const generation = (message as Record<string, unknown>).generation as number;
+      queueMicrotask(() => {
+        this.emit({
+          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+          type: 'pcm-port-retired',
+          generation,
+        } satisfies PcmRingEvent);
+        this.emit({
+          protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+          type: 'processor-retired',
+          generation,
+        } satisfies PcmRingEvent);
+      });
+    }
   }
 
   start(): void {
@@ -84,6 +108,33 @@ class FakeWorker {
           sourceLifetimeGeneration: message.sourceLifetimeGeneration,
           sourceSize: message.sourceSize,
           sourceIdentity: message.sourceIdentity,
+        });
+      });
+    }
+    if (message.type === 'close-source') {
+      queueMicrotask(() => {
+        const generations = new Set(
+          this.messages.flatMap(({ message: candidate }) =>
+            candidate.type === 'init-decoder' ? [candidate.decoderGeneration] : [],
+          ),
+        );
+        for (const decoderGeneration of generations) {
+          this.emit({
+            protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+            type: 'decoder-retired',
+            sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+            decoderGeneration,
+          });
+        }
+        this.emit({
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+          type: 'source-closed',
+          sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+        });
+        this.emit({
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+          type: 'worker-retired',
+          sourceLifetimeGeneration: message.sourceLifetimeGeneration,
         });
       });
     }
@@ -155,7 +206,7 @@ function harness(options: HarnessOptions = {}) {
   const createWorker = vi.fn(() => worker as unknown as Worker);
   const createWorkletNode = vi.fn(
     (_audioContext: AudioContext, name: string, workletOptions: AudioWorkletNodeOptions) => {
-      expect(name).toBe('musixquare-pcm-ring-v2');
+      expect(name).toBe('musixquare-pcm-ring-v3');
       expect(workletOptions.outputChannelCount).toEqual([2]);
       return node as unknown as AudioWorkletNode;
     },
@@ -340,7 +391,7 @@ describe('StreamingLinearPcmPlaybackSource', () => {
     expect(h.channels).toHaveLength(1);
     await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
     expect(h.channels[0]?.port1.closeCount).toBeGreaterThan(0);
-    expect(h.channels[0]?.port2.closeCount).toBeGreaterThan(0);
+    expect(h.channels[0]?.port2.closeCount).toBe(0);
 
     await h.source.destroy();
     await h.source.destroy();

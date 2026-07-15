@@ -115,6 +115,11 @@ const payloads = Object.freeze([
     positionSeconds: 99.5,
     playbackRate: 1,
   },
+  {
+    kind: 'file-playback-ended',
+    ...expected,
+    hostObservedAtRoomTimeMs: 13_175,
+  },
 ] as const satisfies readonly FilePlaybackWirePayload[]);
 
 interface SenderSetup {
@@ -147,7 +152,8 @@ function leaseFor(setup: SenderSetup, payload: FilePlaybackWirePayload): FilePla
     payload.kind === 'file-playback-prepare' ||
     payload.kind === 'file-playback-pause' ||
     payload.kind === 'file-playback-seek' ||
-    payload.kind === 'file-playback-stop'
+    payload.kind === 'file-playback-stop' ||
+    payload.kind === 'file-playback-ended'
   ) {
     return setup.successor;
   }
@@ -274,6 +280,36 @@ describe('FilePlaybackWireSender', () => {
     });
     setup.sender.commitAttempt(setup.attempt);
     expect(() => setup.sender.create(setup.attempt, payloads[8])).toThrow(/candidate/);
+  });
+
+  it('creates ENDED only from an exact successor and irreversibly marks it stop-purpose', () => {
+    const setup = setupSender();
+    expect(setup.sender.create(setup.successor, payloads[12])).toMatchObject({
+      kind: 'file-playback-ended',
+      revision: 8,
+      expectedRevision: 7,
+      hostObservedAtRoomTimeMs: 13_175,
+    });
+    expect(() => setup.sender.commitMedia(setup.successor)).toThrow(/candidate state/u);
+    expect(() => setup.sender.stageAttempt(setup.successor, 'ended-attempt')).toThrow(
+      /stop successor/u,
+    );
+    expect(() => setup.sender.commitStop(setup.successor, currentBinding.run)).not.toThrow();
+  });
+
+  it('rejects malformed ENDED atomically without consuming sequence or stop authority', () => {
+    const setup = setupSender();
+    expect(() =>
+      setup.sender.create(setup.successor, {
+        ...payloads[12],
+        hostObservedAtRoomTimeMs: Number.NaN,
+      }),
+    ).toThrow(TypeError);
+    expect(setup.sender.lastControlSequence()).toBe(0);
+    expect(setup.sender.create(setup.successor, payloads[6])).toMatchObject({
+      kind: 'file-playback-pause',
+      controlSequence: 1,
+    });
   });
 
   it('requires exact successor identity for prepare, pause, seek, and stop', () => {

@@ -244,6 +244,7 @@ function openDecoder(
   options: {
     readonly decoderGeneration?: number;
     readonly backendId?: M4aAacDecoderBackendId;
+    readonly configureWorkerPcmPort?: (port: MessagePort) => void;
   } = {},
 ): MessagePort {
   const decoderGeneration = options.decoderGeneration ?? 1;
@@ -256,6 +257,7 @@ function openDecoder(
     generation: 1,
   });
   sourceBrokers.push(broker);
+  options.configureWorkerPcmPort?.(pcmChannel.port1);
   dispatch(scope, {
     protocolVersion: M4A_AAC_DECODER_PROTOCOL_VERSION,
     type: 'open-decoder',
@@ -525,8 +527,50 @@ describe.sequential('bounded M4A raw AAC stream worker', () => {
     });
     const lateBatch = mocks.decodeCalls[0]!.rawBatch;
     expect(lateBatch.planes.some((plane) => !allZero(plane))).toBe(true);
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
     pendingDecode.resolve(lateBatch);
-    await vi.waitFor(() => expect(lateBatch.planes.every(allZero)).toBe(true));
+    await vi.waitFor(() => {
+      expect(lateBatch.planes.every(allZero)).toBe(true);
+      expect(controlMessages(scope, 'decoder-retired')).toHaveLength(1);
+      expect(controlMessages(scope, 'worker-retired')).toHaveLength(1);
+    });
+  });
+
+  it('publishes one terminal barrier before a hostile PCM-port close reenters stop', async () => {
+    const media = await workerFixture();
+    const scope = await loadWorker();
+    let reentries = 0;
+    openDecoder(scope, media.source, media.descriptor, {
+      decoderGeneration: 51,
+      configureWorkerPcmPort: (workerPort) => {
+        const nativeClose = workerPort.close.bind(workerPort);
+        vi.spyOn(workerPort, 'close').mockImplementation(() => {
+          if (reentries === 0) {
+            reentries += 1;
+            try {
+              stop(scope, 51);
+            } finally {
+              nativeClose();
+            }
+            return;
+          }
+          nativeClose();
+        });
+      },
+    });
+    await waitReady(scope, 51);
+
+    expect(() => stop(scope, 51)).not.toThrow();
+    await vi.waitFor(() => {
+      expect(media.source.closeCount).toBe(1);
+      expect(mocks.backendCloseCounts).toEqual([1]);
+    });
+
+    expect(reentries).toBe(1);
+    expect(controlMessages(scope, 'decoder-stopped')).toHaveLength(1);
+    expect(controlMessages(scope, 'decoder-retired')).toHaveLength(0);
+    expect(controlMessages(scope, 'worker-retired')).toHaveLength(0);
   });
 
   it('fails closed on malformed backend PCM and a raw AAC unit rejected by the canary', async () => {

@@ -7,13 +7,18 @@ import {
   throwIfAborted,
   validateExactRead,
 } from './encoded-audio-source.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from '../diagnostics/file-playback-universal-lifecycle-retirement.ts';
 
 export const ENCODED_SOURCE_PORT_MAX_READ_BYTES = 64 * 1024;
 export const ENCODED_SOURCE_PORT_DEFAULT_MAX_PHYSICAL_READS = 8;
 export const ENCODED_SOURCE_PORT_MAX_PHYSICAL_READS = 64;
 export const ENCODED_SOURCE_PORT_DEFAULT_MAX_PENDING_READS = 1;
 export const ENCODED_SOURCE_PORT_MAX_PENDING_READS = 8;
-export const ENCODED_SOURCE_PORT_DEFAULT_MAX_CANCELLED_READS = 8;
+const ENCODED_SOURCE_PORT_DEFAULT_MAX_CANCELLED_READS = 8;
 export const ENCODED_SOURCE_PORT_MAX_CANCELLED_READS = 64;
 export const ENCODED_SOURCE_PORT_DEFAULT_RESPONSE_TIMEOUT_MS = 30_000;
 export const ENCODED_SOURCE_PORT_MAX_RESPONSE_TIMEOUT_MS = 5 * 60_000;
@@ -211,20 +216,27 @@ function configuredTimeout(value: number | undefined): number {
   );
 }
 
-function closePort(port: MessagePort): void {
+function closePort(port: MessagePort): boolean {
   try {
     port.close();
+    return true;
   } catch {
     // Local ownership is already closed even if an adapter rejects close().
+    return false;
+  }
+}
+
+function attemptCleanup(cleanup: () => void): boolean {
+  try {
+    cleanup();
+    return true;
+  } catch {
+    return false;
   }
 }
 
 function startPort(port: MessagePort): void {
-  try {
-    port.start();
-  } catch {
-    // Browser MessagePorts accept start(); test adapters may make it a no-op.
-  }
+  port.start();
 }
 
 function addCloseListener(port: MessagePort, listener: EventListener): void {
@@ -425,6 +437,8 @@ function correlationRecord(
 
 interface BrokerReadTask extends ReadCorrelation {
   readonly controller: AbortController;
+  readonly lifecycleLease: FilePlaybackUniversalLifecycleLease;
+  physicalPromise: Promise<void> | null;
   cancelled: boolean;
 }
 
@@ -435,6 +449,12 @@ interface AwaitingSettlement {
 
 export interface EncodedSourcePortBrokerOptions {
   readonly source: EncodedAudioSource;
+  /**
+   * Ownership transfers to the broker as soon as construction is invoked.
+   * The broker closes this endpoint exactly once on success or on any throw;
+   * callers must never attempt a fallback close after calling the constructor.
+   * Encoded-source ownership remains governed by its separate source contract.
+   */
   readonly port: MessagePort;
   /**
    * Identifies the playback-source lifetime, not a decoder/seek generation.
@@ -460,47 +480,113 @@ export class EncodedSourcePortBroker {
 
   readonly #source: EncodedAudioSource;
   readonly #port: MessagePort;
+  readonly #portLifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #maxPhysicalReads: number;
   readonly #lifetimeSignal: AbortSignal | undefined;
   readonly #physicalTasks = new Set<BrokerReadTask>();
   readonly #activeReads = new Map<number, BrokerReadTask>();
   readonly #awaitingSettlement = new Map<number, AwaitingSettlement>();
   readonly #onMessage = (event: MessageEvent<unknown>): void => this.#receive(event.data);
-  readonly #onMessageError = (): void => this.#closeInternal(false);
-  readonly #onPortClose = (): void => this.#closeInternal(false);
-  readonly #onLifetimeAbort = (): void => this.#closeInternal(true);
+  readonly #onMessageError = (): void => {
+    void this.#closeInternal(false, true);
+  };
+  readonly #onPortClose = (): void => {
+    void this.#closeInternal(false, true);
+  };
+  readonly #onLifetimeAbort = (): void => {
+    void this.#closeInternal(true, false);
+  };
   #lastRequestId = 0;
   #lastDecoderGeneration = 0;
   #closed = false;
   #dispatching = false;
   #sourceCloseStarted = false;
   #sourceClosePromise: Promise<void> = Promise.resolve();
+  #physicalClosePromise: Promise<void> | null = null;
+  #closePromise: Promise<void> | null = null;
+  #portFault = false;
 
   constructor(options: EncodedSourcePortBrokerOptions) {
-    if (!options.source || typeof options.source.readAt !== 'function') {
-      throw new TypeError('Encoded audio source is required');
+    const ownedPort = options.port;
+    let ownedSource: EncodedAudioSource;
+    let sourceSize: number;
+    let generation: number;
+    let lifetimeSignal: AbortSignal | undefined;
+    let maxPhysicalReads: number;
+    let portLifecycleLease: FilePlaybackUniversalLifecycleLease;
+    try {
+      // Snapshot every caller-controlled option before acquiring the port
+      // lifecycle lease. Accessor re-entry or a second-read throw must never
+      // strand the already-transferred endpoint or an acquired lease.
+      ownedSource = options.source;
+      generation = options.generation;
+      const configuredMaxPhysicalReads = options.maxPhysicalReads;
+      lifetimeSignal = options.lifetimeSignal;
+      if (!ownedSource || typeof ownedSource.readAt !== 'function') {
+        throw new TypeError('Encoded audio source is required');
+      }
+      sourceSize = ownedSource.size;
+      validateExactRead(sourceSize, 0, 0);
+      if (!isPositiveSafeInteger(generation)) {
+        throw new RangeError('generation must be a positive safe integer');
+      }
+      maxPhysicalReads = configuredLimit(
+        configuredMaxPhysicalReads,
+        ENCODED_SOURCE_PORT_DEFAULT_MAX_PHYSICAL_READS,
+        ENCODED_SOURCE_PORT_MAX_PHYSICAL_READS,
+        'maxPhysicalReads',
+      );
+      portLifecycleLease = acquireFilePlaybackUniversalLifecycleLease('ports');
+    } catch (error) {
+      closePort(ownedPort);
+      throw error;
     }
-    validateExactRead(options.source.size, 0, 0);
-    if (!isPositiveSafeInteger(options.generation)) {
-      throw new RangeError('generation must be a positive safe integer');
+    this.#source = ownedSource;
+    this.#port = ownedPort;
+    this.generation = generation;
+    this.size = sourceSize;
+    this.#lifetimeSignal = lifetimeSignal;
+    this.#maxPhysicalReads = maxPhysicalReads;
+    this.#portLifecycleLease = portLifecycleLease;
+    try {
+      this.#port.addEventListener('message', this.#onMessage);
+      if (this.#closed) {
+        this.#detachPortHandlers();
+        return;
+      }
+      this.#port.addEventListener('messageerror', this.#onMessageError);
+      if (this.#closed) {
+        this.#detachPortHandlers();
+        return;
+      }
+      addCloseListener(this.#port, this.#onPortClose);
+      if (this.#closed) {
+        this.#detachPortHandlers();
+        return;
+      }
+      this.#lifetimeSignal?.addEventListener('abort', this.#onLifetimeAbort, { once: true });
+      if (this.#closed) {
+        this.#detachPortHandlers();
+        return;
+      }
+      startPort(this.#port);
+      if (this.#closed) {
+        this.#detachPortHandlers();
+        return;
+      }
+      const lifetimeAborted = this.#lifetimeSignal?.aborted === true;
+      if (this.#closed) {
+        this.#detachPortHandlers();
+        return;
+      }
+      if (lifetimeAborted) {
+        void this.#closeInternal(true, false);
+        this.#detachPortHandlers();
+      }
+    } catch (error) {
+      void this.#closeInternal(false, true);
+      throw error;
     }
-    this.#source = options.source;
-    this.#port = options.port;
-    this.generation = options.generation;
-    this.size = options.source.size;
-    this.#lifetimeSignal = options.lifetimeSignal;
-    this.#maxPhysicalReads = configuredLimit(
-      options.maxPhysicalReads,
-      ENCODED_SOURCE_PORT_DEFAULT_MAX_PHYSICAL_READS,
-      ENCODED_SOURCE_PORT_MAX_PHYSICAL_READS,
-      'maxPhysicalReads',
-    );
-    this.#port.addEventListener('message', this.#onMessage);
-    this.#port.addEventListener('messageerror', this.#onMessageError);
-    addCloseListener(this.#port, this.#onPortClose);
-    this.#lifetimeSignal?.addEventListener('abort', this.#onLifetimeAbort, { once: true });
-    startPort(this.#port);
-    if (this.#lifetimeSignal?.aborted) this.#closeInternal(true);
   }
 
   get closed(): boolean {
@@ -514,8 +600,18 @@ export class EncodedSourcePortBroker {
 
   /** Ends the playback-source lifetime and closes the underlying source exactly once. */
   close(): Promise<void> {
-    this.#closeInternal(true);
-    return this.#sourceClosePromise;
+    return this.#closeInternal(true, false);
+  }
+
+  #ensurePhysicalClosePromise(): Promise<void> {
+    this.#physicalClosePromise ??= Promise.allSettled(
+      [...this.#physicalTasks]
+        .map((task) => task.physicalPromise)
+        .filter((task): task is Promise<void> => task !== null),
+    )
+      .then(() => this.#sourceClosePromise)
+      .then(() => undefined);
+    return this.#physicalClosePromise;
   }
 
   #receive(value: unknown): void {
@@ -535,7 +631,7 @@ export class EncodedSourcePortBroker {
       if (command.type === READ_TYPE) this.#beginRead(command);
       else if (command.type === CANCEL_TYPE) this.#cancelRead(command);
       else if (command.type === SETTLE_ACK_TYPE) this.#settleAck(command);
-      else this.#closeInternal(false);
+      else this.#closeInternal(false, false);
     } finally {
       this.#dispatching = false;
     }
@@ -572,12 +668,24 @@ export class EncodedSourcePortBroker {
     }
 
     const controller = new AbortController();
+    let lifecycleLease: FilePlaybackUniversalLifecycleLease;
+    try {
+      lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('pendingReads');
+    } catch {
+      // Acquisition is part of the bounded correlation fence. The session
+      // cannot safely accept this request without accounting for it, so fail
+      // the exact port closed and start source retirement immediately.
+      this.#protocolFailure();
+      return;
+    }
     const task: BrokerReadTask = {
       decoderGeneration: command.decoderGeneration,
       requestId: command.requestId,
       offset: command.offset,
       length: command.length,
       controller,
+      lifecycleLease,
+      physicalPromise: null,
       cancelled: false,
     };
     this.#physicalTasks.add(task);
@@ -617,10 +725,12 @@ export class EncodedSourcePortBroker {
       })
       .finally(() => {
         this.#physicalTasks.delete(task);
+        task.lifecycleLease.beginRetire().release();
         if (this.#activeReads.get(task.requestId) === task) {
           this.#activeReads.delete(task.requestId);
         }
       });
+    task.physicalPromise = physicalPromise;
     void physicalPromise;
   }
 
@@ -702,17 +812,53 @@ export class EncodedSourcePortBroker {
       this.#port.postMessage(message, transfer);
       return true;
     } catch {
-      this.#closeInternal(false);
+      this.#closeInternal(false, true);
       return false;
     }
   }
 
   #protocolFailure(): void {
-    this.#closeInternal(false);
+    this.#closeInternal(false, true);
   }
 
-  #closeInternal(notifyPeer: boolean): void {
-    if (this.#closed) return;
+  #detachPortHandlers(): void {
+    if (!attemptCleanup(() => this.#port.removeEventListener('message', this.#onMessage))) {
+      this.#portFault = true;
+    }
+    if (
+      !attemptCleanup(() => this.#port.removeEventListener('messageerror', this.#onMessageError))
+    ) {
+      this.#portFault = true;
+    }
+    if (!attemptCleanup(() => removeCloseListener(this.#port, this.#onPortClose))) {
+      this.#portFault = true;
+    }
+    if (
+      !attemptCleanup(() =>
+        this.#lifetimeSignal?.removeEventListener('abort', this.#onLifetimeAbort),
+      )
+    ) {
+      this.#portFault = true;
+    }
+  }
+
+  #closeInternal(notifyPeer: boolean, portFault: boolean): Promise<void> {
+    if (portFault) this.#portFault = true;
+    if (this.#closePromise) return this.#closePromise;
+
+    let resolveClose!: () => void;
+    let rejectClose!: (reason: unknown) => void;
+    const closePromise = new Promise<void>((resolve, reject) => {
+      resolveClose = resolve;
+      rejectClose = reject;
+    });
+    // Claim the one public result and the cleanup right before any adapter
+    // callback. postMessage(), listener detach, source.close(), and port.close()
+    // are all allowed to synchronously reenter close() in same-realm adapters.
+    this.#closePromise = closePromise;
+    this.#closed = true;
+    void closePromise.catch(() => undefined);
+
     if (notifyPeer) {
       try {
         this.#port.postMessage(canonicalRecord({ type: CLOSED_TYPE, generation: this.generation }));
@@ -720,11 +866,7 @@ export class EncodedSourcePortBroker {
         // A close/messageerror event or owner signal remains authoritative.
       }
     }
-    this.#closed = true;
-    this.#port.removeEventListener('message', this.#onMessage);
-    this.#port.removeEventListener('messageerror', this.#onMessageError);
-    removeCloseListener(this.#port, this.#onPortClose);
-    this.#lifetimeSignal?.removeEventListener('abort', this.#onLifetimeAbort);
+    this.#detachPortHandlers();
     for (const task of this.#activeReads.values()) {
       task.cancelled = true;
       if (!task.controller.signal.aborted) {
@@ -733,7 +875,7 @@ export class EncodedSourcePortBroker {
     }
     this.#activeReads.clear();
     this.#awaitingSettlement.clear();
-    closePort(this.#port);
+    if (!closePort(this.#port)) this.#portFault = true;
 
     if (!this.#sourceCloseStarted) {
       this.#sourceCloseStarted = true;
@@ -744,6 +886,29 @@ export class EncodedSourcePortBroker {
         this.#sourceClosePromise = Promise.resolve();
       }
     }
+
+    const physicalClosePromise = this.#ensurePhysicalClosePromise();
+    let portRetirementPromise: Promise<void>;
+    if (this.#portFault) {
+      this.#portLifecycleLease.forceUnconfirmed();
+      portRetirementPromise = Promise.resolve();
+    } else {
+      portRetirementPromise = confirmFilePlaybackUniversalLifecycleRetirement(
+        this.#portLifecycleLease,
+        () =>
+          physicalClosePromise.then(() => {
+            if (this.#portFault) {
+              throw new Error('Encoded source broker port cleanup could not be confirmed');
+            }
+          }),
+      ).then(() => undefined);
+    }
+
+    void Promise.all([physicalClosePromise, portRetirementPromise]).then(
+      () => resolveClose(),
+      (error: unknown) => rejectClose(error),
+    );
+    return closePromise;
   }
 }
 
@@ -752,7 +917,14 @@ interface PendingClientRead extends ReadCorrelation {
   readonly resolve: (bytes: Uint8Array) => void;
   readonly reject: (error: unknown) => void;
   readonly onAbort: () => void;
-  readonly timeout: ReturnType<typeof globalThis.setTimeout>;
+  timeout: ReturnType<typeof globalThis.setTimeout> | null;
+  readonly lifecycleLease: FilePlaybackUniversalLifecycleLease;
+  timerLifecycleLease: FilePlaybackUniversalLifecycleLease | null;
+  timerArming: boolean;
+  timerFired: boolean;
+  timerRetireRequested: boolean;
+  listenerState: 'not-installed' | 'installing' | 'installed' | 'retired' | 'unconfirmed';
+  listenerRetireRequested: boolean;
 }
 
 interface CancelledClientRead {
@@ -761,6 +933,11 @@ interface CancelledClientRead {
 }
 
 export interface EncodedSourcePortClientOptions {
+  /**
+   * The caller retains ownership if validation or transactional listener
+   * installation throws. Successful construction transfers the endpoint to
+   * the client, including when an installation callback closes it reentrantly.
+   */
   readonly port: MessagePort;
   /** Must match the broker's playback-source lifetime generation. */
   readonly generation: number;
@@ -789,38 +966,91 @@ export class EncodedSourcePortClient {
   readonly #pendingReads = new Map<number, PendingClientRead>();
   readonly #cancelledReads = new Map<number, CancelledClientRead>();
   readonly #onMessage = (event: MessageEvent<unknown>): void => this.#receive(event.data);
-  readonly #onMessageError = (): void => this.#closeInternal(new EncodedSourcePortError('closed'));
-  readonly #onPortClose = (): void => this.#closeInternal(new EncodedSourcePortError('closed'));
+  readonly #onMessageError = (): void => {
+    const error = new EncodedSourcePortError('closed');
+    this.#closeInternal(error, error);
+  };
+  readonly #onPortClose = (): void => {
+    const error = new EncodedSourcePortError('closed');
+    this.#closeInternal(error, error);
+  };
   #nextRequestId = 1;
   #decoderGeneration = 1;
   #closed = false;
   #dispatching = false;
+  #closePromise: Promise<void> | null = null;
+  #closeCleanupStarted = false;
+  #resolveClose: (() => void) | null = null;
+  #rejectClose: ((reason: unknown) => void) | null = null;
+  readonly #closeFailures: unknown[] = [];
+  #constructionPending = true;
+  #closeSettlementPending = false;
+  #physicalSetupCount = 0;
 
   constructor(options: EncodedSourcePortClientOptions) {
-    if (!isPositiveSafeInteger(options.generation)) {
+    const port = options.port;
+    const generation = options.generation;
+    const size = options.size;
+    const maxPendingReads = options.maxPendingReads;
+    const maxCancelledReads = options.maxCancelledReads;
+    const responseTimeoutMs = options.responseTimeoutMs;
+    if (!isPositiveSafeInteger(generation)) {
       throw new RangeError('generation must be a positive safe integer');
     }
-    validateExactRead(options.size, 0, 0);
-    this.#port = options.port;
-    this.generation = options.generation;
-    this.size = options.size;
+    validateExactRead(size, 0, 0);
+    this.#port = port;
+    this.generation = generation;
+    this.size = size;
     this.#maxPendingReads = configuredLimit(
-      options.maxPendingReads,
+      maxPendingReads,
       ENCODED_SOURCE_PORT_DEFAULT_MAX_PENDING_READS,
       ENCODED_SOURCE_PORT_MAX_PENDING_READS,
       'maxPendingReads',
     );
     this.#maxCancelledReads = configuredLimit(
-      options.maxCancelledReads,
+      maxCancelledReads,
       ENCODED_SOURCE_PORT_DEFAULT_MAX_CANCELLED_READS,
       ENCODED_SOURCE_PORT_MAX_CANCELLED_READS,
       'maxCancelledReads',
     );
-    this.#responseTimeoutMs = configuredTimeout(options.responseTimeoutMs);
-    this.#port.addEventListener('message', this.#onMessage);
-    this.#port.addEventListener('messageerror', this.#onMessageError);
-    addCloseListener(this.#port, this.#onPortClose);
-    startPort(this.#port);
+    this.#responseTimeoutMs = configuredTimeout(responseTimeoutMs);
+
+    try {
+      this.#port.addEventListener('message', this.#onMessage);
+      if (this.#closed) {
+        this.#detachPortHandlers(this.#closeFailures);
+        return;
+      }
+      this.#port.addEventListener('messageerror', this.#onMessageError);
+      if (this.#closed) {
+        this.#detachPortHandlers(this.#closeFailures);
+        return;
+      }
+      addCloseListener(this.#port, this.#onPortClose);
+      if (this.#closed) {
+        this.#detachPortHandlers(this.#closeFailures);
+        return;
+      }
+      startPort(this.#port);
+      if (this.#closed) this.#detachPortHandlers(this.#closeFailures);
+    } catch (error) {
+      if (this.#closed) {
+        this.#closeFailures.push(error);
+        this.#detachPortHandlers(this.#closeFailures);
+        return;
+      }
+      const rollbackFailures: unknown[] = [];
+      this.#detachPortHandlers(rollbackFailures);
+      if (rollbackFailures.length === 0) throw error;
+      throw new AggregateError(
+        [error, ...rollbackFailures],
+        'Encoded source port client installation rollback failed',
+        { cause: error },
+      );
+    } finally {
+      this.#constructionPending = false;
+      this.#settleCloseIfReady();
+    }
   }
 
   get closed(): boolean {
@@ -887,6 +1117,14 @@ export class EncodedSourcePortClient {
     });
 
     return new Promise<Uint8Array>((resolve, reject) => {
+      const lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('pendingReads');
+      let timerLifecycleLease: FilePlaybackUniversalLifecycleLease;
+      try {
+        timerLifecycleLease = acquireFilePlaybackUniversalLifecycleLease('timers');
+      } catch (error) {
+        lifecycleLease.beginRetire().release();
+        throw error;
+      }
       const onAbort = (): void => {
         const pending = this.#pendingReads.get(requestId);
         if (pending !== entry) return;
@@ -898,26 +1136,121 @@ export class EncodedSourcePortClient {
         }
         this.#cancelPending(entry, reason);
       };
-      const timeout = globalThis.setTimeout(() => {
-        if (this.#pendingReads.get(requestId) !== entry) return;
-        // MessagePort may accept postMessage after its peer was disentangled.
-        // A bounded response deadline prevents that silent case from hanging a
-        // decoder read forever.
-        this.#closeInternal(new EncodedSourcePortError('closed'));
-      }, this.#responseTimeoutMs);
-      unrefTimer(timeout);
+
       const entry: PendingClientRead = {
         ...correlation,
         signal,
         resolve,
         reject,
         onAbort,
-        timeout,
+        timeout: null,
+        lifecycleLease,
+        timerLifecycleLease,
+        timerArming: true,
+        timerFired: false,
+        timerRetireRequested: false,
+        listenerState: 'not-installed',
+        listenerRetireRequested: false,
       };
       this.#pendingReads.set(requestId, entry);
-      signal.addEventListener('abort', onAbort, { once: true });
+      this.#beginPhysicalSetup();
+      let timerSetupError: unknown | null = null;
+      try {
+        const timeout = globalThis.setTimeout(() => {
+          if (this.#pendingReads.get(requestId) !== entry) return;
+          entry.timerFired = true;
+          if (!entry.timerArming) this.#retirePendingTimer(entry);
+          // MessagePort may accept postMessage after its peer was disentangled.
+          // A bounded response deadline prevents that silent case from hanging a
+          // decoder read forever.
+          const error = new EncodedSourcePortError('closed');
+          this.#closeInternal(error, error);
+        }, this.#responseTimeoutMs);
+        entry.timerArming = false;
+        if (entry.timerFired) {
+          this.#retirePendingTimer(entry);
+        } else {
+          entry.timeout = timeout;
+          if (
+            entry.timerRetireRequested ||
+            this.#pendingReads.get(requestId) !== entry ||
+            this.#closed
+          ) {
+            this.#retirePendingTimer(entry, this.#closeFailures);
+          } else {
+            unrefTimer(timeout);
+          }
+        }
+      } catch (error) {
+        timerSetupError = error;
+        entry.timerArming = false;
+        if (entry.timerFired || entry.timeout !== null) {
+          this.#retirePendingTimer(
+            entry,
+            this.#closeCleanupStarted ? this.#closeFailures : undefined,
+          );
+        } else {
+          const timerLease = entry.timerLifecycleLease;
+          entry.timerLifecycleLease = null;
+          timerLease?.forceUnconfirmed();
+        }
+        if (this.#closeCleanupStarted) this.#closeFailures.push(error);
+      } finally {
+        this.#endPhysicalSetup();
+      }
 
-      if (signal.aborted) {
+      if (timerSetupError !== null) {
+        if (this.#pendingReads.get(requestId) === entry) this.#pendingReads.delete(requestId);
+        this.#retirePendingListener(entry);
+        reject(timerSetupError);
+        return;
+      }
+      if (this.#pendingReads.get(requestId) !== entry || this.#closed) return;
+
+      this.#beginPhysicalSetup();
+      entry.listenerState = 'installing';
+      let listenerSetupError: unknown | null = null;
+      try {
+        signal.addEventListener('abort', onAbort, { once: true });
+      } catch (error) {
+        listenerSetupError = error;
+      } finally {
+        entry.listenerState = 'installed';
+        if (
+          entry.listenerRetireRequested ||
+          this.#pendingReads.get(requestId) !== entry ||
+          this.#closed ||
+          listenerSetupError !== null
+        ) {
+          this.#retirePendingListener(
+            entry,
+            this.#closeCleanupStarted ? this.#closeFailures : undefined,
+          );
+        }
+        if (listenerSetupError !== null && this.#closeCleanupStarted) {
+          this.#closeFailures.push(listenerSetupError);
+        }
+        this.#endPhysicalSetup();
+      }
+      if (listenerSetupError !== null) {
+        if (this.#pendingReads.get(requestId) === entry) this.#pendingReads.delete(requestId);
+        this.#retirePendingTimer(entry);
+        reject(listenerSetupError);
+        return;
+      }
+      if (this.#pendingReads.get(requestId) !== entry || this.#closed) return;
+
+      let signalAborted: boolean;
+      try {
+        signalAborted = signal.aborted;
+      } catch (error) {
+        if (this.#pendingReads.get(requestId) === entry) this.#pendingReads.delete(requestId);
+        this.#retirePendingResources(entry);
+        reject(error);
+        return;
+      }
+      if (this.#pendingReads.get(requestId) !== entry || this.#closed) return;
+      if (signalAborted) {
         onAbort();
         return;
       }
@@ -931,17 +1264,25 @@ export class EncodedSourcePortClient {
 
   /** Ends the playback-source lifetime; decoder seeks must not call this. */
   close(): Promise<void> {
-    if (this.#closed) return Promise.resolve();
-    this.#postBestEffort(canonicalRecord({ type: CLOSE_TYPE, generation: this.generation }));
-    this.#closeInternal(new EncodedSourceClosedError());
-    return Promise.resolve();
+    if (this.#closePromise) return this.#closePromise;
+    const closePromise = this.#claimClosePromise();
+    // Claim cleanup before the worker-retired notification. A same-realm port
+    // may synchronously invoke close(), messageerror, or close listeners here.
+    this.#closeCleanupStarted = true;
+    this.#closed = true;
+    try {
+      this.#port.postMessage(canonicalRecord({ type: CLOSE_TYPE, generation: this.generation }));
+    } catch (cause) {
+      this.#closeFailures.push(cause);
+    }
+    this.#finishClose(new EncodedSourceClosedError());
+    return closePromise;
   }
 
   #cancelPending(pending: PendingClientRead, reason: unknown): void {
     if (this.#pendingReads.get(pending.requestId) !== pending) return;
     this.#pendingReads.delete(pending.requestId);
-    globalThis.clearTimeout(pending.timeout);
-    pending.signal.removeEventListener('abort', pending.onAbort);
+    this.#retirePendingResources(pending);
     pending.reject(reason);
 
     if (this.#cancelledReads.size >= this.#maxCancelledReads) {
@@ -1045,10 +1386,78 @@ export class EncodedSourcePortClient {
   #settlePending(pending: PendingClientRead, error: unknown | null, bytes?: Uint8Array): void {
     if (this.#pendingReads.get(pending.requestId) !== pending) return;
     this.#pendingReads.delete(pending.requestId);
-    globalThis.clearTimeout(pending.timeout);
-    pending.signal.removeEventListener('abort', pending.onAbort);
+    this.#retirePendingResources(pending);
     if (error !== null) pending.reject(error);
     else pending.resolve(bytes ?? new Uint8ArrayIntrinsic(0));
+  }
+
+  #retirePendingResources(pending: PendingClientRead, failures?: unknown[]): void {
+    this.#retirePendingTimer(pending, failures);
+    this.#retirePendingListener(pending, failures);
+  }
+
+  #retirePendingTimer(pending: PendingClientRead, failures?: unknown[]): void {
+    const timerLease = pending.timerLifecycleLease;
+    if (!timerLease) return;
+    if (pending.timerArming) {
+      pending.timerRetireRequested = true;
+      return;
+    }
+
+    pending.timerLifecycleLease = null;
+    pending.timerRetireRequested = false;
+    const timer = pending.timeout;
+    pending.timeout = null;
+    if (pending.timerFired) {
+      timerLease.beginRetire().release();
+      return;
+    }
+    if (timer === null) {
+      timerLease.forceUnconfirmed();
+      return;
+    }
+    try {
+      globalThis.clearTimeout(timer);
+      timerLease.beginRetire().release();
+    } catch (cause) {
+      failures?.push(cause);
+      timerLease.forceUnconfirmed();
+    }
+  }
+
+  #retirePendingListener(pending: PendingClientRead, failures?: unknown[]): void {
+    if (pending.listenerState === 'retired' || pending.listenerState === 'unconfirmed') return;
+    if (pending.listenerState === 'installing') {
+      pending.listenerRetireRequested = true;
+      return;
+    }
+    if (pending.listenerState === 'not-installed') {
+      pending.listenerState = 'retired';
+      pending.listenerRetireRequested = false;
+      pending.lifecycleLease.beginRetire().release();
+      return;
+    }
+
+    pending.listenerRetireRequested = false;
+    try {
+      pending.signal.removeEventListener('abort', pending.onAbort);
+    } catch (cause) {
+      failures?.push(cause);
+      pending.listenerState = 'unconfirmed';
+      pending.lifecycleLease.forceUnconfirmed();
+      return;
+    }
+    pending.listenerState = 'retired';
+    pending.lifecycleLease.beginRetire().release();
+  }
+
+  #beginPhysicalSetup(): void {
+    this.#physicalSetupCount += 1;
+  }
+
+  #endPhysicalSetup(): void {
+    this.#physicalSetupCount = Math.max(0, this.#physicalSetupCount - 1);
+    this.#settleCloseIfReady();
   }
 
   #post(message: PortRecord): boolean {
@@ -1056,8 +1465,8 @@ export class EncodedSourcePortClient {
     try {
       this.#port.postMessage(message);
       return true;
-    } catch {
-      this.#closeInternal(new EncodedSourcePortError('closed'));
+    } catch (cause) {
+      this.#closeInternal(new EncodedSourcePortError('closed'), cause);
       return false;
     }
   }
@@ -1066,25 +1475,93 @@ export class EncodedSourcePortClient {
     if (this.#closed) return;
     try {
       this.#port.postMessage(message);
-    } catch {
-      this.#closeInternal(new EncodedSourcePortError('closed'));
+    } catch (cause) {
+      this.#closeInternal(new EncodedSourcePortError('closed'), cause);
     }
   }
 
-  #closeInternal(error: unknown): void {
-    if (this.#closed) return;
+  #claimClosePromise(): Promise<void> {
+    if (this.#closePromise) return this.#closePromise;
+    let resolveClose!: () => void;
+    let rejectClose!: (reason: unknown) => void;
+    const closePromise = new Promise<void>((resolve, reject) => {
+      resolveClose = resolve;
+      rejectClose = reject;
+    });
+    this.#closePromise = closePromise;
+    this.#resolveClose = resolveClose;
+    this.#rejectClose = rejectClose;
+    void closePromise.catch(() => undefined);
+    return closePromise;
+  }
+
+  #closeInternal(error: unknown, physicalFailure?: unknown): void {
+    this.#claimClosePromise();
+    if (physicalFailure !== undefined) this.#closeFailures.push(physicalFailure);
+    if (this.#closeCleanupStarted) return;
+    this.#closeCleanupStarted = true;
     this.#closed = true;
-    this.#port.removeEventListener('message', this.#onMessage);
-    this.#port.removeEventListener('messageerror', this.#onMessageError);
-    removeCloseListener(this.#port, this.#onPortClose);
+    this.#finishClose(error);
+  }
+
+  #finishClose(error: unknown): void {
+    const attempt = (cleanup: () => void): void => {
+      try {
+        cleanup();
+      } catch (cause) {
+        this.#closeFailures.push(cause);
+      }
+    };
+    this.#detachPortHandlers(this.#closeFailures);
     const reads = [...this.#pendingReads.values()];
     this.#pendingReads.clear();
     this.#cancelledReads.clear();
     for (const pending of reads) {
-      globalThis.clearTimeout(pending.timeout);
-      pending.signal.removeEventListener('abort', pending.onAbort);
-      pending.reject(error);
+      this.#retirePendingResources(pending, this.#closeFailures);
+      attempt(() => pending.reject(error));
     }
-    closePort(this.#port);
+    attempt(() => this.#port.close());
+    this.#closeSettlementPending = true;
+    this.#settleCloseIfReady();
+  }
+
+  #detachPortHandlers(failures: unknown[]): void {
+    const attempt = (cleanup: () => void): void => {
+      try {
+        cleanup();
+      } catch (cause) {
+        failures.push(cause);
+      }
+    };
+    attempt(() => this.#port.removeEventListener('message', this.#onMessage));
+    attempt(() => this.#port.removeEventListener('messageerror', this.#onMessageError));
+    attempt(() => removeCloseListener(this.#port, this.#onPortClose));
+  }
+
+  #settleCloseIfReady(): void {
+    if (
+      !this.#closeSettlementPending ||
+      this.#constructionPending ||
+      this.#physicalSetupCount !== 0
+    ) {
+      return;
+    }
+    const resolveClose = this.#resolveClose;
+    const rejectClose = this.#rejectClose;
+    this.#resolveClose = null;
+    this.#rejectClose = null;
+    if (!resolveClose || !rejectClose) return;
+    if (this.#closeFailures.length === 0) {
+      resolveClose();
+    } else if (this.#closeFailures.length === 1) {
+      rejectClose(this.#closeFailures[0]);
+    } else {
+      rejectClose(
+        new AggregateError(
+          this.#closeFailures,
+          'Encoded source port physical cleanup could not be confirmed',
+        ),
+      );
+    }
   }
 }

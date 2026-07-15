@@ -23,6 +23,7 @@ import type {
   HostLocalTrackWarmResult,
   HostCurrentPlaybackTimelineCommittedEvent,
   HostCurrentPlaybackTransitionScheduledEvent,
+  HostRemoteEndRequiredEvent,
   HostPeerPlaybackPublication,
   HostPeerRangeManifestPublication,
   HostPeerRangeSource,
@@ -873,6 +874,7 @@ interface HarnessOptions {
   readonly onTransitionScheduled?: (
     event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
   ) => void;
+  readonly onRemoteEndRequired?: (event: Readonly<HostRemoteEndRequiredEvent>) => void;
   readonly onTimelineCommitted?: (
     event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
   ) => void;
@@ -960,6 +962,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     ...(options.onTransitionScheduled
       ? { onTransitionScheduled: options.onTransitionScheduled }
       : {}),
+    ...(options.onRemoteEndRequired ? { onRemoteEndRequired: options.onRemoteEndRequired } : {}),
     ...(options.onTimelineCommitted ? { onTimelineCommitted: options.onTimelineCommitted } : {}),
     runtimeForTests: {
       initAudioForTests: initAudio,
@@ -1431,13 +1434,19 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
 
   it('forwards exact transition observers to its single engine lifetime', async () => {
     const onTransitionScheduled = vi.fn();
+    const onRemoteEndRequired = vi.fn();
     const onTimelineCommitted = vi.fn();
-    const setup = makeHarness({ onTransitionScheduled, onTimelineCommitted });
+    const setup = makeHarness({
+      onTransitionScheduled,
+      onRemoteEndRequired,
+      onTimelineCommitted,
+    });
 
     await track(setup.room, Q1, file('observer.mp3'));
 
     expect(setup.engines).toHaveLength(1);
     expect(setup.engines[0]?.options.onTransitionScheduled).toBe(onTransitionScheduled);
+    expect(setup.engines[0]?.options.onRemoteEndRequired).toBe(onRemoteEndRequired);
     expect(setup.engines[0]?.options.onTimelineCommitted).toBe(onTimelineCommitted);
   });
 

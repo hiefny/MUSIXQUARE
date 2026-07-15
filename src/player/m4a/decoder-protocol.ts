@@ -13,7 +13,7 @@ import {
 } from './start-plan.ts';
 
 /** Worker-control version; PCM supply keeps its independent common version. */
-export const M4A_AAC_DECODER_PROTOCOL_VERSION = 1 as const;
+export const M4A_AAC_DECODER_PROTOCOL_VERSION = 2 as const;
 export const M4A_AAC_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ = 1_000_000;
 export const M4A_AAC_DECODER_MAX_ERROR_CODE_LENGTH = 256;
 export const M4A_AAC_DECODER_MAX_ERROR_MESSAGE_LENGTH = 1_024;
@@ -117,7 +117,18 @@ export type M4aAacDecoderEvent =
         readonly type: 'decode-progress' | 'decoder-eof';
       })
   | (M4aAacDecoderEventIdentity & {
-      readonly type: 'decoder-stopped';
+      readonly type: 'decoder-stopped' | 'decoder-retired';
+    })
+  | (M4aAacDecoderEventIdentity & {
+      readonly type: 'worker-retired';
+      readonly retryWaitSequence: number;
+      readonly activeRetryWaits: number;
+    })
+  | (M4aAacDecoderEventIdentity & {
+      readonly type: 'retry-wait-delta';
+      readonly delta: -1 | 1;
+      readonly retryWaitSequence: number;
+      readonly activeRetryWaits: number;
     })
   | (M4aAacDecoderEventIdentity & {
       readonly type: 'decoder-error';
@@ -454,15 +465,56 @@ export function parseM4aAacDecoderEvent(value: unknown): Readonly<M4aAacDecoderE
       producedOutputFrames: record.producedOutputFrames as number,
     });
   }
-  if (record.type === 'decoder-stopped') {
+  if (record.type === 'decoder-stopped' || record.type === 'decoder-retired') {
     return hasExactKeys(record, EVENT_IDENTITY_KEYS)
       ? Object.freeze({
           protocolVersion: M4A_AAC_DECODER_PROTOCOL_VERSION,
-          type: 'decoder-stopped',
+          type: record.type,
           sourceLifetimeGeneration: record.sourceLifetimeGeneration,
           decoderGeneration: record.decoderGeneration,
         })
       : null;
+  }
+  if (record.type === 'worker-retired') {
+    if (
+      !hasExactKeys(record, [...EVENT_IDENTITY_KEYS, 'retryWaitSequence', 'activeRetryWaits']) ||
+      !validCounter(record.retryWaitSequence) ||
+      !validCounter(record.activeRetryWaits)
+    ) {
+      return null;
+    }
+    return Object.freeze({
+      protocolVersion: M4A_AAC_DECODER_PROTOCOL_VERSION,
+      type: 'worker-retired' as const,
+      sourceLifetimeGeneration: record.sourceLifetimeGeneration,
+      decoderGeneration: record.decoderGeneration,
+      retryWaitSequence: record.retryWaitSequence,
+      activeRetryWaits: record.activeRetryWaits,
+    });
+  }
+  if (record.type === 'retry-wait-delta') {
+    if (
+      !hasExactKeys(record, [
+        ...EVENT_IDENTITY_KEYS,
+        'delta',
+        'retryWaitSequence',
+        'activeRetryWaits',
+      ]) ||
+      (record.delta !== -1 && record.delta !== 1) ||
+      !validCounter(record.retryWaitSequence) ||
+      !validCounter(record.activeRetryWaits)
+    ) {
+      return null;
+    }
+    return Object.freeze({
+      protocolVersion: M4A_AAC_DECODER_PROTOCOL_VERSION,
+      type: 'retry-wait-delta' as const,
+      sourceLifetimeGeneration: record.sourceLifetimeGeneration,
+      decoderGeneration: record.decoderGeneration,
+      delta: record.delta,
+      retryWaitSequence: record.retryWaitSequence,
+      activeRetryWaits: record.activeRetryWaits,
+    });
   }
   if (record.type === 'decoder-error') {
     if (

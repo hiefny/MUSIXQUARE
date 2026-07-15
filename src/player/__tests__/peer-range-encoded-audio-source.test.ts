@@ -11,6 +11,7 @@ import {
   type PeerRangeReadRequest,
   type PeerRangeTransport,
 } from '../sources/peer-range-encoded-audio-source.ts';
+import { getFilePlaybackUniversalLifecycleSnapshotForTests as getFilePlaybackUniversalLifecycleSnapshot } from '../diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -169,6 +170,84 @@ describe('PeerRangeEncodedAudioSource', () => {
     await expect(encoded.readAt(0, 1, new AbortController().signal)).rejects.toBeInstanceOf(
       EncodedSourceClosedError,
     );
+  });
+
+  it('claims one close barrier before a hostile transport abort listener reenters close', async () => {
+    const pending = deferred<Uint8Array>();
+    const started = deferred<void>();
+    const closeHandle = vi.fn(async () => undefined);
+    let encoded!: PeerRangeEncodedAudioSource;
+    let reentrantClose: Promise<void> | null = null;
+    encoded = source({
+      read: (request) => {
+        request.signal.addEventListener(
+          'abort',
+          () => {
+            reentrantClose = encoded.close();
+          },
+          { once: true },
+        );
+        started.resolve();
+        return pending.promise;
+      },
+      closeHandle,
+    });
+    const read = encoded.readAt(0, 4, new AbortController().signal);
+    await started.promise;
+    const before = getFilePlaybackUniversalLifecycleSnapshot();
+
+    const firstClose = encoded.close();
+    expect(reentrantClose).toBe(firstClose);
+    expect(encoded.close()).toBe(firstClose);
+    await expect(firstClose).resolves.toBeUndefined();
+    expect(closeHandle).toHaveBeenCalledOnce();
+
+    pending.resolve(new Uint8Array(4));
+    await expect(read).rejects.toBeInstanceOf(EncodedSourceClosedError);
+    await vi.waitFor(() => {
+      const after = getFilePlaybackUniversalLifecycleSnapshot();
+      expect(after.kinds.encodedSources.live).toBe(before.kinds.encodedSources.live - 1);
+      expect(after.kinds.encodedSources.retiring).toBe(before.kinds.encodedSources.retiring);
+    });
+    const after = getFilePlaybackUniversalLifecycleSnapshot();
+    expect(after.invariantFaults).toBe(before.invariantFaults);
+    expect(after.kinds.encodedSources.unconfirmed).toBe(before.kinds.encodedSources.unconfirmed);
+  });
+
+  it('keeps encoded-source retirement pending until an abort-resistant transport read settles', async () => {
+    const pending = deferred<Uint8Array>();
+    const started = deferred<void>();
+    const before = getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources;
+    const encoded = source({
+      read: async () => {
+        started.resolve();
+        return pending.promise;
+      },
+      closeHandle: async () => undefined,
+    });
+    const read = encoded.readAt(0, 4, new AbortController().signal);
+    await started.promise;
+
+    const closing = encoded.close();
+    const retiring = getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources;
+    expect(retiring.live).toBe(before.live);
+    expect(retiring.retiring).toBe(before.retiring + 1);
+    await expect(closing).resolves.toBeUndefined();
+    expect(getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources.retiring).toBe(
+      before.retiring + 1,
+    );
+
+    pending.resolve(new Uint8Array(4));
+    await expect(read).rejects.toBeInstanceOf(EncodedSourceClosedError);
+    await vi.waitFor(() =>
+      expect(getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources.retiring).toBe(
+        before.retiring,
+      ),
+    );
+    const retired = getFilePlaybackUniversalLifecycleSnapshot().kinds.encodedSources;
+    expect(retired.live).toBe(before.live);
+    expect(retired.retiring).toBe(before.retiring);
+    expect(retired.unconfirmed).toBe(before.unconfirmed);
   });
 
   it('never dispatches a deferred read after same-tick close or caller abort', async () => {

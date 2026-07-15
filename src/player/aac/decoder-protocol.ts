@@ -12,7 +12,7 @@ import type { AdtsSeekIndexPoint } from './seek-index.ts';
 import { ADTS_CORE_FRAMES_PER_ACCESS_UNIT, type AdtsCoreTimeline } from './timeline.ts';
 
 /** Worker-control version; PCM supply keeps its independent common version. */
-export const AAC_DECODER_PROTOCOL_VERSION = 1 as const;
+export const AAC_DECODER_PROTOCOL_VERSION = 2 as const;
 export const AAC_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ = 1_000_000;
 export const AAC_DECODER_MAX_ERROR_CODE_LENGTH = 256;
 export const AAC_DECODER_MAX_ERROR_MESSAGE_LENGTH = 1_024;
@@ -166,7 +166,18 @@ export type AacDecoderEvent =
       readonly producedOutputFrames: number;
     })
   | (AacDecoderEventIdentity & {
-      readonly type: 'decoder-stopped';
+      readonly type: 'decoder-stopped' | 'decoder-retired';
+    })
+  | (AacDecoderEventIdentity & {
+      readonly type: 'worker-retired';
+      readonly retryWaitSequence: number;
+      readonly activeRetryWaits: number;
+    })
+  | (AacDecoderEventIdentity & {
+      readonly type: 'retry-wait-delta';
+      readonly delta: -1 | 1;
+      readonly retryWaitSequence: number;
+      readonly activeRetryWaits: number;
     })
   | (AacDecoderEventIdentity & {
       readonly type: 'decoder-error';
@@ -751,15 +762,56 @@ export function parseAacDecoderEvent(value: unknown): Readonly<AacDecoderEvent> 
       producedOutputFrames: record.producedOutputFrames,
     });
   }
-  if (record.type === 'decoder-stopped') {
+  if (record.type === 'decoder-stopped' || record.type === 'decoder-retired') {
     return hasExactKeys(record, EVENT_IDENTITY_KEYS)
       ? Object.freeze({
           protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
-          type: 'decoder-stopped',
+          type: record.type,
           sourceLifetimeGeneration: record.sourceLifetimeGeneration,
           decoderGeneration: record.decoderGeneration,
         })
       : null;
+  }
+  if (record.type === 'worker-retired') {
+    if (
+      !hasExactKeys(record, [...EVENT_IDENTITY_KEYS, 'retryWaitSequence', 'activeRetryWaits']) ||
+      !validCounter(record.retryWaitSequence) ||
+      !validCounter(record.activeRetryWaits)
+    ) {
+      return null;
+    }
+    return Object.freeze({
+      protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
+      type: 'worker-retired' as const,
+      sourceLifetimeGeneration: record.sourceLifetimeGeneration,
+      decoderGeneration: record.decoderGeneration,
+      retryWaitSequence: record.retryWaitSequence,
+      activeRetryWaits: record.activeRetryWaits,
+    });
+  }
+  if (record.type === 'retry-wait-delta') {
+    if (
+      !hasExactKeys(record, [
+        ...EVENT_IDENTITY_KEYS,
+        'delta',
+        'retryWaitSequence',
+        'activeRetryWaits',
+      ]) ||
+      (record.delta !== -1 && record.delta !== 1) ||
+      !validCounter(record.retryWaitSequence) ||
+      !validCounter(record.activeRetryWaits)
+    ) {
+      return null;
+    }
+    return Object.freeze({
+      protocolVersion: AAC_DECODER_PROTOCOL_VERSION,
+      type: 'retry-wait-delta' as const,
+      sourceLifetimeGeneration: record.sourceLifetimeGeneration,
+      decoderGeneration: record.decoderGeneration,
+      delta: record.delta,
+      retryWaitSequence: record.retryWaitSequence,
+      activeRetryWaits: record.activeRetryWaits,
+    });
   }
   if (record.type === 'decoder-error') {
     if (

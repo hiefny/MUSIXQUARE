@@ -8,7 +8,6 @@ import {
 import { getPrimedFilePlaybackProductAudio } from '../audio/file-playback-audio-readiness.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
-import { delay } from '../core/timers.ts';
 import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
 import type { DataConnection, QueueItemId } from '../types/index.ts';
 import {
@@ -25,8 +24,17 @@ import {
 } from './file-playback-bounded-route-policy.ts';
 import { FilePlaybackManager } from './file-playback-manager.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
+import {
+  acquireFilePlaybackUniversalLifecycleLease,
+  type FilePlaybackUniversalLifecycleLease,
+} from './diagnostics/file-playback-universal-lifecycle-diagnostics.ts';
+import { confirmFilePlaybackUniversalLifecycleRetirement } from './diagnostics/file-playback-universal-lifecycle-retirement.ts';
+import { createFilePlaybackUniversalLifecycleDelay } from './diagnostics/file-playback-universal-lifecycle-delay.ts';
 import type {
   HostLocalTrackSourceLease,
+  HostCurrentPlaybackTimelineCommittedEvent,
+  HostCurrentPlaybackTransitionScheduledEvent,
+  HostRemoteEndRequiredEvent,
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
   HostPeerPlaybackPublication,
@@ -103,6 +111,47 @@ const DEFAULT_ENABLED = isFilePlaybackEngineV2Enabled();
 const FILE_PLAYBACK_PRODUCT_MAX_PEER_ENCODED_BYTES = 5 * 1024 * 1024 * 1024;
 const FILE_PLAYBACK_PRODUCT_COHORT_ADMISSION_MS = 2_500;
 
+async function settlePhysicalCleanupStrictly(
+  tasks: readonly Promise<unknown>[],
+  message: string,
+): Promise<void> {
+  const settlements = await Promise.allSettled(tasks);
+  const failures = settlements
+    .filter((settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected')
+    .map((settlement) => settlement.reason);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, message);
+}
+
+function invokePhysicalCleanup(cleanup: () => void | PromiseLike<void>): Promise<void> {
+  try {
+    return Promise.resolve(cleanup());
+  } catch (cause) {
+    return Promise.reject(cause);
+  }
+}
+
+/**
+ * Owner failures can surface while the session router is still adopting a
+ * frame. Closing the transport on that same stack re-enters router mutation
+ * and obscures the original failure. Capture the exact adapter/connection and
+ * close it on the next microtask; no room-membership check belongs in the
+ * deferred callback because fail-closed adoption may already have retired the
+ * router record by then.
+ */
+function deferExactConnectionClose(
+  sessions: FilePlaybackProductRuntimeSessionAdapter,
+  connection: DataConnection,
+): void {
+  queueMicrotask(() => {
+    try {
+      sessions.closeConnection(connection);
+    } catch {
+      // The exact failed connection is already terminal.
+    }
+  });
+}
+
 type RuntimeState = 'idle' | 'initializing' | 'ready' | 'failed';
 
 export interface FilePlaybackProductRuntimeSessionAdapter {
@@ -152,6 +201,9 @@ interface FilePlaybackProductRuntimeSessionRouterPort {
 }
 
 interface FilePlaybackProductRuntimeHostMediaOwnerPort extends FilePlaybackProductSessionRouterHostMediaOwnerPort {
+  stageCurrentTransition(event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>): void;
+  stageRemoteEnd(event: Readonly<HostRemoteEndRequiredEvent>): void;
+  commitCurrentTimeline(event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>): void;
   publishCurrent(): Promise<Readonly<FilePlaybackProductHostPublicationCommit>>;
   publishSourceLease(
     authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>,
@@ -283,6 +335,7 @@ interface ActiveProductGuestRoom {
   readonly roomToken: object;
   readonly registry: FilePlaybackAssetRegistry;
   readonly manager: FilePlaybackManager;
+  readonly lifecycleLease: FilePlaybackUniversalLifecycleLease;
 }
 
 interface HostPreparedCohortEntry {
@@ -311,6 +364,15 @@ interface HostPreparedCohortCycle {
   readonly contexts: ReadonlySet<Readonly<FilePlaybackProductSessionRouterConnectionContext>>;
   readonly entries: HostPreparedCohortEntry[];
   status: 'preparing' | 'committed' | 'failed';
+}
+
+interface HostCurrentTransitionFanout {
+  readonly active: ActiveProductHostRoom;
+  readonly kind: HostCurrentPlaybackTimelineCommittedEvent['kind'];
+  readonly owners: ReadonlyMap<
+    FilePlaybackProductRuntimeHostMediaOwnerPort,
+    Readonly<FilePlaybackProductSessionRouterConnectionContext>
+  >;
 }
 
 interface NextLocalTrackWarmIntent {
@@ -403,6 +465,11 @@ function defaultHostMediaOwnerFactory(
   const owner = new FilePlaybackProductHostMediaOwner(options);
   return Object.freeze({
     ...owner.port(),
+    stageCurrentTransition: (event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) =>
+      owner.stageCurrentTransition(event),
+    stageRemoteEnd: (event: Readonly<HostRemoteEndRequiredEvent>) => owner.stageRemoteEnd(event),
+    commitCurrentTimeline: (event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) =>
+      owner.commitCurrentTimeline(event),
     publishCurrent: () => owner.publishCurrent(),
     publishSourceLease: (authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>) =>
       owner.publishSourceLease(authority),
@@ -505,6 +572,9 @@ function assertHostMediaOwnerPort(
     typeof value.adoptWireMessage !== 'function' ||
     typeof value.adoptPeerRangeControl !== 'function' ||
     typeof value.revoke !== 'function' ||
+    typeof value.stageCurrentTransition !== 'function' ||
+    typeof value.stageRemoteEnd !== 'function' ||
+    typeof value.commitCurrentTimeline !== 'function' ||
     typeof value.publishCurrent !== 'function' ||
     typeof value.publishSourceLease !== 'function' ||
     typeof value.retireSourceLease !== 'function' ||
@@ -559,11 +629,15 @@ function createBoundedHostPublicationTask<T>(
   let settled = false;
   let released = false;
   let timer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  let timerLifecycleLease: FilePlaybackUniversalLifecycleLease | null = null;
   const cleanup = () => {
     if (timer !== null) {
       globalThis.clearTimeout(timer);
       timer = null;
     }
+    const timerLease = timerLifecycleLease;
+    timerLifecycleLease = null;
+    timerLease?.beginRetire().release();
     signal.removeEventListener('abort', onAbort);
     if (!released) {
       released = true;
@@ -592,10 +666,24 @@ function createBoundedHostPublicationTask<T>(
   if (signal.aborted) {
     onAbort();
   } else {
-    timer = globalThis.setTimeout(() => {
-      const error = new Error('File playback product prepared publication exceeded offer lifetime');
-      if (rejectOnce(error)) onDeadline(error);
-    }, FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS);
+    try {
+      timerLifecycleLease = acquireFilePlaybackUniversalLifecycleLease('timers');
+      timer = globalThis.setTimeout(() => {
+        timer = null;
+        const timerLease = timerLifecycleLease;
+        timerLifecycleLease = null;
+        timerLease?.beginRetire().release();
+        const error = new Error(
+          'File playback product prepared publication exceeded offer lifetime',
+        );
+        if (rejectOnce(error)) onDeadline(error);
+      }, FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS);
+    } catch (cause) {
+      const timerLease = timerLifecycleLease;
+      timerLifecycleLease = null;
+      timerLease?.beginRetire().release();
+      rejectOnce(asError(cause));
+    }
   }
   sourceTask.then(
     (value) => {
@@ -733,6 +821,7 @@ export class FilePlaybackProductRuntime {
     Readonly<HostPreparedLocalTrack>,
     HostPreparedCohortCycle
   >();
+  #hostCurrentTransitionFanout: HostCurrentTransitionFanout | null = null;
   #hostRoomRetirement: Promise<void> = Promise.resolve();
   #nextLocalTrackWarmEpoch = 0;
   #nextLocalTrackWarmIntent: NextLocalTrackWarmIntent | null = null;
@@ -913,6 +1002,9 @@ export class FilePlaybackProductRuntime {
       room.roomGeneration !== active.roomGeneration ||
       !this.#ownsExactHostRoom(active)
     ) {
+      return Promise.resolve(false);
+    }
+    if (this.#hasLiveHostQueueAuthority(active, input.queueItemId)) {
       return Promise.resolve(false);
     }
 
@@ -1187,6 +1279,12 @@ export class FilePlaybackProductRuntime {
               pendingFatal = error;
             }
           },
+          onTransitionScheduled: (event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) =>
+            this.#fanOutHostCurrentTransitionScheduled(token, event),
+          onRemoteEndRequired: (event: Readonly<HostRemoteEndRequiredEvent>) =>
+            this.#fanOutHostRemoteEndRequired(token, event),
+          onTimelineCommitted: (event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) =>
+            this.#fanOutHostCurrentTimelineCommitted(token, event),
         }),
       );
       assertHostRoomPort(candidate);
@@ -1238,6 +1336,7 @@ export class FilePlaybackProductRuntime {
     this.#ensureRouter(controller, sessions);
     this.#hostRoomSnapshot = null;
     this.#activeHostRoom = null;
+    this.#hostCurrentTransitionFanout = null;
     let registry: FilePlaybackAssetRegistry | null = null;
     let manager: FilePlaybackManager | null = null;
     const token = Object.freeze(Object.create(null) as object);
@@ -1267,12 +1366,14 @@ export class FilePlaybackProductRuntime {
       ) {
         throw new TypeError('File playback product guest room factory is invalid');
       }
+      const lifecycleLease = acquireFilePlaybackUniversalLifecycleLease('roomOwners');
       this.#activeGuestRoom = Object.freeze({
         token,
         roomGeneration: claimed.roomGeneration,
         roomToken,
         registry,
         manager,
+        lifecycleLease,
       });
       this.#roomActive = true;
       return true;
@@ -1295,6 +1396,7 @@ export class FilePlaybackProductRuntime {
     const { controller, sessions } = this.#requireReady();
     this.#abandonNextLocalTrackWarm('File playback product room ended');
     this.#cancelAllPreparedCohorts(new Error('File playback product room ended'));
+    this.#hostCurrentTransitionFanout = null;
     if (!this.#roomActive) {
       const orphan = this.#activeHostRoom;
       this.#activeHostRoom = null;
@@ -1428,7 +1530,8 @@ export class FilePlaybackProductRuntime {
           lease: FilePlaybackWireLease,
           payload: FilePlaybackWirePayloadByKind[Kind],
         ) => sessions.sendWire(connection, lease, payload),
-        closeConnection: (connection: DataConnection) => sessions.closeConnection(connection),
+        closeConnection: (connection: DataConnection) =>
+          deferExactConnectionClose(sessions, connection),
         onHealthSystemMessage: (message: Readonly<FilePlaybackProductHostHealthSystemMessage>) =>
           this.#onHealthSystemMessage(message),
         resolvePreparedPeerRangeSource: (input: ResolvePreparedHostPeerRangeSourceOptions) => {
@@ -1530,13 +1633,15 @@ export class FilePlaybackProductRuntime {
         ) => {
           const connection = context.connection;
           const dataChannel = connection.dataChannel;
+          const bufferedBytes = dataChannel?.bufferedAmount;
           return (
             this.#connectionContexts.has(ownerContext) &&
             ownerContext === context &&
             connection.open === true &&
             dataChannel?.readyState === 'open' &&
-            Number.isFinite(dataChannel.bufferedAmount) &&
-            dataChannel.bufferedAmount <= FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT
+            typeof bufferedBytes === 'number' &&
+            Number.isFinite(bufferedBytes) &&
+            bufferedBytes <= FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT
           );
         },
         onFatalConnection: (
@@ -1545,11 +1650,7 @@ export class FilePlaybackProductRuntime {
         ) => {
           if (!this.#connectionContexts.has(ownerContext) || ownerContext !== context) return;
           log.error('[FilePlayback] Guest media owner failed closed', error);
-          try {
-            sessions.closeConnection(context.connection);
-          } catch {
-            // The exact connection is already terminal.
-          }
+          deferExactConnectionClose(sessions, context.connection);
         },
         onTimelineRendered: (timeline: Readonly<PlaybackTimelineSnapshot>) => {
           if (
@@ -1718,6 +1819,7 @@ export class FilePlaybackProductRuntime {
           };
           cycle = created;
           this.#hostPreparedCohorts.set(context.prepared, created);
+          await this.#fenceSameQueueNextLocalTrackWarmForPrepared(active, context.prepared);
           const offers = owners.map(([ownerContext, owner]) => ({
             ownerContext,
             owner,
@@ -1830,6 +1932,9 @@ export class FilePlaybackProductRuntime {
 
   async #awaitPreparedCohortAdmission(cycle: HostPreparedCohortCycle): Promise<void> {
     if (cycle.entries.length === 0) return;
+    const deadline = createFilePlaybackUniversalLifecycleDelay(
+      FILE_PLAYBACK_PRODUCT_COHORT_ADMISSION_MS,
+    );
     let rejectAbort!: (reason: Error) => void;
     const aborted = new Promise<never>((_resolve, reject) => {
       rejectAbort = reject;
@@ -1845,10 +1950,11 @@ export class FilePlaybackProductRuntime {
       if (cycle.signal.aborted) onAbort();
       await Promise.race([
         Promise.allSettled(cycle.entries.map((entry) => entry.readinessTask)),
-        delay(FILE_PLAYBACK_PRODUCT_COHORT_ADMISSION_MS),
+        deadline.promise,
         aborted,
       ]);
     } finally {
+      deadline.cancel();
       cycle.signal.removeEventListener('abort', onAbort);
     }
   }
@@ -2015,6 +2121,29 @@ export class FilePlaybackProductRuntime {
     );
   }
 
+  #hasLiveHostQueueAuthority(active: ActiveProductHostRoom, queueItemId: QueueItemId): boolean {
+    try {
+      const current = active.port.currentPeerPublication();
+      if (current?.state?.queueItemId === queueItemId) return true;
+    } catch {
+      // Speculative work is unsafe while current publication authority cannot
+      // be observed. Required playback operations retain their own fail-close.
+      return true;
+    }
+
+    for (const cycle of this.#hostPreparedCohorts.values()) {
+      if (
+        cycle.active === active &&
+        (cycle.status === 'preparing' || cycle.status === 'committed') &&
+        this.#hostPreparedCohorts.get(cycle.prepared) === cycle &&
+        cycle.prepared.state.queueItemId === queueItemId
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   #setHostMediaOwnerPublicationBarrier(
     owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
     barrier: Promise<void>,
@@ -2036,6 +2165,128 @@ export class FilePlaybackProductRuntime {
       if (!barrier) return;
       await barrier;
       if (this.#hostMediaOwnerPublicationBarriers.get(owner) === barrier) return;
+    }
+  }
+
+  #fanOutHostCurrentTransitionScheduled(
+    roomToken: object,
+    event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
+  ): void {
+    const active = this.#activeHostRoom;
+    if (
+      !active ||
+      active.token !== roomToken ||
+      event.roomGeneration !== active.roomGeneration ||
+      !this.#ownsExactHostRoom(active)
+    ) {
+      return;
+    }
+
+    const owners = new Map<
+      FilePlaybackProductRuntimeHostMediaOwnerPort,
+      Readonly<FilePlaybackProductSessionRouterConnectionContext>
+    >();
+    this.#hostCurrentTransitionFanout = { active, kind: event.kind, owners };
+    for (const [context, owner] of [...this.#hostMediaOwners]) {
+      if (
+        !this.#readyHostMediaOwners.has(owner) ||
+        this.#hostMediaOwners.get(context) !== owner ||
+        !this.#connectionContexts.has(context)
+      ) {
+        continue;
+      }
+      try {
+        owner.stageCurrentTransition(event);
+        if (
+          this.#hostMediaOwners.get(context) === owner &&
+          this.#connectionContexts.has(context) &&
+          this.#ownsExactHostRoom(active)
+        ) {
+          owners.set(owner, context);
+        }
+      } catch (cause) {
+        this.#closeExactHostMediaOwner(context, owner, asError(cause));
+      }
+    }
+  }
+
+  #fanOutHostRemoteEndRequired(
+    roomToken: object,
+    event: Readonly<HostRemoteEndRequiredEvent>,
+  ): void {
+    const active = this.#activeHostRoom;
+    if (
+      !active ||
+      active.token !== roomToken ||
+      event.roomGeneration !== active.roomGeneration ||
+      !this.#ownsExactHostRoom(active)
+    ) {
+      return;
+    }
+
+    const owners = new Map<
+      FilePlaybackProductRuntimeHostMediaOwnerPort,
+      Readonly<FilePlaybackProductSessionRouterConnectionContext>
+    >();
+    this.#hostCurrentTransitionFanout = { active, kind: 'ended', owners };
+    for (const [context, owner] of [...this.#hostMediaOwners]) {
+      if (
+        !this.#readyHostMediaOwners.has(owner) ||
+        this.#hostMediaOwners.get(context) !== owner ||
+        !this.#connectionContexts.has(context)
+      ) {
+        continue;
+      }
+      try {
+        owner.stageRemoteEnd(event);
+        if (
+          this.#hostMediaOwners.get(context) === owner &&
+          this.#connectionContexts.has(context) &&
+          this.#ownsExactHostRoom(active)
+        ) {
+          owners.set(owner, context);
+        }
+      } catch (cause) {
+        this.#closeExactHostMediaOwner(context, owner, asError(cause));
+      }
+    }
+  }
+
+  #fanOutHostCurrentTimelineCommitted(
+    roomToken: object,
+    event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
+  ): void {
+    const active = this.#activeHostRoom;
+    if (
+      !active ||
+      active.token !== roomToken ||
+      event.roomGeneration !== active.roomGeneration ||
+      !this.#ownsExactHostRoom(active)
+    ) {
+      return;
+    }
+    const fanout = this.#hostCurrentTransitionFanout;
+    this.#hostCurrentTransitionFanout = null;
+    if (!fanout || fanout.active !== active || fanout.kind !== event.kind) {
+      return;
+    }
+
+    for (const [owner, context] of fanout.owners) {
+      if (this.#hostMediaOwners.get(context) !== owner || !this.#connectionContexts.has(context)) {
+        continue;
+      }
+      try {
+        owner.commitCurrentTimeline(event);
+      } catch (cause) {
+        this.#closeExactHostMediaOwner(context, owner, asError(cause));
+      }
+    }
+
+    // A connection can become READY between native scheduling and canonical
+    // commit. It did not receive the successor wire, so publish fresh current
+    // truth after commit instead of presenting an orphan timeline update.
+    for (const [context, owner] of [...this.#hostMediaOwners]) {
+      if (!fanout.owners.has(owner)) this.#synchronizeReadyHostMediaOwner(active, context, owner);
     }
   }
 
@@ -2179,6 +2430,35 @@ export class FilePlaybackProductRuntime {
       if (this.#ownsExactHostRoom(intent.active)) throw cause;
       return false;
     }
+  }
+
+  async #fenceSameQueueNextLocalTrackWarmForPrepared(
+    active: ActiveProductHostRoom,
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): Promise<void> {
+    const intent = this.#nextLocalTrackWarmIntent;
+    const authority = intent?.authority ?? null;
+    const sourceLease = authority?.sourceLease ?? null;
+    if (
+      !intent ||
+      intent.active !== active ||
+      intent.queueItemId !== prepared.state.queueItemId ||
+      (sourceLease !== null && prepared.sourceLease === sourceLease)
+    ) {
+      return;
+    }
+
+    const reason = new Error(
+      'File playback prepared candidate superseded its same-queue speculative warm',
+    );
+    this.#nextLocalTrackWarmEpoch += 1;
+    this.#nextLocalTrackWarmIntent = null;
+    intent.controller.abort(reason);
+
+    // A non-cooperative warm can still resolve after abort. Leave a warming
+    // intent unsettled so its own task adopts and retires that late exact lease.
+    if (sourceLease === null) return;
+    await this.#retireNextLocalTrackWarmIntent(intent, reason);
   }
 
   #consumeNextLocalTrackWarm(cycle: HostPreparedCohortCycle): void {
@@ -2462,10 +2742,14 @@ export class FilePlaybackProductRuntime {
   }
 
   #retireGuestRoom(room: ActiveProductGuestRoom): void {
-    const cleanup = Promise.allSettled([
-      room.manager.clear(),
-      room.registry.close(room.roomToken),
-    ]).then(() => undefined);
+    const cleanup = settlePhysicalCleanupStrictly(
+      [
+        invokePhysicalCleanup(() => room.manager.clear()),
+        invokePhysicalCleanup(() => room.registry.close(room.roomToken)),
+      ],
+      'Multiple product guest room cleanup operations failed',
+    );
+    void confirmFilePlaybackUniversalLifecycleRetirement(room.lifecycleLease, () => cleanup);
     void cleanup.catch(() => undefined);
   }
 

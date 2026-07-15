@@ -6,6 +6,8 @@ import { UNIVERSAL_BUILD_PROFILE_EVIDENCE } from './universal-bounded/build-prof
 const PRODUCT_RUNTIME_MODULE = '/src/player/file-playback-product-runtime.ts';
 const PEER_RANGE_DIAGNOSTICS_IMPORT =
   "import { PeerRangeHostResponder as UniversalE2ePeerRangeHostResponder } from './sources/peer-range-transport.ts';";
+const LIFECYCLE_DIAGNOSTICS_IMPORT =
+  "import { acquireFilePlaybackUniversalLifecycleLease as acquireUniversalE2eLifecycleLease, getFilePlaybackUniversalLifecycleSnapshotForTests as getUniversalE2eLifecycleSnapshot } from './diagnostics/file-playback-universal-lifecycle-diagnostics.ts';";
 const PRODUCT_SINGLETON = `const filePlaybackProductBuildProfile = getFilePlaybackBuildProfile();
 const filePlaybackProductRuntime = new FilePlaybackProductRuntime({
   ...(filePlaybackProductBuildProfile.boundedRoutePolicy
@@ -123,6 +125,15 @@ Object.defineProperty(globalThis, '__MUSIXQUARE_FILE_PLAYBACK_E2E__', {
     controllerSnapshot: () => filePlaybackProductRuntime.controller()?.snapshot() ?? null,
     peerRangePhysicalReads: () =>
       UniversalE2ePeerRangeHostResponder.physicalReadDiagnostics(),
+    lifecycleDiagnostics: () => getUniversalE2eLifecycleSnapshot(),
+    stopProductPlayback: () =>
+      filePlaybackProductRuntime.stopCurrent({ signal: new AbortController().signal }),
+    endProductRoom: () => filePlaybackProductRuntime.endRoom(),
+    injectForcedLifecycleRetirement: () => {
+      const retirement = acquireUniversalE2eLifecycleLease('timers').beginRetire();
+      retirement.forceUnconfirmed();
+      return getUniversalE2eLifecycleSnapshot();
+    },
     transportEvents: () => universalE2eTransportEvents.slice(),
   }),
 });`;
@@ -156,7 +167,7 @@ function installUniversalBoundedCandidate(): Plugin {
       }
       transformedModules += 1;
       return {
-        code: `${PEER_RANGE_DIAGNOSTICS_IMPORT}\n${source.replace(PRODUCT_SINGLETON, UNIVERSAL_SINGLETON)}`,
+        code: `${PEER_RANGE_DIAGNOSTICS_IMPORT}\n${LIFECYCLE_DIAGNOSTICS_IMPORT}\n${source.replace(PRODUCT_SINGLETON, UNIVERSAL_SINGLETON)}`,
         map: null,
       };
     },

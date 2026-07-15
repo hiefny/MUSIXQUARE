@@ -16,7 +16,9 @@ enabled = true
 head_sampling_rate = 0.01
 
 [vars]
-PRO_RESERVED_ROOM_CODES = "000000,000001"
+# The complete 0xxxxx namespace is reserved from ordinary rooms in code.
+# This allowlist controls which PRO rooms are currently provisioned.
+PRO_PROVISIONED_ROOM_CODES = "000000,000001"
 
 # Required at deploy time and intentionally never committed:
 #   npx wrangler secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.signaling.toml

@@ -423,6 +423,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     ['000000', 'guest', undefined],
     ['000001', 'host', 'secret-a'],
     ['000001', 'guest', undefined],
+    ['000002', 'host', 'secret-a'],
+    ['000002', 'guest', undefined],
   ] as const)(
     'rejects reserved room %s %s claims before Durable Object lookup',
     async (roomId, role, secret) => {
@@ -474,9 +476,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     },
   );
 
-  it('honors additional configured reserved room codes', async () => {
-    const { env, idFromName } = workerEnv();
-    env.PRO_RESERVED_ROOM_CODES = '000000, 000001 234567';
+  it('does not let a provisioning allowlist seize an ordinary room code', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_PROVISIONED_ROOM_CODES = '000000, 000001 234567';
 
     const response = await workerModule.default.fetch(
       requestLike('https://signal.example.test/api/rooms/234567/ws?role=guest&peerId=guest-peer', {
@@ -486,8 +488,25 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       env,
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(101);
+    expect(idFromName).toHaveBeenCalledWith('234567');
+    expect(roomFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unprovisioned future PRO room before ticket parsing or Durable Object lookup', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/pro-rooms/000002/ws?ticket=not-a-ticket', {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(404);
     expect(idFromName).not.toHaveBeenCalled();
+    expect(roomFetch).not.toHaveBeenCalled();
   });
 
   it('defends reserved codes inside the Durable Object before WebSocket acceptance', async () => {
@@ -674,7 +693,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(staleMember)[0]).toMatchObject({ message: 'PRO_COORDINATOR_EPOCH_STALE' });
   });
 
-  it('bounds a replayed member ticket to one live participant socket', async () => {
+  it('rejects a replayed member ticket without replacing the live participant', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -691,11 +710,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
     await room.fetch(memberRequest);
     const first = lastServer();
-    await room.fetch(memberRequest);
-    const replacement = lastServer();
+    const rehydratedRoom = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await rehydratedRoom.fetch(memberRequest);
+    const replay = lastServer();
 
-    expect(first.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
-    expect(replacement.closed).toBe(false);
+    expect(first.closed).toBe(false);
+    expect(replay.closed).toBe(true);
+    expect(sent(replay)[0]).toMatchObject({ message: 'PRO_SIGNALING_TICKET_REPLAYED' });
     expect(
       state.sockets.filter(
         (socket) =>
@@ -704,6 +725,77 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
             'same-member',
       ),
     ).toHaveLength(1);
+  });
+
+  it('accepts a fresh member ticket for a legitimate reconnect after rejecting a replay', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-one',
+        jti: 'coordinator-ticket-0001',
+      }),
+    );
+    const firstRequest = await proWsRequest({
+      role: 'member',
+      participantId: 'same-member',
+      jti: 'first-member-ticket-0001',
+    });
+    await room.fetch(firstRequest);
+    const first = lastServer();
+    await room.fetch(firstRequest);
+    expect(lastServer().closed).toBe(true);
+
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'same-member',
+        jti: 'fresh-member-ticket-0002',
+      }),
+    );
+    const reconnect = lastServer();
+
+    expect(first.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(reconnect.closed).toBe(false);
+    expect(sent(reconnect)[0]).toMatchObject({ type: 'peer-open', peerId: 'same-member' });
+  });
+
+  it('admits one PRO coordinator plus at most 32 distinct members', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-one',
+        jti: 'coordinator-ticket-0001',
+      }),
+    );
+    const coordinator = lastServer();
+
+    for (let index = 0; index < 32; index++) {
+      await room.fetch(
+        await proWsRequest({
+          role: 'member',
+          participantId: `pro-member-${index}`,
+          jti: `capacity-member-ticket-${String(index).padStart(4, '0')}`,
+        }),
+      );
+      expect(lastServer().closed).toBe(false);
+    }
+
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'pro-member-over-limit',
+        jti: 'capacity-member-ticket-over-limit',
+      }),
+    );
+    const rejected = lastServer();
+
+    expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_GUEST_LIMIT_REACHED');
+    expect(sent(rejected)[0]).toMatchObject({ message: 'ROOM_GUEST_LIMIT_REACHED' });
+    expect(coordinator.closed).toBe(false);
   });
 
   it('rejects an older same-epoch coordinator ticket after a newer ticket has connected', async () => {

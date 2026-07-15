@@ -1,6 +1,7 @@
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
-const DEFAULT_PRO_RESERVED_ROOM_CODES = ['000000', '000001'];
+const PRO_ROOM_CODE_PATTERN = /^0\d{5}$/;
+const DEFAULT_PRO_PROVISIONED_ROOM_CODES = ['000000', '000001'];
 const HOST_RECLAIM_GRACE_MS = 60_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
@@ -15,10 +16,12 @@ const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
 const PRO_ROOM_META_KEY = 'proRoomMeta';
+const PRO_TICKET_USES_KEY = 'proSignalingTicketUses';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
+const MAX_PRO_TICKET_USES = 1024;
 const MAX_GUEST_BINDINGS = 256;
 // The client exhausts its automatic signaling reconnect backoff in about 30s,
 // and a host can reclaim its room for 60s. Five minutes leaves a conservative
@@ -79,20 +82,26 @@ function isValidProEpoch(value) {
   return Number.isSafeInteger(value) && value >= 1;
 }
 
-function getProReservedRoomCodes(env = {}) {
-  const configured = String(env.PRO_RESERVED_ROOM_CODES || '').trim();
-  const values = (configured || DEFAULT_PRO_RESERVED_ROOM_CODES.join(','))
+function getProProvisionedRoomCodes(env = {}) {
+  const configured = String(
+    env.PRO_PROVISIONED_ROOM_CODES || env.PRO_RESERVED_ROOM_CODES || '',
+  ).trim();
+  const values = (configured || DEFAULT_PRO_PROVISIONED_ROOM_CODES.join(','))
     .split(/[\s,]+/)
     .map((value) => value.trim())
-    .filter((value) => /^\d{6}$/.test(value));
+    .filter((value) => PRO_ROOM_CODE_PATTERN.test(value));
 
   // A present-but-invalid or blank production variable must not silently
-  // reopen the default reserved codes to the public host-claim path.
-  return new Set(values.length > 0 ? values : DEFAULT_PRO_RESERVED_ROOM_CODES);
+  // provision a room outside the two checked-in launch rooms.
+  return new Set(values.length > 0 ? values : DEFAULT_PRO_PROVISIONED_ROOM_CODES);
 }
 
-function isProReservedRoomCode(roomId, env = {}) {
-  return getProReservedRoomCodes(env).has(roomId);
+function isProProvisionedRoomCode(roomId, env = {}) {
+  return getProProvisionedRoomCodes(env).has(roomId);
+}
+
+function isProNamespaceRoomCode(roomId) {
+  return typeof roomId === 'string' && PRO_ROOM_CODE_PATTERN.test(roomId);
 }
 
 function isValidGuestReconnectSecret(secret) {
@@ -235,6 +244,25 @@ function normalizeGuestBindings(value) {
 
 function isRecord(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function defaultProTicketUses() {
+  return { v: 1, entries: [] };
+}
+
+function normalizeProTicketUses(value) {
+  if (!isRecord(value) || value.v !== 1 || !Array.isArray(value.entries)) return null;
+  if (value.entries.length > MAX_PRO_TICKET_USES) return null;
+  const entries = [];
+  const seen = new Set();
+  for (const entry of value.entries) {
+    if (!isRecord(entry)) return null;
+    if (typeof entry.jti !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(entry.jti)) return null;
+    if (!Number.isSafeInteger(entry.exp) || entry.exp < 0 || seen.has(entry.jti)) return null;
+    seen.add(entry.jti);
+    entries.push({ jti: entry.jti, exp: entry.exp });
+  }
+  return { v: 1, entries };
 }
 
 function utf8ByteLength(value) {
@@ -592,6 +620,7 @@ export class MusixquareRoom {
     this.guests = new Map();
     this.pendingGuests = new Set();
     this.guestBindings = null;
+    this.proTicketUses = null;
     this.guestAdmissionSync = Promise.resolve();
     this.proAdmissionSync = Promise.resolve();
     this.alarmSync = Promise.resolve();
@@ -718,10 +747,89 @@ export class MusixquareRoom {
     return normalized;
   }
 
+  async loadProTicketUses(nowSeconds = Math.floor(Date.now() / 1000)) {
+    if (this.proTicketUses) return this.proTicketUses;
+    const stored = await this.state.storage.get(PRO_TICKET_USES_KEY);
+    if (stored !== undefined && stored !== null) {
+      const normalized = normalizeProTicketUses(stored);
+      if (!normalized) throw new Error('INVALID_PRO_SIGNALING_TICKET_LEDGER');
+      this.proTicketUses = normalized;
+      return normalized;
+    }
+
+    // Rolling-deploy safety: attachments created by the previous Worker already
+    // carry their JTI, while no persistent one-use ledger exists yet. Seed those
+    // live tickets for one maximum ticket lifetime so a replay cannot replace a
+    // hibernated participant immediately after deployment.
+    const seeded = defaultProTicketUses();
+    for (const socket of typeof this.state.getWebSockets === 'function'
+      ? this.state.getWebSockets()
+      : []) {
+      const attachment = readAttachment(socket);
+      if (attachment?.roomKind !== 'pro' || seeded.entries.length >= MAX_PRO_TICKET_USES) continue;
+      if (seeded.entries.some((entry) => entry.jti === attachment.ticketJti)) continue;
+      seeded.entries.push({
+        jti: attachment.ticketJti,
+        exp: nowSeconds + PRO_SIGNALING_TICKET_MAX_SECONDS,
+      });
+    }
+    if (seeded.entries.length > 0) await this.state.storage.put(PRO_TICKET_USES_KEY, seeded);
+    this.proTicketUses = seeded;
+    return seeded;
+  }
+
+  async consumeProTicket(ticket, nowSeconds = Math.floor(Date.now() / 1000)) {
+    const current = await this.loadProTicketUses(nowSeconds);
+    const entries = current.entries.filter((entry) => entry.exp > nowSeconds);
+    if (entries.some((entry) => entry.jti === ticket.jti)) return false;
+    if (entries.length >= MAX_PRO_TICKET_USES) {
+      throw new Error('PRO_SIGNALING_TICKET_LEDGER_FULL');
+    }
+    const next = {
+      v: 1,
+      entries: [...entries, { jti: ticket.jti, exp: ticket.exp }],
+    };
+    // Persist before replacing any live socket. A failed write therefore fails
+    // closed instead of admitting a replayable credential.
+    await this.state.storage.put(PRO_TICKET_USES_KEY, next);
+    this.proTicketUses = next;
+    return true;
+  }
+
   enqueueProAdmission(task) {
     const run = this.proAdmissionSync.then(task, task);
     this.proAdmissionSync = run.catch(() => {});
     return run;
+  }
+
+  async acceptProSocket(ws, ticket) {
+    try {
+      if (!(await this.consumeProTicket(ticket))) {
+        this.acceptSocket(ws, null, [
+          'kind:pro',
+          ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
+          'rejected:ticket-replay',
+        ]);
+        closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_REPLAYED', 1008);
+        this.recordMetric('pro_ticket_replayed');
+        return;
+      }
+    } catch {
+      this.acceptSocket(ws, null, [
+        'kind:pro',
+        ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
+        'rejected:ticket-state',
+      ]);
+      closeWithError(ws, 'unavailable', 'PRO_SIGNALING_TICKET_STATE_UNAVAILABLE', 1013);
+      this.recordMetric('pro_ticket_state_unavailable');
+      return;
+    }
+
+    if (ticket.role === 'coordinator') {
+      await this.acceptProCoordinator(ws, ticket);
+    } else {
+      await this.acceptProMember(ws, ticket);
+    }
   }
 
   async validateRehydratedProSockets() {
@@ -876,9 +984,11 @@ export class MusixquareRoom {
     const url = new URL(request.url);
     const proRoomId = url.pathname.match(PRO_ROOM_PATH)?.[1];
     if (proRoomId) {
-      if (!isProReservedRoomCode(proRoomId, this.env)) {
+      if (!isProProvisionedRoomCode(proRoomId, this.env)) {
         return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
       }
+      // The signed ticket must never be included in application logs. It is
+      // intentionally read once here and represented only by its JTI afterward.
       const ticket = await verifyProSignalingTicket(
         url.searchParams.get('ticket') || '',
         proRoomId,
@@ -889,13 +999,7 @@ export class MusixquareRoom {
       await this.validateRehydratedProSockets();
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
-      await this.enqueueProAdmission(async () => {
-        if (ticket.role === 'coordinator') {
-          await this.acceptProCoordinator(server, ticket);
-        } else {
-          await this.acceptProMember(server, ticket);
-        }
-      });
+      await this.enqueueProAdmission(() => this.acceptProSocket(server, ticket));
       return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -906,7 +1010,7 @@ export class MusixquareRoom {
     if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
       return json({ error: 'Bad request' }, 400);
     }
-    if (isProReservedRoomCode(roomId, this.env)) {
+    if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
     }
     if (role === 'host' && !isValidPeerId(secret)) {
@@ -1555,9 +1659,10 @@ export default {
 
     const roomId = (match || proMatch)[1];
     if (proMatch) {
-      if (!isProReservedRoomCode(roomId, env)) {
+      if (!isProProvisionedRoomCode(roomId, env)) {
         return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
       }
+      // Do not log `request.url` in this branch: it contains the bearer ticket.
       const ticket = await verifyProSignalingTicket(
         url.searchParams.get('ticket') || '',
         roomId,
@@ -1578,7 +1683,7 @@ export default {
     if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
       return json({ error: 'Bad request' }, 400);
     }
-    if (isProReservedRoomCode(roomId, env)) {
+    if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
     }
     if (role === 'host' && !isValidPeerId(secret)) {

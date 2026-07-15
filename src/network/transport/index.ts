@@ -14,6 +14,7 @@ export async function createTransportPeer(
 
 export type {
   PeerJsServerConfig,
+  ProSignalingOptions,
   TransportDataConnection,
   TransportMediaConnection,
   TransportPeer,

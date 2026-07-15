@@ -1,4 +1,5 @@
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
+const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
 const DEFAULT_PRO_RESERVED_ROOM_CODES = ['000000', '000001'];
 const HOST_RECLAIM_GRACE_MS = 60_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
@@ -13,6 +14,11 @@ const MAX_PENDING_GUEST_SOCKETS = 64;
 const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
+const PRO_ROOM_META_KEY = 'proRoomMeta';
+const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
+const PRO_SIGNALING_TICKET_VERSION = 1;
+const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
+const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
 const MAX_GUEST_BINDINGS = 256;
 // The client exhausts its automatic signaling reconnect backoff in about 30s,
 // and a host can reclaim its room for 60s. Five minutes leaves a conservative
@@ -69,6 +75,10 @@ function isValidPeerId(peerId) {
   return typeof peerId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(peerId);
 }
 
+function isValidProEpoch(value) {
+  return Number.isSafeInteger(value) && value >= 1;
+}
+
 function getProReservedRoomCodes(env = {}) {
   const configured = String(env.PRO_RESERVED_ROOM_CODES || '').trim();
   const values = (configured || DEFAULT_PRO_RESERVED_ROOM_CODES.join(','))
@@ -93,6 +103,89 @@ function bytesToBase64Url(bytes) {
   let raw = '';
   for (const byte of bytes) raw += String.fromCharCode(byte);
   return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlToBytes(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  const padding = '='.repeat((4 - (value.length % 4)) % 4);
+  try {
+    const raw = atob(value.replace(/-/g, '+').replace(/_/g, '/') + padding);
+    return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function constantTimeBytesEqual(left, right) {
+  if (!(left instanceof Uint8Array) || !(right instanceof Uint8Array)) return false;
+  if (left.byteLength !== right.byteLength) return false;
+  let mismatch = 0;
+  for (let index = 0; index < right.byteLength; index++) mismatch |= left[index] ^ right[index];
+  return mismatch === 0;
+}
+
+function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
+  if (!isRecord(value)) return null;
+  if (value.v !== PRO_SIGNALING_TICKET_VERSION || value.kind !== PRO_SIGNALING_TICKET_KIND) {
+    return null;
+  }
+  if (value.roomCode !== expectedRoomId || !/^\d{6}$/.test(value.roomCode)) return null;
+  if (!isValidPeerId(value.participantId)) return null;
+  if (value.role !== 'coordinator' && value.role !== 'member') return null;
+  if (!isValidProEpoch(value.coordinatorEpoch)) return null;
+  if (typeof value.jti !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value.jti)) return null;
+  if (!Number.isSafeInteger(value.iat) || !Number.isSafeInteger(value.exp)) return null;
+  if (value.exp <= value.iat || value.exp - value.iat > PRO_SIGNALING_TICKET_MAX_SECONDS)
+    return null;
+  if (value.iat > nowSeconds + PRO_SIGNALING_CLOCK_SKEW_SECONDS || value.exp <= nowSeconds) {
+    return null;
+  }
+  return {
+    v: PRO_SIGNALING_TICKET_VERSION,
+    kind: PRO_SIGNALING_TICKET_KIND,
+    roomCode: value.roomCode,
+    participantId: value.participantId,
+    role: value.role,
+    coordinatorEpoch: value.coordinatorEpoch,
+    jti: value.jti,
+    iat: value.iat,
+    exp: value.exp,
+  };
+}
+
+async function verifyProSignalingTicket(ticket, expectedRoomId, env, now = Date.now()) {
+  const secret = typeof env?.PRO_SIGNALING_SECRET === 'string' ? env.PRO_SIGNALING_SECRET : '';
+  if (!secret || typeof ticket !== 'string' || ticket.length > 4096) return null;
+  const parts = ticket.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1] || parts[0].length > 3072) return null;
+
+  const presentedSignature = base64UrlToBytes(parts[1]);
+  const payloadBytes = base64UrlToBytes(parts[0]);
+  if (!presentedSignature || presentedSignature.byteLength !== 32 || !payloadBytes) return null;
+
+  let expectedSignature;
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    expectedSignature = new Uint8Array(
+      await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(parts[0])),
+    );
+  } catch {
+    return null;
+  }
+  if (!constantTimeBytesEqual(presentedSignature, expectedSignature)) return null;
+
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(payloadBytes);
+    return normalizeProTicketPayload(JSON.parse(decoded), expectedRoomId, Math.floor(now / 1000));
+  } catch {
+    return null;
+  }
 }
 
 async function hashGuestReconnectSecret(secret) {
@@ -361,11 +454,68 @@ function normalizeRoomMeta(value) {
   };
 }
 
+function normalizeProRoomMeta(value) {
+  if (!isRecord(value) || value.v !== 1 || value.kind !== 'pro') return null;
+  if (typeof value.roomId !== 'string' || !/^\d{6}$/.test(value.roomId)) return null;
+  if (!isValidProEpoch(value.coordinatorEpoch)) return null;
+  if (!isValidPeerId(value.coordinatorParticipantId)) return null;
+  if (
+    typeof value.coordinatorJti !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(value.coordinatorJti)
+  ) {
+    return null;
+  }
+  return {
+    v: 1,
+    kind: 'pro',
+    roomId: value.roomId,
+    coordinatorEpoch: value.coordinatorEpoch,
+    coordinatorParticipantId: value.coordinatorParticipantId,
+    coordinatorJti: value.coordinatorJti,
+    coordinatorTicketIat: Number.isSafeInteger(value.coordinatorTicketIat)
+      ? Math.max(0, value.coordinatorTicketIat)
+      : 0,
+  };
+}
+
 function normalizeAttachment(value) {
   if (!value || typeof value !== 'object' || value.v !== ATTACHMENT_VERSION) return null;
   if (value.role !== 'host' && value.role !== 'guest') return null;
   if (typeof value.roomId !== 'string' || !value.roomId) return null;
   if (typeof value.peerId !== 'string' || !value.peerId) return null;
+
+  if (value.roomKind === 'pro') {
+    if (!isValidProEpoch(value.coordinatorEpoch)) return null;
+    if (!isValidPeerId(value.participantId)) return null;
+    if (typeof value.ticketJti !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value.ticketJti)) {
+      return null;
+    }
+    if (value.auth !== 'ok') return null;
+    const proAttachment = {
+      v: ATTACHMENT_VERSION,
+      roomKind: 'pro',
+      role: value.role,
+      roomId: value.roomId,
+      peerId: value.peerId,
+      participantId: value.participantId,
+      coordinatorEpoch: value.coordinatorEpoch,
+      ticketJti: value.ticketJti,
+      auth: 'ok',
+    };
+    if (value.role === 'guest') {
+      if (
+        Number.isFinite(value.guestMessageTokens) &&
+        Number.isFinite(value.guestMessageUpdatedAt)
+      ) {
+        proAttachment.guestMessageTokens = Math.min(
+          GUEST_MESSAGE_BUCKET_CAPACITY,
+          Math.max(0, value.guestMessageTokens),
+        );
+        proAttachment.guestMessageUpdatedAt = Math.max(0, value.guestMessageUpdatedAt);
+      }
+    }
+    return proAttachment;
+  }
 
   if (value.role === 'host') {
     if (value.auth !== 'ok' || typeof value.secret !== 'string' || !value.secret) return null;
@@ -436,13 +586,16 @@ export class MusixquareRoom {
     this.state = state;
     this.env = env;
     this.roomMeta = null;
+    this.proRoomMeta = null;
     this.host = null;
     this.hostPeerId = null;
     this.guests = new Map();
     this.pendingGuests = new Set();
     this.guestBindings = null;
     this.guestAdmissionSync = Promise.resolve();
+    this.proAdmissionSync = Promise.resolve();
     this.alarmSync = Promise.resolve();
+    this.proSocketsValidated = false;
     this.rehydrateSockets();
   }
 
@@ -547,6 +700,53 @@ export class MusixquareRoom {
       }
       this.pendingGuests.add(ws);
     }
+  }
+
+  async loadProRoomMeta() {
+    if (!this.proRoomMeta) {
+      const stored = await this.state.storage.get(PRO_ROOM_META_KEY);
+      this.proRoomMeta = normalizeProRoomMeta(stored);
+    }
+    return this.proRoomMeta;
+  }
+
+  async saveProRoomMeta(meta) {
+    const normalized = normalizeProRoomMeta(meta);
+    if (!normalized) throw new Error('INVALID_PRO_ROOM_META');
+    await this.state.storage.put(PRO_ROOM_META_KEY, normalized);
+    this.proRoomMeta = normalized;
+    return normalized;
+  }
+
+  enqueueProAdmission(task) {
+    const run = this.proAdmissionSync.then(task, task);
+    this.proAdmissionSync = run.catch(() => {});
+    return run;
+  }
+
+  async validateRehydratedProSockets() {
+    if (this.proSocketsValidated) return;
+    const meta = await this.loadProRoomMeta();
+    for (const socket of typeof this.state.getWebSockets === 'function'
+      ? this.state.getWebSockets()
+      : []) {
+      const attachment = readAttachment(socket);
+      if (attachment?.roomKind !== 'pro') continue;
+      const current =
+        meta?.kind === 'pro' &&
+        meta.roomId === attachment.roomId &&
+        meta.coordinatorEpoch === attachment.coordinatorEpoch &&
+        (attachment.role !== 'host' || meta.coordinatorParticipantId === attachment.participantId);
+      if (current) continue;
+      closeSocket(socket, 1012, 'PRO_COORDINATOR_EPOCH_STALE');
+      if (attachment.role === 'host' && this.host === socket) {
+        this.host = null;
+        this.hostPeerId = null;
+      } else if (this.guests.get(attachment.peerId) === socket) {
+        this.guests.delete(attachment.peerId);
+      }
+    }
+    this.proSocketsValidated = true;
   }
 
   async loadRoomMeta() {
@@ -674,6 +874,31 @@ export class MusixquareRoom {
     }
 
     const url = new URL(request.url);
+    const proRoomId = url.pathname.match(PRO_ROOM_PATH)?.[1];
+    if (proRoomId) {
+      if (!isProReservedRoomCode(proRoomId, this.env)) {
+        return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
+      }
+      const ticket = await verifyProSignalingTicket(
+        url.searchParams.get('ticket') || '',
+        proRoomId,
+        this.env,
+      );
+      if (!ticket) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
+
+      await this.validateRehydratedProSockets();
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      await this.enqueueProAdmission(async () => {
+        if (ticket.role === 'coordinator') {
+          await this.acceptProCoordinator(server, ticket);
+        } else {
+          await this.acceptProMember(server, ticket);
+        }
+      });
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     const roomId = url.pathname.match(ROOM_PATH)?.[1];
     const role = url.searchParams.get('role');
     const peerId = url.searchParams.get('peerId');
@@ -701,6 +926,159 @@ export class MusixquareRoom {
     }
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async resetForProEpoch(ticket) {
+    for (const socket of typeof this.state.getWebSockets === 'function'
+      ? this.state.getWebSockets()
+      : []) {
+      closeSocket(socket, 1012, 'PRO_COORDINATOR_EPOCH_ADVANCED');
+    }
+    this.host = null;
+    this.hostPeerId = null;
+    this.guests.clear();
+    this.pendingGuests.clear();
+    await this.clearGuestBindings();
+    await this.clearRoomMeta();
+    await this.scheduleMaintenanceAlarm();
+    return this.saveProRoomMeta({
+      v: 1,
+      kind: 'pro',
+      roomId: ticket.roomCode,
+      coordinatorEpoch: ticket.coordinatorEpoch,
+      coordinatorParticipantId: ticket.participantId,
+      coordinatorJti: ticket.jti,
+      coordinatorTicketIat: ticket.iat,
+    });
+  }
+
+  async acceptProCoordinator(ws, ticket) {
+    let meta = await this.loadProRoomMeta();
+    if (meta && meta.roomId !== ticket.roomCode) {
+      this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:room-mismatch']);
+      closeWithError(ws, 'invalid-id', 'PRO_ROOM_MISMATCH', 1008);
+      return;
+    }
+    if (meta && ticket.coordinatorEpoch < meta.coordinatorEpoch) {
+      this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:stale-epoch']);
+      closeWithError(ws, 'peer-unavailable', 'PRO_COORDINATOR_EPOCH_STALE', 1008);
+      return;
+    }
+
+    if (!meta || ticket.coordinatorEpoch > meta.coordinatorEpoch) {
+      meta = await this.resetForProEpoch(ticket);
+    } else {
+      if (meta.coordinatorParticipantId !== ticket.participantId) {
+        this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:coordinator-mismatch']);
+        closeWithError(ws, 'id-taken', 'PRO_COORDINATOR_MISMATCH', 1008);
+        return;
+      }
+      if (ticket.iat < meta.coordinatorTicketIat) {
+        this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:ticket-replay']);
+        closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_REPLAYED', 1008);
+        return;
+      }
+      meta = await this.saveProRoomMeta({
+        ...meta,
+        coordinatorJti: ticket.jti,
+        coordinatorTicketIat: ticket.iat,
+      });
+    }
+
+    if (this.host && this.host !== ws) closeSocket(this.host, 1012, 'HOST_REPLACED');
+    const attachment = {
+      v: ATTACHMENT_VERSION,
+      roomKind: 'pro',
+      role: 'host',
+      roomId: ticket.roomCode,
+      peerId: ticket.roomCode,
+      participantId: ticket.participantId,
+      coordinatorEpoch: meta.coordinatorEpoch,
+      ticketJti: ticket.jti,
+      auth: 'ok',
+    };
+    this.acceptSocket(ws, attachment, [
+      'kind:pro',
+      'role:host',
+      `peer:${ticket.roomCode}`,
+      `epoch:${meta.coordinatorEpoch}`,
+    ]);
+    this.host = ws;
+    this.hostPeerId = ticket.roomCode;
+    this.recordMetric('pro_coordinator_connected');
+    send(ws, {
+      type: 'peer-open',
+      peerId: ticket.roomCode,
+      roomId: ticket.roomCode,
+      ...workerVersionFields(this.env),
+    });
+  }
+
+  async acceptProMember(ws, ticket) {
+    const meta = await this.loadProRoomMeta();
+    const hostAttachment = readAttachment(this.host);
+    if (
+      !meta ||
+      meta.roomId !== ticket.roomCode ||
+      meta.coordinatorEpoch !== ticket.coordinatorEpoch
+    ) {
+      this.acceptSocket(ws, null, ['kind:pro', 'role:guest', 'rejected:stale-epoch']);
+      closeWithError(ws, 'peer-unavailable', 'PRO_COORDINATOR_EPOCH_STALE', 1008);
+      return;
+    }
+    if (
+      !this.host ||
+      hostAttachment?.roomKind !== 'pro' ||
+      hostAttachment.coordinatorEpoch !== ticket.coordinatorEpoch
+    ) {
+      this.acceptSocket(ws, null, ['kind:pro', 'role:guest', 'rejected:no-coordinator']);
+      closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
+      return;
+    }
+
+    const admitted = this.admittedGuestIds();
+    if (!admitted.has(ticket.participantId) && admitted.size >= MAX_ROOM_GUESTS) {
+      this.acceptSocket(ws, null, ['kind:pro', 'role:guest', 'rejected:room-full']);
+      closeWithError(ws, 'room-full', 'ROOM_GUEST_LIMIT_REACHED', 1008);
+      this.recordMetric('guest_room_full');
+      return;
+    }
+
+    const previous = this.guests.get(ticket.participantId);
+    const previousAttachment = readAttachment(previous);
+    if (previous && previous !== ws) closeSocket(previous, 1012, 'GUEST_REPLACED');
+    const attachment = {
+      v: ATTACHMENT_VERSION,
+      roomKind: 'pro',
+      role: 'guest',
+      roomId: ticket.roomCode,
+      peerId: ticket.participantId,
+      participantId: ticket.participantId,
+      coordinatorEpoch: ticket.coordinatorEpoch,
+      ticketJti: ticket.jti,
+      auth: 'ok',
+      ...(Number.isFinite(previousAttachment?.guestMessageTokens) &&
+      Number.isFinite(previousAttachment?.guestMessageUpdatedAt)
+        ? {
+            guestMessageTokens: previousAttachment.guestMessageTokens,
+            guestMessageUpdatedAt: previousAttachment.guestMessageUpdatedAt,
+          }
+        : {}),
+    };
+    this.acceptSocket(ws, attachment, [
+      'kind:pro',
+      'role:guest',
+      `peer:${ticket.participantId}`,
+      `epoch:${ticket.coordinatorEpoch}`,
+    ]);
+    this.guests.set(ticket.participantId, ws);
+    this.recordMetric('pro_member_joined');
+    send(ws, {
+      type: 'peer-open',
+      peerId: ticket.participantId,
+      roomId: ticket.roomCode,
+      ...workerVersionFields(this.env),
+    });
   }
 
   async acceptHost(ws, roomId, peerId, secret) {
@@ -873,6 +1251,19 @@ export class MusixquareRoom {
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
+    if (attachment.roomKind === 'pro') {
+      const meta = await this.loadProRoomMeta();
+      const current =
+        meta?.roomId === attachment.roomId &&
+        meta.coordinatorEpoch === attachment.coordinatorEpoch &&
+        (attachment.role !== 'host' || meta.coordinatorParticipantId === attachment.participantId);
+      if (!current) {
+        closeSocket(ws, 1012, 'PRO_COORDINATOR_EPOCH_STALE');
+        await this.webSocketClose(ws);
+        return;
+      }
+    }
+
     const rawBytes = rawMessageByteLength(raw);
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
@@ -901,7 +1292,7 @@ export class MusixquareRoom {
     }
     if (validation !== 'valid') return;
 
-    await this.loadRoomMeta();
+    if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
 
     if (attachment.role === 'host') {
       if (this.host !== ws) return;
@@ -1017,6 +1408,7 @@ export class MusixquareRoom {
 
   async handleHostMessage(ws, message, attachment) {
     if (message.type === 'room-password-set') {
+      if (attachment.roomKind === 'pro') return;
       const password = typeof message.password === 'string' ? message.password : '';
       const meta = await this.loadRoomMeta();
       await this.saveRoomMeta({
@@ -1037,6 +1429,13 @@ export class MusixquareRoom {
     if (!attachment) return;
 
     if (attachment.role === 'host') {
+      if (attachment.roomKind === 'pro') {
+        if (this.host === ws) {
+          this.host = null;
+          this.hostPeerId = null;
+        }
+        return;
+      }
       await this.releaseHost(ws, attachment);
       return;
     }
@@ -1044,6 +1443,13 @@ export class MusixquareRoom {
     if (attachment.auth === 'pending') {
       this.pendingGuests.delete(ws);
       await this.scheduleMaintenanceAlarm();
+      return;
+    }
+
+    if (attachment.roomKind === 'pro') {
+      if (this.guests.get(attachment.peerId) !== ws) return;
+      this.guests.delete(attachment.peerId);
+      if (this.host) send(this.host, { type: 'peer-left', peerId: attachment.peerId });
       return;
     }
 
@@ -1128,11 +1534,13 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const match = url.pathname.match(ROOM_PATH);
-    if (!match) {
+    const proMatch = url.pathname.match(PRO_ROOM_PATH);
+    if (!match && !proMatch) {
       return json({
         ok: true,
         service: 'musixquare-signaling',
         websocket: '/api/rooms/:roomId/ws',
+        proWebsocket: '/api/pro-rooms/:roomId/ws?ticket=...',
       });
     }
 
@@ -1145,10 +1553,28 @@ export default {
       return json({ error: 'Forbidden' }, 403);
     }
 
+    const roomId = (match || proMatch)[1];
+    if (proMatch) {
+      if (!isProReservedRoomCode(roomId, env)) {
+        return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
+      }
+      const ticket = await verifyProSignalingTicket(
+        url.searchParams.get('ticket') || '',
+        roomId,
+        env,
+      );
+      if (!ticket) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
+      if (!(await checkRateLimit(request, 'pro-ws-open'))) {
+        return json({ error: 'Too Many Requests' }, 429);
+      }
+      const id = env.MUSIXQUARE_ROOMS.idFromName(roomId);
+      const room = env.MUSIXQUARE_ROOMS.get(id);
+      return room.fetch(request);
+    }
+
     const role = url.searchParams.get('role');
     const peerId = url.searchParams.get('peerId');
     const secret = url.searchParams.get('secret') || '';
-    const roomId = match[1];
     if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
       return json({ error: 'Bad request' }, 400);
     }

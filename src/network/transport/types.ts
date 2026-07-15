@@ -59,6 +59,7 @@ export interface TransportPeer {
   ): TransportMediaConnection;
   reconnect?(): void;
   setRoomPassword?(password: string | null): void;
+  setProSignalingAccess?(access: ProSignalingOptions): boolean;
   destroy(): void;
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;
@@ -80,10 +81,18 @@ export interface PeerJsServerConfig {
   key?: string;
 }
 
+export interface ProSignalingOptions {
+  readonly roomCode: string;
+  readonly ticket: string;
+  readonly role: 'coordinator' | 'member';
+  readonly coordinatorEpoch: number;
+}
+
 export interface TransportPeerOptions {
   debug?: number;
   config: RTCConfiguration;
   provider: TransportProvider;
   signalingUrl?: string;
   peerJsServer?: PeerJsServerConfig;
+  proSignaling?: ProSignalingOptions;
 }

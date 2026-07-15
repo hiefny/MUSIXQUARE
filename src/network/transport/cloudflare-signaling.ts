@@ -2,6 +2,7 @@ import { log } from '../../core/log.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../../core/timers.ts';
 import { TinyEmitter } from './emitter.ts';
 import type {
+  ProSignalingOptions,
   TransportConnectOptions,
   TransportDataConnection,
   TransportMediaConnection,
@@ -81,6 +82,39 @@ function randomBase64Url(bytes = 18): string {
   let raw = '';
   for (const byte of data) raw += String.fromCharCode(byte);
   return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+interface ProTicketClaims {
+  roomCode: string;
+  participantId: string;
+  role: 'coordinator' | 'member';
+  coordinatorEpoch: number;
+}
+
+function proTicketClaims(ticket: string): ProTicketClaims | null {
+  const encoded = ticket.split('.')[0];
+  if (!encoded || !/^[A-Za-z0-9_-]+$/.test(encoded)) return null;
+  try {
+    const padding = '='.repeat((4 - (encoded.length % 4)) % 4);
+    const raw = atob(encoded.replace(/-/g, '+').replace(/_/g, '/') + padding);
+    const payload = JSON.parse(
+      textDecoder.decode(Uint8Array.from(raw, (character) => character.charCodeAt(0))),
+    ) as Partial<ProTicketClaims>;
+    if (
+      typeof payload.roomCode !== 'string' ||
+      !/^\d{6}$/.test(payload.roomCode) ||
+      typeof payload.participantId !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,96}$/.test(payload.participantId) ||
+      (payload.role !== 'coordinator' && payload.role !== 'member') ||
+      !Number.isSafeInteger(payload.coordinatorEpoch) ||
+      (payload.coordinatorEpoch ?? 0) < 1
+    ) {
+      return null;
+    }
+    return payload as ProTicketClaims;
+  } catch {
+    return null;
+  }
 }
 
 function createTransportError(type: string, message: string): Error & { type: string } {
@@ -419,6 +453,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private hostSocket: WebSocket | null = null;
   private readonly hostRoomId: string | null;
   private readonly hostSecret = randomBase64Url(24);
+  private readonly proParticipantId: string | null;
+  private proSignalingAccess: ProSignalingOptions | null;
   private roomPassword: string | null = null;
 
   constructor(
@@ -426,8 +462,32 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     private readonly options: TransportPeerOptions,
   ) {
     super();
+    const proSignaling = options.proSignaling;
+    const claims = proSignaling ? proTicketClaims(proSignaling.ticket) : null;
+    const proParticipantId = claims?.participantId ?? null;
+    if (proSignaling) {
+      const validShape =
+        /^\d{6}$/.test(proSignaling.roomCode) &&
+        !!proSignaling.ticket &&
+        claims?.roomCode === proSignaling.roomCode &&
+        claims.role === proSignaling.role &&
+        claims.coordinatorEpoch === proSignaling.coordinatorEpoch &&
+        Number.isSafeInteger(proSignaling.coordinatorEpoch) &&
+        proSignaling.coordinatorEpoch >= 1;
+      const validRoleShape =
+        (proSignaling.role === 'coordinator' && requestedId === proSignaling.roomCode) ||
+        (proSignaling.role === 'member' && requestedId === null);
+      if (!validShape || !validRoleShape) {
+        throw createTransportError('invalid-id', 'INVALID_PRO_SIGNALING_OPTIONS');
+      }
+    }
     this.hostRoomId = requestedId;
-    this.id = requestedId ?? `mx-${randomBase64Url(12)}`;
+    this.proParticipantId = proParticipantId;
+    this.proSignalingAccess = proSignaling ? { ...proSignaling } : null;
+    this.id =
+      requestedId ??
+      (proSignaling?.role === 'member' ? proParticipantId : null) ??
+      `mx-${randomBase64Url(12)}`;
 
     if (requestedId) {
       queueMicrotask(() => this.openHostSocket());
@@ -443,10 +503,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   connect(roomId: string, options?: TransportConnectOptions): TransportDataConnection {
     if (this.destroyed) throw createTransportError('disconnected', 'PEER_DESTROYED');
+    if (
+      this.proSignalingAccess &&
+      (this.proSignalingAccess.role !== 'member' || roomId !== this.proSignalingAccess.roomCode)
+    ) {
+      throw createTransportError('invalid-id', 'PRO_SIGNALING_ROOM_MISMATCH');
+    }
     const conn = new CloudflareDataConnection(roomId, options?.metadata);
     const roomPassword =
       typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
-    if (!this.guestReconnectSecrets.has(roomId)) {
+    if (!this.proSignalingAccess && !this.guestReconnectSecrets.has(roomId)) {
       this.guestReconnectSecrets.set(roomId, randomBase64Url(32));
     }
     this.guestRooms.set(roomId, {
@@ -529,6 +595,26 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.sendRoomPassword();
   }
 
+  setProSignalingAccess(access: ProSignalingOptions): boolean {
+    const current = this.proSignalingAccess;
+    const claims = proTicketClaims(access.ticket);
+    if (
+      !current ||
+      !claims ||
+      claims.participantId !== this.proParticipantId ||
+      claims.roomCode !== access.roomCode ||
+      claims.role !== access.role ||
+      claims.coordinatorEpoch !== access.coordinatorEpoch ||
+      access.roomCode !== current.roomCode ||
+      access.role !== current.role ||
+      access.coordinatorEpoch !== current.coordinatorEpoch
+    ) {
+      return false;
+    }
+    this.proSignalingAccess = { ...access };
+    return true;
+  }
+
   destroy(): void {
     this.destroyed = true;
     this.open = false;
@@ -571,6 +657,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const base = new URL(this.requireSignalingUrl());
     if (base.protocol === 'http:') base.protocol = 'ws:';
     else if (base.protocol === 'https:') base.protocol = 'wss:';
+    const proSignaling = this.proSignalingAccess;
+    if (proSignaling) {
+      const standardBase = base.pathname.replace(/\/+$/, '');
+      const proBase = standardBase.endsWith('/api/rooms')
+        ? `${standardBase.slice(0, -'/api/rooms'.length)}/api/pro-rooms`
+        : standardBase.endsWith('/api/pro-rooms')
+          ? standardBase
+          : `${standardBase}/api/pro-rooms`;
+      base.pathname = `${proBase}/${encodeURIComponent(roomId)}/ws`;
+      base.search = '';
+      base.searchParams.set('ticket', proSignaling.ticket);
+      return base.toString();
+    }
     base.pathname = `${base.pathname.replace(/\/+$/, '')}/${encodeURIComponent(roomId)}/ws`;
     base.searchParams.set('role', role);
     base.searchParams.set('peerId', peerId);
@@ -615,6 +714,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private sendRoomPassword(): void {
     if (!this.hostRoomId) return;
+    if (this.proSignalingAccess) return;
     const socket = this.hostSocket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     try {
@@ -706,6 +806,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     this.roomSockets.set(roomId, socket);
     socket.addEventListener('open', () => {
+      if (this.proSignalingAccess) return;
       try {
         socket.send(
           JSON.stringify({

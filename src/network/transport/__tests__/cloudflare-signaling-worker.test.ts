@@ -25,6 +25,18 @@ type RoomMeta = {
   hostReleaseAt: number;
 };
 
+type ProTicketPayload = {
+  v: 1;
+  kind: 'pro-signaling';
+  roomCode: string;
+  participantId: string;
+  role: 'coordinator' | 'member';
+  coordinatorEpoch: number;
+  jti: string;
+  iat: number;
+  exp: number;
+};
+
 const originalResponse = globalThis.Response;
 const originalWebSocketPair = (globalThis as typeof globalThis & { WebSocketPair?: unknown })
   .WebSocketPair;
@@ -186,6 +198,57 @@ function wsRequest(
       },
     },
   } as Request;
+}
+
+const PRO_SIGNALING_SECRET = 'pro-signaling-test-secret-with-at-least-32-bytes';
+
+function base64Url(bytes: Uint8Array): string {
+  let raw = '';
+  for (const byte of bytes) raw += String.fromCharCode(byte);
+  return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function proTicket(
+  overrides: Partial<ProTicketPayload> = {},
+  secret = PRO_SIGNALING_SECRET,
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const payload: ProTicketPayload = {
+    v: 1,
+    kind: 'pro-signaling',
+    roomCode: '000001',
+    participantId: 'pro-member-1',
+    role: 'member',
+    coordinatorEpoch: 1,
+    jti: 'ticket-identifier-0001',
+    iat: now - 1,
+    exp: now + 60,
+    ...overrides,
+  };
+  const encodedPayload = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = new Uint8Array(
+    await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(encodedPayload)),
+  );
+  return `${encodedPayload}.${base64Url(signature)}`;
+}
+
+async function proWsRequest(
+  overrides: Partial<ProTicketPayload> = {},
+  query: Record<string, string> = {},
+): Promise<Request> {
+  const ticket = await proTicket(overrides);
+  const roomCode = overrides.roomCode ?? '000001';
+  const url = new URL(`https://signal.example.test/api/pro-rooms/${roomCode}/ws`);
+  url.searchParams.set('ticket', ticket);
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  return requestLike(url.toString(), { Upgrade: 'websocket' });
 }
 
 function requestLike(url: string, headers: Record<string, string> = {}): Request {
@@ -436,6 +499,302 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(response.status).toBe(403);
     expect(state.sockets).toHaveLength(0);
     expect(FakeWebSocketPair.pairs).toHaveLength(0);
+  });
+
+  it('routes a valid signed PRO ticket without trusting unsigned role query fields', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = await proTicket({ role: 'member', participantId: 'signed-member' });
+    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    url.searchParams.set('ticket', ticket);
+    url.searchParams.set('role', 'host');
+    url.searchParams.set('peerId', 'unsigned-attacker-id');
+
+    const response = await workerModule.default.fetch(
+      requestLike(url.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(101);
+    expect(idFromName).toHaveBeenCalledWith('000001');
+    expect(roomFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['wrong signature', async () => proTicket({}, 'wrong-signing-secret')],
+    [
+      'expired ticket',
+      async () => {
+        const now = Math.floor(Date.now() / 1000);
+        return proTicket({ iat: now - 120, exp: now - 60 });
+      },
+    ],
+    ['room mismatch', async () => proTicket({ roomCode: '000000' })],
+  ] as const)('rejects a PRO %s before Durable Object lookup', async (_label, makeTicket) => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = await makeTicket();
+    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    url.searchParams.set('ticket', ticket);
+
+    const response = await workerModule.default.fetch(
+      requestLike(url.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(roomFetch).not.toHaveBeenCalled();
+  });
+
+  it('re-verifies a PRO ticket inside the Durable Object boundary', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const ticket = await proTicket(
+      {
+        role: 'coordinator',
+        participantId: 'coordinator-device',
+        jti: 'coordinator-ticket-0001',
+      },
+      'wrong-signing-secret',
+    );
+    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    url.searchParams.set('ticket', ticket);
+
+    const response = await room.fetch(
+      requestLike(url.toString(), {
+        Upgrade: 'websocket',
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(state.sockets).toHaveLength(0);
+    expect(FakeWebSocketPair.pairs).toHaveLength(0);
+  });
+
+  it('admits PRO coordinator/member sockets directly with signed identity and epoch attachments', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      PRO_SIGNALING_SECRET,
+    });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-device',
+        jti: 'coordinator-ticket-0001',
+      }),
+    );
+    const coordinator = lastServer();
+    await room.fetch(
+      await proWsRequest(
+        { role: 'member', participantId: 'signed-member', jti: 'member-ticket-0000001' },
+        { role: 'host', peerId: 'unsigned-attacker-id' },
+      ),
+    );
+    const member = lastServer();
+
+    expect(coordinator.deserializeAttachment()).toMatchObject({
+      roomKind: 'pro',
+      role: 'host',
+      roomId: '000001',
+      peerId: '000001',
+      participantId: 'coordinator-device',
+      coordinatorEpoch: 1,
+    });
+    expect(member.deserializeAttachment()).toMatchObject({
+      roomKind: 'pro',
+      role: 'guest',
+      peerId: 'signed-member',
+      participantId: 'signed-member',
+      coordinatorEpoch: 1,
+      auth: 'ok',
+    });
+    expect(sent(member)[0]).toMatchObject({
+      type: 'peer-open',
+      peerId: 'signed-member',
+      roomId: '000001',
+    });
+    expect(await state.storage.get('proRoomMeta')).toMatchObject({
+      kind: 'pro',
+      roomId: '000001',
+      coordinatorEpoch: 1,
+      coordinatorParticipantId: 'coordinator-device',
+    });
+  });
+
+  it('advancing a PRO coordinator epoch closes every prior-epoch socket and rejects stale tickets', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-one',
+        jti: 'coordinator-ticket-0001',
+      }),
+    );
+    const oldCoordinator = lastServer();
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'member-one',
+        jti: 'member-ticket-0000001',
+      }),
+    );
+    const oldMember = lastServer();
+
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-two',
+        coordinatorEpoch: 2,
+        jti: 'coordinator-ticket-0002',
+      }),
+    );
+    const newCoordinator = lastServer();
+
+    expect(oldCoordinator.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
+    expect(oldMember.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
+    expect(newCoordinator.closed).toBe(false);
+
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'stale-member',
+        jti: 'stale-member-ticket01',
+      }),
+    );
+    const staleMember = lastServer();
+    expect(staleMember.closed).toBe(true);
+    expect(sent(staleMember)[0]).toMatchObject({ message: 'PRO_COORDINATOR_EPOCH_STALE' });
+  });
+
+  it('bounds a replayed member ticket to one live participant socket', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-one',
+        jti: 'coordinator-ticket-0001',
+      }),
+    );
+    const memberRequest = await proWsRequest({
+      role: 'member',
+      participantId: 'same-member',
+      jti: 'replayed-member-ticket',
+    });
+    await room.fetch(memberRequest);
+    const first = lastServer();
+    await room.fetch(memberRequest);
+    const replacement = lastServer();
+
+    expect(first.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(replacement.closed).toBe(false);
+    expect(
+      state.sockets.filter(
+        (socket) =>
+          !socket.closed &&
+          (socket.deserializeAttachment() as { participantId?: string } | null)?.participantId ===
+            'same-member',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('rejects an older same-epoch coordinator ticket after a newer ticket has connected', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const oldRequest = await proWsRequest({
+      role: 'coordinator',
+      participantId: 'same-coordinator',
+      jti: 'older-coordinator-ticket',
+      iat: now - 10,
+      exp: now + 60,
+    });
+    await room.fetch(oldRequest);
+    const first = lastServer();
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'same-coordinator',
+        jti: 'newer-coordinator-ticket',
+        iat: now - 5,
+        exp: now + 60,
+      }),
+    );
+    const newer = lastServer();
+    expect(first.closeEvents.at(-1)?.reason).toBe('HOST_REPLACED');
+    expect(newer.closed).toBe(false);
+
+    await room.fetch(oldRequest);
+    const replay = lastServer();
+    expect(replay.closed).toBe(true);
+    expect(sent(replay)[0]).toMatchObject({ message: 'PRO_SIGNALING_TICKET_REPLAYED' });
+    expect(newer.closed).toBe(false);
+  });
+
+  it('drops stale PRO attachments after hibernation before accepting the current epoch', async () => {
+    const state = new FakeDurableObjectState();
+    state.storage.data.set('proRoomMeta', {
+      v: 1,
+      kind: 'pro',
+      roomId: '000001',
+      coordinatorEpoch: 2,
+      coordinatorParticipantId: 'current-coordinator',
+      coordinatorJti: 'current-coordinator-ticket',
+      coordinatorTicketIat: 0,
+    });
+    const staleCoordinator = new FakeSocket();
+    staleCoordinator.serializeAttachment({
+      v: 1,
+      roomKind: 'pro',
+      role: 'host',
+      roomId: '000001',
+      peerId: '000001',
+      participantId: 'old-coordinator',
+      coordinatorEpoch: 1,
+      ticketJti: 'old-coordinator-ticket01',
+      auth: 'ok',
+    });
+    const staleMember = new FakeSocket();
+    staleMember.serializeAttachment({
+      v: 1,
+      roomKind: 'pro',
+      role: 'guest',
+      roomId: '000001',
+      peerId: 'old-member',
+      participantId: 'old-member',
+      coordinatorEpoch: 1,
+      ticketJti: 'old-member-ticket-0001',
+      auth: 'ok',
+    });
+    state.sockets.push(staleCoordinator, staleMember);
+
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'current-coordinator',
+        coordinatorEpoch: 2,
+        jti: 'current-coordinator-ticket',
+      }),
+    );
+    const currentCoordinator = lastServer();
+
+    expect(staleCoordinator.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_STALE');
+    expect(staleMember.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_STALE');
+    expect(currentCoordinator.closed).toBe(false);
+    expect(currentCoordinator.deserializeAttachment()).toMatchObject({
+      roomKind: 'pro',
+      coordinatorEpoch: 2,
+      participantId: 'current-coordinator',
+    });
   });
 
   it('accepts a host with hibernation attachment and room metadata', async () => {

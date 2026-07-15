@@ -313,6 +313,34 @@ function createHostPeer(): CloudflareSignalingPeer {
   });
 }
 
+function clientProTicket(
+  participantId: string,
+  overrides: Partial<{
+    roomCode: string;
+    role: 'coordinator' | 'member';
+    coordinatorEpoch: number;
+    jti: string;
+  }> = {},
+): string {
+  const payload = btoa(
+    JSON.stringify({
+      v: 1,
+      kind: 'pro-signaling',
+      roomCode: overrides.roomCode ?? '000001',
+      participantId,
+      role: overrides.role ?? 'member',
+      coordinatorEpoch: overrides.coordinatorEpoch ?? 7,
+      jti: overrides.jti ?? 'client-ticket-identifier',
+      iat: 1,
+      exp: 2,
+    }),
+  )
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+  return `${payload}.test-signature`;
+}
+
 function privateMaps(peer: CloudflareSignalingPeer): {
   connections: Map<string, TransportDataConnection>;
   roomSockets: Map<string, FakeWebSocket>;
@@ -376,6 +404,164 @@ afterEach(() => {
   Object.defineProperty(globalThis, 'MediaStream', {
     configurable: true,
     value: originalMediaStream,
+  });
+});
+
+describe('Cloudflare PRO signaling client contract', () => {
+  it('uses the ticket-only PRO path for a coordinator and never sends the room password frame', async () => {
+    installFakeWebSocket();
+    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket,
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+      },
+    });
+    await Promise.resolve();
+
+    const socket = FakeWebSocket.instances[0];
+    const url = new URL(socket.url);
+    expect(url.pathname).toBe('/api/pro-rooms/000001/ws');
+    expect([...url.searchParams.keys()]).toEqual(['ticket']);
+    expect(url.searchParams.get('ticket')).toBe(ticket);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '000001', roomId: '000001' }),
+    );
+    await flushAsync();
+    expect(sentOfType(socket, 'room-password-set')).toHaveLength(0);
+    peer.destroy();
+  });
+
+  it('atomically refreshes a same-room/role/epoch ticket for the next reconnect URL', async () => {
+    installFakeWebSocket();
+    const initialTicket = clientProTicket('coordinator-device', {
+      role: 'coordinator',
+      jti: 'initial-client-ticket',
+    });
+    const refreshedTicket = clientProTicket('coordinator-device', {
+      role: 'coordinator',
+      jti: 'refreshed-client-ticket',
+    });
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: initialTicket,
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+      },
+    });
+    await Promise.resolve();
+    const initialSocket = FakeWebSocket.instances[0];
+
+    const refreshedAccess = {
+      roomCode: '000001',
+      ticket: refreshedTicket,
+      role: 'coordinator' as const,
+      coordinatorEpoch: 7,
+    };
+    expect(peer.setProSignalingAccess(refreshedAccess)).toBe(true);
+    refreshedAccess.ticket = initialTicket;
+    initialSocket.close();
+    peer.reconnect();
+
+    const reconnected = FakeWebSocket.instances[1];
+    expect(new URL(reconnected.url).searchParams.get('ticket')).toBe(refreshedTicket);
+    peer.destroy();
+  });
+
+  it.each([
+    {
+      label: 'room',
+      access: {
+        roomCode: '000000',
+        role: 'coordinator' as const,
+        coordinatorEpoch: 7,
+      },
+    },
+    {
+      label: 'role',
+      access: { roomCode: '000001', role: 'member' as const, coordinatorEpoch: 7 },
+    },
+    {
+      label: 'epoch',
+      access: { roomCode: '000001', role: 'coordinator' as const, coordinatorEpoch: 8 },
+    },
+  ])('rejects an in-place PRO $label change', async ({ access }) => {
+    installFakeWebSocket();
+    const initialTicket = clientProTicket('coordinator-device', { role: 'coordinator' });
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: initialTicket,
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+      },
+    });
+    await Promise.resolve();
+    const initialSocket = FakeWebSocket.instances[0];
+    const mismatchedTicket = clientProTicket('coordinator-device', access);
+
+    expect(peer.setProSignalingAccess({ ...access, ticket: mismatchedTicket })).toBe(false);
+    initialSocket.close();
+    peer.reconnect();
+    expect(new URL(FakeWebSocket.instances[1].url).searchParams.get('ticket')).toBe(initialTicket);
+    peer.destroy();
+  });
+
+  it('leaves a standard signaling peer unchanged when offered PRO access', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    expect(
+      peer.setProSignalingAccess({
+        roomCode: '000001',
+        ticket: clientProTicket('coordinator-device', { role: 'coordinator' }),
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+      }),
+    ).toBe(false);
+    expect(new URL(FakeWebSocket.instances[0].url).pathname).toBe('/api/rooms/123456/ws');
+    peer.destroy();
+  });
+
+  it('derives a member identity from its signed payload and skips ordinary guest-auth', () => {
+    installFakeWebSocket();
+    const ticket = clientProTicket('stable-pro-member');
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket,
+        role: 'member',
+        coordinatorEpoch: 7,
+      },
+    });
+
+    expect(peer.id).toBe('stable-pro-member');
+    peer.connect('000001');
+    const socket = FakeWebSocket.instances[0];
+    const url = new URL(socket.url);
+    expect(url.pathname).toBe('/api/pro-rooms/000001/ws');
+    expect([...url.searchParams.keys()]).toEqual(['ticket']);
+    socket.dispatch('open');
+    expect(sentOfType(socket, 'guest-auth')).toHaveLength(0);
+    expect(() => peer.connect('000000')).toThrowError('PRO_SIGNALING_ROOM_MISMATCH');
+    peer.destroy();
   });
 });
 

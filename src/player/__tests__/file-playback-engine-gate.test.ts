@@ -22,11 +22,9 @@ function installLocation(search: unknown): void {
 }
 
 async function loadGate(options: { readonly productionLatch?: boolean } = {}) {
-  if (options.productionLatch !== undefined) {
-    vi.doMock(RELEASE_LATCH_MODULE_PATH, () => ({
-      FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED: options.productionLatch,
-    }));
-  }
+  vi.doMock(RELEASE_LATCH_MODULE_PATH, () => ({
+    FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED: options.productionLatch ?? false,
+  }));
   return import(MODULE_PATH);
 }
 

@@ -170,14 +170,20 @@ jobs:
           --message "$RELEASE_MESSAGE"
 
       - name: Record signaling deployment
+        id: signaling_deployment
         if: inputs.target == 'all' || inputs.target == 'signaling'
-        run: >-
-          npm run --silent wrangler -- deployments status
-          --config cloudflare/wrangler.signaling.toml --json
-          > release-artifacts/deployments/signaling.json
+        shell: bash
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.signaling.toml --json \
+            > release-artifacts/deployments/signaling.json
+          version_id="$(node -e "const fs = require('node:fs'); const deployment = JSON.parse(fs.readFileSync('release-artifacts/deployments/signaling.json', 'utf8')); const version = deployment.versions?.find((item) => item.percentage === 100)?.version_id; if (!version) process.exit(1); process.stdout.write(version);")"
+          echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke signaling Worker
         if: inputs.target == 'all' || inputs.target == 'signaling'
+        env:
+          MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}
         run: npm run smoke:live:signaling
 
       - name: Record current app deployment

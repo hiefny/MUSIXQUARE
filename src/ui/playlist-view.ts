@@ -26,17 +26,22 @@ import {
   createPlaylistRemovalController,
   type PlaylistRemovalController,
 } from './playlist-removal.ts';
+import {
+  createPlaylistFollowController,
+  type PlaylistFollowController,
+} from './playlist-follow.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
-let _lastScrolledQueueItemId: QueueItemId | null = null;
-let _lastScrolledSubIndex = -1;
 let _pendingPlaylistUpdate = false;
 let _deferredPlaylistUpdate = false;
 let _playlistRaf = 0;
 let _domAbort: AbortController | null = null;
 let _reorderController: PlaylistReorderController | null = null;
 let _removalController: PlaylistRemovalController | null = null;
+let _followController: PlaylistFollowController | null = null;
+let _followList: HTMLElement | null = null;
+let _followScrollContainer: HTMLElement | null = null;
 
 // Expansion is view-local. It must not increment the authoritative playlist
 // revision or clone a queue item while a drag owns that item's identity.
@@ -67,6 +72,36 @@ function playlistIsVisible(): boolean {
     /* matchMedia can be unavailable in tests. */
   }
   return panel.classList.contains('active');
+}
+
+function effectiveFollowSubIndex(
+  playlist: readonly PlaylistItem[],
+  queueItemId: QueueItemId | null,
+  subIndex: number,
+): number {
+  if (!queueItemId || !Number.isSafeInteger(subIndex) || subIndex < 0) return -1;
+  const current = playlist.find((item) => item.queueItemId === queueItemId);
+  return current?.type === 'youtube' && !!current.playlistId && isExpanded(current) ? subIndex : -1;
+}
+
+function ensureFollowController(
+  list: HTMLElement,
+  scrollContainer: HTMLElement,
+): PlaylistFollowController {
+  if (_followController && _followList === list && _followScrollContainer === scrollContainer) {
+    return _followController;
+  }
+
+  _followController?.destroy();
+  _followList = list;
+  _followScrollContainer = scrollContainer;
+  _followController = createPlaylistFollowController({
+    list,
+    scrollContainer,
+    isVisible: playlistIsVisible,
+    isBlocked: () => !!_reorderController?.isActive || !!_removalController?.isActive,
+  });
+  return _followController;
 }
 
 function toggleExpansion(queueItemId: QueueItemId): void {
@@ -208,10 +243,12 @@ export function updatePlaylistUI(): void {
 
   pruneExpansionOverrides(playlist);
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
+  const followController = ensureFollowController(list, scrollContainer);
   const savedScrollTop = scrollContainer.scrollTop;
   list.replaceChildren();
 
   if (playlist.length === 0) {
+    followController.reset();
     const isHost = !getState('network.hostConn');
     const key = isHost ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
     const empty = document.createElement('li');
@@ -273,22 +310,18 @@ export function updatePlaylistUI(): void {
     list.appendChild(entry);
   });
 
-  const selectionChanged =
-    _lastScrolledQueueItemId !== currentQueueItemId ||
-    _lastScrolledSubIndex !== currentYouTubeSubIndex;
-  if (selectionChanged) {
-    _lastScrolledQueueItemId = currentQueueItemId;
-    _lastScrolledSubIndex = currentYouTubeSubIndex;
-    const active =
-      list.querySelector<HTMLElement>('.sub-track-item.active') ??
-      list.querySelector<HTMLElement>('.track-item.active');
-    if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    else scrollContainer.scrollTop = savedScrollTop;
-  } else {
-    scrollContainer.scrollTop = savedScrollTop;
-  }
+  // DOM replacement must not turn an in-flight follow into a false success.
+  // Restore the current physical position first; the follow controller then
+  // recenters the active occurrence on the next layout frame and survives any
+  // immediate follow-up render.
+  scrollContainer.scrollTop = savedScrollTop;
+  followController.updateSelection(
+    currentQueueItemId,
+    effectiveFollowSubIndex(playlist, currentQueueItemId, currentYouTubeSubIndex),
+  );
   _reorderController?.afterRender();
   _removalController?.afterRender();
+  followController.afterRender();
 }
 
 function queueItemIdFromElement(element: Element | null): QueueItemId | null {
@@ -445,6 +478,10 @@ export function initPlaylistView(): void {
   _reorderController = null;
   _removalController?.destroy();
   _removalController = null;
+  _followController?.destroy();
+  _followController = null;
+  _followList = null;
+  _followScrollContainer = null;
   if (_playlistRaf) cancelAnimationFrame(_playlistRaf);
   _playlistRaf = 0;
   _pendingPlaylistUpdate = false;
@@ -487,8 +524,16 @@ export function initPlaylistView(): void {
   _busScope.on('playlist:items-added', () => _reorderController?.notifyItemsAdded());
 
   _busScope.on('ui:playlist-tab-opened', () => {
-    _lastScrolledQueueItemId = null;
-    _lastScrolledSubIndex = -1;
+    const playlist = getState('playlist.items');
+    const currentQueueItemId = getState('playlist.currentQueueItemId');
+    _followController?.forceSelection(
+      currentQueueItemId,
+      effectiveFollowSubIndex(
+        playlist,
+        currentQueueItemId,
+        getState('youtube.currentSubIndex') ?? -1,
+      ),
+    );
     updatePlaylistUI();
     _reorderController?.notifyPlaylistEntered();
   });
@@ -508,8 +553,7 @@ export function initPlaylistView(): void {
   });
   _busScope.on('state:network.appRole', (role: unknown) => {
     if (role === 'idle') {
-      _lastScrolledQueueItemId = null;
-      _lastScrolledSubIndex = -1;
+      _followController?.reset();
       _expansionOverrides.clear();
       _reorderController?.cancel();
       _removalController?.cancel();

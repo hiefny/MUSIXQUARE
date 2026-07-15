@@ -417,7 +417,7 @@ export interface FilePlaybackProductGuestMediaOwnerOptions {
     context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
     error: FilePlaybackProductGuestMediaOwnerFatalError,
   ) => void;
-  /** Called only after the exact native transition and media metadata both commit. */
+  /** Called only after exact playing evidence or a prepared paused baseline commits. */
   readonly onTimelineRendered: (timeline: Readonly<PlaybackTimelineSnapshot>) => void;
   readonly armP95Ms?: number;
   readonly readyLeaseMs?: number;
@@ -485,6 +485,7 @@ interface GuestRoomState {
   current: GuestPreparedRun | null;
   candidate: GuestPreparedRun | null;
   physical: GuestPhysicalCommit | null;
+  activeBaselineProjected: boolean;
 }
 
 interface GuestPhysicalCommit {
@@ -1255,6 +1256,7 @@ class GuestMediaOwner {
           current: null,
           candidate: null,
           physical: null,
+          activeBaselineProjected: false,
         };
         return;
       }
@@ -1275,6 +1277,7 @@ class GuestMediaOwner {
         current: null,
         candidate: null,
         physical: null,
+        activeBaselineProjected: false,
       };
       this.#assertLive();
     } catch (error) {
@@ -1822,6 +1825,9 @@ class GuestMediaOwner {
       this.#assertPrepared(room, prepared);
       prepared.readyPublished = true;
       prepared.status = 'ready';
+      if (prepared.kind === 'baseline' && room.timeline.phase === 'paused') {
+        this.#publishActiveBaselineTimeline(room, prepared, 'paused');
+      }
     } catch (error) {
       if (!this.#closed) throw error;
     }
@@ -2696,6 +2702,9 @@ class GuestMediaOwner {
     const healthWire = this.#createRendererHealthWire(attempt, healthPayload);
     await this.#sendRequired(healthWire);
     this.#assertAttempt(room, prepared, attempt);
+    if (prepared.kind === 'baseline') {
+      this.#publishActiveBaselineTimeline(room, prepared, 'playing');
+    }
     if (attempt.stateOperation && prepared.stateOperation === attempt.stateOperation) {
       // The media session retains committed state authority for wire replay.
       // The prepared renderer must stop gating later pause/seek/stop work on
@@ -3254,6 +3263,62 @@ class GuestMediaOwner {
     });
   }
 
+  #publishActiveBaselineTimeline(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    phase: 'playing' | 'paused',
+  ): void {
+    this.#assertPrepared(room, prepared);
+    const timeline = room.timeline;
+    const timelineState = stateFromTimeline(timeline);
+    const media = this.#mediaSession.snapshot();
+    if (
+      prepared.kind !== 'baseline' ||
+      room.current !== prepared ||
+      room.activeBaselineProjected ||
+      timeline.phase !== phase ||
+      !timelineState ||
+      !sameState(timelineState, prepared.state) ||
+      media.status !== 'active' ||
+      media.current?.kind !== 'baseline' ||
+      !media.currentState ||
+      !sameState(media.currentState, prepared.state)
+    ) {
+      throw new Error('Guest active baseline projection authority is invalid');
+    }
+    if (phase === 'playing') {
+      if (
+        prepared.status !== 'current' ||
+        prepared.attempt?.committed !== true ||
+        !this.#physicalMatches(prepared)
+      ) {
+        throw new Error('Guest playing baseline lacks exact physical renderer evidence');
+      }
+    } else if (
+      prepared.status !== 'ready' ||
+      !prepared.readyPublished ||
+      prepared.attempt !== null
+    ) {
+      throw new Error('Guest paused baseline lacks exact prepared source evidence');
+    }
+    room.activeBaselineProjected = true;
+    this.#publishTimelineRendered(room, timeline);
+  }
+
+  #publishTimelineRendered(
+    room: GuestRoomState,
+    timeline: Readonly<PlaybackTimelineSnapshot>,
+  ): void {
+    this.#assertRoom(room);
+    this.#timelineCallbackActive = true;
+    try {
+      Reflect.apply(this.#onTimelineRendered, undefined, [timeline]);
+    } finally {
+      this.#timelineCallbackActive = false;
+    }
+    this.#assertRoom(room);
+  }
+
   async #commitTimelineUpdate(
     room: GuestRoomState,
     timeline: Readonly<PlaybackTimelineSnapshot>,
@@ -3295,13 +3360,7 @@ class GuestMediaOwner {
     this.#assertRoom(room);
     const heartbeat = this.#rendererHealthHeartbeat;
     if (heartbeat) this.#scheduleRendererHealthHeartbeat(heartbeat);
-    this.#timelineCallbackActive = true;
-    try {
-      Reflect.apply(this.#onTimelineRendered, undefined, [timeline]);
-    } finally {
-      this.#timelineCallbackActive = false;
-    }
-    this.#assertRoom(room);
+    this.#publishTimelineRendered(room, timeline);
   }
 
   #preparedForMessage(

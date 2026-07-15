@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { REMOTE_SHARE_MAX_BYTES } from '../../core/constants.ts';
+import { bus } from '../../core/events.ts';
 import type {
   FilePlaybackApplicationSessionHooks,
   FilePlaybackHostApplicationSessionAuthority,
@@ -3078,6 +3079,21 @@ describe('FilePlaybackProductRuntime', () => {
     ).toBe(false);
     expect(setup.sessions.sendRequired).toHaveBeenCalledTimes(sendsBeforePeerGate + 1);
 
+    const projected = vi.fn();
+    const stopProjectionObservation = bus.on('player:v2-guest-timeline-rendered', projected);
+    const renderedTimeline = freezeCanonical({
+      schemaVersion: 1 as const,
+      revision: 1,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: 'runtime-guest-rendered-run' }),
+      positionSeconds: 12,
+      anchorMonotonicMs: 1_000,
+      rate: 1,
+    });
+    guestOwnerOptions?.onTimelineRendered(renderedTimeline);
+    expect(projected).toHaveBeenCalledOnce();
+    expect(projected).toHaveBeenCalledWith(Q1, 'playing', 12);
+
     guestOwnerOptions?.onFatalConnection(
       context,
       new Error('guest media fatal') as Parameters<
@@ -3089,6 +3105,9 @@ describe('FilePlaybackProductRuntime', () => {
     await Promise.resolve();
     expect(setup.sessions.closeConnection).toHaveBeenCalledOnce();
     expect(setup.sessions.closeConnection).toHaveBeenCalledWith(peer);
+    guestOwnerOptions?.onTimelineRendered(renderedTimeline);
+    expect(projected).toHaveBeenCalledOnce();
+    stopProjectionObservation();
 
     Reflect.apply(registryFatal!, undefined, [registryRoomToken!, new Error('registry fatal')]);
     await Promise.resolve();

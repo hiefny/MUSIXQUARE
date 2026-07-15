@@ -686,9 +686,9 @@ export function initPlayback(): void {
     stopAllMedia(options);
   });
 
-  // V2 media owners emit this only after exact native renderer evidence and
-  // connection-media authority have committed. It is a UI projection, never a
-  // second playback command or clock.
+  // V2 media owners emit this only after exact native playing evidence, or an
+  // exact prepared paused baseline, and connection-media authority have
+  // committed. It is a UI projection, never a second playback command or clock.
   bus.on('player:v2-guest-timeline-rendered', (queueItemId, phase, positionSeconds) => {
     if (
       !Number.isFinite(positionSeconds) ||

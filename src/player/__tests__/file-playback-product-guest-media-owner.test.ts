@@ -226,6 +226,25 @@ function timelineEvent(context: Readonly<FilePlaybackProductSessionRouterConnect
   });
 }
 
+function pausedTimelineEvent(context: Readonly<FilePlaybackProductSessionRouterConnectionContext>) {
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    roomGeneration: 1,
+    sessionId: context.sessionId,
+    connectionId: context.connectionId,
+    status: 'adopted' as const,
+    timeline: freezeCanonical({
+      schemaVersion: 1 as const,
+      revision: 1,
+      phase: 'paused' as const,
+      run: freezeCanonical({ queueItemId: QUEUE_ID, runId: RUN_ID }),
+      positionSeconds: 12,
+      anchorMonotonicMs: 100,
+      rate: 1,
+    }),
+  });
+}
+
 function stoppedTimelineEvent(
   context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
 ) {
@@ -2327,6 +2346,36 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
   });
 
+  it('projects a prepared paused active baseline exactly once without starting a renderer', async () => {
+    const h = setup();
+    const baseline = pausedTimelineEvent(h.context);
+    h.owner.onTimelineAdopted(baseline);
+    const offer = peerOffer(h.context);
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledOnce());
+
+    expect(h.rendered).toHaveBeenCalledWith(baseline.timeline);
+    expect(h.runtime.arm).not.toHaveBeenCalled();
+    expect(h.runtime.finalize).not.toHaveBeenCalled();
+    expect(h.runtime.started).not.toHaveBeenCalled();
+    expect(h.runtime.commitAttempt).not.toHaveBeenCalled();
+    const sourceReadyCallIndex = h.runtime.sendRequired.mock.calls.findIndex(
+      ([, frame]) => (frame as { kind?: string }).kind === 'source-ready',
+    );
+    expect(sourceReadyCallIndex).toBeGreaterThanOrEqual(0);
+    expect(h.runtime.sendRequired.mock.invocationCallOrder[sourceReadyCallIndex]).toBeLessThan(
+      h.rendered.mock.invocationCallOrder[0]!,
+    );
+
+    h.owner.onTimelineAdopted(baseline);
+    await Promise.resolve();
+    expect(h.rendered).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
   it('completes peer-range native FLAC late join through physical health evidence', async () => {
     const h = setup();
     expect(Object.keys(h.owner)).toEqual([
@@ -2431,6 +2480,24 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       underrunCount: 0,
       reasonCode: null,
     });
+    expect(h.rendered).toHaveBeenCalledOnce();
+    expect(h.rendered).toHaveBeenCalledWith(timelineEvent(h.context).timeline);
+    const healthCallIndex = h.runtime.sendRequired.mock.calls.findIndex(
+      ([, frame]) => (frame as { kind?: string }).kind === 'renderer-health',
+    );
+    expect(healthCallIndex).toBeGreaterThanOrEqual(0);
+    expect(h.runtime.started.mock.invocationCallOrder[0]).toBeLessThan(
+      h.rendered.mock.invocationCallOrder[0]!,
+    );
+    expect(h.runtime.commitAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+      h.rendered.mock.invocationCallOrder[0]!,
+    );
+    expect(h.runtime.sendRequired.mock.invocationCallOrder[healthCallIndex]).toBeLessThan(
+      h.rendered.mock.invocationCallOrder[0]!,
+    );
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    await Promise.resolve();
+    expect(h.rendered).toHaveBeenCalledOnce();
     expect(h.fatal).not.toHaveBeenCalled();
 
     h.owner.revoke(h.context);
@@ -2889,7 +2956,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     );
     await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledTimes(2));
     expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
-    expect(h.rendered).not.toHaveBeenCalled();
+    expect(h.rendered).toHaveBeenCalledOnce();
 
     await runHostAttempt(
       h,
@@ -2903,6 +2970,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     const rendered = activeTimeline(successor, 'playing', 12, 1_000);
     h.owner.onTimelineUpdated(timelineUpdated(h.context, rendered));
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(rendered));
+    expect(h.rendered).toHaveBeenCalledTimes(2);
     await vi.waitFor(() => expect(h.runtime.pendingTimeouts()).toHaveLength(1));
     h.runtime.fireNextTimeout();
     await vi.waitFor(() =>
@@ -4110,7 +4178,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       expect(stageOptions.boundedRoutePolicy).toBe(FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY);
       expect(Object.isFrozen(stageOptions.boundedRoutePolicy)).toBe(true);
     }
-    expect(h.rendered).not.toHaveBeenCalled();
+    expect(h.rendered).toHaveBeenCalledOnce();
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
   });
@@ -4189,7 +4257,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
 
     h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
     await Promise.resolve();
-    expect(h.rendered).toHaveBeenCalledTimes(3);
+    expect(h.rendered).toHaveBeenCalledTimes(4);
     expect(h.runtime.pauseCurrent.mock.invocationCallOrder[0]).toBeLessThan(
       h.runtime.seekCurrent.mock.invocationCallOrder[0]!,
     );

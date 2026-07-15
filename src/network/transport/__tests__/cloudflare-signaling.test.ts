@@ -317,11 +317,13 @@ function privateMaps(peer: CloudflareSignalingPeer): {
   connections: Map<string, TransportDataConnection>;
   roomSockets: Map<string, FakeWebSocket>;
   guestRooms: Map<string, { conn: TransportDataConnection; authFailed: boolean }>;
+  guestReconnectSecrets: Map<string, string>;
 } {
   return peer as unknown as {
     connections: Map<string, TransportDataConnection>;
     roomSockets: Map<string, FakeWebSocket>;
     guestRooms: Map<string, { conn: TransportDataConnection; authFailed: boolean }>;
+    guestReconnectSecrets: Map<string, string>;
   };
 }
 
@@ -426,7 +428,11 @@ describe('Cloudflare client/Worker signaling contract', () => {
 
       guestClientSocket.dispatch('open');
       const authFrame = sentOfType(guestClientSocket, 'guest-auth')[0];
-      expect(authFrame).toEqual({ type: 'guest-auth', password: roomPassword });
+      expect(authFrame).toMatchObject({
+        type: 'guest-auth',
+        password: roomPassword,
+        reconnectSecret: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      });
       await room.webSocketMessage(guestServerSocket, JSON.stringify(authFrame));
 
       // In a passwordless room the Worker admitted the guest before the
@@ -435,6 +441,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
       expect(guestServerSocket.closed).toBe(false);
       const peerOpen = workerSentOfType(guestServerSocket, 'peer-open')[0];
       expect(peerOpen).toMatchObject({ type: 'peer-open', roomId: '123456' });
+      expect(peerOpen).not.toHaveProperty('reconnectSecret');
       guestClientSocket.dispatch('message', JSON.stringify(peerOpen));
       await flushAsync();
 
@@ -654,8 +661,12 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     const reopened = FakeWebSocket.instances[1];
     expect(reopened.url).toContain('role=guest');
+    expect(new URL(reopened.url).searchParams.has('reconnectSecret')).toBe(false);
     reopened.dispatch('open');
     expect(sentOfType(reopened, 'guest-auth')[0]?.password).toBe('12345678');
+    expect(sentOfType(reopened, 'guest-auth')[0]?.reconnectSecret).toBe(
+      sentOfType(socket, 'guest-auth')[0]?.reconnectSecret,
+    );
 
     reopened.dispatch(
       'message',
@@ -684,6 +695,33 @@ describe('Cloudflare guest signaling reconnect', () => {
     // Stacking would make the DO close the older socket (GUEST_REPLACED),
     // re-emitting 'disconnected' -> peer.ts budget reset -> oscillation.
     expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('retains the RAM-only reconnect secret after conn close without putting it in the URL', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    expect(new URL(socket.url).searchParams.has('reconnectSecret')).toBe(false);
+    socket.dispatch('open');
+    const firstSecret = sentOfType(socket, 'guest-auth')[0]?.reconnectSecret;
+    expect(firstSecret).toEqual(expect.stringMatching(/^[A-Za-z0-9_-]{43}$/));
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await flushAsync();
+    expect(conn.open).toBe(true);
+    expect(privateMaps(peer).guestReconnectSecrets.get('123456')).toBe(firstSecret);
+
+    conn.close();
+    peer.connect('123456');
+    const replacement = FakeWebSocket.instances[1];
+    expect(new URL(replacement.url).searchParams.has('reconnectSecret')).toBe(false);
+    replacement.dispatch('open');
+
+    expect(sentOfType(replacement, 'guest-auth')[0]?.reconnectSecret).toBe(firstSecret);
   });
 
   it('skips unestablished sessions on reconnect()', () => {
@@ -903,15 +941,17 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(sentOfType(socket, 'signal-candidate')).toHaveLength(0);
   });
 
-  it('destroy() clears the guest reconnect registry', () => {
+  it('destroy() clears the guest reconnect registry and RAM-only secrets', () => {
     installFakeWebSocket();
     const peer = createGuestPeer();
     peer.connect('123456', { roomPassword: '12345678' });
     expect(privateMaps(peer).guestRooms.size).toBe(1);
+    expect(privateMaps(peer).guestReconnectSecrets.size).toBe(1);
 
     peer.destroy();
 
     expect(privateMaps(peer).guestRooms.size).toBe(0);
+    expect(privateMaps(peer).guestReconnectSecrets.size).toBe(0);
     expect(privateMaps(peer).roomSockets.size).toBe(0);
     expect(privateMaps(peer).connections.size).toBe(0);
   });

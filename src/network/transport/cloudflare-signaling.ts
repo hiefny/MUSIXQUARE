@@ -410,6 +410,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private readonly roomSockets = new Map<string, WebSocket>();
   private readonly guestRooms = new Map<string, GuestRoomRecord>();
+  /** RAM-only per-room proof; survives conn replacement but never a page reload. */
+  private readonly guestReconnectSecrets = new Map<string, string>();
   private hostSocket: WebSocket | null = null;
   private readonly hostRoomId: string | null;
   private readonly hostSecret = randomBase64Url(24);
@@ -440,6 +442,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const conn = new CloudflareDataConnection(roomId, options?.metadata);
     const roomPassword =
       typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
+    if (!this.guestReconnectSecrets.has(roomId)) {
+      this.guestReconnectSecrets.set(roomId, randomBase64Url(32));
+    }
     this.guestRooms.set(roomId, {
       conn,
       metadata: options?.metadata,
@@ -541,6 +546,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     for (const conn of this.connections.values()) conn.close();
     this.connections.clear();
     this.guestRooms.clear();
+    this.guestReconnectSecrets.clear();
     for (const mediaConn of this.mediaCalls.values()) mediaConn.closeFromRemote();
     this.mediaCalls.clear();
     this.clear();
@@ -696,7 +702,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.roomSockets.set(roomId, socket);
     socket.addEventListener('open', () => {
       try {
-        socket.send(JSON.stringify({ type: 'guest-auth', password: password || '' }));
+        socket.send(
+          JSON.stringify({
+            type: 'guest-auth',
+            password: password || '',
+            reconnectSecret: this.guestReconnectSecrets.get(roomId) || '',
+          }),
+        );
       } catch (error) {
         conn.emit('error', error);
       }
@@ -811,7 +823,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         // the established data channel. Emitting a connection error would tear
         // down a channel that may still work, so log and close only the socket;
         // its close event emits 'disconnected' for the outer reconnect backoff.
-        if (message.errorType?.startsWith('room-password-')) {
+        if (
+          message.errorType?.startsWith('room-password-') ||
+          message.errorType === 'guest-reconnect-denied'
+        ) {
           const record = this.guestRooms.get(roomId);
           if (record?.conn === conn) record.authFailed = true;
         }

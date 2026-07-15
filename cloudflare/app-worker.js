@@ -59,7 +59,10 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_auth_pending', label: 'Password prompts' },
   { key: 'guest_auth_failed', label: 'Password failures' },
   { key: 'guest_auth_timeout', label: 'Password timeouts' },
+  { key: 'guest_reconnect_denied', label: 'Guest reconnect denials' },
   { key: 'guest_room_full', label: 'Room-full rejections' },
+  { key: 'guest_pending_capacity', label: 'Pending guest limit rejections' },
+  { key: 'guest_identity_capacity', label: 'Guest identity limit rejections' },
   { key: 'ws_message_oversized', label: 'Oversized signaling messages' },
   { key: 'ws_message_rate_limited', label: 'Rate-limited signaling messages' },
 ];
@@ -672,36 +675,20 @@ function getAdminPassword(env) {
   return String(env.MXQR_ADMIN_PASSWORD || env.ADMIN_PASSWORD || '').trim();
 }
 
-function getAdminPasswordHash(env) {
-  return String(env.MXQR_ADMIN_PASSWORD_SHA256 || env.ADMIN_PASSWORD_SHA256 || '')
-    .trim()
-    .replace(/^sha256:/i, '')
-    .toLowerCase();
-}
-
 function getAdminSessionSecret(env) {
   return String(env.MXQR_ADMIN_SESSION_SECRET || env.ADMIN_SESSION_SECRET || '').trim();
 }
 
 function isAdminConfigured(env) {
-  return !!((getAdminPassword(env) || getAdminPasswordHash(env)) && getAdminSessionSecret(env));
+  return !!(getAdminPassword(env) && getAdminSessionSecret(env));
 }
 
 function getAdminDb(env) {
   return env.MUSIXQUARE_ADMIN_DB || env.ADMIN_METRICS_DB || null;
 }
 
-async function sha256Hex(value) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 async function verifyAdminPassword(password, env) {
   if (typeof password !== 'string' || !password) return false;
-  const storedHash = getAdminPasswordHash(env);
-  if (storedHash) return constantTimeEqual(await sha256Hex(password), storedHash);
   const storedPassword = getAdminPassword(env);
   return !!storedPassword && constantTimeEqual(password, storedPassword);
 }

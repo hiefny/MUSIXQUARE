@@ -877,6 +877,28 @@ describe('Cloudflare app worker admin dashboard', () => {
 </rss>`;
   }
 
+  it('does not treat the legacy unsalted SHA-256 fallback as an admin credential', async () => {
+    const env = {
+      MXQR_ADMIN_PASSWORD_SHA256: 'sha256:legacy-digest',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+    };
+
+    const page = await appWorker.fetch(new Request('https://musixquare.com/admin'), env);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('data-admin-configured="false"');
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.80' },
+        body: JSON.stringify({ password: 'legacy-password' }),
+      }),
+      env,
+    );
+    expect(login.status).toBe(503);
+    expect(await login.json()).toEqual({ error: 'ADMIN_NOT_CONFIGURED' });
+  });
+
   it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
@@ -891,6 +913,9 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 4, event: 'guest_joined', count: 7 },
         { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
         { bucket_minute: nowMinute - 2, event: 'guest_room_full', count: 2 },
+        { bucket_minute: nowMinute - 2, event: 'guest_reconnect_denied', count: 5 },
+        { bucket_minute: nowMinute - 2, event: 'guest_pending_capacity', count: 6 },
+        { bucket_minute: nowMinute - 2, event: 'guest_identity_capacity', count: 7 },
         { bucket_minute: nowMinute - 1, event: 'ws_message_oversized', count: 3 },
         { bucket_minute: nowMinute, event: 'ws_message_rate_limited', count: 4 },
       ]),
@@ -937,6 +962,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(payload.summary?.last24?.room_opened).toBe(3);
     expect(payload.summary?.last24?.guest_joined).toBe(7);
     expect(payload.summary?.last24?.guest_room_full).toBe(2);
+    expect(payload.summary?.last24?.guest_reconnect_denied).toBe(5);
+    expect(payload.summary?.last24?.guest_pending_capacity).toBe(6);
+    expect(payload.summary?.last24?.guest_identity_capacity).toBe(7);
     expect(payload.summary?.last24?.ws_message_oversized).toBe(3);
     expect(payload.summary?.last24?.ws_message_rate_limited).toBe(4);
     expect(payload.summary?.daily).toHaveLength(7);

@@ -189,6 +189,31 @@ describe('verifyOperator', () => {
     expect(verifyOperator(stale)).toBe(false);
     expect(verifyOperator(active)).toBe(true);
   });
+
+  it('uses server-issued playback capability for a PRO room peer', () => {
+    const conn = makeConnection('pro-controller');
+    setState('network.appRole', 'host');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    setState('network.connectedPeers', [
+      {
+        ...makeConnectedPeer(conn.peer, false, conn),
+        roomCapabilities: ['playback.control'],
+      },
+    ]);
+
+    expect(verifyOperator(conn)).toBe(true);
+    setState('network.connectedPeers', [makeConnectedPeer(conn.peer, true, conn)]);
+    expect(verifyOperator(conn)).toBe(false);
+  });
 });
 
 describe('YOUTUBE_PLAYLIST_INFO validation', () => {

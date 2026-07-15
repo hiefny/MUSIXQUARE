@@ -17,6 +17,7 @@ import type { MsgType } from '../core/constants.ts';
 import { isQueueItemId, parsePlaylistSnapshot } from '../player/queue-model.ts';
 import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index.ts';
 import { hasQueueAuthority } from './queue-authority.ts';
+import { getRoomContext, verifyPeerCapability } from '../rooms/authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
@@ -614,6 +615,10 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
  * Called by Host-side `request-*` handlers before executing commands.
  */
 export function verifyOperator(conn: DataConnection, _data?: Record<string, unknown>): boolean {
+  if (getRoomContext().kind === 'pro') {
+    return verifyPeerCapability(conn, 'playback.control');
+  }
+
   const peerId = conn?.peer;
   if (!peerId) return false;
   if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return false;

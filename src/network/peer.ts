@@ -704,6 +704,7 @@ export function leaveSession(): void {
     'sync.localOffset': 0,
     'sync.youtubeLocalOffset': 0,
     // Player
+    'player.currentTrackMeta': null,
     'player.pausedAt': 0,
     // YouTube
     'youtube.subItemsMap': {},

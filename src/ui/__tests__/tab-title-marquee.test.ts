@@ -92,6 +92,52 @@ describe('tab title marquee', () => {
     expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
   });
 
+  it('re-arms an interval whose managed handle survived a browser scheduler discard', () => {
+    setTabTitleTrack('Background track');
+    setTabTitlePlaying(true);
+
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // WebKit can discard the native interval while our managed-timer registry
+    // still contains its handle. This is deliberately different from
+    // clearAllManagedTimers(), which also removes the registry entry.
+    vi.clearAllTimers();
+    expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.setSystemTime(8_000);
+    setVisibility('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(document.title).toBe('ound track · MUSIXQUARE');
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(1_000);
+    expect(document.title).toBe('und track · MUSIXQUARE');
+  });
+
+  it('rehydrates stale cached metadata from the canonical snapshot on pageshow', () => {
+    dispose?.();
+
+    let snapshot: { track: string; playing?: boolean } = {
+      track: 'Old cached track',
+      playing: true,
+    };
+    dispose = initTabTitleMarquee(() => snapshot);
+    expect(document.title).toBe('Old cached track · MUSIXQUARE');
+
+    vi.clearAllTimers();
+    vi.setSystemTime(12_000);
+    // An external player can be temporarily unavailable during restoration.
+    // Missing motion state must preserve the last authoritative playing value.
+    snapshot = { track: 'Current track' };
+    window.dispatchEvent(new Event('pageshow'));
+
+    expect(document.title).toBe('Current track · MUSIXQUARE');
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
   it('keeps the complete title static after playback stops', () => {
     setTabTitleTrack('Stopped track');
     setTabTitlePlaying(true);

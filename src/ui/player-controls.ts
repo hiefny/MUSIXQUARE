@@ -161,6 +161,31 @@ function getTabTitleTrack(): string {
       : item.title || item.name || '';
 }
 
+function getTabTitlePlaying(): boolean | undefined {
+  const mode = getState('playback.mode');
+  const activity = getState('playback.activity');
+  if (activity !== 'playing') return false;
+  if (mode !== 'youtube') return true;
+
+  const playerState = getYouTubePlayer()?.getPlayerState?.();
+  if (playerState === 1) return true;
+  if (playerState === 0 || playerState === 2) return false;
+
+  // During iframe creation, background restoration, or BUFFERING, YouTube may
+  // not expose a stable state. Preserve the last confirmed marquee state until
+  // ui:update-play-state supplies the next authoritative transition.
+  return undefined;
+}
+
+function getTabTitleSnapshot(): { track: string; playing?: boolean } {
+  const playing = getTabTitlePlaying();
+
+  return {
+    track: getTabTitleTrack(),
+    ...(playing === undefined ? {} : { playing }),
+  };
+}
+
 function onVolInput(val: number): void {
   bus.emit('audio:set-volume', val / 100);
 }
@@ -665,7 +690,7 @@ export function initPlayerControls(): void {
   _busScope.dispose();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
-  initTabTitleMarquee();
+  initTabTitleMarquee(getTabTitleSnapshot);
 
   const $on = (id: string, evt: string, fn: EventListener) => {
     const el = document.getElementById(id);
@@ -1134,11 +1159,9 @@ export function initPlayerControls(): void {
 
   scopePlaybackModeActivity(
     _busScope,
-    (playback) => {
-      const playing =
-        playback.activity === 'playing' &&
-        (playback.mode !== 'youtube' || getYouTubePlayer()?.getPlayerState?.() === 1);
-      setTabTitlePlaying(playing);
+    () => {
+      const playing = getTabTitlePlaying();
+      if (playing !== undefined) setTabTitlePlaying(playing);
     },
     { immediate: true },
   );

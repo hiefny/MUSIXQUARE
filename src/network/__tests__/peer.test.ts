@@ -1,18 +1,30 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resetState, setState } from '../../core/state.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import { detectConnectionType } from '../peer-state.ts';
-import { forceStereoSdp, safeSend, isRemoteGuest, isTrustedSystemAudioMediaCall } from '../peer.ts';
+import {
+  forceStereoSdp,
+  isRemoteGuest,
+  isTrustedSystemAudioMediaCall,
+  leaveSession,
+  safeSend,
+} from '../peer.ts';
 import type { AnyProtocolMsg, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
+  clearAllManagedTimers();
   resetState();
   bus.clear();
+});
+
+afterEach(() => {
+  clearAllManagedTimers();
 });
 
 function makeConnection(overrides: Partial<DataConnection>): DataConnection {
@@ -111,6 +123,25 @@ describe('isRemoteGuest', () => {
   it('returns false when connectionType is local', () => {
     setState('network.connectionType', 'local');
     expect(isRemoteGuest()).toBe(false);
+  });
+});
+
+describe('leaveSession', () => {
+  it('clears stale track metadata together with the playlist and playback state', () => {
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'old-room.wav',
+      title: 'Old room track',
+    });
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+
+    leaveSession();
+
+    expect(getState('player.currentTrackMeta')).toBeNull();
+    expect(getState('playlist.items')).toEqual([]);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 });
 

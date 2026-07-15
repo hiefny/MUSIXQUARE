@@ -306,6 +306,26 @@ describe('initPlayerControls tab title marquee wiring', () => {
     expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
   });
 
+  it('replaces the previous title when the next track arrives without an activity transition', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'first.wav',
+      title: 'First track',
+    });
+    initPlayerControls();
+
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'second.wav',
+      title: 'Second track',
+    });
+
+    expect(document.title).toBe('Second track · MUSIXQUARE');
+    expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
+  });
+
   it('updates a paused track title immediately instead of waiting for playback to change', () => {
     setState('playback.mode', 'file');
     setState('playback.activity', 'paused');
@@ -324,6 +344,29 @@ describe('initPlayerControls tab title marquee wiring', () => {
 
     expect(document.title).toBe('New paused title · MUSIXQUARE');
     expect(getManagedTimer('tab-title-marquee')).toBeNull();
+  });
+
+  it('keeps confirmed YouTube marquee motion when the iframe state is unavailable on focus', () => {
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    setState('player.currentTrackMeta', {
+      type: 'youtube',
+      name: 'youtube-video',
+      title: 'YouTube track',
+      videoId: 'video-1',
+      playlistId: null,
+    });
+    initPlayerControls();
+
+    // The real iframe PLAYING event is authoritative even if getPlayerState()
+    // is temporarily unavailable during the next page-lifecycle callback.
+    bus.emit('ui:update-play-state', true);
+    expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
+
+    window.dispatchEvent(new Event('focus'));
+
+    expect(document.title).toBe('YouTube track · MUSIXQUARE');
+    expect(getManagedTimer('tab-title-marquee')).not.toBeNull();
   });
 });
 

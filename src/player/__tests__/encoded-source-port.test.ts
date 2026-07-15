@@ -743,7 +743,7 @@ describe('EncodedSourcePort bridge', () => {
     expect(physicalSignal?.aborted).toBe(true);
   });
 
-  it('times out a silently disentangled port even when postMessage reports success', async () => {
+  it('cancels only a timed-out read when a disentangled peer accepts postMessage', async () => {
     const [clientPort] = portPair();
     clientPort.peer = null;
     const client = new EncodedSourcePortClient({
@@ -754,10 +754,92 @@ describe('EncodedSourcePort bridge', () => {
     });
 
     await expect(client.readAt(0, 1, new AbortController().signal)).rejects.toMatchObject({
-      code: 'closed',
+      code: 'read-failed',
     });
-    expect(clientPort.sent).toHaveLength(1);
+    expect(clientPort.sent).toHaveLength(2);
+    expect(clientPort.sent.at(-1)).toMatchObject({
+      type: 'encoded-source:cancel',
+      requestId: 1,
+    });
+    expect(client.cancelledReadCount).toBe(1);
+    expect(client.closed).toBe(false);
+    await client.close();
+  });
+
+  it('keeps a new decoder generation alive after one timeout and absorbs late settlement', async () => {
+    const [clientPort, remotePort] = portPair();
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 204,
+      size: 16,
+      responseTimeoutMs: 5,
+    });
+
+    await expect(client.readAt(0, 1, new AbortController().signal)).rejects.toMatchObject({
+      code: 'read-failed',
+    });
+    expect(client.cancelledReadCount).toBe(1);
+    expect(client.beginDecoderGeneration()).toBe(2);
+
+    const next = client.readAt(1, 1, new AbortController().signal);
+    remotePort.postMessage(
+      command({
+        type: 'encoded-source:result',
+        generation: 204,
+        decoderGeneration: 2,
+        requestId: 2,
+        offset: 1,
+        length: 1,
+        payload: Uint8Array.of(22).buffer,
+      }),
+    );
+    await expect(next).resolves.toEqual(Uint8Array.of(22));
+
+    remotePort.postMessage(
+      command({
+        type: 'encoded-source:result',
+        generation: 204,
+        decoderGeneration: 1,
+        requestId: 1,
+        offset: 0,
+        length: 1,
+        payload: Uint8Array.of(11).buffer,
+      }),
+    );
+    await flushTasks();
+    remotePort.postMessage(
+      command({
+        type: 'encoded-source:cancel-ack',
+        generation: 204,
+        decoderGeneration: 1,
+        requestId: 1,
+        offset: 0,
+        length: 1,
+      }),
+    );
+    expect(client.cancelledReadCount).toBe(0);
+    expect(client.closed).toBe(false);
+    await client.close();
+  });
+
+  it('bounds repeated silent read timeouts with the cancelled-read ledger', async () => {
+    const [clientPort] = portPair();
+    clientPort.peer = null;
+    const client = new EncodedSourcePortClient({
+      port: asPort(clientPort),
+      generation: 205,
+      size: 16,
+      maxCancelledReads: 2,
+      responseTimeoutMs: 1,
+    });
+
+    for (let offset = 0; offset < 3; offset += 1) {
+      await expect(client.readAt(offset, 1, new AbortController().signal)).rejects.toMatchObject({
+        code: 'read-failed',
+      });
+    }
     expect(client.closed).toBe(true);
+    expect(client.cancelledReadCount).toBe(0);
   });
 
   it('keeps one physical-read ledger and source across decoder seek generations', async () => {

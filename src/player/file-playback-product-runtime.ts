@@ -1632,13 +1632,13 @@ export class FilePlaybackProductRuntime {
           ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
         ) => {
           const connection = context.connection;
-          const dataChannel = connection.dataChannel;
-          const bufferedBytes = dataChannel?.bufferedAmount;
+          const controlChannel = connection.controlChannel;
+          const bufferedBytes = controlChannel?.bufferedAmount;
           return (
             this.#connectionContexts.has(ownerContext) &&
             ownerContext === context &&
             connection.open === true &&
-            dataChannel?.readyState === 'open' &&
+            controlChannel?.readyState === 'open' &&
             typeof bufferedBytes === 'number' &&
             Number.isFinite(bufferedBytes) &&
             bufferedBytes <= FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT

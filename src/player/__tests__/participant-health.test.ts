@@ -130,6 +130,23 @@ describe('ParticipantHealthMonitor', () => {
     expect(reconnected.actions).toEqual([]);
   });
 
+  it('accepts a fresh transport recovery at the reconnect deadline before expiring old state', () => {
+    const clock = { now: 0 };
+    const health = monitor(clock);
+    clock.now = 100;
+    health.report(signal('transport', 'unhealthy', 100));
+
+    clock.now = 2_100;
+    const recovered = health.reportMany([
+      signal('transport', 'healthy', 2_100, 3_100),
+      signal('clock', 'healthy', 2_100, 3_100),
+    ]);
+    expect(recovered.accepted).toBe(true);
+    expect(recovered.snapshot.state).toBe(PARTICIPANT_HEALTH_STATES.SYNCED);
+    expect(recovered.snapshot.identityRetained).toBe(true);
+    expect(recovered.actions).toEqual([]);
+  });
+
   it('marks a disconnected participant offline when reconnect grace expires', () => {
     const clock = { now: 0 };
     const health = monitor(clock);
@@ -221,6 +238,34 @@ describe('ParticipantHealthMonitor', () => {
     expect(
       secondEpisode.actions.filter((action) => action.type === 'emit-degraded-system-message'),
     ).toHaveLength(1);
+  });
+
+  it('re-arms a failed rejoin after grace without duplicating the episode notice', () => {
+    const clock = { now: 0 };
+    const health = monitor(clock);
+    clock.now = 100;
+    health.report(signal('renderer', 'unhealthy', 100));
+
+    clock.now = 1_100;
+    const first = health.tick();
+    expect(first.actions.map((action) => action.type)).toEqual([
+      'emit-degraded-system-message',
+      'request-rejoin',
+    ]);
+    expect(health.beginRejoin().snapshot.state).toBe(PARTICIPANT_HEALTH_STATES.REJOINING);
+
+    clock.now = 1_200;
+    const failed = health.completeRejoin(false);
+    expect(failed.snapshot.state).toBe(PARTICIPANT_HEALTH_STATES.DEGRADED);
+    expect(failed.snapshot.notificationEmitted).toBe(true);
+    clock.now = 2_199;
+    expect(health.tick().actions).toEqual([]);
+
+    clock.now = 2_200;
+    const retry = health.tick();
+    expect(retry.actions.map((action) => action.type)).toEqual(['request-rejoin']);
+    expect(retry.snapshot.episode).toBe(1);
+    expect(retry.snapshot.notificationEmitted).toBe(true);
   });
 
   it('makes stale signals inert', () => {

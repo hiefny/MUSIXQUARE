@@ -974,6 +974,141 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
   });
 
+  it('keeps an established data connection alive when a transient disconnect recovers', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    vi.useFakeTimers();
+    try {
+      pc.connectionState = 'disconnected';
+      pc.dispatch('connectionstatechange');
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(conn.open).toBe(true);
+      expect(onClose).not.toHaveBeenCalled();
+
+      pc.connectionState = 'connected';
+      pc.dispatch('connectionstatechange');
+      await vi.advanceTimersByTimeAsync(30_001);
+      expect(conn.open).toBe(true);
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      conn.close();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes an unrecovered disconnected data connection after the recovery grace', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    vi.useFakeTimers();
+    try {
+      pc.connectionState = 'disconnected';
+      pc.dispatch('connectionstatechange');
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(onClose).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(conn.open).toBe(false);
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(bulk.readyState).toBe('closed');
+      expect(control.readyState).toBe('closed');
+      expect(pc.connectionState).toBe('closed');
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes immediately when a disconnected peer connection becomes failed', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    vi.useFakeTimers();
+    try {
+      pc.connectionState = 'disconnected';
+      pc.dispatch('connectionstatechange');
+      pc.connectionState = 'failed';
+      pc.dispatch('connectionstatechange');
+
+      expect(conn.open).toBe(false);
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(bulk.readyState).toBe('closed');
+      expect(control.readyState).toBe('closed');
+      expect(pc.connectionState).toBe('closed');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails closed when the disconnect recovery deadline cannot be armed', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    vi.spyOn(globalThis, 'setTimeout').mockImplementationOnce(() => {
+      throw new Error('synthetic recovery timer failure');
+    });
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+
+    expect(conn.open).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(bulk.readyState).toBe('closed');
+    expect(control.readyState).toBe('closed');
+    expect(pc.connectionState).toBe('closed');
+  });
+
+  it('closes the sibling channel and peer connection when either data channel closes', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    bulk.close();
+
+    expect(conn.open).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(control.readyState).toBe('closed');
+    expect(pc.connectionState).toBe('closed');
+  });
+
   it('never falls back to the bulk channel for control frames', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();

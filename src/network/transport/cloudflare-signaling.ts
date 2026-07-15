@@ -90,8 +90,10 @@ interface GuestRoomRecord {
 
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const CONTROL_CHANNEL_LABEL = 'musixquare-control';
+const DATA_CONNECTION_DISCONNECT_RECOVERY_GRACE_MS = 30_000;
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
 const BINARY_PAYLOAD_SENTINEL = '__mxqrBinaryPayload';
+let dataConnectionSequence = 0;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const nativeArrayBufferByteLength = Object.getOwnPropertyDescriptor(
@@ -431,8 +433,10 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
+  private readonly disconnectRecoveryTimerName = `cloudflare-data-disconnect-recovery-${++dataConnectionSequence}`;
   private closed = false;
   private pcListenersAttached = false;
+  private disconnectRecoveryTimerActive = false;
 
   constructor(
     readonly peer: string,
@@ -464,11 +468,15 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     if (!this.pcListenersAttached) {
       this.pcListenersAttached = true;
       pc.addEventListener('connectionstatechange', () => {
-        if (
-          pc.connectionState === 'closed' ||
-          pc.connectionState === 'failed' ||
-          pc.connectionState === 'disconnected'
-        ) {
+        if (pc.connectionState === 'connected') {
+          this.cancelDisconnectRecovery();
+          return;
+        }
+        if (pc.connectionState === 'disconnected') {
+          this.armDisconnectRecovery();
+          return;
+        }
+        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
           this.markClosed();
         }
       });
@@ -494,7 +502,14 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   close(): void {
-    if (this.closed) return;
+    if (this.closed) {
+      this.closePhysicalTransport();
+      return;
+    }
+    this.markClosed();
+  }
+
+  private closePhysicalTransport(): void {
     try {
       this.dataChannel?.close();
     } catch {
@@ -510,7 +525,6 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     } catch {
       /* noop */
     }
-    this.markClosed();
   }
 
   private markOpenIfReady(): void {
@@ -522,10 +536,37 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     this.emit('open');
   }
 
+  private armDisconnectRecovery(): void {
+    if (this.closed || this.disconnectRecoveryTimerActive) return;
+    this.disconnectRecoveryTimerActive = true;
+    try {
+      setManagedTimer(
+        this.disconnectRecoveryTimerName,
+        () => {
+          this.disconnectRecoveryTimerActive = false;
+          if (this.closed || this.peerConnection?.connectionState === 'connected') return;
+          this.markClosed();
+        },
+        DATA_CONNECTION_DISCONNECT_RECOVERY_GRACE_MS,
+      );
+    } catch {
+      this.disconnectRecoveryTimerActive = false;
+      this.markClosed();
+    }
+  }
+
+  private cancelDisconnectRecovery(): void {
+    if (!this.disconnectRecoveryTimerActive) return;
+    this.disconnectRecoveryTimerActive = false;
+    clearManagedTimer(this.disconnectRecoveryTimerName);
+  }
+
   private markClosed(): void {
     if (this.closed) return;
+    this.cancelDisconnectRecovery();
     this.closed = true;
     this.open = false;
+    this.closePhysicalTransport();
     this.emit('close');
     this.clear();
   }

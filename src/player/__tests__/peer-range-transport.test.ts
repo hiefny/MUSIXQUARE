@@ -504,6 +504,73 @@ describe('FramedPeerRangeClientTransport', () => {
     expect(fatalConnection).toHaveBeenCalledOnce();
   });
 
+  it('uses a 30 second delivery deadline by default while preserving explicit overrides', async () => {
+    const sendControl = vi.fn(() => undefined);
+    const fatalConnection = vi.fn();
+    const client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: () => false,
+      sendControl,
+    });
+
+    vi.useFakeTimers();
+    try {
+      const result = client.read(request({ requestId: 'request:default-backpressure-timeout' }));
+      const rejected = expect(result).rejects.toBeInstanceOf(PeerRangeConnectionFatalError);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fatalConnection).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(24_999);
+      expect(fatalConnection).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await rejected;
+      expect(sendControl).not.toHaveBeenCalled();
+      expect(fatalConnection).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('recovers a hidden-like long backpressure stall before the default deadline', async () => {
+    let writable = false;
+    let client!: FramedPeerRangeClientTransport;
+    const sendControl = vi.fn((frame: PeerRangeControlFrame) => {
+      if (frame.type !== 'read') return;
+      for (const chunk of createPeerRangeChunkFrames(frame, Uint8Array.of(29))) {
+        client.acceptBulk(CONNECTION_TOKEN, chunk);
+      }
+    });
+    const fatalConnection = vi.fn();
+    client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: () => writable,
+      sendControl,
+    });
+
+    vi.useFakeTimers();
+    try {
+      const result = client.read(request({ requestId: 'request:hidden-like-backpressure' }));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(sendControl).not.toHaveBeenCalled();
+      expect(fatalConnection).not.toHaveBeenCalled();
+
+      writable = true;
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(result).resolves.toEqual(Uint8Array.of(29));
+      expect(sendControl).toHaveBeenCalledOnce();
+      expect(fatalConnection).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('bounds synchronous close-handle churn even when the sender returns void', () => {
     const sendControl = vi.fn(() => undefined);
     const fatalConnection = vi.fn();

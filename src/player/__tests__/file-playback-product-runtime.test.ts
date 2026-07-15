@@ -3050,7 +3050,11 @@ describe('FilePlaybackProductRuntime', () => {
       readyState: 'open',
       bufferedAmount: 0,
     };
-    Object.assign(peer, { dataChannel });
+    const controlChannel = {
+      readyState: 'open',
+      bufferedAmount: 0,
+    };
+    Object.assign(peer, { dataChannel, controlChannel });
     const peerControl = freezeCanonical({
       lane: 'control' as const,
       type: 'close-handle' as const,
@@ -3066,11 +3070,13 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.sessions.sendRequired).toHaveBeenLastCalledWith(peer, peerControl);
 
     dataChannel.bufferedAmount = FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT + 1;
+    expect(guestOwnerOptions?.canSendPeerControl(context, peerControl)).toBe(true);
+    controlChannel.bufferedAmount = FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT + 1;
     expect(guestOwnerOptions?.canSendPeerControl(context, peerControl)).toBe(false);
-    dataChannel.bufferedAmount = 0;
-    dataChannel.readyState = 'closing';
+    controlChannel.bufferedAmount = 0;
+    controlChannel.readyState = 'closing';
     expect(guestOwnerOptions?.canSendPeerControl(context, peerControl)).toBe(false);
-    dataChannel.readyState = 'open';
+    controlChannel.readyState = 'open';
     expect(
       guestOwnerOptions?.canSendPeerControl(
         routerContext('guest', { suffix: 'foreign-peer-control' }),

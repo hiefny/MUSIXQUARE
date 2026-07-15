@@ -271,11 +271,8 @@ export class ParticipantHealthMonitor {
       seen.add(signal.dimension);
     }
 
-    const actions: ParticipantHealthAction[] = [];
     this.#evaluatedAtMs = now;
-    if (this.#expireDisconnectedTransport(now, actions)) {
-      return this.#transition(false, actions);
-    }
+    if (this.#state === PARTICIPANT_HEALTH_STATES.OFFLINE) return this.#transition(false, []);
 
     let accepted = false;
     for (const signal of batch) {
@@ -287,8 +284,7 @@ export class ParticipantHealthMonitor {
       current.reasonCode = signal.reasonCode ?? null;
       accepted = true;
     }
-    actions.push(...this.#evaluate(now));
-    return this.#transition(accepted, actions);
+    return this.#transition(accepted, this.#evaluate(now));
   }
 
   /** Advances lease and grace deadlines without introducing a health signal. */
@@ -337,6 +333,8 @@ export class ParticipantHealthMonitor {
     if (!success) {
       this.#state = PARTICIPANT_HEALTH_STATES.DEGRADED;
       this.#rejoinRequired = true;
+      this.#rejoinRequested = false;
+      this.#degradedSinceMs = now;
       return this.#transition(true, actions);
     }
     if (this.#unhealthyDimensions(now).length > 0) {

@@ -1163,8 +1163,7 @@ export class EncodedSourcePortClient {
           // MessagePort may accept postMessage after its peer was disentangled.
           // A bounded response deadline prevents that silent case from hanging a
           // decoder read forever.
-          const error = new EncodedSourcePortError('closed');
-          this.#closeInternal(error, error);
+          this.#cancelPending(entry, new EncodedSourcePortError('read-failed'));
         }, this.#responseTimeoutMs);
         entry.timerArming = false;
         if (entry.timerFired) {

@@ -3330,12 +3330,15 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     owner.port().revoke(pair.context);
   });
 
-  it('does not treat visibility as failure and emits one gray message after 1.5s degradation', async () => {
+  it('recovers transient RTC disconnect health without closing the session', async () => {
     let now = 1_000;
     const pair = connectionPair(() => now);
+    const peerConnection = { connectionState: 'connected' as RTCPeerConnectionState };
+    Object.assign(pair.connection, { peerConnection });
     const blob = new Blob([new Uint8Array([1])], { type: 'audio/flac' });
     const current = publication('bounded-stream', blob);
     const messages = vi.fn();
+    const closeConnection = vi.fn();
     let tick = (): void => undefined;
     const owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
@@ -3347,7 +3350,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       publisher: publisher(),
       sendRequired: () => true,
       sendWire: (_connection, lease, payload) => pair.host.createWire(lease, payload),
-      closeConnection: vi.fn(),
+      closeConnection,
       onHealthSystemMessage: messages,
       runtimeForTests: {
         createMediaIdForTests: ids(),
@@ -3363,7 +3366,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     tick();
     expect(messages).not.toHaveBeenCalled();
 
-    pair.connection.open = false;
+    peerConnection.connectionState = 'disconnected';
     now = 2_601;
     tick();
     now = 4_100;
@@ -3380,6 +3383,288 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     now = 4_500;
     tick();
     expect(messages).toHaveBeenCalledOnce();
+
+    peerConnection.connectionState = 'connected';
+    now = 4_501;
+    tick();
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    peerConnection.connectionState = 'disconnected';
+    now = 4_502;
+    tick();
+    now = 6_002;
+    tick();
+    expect(messages).toHaveBeenCalledTimes(2);
+    expect(closeConnection).not.toHaveBeenCalled();
+    owner.port().revoke(pair.context);
+  });
+
+  it('requests participant-only rejoin after transient RTC disconnect and returns healthy', async () => {
+    let now = 1_000;
+    const pair = connectionPair(() => now);
+    const peerConnection = { connectionState: 'connected' as RTCPeerConnectionState };
+    Object.assign(pair.connection, { peerConnection });
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/flac' });
+    const current = publication('bounded-stream', blob);
+    const recoveries: RecoverHostRemoteParticipantOptions[] = [];
+    const wire: FilePlaybackWireMessage[] = [];
+    const messages = vi.fn();
+    const closeConnection = vi.fn();
+    let healthTick = (): void => undefined;
+    let recoverySequence = 0;
+    const recoverRemoteParticipant = vi.fn(
+      async (
+        options: RecoverHostRemoteParticipantOptions,
+      ): Promise<Readonly<HostRemoteRecoveryCommit>> => {
+        recoveries.push(options);
+        const scheduledAtRoomTimeMs = now;
+        const startAtRoomTimeMs = scheduledAtRoomTimeMs + 1_000;
+        const finalizeByRoomTimeMs = scheduledAtRoomTimeMs + 900;
+        const rendezvousId = `host-owner-health-recovery-${++recoverySequence}`;
+        const attempt = {
+          ...fakeAttempt(rendezvousId),
+          startAtRoomTimeMs,
+          finalizeByRoomTimeMs,
+        } as HostRendezvousAttempt;
+        const evidence = options.bindAttempt(attempt);
+        const arm = await options.participant.arm({
+          protocolVersion: 2,
+          kind: 'rendezvous-arm',
+          ...options.publication.state,
+          rendezvousId,
+          recipientId: options.participant.participantId,
+          positionSeconds: 4,
+          playbackRate: 1,
+          startAtRoomTimeMs,
+          finalizeByRoomTimeMs,
+        });
+        if (arm.status !== 'armed') throw new Error('fixture ARM rejected');
+        const finalizedAtRoomTimeMs = now;
+        const finalized = await options.participant.finalize({
+          protocolVersion: 2,
+          kind: 'rendezvous-finalize',
+          ...options.publication.state,
+          rendezvousId,
+          recipientId: options.participant.participantId,
+          startAtRoomTimeMs,
+          finalizedAtRoomTimeMs,
+        });
+        if (finalized.status !== 'accepted') throw new Error('fixture FINALIZE rejected');
+        await evidence;
+        if (!options.participant.commitAttempt?.({ ...options.publication.state, rendezvousId })) {
+          throw new Error('fixture renderer evidence rejected');
+        }
+        return freezeCanonical({
+          schemaVersion: 1 as const,
+          roomGeneration: options.publication.roomGeneration,
+          participantId: options.participant.participantId,
+          publication: options.publication,
+          attempt: freezeCanonical({ ...options.publication.state, rendezvousId }),
+          schedule: freezeCanonical({
+            positionSeconds: 4,
+            playbackRate: 1,
+            createdAtRoomTimeMs: scheduledAtRoomTimeMs,
+            leadTimeMs: 1_000,
+            finalizeByRoomTimeMs,
+            startAtRoomTimeMs,
+          }),
+          timeline: options.publication.timeline,
+        });
+      },
+    );
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: {
+        currentPeerPublication: () => current,
+        resolveCurrentPeerRangeSource: vi.fn(async () => blob),
+        recoverRemoteParticipant,
+      },
+      publisher: publisher(),
+      sendRequired: () => true,
+      sendWire: (_connection, lease, payload) => {
+        const message = pair.host.createWire(lease, payload);
+        wire.push(message);
+        return message;
+      },
+      closeConnection,
+      onHealthSystemMessage: messages,
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: (callback) => {
+          healthTick = callback;
+          return 'host-owner-transient-rtc-health';
+        },
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    await owner.publishCurrent();
+    const guestState = pair.guest.bootstrapCurrentMedia({
+      run: current.state,
+      sourceIdentity: current.asset.binding.sourceIdentity,
+      transferSessionId: current.asset.binding.transferSessionId,
+    });
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestState, {
+        kind: 'source-ready',
+        observedAtRoomTimeMs: now,
+        readyLeaseUntilRoomTimeMs: now + 10_000,
+        backend: current.backend,
+        durationSeconds: 180,
+        bufferedAheadSeconds: 8,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      }),
+    );
+
+    const recalibrateGuestClock = (): void => {
+      for (let sample = 0; sample < 5; sample += 1) {
+        const ping = pair.guest.createClockPing();
+        const pong = pair.host.receive(ping, pair.hostToken);
+        if (!pong.accepted || pong.frame !== 'clock-ping') {
+          throw new Error('health recovery clock ping failed');
+        }
+        const calibrated = pair.guest.receive(pong.pong, pair.guestToken);
+        if (!calibrated.accepted || calibrated.frame !== 'clock-pong') {
+          throw new Error('health recovery clock calibration failed');
+        }
+      }
+    };
+    const completeLatestRecovery = async (): Promise<void> => {
+      await drain(64);
+      const arm = wire.at(-1);
+      if (arm?.kind !== 'rendezvous-arm') throw new Error('health recovery ARM unavailable');
+      recalibrateGuestClock();
+      const guestAttempt = pair.guest.stageAttempt(guestState, arm.rendezvousId);
+      now += 100;
+      adoptWire(
+        pair,
+        owner,
+        pair.guest.createWire(guestAttempt, {
+          kind: 'rendezvous-armed',
+          rendezvousId: arm.rendezvousId,
+          status: 'armed',
+          observedAtRoomTimeMs: now,
+          bufferedAheadSeconds: 8,
+          reasonCode: null,
+        }),
+      );
+      await drain(64);
+      const finalize = wire.at(-1);
+      if (finalize?.kind !== 'rendezvous-finalize') {
+        throw new Error('health recovery FINALIZE unavailable');
+      }
+      adoptWire(
+        pair,
+        owner,
+        pair.guest.createWire(guestAttempt, {
+          kind: 'rendezvous-finalized',
+          rendezvousId: finalize.rendezvousId,
+          status: 'accepted',
+          observedAtRoomTimeMs: now,
+          reasonCode: null,
+        }),
+      );
+      await drain(64);
+      pair.guest.commitAttempt(guestAttempt);
+      now = Math.max(now + 100, arm.startAtRoomTimeMs);
+      recalibrateGuestClock();
+      adoptWire(
+        pair,
+        owner,
+        pair.guest.createWire(guestAttempt, {
+          kind: 'renderer-health',
+          rendezvousId: finalize.rendezvousId,
+          value: 'healthy',
+          observedAtRoomTimeMs: now,
+          leaseUntilRoomTimeMs: now + 10_000,
+          renderedFrame: 96_000,
+          underrunCount: 0,
+          reasonCode: null,
+        }),
+      );
+      await drain(64);
+    };
+    const rejectLatestRecovery = async (): Promise<void> => {
+      await drain(64);
+      const arm = wire.at(-1);
+      const latest = recoveries.at(-1);
+      if (arm?.kind !== 'rendezvous-arm' || !latest) {
+        throw new Error('health recovery rejection target unavailable');
+      }
+      await latest.participant.cancel({
+        kind: 'file-playback-cancel',
+        ...current.state,
+        rendezvousId: arm.rendezvousId,
+        reasonCode: 'fixture-health-recovery-rejected',
+      });
+      await drain(64);
+    };
+
+    await drain(64);
+    expect(recoveries).toHaveLength(1);
+
+    peerConnection.connectionState = 'disconnected';
+    now += 1;
+    healthTick();
+    now += 1_500;
+    healthTick();
+    await drain(64);
+    expect(messages).toHaveBeenCalledOnce();
+    // The initial candidate makes this first health-triggered recovery a
+    // deliberate no-start. The monitor must leave REJOINING and re-arm.
+    expect(recoveries).toHaveLength(1);
+    expect(closeConnection).not.toHaveBeenCalled();
+    expect(current.timeline.phase).toBe('playing');
+    await rejectLatestRecovery();
+
+    now += 1_499;
+    healthTick();
+    await drain(64);
+    expect(recoveries).toHaveLength(1);
+    now += 1;
+    healthTick();
+    await drain(64);
+    expect(recoveries).toHaveLength(2);
+    expect(messages).toHaveBeenCalledOnce();
+
+    peerConnection.connectionState = 'connected';
+    now += 1;
+    healthTick();
+    // Fresh transport/clock plus the still-leased renderer must not complete
+    // REJOINING while this exact recovery authority is active.
+    await rejectLatestRecovery();
+
+    const rejectedAt = now;
+    peerConnection.connectionState = 'disconnected';
+    now = rejectedAt + 1;
+    healthTick();
+    now = rejectedAt + 1_499;
+    healthTick();
+    await drain(64);
+    expect(recoveries).toHaveLength(2);
+    now = rejectedAt + 1_500;
+    healthTick();
+    await drain(64);
+    expect(recoveries).toHaveLength(3);
+    expect(messages).toHaveBeenCalledOnce();
+
+    peerConnection.connectionState = 'connected';
+    now += 1;
+    healthTick();
+    await completeLatestRecovery();
+    expect(closeConnection).not.toHaveBeenCalled();
+    expect(current.timeline.phase).toBe('playing');
+
+    peerConnection.connectionState = 'disconnected';
+    now += 1;
+    healthTick();
+    now += 1_500;
+    healthTick();
+    expect(messages).toHaveBeenCalledTimes(2);
+    expect(closeConnection).not.toHaveBeenCalled();
     owner.port().revoke(pair.context);
   });
 

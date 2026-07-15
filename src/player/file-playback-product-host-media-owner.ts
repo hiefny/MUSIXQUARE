@@ -194,6 +194,7 @@ export const FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT = 256 * 1024
 export const FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS = 15 * 60 * 1_000;
 const HEALTH_LEASE_MS = 2_000;
 const HEALTH_TICK_MS = 250;
+const HEALTH_RECONNECT_GRACE_MS = 30_000;
 const HOST_REMOTE_ARM_P95_FLOOR_MS = 500;
 
 async function settlePhysicalCleanupStrictly(
@@ -887,6 +888,7 @@ export class FilePlaybackProductHostMediaOwner {
       now: () => this.#nowRoomTimeMs(),
       initialLeaseUntilMs: now + HEALTH_LEASE_MS,
       degradationGraceMs: 1_500,
+      reconnectGraceMs: HEALTH_RECONNECT_GRACE_MS,
     });
     const trustedPeerContext = bindPeerRangeTrustedConnection(
       this.#context.connectionToken,
@@ -3257,14 +3259,14 @@ export class FilePlaybackProductHostMediaOwner {
     }
   }
 
-  #beginRecovery(record: PublicationRecord, force = false): void {
+  #beginRecovery(record: PublicationRecord, force = false): boolean {
     if (
       this.#closed ||
       this.#publication !== record ||
       this.#currentTransition !== null ||
       record.publication.timeline.phase !== 'playing'
     ) {
-      return;
+      return false;
     }
     if (
       this.#attempt?.publicationEpoch === record.epoch &&
@@ -3272,7 +3274,7 @@ export class FilePlaybackProductHostMediaOwner {
         this.#attempt.status === 'candidate' ||
         (!force && this.#attempt.status === 'current'))
     ) {
-      return;
+      return false;
     }
     const publication = record.publication;
     const stateLease = record.stateLease;
@@ -3289,58 +3291,72 @@ export class FilePlaybackProductHostMediaOwner {
     this.#recoveryAuthority = recoveryAuthority;
     let recoveryAttempt: AttemptRecord | null = null;
     const evidence = deferredEvidence();
-    const recovery = this.#hostRoom.recoverRemoteParticipant({
-      publication,
-      participant,
-      signal: this.#publicationSignal(publicationEpoch),
-      bindAttempt: (attempt) => {
-        if (
-          this.#closed ||
-          this.#publication !== record ||
-          this.#recoveryAuthority !== recoveryAuthority ||
-          this.#currentTransition !== null ||
-          record.publication.timeline.phase !== 'playing' ||
-          record.epoch !== publicationEpoch ||
-          record.publication !== publication ||
-          record.stateLease !== stateLease ||
-          record.participant !== participant
-        ) {
-          return Promise.reject(new Error('Host media recovery publication is stale'));
-        }
-        const lease = Reflect.apply(trustedChannelStageAttempt, this.#context.channel, [
-          stateLease,
-          attempt.rendezvousId,
-        ]);
-        const previous = this.#attempt;
-        if (previous?.status === 'candidate') this.#retireAttemptLease(previous);
-        const attemptRecord: AttemptRecord = {
-          mode: 'recovery',
-          publicationEpoch,
-          participant,
-          attempt,
-          lease,
-          stateLease,
-          state: publication.state,
-          sourceIdentity: publication.asset.binding.sourceIdentity,
-          transferSessionId: publication.asset.binding.transferSessionId,
-          evidence: evidence.promise,
-          resolveEvidence: evidence.resolve,
-          rejectEvidence: evidence.reject,
-          preparedRecord: null,
-          cancelling: false,
-          cancelDispatch: null,
-          cancelRetirement: null,
-          cancelDispatchSucceeded: false,
-          outcome: 'pending',
-          stateCommitted: true,
-          status: 'candidate',
-        };
-        recoveryAttempt = attemptRecord;
-        this.#attempt = attemptRecord;
-        this.#attemptsById.set(attempt.rendezvousId, attemptRecord);
-        return evidence.promise;
-      },
-    });
+    let recovery: Promise<Readonly<HostRemoteRecoveryCommit>>;
+    try {
+      recovery = this.#hostRoom.recoverRemoteParticipant({
+        publication,
+        participant,
+        signal: this.#publicationSignal(publicationEpoch),
+        bindAttempt: (attempt) => {
+          if (
+            this.#closed ||
+            this.#publication !== record ||
+            this.#recoveryAuthority !== recoveryAuthority ||
+            this.#currentTransition !== null ||
+            record.publication.timeline.phase !== 'playing' ||
+            record.epoch !== publicationEpoch ||
+            record.publication !== publication ||
+            record.stateLease !== stateLease ||
+            record.participant !== participant
+          ) {
+            return Promise.reject(new Error('Host media recovery publication is stale'));
+          }
+          const lease = Reflect.apply(trustedChannelStageAttempt, this.#context.channel, [
+            stateLease,
+            attempt.rendezvousId,
+          ]);
+          const previous = this.#attempt;
+          if (previous?.status === 'candidate') this.#retireAttemptLease(previous);
+          const attemptRecord: AttemptRecord = {
+            mode: 'recovery',
+            publicationEpoch,
+            participant,
+            attempt,
+            lease,
+            stateLease,
+            state: publication.state,
+            sourceIdentity: publication.asset.binding.sourceIdentity,
+            transferSessionId: publication.asset.binding.transferSessionId,
+            evidence: evidence.promise,
+            resolveEvidence: evidence.resolve,
+            rejectEvidence: evidence.reject,
+            preparedRecord: null,
+            cancelling: false,
+            cancelDispatch: null,
+            cancelRetirement: null,
+            cancelDispatchSucceeded: false,
+            outcome: 'pending',
+            stateCommitted: true,
+            status: 'candidate',
+          };
+          recoveryAttempt = attemptRecord;
+          this.#attempt = attemptRecord;
+          this.#attemptsById.set(attempt.rendezvousId, attemptRecord);
+          return evidence.promise;
+        },
+      });
+    } catch (error) {
+      this.#rejectRecovery(
+        record,
+        publication,
+        stateLease,
+        participant,
+        recoveryAuthority,
+        recoveryAttempt,
+        error,
+      );
+      return true;
+    }
     observe(
       recovery.then(
         () =>
@@ -3364,6 +3380,7 @@ export class FilePlaybackProductHostMediaOwner {
           ),
       ),
     );
+    return true;
   }
 
   #commitRecovery(
@@ -3751,8 +3768,10 @@ export class FilePlaybackProductHostMediaOwner {
     if (this.#closed) return;
     try {
       const now = this.#nowRoomTimeMs();
+      const peerConnectionState = this.#context.connection.peerConnection?.connectionState;
       const transportHealthy =
         this.#context.connection.open === true &&
+        (peerConnectionState === undefined || peerConnectionState === 'connected') &&
         Reflect.apply(trustedChannelToken, this.#context.channel, []) ===
           this.#context.connectionToken;
       const clockHealthy =
@@ -3792,16 +3811,20 @@ export class FilePlaybackProductHostMediaOwner {
       }
       const reported = this.#health.reportMany(signals);
       this.#applyHealth(reported);
-      if (!publication || publication.publication.timeline.phase === 'paused') {
-        let snapshot = this.#health.getSnapshot();
-        if (snapshot.rejoinRequired && snapshot.unhealthyDimensions.length === 0) {
-          if (snapshot.state === 'DEGRADED') {
-            this.#applyHealth(this.#health.beginRejoin());
-            snapshot = this.#health.getSnapshot();
-          }
-          if (snapshot.state === 'REJOINING') {
-            this.#applyHealth(this.#health.completeRejoin(true));
-          }
+      let snapshot = this.#health.getSnapshot();
+      if (
+        (this.#recoveryAuthority === null ||
+          !publication ||
+          publication.publication.timeline.phase === 'paused') &&
+        snapshot.rejoinRequired &&
+        snapshot.unhealthyDimensions.length === 0
+      ) {
+        if (snapshot.state === 'DEGRADED') {
+          this.#applyHealth(this.#health.beginRejoin());
+          snapshot = this.#health.getSnapshot();
+        }
+        if (snapshot.state === 'REJOINING') {
+          this.#applyHealth(this.#health.completeRejoin(true));
         }
       }
       this.#applyHealth(this.#health.tick());
@@ -3838,9 +3861,18 @@ export class FilePlaybackProductHostMediaOwner {
       return;
     }
     if (action.type === 'request-rejoin') {
-      this.#health.beginRejoin();
+      this.#applyHealth(this.#health.beginRejoin());
       const record = this.#publication;
-      if (record?.participant) queueMicrotask(() => this.#beginRecovery(record, true));
+      queueMicrotask(() => {
+        if (this.#closed) return;
+        try {
+          const started = record?.participant ? this.#beginRecovery(record, true) : false;
+          if (!started) this.#applyHealth(this.#health.completeRejoin(false));
+        } catch (error) {
+          this.#applyHealth(this.#health.completeRejoin(false));
+          this.#failConnection(error);
+        }
+      });
     }
   }
 

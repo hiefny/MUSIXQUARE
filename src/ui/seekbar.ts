@@ -15,6 +15,7 @@ import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getFilePlaybackDuration } from '../player/file-playback-runtime.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
+import type { V2HostSeekPendingEvent } from '../types/index.ts';
 import { syncRangeProgress } from './range-drag.ts';
 
 function isSeekUnavailable(): boolean {
@@ -103,7 +104,20 @@ let _rafAnchorTime = 0;
 let _rafAnchorTs = 0;
 let _rafLastFmtSec = -1;
 let _systemAudioZerosApplied = false;
+let _pendingV2HostSeek: Readonly<V2HostSeekPendingEvent> | null = null;
 const SYSTEM_AUDIO_POLL_MS = 1000;
+
+function renderSeekPosition(positionSeconds: number): void {
+  const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+  const current = document.getElementById('time-curr');
+  const formatted = fmtTime(positionSeconds);
+  if (slider) {
+    setSeekSliderValue(slider, String(positionSeconds));
+    slider.setAttribute('aria-valuetext', formatted);
+  }
+  if (current) current.innerText = formatted;
+  _rafLastFmtSec = Math.floor(positionSeconds);
+}
 
 function _seekRafLoop(now: number): void {
   // System audio: no seek position — write zeros ONCE then poll at 1Hz.
@@ -141,7 +155,7 @@ function _seekRafLoop(now: number): void {
   // interpolation is correct. PAUSED / IDLE / DECODING leave the thumb
   // wherever it last was, which matches user expectation.
   const isPlaying = isFileActivelyPlaying();
-  if (!isSeeking && isPlaying) {
+  if (!isSeeking && !_pendingV2HostSeek && isPlaying) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {
@@ -163,7 +177,7 @@ function _seekRafLoop(now: number): void {
 
 function _startSeekRaf(): void {
   if (_rafId) return;
-  _rafAnchorTime = getTrackPosition();
+  _rafAnchorTime = _pendingV2HostSeek?.targetSeconds ?? getTrackPosition();
   _rafAnchorTs = performance.now();
   _rafLastFmtSec = -1;
   _rafId = requestAnimationFrame(_seekRafLoop);
@@ -186,6 +200,7 @@ const _busScope = createBusScope();
 
 function initSeekBarBusHandlers(): void {
   _busScope.dispose();
+  _pendingV2HostSeek = null;
 
   _busScope.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
@@ -197,6 +212,7 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('ui:seek-reset', () => {
+    _pendingV2HostSeek = null;
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {
@@ -238,7 +254,7 @@ function initSeekBarBusHandlers(): void {
         //    until the next 250ms tick collapses it again. Treat 0 as
         //    transient and let the existing anchor (set by _startSeekRaf
         //    or by the previous valid tick) keep advancing via dt.
-        if (isFileActivelyPlaying()) {
+        if (!_pendingV2HostSeek && isFileActivelyPlaying()) {
           const pos = getTrackPosition();
           if (pos > 0 && Number.isFinite(pos)) {
             _rafAnchorTime = pos;
@@ -258,8 +274,28 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('player:stop-all-media', () => {
+    _pendingV2HostSeek = null;
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
+  });
+
+  _busScope.on('player:v2-host-seek-pending', (event) => {
+    _pendingV2HostSeek = event;
+    _rafAnchorTime = event.targetSeconds;
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(event.targetSeconds);
+  });
+
+  _busScope.on('player:v2-host-seek-settled', (event) => {
+    if (_pendingV2HostSeek?.token !== event.token) return;
+    _pendingV2HostSeek = null;
+    const positionSeconds =
+      Number.isFinite(event.positionSeconds) && event.positionSeconds >= 0
+        ? event.positionSeconds
+        : 0;
+    _rafAnchorTime = positionSeconds;
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(positionSeconds);
   });
 
   // Mode-driven time display sync. The rAF system-audio zeroing branch is

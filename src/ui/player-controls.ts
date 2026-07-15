@@ -63,6 +63,7 @@ const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 const LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS = 200;
 let _ytPlayButtonLoading = false;
 let _filePlayButtonLoading = false;
+let _v2HostSeekPlayButtonToken: number | null = null;
 
 function isFilePlayButtonLoading(): boolean {
   const lifecycle = getState('playback.lifecycle');
@@ -76,8 +77,10 @@ function isFilePlayButtonLoading(): boolean {
 function syncPlayButtonLoadingClass(): void {
   const btn = document.getElementById('play-btn');
   if (!btn) return;
-  btn.classList.toggle('yt-syncing', _ytPlayButtonLoading || _filePlayButtonLoading);
-  btn.setAttribute('aria-busy', String(_ytPlayButtonLoading || _filePlayButtonLoading));
+  const busy =
+    _ytPlayButtonLoading || _filePlayButtonLoading || _v2HostSeekPlayButtonToken !== null;
+  btn.classList.toggle('yt-syncing', busy);
+  btn.setAttribute('aria-busy', String(busy));
 }
 
 function refreshFilePlayButtonLoading(): void {
@@ -655,6 +658,7 @@ export function initPlayerControls(): void {
   _busScope.dispose();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
+  _v2HostSeekPlayButtonToken = null;
 
   const $on = (id: string, evt: string, fn: EventListener) => {
     const el = document.getElementById(id);
@@ -990,6 +994,13 @@ export function initPlayerControls(): void {
   // Play/Pause visual state — derived from playback activity + YouTube play event
   function updatePlayIcon(playing: boolean): void {
     const btn = document.getElementById('play-btn');
+    const playIcon = btn?.querySelector<SVGElement>('#icon-play');
+    const pauseIcon = btn?.querySelector<SVGElement>('#icon-pause');
+    if (playIcon && pauseIcon) {
+      playIcon.setAttribute('display', playing ? 'none' : 'block');
+      pauseIcon.setAttribute('display', playing ? 'block' : 'none');
+      return;
+    }
     const icon = btn?.querySelector('path');
     if (icon) {
       icon.setAttribute(
@@ -1068,6 +1079,25 @@ export function initPlayerControls(): void {
     _ytPlayButtonLoading = !!loading;
     syncPlayButtonLoadingClass();
   });
+
+  _busScope.on('player:v2-host-seek-pending', (event) => {
+    _v2HostSeekPlayButtonToken = event.token;
+    syncPlayButtonLoadingClass();
+  });
+
+  _busScope.on('player:v2-host-seek-settled', (event) => {
+    if (_v2HostSeekPlayButtonToken !== event.token) return;
+    _v2HostSeekPlayButtonToken = null;
+    syncPlayButtonLoadingClass();
+  });
+
+  const clearPendingV2HostSeekLoading = () => {
+    if (_v2HostSeekPlayButtonToken === null) return;
+    _v2HostSeekPlayButtonToken = null;
+    syncPlayButtonLoadingClass();
+  };
+  _busScope.on('player:stop-all-media', clearPendingV2HostSeekLoading);
+  _busScope.on('ui:seek-reset', clearPendingV2HostSeekLoading);
 
   refreshFilePlayButtonLoading();
   _busScope.on('state:playback.lifecycle', () => {

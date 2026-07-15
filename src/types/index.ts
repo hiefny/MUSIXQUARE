@@ -97,6 +97,21 @@ export type QueueItemId = string;
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
+export interface V2HostSeekPendingEvent {
+  readonly token: number;
+  readonly queueItemId: QueueItemId;
+  readonly targetSeconds: number;
+}
+
+export type V2HostSeekSettlementStatus = 'committed' | 'failed' | 'superseded';
+
+export interface V2HostSeekSettledEvent {
+  readonly token: number;
+  readonly queueItemId: QueueItemId;
+  readonly status: V2HostSeekSettlementStatus;
+  readonly positionSeconds: number;
+}
+
 export interface PlaylistWireItem {
   queueItemId: QueueItemId;
   type: 'file' | 'youtube';
@@ -828,6 +843,10 @@ interface BaseEventMap {
     phase: 'playing' | 'paused' | 'stopped',
     positionSeconds: number,
   ];
+  /** Host-local V2 seek UI projection; this does not change playback lifecycle semantics. */
+  'player:v2-host-seek-pending': [event: Readonly<V2HostSeekPendingEvent>];
+  /** Exact terminal result for one admitted host-local V2 seek token. */
+  'player:v2-host-seek-settled': [event: Readonly<V2HostSeekSettledEvent>];
 
   // ── Playlist ──────────────────────────────────────────────────────
   'playlist:prev-track': [];

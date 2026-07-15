@@ -223,6 +223,16 @@ describe('initPlayerControls playback mode rendering', () => {
     `;
   }
 
+  function renderDualIconPlaybackControls(): void {
+    document.body.innerHTML = `
+      <button id="play-btn">
+        <svg id="icon-play"><path d="M8 5v14l11-7z"></path></svg>
+        <svg id="icon-pause" display="none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+      </button>
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+    `;
+  }
+
   it('renders the current playback mode immediately and stays reactive afterward', () => {
     renderPlaybackControls();
     setPlaybackSystemAudioPlaying();
@@ -257,6 +267,23 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
   });
 
+  it('toggles the real play and pause SVG elements instead of mutating only one path', () => {
+    renderDualIconPlaybackControls();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+
+    const playIcon = document.getElementById('icon-play');
+    const pauseIcon = document.getElementById('icon-pause');
+    expect(playIcon?.getAttribute('display')).toBe('none');
+    expect(pauseIcon?.getAttribute('display')).toBe('block');
+
+    setPlaybackIdle();
+    expect(playIcon?.getAttribute('display')).toBe('block');
+    expect(pauseIcon?.getAttribute('display')).toBe('none');
+  });
+
   it('shows the loading play button while a local file is preparing', () => {
     renderPlaybackControls();
     setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
@@ -272,6 +299,67 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
   });
+
+  it('keeps V2 host seek loading tokenized and ORed with lifecycle loading', () => {
+    renderPlaybackControls();
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    bus.emit('player:v2-host-seek-pending', {
+      token: 202,
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      targetSeconds: 36,
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    bus.emit('player:v2-host-seek-settled', {
+      token: 201,
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'superseded',
+      positionSeconds: 10,
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    bus.emit('player:v2-host-seek-settled', {
+      token: 202,
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'committed',
+      positionSeconds: 36,
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it.each(['stop', 'seek-reset'] as const)(
+    'clears V2 host seek loading on a transport-bypassing %s teardown',
+    (teardown) => {
+      renderPlaybackControls();
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      initPlayerControls();
+
+      const playBtn = document.getElementById('play-btn');
+      bus.emit('player:v2-host-seek-pending', {
+        token: 303,
+        queueItemId: PLAY_QUEUE_ITEM_ID,
+        targetSeconds: 48,
+      });
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+      expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+      if (teardown === 'stop') bus.emit('player:stop-all-media');
+      else bus.emit('ui:seek-reset');
+
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+      expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+    },
+  );
 });
 
 describe('initPlayerControls volume icon', () => {

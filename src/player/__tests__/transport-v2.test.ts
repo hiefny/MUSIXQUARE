@@ -74,6 +74,8 @@ import type {
   DataConnection,
   PlaylistItem,
   QueueItemId,
+  V2HostSeekPendingEvent,
+  V2HostSeekSettledEvent,
 } from '../../types/index.ts';
 import { isPlayLocked, setCurrentAudioBuffer, setPlayerNode } from '../_state.ts';
 import {
@@ -542,6 +544,108 @@ describe('V2 host-local file transport seek boundary', () => {
     expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
     expect(getState('player.pausedAt')).toBe(44);
     expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('publishes an immediate pending token and settles it only after the exact seek commit', async () => {
+    setPlaying(5);
+    const gate = deferred<ReturnType<typeof playingCommit>>();
+    const pending: V2HostSeekPendingEvent[] = [];
+    const settled: V2HostSeekSettledEvent[] = [];
+    bus.on('player:v2-host-seek-pending', (event) => pending.push(event));
+    bus.on('player:v2-host-seek-settled', (event) => settled.push(event));
+    v2.runtime.seekPlaying.mockImplementationOnce(() => gate.promise);
+
+    seekTo(30);
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ queueItemId: Q1, targetSeconds: 30 });
+    expect(Object.isFrozen(pending[0])).toBe(true);
+    expect(settled).toHaveLength(0);
+
+    await drainMicrotasks();
+    expect(v2.runtime.seekPlaying).toHaveBeenCalledOnce();
+    expect(settled).toHaveLength(0);
+
+    publishProjection('playing', 2, 30);
+    gate.resolve(playingCommit(30, 2));
+    await drainMicrotasks();
+
+    expect(settled).toEqual([
+      expect.objectContaining({
+        token: pending[0]?.token,
+        queueItemId: Q1,
+        status: 'committed',
+        positionSeconds: 30,
+      }),
+    ]);
+    expect(Object.isFrozen(settled[0])).toBe(true);
+  });
+
+  it('settles a rejected admitted seek as failed at the last exact position', async () => {
+    setPlaying(9);
+    const gate = deferred<ReturnType<typeof playingCommit>>();
+    const pending: V2HostSeekPendingEvent[] = [];
+    const settled: V2HostSeekSettledEvent[] = [];
+    bus.on('player:v2-host-seek-pending', (event) => pending.push(event));
+    bus.on('player:v2-host-seek-settled', (event) => settled.push(event));
+    v2.runtime.seekPlaying.mockImplementationOnce(() => gate.promise);
+
+    seekTo(40);
+    expect(pending).toHaveLength(1);
+    await drainMicrotasks();
+    gate.reject(new Error('seek rejected'));
+    await drainMicrotasks();
+
+    expect(settled).toEqual([
+      expect.objectContaining({
+        token: pending[0]?.token,
+        status: 'failed',
+        positionSeconds: 9,
+      }),
+    ]);
+  });
+
+  it('supersedes the old UI token without letting its completion settle the newer seek', async () => {
+    setPlaying(5);
+    const first = deferred<ReturnType<typeof playingCommit>>();
+    const second = deferred<ReturnType<typeof playingCommit>>();
+    const pending: V2HostSeekPendingEvent[] = [];
+    const settled: V2HostSeekSettledEvent[] = [];
+    bus.on('player:v2-host-seek-pending', (event) => pending.push(event));
+    bus.on('player:v2-host-seek-settled', (event) => settled.push(event));
+    v2.runtime.seekPlaying
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    seekTo(20);
+    await drainMicrotasks();
+    seekTo(30);
+
+    expect(pending).toHaveLength(2);
+    expect(pending[1]?.targetSeconds).toBe(30);
+    expect(settled).toEqual([
+      expect.objectContaining({ token: pending[0]?.token, status: 'superseded' }),
+    ]);
+
+    publishProjection('playing', 2, 20);
+    first.resolve(playingCommit(20, 2));
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPlaying).toHaveBeenCalledTimes(2);
+    expect(settled).toHaveLength(1);
+
+    publishProjection('playing', 3, 30);
+    second.resolve(playingCommit(30, 3));
+    await drainMicrotasks();
+
+    expect(settled).toEqual([
+      expect.objectContaining({ token: pending[0]?.token, status: 'superseded' }),
+      expect.objectContaining({
+        token: pending[1]?.token,
+        status: 'committed',
+        positionSeconds: 30,
+      }),
+    ]);
   });
 
   it('pauses through the product transition before publishing semantic state', async () => {

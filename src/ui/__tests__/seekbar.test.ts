@@ -6,7 +6,7 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
-import { seekTo } from '../../player/transport.ts';
+import { getTrackPosition, seekTo } from '../../player/transport.ts';
 import { clearFilePlaybackRuntime } from '../../player/file-playback-runtime.ts';
 import { publishManagedFilePlaybackSource } from '../../player/__tests__/managed-file-playback-fixture.ts';
 
@@ -23,6 +23,7 @@ beforeEach(() => {
   bus.clear();
   clearAllManagedTimers();
   vi.mocked(seekTo).mockClear();
+  vi.mocked(getTrackPosition).mockReset().mockReturnValue(0);
   document.body.innerHTML = `
     <input id="seek-slider" type="range" value="0" max="120" />
     <span id="time-curr"></span>
@@ -92,6 +93,72 @@ describe('initSeekBar playback mode gates', () => {
 
     slider.dispatchEvent(new Event('change'));
     expect(seekTo).toHaveBeenCalledWith(42);
+  });
+
+  it('pins an admitted V2 host seek through rAF and the 250ms refresh until settlement', () => {
+    vi.useFakeTimers();
+    let nextFrame: FrameRequestCallback | null = null;
+    let frameId = 0;
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        nextFrame = callback;
+        return ++frameId;
+      }),
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    try {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      vi.mocked(getTrackPosition).mockReturnValue(7);
+      initSeekBar();
+      bus.emit('ui:loop-start');
+
+      bus.emit('player:v2-host-seek-pending', {
+        token: 101,
+        queueItemId: QUEUE_ITEM_ID,
+        targetSeconds: 42,
+      });
+
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      expect(slider.value).toBe('42');
+      expect(slider.getAttribute('aria-valuetext')).toBe('fmt:42');
+      expect(document.getElementById('time-curr')?.innerText).toBe('fmt:42');
+
+      const firstPendingFrame = nextFrame;
+      if (!firstPendingFrame) throw new Error('seek rAF was not scheduled');
+      firstPendingFrame(1_000);
+      vi.advanceTimersByTime(250);
+      const secondPendingFrame = nextFrame;
+      if (!secondPendingFrame) throw new Error('seek rAF was not rescheduled');
+      secondPendingFrame(1_250);
+
+      expect(getTrackPosition).toHaveBeenCalledTimes(1);
+      expect(slider.value).toBe('42');
+
+      bus.emit('player:v2-host-seek-settled', {
+        token: 100,
+        queueItemId: QUEUE_ITEM_ID,
+        status: 'superseded',
+        positionSeconds: 7,
+      });
+      expect(slider.value).toBe('42');
+
+      bus.emit('player:v2-host-seek-settled', {
+        token: 101,
+        queueItemId: QUEUE_ITEM_ID,
+        status: 'committed',
+        positionSeconds: 42.5,
+      });
+      expect(slider.value).toBe('42.5');
+      expect(slider.getAttribute('aria-valuetext')).toBe('fmt:42');
+      expect(document.getElementById('time-curr')?.innerText).toBe('fmt:42');
+    } finally {
+      bus.emit('player:stop-all-media');
+      clearAllManagedTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('blocks seek interaction while playback is idle', () => {

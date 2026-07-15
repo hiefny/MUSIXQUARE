@@ -40,7 +40,11 @@ import {
 } from './file-playback-runtime.ts';
 import { getCurrentQueueItemId, getQueueItemById } from './queue-model.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
-import type { QueueItemId } from '../types/index.ts';
+import type {
+  QueueItemId,
+  V2HostSeekPendingEvent,
+  V2HostSeekSettlementStatus,
+} from '../types/index.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
@@ -163,6 +167,8 @@ let v2HostControlSequence = 0;
 let v2HostControlIntent: V2HostControlIntent | null = null;
 let v2HostControlTail: Promise<void> = Promise.resolve();
 let lastV2HostEndedObservationKey: string | null = null;
+let v2HostSeekUiSequence = 0;
+let activeV2HostSeekUiIntent: Readonly<V2HostSeekPendingEvent> | null = null;
 
 function isV2HostFileControlContext(): boolean {
   return (
@@ -310,6 +316,106 @@ function clampV2HostSeekTarget(value: number, durationSeconds: number | null): n
   if (!Number.isFinite(value) || value < 0) return null;
   if (durationSeconds === null) return value;
   return Math.min(value, Math.max(0, durationSeconds - 0.1));
+}
+
+function readV2HostSeekSettlementPosition(fallback: number): number {
+  const exact = readExactV2HostControlState();
+  const exactPosition = exact?.position.positionSeconds;
+  if (typeof exactPosition === 'number' && Number.isFinite(exactPosition) && exactPosition >= 0) {
+    return exactPosition;
+  }
+  const compatibilityPosition = getState('player.pausedAt');
+  if (Number.isFinite(compatibilityPosition) && compatibilityPosition >= 0) {
+    return compatibilityPosition;
+  }
+  return Number.isFinite(fallback) && fallback >= 0 ? fallback : 0;
+}
+
+function emitV2HostSeekSettled(
+  intent: Readonly<V2HostSeekPendingEvent>,
+  status: V2HostSeekSettlementStatus,
+  positionSeconds: number,
+): void {
+  bus.emit(
+    'player:v2-host-seek-settled',
+    Object.freeze({
+      token: intent.token,
+      queueItemId: intent.queueItemId,
+      status,
+      positionSeconds,
+    }),
+  );
+}
+
+function beginV2HostSeekUiIntent(
+  state: V2HostControlState,
+  targetSeconds: number,
+): Readonly<V2HostSeekPendingEvent> {
+  const previous = activeV2HostSeekUiIntent;
+  const intent = Object.freeze({
+    token: ++v2HostSeekUiSequence,
+    queueItemId: state.queueItemId,
+    targetSeconds,
+  });
+  activeV2HostSeekUiIntent = intent;
+  bus.emit('player:v2-host-seek-pending', intent);
+  if (previous) {
+    emitV2HostSeekSettled(
+      previous,
+      'superseded',
+      readV2HostSeekSettlementPosition(previous.targetSeconds),
+    );
+  }
+  return intent;
+}
+
+function refreshV2HostSeekUiTarget(
+  intent: Readonly<V2HostSeekPendingEvent>,
+  targetSeconds: number,
+): Readonly<V2HostSeekPendingEvent> | null {
+  if (activeV2HostSeekUiIntent?.token !== intent.token) return null;
+  if (activeV2HostSeekUiIntent.targetSeconds === targetSeconds) return activeV2HostSeekUiIntent;
+  const refreshed = Object.freeze({
+    token: intent.token,
+    queueItemId: intent.queueItemId,
+    targetSeconds,
+  });
+  activeV2HostSeekUiIntent = refreshed;
+  bus.emit('player:v2-host-seek-pending', refreshed);
+  return refreshed;
+}
+
+function settleV2HostSeekUiIntent(
+  intent: Readonly<V2HostSeekPendingEvent>,
+  status: V2HostSeekSettlementStatus,
+  positionSeconds = readV2HostSeekSettlementPosition(intent.targetSeconds),
+): boolean {
+  if (activeV2HostSeekUiIntent?.token !== intent.token) return false;
+  activeV2HostSeekUiIntent = null;
+  emitV2HostSeekSettled(intent, status, positionSeconds);
+  return true;
+}
+
+function supersedeActiveV2HostSeekUiIntent(): void {
+  const intent = activeV2HostSeekUiIntent;
+  if (!intent) return;
+  activeV2HostSeekUiIntent = null;
+  emitV2HostSeekSettled(
+    intent,
+    'superseded',
+    readV2HostSeekSettlementPosition(intent.targetSeconds),
+  );
+}
+
+function sameV2HostSeekAdmission(
+  admitted: V2HostControlState,
+  current: V2HostControlState,
+): boolean {
+  return (
+    sameV2HostRoom(admitted.room, current.room) &&
+    admitted.queueItemId === current.queueItemId &&
+    admitted.runId === current.runId
+  );
 }
 
 function abortV2HostControlIntent(intent: V2HostControlIntent | null): void {
@@ -796,6 +902,7 @@ function isCurrentV2HostControlIntent(intent: V2HostControlIntent): boolean {
 function enqueueV2HostControl(label: string, operation: V2HostControlOperation): Promise<void> {
   const predecessor = v2HostControlTail;
   const previousIntent = v2HostControlIntent;
+  if (label !== 'seek') supersedeActiveV2HostSeekUiIntent();
   const intent: V2HostControlIntent = {
     sequence: ++v2HostControlSequence,
     controller: new AbortController(),
@@ -824,11 +931,39 @@ function enqueueV2HostControl(label: string, operation: V2HostControlOperation):
 }
 
 function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
-  void enqueueV2HostControl('seek', async (intent) => {
+  const admitted = readExactV2HostControlState();
+  if (!admitted) return;
+  let admittedTarget: number | null;
+  try {
+    admittedTarget = resolveTarget(admitted);
+  } catch (error) {
+    log.warn('[Transport] V2 host seek admission failed:', error);
+    return;
+  }
+  if (admittedTarget === null || !Number.isFinite(admittedTarget) || admittedTarget < 0) return;
+  const uiIntent = beginV2HostSeekUiIntent(admitted, admittedTarget);
+
+  const settlement = enqueueV2HostControl('seek', async (intent) => {
     const before = readExactV2HostControlState();
-    if (!before) return;
-    const target = resolveTarget(before);
-    if (target === null) return;
+    if (!before || !sameV2HostSeekAdmission(admitted, before)) {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+      return;
+    }
+    let target: number | null;
+    try {
+      target = resolveTarget(before);
+    } catch (error) {
+      if (isCurrentV2HostControlIntent(intent)) {
+        log.warn('[Transport] V2 host seek target resolution failed:', error);
+        settleV2HostSeekUiIntent(uiIntent, 'failed');
+      }
+      return;
+    }
+    if (target === null || !Number.isFinite(target) || target < 0) {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+      return;
+    }
+    if (!refreshV2HostSeekUiTarget(uiIntent, target)) return;
     let commit: unknown;
     try {
       commit =
@@ -844,13 +979,16 @@ function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
     } catch (error) {
       if (isCurrentV2HostControlIntent(intent)) {
         log.warn('[Transport] V2 host seek failed:', error);
+        settleV2HostSeekUiIntent(uiIntent, 'failed', readV2HostSeekSettlementPosition(target));
       }
       return;
     }
-    if (
-      !isCurrentV2HostControlIntent(intent) ||
-      !remainsExactV2HostSeekCommit(before, commit, target)
-    ) {
+    if (!isCurrentV2HostControlIntent(intent)) {
+      settleV2HostSeekUiIntent(uiIntent, 'superseded', readV2HostSeekSettlementPosition(target));
+      return;
+    }
+    if (!remainsExactV2HostSeekCommit(before, commit, target)) {
+      settleV2HostSeekUiIntent(uiIntent, 'failed', readV2HostSeekSettlementPosition(target));
       return;
     }
     const timeline = (commit as { readonly timeline: { readonly positionSeconds: number } })
@@ -862,7 +1000,20 @@ function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
     } else {
       setPlaybackFilePlaying();
     }
+    settleV2HostSeekUiIntent(uiIntent, 'committed', timeline.positionSeconds);
   });
+
+  // The lane intentionally absorbs operation errors so later controls can
+  // continue. Pair that behavior with a terminal UI result in case an
+  // unexpected exception escaped one of the explicit seek branches above.
+  void settlement.then(
+    () => {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+    },
+    () => {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+    },
+  );
 }
 
 async function applyV2HostPause(

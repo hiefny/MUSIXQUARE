@@ -29,6 +29,7 @@ function ramStart(
   sessionId: number,
   chunkSize: number,
   keepExisting: boolean,
+  mime?: string,
 ) {
   const result = rawRamStart(
     qid(filename),
@@ -37,6 +38,7 @@ function ramStart(
     sessionId,
     chunkSize,
     keepExisting,
+    mime,
   );
   if (result.ok) activeSids.set(slotKey(filename, isPreload), sessionId);
   return result;
@@ -226,6 +228,43 @@ describe('ramWrite', () => {
 // ─── ramEnd ────────────────────────────────────────────────────────
 
 describe('ramEnd', () => {
+  it.each([
+    ['track.mp3', 'audio/mpeg'],
+    ['track.wav', 'audio/wav'],
+    ['track.flac', 'audio/flac'],
+    ['track.m4a', 'audio/mp4'],
+    ['track.aac', 'audio/aac'],
+    ['track.ogg', 'audio/ogg'],
+    ['track.aiff', 'audio/aiff'],
+    ['track.aif', 'audio/aiff'],
+    ['track.caf', 'audio/x-caf'],
+  ])('infers a conservative MIME for %s when the sender type is empty', (filename, mime) => {
+    ramStart(filename, false, 1, 4, false);
+    ramWrite(filename, false, 1, 0, u8(1));
+
+    expect(ramEnd(filename, false, 1).blob?.type).toBe(mime);
+  });
+
+  it('prefers a declared MIME and lets a non-empty exact resume refine it', () => {
+    ramStart('track.mp3', false, 1, 4, false, 'audio/original');
+    ramWrite('track.mp3', false, 1, 0, u8(1));
+
+    ramStart('track.mp3', false, 1, 4, true, 'audio/authoritative');
+    ramStart('track.mp3', false, 1, 4, true, '   ');
+
+    expect(ramEnd('track.mp3', false, 1).blob?.type).toBe('audio/authoritative');
+  });
+
+  it('applies the same non-empty resume MIME rule to preload slots', () => {
+    ramStart('track.mp3', true, 9, 4, false);
+    ramWrite('track.mp3', true, 9, 0, u8(1));
+
+    ramStart('track.mp3', true, 9, 4, true, 'audio/preload-authoritative');
+    ramStart('track.mp3', true, 9, 4, true, '');
+
+    expect(ramEnd('track.mp3', true, 9).blob?.type).toBe('audio/preload-authoritative');
+  });
+
   it('concatenates chunks in index order regardless of write order', async () => {
     ramStart('a.mp3', false, 1, 4, false);
     ramWrite('a.mp3', false, 1, 2, u8(0xcc));
@@ -244,6 +283,7 @@ describe('ramEnd', () => {
     const r = ramEnd('a.mp3', false, 1, 5);
     expect(r.blob).not.toBeNull();
     expect(r.blob!.size).toBe(5);
+    expect(r.blob!.type).toBe('audio/mpeg');
   });
 
   it('returns Integrity Fail when assembled size is less than totalSize', () => {

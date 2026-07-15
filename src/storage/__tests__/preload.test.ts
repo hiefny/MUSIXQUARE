@@ -13,6 +13,7 @@ import type { DataConnection, PlaylistItem } from '../../types/index.ts';
 
 const storageMocks = vi.hoisted(() => ({
   readStoredFile: vi.fn(),
+  postCommand: vi.fn(),
 }));
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
@@ -24,7 +25,12 @@ const nextQueueItemId = () =>
 
 vi.mock('../storage.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../storage.ts')>();
-  return { ...actual, readStoredFile: storageMocks.readStoredFile };
+  storageMocks.postCommand.mockImplementation(actual.postCommand);
+  return {
+    ...actual,
+    readStoredFile: storageMocks.readStoredFile,
+    postCommand: storageMocks.postCommand,
+  };
 });
 
 beforeEach(() => {
@@ -32,6 +38,7 @@ beforeEach(() => {
   bus.clear();
   storageMocks.readStoredFile.mockReset();
   storageMocks.readStoredFile.mockResolvedValue(null);
+  storageMocks.postCommand.mockClear();
   queueSequence = 10;
 });
 
@@ -68,6 +75,56 @@ describe('initial preload state', () => {
 
   it('ready is null', () => {
     expect(getState('preload.ready')).toBeNull();
+  });
+});
+
+describe('preload MIME preservation', () => {
+  it('preserves PRELOAD_START MIME when metadata arrives after an early chunk', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    const hostConn = { open: true, peer: 'host-mime', send: vi.fn() } as unknown as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('network.sessionCode', '123456');
+    setState('playlist.items', [makeFileTrack('concert.flac', Q0)]);
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        sessionId: 30,
+        queueItemId: Q0,
+        chunkIndex: 0,
+        chunk: new Uint8Array([1, 2, 3]),
+      },
+      hostConn,
+    );
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        sessionId: 30,
+        queueItemId: Q0,
+        name: 'concert.flac',
+        mime: 'audio/flac',
+        total: 1,
+        size: 3,
+      },
+      hostConn,
+    );
+
+    expect(storageMocks.postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+        queueItemId: Q0,
+        filename: 'concert.flac',
+        mime: 'audio/flac',
+        isPreload: true,
+        sessionId: 30,
+      }),
+    );
+
+    setState('network.sessionCode', '');
+    const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
+    resetStoredFileAdmissionsForTests();
   });
 });
 

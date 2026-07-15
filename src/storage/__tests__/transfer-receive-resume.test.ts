@@ -102,6 +102,22 @@ const ramContiguousCount = (name: string, isPreload: boolean, sid: number, queue
 const FOUR_CHUNK_FILE_SIZE = 3 * CHUNK_SIZE + 1;
 const TWO_CHUNK_FILE_SIZE = CHUNK_SIZE + 1;
 
+async function expectCompletedMime(
+  name: string,
+  sessionId: number,
+  queueItemId: string,
+  mime: string,
+): Promise<void> {
+  const blob = ramReadBlob(name, false, sessionId, queueItemId);
+  expect(blob).not.toBeNull();
+  expect(blob?.type).toBe(mime);
+
+  const { readStoredFile } = await import('../storage.ts');
+  const file = await readStoredFile(queueItemId, name, false, sessionId);
+  expect(file).not.toBeNull();
+  expect(file?.type).toBe(mime);
+}
+
 describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () => {
   const conn = { open: true, peer: 'host-1' } as DataConnection;
 
@@ -210,6 +226,59 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(recoverySpy).not.toHaveBeenCalled();
   });
 
+  it('preserves MIME through a FILE_RESUME receive', async () => {
+    const { handleFileResume, handleFileChunk } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+    setState('transfer.meta', {
+      queueItemId: Q[0],
+      indexHint: 0,
+      name: 'resumed.flac',
+      mime: 'audio/flac',
+      size: 2,
+      total: 1,
+      sessionId: 5,
+    });
+
+    handleFileResume(
+      resumeMsg({
+        name: 'resumed.flac',
+        mime: 'audio/flac',
+        size: 2,
+        total: 1,
+        startChunk: 0,
+        sessionId: 5,
+      }),
+      conn,
+    );
+
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+        queueItemId: Q[0],
+        sessionId: 5,
+        mime: 'audio/flac',
+      }),
+    );
+
+    handleFileChunk(
+      {
+        type: 'file-chunk',
+        name: 'resumed.flac',
+        mime: 'audio/flac',
+        size: 2,
+        total: 1,
+        sessionId: 5,
+        queueItemId: Q[0],
+        chunkIndex: 0,
+        chunk: u8(0xaa, 0xbb),
+      },
+      conn,
+    );
+    await Promise.resolve();
+
+    await expectCompletedMime('resumed.flac', 5, Q[0]!, 'audio/flac');
+  });
+
   it('does not reuse a prefix when the queue item differs inside the same session', async () => {
     const { handleFileResume } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
@@ -315,8 +384,9 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     );
   });
 
-  it('enters DOWNLOADING when FILE_START is the first surviving control frame', async () => {
-    const { handleFileStart } = await import('../transfer-receive.ts');
+  it('preserves MIME through a fresh FILE_START receive', async () => {
+    const { handleFileStart, handleFileChunk } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.IDLE);
 
@@ -336,6 +406,32 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('playlist.currentQueueItemId')).toBe(Q[2]);
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+        queueItemId: Q[2],
+        sessionId: 6,
+        mime: 'audio/mpeg',
+      }),
+    );
+
+    handleFileChunk(
+      {
+        type: 'file-chunk',
+        name: 'first-control.mp3',
+        mime: 'audio/mpeg',
+        total: 1,
+        size: 1,
+        sessionId: 6,
+        queueItemId: Q[2],
+        chunkIndex: 0,
+        chunk: u8(0xaa),
+      },
+      conn,
+    );
+    await Promise.resolve();
+
+    await expectCompletedMime('first-control.mp3', 6, Q[2]!, 'audio/mpeg');
   });
 
   it('enters DOWNLOADING when FILE_RESUME is the first surviving control frame', async () => {
@@ -853,6 +949,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
 
   it('preserves the FILE_PREPARE queue item when chunk metadata replaces a lost FILE_START', async () => {
     const { handleFileChunk } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
     setState('transfer.localSessionId', 6);
     setState('transfer.state', TRANSFER_STATE.RECEIVING);
     setState('playlist.currentQueueItemId', Q[4]!);
@@ -884,10 +981,20 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       },
       conn,
     );
+    await Promise.resolve();
 
     expect(getState('transfer.meta')).toEqual(
       expect.objectContaining({ name: 'song.mp3', sessionId: 6, queueItemId: Q[4], total: 1 }),
     );
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+        queueItemId: Q[4],
+        sessionId: 6,
+        mime: 'audio/mpeg',
+      }),
+    );
+    await expectCompletedMime('song.mp3', 6, Q[4]!, 'audio/mpeg');
   });
 
   it('preserves the pending queue item when a newer chunk stream replaces RECEIVING without FILE_START', async () => {
@@ -933,6 +1040,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
 
   it('bootstraps a truly fresh IDLE transfer from a self-describing chunk after authoritative PLAY', async () => {
     const { handleFileChunk, getTransferMemoryStats } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.IDLE);
     setState('transfer.localSessionId', 5);
@@ -967,6 +1075,14 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(Q[4]);
     expect(getState('transfer.meta')).toEqual(
       expect.objectContaining({ name: 'fresh.mp3', sessionId: 6, queueItemId: Q[4], total: 2 }),
+    );
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+        queueItemId: Q[4],
+        sessionId: 6,
+        mime: 'audio/mpeg',
+      }),
     );
     expect(ramContiguousCount('fresh.mp3', false, 6, Q[4])).toBe(1);
   });

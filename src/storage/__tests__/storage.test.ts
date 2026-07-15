@@ -11,10 +11,11 @@ vi.mock('../../core/session.ts', async (importOriginal) => {
   };
 });
 
-import { ensureNamedFile, postCommand } from '../storage.ts';
+import { ensureNamedFile, postCommand, readStoredFile, resetAllStoredFiles } from '../storage.ts';
 
 beforeEach(() => {
   resetState();
+  resetAllStoredFiles();
 });
 
 describe('ensureNamedFile', () => {
@@ -63,5 +64,42 @@ describe('postCommand', () => {
 
   it('returns early for payload without command', () => {
     postCommand({} as never);
+  });
+
+  it('preserves STORAGE_START MIME in the finalized File returned by readStoredFile', async () => {
+    const queueItemId = 'queue:stored-mime';
+    const sessionId = 7;
+    postCommand({
+      command: 'STORAGE_START',
+      queueItemId,
+      filename: 'track.bin',
+      sessionId,
+      isPreload: false,
+      size: 4,
+      mime: 'audio/flac',
+    });
+    postCommand({
+      command: 'STORAGE_WRITE',
+      queueItemId,
+      filename: 'track.bin',
+      sessionId,
+      isPreload: false,
+      chunkIndex: 0,
+      chunk: new Uint8Array([1, 2, 3]).buffer,
+    });
+    postCommand({
+      command: 'STORAGE_END',
+      queueItemId,
+      filename: 'track.bin',
+      sessionId,
+      isPreload: false,
+      total: 1,
+      totalSize: 3,
+    });
+
+    await vi.waitFor(async () => {
+      const file = await readStoredFile(queueItemId, 'track.bin', false, sessionId);
+      expect(file?.type).toBe('audio/flac');
+    });
   });
 });

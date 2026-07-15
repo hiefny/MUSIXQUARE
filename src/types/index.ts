@@ -160,6 +160,7 @@ export interface StorageCommand {
   total?: number;
   totalSize?: number;
   size?: number;
+  mime?: string;
   keepExisting?: boolean;
   instanceId?: string;
 }

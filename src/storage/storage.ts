@@ -471,7 +471,16 @@ function runStorageCommand(payload: StorageCommand): void {
     case 'STORAGE_START': {
       const chunkSize = (payload.size as number) || CHUNK_SIZE;
       const keepExisting = !!payload.keepExisting;
-      const result = ramStart(queueItemId, filename, isPreload, sessionId, chunkSize, keepExisting);
+      const mime = typeof payload.mime === 'string' ? payload.mime : '';
+      const result = ramStart(
+        queueItemId,
+        filename,
+        isPreload,
+        sessionId,
+        chunkSize,
+        keepExisting,
+        mime,
+      );
       if (result.ok) {
         dispatchStorageEvent({
           type: 'STORAGE_STARTED',
@@ -743,7 +752,7 @@ export async function readStoredFile(
   const blob = ramReadBlob(queueItemId, isPreload, sessionId);
   if (!blob) return null;
   try {
-    const file = new File([blob], filename, { type: blob.type || '' });
+    const file = new File([blob], filename, { type: blob.type });
     const admission = storedFileAdmissions.get(storedAdmissionKey(isPreload, sessionId));
     if (admission?.queueItemId === queueItemId) {
       bindEncodedReceiveReservationToBlob(file, admission.reservation.id);

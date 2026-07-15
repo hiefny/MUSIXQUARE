@@ -945,6 +945,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     command: 'STORAGE_START',
     queueItemId: incomingQueueItemId,
     filename: incomingName,
+    mime: (data.mime as string) || '',
     isPreload: true,
     sessionId: validateSessionId(sid),
     size: CHUNK_SIZE,

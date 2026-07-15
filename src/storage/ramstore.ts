@@ -23,6 +23,8 @@ interface RamSlot {
   filename: string;
   isPreload: boolean;
   sessionId: number;
+  /** Declared media type, or a conservative filename-extension fallback. */
+  mime: string;
   /** Chunks indexed by chunk index. Out-of-order arrival is normal here. */
   chunks: Map<number, Uint8Array>;
   /** Set on the first STORAGE_START, used to compute byte offsets for reads. */
@@ -36,6 +38,31 @@ interface RamSlot {
    * Chunks are dropped after this is set so we don't double-account.
    */
   finalizedBlob: Blob | null;
+}
+
+const AUDIO_MIME_BY_EXTENSION: Readonly<Record<string, string>> = Object.freeze({
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  flac: 'audio/flac',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
+  aiff: 'audio/aiff',
+  aif: 'audio/aiff',
+  caf: 'audio/x-caf',
+});
+
+function declaredMime(mime?: string): string {
+  return typeof mime === 'string' ? mime.trim() : '';
+}
+
+function inferAudioMimeFromFilename(filename: string): string {
+  const match = /\.([^.\\/]+)$/.exec(filename.trim().toLowerCase());
+  return match ? (AUDIO_MIME_BY_EXTENSION[match[1] ?? ''] ?? '') : '';
+}
+
+function resolveStoredMime(filename: string, mime?: string): string {
+  return declaredMime(mime) || inferAudioMimeFromFilename(filename);
 }
 
 // ─── State ──────────────────────────────────────────────────────
@@ -70,12 +97,14 @@ function makeSlot(
   isPreload: boolean,
   sessionId: number,
   chunkSize: number,
+  mime?: string,
 ): RamSlot {
   return {
     queueItemId,
     filename,
     isPreload,
     sessionId,
+    mime: resolveStoredMime(filename, mime),
     chunks: new Map(),
     chunkSize,
     totalSize: null,
@@ -93,6 +122,7 @@ export function ramStart(
   sessionId: number,
   chunkSize: number,
   keepExisting: boolean,
+  mime?: string,
 ): { ok: boolean; reason?: string } {
   if (!queueItemId) return { ok: false, reason: 'Missing queueItemId' };
   if (!filename) return { ok: false, reason: 'Missing filename' };
@@ -110,9 +140,11 @@ export function ramStart(
       mainSlot.filename === filename &&
       sessionId === mainSlot.sessionId
     ) {
+      const resumedMime = declaredMime(mime);
+      if (resumedMime) mainSlot.mime = resumedMime;
       return { ok: true };
     }
-    mainSlot = makeSlot(queueItemId, filename, isPreload, sessionId, chunkSize);
+    mainSlot = makeSlot(queueItemId, filename, isPreload, sessionId, chunkSize, mime);
     return { ok: true };
   }
 
@@ -124,13 +156,15 @@ export function ramStart(
     existing.filename === filename &&
     keepExisting
   ) {
+    const resumedMime = declaredMime(mime);
+    if (resumedMime) existing.mime = resumedMime;
     return { ok: true };
   }
 
   // A session ID is bound to exactly one queue item for its lifetime.
   if (existing) removePreloadSlot(sessionId);
 
-  const slot = makeSlot(queueItemId, filename, isPreload, sessionId, chunkSize);
+  const slot = makeSlot(queueItemId, filename, isPreload, sessionId, chunkSize, mime);
   addPreloadSlot(slot);
   return { ok: true };
 }
@@ -214,12 +248,12 @@ export function ramEnd(
   for (const k of sortedKeys) {
     parts.push(slot.chunks.get(k)! as unknown as BlobPart);
   }
-  let blob = new Blob(parts);
+  let blob = new Blob(parts, { type: slot.mime });
 
   // Tier 2: byte-size cap (when host declared a size). Tail-trim overshoot
   // from CHUNK_SIZE-aligned writes, hard-fail undershoot.
   if (typeof totalSize === 'number' && totalSize > 0) {
-    if (blob.size > totalSize) blob = blob.slice(0, totalSize);
+    if (blob.size > totalSize) blob = blob.slice(0, totalSize, slot.mime);
     else if (blob.size < totalSize) {
       return { blob: null, reason: `Integrity Fail: ${blob.size}/${totalSize}` };
     }

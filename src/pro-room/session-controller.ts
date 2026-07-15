@@ -57,6 +57,8 @@ export class ProRoomSessionController {
   #snapshot: ProRoomSnapshot | null = null;
   #context: RoomContext | null = null;
   #operationEpoch = 0;
+  #openAbort: AbortController | null = null;
+  #pendingRoomCode: string | null = null;
 
   constructor(
     private readonly api: ProRoomSessionApi,
@@ -73,23 +75,43 @@ export class ProRoomSessionController {
   }
 
   async join(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
-    return this.#open(() => this.api.createSession(input, signal), input.code, signal);
+    return this.#open(
+      (operationSignal) => this.api.createSession(input, operationSignal),
+      input.code,
+      signal,
+    );
+  }
+
+  async resume(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    return this.#open(
+      (operationSignal) => this.api.getSnapshot(code, operationSignal),
+      code,
+      signal,
+    );
   }
 
   async activate(input: ActivateProRoomInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
-    return this.#open(() => this.api.activate(input, signal), input.code, signal);
+    return this.#open(
+      (operationSignal) => this.api.activate(input, operationSignal),
+      input.code,
+      signal,
+    );
   }
 
   async refresh(signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
     const incoming = await this.api.getSnapshot(roomCode, signal);
-    return this.#accept(incoming, false, signal);
+    this.#assertOperationCurrent(operationEpoch);
+    return this.#accept(incoming, false, signal, operationEpoch);
   }
 
   async heartbeat(signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
     const incoming = await this.api.heartbeat(roomCode, signal);
-    return this.#accept(incoming, true, signal);
+    this.#assertOperationCurrent(operationEpoch);
+    return this.#accept(incoming, true, signal, operationEpoch);
   }
 
   /**
@@ -98,20 +120,29 @@ export class ProRoomSessionController {
    * rebuild it from the same authoritative snapshot.
    */
   async refreshSignaling(signal?: AbortSignal): Promise<void> {
+    const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
     const snapshot = this.#snapshot;
     if (!snapshot) throw new Error('PRO_ROOM_SESSION_INACTIVE');
     const access = await this.api.createSignalingTicket(roomCode, signal);
+    this.#assertOperationCurrent(operationEpoch);
     this.#assertAccessMatches(snapshot, access);
     const refreshed = this.transport.refreshCredentials
       ? await this.transport.refreshCredentials(snapshot, access, signal)
       : false;
-    if (!refreshed) await this.transport.reconfigure(snapshot, access, signal);
+    this.#assertOperationCurrent(operationEpoch);
+    if (!refreshed) {
+      await this.transport.reconfigure(snapshot, access, signal);
+      this.#assertOperationCurrent(operationEpoch);
+    }
   }
 
   async leave(signal?: AbortSignal): Promise<void> {
-    const roomCode = this.#snapshot?.roomCode ?? null;
+    const roomCode = this.#snapshot?.roomCode ?? this.#pendingRoomCode;
     const epoch = ++this.#operationEpoch;
+    this.#openAbort?.abort();
+    this.#openAbort = null;
+    this.#pendingRoomCode = null;
     try {
       if (roomCode) await this.api.leavePresence(roomCode, signal);
     } finally {
@@ -132,37 +163,58 @@ export class ProRoomSessionController {
   }
 
   async #open(
-    authenticate: () => Promise<ProRoomSnapshot>,
+    authenticate: (signal: AbortSignal) => Promise<ProRoomSnapshot>,
     expectedRoomCode: string,
     signal?: AbortSignal,
   ): Promise<ProRoomSnapshot> {
     const operationEpoch = ++this.#operationEpoch;
-    const incoming = await authenticate();
-    if (operationEpoch !== this.#operationEpoch) throw new Error('PRO_ROOM_SESSION_SUPERSEDED');
-    if (incoming.roomCode !== expectedRoomCode) throw new Error('PRO_ROOM_SESSION_MISMATCH');
+    this.#openAbort?.abort();
+    const operationAbort = new AbortController();
+    this.#openAbort = operationAbort;
+    this.#pendingRoomCode = expectedRoomCode;
+    const forwardAbort = () => operationAbort.abort();
+    if (signal?.aborted) operationAbort.abort();
+    else signal?.addEventListener('abort', forwardAbort, { once: true });
+    let authenticated = false;
+    let committed = false;
 
-    const accepted = this.#commit(incoming);
     try {
-      const access = await this.api.createSignalingTicket(expectedRoomCode, signal);
-      if (operationEpoch !== this.#operationEpoch) throw new Error('PRO_ROOM_SESSION_SUPERSEDED');
+      const incoming = await authenticate(operationAbort.signal);
+      authenticated = true;
+      this.#assertOperationCurrent(operationEpoch);
+      if (incoming.roomCode !== expectedRoomCode) throw new Error('PRO_ROOM_SESSION_MISMATCH');
+
+      const accepted = this.#commit(incoming);
+      committed = true;
+      const access = await this.api.createSignalingTicket(expectedRoomCode, operationAbort.signal);
+      this.#assertOperationCurrent(operationEpoch);
       this.#assertAccessMatches(accepted, access);
-      await this.transport.connect(accepted, access, signal);
+      await this.transport.connect(accepted, access, operationAbort.signal);
+      this.#assertOperationCurrent(operationEpoch);
+      return accepted;
     } catch (error) {
       if (operationEpoch === this.#operationEpoch) {
-        this.#clear();
-        void this.api.leavePresence(expectedRoomCode, signal).catch(() => undefined);
-        void this.api.closeSession(expectedRoomCode, signal).catch(() => undefined);
+        if (committed) this.#clear();
+        if (authenticated) {
+          void this.api.leavePresence(expectedRoomCode).catch(() => undefined);
+          void this.api.closeSession(expectedRoomCode).catch(() => undefined);
+        }
       }
       throw error;
+    } finally {
+      signal?.removeEventListener('abort', forwardAbort);
+      if (this.#openAbort === operationAbort) this.#openAbort = null;
+      if (operationEpoch === this.#operationEpoch) this.#pendingRoomCode = null;
     }
-    return accepted;
   }
 
   async #accept(
     incoming: ProRoomSnapshot,
     allowTransportReconfigure: boolean,
     signal?: AbortSignal,
+    operationEpoch = this.#operationEpoch,
   ): Promise<ProRoomSnapshot> {
+    this.#assertOperationCurrent(operationEpoch);
     const previousContext = this.#context;
     const accepted = this.#commit(incoming);
     const nextContext = this.#context;
@@ -173,11 +225,15 @@ export class ProRoomSessionController {
     ) {
       try {
         const access = await this.api.createSignalingTicket(accepted.roomCode, signal);
+        this.#assertOperationCurrent(operationEpoch);
         this.#assertAccessMatches(accepted, access);
         await this.transport.reconfigure(accepted, access, signal);
+        this.#assertOperationCurrent(operationEpoch);
       } catch (error) {
-        await this.transport.disconnect();
-        this.#clear();
+        if (operationEpoch === this.#operationEpoch) {
+          await this.transport.disconnect();
+          this.#clear();
+        }
         throw error;
       }
     }
@@ -200,8 +256,10 @@ export class ProRoomSessionController {
 
     this.#snapshot = accepted;
     this.#context = context;
-    this.observer.snapshot(accepted);
+    // Publish capabilities before the snapshot so synchronous UI/projector
+    // listeners never process PRO data under the previous room's authority.
     this.observer.authority(context);
+    this.observer.snapshot(accepted);
     return accepted;
   }
 
@@ -218,6 +276,12 @@ export class ProRoomSessionController {
     const roomCode = this.#snapshot?.roomCode;
     if (!roomCode) throw new Error('PRO_ROOM_SESSION_INACTIVE');
     return roomCode;
+  }
+
+  #assertOperationCurrent(operationEpoch: number): void {
+    if (operationEpoch !== this.#operationEpoch) {
+      throw new Error('PRO_ROOM_SESSION_SUPERSEDED');
+    }
   }
 
   #clear(): void {

@@ -29,6 +29,8 @@ import {
   type TransportPeerOptions,
 } from './transport/index.ts';
 import { setPlaybackIdle } from '../player/ownership.ts';
+import { requestProRoomLeave } from '../pro-room/lifecycle-hook.ts';
+import { isProRoomCode } from '../pro-room/room-code.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -826,6 +828,9 @@ const PENDING_SETUP_TIMER_KEYS = [
  */
 export function cancelPendingSessionSetup(): void {
   if (getState('setup.sessionStarted')) return;
+  if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.lastJoinCode'))) {
+    requestProRoomLeave();
+  }
   invalidateGuestJoinAttempt();
   invalidateNetworkInit();
 
@@ -901,6 +906,9 @@ export function cancelPendingSessionSetup(): void {
  * Leave the current session and clean up all network state.
  */
 export function leaveSession(): void {
+  if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'))) {
+    requestProRoomLeave();
+  }
   invalidateGuestJoinAttempt();
   invalidateNetworkInit();
   log.debug('[Network] Leaving session — full cleanup...');

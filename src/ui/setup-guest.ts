@@ -41,6 +41,8 @@ import { scheduleSessionReset } from '../core/session-reset.ts';
 import { showDialog } from './dialog.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
+import { isProRoomCode } from '../pro-room/room-code.ts';
+import { enterProRoomFromSetup } from '../pro-room/setup-flow.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -201,7 +203,29 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
   );
 
   _pendingPasswordJoin = { code: autoCode, mode, inviteLink: true };
+  if (isProRoomCode(autoCode)) {
+    await _handleProRoomJoin(autoCode);
+    return;
+  }
   joinSession(autoCode);
+}
+
+async function _handleProRoomJoin(code: string): Promise<void> {
+  try {
+    const joined = await enterProRoomFromSetup(code);
+    if (!joined) {
+      restoreJoinControlsAfterPasswordCancel();
+      return;
+    }
+    // A member connection emits this from the legacy guest bridge. The first
+    // participant is the coordinator and therefore needs the same UI commit
+    // synthesized here.
+    if (!getState('setup.sessionStarted')) bus.emit('setup:guest-join-success');
+  } catch (error) {
+    log.error('[Setup] PRO room join failed', error);
+    showToast(t('pro.connect_failed'));
+    bus.emit('setup:guest-join-failure', error);
+  }
 }
 
 function proceedToGuestCode(mode: number): void {
@@ -293,6 +317,10 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
   );
 
   _pendingPasswordJoin = { code, mode, inviteLink: false };
+  if (isProRoomCode(code)) {
+    await _handleProRoomJoin(code);
+    return;
+  }
   joinSession(code);
 }
 

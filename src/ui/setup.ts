@@ -63,6 +63,7 @@ import {
   getPendingAutoJoinCode,
   setPendingAutoJoinCode,
 } from './setup-shared.ts';
+import { isProRoomCode } from '../pro-room/room-code.ts';
 
 // ─── Host / Guest Choice ─────────────────────────────────────────
 
@@ -363,13 +364,14 @@ export function initSetup(): void {
     // joinSession() caller that skips the format check can't poison the session
     // code that gets composed into the share URL in connect.ts.
     if (joinCode && /^\d{6}$/.test(joinCode)) setState('network.sessionCode', joinCode);
+    const isProRoom = isProRoomCode(joinCode);
 
     updateRoleBadge();
     hideSetupOverlay();
     // Clear pending join code & clean URL — connection succeeded
     setPendingAutoJoinCode(null);
     try {
-      if (/^\/\d{6}$/.test(window.location.pathname)) {
+      if (!isProRoom && /^\/\d{6}$/.test(window.location.pathname)) {
         window.history.replaceState({}, '', '/' + window.location.hash);
       }
     } catch {

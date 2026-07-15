@@ -223,7 +223,7 @@ describe('remote file share policy', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(Q0);
   });
 
-  it('rejects an unsafe iOS download peak before starting XHR', async () => {
+  it('does not reject an iOS download from a predicted crypto memory peak', async () => {
     vi.useFakeTimers();
     const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
     Object.defineProperty(navigator, 'userAgent', {
@@ -244,10 +244,13 @@ describe('remote file share policy', () => {
         conn,
       );
 
-      expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
-      expect(getState('share.remote').download.status).toBe('error');
-      expect(mocks.transition).toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
-      expect(sendToHost).toHaveBeenCalledWith({ type: MSG.GUEST_DECODE_FAILED, queueItemId: Q0 });
+      expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+      expect(getState('share.remote').download.status).toBe('ready');
+      expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
+      expect(sendToHost).not.toHaveBeenCalledWith({
+        type: MSG.GUEST_DECODE_FAILED,
+        queueItemId: Q0,
+      });
 
       vi.mocked(showToast).mockClear();
       await vi.advanceTimersByTimeAsync(6 * 60_000);
@@ -258,7 +261,7 @@ describe('remote file share policy', () => {
     }
   });
 
-  it('waits for a transient native decode lease before starting remote XHR', async () => {
+  it('starts remote XHR without waiting for a native decode lease', async () => {
     const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
     Object.defineProperty(navigator, 'userAgent', {
       configurable: true,
@@ -284,119 +287,13 @@ describe('remote file share policy', () => {
       );
 
       await Promise.resolve();
-      expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
+      expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
 
-      decodeLease.release();
       await pending;
       expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
       expect(getState('share.remote').download.status).toBe('ready');
     } finally {
       decodeLease.release();
-      if (originalUserAgent) Object.defineProperty(navigator, 'userAgent', originalUserAgent);
-    }
-  });
-
-  it('cancels a superseded admission waiter before the shared lease is released', async () => {
-    const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
-    Object.defineProperty(navigator, 'userAgent', {
-      configurable: true,
-      value: 'Mozilla/5.0 (iPhone)',
-    });
-    const { setCurrentAudioBuffer } = await import('../../player/_state.ts');
-    const { reserveDecodeMemoryWithinBudget, resolveDecodeMemoryBudget } =
-      await import('../../player/decode-admission.ts');
-    setCurrentAudioBuffer(null);
-    const budget = resolveDecodeMemoryBudget();
-    const decodeLease = reserveDecodeMemoryWithinBudget(1, { budget, fileName: 'old.mp3' });
-
-    try {
-      const { handleData } = await import('../../network/protocol.ts');
-      setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
-      const size = 80 * 1024 * 1024;
-      const predecessor = handleData(
-        {
-          type: MSG.REMOTE_FILE_SHARE,
-          ...descriptor({ objectId: OBJECT_1, size, encryptedSize: size + 16 }),
-        },
-        conn,
-      );
-      let predecessorSettled = false;
-      void predecessor.then(() => {
-        predecessorSettled = true;
-      });
-      await Promise.resolve();
-
-      const successorDescriptor = descriptor({
-        objectId: OBJECT_2,
-        queueItemId: Q1,
-        sessionId: 8,
-        size,
-        encryptedSize: size + 16,
-      });
-      const successor = handleData({ type: MSG.REMOTE_FILE_SHARE, ...successorDescriptor }, conn);
-
-      await vi.waitFor(() => expect(predecessorSettled).toBe(true));
-      expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
-
-      decodeLease.release();
-      await successor;
-      expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
-      expect(mocks.downloadRemoteFile.mock.calls[0]?.[0]).toMatchObject({
-        objectId: OBJECT_2,
-        queueItemId: Q1,
-        sessionId: 8,
-      });
-    } finally {
-      decodeLease.release();
-      if (originalUserAgent) Object.defineProperty(navigator, 'userAgent', originalUserAgent);
-    }
-  });
-
-  it('abandons an admission wait when its room watchdog expires', async () => {
-    vi.useFakeTimers();
-    const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
-    Object.defineProperty(navigator, 'userAgent', {
-      configurable: true,
-      value: 'Mozilla/5.0 (iPhone)',
-    });
-    const { setCurrentAudioBuffer } = await import('../../player/_state.ts');
-    const { reserveDecodeMemoryWithinBudget, resolveDecodeMemoryBudget } =
-      await import('../../player/decode-admission.ts');
-    setCurrentAudioBuffer(null);
-    const budget = resolveDecodeMemoryBudget();
-    const decodeLease = reserveDecodeMemoryWithinBudget(1, { budget, fileName: 'old.mp3' });
-
-    try {
-      const { handleData } = await import('../../network/protocol.ts');
-      const { showToast } = await import('../../ui/toast.ts');
-      setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
-      const size = 80 * 1024 * 1024;
-      const pending = handleData(
-        {
-          type: MSG.REMOTE_FILE_SHARE,
-          ...descriptor({ size, encryptedSize: size + 16 }),
-        },
-        conn,
-      );
-      await Promise.resolve();
-
-      await vi.advanceTimersByTimeAsync(5 * 60_000 + 16_000);
-      await pending;
-      expect(showToast).toHaveBeenCalledWith('share.remote.timeout');
-      expect(mocks.transition).toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
-      expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
-      expect(getState('share.remote').download).toEqual({
-        status: 'error',
-        progress: 0,
-        error: 'share.remote.timeout',
-      });
-
-      decodeLease.release();
-      await Promise.resolve();
-      expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
-    } finally {
-      decodeLease.release();
-      vi.useRealTimers();
       if (originalUserAgent) Object.defineProperty(navigator, 'userAgent', originalUserAgent);
     }
   });

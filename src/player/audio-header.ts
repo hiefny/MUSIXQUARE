@@ -3,7 +3,8 @@
  *
  * Only bounded header windows at validated random-access offsets are read. The
  * probe never decodes audio, never persists bytes, and returns null on malformed
- * or unfamiliar input so decode admission can use its conservative fallback.
+ * or unfamiliar input. The production legacy engine skips this probe under its
+ * unbounded policy; it remains available to explicit bounded/future engines.
  */
 
 const HEADER_WINDOW_BYTES = 256 * 1024;
@@ -31,7 +32,7 @@ function parseWave(bytes: Uint8Array): number | null {
     return null;
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  for (let offset = 12; offset + 8 <= bytes.length; ) {
+  for (let offset = 12; offset + 8 <= bytes.length;) {
     const size = view.getUint32(offset + 4, true);
     if (matches(bytes, offset, 'fmt ') && size >= 4 && offset + 12 <= bytes.length) {
       return validChannels(view.getUint16(offset + 10, true));
@@ -48,7 +49,7 @@ function parseAiff(bytes: Uint8Array): number | null {
     return null;
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  for (let offset = 12; offset + 8 <= bytes.length; ) {
+  for (let offset = 12; offset + 8 <= bytes.length;) {
     const size = view.getUint32(offset + 4, false);
     if (matches(bytes, offset, 'COMM') && size >= 2 && offset + 10 <= bytes.length) {
       return validChannels(view.getUint16(offset + 8, false));
@@ -65,7 +66,7 @@ function parseCaf(bytes: Uint8Array): number | null {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // CAF chunk lengths are uint64. The channel count is the uint32
   // mChannelsPerFrame field 24 bytes into the AudioDescription payload.
-  for (let offset = 8; offset + 12 <= bytes.length; ) {
+  for (let offset = 8; offset + 12 <= bytes.length;) {
     const high = view.getUint32(offset + 4, false);
     const low = view.getUint32(offset + 8, false);
     if (high !== 0) return null;

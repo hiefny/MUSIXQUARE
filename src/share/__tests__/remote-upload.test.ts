@@ -117,7 +117,7 @@ describe('remote upload contract', () => {
     }
   });
 
-  it('rejects an unsafe iOS whole-file crypto peak before encryption', async () => {
+  it('does not reject an iOS upload from a predicted crypto memory peak', async () => {
     const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
     Object.defineProperty(navigator, 'userAgent', {
       configurable: true,
@@ -125,22 +125,29 @@ describe('remote upload contract', () => {
     });
     const file = new File(['x'], 'large-mobile.wav');
     Object.defineProperty(file, 'size', { configurable: true, value: 80 * 1024 * 1024 });
+    const encryptedBlob = new Blob(['ciphertext']);
+    Object.defineProperty(encryptedBlob, 'size', {
+      configurable: true,
+      value: file.size + 16,
+    });
+    mocks.encryptFile.mockResolvedValueOnce({ encryptedBlob, keyB64: 'a2V5', ivB64: 'aXY=' });
     const { reserveDecodeMemoryWithinBudget } = await import('../../player/decode-admission.ts');
     const pendingNativeDecode = reserveDecodeMemoryWithinBudget(1 * 1024 * 1024);
 
     try {
       const { uploadRemoteFile } = await import('../remote-upload.ts');
-      await expect(uploadRemoteFile(file, 9, Q3)).rejects.toMatchObject({
-        reason: 'transport-working-set',
+      await expect(uploadRemoteFile(file, 9, Q3)).resolves.toMatchObject({
+        size: file.size,
+        encryptedSize: file.size + 16,
       });
-      expect(mocks.encryptFile).not.toHaveBeenCalled();
+      expect(mocks.encryptFile).toHaveBeenCalledOnce();
     } finally {
       pendingNativeDecode.release();
       if (originalUserAgent) Object.defineProperty(navigator, 'userAgent', originalUserAgent);
     }
   });
 
-  it('admits concurrent whole-file uploads against one shared transport ledger', async () => {
+  it('does not serialize concurrent uploads behind a predictive memory ledger', async () => {
     const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
     Object.defineProperty(navigator, 'userAgent', {
       configurable: true,
@@ -167,16 +174,22 @@ describe('remote upload contract', () => {
           resolveFirstEncryption = resolve;
         }),
     );
+    mocks.encryptFile.mockResolvedValueOnce({
+      encryptedBlob,
+      keyB64: 'a2V5',
+      ivB64: 'aXY=',
+    });
 
     try {
       const { uploadRemoteFile } = await import('../remote-upload.ts');
       const first = uploadRemoteFile(fileA, 1, Q0);
       await vi.waitFor(() => expect(mocks.encryptFile).toHaveBeenCalledOnce());
 
-      await expect(uploadRemoteFile(fileB, 2, Q1)).rejects.toMatchObject({
-        reason: 'transport-working-set',
+      await expect(uploadRemoteFile(fileB, 2, Q1)).resolves.toMatchObject({
+        name: 'b.wav',
+        sessionId: 2,
       });
-      expect(mocks.encryptFile).toHaveBeenCalledOnce();
+      expect(mocks.encryptFile).toHaveBeenCalledTimes(2);
 
       resolveFirstEncryption({ encryptedBlob, keyB64: 'a2V5', ivB64: 'aXY=' });
       await expect(first).resolves.toMatchObject({ name: 'a.wav', sessionId: 1 });

@@ -345,11 +345,11 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 
 ## Scenario 16 — Very long file (30+ min podcast)
 
-> **Historical expectation only:** current RAM admission may reject this exact
-> 60-minute fixture before decode when its encoded + PCM working set exceeds the
-> device tier. Present-day QA should test one long file inside the reported
-> budget and one over-budget file; the former waits for real browser completion,
-> while the latter fails cleanly before whole-file allocation.
+> The legacy AudioBuffer path no longer rejects this fixture from a predicted
+> device-memory budget. It attempts the real browser allocation and decode.
+> Run this scenario on the supported low-memory device matrix because a native
+> allocation failure or OS-level tab/PWA termination cannot always be recovered
+> by application code.
 
 **Setup:** `long-podcast.mp3` (~40 MB, 60 min runtime)
 
@@ -365,9 +365,10 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 - Playback plays in sync
 - Seek to mid-point works without hanging
 
-**Why this matters:** the 10 s decode timeout was added to kill pathological
-files (e.g. 50,000 kbps WAV). This scenario confirms a legitimate long file
-still decodes fine.
+**Why this matters:** native decode is intentionally allowed to exceed the old
+10-second deadline. This scenario verifies that legitimate long media reaches
+the decoder and either plays successfully or exposes a real browser limit rather
+than a conservative application estimate.
 
 ---
 

@@ -784,7 +784,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     });
   });
 
-  it('terminates a prepared transfer when RAM admission rejects and reports the track index', async () => {
+  it('accepts a large prepared transfer without predictive RAM rejection', async () => {
     const { handleFilePrepare, handleFileStart, handleFileChunk } =
       await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
@@ -816,10 +816,21 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       conn,
     );
 
-    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
-    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
-    expect(postCommand).toHaveBeenCalledWith({ command: 'STORAGE_RESET', isPreload: false });
-    expect(sendToHost).toHaveBeenCalledWith({ type: 'guest-decode-failed', queueItemId: Q[2] });
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+        filename: 'huge.wav',
+        isPreload: false,
+        queueItemId: Q[2],
+        sessionId: 10,
+        size: CHUNK_SIZE,
+      }),
+    );
+    expect(sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'guest-decode-failed' }),
+    );
 
     handleFileChunk(
       {
@@ -834,8 +845,10 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       },
       conn,
     );
-    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
-    expect(sendToHost).toHaveBeenCalledTimes(1);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    expect(sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'guest-decode-failed' }),
+    );
   });
 
   it('preserves the FILE_PREPARE queue item when chunk metadata replaces a lost FILE_START', async () => {

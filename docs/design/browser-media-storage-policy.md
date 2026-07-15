@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Decision date:** 2026-07-10
-- **Last implementation check:** 2026-07-11
+- **Last implementation check:** 2026-07-15
 - **Applies to:** production file-transfer, preload, remote-share receive, and
   file-playback paths
 
@@ -51,42 +51,32 @@ also block diagnostics and legitimate future metadata work.
 
 ## Consequences
 
-RAM-only media has a device-dependent capacity ceiling. File admission must
-therefore account for the decoded audio footprint, not merely the encoded file
-size. Persistent storage would not remove the memory required by the current
-AudioBuffer playback engine.
+RAM-only media still has a device-dependent physical capacity ceiling, and
+persistent storage would not remove the PCM required by the current AudioBuffer
+playback engine. The legacy engine nevertheless does **not** impose a predicted
+per-device RAM ceiling. Local decode, P2P receive/preload, and whole-file remote
+encryption/decryption proceed on a best-effort basis and rely on the browser's
+actual allocation and `decodeAudioData` outcome.
 
-**Implementation note (2026-07-11):** every local, demo, preload, and received
-file passes the same AudioBuffer admission check before `arrayBuffer()` and
-native decode allocation. The check probes duration with an off-DOM muted
-`HTMLAudioElement` used only for metadata; it is never played or connected to
-the audio graph, so synchronized playback remains AudioBuffer-only. It
-estimates Float32 PCM with headroom at a conservative 48 kHz floor, raised to
-the active AudioContext output rate when that rate is higher. A
-bounded WAV, AIFF, CAF, FLAC, Ogg, MP3, AAC, or MP4 header probe supplies the
-channel count; MP4 metadata is accepted only from verified box hierarchy and
-all verified audio tracks contribute to the maximum. An unknown layout reserves
-a conservative 32 channels. The estimate includes encoded copies,
-still-reachable decoded buffers, and concurrent whole-file remote transport in
-one in-flight memory ledger, then validates the actual AudioBuffer footprint
-again before publication. Missing duration metadata fails closed on iOS and
-other constrained devices; desktop tiers use a conservative encoded-size
-expansion.
+**Implementation note (2026-07-15):** the shared memory ledger remains for
+ownership, cleanup, diagnostics, and future bounded-engine work, but production
+budgets are effectively unbounded for every file a browser can materialize.
+Metadata duration/channel probes are skipped because their only production use
+was conservative pre-rejection. A successful AudioBuffer is measured after
+decode for accounting only; it is not discarded for crossing a device tier.
 
-Current per-file PCM / decode-working-set ceilings are 192/320 MiB on iOS,
-256/448 MiB on constrained or other mobile devices, 384/768 MiB on standard
-desktop devices, and 512 MiB/1 GiB on desktops reporting at least 8 GiB of
-device memory. These are playback-memory budgets, not encoded-file limits.
-Remote sharing retains a fixed 200 MiB protocol/storage ceiling, but its
-effective admission ceiling can be lower when the device's RAM budget or other
-in-flight work cannot safely hold the required whole-file copies.
+Remote sharing retains its fixed 200 MiB protocol/storage ceiling. P2P also
+retains integrity limits for positive safe sizes, exact chunk totals, 64 KiB
+frames, and at most 200,000 chunks. These are protocol bounds, not predictive
+RAM admission.
 
-The accepted tradeoff is to reject a file that cannot fit the supported memory
-budget rather than introduce a storage or playback fallback with different
-synchronization behavior. The discarded large-file/OPFS implementation is not
-retained in production code or Cloudflare resources. Any future reconsideration
-starts as a separate proposal and implementation; it must not revive the
-discarded branch or wire old artifacts into the browser media path.
+The accepted tradeoff is explicit: files that conservative estimates previously
+rejected are now attempted, but a memory-constrained browser may reject an
+allocation, terminate the tab/PWA, or be killed by the OS. The discarded
+large-file/OPFS implementation is not retained in production code or Cloudflare
+resources. Any future reconsideration starts as a separate proposal and
+implementation; it must not revive the discarded branch or wire old artifacts
+into the browser media path.
 
 ## OPFS Re-evaluation Gate
 
@@ -164,8 +154,8 @@ migration.
 - Decide the storage mode before accepting a media item; never change playback
   engines or backing stores in the middle of a synchronized track.
 - On OPFS open/write/read/quota failure, remove any app-owned partial artifact.
-  Fall back to RAM only when the existing RAM admission check passes; otherwise
-  show a specific, recoverable file-capacity error.
+  A future proposal must define its own explicit fallback-capacity policy; the
+  current legacy RAM path is best effort and has no predictive admission gate.
 - A single configuration change or deployment revert must restore RAM-only
   behavior for new sessions.
 - Rollback verification must include opening the downgraded build with old

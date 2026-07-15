@@ -34,10 +34,10 @@ secrets.
   are rejected; video playback uses the YouTube path.
 - **Remote File Sharing**: Remote guests can receive encrypted temporary file
   handoffs through Cloudflare-backed storage. The 200 MiB figure is the remote
-  wire/storage ceiling, not a guarantee that every device can admit a file of
-  that size. Before whole-file encryption/decryption and AudioBuffer decoding,
-  each host and guest applies its own RAM working-set budget, so the practical
-  limit can be lower on memory-constrained devices.
+  wire/storage ceiling. The legacy AudioBuffer engine does not pre-reject files
+  from a predicted device-memory budget; encryption, transfer, and native decode
+  are attempted on a best-effort basis. A browser may still reject an allocation
+  or terminate a memory-constrained tab.
 - **YouTube Together**: Watch together with synced playback. Works across different networks.
 - **System Audio Sharing**: Stream desktop or tab audio to connected devices in real-time stereo.
 - **Audio Effects**: 5-band EQ, reverb, stereo widener, virtual bass, all processed locally via Web Audio API.

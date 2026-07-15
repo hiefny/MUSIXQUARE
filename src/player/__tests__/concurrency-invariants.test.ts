@@ -1309,8 +1309,8 @@ describe('pin (g) — owner decision: finalizeGuestFile is immune to loadToken b
   });
 });
 
-describe('decode admission waiter ownership', () => {
-  it('drops a superseded preload Blob without waiting for a stalled receive lease', async () => {
+describe('unbounded decode accounting', () => {
+  it('does not stall a preload activation behind a large receive lease', async () => {
     const { reserveEncodedReceiveMemoryWithinBudget, resolveDecodeMemoryBudget } =
       await import('../decode-admission.ts');
     const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop' });
@@ -1324,12 +1324,10 @@ describe('decode admission waiter ownership', () => {
       const ready = stagePreload(0, file);
 
       const activation = loadPreloadedTrack(ready.queueItemId);
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      stagePreload(0, makeFile(file.name), 99);
 
-      await expect(activation).resolves.toBe(false);
-      expect(arrayBuffer).not.toHaveBeenCalled();
-      expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+      await expect(activation).resolves.toBe(true);
+      expect(arrayBuffer).toHaveBeenCalledOnce();
+      expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
     } finally {
       blocker.release();
     }

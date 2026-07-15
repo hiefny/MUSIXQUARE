@@ -99,7 +99,7 @@ export const PLAYBACK_STATE = {
   READY: 'READY', // decoded buffer loaded, waiting for PLAY (or already received → will auto-play)
   PLAYING: 'PLAYING', // actively producing audio
   PAUSED: 'PAUSED', // decoded buffer present, not advancing
-  FAILED: 'FAILED', // decode/admission failure — waiting for host advance or recovery
+  FAILED: 'FAILED', // native allocation/decode failure — waiting for host advance or recovery
 } as const;
 ```
 
@@ -154,7 +154,7 @@ per Open Question #5 decision below.
 | ------------------------------------------------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `FILE_START` (same session id)                         | DOWNLOADING                                           | transfer.state = RECEIVING; swap prepareWatchdog → chunkWatchdog                              |
 | `FILE_CHUNK`                                           | DOWNLOADING                                           | drain reorder buffer; update progress                                                         |
-| `FILE_END` (all received)                              | DECODING                                              | storage finalize; run RAM admission and await native `decodeAudioData`                        |
+| `FILE_END` (all received)                              | DECODING                                              | storage finalize; await native `decodeAudioData` without a predictive RAM gate                 |
 | `FILE_RESUME(startChunk=N)`                            | DOWNLOADING                                           | seek receive to chunk N; loadSource = 'recovery-resume'                                       |
 | chunk watchdog stall (12s local / 60s remote)          | DOWNLOADING                                           | emit storage:request-recovery → REQUEST_DATA_RECOVERY                                         |
 | prepare watchdog (15s / 60s)                           | DOWNLOADING                                           | emit recovery (may switch to DOWNLOADING from fresh)                                          |
@@ -191,8 +191,7 @@ per Open Question #5 decision below.
 | Event                                                     | Next                    | Action                                                                                                                                                |
 | --------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | decode success                                            | READY                   | setCurrentAudioBuffer; publish (transfer.meta, files.currentFileBlob) atomically                                                                      |
-| RAM admission rejects the projected or actual working set | FAILED                  | projected rejection prevents native decode; an actual-footprint rejection is not retried; host marks/advances, guest reports the device-local failure |
-| native decode error (e.g. unsupported or corrupt)         | FAILED                  | host marks/advances; guest may request one fresh transfer before reporting a repeated failure                                                         |
+| native allocation/decode error (e.g. unsupported, corrupt, or surfaced OOM) | FAILED | host marks/advances; guest may request one fresh transfer before reporting a repeated failure                                              |
 | native decode remains pending                             | DECODING                | wait without an arbitrary deadline; `decodeAudioData` cannot be cancelled safely                                                                      |
 | load-token mismatch after async decode                    | previous state restored | abort without state change                                                                                                                            |
 | `FILE_PREPARE` (different track)                          | supersede → DOWNLOADING | bump load token → running decode aborts on completion                                                                                                 |
@@ -305,7 +304,6 @@ Inverse view of Section 4 for quick reference.
 | preload-file-ready (match)        | —                         | —             | →DEC⭐           | —                                 | —         | —         | —         | —        |
 | preload stall / ceiling           | —                         | —             | →DL (recovery)   | —                                 | —         | —         | —         | —        |
 | decode success                    | —                         | —             | —                | →READY                            | —         | —         | —         | —        |
-| RAM admission rejection           | —                         | —             | —                | →FAILED + no same-byte retry      | —         | —         | —         | —        |
 | native decode error               | —                         | —             | —                | →FAILED + bounded recovery/report | —         | —         | —         | —        |
 | chunk watchdog stall              | —                         | stay + recv   | —                | —                                 | —         | —         | —         | —        |
 | prepare watchdog                  | —                         | stay + recv   | —                | —                                 | —         | —         | —         | —        |
@@ -466,7 +464,7 @@ Explicit list of things we are **not** doing, to prevent scope creep:
 - [ ] UI changes — the new enum surfaces through existing loader/toast paths
 - [ ] Persistent shuffle order — already shipped in `fb5d5f0`
 - [ ] Repeat/shuffle improvements — shipped in `fb5d5f0`
-- [ ] Decode deadline policy — later superseded; current code uses RAM admission and awaits the uncancellable native decode without an arbitrary timeout
+- [ ] Decode deadline policy — later superseded; current code applies no predictive RAM gate and awaits the uncancellable native decode without an arbitrary timeout
 
 ---
 

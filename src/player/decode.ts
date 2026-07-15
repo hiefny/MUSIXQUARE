@@ -89,12 +89,13 @@ import {
   waitForInFlightMemoryReservationChange,
 } from './decode-admission.ts';
 
-// ─── Decode Admission & Ownership ──────────────────────────────────
+// ─── Decode Accounting & Ownership ─────────────────────────────────
 // decodeAudioData has no cancellation API. Racing it against a timer only
 // abandons the Promise while native decoder work and its allocation continue,
-// which is especially harmful on iOS. We therefore admit the projected RAM
-// footprint before arrayBuffer(), await the native decoder without an
-// arbitrary deadline, and check caller ownership at every cancellable boundary.
+// which is especially harmful on iOS. The legacy engine therefore awaits the
+// native decoder without an arbitrary deadline and checks caller ownership at
+// every cancellable boundary. Memory reservations are accounting only under the
+// production unbounded policy; they do not pre-reject normal files.
 
 class DecodeSupersededError extends Error {
   constructor(readonly label: string) {
@@ -157,9 +158,9 @@ async function decodeBlobToAudioBuffer(
       });
 
       if (!isCurrent()) throw new DecodeSupersededError(label);
-      // The probes above are asynchronous. Re-check and reserve synchronously so
-      // two probe continuations queued in the same microtask checkpoint cannot
-      // both observe the old in-flight total and over-admit.
+      // Reserve synchronously after the async accounting boundary so ownership
+      // and diagnostics cannot omit overlapping native decodes. Production
+      // policy does not use this ledger as a finite admission ceiling.
       reservation = reserveDecodeMemoryWithinBudget(admission.ownDecodeFootprintBytes, {
         budget: admission.budget,
         fileName,
@@ -193,9 +194,8 @@ async function decodeBlobToAudioBuffer(
     // retries. The reservation remains until this native Promise settles even
     // when a newer load supersedes the caller.
     const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
-    // WebKit may retain native PCM even when ownership changed or the measured
-    // footprint is rejected. Track it before either check; publication later
-    // deduplicates the same object.
+    // WebKit may retain native PCM even when ownership changed. Track it before
+    // the ownership check; publication later deduplicates the same object.
     trackDecodedAudioBufferForAdmission(audioBuffer);
     if (!isCurrent()) throw new DecodeSupersededError(label);
 

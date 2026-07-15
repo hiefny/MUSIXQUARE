@@ -1,10 +1,16 @@
 /**
- * RAM admission for Web Audio file decoding.
+ * RAM accounting for Web Audio file decoding.
  *
  * Playback remains AudioBuffer-only for sample-accurate synchronization. The
  * metadata-only HTMLAudioElement below is never played or connected to the
  * graph; it provides duration before decodeAudioData expands the whole file to
  * planar Float32 PCM. No media bytes are persisted to OPFS or IndexedDB.
+ *
+ * The legacy AudioBuffer engine deliberately does not reject media from a
+ * predicted device-memory budget. Browser allocation and decode failures are
+ * allowed to surface naturally so conservative estimates do not reject files
+ * that a particular device can actually play. The ledger remains useful for
+ * ownership, cleanup, diagnostics, and a future bounded streaming engine.
  */
 
 import { probeAudioChannelCount } from './audio-header.ts';
@@ -20,6 +26,9 @@ const ENCODED_PEAK_COPIES = 2;
 const ENCODED_RECEIVE_PEAK_COPIES = 2;
 const REMOTE_TRANSPORT_PEAK_COPIES = 4;
 const METADATA_TIMEOUT_MS = 4_000;
+// Effectively unbounded for every file a browser can materialize while keeping
+// the accounting arithmetic finite and its invalid-number guards meaningful.
+const UNBOUNDED_MEMORY_BYTES = Number.MAX_SAFE_INTEGER;
 
 interface DecodeMemoryBudget {
   readonly tier: 'ios' | 'constrained' | 'standard' | 'high-memory';
@@ -35,11 +44,7 @@ interface DecodeRuntimeProfile {
 }
 
 type DecodeAdmissionReason =
-  | 'estimated-pcm'
-  | 'working-set'
-  | 'decoded-pcm'
-  | 'receive-working-set'
-  | 'transport-working-set';
+  'estimated-pcm' | 'working-set' | 'decoded-pcm' | 'receive-working-set' | 'transport-working-set';
 
 class AudioDecodeAdmissionError extends Error {
   readonly reason: DecodeAdmissionReason;
@@ -95,37 +100,30 @@ export function resolveDecodeMemoryBudget(
     typeof deviceMemory === 'number' &&
     Number.isFinite(deviceMemory) &&
     deviceMemory >= 8;
-
   let tier: DecodeMemoryBudget['tier'];
-  let maxDecodedPcmBytes: number;
-  let maxDecodeWorkingSetBytes: number;
 
   if (ios) {
-    // Safari does not expose deviceMemory and can retain retired native
-    // AudioBuffers across track switches. Keep both the single-buffer and
-    // decode-peak ceilings deliberately below desktop values.
     tier = 'ios';
-    maxDecodedPcmBytes = 192 * MIB;
-    maxDecodeWorkingSetBytes = 320 * MIB;
   } else if (mobile || constrainedMemory) {
     tier = 'constrained';
-    maxDecodedPcmBytes = 256 * MIB;
-    maxDecodeWorkingSetBytes = 448 * MIB;
   } else if (highMemoryDesktop) {
     tier = 'high-memory';
-    maxDecodedPcmBytes = 512 * MIB;
-    maxDecodeWorkingSetBytes = 1024 * MIB;
   } else {
     tier = 'standard';
-    maxDecodedPcmBytes = 384 * MIB;
-    maxDecodeWorkingSetBytes = 768 * MIB;
   }
 
   return {
     tier,
-    maxDecodedPcmBytes,
-    maxDecodeWorkingSetBytes,
+    maxDecodedPcmBytes: UNBOUNDED_MEMORY_BYTES,
+    maxDecodeWorkingSetBytes: UNBOUNDED_MEMORY_BYTES,
   };
+}
+
+function hasPredictiveMemoryLimit(budget: DecodeMemoryBudget): boolean {
+  return (
+    budget.maxDecodedPcmBytes < UNBOUNDED_MEMORY_BYTES ||
+    budget.maxDecodeWorkingSetBytes < UNBOUNDED_MEMORY_BYTES
+  );
 }
 
 export function estimateDecodedPcmBytes(
@@ -578,10 +576,15 @@ export async function assertBlobCanDecodeToAudioBuffer(
     options.fileName ?? (typeof File !== 'undefined' && blob instanceof File ? blob.name : '');
   const retainedPcmBytes = Math.max(0, options.retainedPcmBytes ?? 0);
   const sourceEncodedReceiveReservationId = encodedReceiveReservationByBlob.get(blob);
-  const [duration, probedChannels] = await Promise.all([
-    options.durationProbe ? options.durationProbe(blob) : getProbedDuration(blob),
-    options.channelCountProbe ? options.channelCountProbe(blob) : getProbedChannelCount(blob),
-  ]);
+  // The production legacy policy is unbounded, so avoid delaying every load on
+  // metadata probes whose only purpose is predictive rejection. Explicit
+  // finite budgets retain the probe path for tests and future engines.
+  const [duration, probedChannels] = hasPredictiveMemoryLimit(budget)
+    ? await Promise.all([
+        options.durationProbe ? options.durationProbe(blob) : getProbedDuration(blob),
+        options.channelCountProbe ? options.channelCountProbe(blob) : getProbedChannelCount(blob),
+      ])
+    : [null, null];
   const channelCount =
     typeof probedChannels === 'number' && Number.isInteger(probedChannels) && probedChannels > 0
       ? probedChannels
@@ -593,22 +596,11 @@ export async function assertBlobCanDecodeToAudioBuffer(
       ? Math.max(EXPECTED_SAMPLE_RATE, options.outputSampleRate)
       : EXPECTED_SAMPLE_RATE;
 
-  // On mobile/constrained devices, unknown duration is not safely bounded by
-  // encoded size (highly compressed audio can expand arbitrarily). Fail closed
-  // before allocating the complete ArrayBuffer. Desktop tiers retain the old
-  // encoded-size fallback for uncommon formats with broken metadata.
-  if (duration === null && (budget.tier === 'ios' || budget.tier === 'constrained')) {
-    throw new AudioDecodeAdmissionError(
-      'estimated-pcm',
-      budget.maxDecodedPcmBytes + 1,
-      budget.maxDecodedPcmBytes,
-      fileName,
-    );
-  }
-  const estimatedPcmBytes =
-    typeof duration === 'number' && Number.isFinite(duration) && duration > 0
+  const estimatedPcmBytes = hasPredictiveMemoryLimit(budget)
+    ? typeof duration === 'number' && Number.isFinite(duration) && duration > 0
       ? estimateDecodedPcmBytes(duration, outputSampleRate, channelCount)
-      : estimateUnknownDurationPcmBytes(blob.size);
+      : estimateUnknownDurationPcmBytes(blob.size)
+    : 0;
 
   if (estimatedPcmBytes > budget.maxDecodedPcmBytes) {
     throw new AudioDecodeAdmissionError(
@@ -681,12 +673,12 @@ export function assertDecodedAudioBufferWithinBudget(
 }
 
 /**
- * Admit whole-file remote encryption/decryption before it starts allocating.
+ * Account for whole-file remote encryption/decryption before it starts allocating.
  *
  * Web Crypto and XHR can overlap the source File/Blob, plaintext ArrayBuffer,
- * ciphertext ArrayBuffer, and returned Blob/File backing. This deliberately
- * conservative four-copy estimate protects iOS before the later PCM decode
- * admission has a chance to run.
+ * ciphertext ArrayBuffer, and returned Blob/File backing. The conservative
+ * four-copy estimate remains useful for diagnostics and explicit finite test
+ * budgets; the production legacy policy does not reject on this estimate.
  */
 function assertRemoteTransportMemoryWithinBudget(
   encodedBytes: number,

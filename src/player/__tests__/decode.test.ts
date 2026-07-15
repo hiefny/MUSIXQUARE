@@ -740,7 +740,7 @@ describe('host decode failure cleanup', () => {
   });
 });
 
-describe('RAM admission integration', () => {
+describe('unbounded legacy decode policy', () => {
   let originalUserAgent: PropertyDescriptor | undefined;
 
   beforeEach(() => {
@@ -773,8 +773,7 @@ describe('RAM admission integration', () => {
     }
   });
 
-  it('rejects an unsafe local file before allocating its ArrayBuffer', async () => {
-    // jsdom has no metadata decoder, so the fail-closed 64× expansion applies.
+  it('lets a local file reach the native decoder without predictive rejection', async () => {
     const file = new File([new Uint8Array(4 * 1024 * 1024)], 'unknown-duration.mp3', {
       type: 'audio/mpeg',
     });
@@ -782,15 +781,21 @@ describe('RAM admission integration', () => {
     const item = makeFileTrack(file);
     setState('playlist.items', [item]);
     setCurrentIndex(0);
+    mocks.decodeAudioData.mockResolvedValue({
+      duration: 120,
+      length: 120 * 48_000,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+    } as AudioBuffer);
 
     const { loadAndBroadcastFile } = await import('../decode.ts');
-    await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(false);
+    await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(true);
 
-    expect(arrayBuffer).not.toHaveBeenCalled();
-    expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+    expect(arrayBuffer).toHaveBeenCalledOnce();
+    expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
   });
 
-  it('applies the same pre-decode admission to a received remote Blob', async () => {
+  it('lets a received remote Blob reach the native decoder', async () => {
     const blob = new Blob([new Uint8Array(4 * 1024 * 1024)], { type: 'audio/mpeg' });
     const arrayBuffer = vi.spyOn(blob, 'arrayBuffer');
     setState('network.hostConn', makeConnection('host'));
@@ -798,19 +803,24 @@ describe('RAM admission integration', () => {
     setState('playlist.items', [item]);
     setCurrentIndex(0);
     stageMainTransfer(item, blob, 9);
+    mocks.decodeAudioData.mockResolvedValue({
+      duration: 120,
+      length: 120 * 48_000,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+    } as AudioBuffer);
 
     const { finalizeGuestFile } = await import('../decode.ts');
     await finalizeGuestFile(blob, item.queueItemId, 9);
 
-    expect(arrayBuffer).not.toHaveBeenCalled();
-    expect(mocks.decodeAudioData).not.toHaveBeenCalled();
-    expect(mocks.sendToHost).toHaveBeenCalledWith({
-      type: MSG.GUEST_DECODE_FAILED,
-      queueItemId: item.queueItemId,
-    });
+    expect(arrayBuffer).toHaveBeenCalledOnce();
+    expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
+    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.GUEST_DECODE_FAILED }),
+    );
   });
 
-  it('reports a preload activation memory rejection instead of re-requesting forever', async () => {
+  it('activates a preloaded file without predictive memory rejection', async () => {
     const file = new File([new Uint8Array(4 * 1024 * 1024)], 'remote-preload.mp3', {
       type: 'audio/mpeg',
     });
@@ -822,15 +832,20 @@ describe('RAM admission integration', () => {
     setCurrentIndex(0);
     stagePreload(item, file);
     setState('transfer.meta', fileMeta(item, file, 7));
+    mocks.decodeAudioData.mockResolvedValue({
+      duration: 120,
+      length: 120 * 48_000,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+    } as AudioBuffer);
 
     const { loadPreloadedTrack } = await import('../decode.ts');
-    await expect(loadPreloadedTrack(item.queueItemId)).resolves.toBe(false);
+    await expect(loadPreloadedTrack(item.queueItemId)).resolves.toBe(true);
 
-    expect(arrayBuffer).not.toHaveBeenCalled();
-    expect(mocks.sendToHost).toHaveBeenCalledWith({
-      type: MSG.GUEST_DECODE_FAILED,
-      queueItemId: item.queueItemId,
-    });
+    expect(arrayBuffer).toHaveBeenCalledOnce();
+    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.GUEST_DECODE_FAILED }),
+    );
     expect(exactHostSend).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
     );

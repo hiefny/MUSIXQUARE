@@ -32,7 +32,7 @@ export const PLAYBACK_STATE = {
   READY: 'READY', // decoded buffer loaded, waiting for PLAY
   PLAYING: 'PLAYING', // actively producing audio
   PAUSED: 'PAUSED', // decoded buffer present, not advancing
-  FAILED: 'FAILED', // decode/admission failure — awaiting host advance
+  FAILED: 'FAILED', // native allocation/decode failure — awaiting host advance
 } as const;
 
 export type PlaybackStateValue = (typeof PLAYBACK_STATE)[keyof typeof PLAYBACK_STATE];

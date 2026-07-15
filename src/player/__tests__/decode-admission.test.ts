@@ -13,9 +13,24 @@ import {
 } from '../decode-admission.ts';
 
 const MIB = 1024 * 1024;
+const IOS_BOUNDED_BUDGET = {
+  tier: 'ios',
+  maxDecodedPcmBytes: 192 * MIB,
+  maxDecodeWorkingSetBytes: 320 * MIB,
+} as const;
+const STANDARD_BOUNDED_BUDGET = {
+  tier: 'standard',
+  maxDecodedPcmBytes: 384 * MIB,
+  maxDecodeWorkingSetBytes: 768 * MIB,
+} as const;
+const HIGH_MEMORY_BOUNDED_BUDGET = {
+  tier: 'high-memory',
+  maxDecodedPcmBytes: 512 * MIB,
+  maxDecodeWorkingSetBytes: 1024 * MIB,
+} as const;
 
 describe('AudioBuffer decode admission', () => {
-  it('uses the conservative iOS tier, including desktop-UA iPadOS', () => {
+  it('keeps iOS classification but does not impose a production memory ceiling', () => {
     const iphone = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
     const ipad = resolveDecodeMemoryBudget({
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)',
@@ -25,8 +40,8 @@ describe('AudioBuffer decode admission', () => {
 
     expect(iphone).toMatchObject({
       tier: 'ios',
-      maxDecodedPcmBytes: 192 * MIB,
-      maxDecodeWorkingSetBytes: 320 * MIB,
+      maxDecodedPcmBytes: Number.MAX_SAFE_INTEGER,
+      maxDecodeWorkingSetBytes: Number.MAX_SAFE_INTEGER,
     });
     expect(ipad).toEqual(iphone);
   });
@@ -36,56 +51,59 @@ describe('AudioBuffer decode admission', () => {
     expect(estimateDecodedPcmBytes(Number.NaN)).toBe(0);
   });
 
-  it('does not recreate the old 64 MiB encoded-file cutoff', async () => {
+  it('does not probe or reject an encoded file under the unbounded legacy policy', async () => {
     const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
     const blob = { size: 80 * MIB } as Blob;
     const durationProbe = vi.fn().mockResolvedValue(300);
+    const channelCountProbe = vi.fn().mockResolvedValue(2);
 
     const admission = await assertBlobCanDecodeToAudioBuffer(blob, {
       budget,
       durationProbe,
-      channelCountProbe: vi.fn().mockResolvedValue(2),
+      channelCountProbe,
       fileName: 'five-minute.wav',
     });
 
-    expect(admission.estimatedPcmBytes).toBeLessThan(budget.maxDecodedPcmBytes);
+    expect(durationProbe).not.toHaveBeenCalled();
+    expect(channelCountProbe).not.toHaveBeenCalled();
+    expect(admission.estimatedPcmBytes).toBe(0);
     expect(admission.estimatedWorkingSetBytes).toBeLessThan(budget.maxDecodeWorkingSetBytes);
   });
 
-  it('rejects a long compressed program from metadata before arrayBuffer allocation', async () => {
+  it('does not pre-reject a long compressed program from a memory estimate', async () => {
     const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
     const blob = { size: 32 * MIB } as Blob;
+    const durationProbe = vi.fn().mockResolvedValue(60 * 60);
 
     await expect(
       assertBlobCanDecodeToAudioBuffer(blob, {
         budget,
-        durationProbe: vi.fn().mockResolvedValue(60 * 60),
+        durationProbe,
         channelCountProbe: vi.fn().mockResolvedValue(2),
         fileName: 'podcast.mp3',
       }),
-    ).rejects.toMatchObject({
-      name: 'AudioDecodeAdmissionError',
-      reason: 'estimated-pcm',
-      fileName: 'podcast.mp3',
+    ).resolves.toMatchObject({
+      durationSeconds: null,
+      estimatedPcmBytes: 0,
     });
+    expect(durationProbe).not.toHaveBeenCalled();
   });
 
-  it('accounts for native AudioBuffers retained across an iOS long session', async () => {
+  it('accounts for retained iOS memory without using it as a rejection threshold', async () => {
     const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
     const blob = { size: 80 * MIB } as Blob;
 
-    await expect(
-      assertBlobCanDecodeToAudioBuffer(blob, {
-        budget,
-        durationProbe: vi.fn().mockResolvedValue(300),
-        channelCountProbe: vi.fn().mockResolvedValue(2),
-        retainedPcmBytes: 32 * MIB,
-        fileName: 'next.wav',
-      }),
-    ).rejects.toMatchObject({ reason: 'working-set' });
+    const admission = await assertBlobCanDecodeToAudioBuffer(blob, {
+      budget,
+      durationProbe: vi.fn().mockResolvedValue(300),
+      channelCountProbe: vi.fn().mockResolvedValue(2),
+      retainedPcmBytes: 32 * MIB,
+      fileName: 'next.wav',
+    });
+    expect(admission.estimatedWorkingSetBytes).toBe(32 * MIB + blob.size * 2);
   });
 
-  it('fails closed with a conservative expansion when duration metadata is unavailable', async () => {
+  it('does not fail closed when duration metadata is unavailable', async () => {
     const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
     const blob = { size: 4 * MIB } as Blob;
 
@@ -95,23 +113,23 @@ describe('AudioBuffer decode admission', () => {
         durationProbe: vi.fn().mockResolvedValue(null),
         fileName: 'unknown.bin',
       }),
-    ).rejects.toMatchObject({ reason: 'estimated-pcm' });
+    ).resolves.toMatchObject({ durationSeconds: null, estimatedPcmBytes: 0 });
   });
 
-  it('validates the browser-reported AudioBuffer footprint before publication', () => {
+  it('accepts a large browser-reported AudioBuffer footprint under the legacy policy', () => {
     const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
-    const frames = budget.maxDecodedPcmBytes / 4 + 1;
+    const frames = (600 * MIB) / 4;
 
-    expect(() =>
+    expect(
       assertDecodedAudioBufferWithinBudget({ length: frames, numberOfChannels: 1 }, 1, {
         budget,
         fileName: 'oversized.wav',
       }),
-    ).toThrowError(expect.objectContaining({ reason: 'decoded-pcm' }));
+    ).toBe(600 * MIB + 2);
   });
 
   it('uses the AudioContext output rate and probed multichannel layout', async () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop', deviceMemoryGiB: 8 });
+    const budget = HIGH_MEMORY_BOUNDED_BUDGET;
     const admission = await assertBlobCanDecodeToAudioBuffer({ size: 1 * MIB } as Blob, {
       budget,
       durationProbe: vi.fn().mockResolvedValue(60),
@@ -125,7 +143,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('uses 32 channels when a bounded header probe cannot identify the layout', async () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop', deviceMemoryGiB: 8 });
+    const budget = HIGH_MEMORY_BOUNDED_BUDGET;
     const admission = await assertBlobCanDecodeToAudioBuffer({ size: 1 } as Blob, {
       budget,
       durationProbe: vi.fn().mockResolvedValue(30),
@@ -137,7 +155,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('evaluates in-flight reservations after the async metadata probes settle', async () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop' });
+    const budget = STANDARD_BOUNDED_BUDGET;
     let resolveDuration!: (duration: number) => void;
     const durationProbe = vi.fn(() => {
       return new Promise<number>((resolve) => {
@@ -162,7 +180,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('counts each global decode lease exactly once during atomic reservation', () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop' });
+    const budget = STANDARD_BOUNDED_BUDGET;
     // 300 + 200 MiB fits the 768 MiB standard budget. Counting the first
     // lease twice would project 800 MiB and incorrectly reject the second.
     const first = reserveDecodeMemoryWithinBudget(300 * MIB, { budget });
@@ -178,7 +196,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('atomically admits only one of two decodes whose probes finish together', async () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop' });
+    const budget = STANDARD_BOUNDED_BUDGET;
     const blob = { size: 6 * MIB } as Blob;
     const options = {
       budget,
@@ -203,7 +221,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('admits whole-file remote crypto before its four overlapping copies allocate', () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
+    const budget = IOS_BOUNDED_BUDGET;
 
     const safeReservation = reserveRemoteTransportMemoryWithinBudget(80 * MIB, {
       budget,
@@ -219,9 +237,9 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('includes an active remote transport lease in a new decode decision', async () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop' });
+    const budget = STANDARD_BOUNDED_BUDGET;
     const remoteTransport = reserveRemoteTransportMemoryWithinBudget(100 * MIB, {
-      budget: resolveDecodeMemoryBudget({ userAgent: 'desktop', deviceMemoryGiB: 8 }),
+      budget: HIGH_MEMORY_BOUNDED_BUDGET,
     });
     try {
       await expect(
@@ -238,7 +256,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('includes an active native decode lease in a new remote transport decision', () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
+    const budget = IOS_BOUNDED_BUDGET;
     const decode = reserveDecodeMemoryWithinBudget(1 * MIB, { budget });
     try {
       expect(() =>
@@ -253,7 +271,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('rejects a P2P receive before its two-copy iOS assembly peak exceeds RAM', () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
+    const budget = IOS_BOUNDED_BUDGET;
     const safe = reserveEncodedReceiveMemoryWithinBudget(160 * MIB, { budget });
     safe.release();
 
@@ -263,7 +281,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('shrinks a finalized receive lease while retaining its encoded Blob bytes', () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
+    const budget = IOS_BOUNDED_BUDGET;
     const first = reserveEncodedReceiveMemoryWithinBudget(80 * MIB, { budget });
     try {
       expect(() => reserveEncodedReceiveMemoryWithinBudget(120 * MIB, { budget })).toThrowError(
@@ -278,7 +296,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('excludes only the source Blob receive lease across both decode rechecks', async () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
+    const budget = IOS_BOUNDED_BUDGET;
     const blob = { size: 100 * MIB } as Blob;
     const receive = reserveEncodedReceiveMemoryWithinBudget(blob.size, { budget });
     receive.markFinalized();
@@ -317,7 +335,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('does not wait forever on its own finalized source lease', async () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
+    const budget = IOS_BOUNDED_BUDGET;
     const blob = { size: 100 * MIB } as Blob;
     const receive = reserveEncodedReceiveMemoryWithinBudget(blob.size, { budget });
     receive.markFinalized();
@@ -335,7 +353,7 @@ describe('AudioBuffer decode admission', () => {
   });
 
   it('atomically hands a remote transport peak to a retained encoded lease', () => {
-    const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
+    const budget = IOS_BOUNDED_BUDGET;
     const file = { size: 80 * MIB } as Blob;
     const transport = reserveRemoteTransportMemoryWithinBudget(file.size, { budget });
     const retained = transport.handoffToRetainedEncoded(file, file.size);

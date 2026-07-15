@@ -444,7 +444,6 @@ p {
 .announcement-management {
   display: grid;
   gap: 18px;
-  max-width: 720px;
 }
 
 .announcement-form {

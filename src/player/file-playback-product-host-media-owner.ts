@@ -2940,6 +2940,24 @@ export class FilePlaybackProductHostMediaOwner {
     }
     if (message.kind === 'renderer-health') {
       const accepted = attempt.participant.acceptRendererStartEvidence(message);
+      if (message.value === 'unhealthy' && attempt.status === 'candidate' && !attempt.cancelling) {
+        const failure = new Error(
+          `Guest renderer start evidence failed: ${message.reasonCode ?? 'renderer-unhealthy'}`,
+        );
+
+        // The guest has already accepted FINALIZE but could not prove that its
+        // renderer actually started. Claim the exact coordinator cancellation
+        // synchronously before rejecting evidence: prepared/recovery failure
+        // continuations are otherwise allowed to retire this attempt lease and
+        // turn the required CANCEL into a stale-authority transport failure.
+        attempt.attempt.cancel('renderer-start-failed');
+        if (!attempt.cancelling || !attempt.cancelDispatch || !attempt.cancelRetirement) {
+          throw this.#failConnection(
+            new Error('Host renderer failure did not claim exact attempt cancellation'),
+          );
+        }
+        attempt.rejectEvidence(failure);
+      }
       this.#reportHealth({
         dimension: 'renderer',
         value: message.value,

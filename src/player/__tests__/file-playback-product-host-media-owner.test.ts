@@ -1158,6 +1158,187 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     },
   );
 
+  it('cancels prepared renderer-start failure exactly once before admitting a later recovery', async () => {
+    let now = 1_000;
+    const pair = connectionPair(() => now);
+    const prepared = preparedTrack('bounded-stream', 4);
+    const recoveries: RecoverHostRemoteParticipantOptions[] = [];
+    const wire: FilePlaybackWireMessage[] = [];
+    const closeConnection = vi.fn();
+    let current: Readonly<HostPeerPlaybackPublication> | null = null;
+    const owner = new FilePlaybackProductHostMediaOwner({
+      context: pair.context,
+      hostRoom: roomPort(
+        () => current,
+        () => new Blob(),
+        recoveries,
+      ),
+      publisher: publisher(),
+      resolvePreparedPeerRangeSource: vi.fn(async () => encodedPreparedSource(prepared)),
+      sendRequired: () => true,
+      sendWire: (_connection, lease, payload) => {
+        const message = pair.host.createWire(lease, payload);
+        wire.push(message);
+        return message;
+      },
+      closeConnection,
+      onHealthSystemMessage: vi.fn(),
+      runtimeForTests: {
+        createMediaIdForTests: ids(),
+        scheduleIntervalForTests: () => 'host-owner-prepared-renderer-failure-health',
+        cancelIntervalForTests: vi.fn(),
+      },
+    });
+
+    await owner.publishPrepared(prepared);
+    await owner.bindPrepared(prepared);
+    const ready = owner.whenPreparedRemoteReady(prepared);
+    pair.guest.bootstrapStopped(0);
+    const guestState = pair.guest.stageMedia({
+      run: prepared.state,
+      sourceIdentity: prepared.asset.binding.sourceIdentity,
+      transferSessionId: prepared.asset.binding.transferSessionId,
+    });
+    const publishFreshReady = () => {
+      now += 100;
+      adoptWire(
+        pair,
+        owner,
+        pair.guest.createWire(guestState, {
+          kind: 'source-ready',
+          observedAtRoomTimeMs: now,
+          readyLeaseUntilRoomTimeMs: now + 10_000,
+          backend: prepared.backend,
+          durationSeconds: 180,
+          bufferedAheadSeconds: 8,
+          outputSampleRateHz: 48_000,
+          channelCount: 2,
+        }),
+      );
+    };
+    publishFreshReady();
+    const capability = await ready;
+    const attemptId = 'host-owner-prepared-renderer-failure';
+    const cancelAttempt = vi.fn((reasonCode = 'cancelled-by-host') => {
+      void capability.participant.cancel({
+        kind: 'file-playback-cancel',
+        ...prepared.state,
+        rendezvousId: attemptId,
+        reasonCode,
+      });
+      return {} as ReturnType<HostRendezvousAttempt['cancel']>;
+    });
+    const attempt = {
+      ...fakeAttempt(attemptId),
+      whenParticipantAccepted: vi.fn(() => new Promise<unknown>(() => undefined)),
+      cancel: cancelAttempt,
+    } as unknown as HostRendezvousAttempt;
+    const evidence = capability.bindAttempt(attempt);
+    const evidenceFailure = expect(evidence).rejects.toThrow(
+      'Guest renderer start evidence failed: start-evidence-timeout',
+    );
+    const armTask = capability.participant.arm({
+      protocolVersion: 2,
+      kind: 'rendezvous-arm',
+      ...prepared.state,
+      rendezvousId: attempt.rendezvousId,
+      recipientId: capability.participant.participantId,
+      positionSeconds: prepared.positionSeconds,
+      playbackRate: prepared.playbackRate,
+      startAtRoomTimeMs: 2_000,
+      finalizeByRoomTimeMs: 1_900,
+    });
+    await drain();
+    const arm = wire.at(-1);
+    if (arm?.kind !== 'rendezvous-arm') throw new Error('prepared failure ARM unavailable');
+    const guestAttempt = pair.guest.stageAttempt(guestState, arm.rendezvousId);
+    now = 1_500;
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'rendezvous-armed',
+        rendezvousId: arm.rendezvousId,
+        status: 'armed',
+        observedAtRoomTimeMs: now,
+        bufferedAheadSeconds: 8,
+        reasonCode: null,
+      }),
+    );
+    await expect(armTask).resolves.toMatchObject({ status: 'armed' });
+    const finalizeTask = capability.participant.finalize({
+      protocolVersion: 2,
+      kind: 'rendezvous-finalize',
+      ...prepared.state,
+      rendezvousId: attempt.rendezvousId,
+      recipientId: capability.participant.participantId,
+      startAtRoomTimeMs: 2_000,
+      finalizedAtRoomTimeMs: now,
+    });
+    await drain();
+    const finalize = wire.at(-1);
+    if (finalize?.kind !== 'rendezvous-finalize') {
+      throw new Error('prepared failure FINALIZE unavailable');
+    }
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'rendezvous-finalized',
+        rendezvousId: finalize.rendezvousId,
+        status: 'accepted',
+        observedAtRoomTimeMs: now,
+        reasonCode: null,
+      }),
+    );
+    await expect(finalizeTask).resolves.toMatchObject({ status: 'accepted' });
+    now = 2_000;
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(guestAttempt, {
+        kind: 'renderer-health',
+        rendezvousId: finalize.rendezvousId,
+        value: 'unhealthy',
+        observedAtRoomTimeMs: now,
+        leaseUntilRoomTimeMs: now,
+        renderedFrame: 0,
+        underrunCount: 0,
+        reasonCode: 'start-evidence-timeout',
+      }),
+    );
+    await evidenceFailure;
+    await drain(64);
+
+    expect(cancelAttempt).toHaveBeenCalledOnce();
+    expect(cancelAttempt).toHaveBeenCalledWith('renderer-start-failed');
+    expect(
+      wire.filter(
+        (message) =>
+          message.kind === 'file-playback-cancel' && message.rendezvousId === attempt.rendezvousId,
+      ),
+    ).toHaveLength(1);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    const timeline = committedTimeline();
+    current = committedPreparedPublication(prepared, timeline);
+    owner.activatePrepared({
+      prepared,
+      timeline,
+      initialCohortAdmitted: true,
+    });
+    publishFreshReady();
+    await drain(64);
+
+    expect(recoveries).toHaveLength(1);
+    expect(wire.at(-1)).toMatchObject({
+      kind: 'rendezvous-arm',
+      rendezvousId: 'host-owner-rendezvous-1',
+    });
+    expect(closeConnection).not.toHaveBeenCalled();
+    owner.port().revoke(pair.context);
+  });
+
   it('recovers a prepared attempt whose participant acceptance fails after activation', async () => {
     let now = 1_000;
     const pair = connectionPair(() => now);
@@ -1365,9 +1546,25 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     await drain(64);
     expect(recoveries).toHaveLength(2);
     const second = recoveries[1]!;
-    const secondAttempt = fakeAttempt('host-owner-recovery-aba-second');
+    const secondAttemptId = 'host-owner-recovery-aba-second';
+    const cancelSecondAttempt = vi.fn((reasonCode = 'cancelled-by-host') => {
+      void second.options.participant.cancel({
+        kind: 'file-playback-cancel',
+        ...current.state,
+        rendezvousId: secondAttemptId,
+        reasonCode,
+      });
+      return {} as ReturnType<HostRendezvousAttempt['cancel']>;
+    });
+    const secondAttempt = {
+      ...fakeAttempt(secondAttemptId),
+      cancel: cancelSecondAttempt,
+    } as HostRendezvousAttempt;
     const secondEvidence = second.options.bindAttempt(secondAttempt);
-    void secondEvidence.catch(() => undefined);
+    const secondEvidenceFailure = expect(secondEvidence).rejects.toThrow(
+      'Guest renderer start evidence failed: start-evidence-timeout',
+    );
+    void secondEvidence.catch(second.reject);
 
     await drain(64);
     expect(closeConnection).not.toHaveBeenCalled();
@@ -1400,14 +1597,83 @@ describe('FilePlaybackProductHostMediaOwner', () => {
           message.kind === 'rendezvous-arm' && message.rendezvousId === secondAttempt.rendezvousId,
       ),
     );
-    await second.options.participant.cancel({
-      kind: 'file-playback-cancel',
+    const secondArmWire = wire.at(-1);
+    if (secondArmWire?.kind !== 'rendezvous-arm') {
+      throw new Error('renderer failure recovery ARM unavailable');
+    }
+    const secondGuestAttempt = pair.guest.stageAttempt(guestState, secondArmWire.rendezvousId);
+    now = 2_000;
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(secondGuestAttempt, {
+        kind: 'rendezvous-armed',
+        rendezvousId: secondArmWire.rendezvousId,
+        status: 'armed',
+        observedAtRoomTimeMs: now,
+        bufferedAheadSeconds: 8,
+        reasonCode: null,
+      }),
+    );
+    await expect(secondArm).resolves.toMatchObject({ status: 'armed' });
+    const secondFinalize = second.options.participant.finalize({
+      protocolVersion: 2,
+      kind: 'rendezvous-finalize',
       ...current.state,
       rendezvousId: secondAttempt.rendezvousId,
-      reasonCode: 'fixture-cleanup',
+      recipientId: second.options.participant.participantId,
+      startAtRoomTimeMs: 2_500,
+      finalizedAtRoomTimeMs: now,
     });
-    await expect(secondArm).resolves.toMatchObject({ status: 'rejected' });
-    second.reject(new Error('fixture current recovery cleanup'));
+    await drain();
+    const secondFinalizeWire = wire.at(-1);
+    if (secondFinalizeWire?.kind !== 'rendezvous-finalize') {
+      throw new Error('renderer failure recovery FINALIZE unavailable');
+    }
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(secondGuestAttempt, {
+        kind: 'rendezvous-finalized',
+        rendezvousId: secondFinalizeWire.rendezvousId,
+        status: 'accepted',
+        observedAtRoomTimeMs: now,
+        reasonCode: null,
+      }),
+    );
+    await expect(secondFinalize).resolves.toMatchObject({ status: 'accepted' });
+    now = 2_500;
+    adoptWire(
+      pair,
+      owner,
+      pair.guest.createWire(secondGuestAttempt, {
+        kind: 'renderer-health',
+        rendezvousId: secondFinalizeWire.rendezvousId,
+        value: 'unhealthy',
+        observedAtRoomTimeMs: now,
+        leaseUntilRoomTimeMs: now,
+        renderedFrame: 0,
+        underrunCount: 0,
+        reasonCode: 'start-evidence-timeout',
+      }),
+    );
+    await secondEvidenceFailure;
+    await drain(64);
+
+    expect(cancelSecondAttempt).toHaveBeenCalledOnce();
+    expect(cancelSecondAttempt).toHaveBeenCalledWith('renderer-start-failed');
+    expect(
+      wire.filter(
+        (message) =>
+          message.kind === 'file-playback-cancel' &&
+          message.rendezvousId === secondAttempt.rendezvousId,
+      ),
+    ).toHaveLength(1);
+    expect(closeConnection).not.toHaveBeenCalled();
+
+    publishFreshReady();
+    await drain(64);
+    expect(recoveries).toHaveLength(3);
     await drain();
     expect(closeConnection).not.toHaveBeenCalled();
     owner.port().revoke(pair.context);

@@ -31,9 +31,15 @@ git push origin main
 
 Pushing `main` does not deploy production. Wait for CI, then run the
 `Production Release` workflow from the Actions tab for the exact `main` commit.
-Select only the Worker scope changed by the hotfix, enable the optional serial
-E2E gate when the change affects playback, networking, or PWA lifecycle, and
-approve the `production` environment after candidate validation succeeds.
+Select only the Worker scope changed by the hotfix, then approve the
+`production` environment after candidate validation succeeds. Every release
+candidate must pass the short Chromium release smoke, which boots the app,
+joins a host and guest, and exchanges chat in both directions.
+
+The complete serial Playwright suite is intentionally not a production deploy
+gate. It runs nightly at 03:00 KST and can also be started manually from the
+`Full E2E` workflow. Review failures there as regression signals, while using
+the release smoke plus real-device verification for the production decision.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its Cloudflare

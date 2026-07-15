@@ -167,6 +167,7 @@ const CUTOVER_SOURCE_METHODS = Object.freeze([
   'prepare',
   'connect',
   'arm',
+  'primeForCutover',
   'armForCutover',
   'finalize',
   'cancel',

@@ -313,6 +313,7 @@ interface FakeSourceOptions {
   readonly rejectArm?: boolean;
   readonly finalizeGate?: ReturnType<typeof deferred<void>>;
   readonly prepareGate?: ReturnType<typeof deferred<void>>;
+  readonly primeGate?: ReturnType<typeof deferred<void>>;
   readonly destroyGate?: ReturnType<typeof deferred<void>>;
   readonly destroyError?: Error;
 }
@@ -320,6 +321,7 @@ interface FakeSourceOptions {
 interface FakeSourceHarness {
   readonly source: FilePlaybackCutoverSource;
   readonly prepare: ReturnType<typeof vi.fn>;
+  readonly prime: ReturnType<typeof vi.fn>;
   readonly arm: ReturnType<typeof vi.fn>;
   readonly finalize: ReturnType<typeof vi.fn>;
   readonly destroy: ReturnType<typeof vi.fn>;
@@ -364,6 +366,7 @@ function makeSource(
   }> | null = null;
   const started = deferred<FilePlaybackStartEvidence>();
   const prepare = vi.fn();
+  const prime = vi.fn();
   const arm = vi.fn();
   const finalize = vi.fn();
   const destroy = vi.fn();
@@ -400,6 +403,14 @@ function makeSource(
     },
     async connect() {
       phase = 'connected';
+      return snapshot();
+    },
+    async primeForCutover(nextPositionSeconds, signal) {
+      prime(nextPositionSeconds);
+      signal.throwIfAborted();
+      if (options.primeGate) await options.primeGate.promise;
+      signal.throwIfAborted();
+      positionSeconds = nextPositionSeconds;
       return snapshot();
     },
     async arm(intent) {
@@ -500,6 +511,7 @@ function makeSource(
   return {
     source,
     prepare,
+    prime,
     arm,
     finalize,
     destroy,
@@ -597,6 +609,7 @@ interface StagePlan {
   readonly neverStage?: boolean;
   readonly holdAfterStage?: ReturnType<typeof deferred<void>>;
   readonly prepareGate?: ReturnType<typeof deferred<void>>;
+  readonly primeGate?: ReturnType<typeof deferred<void>>;
   readonly destroyGate?: ReturnType<typeof deferred<void>>;
   readonly destroyError?: Error;
 }
@@ -612,6 +625,7 @@ interface EngineHarness {
   readonly stageRequests: Array<Parameters<typeof stageFilePlaybackAssetSource>[0]>;
   readonly factoryRequests: unknown[];
   readonly createRunId: ReturnType<typeof vi.fn>;
+  readonly createRendezvousId: ReturnType<typeof vi.fn>;
   readonly sendRequired: ReturnType<typeof vi.fn>;
   readonly closeConnection: ReturnType<typeof vi.fn>;
   readonly fatal: ReturnType<typeof vi.fn>;
@@ -721,6 +735,7 @@ function makeHarness(
       rejectArm: plan.rejectArm,
       finalizeGate: plan.finalizeGate,
       prepareGate: plan.prepareGate,
+      primeGate: plan.primeGate,
       destroyGate: plan.destroyGate,
       destroyError: plan.destroyError,
     });
@@ -744,10 +759,11 @@ function makeHarness(
   const runIds = [RUN_1, RUN_2, RUN_3] as const;
   let runSequence = 0;
   const createRunId = vi.fn(() => runIds[Math.min(runSequence++, runIds.length - 1)]);
+  const createRendezvousId = vi.fn(() => `host-first-rendezvous-${++rendezvousSequence}`);
   const fatal = vi.fn(options.fatal ?? (() => undefined));
   const runtimeForTests: FilePlaybackHostFirstFileEngineRuntimeForTests = {
     createRunIdForTests: createRunId,
-    createRendezvousIdForTests: () => `host-first-rendezvous-${++rendezvousSequence}`,
+    createRendezvousIdForTests: createRendezvousId,
     createManagerForTests: () => options.managerFactory?.(manager) ?? manager,
     localStartRuntimeForTests: { stageAssetSourceForTests },
     warmSourceRuntimeForTests: {
@@ -760,6 +776,7 @@ function makeHarness(
           rejectArm: plan.rejectArm,
           finalizeGate: plan.finalizeGate,
           prepareGate: plan.prepareGate,
+          primeGate: plan.primeGate,
           destroyGate: plan.destroyGate,
           destroyError: plan.destroyError,
         });
@@ -778,6 +795,7 @@ function makeHarness(
           rejectArm: plan.rejectArm,
           finalizeGate: plan.finalizeGate,
           prepareGate: plan.prepareGate,
+          primeGate: plan.primeGate,
           destroyGate: plan.destroyGate,
           destroyError: plan.destroyError,
         });
@@ -848,6 +866,7 @@ function makeHarness(
     stageRequests,
     factoryRequests,
     createRunId,
+    createRendezvousId,
     sendRequired,
     closeConnection,
     fatal,
@@ -3640,6 +3659,48 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       await harness.engine.close();
     },
   );
+
+  it('waits for a bounded playing-seek prime before creating a fresh rendezvous schedule', async () => {
+    const primeGate = deferred<void>();
+    const harness = makeHarness([
+      { backend: 'bounded-stream' },
+      { backend: 'bounded-stream', primeGate },
+    ]);
+    const blob = new Blob([new Uint8Array([55])], { type: 'audio/flac' });
+    await resolveLatestStart(harness, harness.start(blob, { name: 'prime-before-seek-current' }));
+    const attemptsBeforeSeek = harness.createRendezvousId.mock.calls.length;
+    harness.setRoomTime(2_000);
+    harness.context.currentTime = 2;
+
+    const pending = harness.engine.seekPlaying({
+      positionSeconds: 42,
+      signal: new AbortController().signal,
+    });
+    await drainMicrotasks();
+
+    expect(harness.sources[1]?.prime).toHaveBeenCalledOnce();
+    expect(harness.sources[1]?.prime).toHaveBeenCalledWith(42);
+    expect(harness.sources[1]?.arm).not.toHaveBeenCalled();
+    expect(harness.createRendezvousId).toHaveBeenCalledTimes(attemptsBeforeSeek);
+
+    harness.setRoomTime(5_000);
+    harness.context.currentTime = 5;
+    primeGate.resolve();
+    await drainMicrotasks();
+
+    expect(harness.createRendezvousId).toHaveBeenCalledTimes(attemptsBeforeSeek + 1);
+    expect(harness.sources[1]?.arm).toHaveBeenCalledOnce();
+    const committed = await resolveLatestStart(harness, pending);
+    expect(committed.schedule).toMatchObject({
+      createdAtRoomTimeMs: 5_000,
+      positionSeconds: 42,
+    });
+    expect(committed.timeline).toMatchObject({
+      phase: 'playing',
+      positionSeconds: 42,
+    });
+    await harness.engine.close();
+  });
 
   it.each(['audio-buffer', 'bounded-stream'] as const)(
     'seeks a playing %s renderer through a same-run rendezvous candidate',

@@ -238,6 +238,11 @@ function makeSource(
       phase = 'connected';
       return snapshot();
     },
+    async primeForCutover(_positionSeconds, signal) {
+      events.push('prime');
+      signal.throwIfAborted();
+      return snapshot();
+    },
     async arm(intent) {
       return armedReceipt(intent);
     },
@@ -1133,9 +1138,10 @@ describe('startLocalFilePlayback', () => {
       await resolveStarted(pending, room, fixture.source);
       const result = await pending;
 
-      expect(fixture.source.events.slice(0, 5)).toEqual([
+      expect(fixture.source.events.slice(0, 6)).toEqual([
         'prepare',
         'connect',
+        'prime',
         'arm',
         'finalize',
         'start',

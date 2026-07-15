@@ -173,6 +173,7 @@ const RUNTIME_KEYS = Object.freeze([
   'currentPort',
   'currentSnapshot',
   'recoveryRequired',
+  'primeCandidate',
   'retireCandidate',
   'retireCurrent',
   'pauseCurrent',
@@ -344,6 +345,10 @@ interface RuntimeSnapshot {
     port: FilePlaybackCutoverCandidatePort,
   ) => FilePlaybackSourceSnapshot | null;
   readonly recoveryRequired: (manager: FilePlaybackManager) => boolean;
+  readonly primeCandidate: (
+    manager: FilePlaybackManager,
+    ...args: Parameters<FilePlaybackManager['primeCutoverCandidate']>
+  ) => ReturnType<FilePlaybackManager['primeCutoverCandidate']>;
   readonly retireCandidate: (
     manager: FilePlaybackManager,
     port: FilePlaybackCutoverCandidatePort,
@@ -388,6 +393,7 @@ export interface FilePlaybackProductGuestMediaOwnerRuntimeForTests {
   readonly currentPort?: RuntimeSnapshot['currentPort'];
   readonly currentSnapshot?: RuntimeSnapshot['currentSnapshot'];
   readonly recoveryRequired?: RuntimeSnapshot['recoveryRequired'];
+  readonly primeCandidate?: RuntimeSnapshot['primeCandidate'];
   readonly retireCandidate?: RuntimeSnapshot['retireCandidate'];
   readonly retireCurrent?: RuntimeSnapshot['retireCurrent'];
   readonly remoteEndCurrent?: RuntimeSnapshot['remoteEndCurrent'];
@@ -442,6 +448,7 @@ interface GuestPreparedRun {
   statePreparation: Readonly<FilePlaybackConnectionMediaStatePreparation> | null;
   stateOperation: Readonly<FilePlaybackConnectionMediaStateOperation> | null;
   rendezvousTarget: Readonly<GuestRendezvousTarget> | null;
+  primedPositionSeconds: number | null;
   recoveryTargetAllowed: boolean;
   assetLease: FilePlaybackAssetLease | null;
   manifestAdmission: FilePlaybackPeerRangeManifestAdmission | null;
@@ -539,6 +546,7 @@ const registrySnapshot = FilePlaybackAssetRegistry.prototype.snapshotForLease;
 const managerCurrentPort = FilePlaybackManager.prototype.currentCutoverPort;
 const managerCurrentSnapshot = FilePlaybackManager.prototype.currentCutoverSnapshot;
 const managerRecoveryRequired = FilePlaybackManager.prototype.cutoverRecoveryRequired;
+const managerPrimeCandidate = FilePlaybackManager.prototype.primeCutoverCandidate;
 const managerRetireCandidate = FilePlaybackManager.prototype.retireCutoverCandidate;
 const managerRetireCurrent = FilePlaybackManager.prototype.retireCurrentCutover;
 const managerPauseCurrent = FilePlaybackManager.prototype.pauseCurrentCutover;
@@ -713,6 +721,14 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     recoveryRequired:
       (runtime.recoveryRequired as RuntimeSnapshot['recoveryRequired'] | undefined) ??
       ((manager: FilePlaybackManager) => Reflect.apply(managerRecoveryRequired, manager, [])),
+    primeCandidate:
+      (runtime.primeCandidate as RuntimeSnapshot['primeCandidate'] | undefined) ??
+      ((
+        manager: FilePlaybackManager,
+        port: FilePlaybackCutoverCandidatePort,
+        positionSeconds: number,
+        signal: AbortSignal,
+      ) => Reflect.apply(managerPrimeCandidate, manager, [port, positionSeconds, signal])),
     retireCandidate:
       (runtime.retireCandidate as RuntimeSnapshot['retireCandidate'] | undefined) ??
       ((manager: FilePlaybackManager, port: FilePlaybackCutoverCandidatePort) =>
@@ -1401,6 +1417,7 @@ class GuestMediaOwner {
         statePreparation: null,
         stateOperation: null,
         rendezvousTarget: null,
+        primedPositionSeconds: null,
         recoveryTargetAllowed: false,
         assetLease: null,
         manifestAdmission: null,
@@ -1492,6 +1509,7 @@ class GuestMediaOwner {
             positionSeconds: message.positionSeconds,
             playbackRate: message.playbackRate,
           }),
+          primedPositionSeconds: null,
           recoveryTargetAllowed: false,
           assetLease: current.assetLease,
           manifestAdmission: current.manifestAdmission,
@@ -1530,6 +1548,7 @@ class GuestMediaOwner {
               positionSeconds: message.positionSeconds,
               playbackRate: message.playbackRate,
             }),
+            primedPositionSeconds: null,
             recoveryTargetAllowed: false,
             assetLease: prepared.assetLease,
             manifestAdmission: prepared.manifestAdmission,
@@ -1869,6 +1888,17 @@ class GuestMediaOwner {
     ) {
       throw new Error('Guest same-source candidate changed its bound asset');
     }
+    if (prepared.kind === 'state-successor' && !prepared.recoveryTargetAllowed) {
+      const target = prepared.rendezvousTarget;
+      if (!target) throw new Error('Guest same-run candidate has no exact target to prime');
+      await this.#primePreparedCandidate(room, prepared, target.positionSeconds);
+      this.#assertPrepared(room, prepared);
+    } else {
+      // A cancelled-attempt recovery may be assigned a newly projected target
+      // only by its later ARM. Keep that legacy path explicitly unprimed until
+      // a target-ready recovery handshake exists.
+      prepared.primedPositionSeconds = null;
+    }
     const quality = Reflect.apply(channelQuality, this.#context.channel, []);
     const participant = this.#runtime.createParticipant({
       participantId: this.#context.guestParticipantId,
@@ -1883,6 +1913,34 @@ class GuestMediaOwner {
     prepared.participant = participant;
     prepared.readyPublished = false;
     prepared.status = 'ready';
+  }
+
+  async #primePreparedCandidate(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    positionSeconds: number,
+  ): Promise<void> {
+    if (!Number.isFinite(positionSeconds) || positionSeconds < 0) {
+      throw new RangeError('Guest candidate prime position is invalid');
+    }
+    const staged = prepared.staged;
+    if (!staged) throw new Error('Guest candidate prime has no exact staged source');
+    this.#assertPrepared(room, prepared);
+    const primeTask = this.#runtime.primeCandidate(
+      this.#manager,
+      staged.cutoverPort,
+      positionSeconds,
+      this.#preparedSignal(prepared),
+    );
+    if (!(primeTask instanceof Promise)) {
+      throw new TypeError('Guest candidate prime must return a native Promise');
+    }
+    await primeTask;
+    this.#assertPrepared(room, prepared);
+    if (prepared.staged !== staged) {
+      throw new Error('Guest candidate changed while its target position was priming');
+    }
+    prepared.primedPositionSeconds = positionSeconds;
   }
 
   async #publishSameSourceReady(room: GuestRoomState, prepared: GuestPreparedRun): Promise<void> {
@@ -2541,6 +2599,12 @@ class GuestMediaOwner {
   ): Promise<void> {
     this.#assertAttempt(room, prepared, attempt);
     this.#assertRunningAudioGraph(prepared.audioGraph);
+    if (
+      prepared.primedPositionSeconds !== null &&
+      prepared.primedPositionSeconds !== attempt.armIntent.positionSeconds
+    ) {
+      throw new Error('Guest rendezvous ARM changed an already primed target');
+    }
     const receipt = await attempt.participant.arm(attempt.armIntent);
     this.#assertAttempt(room, prepared, attempt);
     const canonical = readRendezvousArmReceipt(receipt);

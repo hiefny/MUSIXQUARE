@@ -231,11 +231,13 @@ interface FakeCutoverSource {
   readonly source: FilePlaybackCutoverSource;
   readonly started: ReturnType<typeof deferred<FilePlaybackStartEvidence>>;
   readonly prepareGate: ReturnType<typeof deferred<FilePlaybackSourceSnapshot>>;
+  readonly primeGate: ReturnType<typeof deferred<void>>;
   readonly armGate: ReturnType<typeof deferred<FilePlaybackCutoverArmResult>>;
   readonly destroyGate: ReturnType<typeof deferred<void>>;
   readonly connectedTo: AudioNode[];
   phase(value: FilePlaybackSourcePhase): void;
   gatePrepare(): void;
+  gatePrime(): void;
   gateArm(): void;
   gateDestroy(): void;
   rejectFinalize(): void;
@@ -251,6 +253,7 @@ function makeSource(
 ): FakeCutoverSource {
   let phase: FilePlaybackSourcePhase = 'new';
   let prepareGated = false;
+  let primeGated = false;
   let armGated = false;
   let destroyGated = false;
   let finalizeRejected = false;
@@ -266,6 +269,7 @@ function makeSource(
   const started = deferred<FilePlaybackStartEvidence>();
   void started.promise.catch(() => undefined);
   const prepareGate = deferred<FilePlaybackSourceSnapshot>();
+  const primeGate = deferred<void>();
   const armGate = deferred<FilePlaybackCutoverArmResult>();
   const destroyGate = deferred<void>();
   const connectedTo: AudioNode[] = [];
@@ -307,6 +311,13 @@ function makeSource(
     connect: vi.fn(async (destination) => {
       connectedTo.push(destination);
       phase = 'connected';
+      return snapshot();
+    }),
+    primeForCutover: vi.fn(async (nextPositionSeconds, signal) => {
+      signal.throwIfAborted();
+      if (primeGated) await primeGate.promise;
+      signal.throwIfAborted();
+      positionSeconds = nextPositionSeconds;
       return snapshot();
     }),
     arm: vi.fn(async (intent) => createArmResult(intent).receipt),
@@ -380,6 +391,7 @@ function makeSource(
     source,
     started,
     prepareGate,
+    primeGate,
     armGate,
     destroyGate,
     connectedTo,
@@ -388,6 +400,9 @@ function makeSource(
     },
     gatePrepare() {
       prepareGated = true;
+    },
+    gatePrime() {
+      primeGated = true;
     },
     gateArm() {
       armGated = true;
@@ -483,6 +498,100 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     expect(isExactFilePlaybackManager(transparentProxy)).toBe(false);
     expect(isExactFilePlaybackManager(lyingProxy)).toBe(false);
     expect(isExactFilePlaybackManager(null)).toBe(false);
+  });
+
+  it('keeps unprimed compatibility but fences every declared prime to its exact target', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+
+    const compatibilityManager = new FilePlaybackManager();
+    const compatibilitySource = makeSource(Q1, context, 5);
+    const compatibilityPort = await compatibilityManager.stageCutoverCandidate({
+      source: compatibilitySource.source,
+      destination,
+    });
+    await expect(
+      compatibilityManager.primeCutoverCandidate(
+        compatibilityPort,
+        Number.NaN,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/prime input/u);
+    expect(compatibilitySource.source.primeForCutover).not.toHaveBeenCalled();
+    await expect(
+      compatibilityManager.armCutoverCandidate(compatibilityPort, armIntent(Q1)),
+    ).resolves.toMatchObject({ status: 'armed' });
+
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q2, context, 5);
+    source.gatePrime();
+    const port = await manager.stageCutoverCandidate({ source: source.source, destination });
+    const signal = new AbortController().signal;
+    const exactArm = Object.freeze({ ...armIntent(Q2), positionSeconds: 12 });
+    const priming = manager.primeCutoverCandidate(port, 12, signal);
+    await Promise.resolve();
+    expect(manager.primeCutoverCandidate(port, 12, signal)).toBe(priming);
+    await expect(manager.primeCutoverCandidate(port, 13, signal)).rejects.toThrow(
+      /already bound to another prime/u,
+    );
+
+    await expect(manager.armCutoverCandidate(port, exactArm)).rejects.toThrow(
+      /not primed for the exact arm target/u,
+    );
+    expect(source.source.armForCutover).not.toHaveBeenCalled();
+
+    source.primeGate.resolve();
+    await expect(priming).resolves.toMatchObject({
+      phase: 'connected',
+      positionSeconds: 12,
+    });
+    await expect(
+      manager.armCutoverCandidate(port, { ...exactArm, positionSeconds: 13 }),
+    ).rejects.toThrow(/not primed for the exact arm target/u);
+    expect(source.source.armForCutover).not.toHaveBeenCalled();
+    await expect(manager.armCutoverCandidate(port, exactArm)).resolves.toMatchObject({
+      status: 'armed',
+    });
+    expect(source.source.armForCutover).toHaveBeenCalledOnce();
+  });
+
+  it('retires a candidate when its declared prime aborts or returns an invalid snapshot', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+
+    const abortedManager = new FilePlaybackManager();
+    const abortedSource = makeSource(Q2, context, 5);
+    abortedSource.gatePrime();
+    const abortedPort = await abortedManager.stageCutoverCandidate({
+      source: abortedSource.source,
+      destination,
+    });
+    const controller = new AbortController();
+    const abortedPrime = abortedManager.primeCutoverCandidate(abortedPort, 12, controller.signal);
+    await Promise.resolve();
+    controller.abort(new Error('fixture prime authority expired'));
+    abortedSource.primeGate.resolve();
+
+    await expect(abortedPrime).rejects.toThrow(/authority expired/u);
+    await vi.waitFor(() => expect(abortedSource.source.destroy).toHaveBeenCalledOnce());
+    expect(abortedManager.currentCutoverPort()).toBeNull();
+
+    const invalidManager = new FilePlaybackManager();
+    const invalidSource = makeSource(Q3, context, 5);
+    const invalidPort = await invalidManager.stageCutoverCandidate({
+      source: invalidSource.source,
+      destination,
+    });
+    vi.mocked(invalidSource.source.primeForCutover).mockResolvedValueOnce({
+      ...invalidSource.source.getSnapshot(),
+      queueItemId: Q1,
+    });
+
+    await expect(
+      invalidManager.primeCutoverCandidate(invalidPort, 12, new AbortController().signal),
+    ).rejects.toThrow(/invalid prime snapshot/u);
+    await vi.waitFor(() => expect(invalidSource.source.destroy).toHaveBeenCalledOnce());
+    expect(invalidManager.currentCutoverPort()).toBeNull();
   });
 
   it('keeps the first source silent until exact evidence promotes its opaque port', async () => {

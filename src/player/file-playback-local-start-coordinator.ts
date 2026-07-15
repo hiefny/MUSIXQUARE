@@ -101,6 +101,7 @@ const REQUIRED_START_OPTION_KEYS = START_OPTION_KEYS.filter(
     key !== 'runtimeForTests',
 );
 const COMPLETE_OPTION_KEYS = Object.freeze(['staged', 'attempt'] as const);
+const PRIME_OPTION_KEYS = Object.freeze(['staged', 'positionSeconds'] as const);
 const CLOCK_KEYS = Object.freeze([
   'nowRoomTimeMs',
   'roomTimeMsToContextTime',
@@ -217,6 +218,11 @@ export interface CompleteLocalFilePlaybackParticipantOptions {
   readonly attempt: HostRendezvousAttempt;
 }
 
+export interface PrimeLocalFilePlaybackParticipantOptions {
+  readonly staged: StagedLocalFilePlaybackParticipant;
+  readonly positionSeconds: number;
+}
+
 export interface LocalFilePlaybackSchedule {
   readonly positionSeconds: number;
   readonly playbackRate: number;
@@ -257,6 +263,8 @@ interface StagedParticipantAuthority {
   abortListener: (() => void) | null;
   attempt: HostRendezvousAttempt | null;
   attemptIdentity: Readonly<PlaybackAttemptIdentity> | null;
+  primePositionSeconds: number | null;
+  primePromise: Promise<void> | null;
   completionPromise: Promise<Readonly<StartedLocalFilePlayback>> | null;
   retirementPromise: Promise<void> | null;
   committed: boolean;
@@ -283,6 +291,7 @@ const STAGED_PARTICIPANT_AUTHORITIES = new WeakMap<
 const trustedAbortThrowIfAborted = AbortSignal.prototype.throwIfAborted;
 const trustedManagerCurrentPort = FilePlaybackManager.prototype.currentCutoverPort;
 const trustedManagerCurrentSnapshot = FilePlaybackManager.prototype.currentCutoverSnapshot;
+const trustedManagerPrimeCandidate = FilePlaybackManager.prototype.primeCutoverCandidate;
 const trustedManagerRetireCandidate = FilePlaybackManager.prototype.retireCutoverCandidate;
 const trustedManagerRetireCurrent = FilePlaybackManager.prototype.retireCurrentCutover;
 const trustedRendezvousStart = HostRendezvousCoordinator.prototype.start;
@@ -967,6 +976,8 @@ async function publishLocalParticipant(
       abortListener: null,
       attempt: null,
       attemptIdentity: null,
+      primePositionSeconds: null,
+      primePromise: null,
       completionPromise: null,
       retirementPromise: null,
       committed: false,
@@ -1242,6 +1253,65 @@ export function retireLocalFilePlaybackParticipant(
   return beginStagedRetirement(authority, reasonCode);
 }
 
+async function executeLocalParticipantPrime(
+  authority: StagedParticipantAuthority,
+  positionSeconds: number,
+): Promise<void> {
+  try {
+    assertUsableStagedAuthority(authority);
+    const primeTask = Reflect.apply(trustedManagerPrimeCandidate, authority.manager, [
+      authority.port,
+      positionSeconds,
+      authority.signal,
+    ]) as unknown;
+    assertNativePromise(primeTask, 'Local playback candidate prime');
+    await abortable(primeTask, authority.signal, () => {
+      void beginStagedRetirement(authority, 'local-prime-aborted');
+    });
+    assertUsableStagedAuthority(authority);
+  } catch (error) {
+    void beginStagedRetirement(
+      authority,
+      authority.signal.aborted ? 'local-prime-aborted' : 'local-prime-failed',
+    );
+    throw error;
+  }
+}
+
+/**
+ * Primes one exact silent local renderer before any fixed rendezvous schedule
+ * exists. Repeating the exact position joins the same authority-bound task.
+ */
+export function primeLocalFilePlaybackParticipant(
+  options: PrimeLocalFilePlaybackParticipantOptions,
+): Promise<void> {
+  const input = snapshotExactRecord(options, PRIME_OPTION_KEYS);
+  if (!input) return Promise.reject(new TypeError('Local playback prime options are invalid'));
+  const staged = input.staged as StagedLocalFilePlaybackParticipant;
+  const authority = STAGED_PARTICIPANT_AUTHORITIES.get(staged);
+  if (!authority) return Promise.reject(new TypeError('Local playback construction is invalid'));
+  const positionSeconds = input.positionSeconds;
+  if (!isFiniteNonNegative(positionSeconds)) {
+    return Promise.reject(
+      new RangeError('Local playback prime position must be finite and non-negative'),
+    );
+  }
+  if (authority.primePromise) {
+    return authority.primePositionSeconds === positionSeconds
+      ? authority.primePromise
+      : Promise.reject(new Error('Local playback construction is already primed elsewhere'));
+  }
+  if (authority.retirementPromise || authority.completionPromise || authority.committed) {
+    return Promise.reject(new Error('Local playback construction cannot be primed now'));
+  }
+  authority.primePositionSeconds = positionSeconds;
+  const prime = Promise.resolve().then(() =>
+    executeLocalParticipantPrime(authority, positionSeconds),
+  );
+  authority.primePromise = prime;
+  return prime;
+}
+
 async function executeLocalParticipantCompletion(
   authority: StagedParticipantAuthority,
   attempt: HostRendezvousAttempt,
@@ -1423,6 +1493,10 @@ export async function startLocalFilePlayback(
       runtimeForTests: input.runtimeForTests as
         | FilePlaybackLocalStartCoordinatorRuntimeForTests
         | undefined,
+    });
+    await primeLocalFilePlaybackParticipant({
+      staged,
+      positionSeconds: positionSeconds as number,
     });
     attempt = Reflect.apply(trustedRendezvousStart, rendezvousCoordinator, [
       {

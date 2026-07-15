@@ -21,6 +21,7 @@ import type {
 } from './file-playback-ended-transition.ts';
 import {
   completeLocalFilePlaybackParticipant,
+  primeLocalFilePlaybackParticipant,
   retireLocalFilePlaybackParticipant,
   stageLocalFilePlaybackParticipant,
   stageWarmLocalFilePlaybackParticipant,
@@ -3738,6 +3739,11 @@ export class FilePlaybackHostFirstFileEngine {
     }));
     let attempt: HostRendezvousAttempt | null = null;
     try {
+      this.#assertPreparedTrackStartAuthority(authority);
+      await primeLocalFilePlaybackParticipant({
+        staged,
+        positionSeconds: input.positionSeconds,
+      });
       this.#assertPreparedTrackStartAuthority(authority);
       attempt = Reflect.apply(trustedRendezvousCoordinatorStart, this.#rendezvousCoordinator, [
         {

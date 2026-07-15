@@ -245,6 +245,10 @@ function makeSource(
       phase = 'connected';
       return snapshot();
     },
+    async primeForCutover(_positionSeconds, signal) {
+      signal.throwIfAborted();
+      return snapshot();
+    },
     async arm(intent) {
       return armedReceipt(intent);
     },

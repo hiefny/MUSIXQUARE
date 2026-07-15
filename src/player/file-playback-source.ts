@@ -242,6 +242,15 @@ export interface FilePlaybackSource {
  * only preload implementations source-compatible.
  */
 export interface FilePlaybackCutoverSource extends FilePlaybackSource {
+  /**
+   * Moves any expensive target-position preparation outside the fixed
+   * rendezvous window. AudioBuffer sources validate this boundary without
+   * native work; bounded sources prime their next decoder generation here.
+   */
+  primeForCutover(
+    positionSeconds: number,
+    signal: AbortSignal,
+  ): Promise<FilePlaybackSourceSnapshot>;
   armForCutover(intent: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult>;
   pauseRevisioned(intent: FilePlaybackPauseTransitionIntent): Promise<FilePlaybackTransitionResult>;
   seekRevisioned(intent: FilePlaybackSeekTransitionIntent): Promise<FilePlaybackTransitionResult>;

@@ -346,6 +346,29 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
     return this.armForCutover(value).then((result) => result.receipt);
   }
 
+  async primeForCutover(
+    positionSeconds: number,
+    signal: AbortSignal,
+  ): Promise<FilePlaybackSourceSnapshot> {
+    if (!(signal instanceof AbortSignal)) {
+      throw new TypeError('AudioBuffer cutover prime requires an AbortSignal');
+    }
+    signal.throwIfAborted();
+    this.#assertNotDestroyed();
+    if (
+      !Number.isFinite(positionSeconds) ||
+      positionSeconds < 0 ||
+      positionSeconds >= this.#audioBuffer.duration
+    ) {
+      throw new RangeError('AudioBuffer cutover prime position is out of range');
+    }
+    if (this.#destination === null || this.#phase !== 'connected') {
+      throw new Error('AudioBuffer cutover prime requires a connected silent candidate');
+    }
+    signal.throwIfAborted();
+    return this.getSnapshot();
+  }
+
   async armForCutover(value: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult> {
     const ingressEpoch = this.#advanceIngressEpoch();
     this.#settleCurrentExecution();

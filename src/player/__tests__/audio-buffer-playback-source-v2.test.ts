@@ -199,6 +199,25 @@ async function prepareAndConnect(
 }
 
 describe('AudioBufferPlaybackSource v2', () => {
+  it('validates a cutover prime without creating native nodes or mutating its position', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    const signal = new AbortController().signal;
+
+    await expect(source.primeForCutover(12, signal)).resolves.toMatchObject({
+      phase: 'connected',
+      positionSeconds: 0,
+    });
+    expect(context.sources).toHaveLength(0);
+    expect(context.gains).toHaveLength(0);
+
+    await expect(source.armForCutover(armIntent({ positionSeconds: 12 }))).resolves.toMatchObject({
+      status: 'armed',
+    });
+    expect(context.sources).toHaveLength(1);
+    expect(context.gains).toHaveLength(1);
+  });
+
   it('canonicalizes hostile rendezvous proxies before scheduling or storing them', async () => {
     const { destination, source } = harness();
     await prepareAndConnect(source, destination);

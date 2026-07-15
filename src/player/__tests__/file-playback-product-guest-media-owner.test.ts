@@ -777,6 +777,12 @@ function runtimeHarness(
   const commitAttempt = vi.fn(() => true);
   const cancel = vi.fn(async () => undefined);
   const recoveryRequired = vi.fn(() => physicalRecoveryRequired);
+  const primeCandidate: NonNullable<
+    FilePlaybackProductGuestMediaOwnerRuntimeForTests['primeCandidate']
+  > = vi.fn(async (_manager, _port, _positionSeconds, signal) => {
+    signal.throwIfAborted();
+    return currentSnapshot();
+  });
   const retireCandidate = vi.fn(async () => true);
   const retireCurrent = vi.fn(async () => true);
   const currentSnapshot = vi.fn(() => ({
@@ -897,6 +903,7 @@ function runtimeHarness(
     currentPort: () => (hasCurrentPort ? CUTOVER_PORT : null),
     currentSnapshot: (_manager, _port) => currentSnapshot(),
     recoveryRequired,
+    primeCandidate,
     retireCandidate,
     retireCurrent,
     pauseCurrent,
@@ -937,6 +944,7 @@ function runtimeHarness(
     commitAttempt,
     cancel,
     recoveryRequired,
+    primeCandidate,
     retireCandidate,
     retireCurrent,
     pauseCurrent,
@@ -2956,6 +2964,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     );
     await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledTimes(2));
     expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.primeCandidate).not.toHaveBeenCalled();
     expect(h.rendered).toHaveBeenCalledOnce();
 
     await runHostAttempt(
@@ -2986,6 +2995,188 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     );
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
+  });
+
+  it('withholds same-run SOURCE_READY until the exact PREPARE target prime settles', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    expect(h.runtime.primeCandidate).not.toHaveBeenCalled();
+
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    const primeGate = deferred<void>();
+    const defaultPrime = h.runtime.primeCandidate.getMockImplementation();
+    if (!defaultPrime) throw new Error('Fixture prime implementation is unavailable');
+    h.runtime.primeCandidate.mockImplementationOnce(async (...args) => {
+      await primeGate.promise;
+      return defaultPrime(...args);
+    });
+
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-prepare',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: h.state.revision,
+        positionSeconds: 12,
+        playbackRate: 1,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.primeCandidate).toHaveBeenCalledOnce());
+    expect(h.runtime.primeCandidate).toHaveBeenCalledWith(
+      h.manager,
+      CUTOVER_PORT,
+      12,
+      expect.any(AbortSignal),
+    );
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+          (frame as { revision?: number }).revision === successor.revision,
+      ),
+    ).toHaveLength(0);
+
+    primeGate.resolve();
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === successor.revision,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('fail-closes a same-run ARM that changes its already primed PREPARE target', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-prepare',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: h.state.revision,
+        positionSeconds: 12,
+        playbackRate: 1,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === successor.revision,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.runtime.primeCandidate).toHaveBeenCalledWith(
+      h.manager,
+      CUTOVER_PORT,
+      12,
+      expect.any(AbortSignal),
+    );
+
+    const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
+    const armResult = h.guest.receive(
+      h.host.createWire(attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID_2,
+        positionSeconds: 13,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+      h.guestConnection,
+    );
+    if (!armResult.accepted || armResult.frame !== 'wire') {
+      throw new Error('Expected mismatched ARM wire to reach the guest owner');
+    }
+    const acknowledge = vi.fn();
+    expect(() => h.owner.adoptWireMessage(wireEvent(h.context, armResult), acknowledge)).toThrow(
+      /Guest playback wire adoption failed/u,
+    );
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(h.fatal).toHaveBeenCalledOnce();
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'rendezvous-armed' &&
+          (frame as { revision?: number }).revision === successor.revision,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('does not publish same-run SOURCE_READY when target prime authority aborts', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const primingCandidatePort = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackCutoverCandidatePort;
+    h.runtime.stageAssetSource.mockImplementationOnce(async (options) =>
+      stagedAssetSource(h.registry, options, primingCandidatePort),
+    );
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    const primeGate = deferred<void>();
+    let observedSignal: AbortSignal | null = null;
+    h.runtime.primeCandidate.mockImplementationOnce(async (_manager, _port, _position, signal) => {
+      observedSignal = signal;
+      await primeGate.promise;
+      signal.throwIfAborted();
+      return {} as never;
+    });
+
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-prepare',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: h.state.revision,
+        positionSeconds: 12,
+        playbackRate: 1,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.primeCandidate).toHaveBeenCalledOnce());
+    h.owner.revoke(h.context);
+    expect(observedSignal?.aborted).toBe(true);
+    primeGate.resolve();
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, primingCandidatePort),
+    );
+    expect(
+      h.runtime.sent.filter(
+        (frame) =>
+          (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+          (frame as { revision?: number }).revision === successor.revision,
+      ),
+    ).toHaveLength(0);
   });
 
   it('restages the current RAM asset for an exact-next same-run rendezvous seek', async () => {
@@ -3237,6 +3428,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     const cancellation = deferred<void>();
     h.runtime.cancel.mockImplementationOnce(() => cancellation.promise);
     const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+    const primeCountBeforeCancel = h.runtime.primeCandidate.mock.calls.length;
     const readyCount = () =>
       h.runtime.sent.filter(
         (frame) =>
@@ -3277,6 +3469,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel + 1);
       expect(readyCount()).toBe(2);
     });
+    expect(h.runtime.primeCandidate).toHaveBeenCalledTimes(primeCountBeforeCancel);
 
     const retryRendezvousId = 'guest-owner-rendezvous-retry';
     const retryAttemptLease = h.host.stageAttempt(armed.stateLease, retryRendezvousId);
@@ -3365,6 +3558,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
             (frame as { revision?: number }).revision === armed.state.revision,
         ).length;
       const stageCountBeforeCancel = h.runtime.stageAssetSource.mock.calls.length;
+      const primeCountBeforeCancel = h.runtime.primeCandidate.mock.calls.length;
       const readyCountBeforeCancel = sourceReadyCount();
       const cancel = h.host.createWire(armed.attemptLease, {
         kind: 'file-playback-cancel',
@@ -3385,6 +3579,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
         expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeCancel + 1);
         expect(sourceReadyCount()).toBe(readyCountBeforeCancel + 1);
       });
+      expect(h.runtime.primeCandidate).toHaveBeenCalledTimes(primeCountBeforeCancel);
 
       const retryRendezvousId = `guest-owner-${kind}-retry`;
       const retryPositionSeconds = armed.positionSeconds + 0.25;

@@ -103,6 +103,7 @@ export interface FilePlaybackCutoverFinalization {
 type CutoverRecordPhase =
   | 'staging'
   | 'staged'
+  | 'priming'
   | 'arming'
   | 'armed'
   | 'finalizing'
@@ -124,6 +125,10 @@ interface CutoverRecord {
   phase: CutoverRecordPhase;
   revoked: boolean;
   authorityError: AuthorityError;
+  primePositionSeconds: number | null;
+  primeSignal: AbortSignal | null;
+  primePromise: Promise<FilePlaybackSourceSnapshot> | null;
+  primeCompleted: boolean;
   armIntent: Readonly<RendezvousArmIntent> | null;
   armPromise: Promise<FilePlaybackCutoverArmResult> | null;
   armResult: FilePlaybackCutoverArmResult | null;
@@ -607,6 +612,72 @@ export class FilePlaybackManager {
     );
   }
 
+  /**
+   * Primes the exact silent candidate at its eventual rendezvous position.
+   * This boundary intentionally has no room schedule or deadline: only after
+   * it settles may a caller create a fresh rendezvous attempt.
+   */
+  primeCutoverCandidate(
+    port: FilePlaybackCutoverCandidatePort,
+    positionSeconds: number,
+    signal: AbortSignal,
+  ): Promise<FilePlaybackSourceSnapshot> {
+    const epoch = this.cutoverEpoch;
+    const record = this.cutoverPorts.get(port);
+    const validPosition = Number.isFinite(positionSeconds) && positionSeconds >= 0;
+    const validSignal = signal instanceof AbortSignal;
+    if (
+      validPosition &&
+      validSignal &&
+      record?.primePositionSeconds === positionSeconds &&
+      record.primeSignal === signal &&
+      this.ownsRetryableCutoverRecord(record)
+    ) {
+      return (
+        record.primePromise ??
+        Promise.reject(cutoverError('candidate prime retry has no cached result'))
+      );
+    }
+    if (
+      !validPosition ||
+      !validSignal ||
+      signal.aborted ||
+      epoch !== this.cutoverEpoch ||
+      !record ||
+      !this.ownsLiveCandidate(record)
+    ) {
+      return Promise.reject(cutoverError('candidate port or prime input is stale'));
+    }
+    if (record.primePromise) {
+      return Promise.reject(cutoverError('candidate is already bound to another prime'));
+    }
+    if (record.phase !== 'staged') {
+      return Promise.reject(cutoverError('candidate is not ready to prime'));
+    }
+    if (!this.authorityAllows(record)) {
+      void this.retireCandidateRecord(record, 'authority-expired');
+      return this.rejectedAuthorityPromise(record);
+    }
+
+    const deferred = createDeferredPromise<FilePlaybackSourceSnapshot>();
+    record.primePositionSeconds = positionSeconds;
+    record.primeSignal = signal;
+    record.primePromise = deferred.promise;
+    record.primeCompleted = false;
+    record.phase = 'priming';
+    let task: Promise<FilePlaybackSourceSnapshot>;
+    try {
+      task = Promise.resolve(record.source.primeForCutover(positionSeconds, signal));
+    } catch (error) {
+      task = Promise.reject(error);
+    }
+    void task.then(
+      (snapshot) => this.completeCandidatePrime(record, snapshot, deferred),
+      (error: unknown) => this.failCandidatePrime(record, error, deferred),
+    );
+    return deferred.promise;
+  }
+
   armCutoverCandidate(
     port: FilePlaybackCutoverCandidatePort,
     intent: RendezvousArmIntent,
@@ -627,6 +698,12 @@ export class FilePlaybackManager {
     }
     if (record.armIntent) {
       return Promise.reject(cutoverError('candidate is already bound to another attempt'));
+    }
+    if (
+      record.primePromise !== null &&
+      (!record.primeCompleted || record.primePositionSeconds !== safeIntent.positionSeconds)
+    ) {
+      return Promise.reject(cutoverError('candidate is not primed for the exact arm target'));
     }
     if (record.phase !== 'staged') {
       return Promise.reject(cutoverError('candidate is not ready to arm'));
@@ -1390,6 +1467,10 @@ export class FilePlaybackManager {
       phase: 'staging',
       revoked: false,
       authorityError: { present: false },
+      primePositionSeconds: null,
+      primeSignal: null,
+      primePromise: null,
+      primeCompleted: false,
       armIntent: null,
       armPromise: null,
       armResult: null,
@@ -1442,6 +1523,52 @@ export class FilePlaybackManager {
       await this.retireCandidateRecord(record, 'stage-failed');
       throw error;
     }
+  }
+
+  private completeCandidatePrime(
+    record: CutoverRecord,
+    value: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackSourceSnapshot>>,
+  ): void {
+    let snapshot: FilePlaybackSourceSnapshot | null = null;
+    try {
+      snapshot = createFilePlaybackSourceSnapshot(value as FilePlaybackSourceSnapshot);
+    } catch {
+      // Invalid source output is handled by the common retirement branch.
+    }
+    if (
+      !this.ownsLiveCandidate(record) ||
+      record.phase !== 'priming' ||
+      record.primeSignal?.aborted ||
+      !this.authorityAllows(record)
+    ) {
+      void this.retireCandidateRecord(record, 'prime-failed');
+      deferred.reject(this.authorityOrStaleError(record));
+      return;
+    }
+    if (
+      snapshot === null ||
+      snapshot.queueItemId !== record.queueItemId ||
+      snapshot.backend !== record.backend ||
+      snapshot.phase !== 'connected'
+    ) {
+      void this.retireCandidateRecord(record, 'prime-failed');
+      deferred.reject(cutoverError('source returned an invalid prime snapshot'));
+      return;
+    }
+    record.state.lastSnapshot = snapshot;
+    record.phase = 'staged';
+    record.primeCompleted = true;
+    deferred.resolve(snapshot);
+  }
+
+  private failCandidatePrime(
+    record: CutoverRecord,
+    error: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackSourceSnapshot>>,
+  ): void {
+    void this.retireCandidateRecord(record, 'prime-failed');
+    deferred.reject(error);
   }
 
   private completeCandidateArm(

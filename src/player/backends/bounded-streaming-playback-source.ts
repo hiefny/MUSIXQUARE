@@ -881,6 +881,57 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     return this.armForCutover(value).then((result) => result.receipt);
   }
 
+  async primeForCutover(
+    positionSeconds: number,
+    signal: AbortSignal,
+  ): Promise<FilePlaybackSourceSnapshot> {
+    if (!(signal instanceof AbortSignal)) {
+      throw new TypeError('Bounded stream cutover prime requires an AbortSignal');
+    }
+    if (
+      !Number.isFinite(positionSeconds) ||
+      positionSeconds < 0 ||
+      positionSeconds >= this.#durationSeconds
+    ) {
+      throw new RangeError('Bounded stream cutover prime position is out of range');
+    }
+    if (signal.aborted) throw abortError(signal);
+    this.#assertNotDestroyed();
+    if (this.#phase === 'failed') throw new Error('Streaming source has failed');
+    if (this.#phase !== 'connected' || !this.#destination || !this.#node || !this.#decoder.opened) {
+      throw new Error('Bounded stream cutover prime requires a connected silent candidate');
+    }
+    if (
+      this.#activeArm ||
+      this.#pendingArmOperation ||
+      this.#pendingFinalizeOperation ||
+      this.#revisionTransition
+    ) {
+      throw new Error('Bounded stream cutover prime cannot replace an active operation');
+    }
+
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const requestedMediaFrame = this.#positionToOutputFrame(positionSeconds);
+    if (Math.abs(requestedMediaFrame - this.#mediaFrame) <= 1) {
+      if (ingressEpoch !== this.#ingressEpoch || signal.aborted) {
+        throw signal.aborted ? abortError(signal) : new SupersededPlaybackOperationError();
+      }
+      return this.getSnapshot();
+    }
+
+    const operation = this.#beginControlOperation();
+    try {
+      await this.#resetGeneration(positionSeconds, operation, 'connected', signal);
+      if (ingressEpoch !== this.#ingressEpoch || !this.#isCurrentOperation(operation)) {
+        throw new SupersededPlaybackOperationError();
+      }
+      if (signal.aborted) throw abortError(signal);
+      return this.getSnapshot();
+    } finally {
+      this.#finishControlOperation(operation);
+    }
+  }
+
   armForCutover(value: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult> {
     const ingressEpoch = this.#advanceIngressEpoch();
     const intent = readRendezvousArmIntent(value);
@@ -2017,9 +2068,12 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     positionSeconds: number,
     control: ControlOperation,
     readyPhase: FilePlaybackSourcePhase,
+    externalSignal?: AbortSignal,
   ): Promise<void> {
     if (!this.#isCurrentOperation(control)) throw new SupersededPlaybackOperationError();
-    const operation = this.#operationSignal(control.controller.signal);
+    const operation = this.#operationSignal(
+      externalSignal ? [control.controller.signal, externalSignal] : control.controller.signal,
+    );
     const oldGeneration = this.#generation;
     this.#phase = 'preparing';
     this.#retireActiveArm('generation-reset');
@@ -3093,7 +3147,7 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
     this.#pendingPause = null;
   }
 
-  #operationSignal(externalSignal?: AbortSignal): {
+  #operationSignal(externalSignal?: AbortSignal | readonly AbortSignal[]): {
     signal: AbortSignal;
     cleanup: () => void;
   } {
@@ -3108,9 +3162,13 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
       },
       this.#prepareTimeoutMs,
     );
-    const sources = [externalSignal, this.#lifetimeAbort.signal].filter(
-      (item): item is AbortSignal => !!item,
-    );
+    const externalSignals: readonly AbortSignal[] =
+      externalSignal === undefined
+        ? []
+        : externalSignal instanceof AbortSignal
+          ? [externalSignal]
+          : externalSignal;
+    const sources = [...new Set([...externalSignals, this.#lifetimeAbort.signal])];
     const onAbort = (event: Event) => {
       const source = event.currentTarget as AbortSignal;
       if (!controller.signal.aborted) controller.abort(abortError(source));

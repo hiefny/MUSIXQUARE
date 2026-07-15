@@ -660,6 +660,145 @@ describe('BoundedStreamingPlaybackSource ownership', () => {
   });
 });
 
+describe('BoundedStreamingPlaybackSource pre-rendezvous position prime', () => {
+  it('keeps an already exact generation as a zero-allocation fast path', async () => {
+    const harness = lifecycleHarness();
+
+    try {
+      await prepareLifecycleHarness(harness);
+      await harness.source.connect(harness.destination);
+
+      await expect(
+        harness.source.primeForCutover(0, new AbortController().signal),
+      ).resolves.toMatchObject({ phase: 'connected', positionSeconds: 0 });
+      expect(harness.startGeneration).toHaveBeenCalledOnce();
+      expect(
+        controlMessages(harness.node).filter((message) => message.type === 'bind-pcm-port'),
+      ).toHaveLength(1);
+    } finally {
+      await destroyLifecycleHarness(harness);
+    }
+  });
+
+  it('fails closed when exact target prime authority aborts during generation reset', async () => {
+    const harness = lifecycleHarness();
+
+    try {
+      await prepareLifecycleHarness(harness);
+      await harness.source.connect(harness.destination);
+      const controller = new AbortController();
+      const priming = harness.source.primeForCutover(4, controller.signal);
+      await waitForControlMessage(
+        harness.node,
+        (message) => message.type === 'bind-pcm-port' && message.generation === 2,
+      );
+
+      controller.abort(new Error('fixture prime authority expired'));
+      await expect(priming).rejects.toThrow(/prime authority expired/u);
+      expect(harness.source.getSnapshot()).toMatchObject({
+        phase: 'failed',
+        errorCode: 'seek-prepare-aborted',
+      });
+    } finally {
+      await destroyLifecycleHarness(harness);
+    }
+  });
+
+  it('fails closed when a primed target generation cannot start', async () => {
+    const harness = lifecycleHarness();
+
+    try {
+      await prepareLifecycleHarness(harness);
+      await harness.source.connect(harness.destination);
+      harness.startGeneration.mockRejectedValueOnce(new Error('fixture prime reset failed'));
+
+      await expect(harness.source.primeForCutover(4, new AbortController().signal)).rejects.toThrow(
+        /prime reset failed/u,
+      );
+      expect(harness.source.getSnapshot()).toMatchObject({
+        phase: 'failed',
+        errorCode: 'seek-prepare-failed',
+      });
+    } finally {
+      await destroyLifecycleHarness(harness);
+    }
+  });
+
+  it('finishes target generation work before accepting a fresh arm deadline', async () => {
+    let roomNowMs = 1_000;
+    const harness = lifecycleHarness({ nowRoomTimeMs: () => roomNowMs });
+
+    try {
+      await prepareLifecycleHarness(harness);
+      await harness.source.connect(harness.destination);
+
+      const priming = harness.source.primeForCutover(4, new AbortController().signal);
+      const bind = await waitForControlMessage(
+        harness.node,
+        (message) => message.type === 'bind-pcm-port' && message.generation === 2,
+      );
+      expect(
+        controlMessages(harness.node).filter((message) => message.type === 'arm'),
+      ).toHaveLength(0);
+      if (bind.type !== 'bind-pcm-port') throw new Error('Expected primed PCM bind');
+
+      roomNowMs = 5_000;
+      harness.audioContext.currentTime = 5;
+      harness.node.port.emit({
+        protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+        type: 'pcm-port-retired',
+        generation: 1,
+      });
+      harness.node.port.emit({
+        protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+        type: 'primed',
+        generation: bind.generation,
+        bufferedFrames: 96_000,
+        sampleRate: 48_000,
+        channels: 2,
+      });
+
+      await expect(priming).resolves.toMatchObject({
+        phase: 'connected',
+        positionSeconds: 4,
+      });
+      expect(harness.startGeneration).toHaveBeenCalledTimes(2);
+
+      const armIntent = rendezvousArmIntent({
+        positionSeconds: 4,
+        startAtRoomTimeMs: 6_000,
+        finalizeByRoomTimeMs: 5_800,
+      });
+      const pendingArm = harness.source.armForCutover(armIntent);
+      const armCommand = await waitForControlMessage(
+        harness.node,
+        (message) => message.type === 'arm' && message.revision === armIntent.revision,
+      );
+      expect(
+        controlMessages(harness.node).filter((message) => message.type === 'bind-pcm-port'),
+      ).toHaveLength(2);
+      if (armCommand.type !== 'arm') throw new Error('Expected fresh arm command');
+      harness.node.port.emit({
+        protocolVersion: PCM_STREAM_PROTOCOL_VERSION,
+        type: 'armed',
+        generation: armCommand.generation,
+        revision: armCommand.revision,
+        runId: armCommand.runId,
+        rendezvousId: armCommand.rendezvousId,
+        targetFrame: armCommand.targetFrame,
+      });
+
+      await expect(pendingArm).resolves.toMatchObject({
+        status: 'armed',
+        receipt: { reasonCode: null, observedAtRoomTimeMs: 5_000 },
+      });
+      expect(harness.startGeneration).toHaveBeenCalledTimes(2);
+    } finally {
+      await destroyLifecycleHarness(harness);
+    }
+  });
+});
+
 describe('BoundedStreamingPlaybackSource finalized start evidence', () => {
   it('accepts the exact Worklet started event after the room clock becomes unavailable', async () => {
     vi.useFakeTimers();

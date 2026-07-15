@@ -127,6 +127,10 @@ function fakeCutoverSource(
       phase = 'connected';
       return getSnapshot();
     }),
+    primeForCutover: vi.fn(async (_positionSeconds, signal) => {
+      signal.throwIfAborted();
+      return getSnapshot();
+    }),
     arm: vi.fn(async () => ({}) as never),
     armForCutover: vi.fn(async () => ({}) as never),
     finalize: vi.fn(async () => ({}) as never),

@@ -47,15 +47,56 @@ function setSeekSliderMax(slider: HTMLInputElement, value: string): void {
   syncRangeProgress(slider);
 }
 
+const SEEK_DRAFT_RELEASE_TIMER = 'seekbar-draft-release';
+const SEEK_DRAFT_RELEASE_FALLBACK_MS = 350;
+let _seekDraftActive = false;
+
+function anchorSeekDraft(slider: HTMLInputElement): void {
+  const value = Number.parseFloat(slider.value);
+  if (!Number.isFinite(value) || value < 0) return;
+  _rafAnchorTime = value;
+  _rafAnchorTs = performance.now();
+}
+
+function beginSeekDraft(slider: HTMLInputElement): void {
+  clearManagedTimer(SEEK_DRAFT_RELEASE_TIMER);
+  anchorSeekDraft(slider);
+  if (_seekDraftActive && getState('player.isSeeking')) return;
+  _seekDraftActive = true;
+  setState('player.isSeeking', true);
+}
+
+function finishSeekDraft(slider?: HTMLInputElement): void {
+  clearManagedTimer(SEEK_DRAFT_RELEASE_TIMER);
+  if (slider) anchorSeekDraft(slider);
+  _seekDraftActive = false;
+  setState('player.isSeeking', false);
+}
+
+function scheduleSeekDraftRelease(slider: HTMLInputElement): void {
+  if (!_seekDraftActive && !getState('player.isSeeking')) return;
+  anchorSeekDraft(slider);
+  // A range input's pointer/touch release can be delivered before its
+  // `change` event (notably on iOS). Keep the draft locked across that render
+  // opportunity so the rAF loop cannot repaint the old physical position.
+  // The fallback only handles browsers/interactions that emit no `change`
+  // (for example, pressing and releasing an unchanged thumb).
+  setManagedTimer(
+    SEEK_DRAFT_RELEASE_TIMER,
+    () => finishSeekDraft(slider),
+    SEEK_DRAFT_RELEASE_FALLBACK_MS,
+  );
+}
+
 // ─── Seek Bar Input Events ──────────────────────────────────────
 
 function initSeekBarInput(): void {
   const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
   if (!slider) return;
 
-  slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
-  slider.addEventListener('pointerdown', () => setState('player.isSeeking', true));
-  slider.addEventListener('touchstart', () => setState('player.isSeeking', true), {
+  slider.addEventListener('mousedown', () => beginSeekDraft(slider));
+  slider.addEventListener('pointerdown', () => beginSeekDraft(slider));
+  slider.addEventListener('touchstart', () => beginSeekDraft(slider), {
     passive: true,
   });
   slider.addEventListener('input', () => {
@@ -63,38 +104,42 @@ function initSeekBarInput(): void {
       setSeekSliderValue(slider, '0');
       return;
     }
+    // Keyboard changes have no pointerdown/touchstart. Treat their first input
+    // as the same draft boundary, then let `change` commit exactly once.
+    beginSeekDraft(slider);
     const formatted = fmtTime(parseFloat(slider.value));
     const tc = document.getElementById('time-curr');
     if (tc) tc.innerText = formatted;
     slider.setAttribute('aria-valuetext', formatted);
   });
 
-  function releaseSeek() {
-    if (slider) {
-      _rafAnchorTime = parseFloat(slider.value) || 0;
-      _rafAnchorTs = performance.now();
-    }
-    setState('player.isSeeking', false);
-  }
-
   slider.addEventListener('change', () => {
-    releaseSeek();
+    beginSeekDraft(slider);
     if (isSeekUnavailable()) {
       setSeekSliderValue(slider, '0');
+      finishSeekDraft(slider);
       return;
     }
     const seekTime = parseFloat(slider.value);
-
-    seekTo(seekTime);
+    try {
+      // V2 host seek admission emits its pending token synchronously here.
+      // Only release the local draft after that token can take over the lock.
+      seekTo(seekTime);
+    } finally {
+      finishSeekDraft(slider);
+    }
   });
 
-  slider.addEventListener('mouseup', releaseSeek);
-  slider.addEventListener('pointerup', releaseSeek);
-  slider.addEventListener('pointercancel', releaseSeek);
-  slider.addEventListener('lostpointercapture', releaseSeek);
-  slider.addEventListener('touchend', releaseSeek, { passive: true });
-  slider.addEventListener('touchcancel', releaseSeek, { passive: true });
-  slider.addEventListener('contextmenu', releaseSeek);
+  slider.addEventListener('mouseup', () => scheduleSeekDraftRelease(slider));
+  slider.addEventListener('pointerup', () => scheduleSeekDraftRelease(slider));
+  // A normal pointer release may also emit lostpointercapture before change,
+  // so it follows the delayed-release path rather than cancelling the draft.
+  slider.addEventListener('lostpointercapture', () => scheduleSeekDraftRelease(slider));
+  slider.addEventListener('touchend', () => scheduleSeekDraftRelease(slider), { passive: true });
+  slider.addEventListener('pointercancel', () => finishSeekDraft(slider));
+  slider.addEventListener('touchcancel', () => finishSeekDraft(slider), { passive: true });
+  slider.addEventListener('contextmenu', () => finishSeekDraft(slider));
+  slider.addEventListener('blur', () => finishSeekDraft(slider));
 }
 
 // ─── rAF Interpolation Loop ─────────────────────────────────────
@@ -200,6 +245,7 @@ const _busScope = createBusScope();
 
 function initSeekBarBusHandlers(): void {
   _busScope.dispose();
+  finishSeekDraft();
   _pendingV2HostSeek = null;
 
   _busScope.on('ui:duration-update', (duration) => {
@@ -212,6 +258,7 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('ui:seek-reset', () => {
+    finishSeekDraft();
     _pendingV2HostSeek = null;
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
@@ -274,6 +321,7 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('player:stop-all-media', () => {
+    finishSeekDraft();
     _pendingV2HostSeek = null;
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();

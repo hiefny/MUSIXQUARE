@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
@@ -159,6 +159,115 @@ describe('initSeekBar playback mode gates', () => {
       vi.useRealTimers();
       vi.unstubAllGlobals();
     }
+  });
+
+  it('keeps a released pointer draft pinned through an rAF before V2 change admission', () => {
+    vi.useFakeTimers();
+    let nextFrame: FrameRequestCallback | null = null;
+    let frameId = 0;
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        nextFrame = callback;
+        return ++frameId;
+      }),
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    try {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      vi.mocked(getTrackPosition).mockReturnValue(7);
+      vi.mocked(seekTo).mockImplementationOnce((targetSeconds) => {
+        bus.emit('player:v2-host-seek-pending', {
+          token: 202,
+          queueItemId: QUEUE_ITEM_ID,
+          targetSeconds,
+        });
+      });
+      initSeekBar();
+      bus.emit('ui:loop-start');
+
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      slider.dispatchEvent(new Event('pointerdown'));
+      slider.value = '42';
+      slider.dispatchEvent(new Event('input'));
+      slider.dispatchEvent(new Event('pointerup'));
+
+      expect(getState('player.isSeeking')).toBe(true);
+      const frameBetweenReleaseAndChange = nextFrame;
+      if (!frameBetweenReleaseAndChange) throw new Error('seek rAF was not scheduled');
+      frameBetweenReleaseAndChange(1_000);
+      expect(slider.value).toBe('42');
+
+      slider.dispatchEvent(new Event('change'));
+
+      expect(seekTo).toHaveBeenCalledOnce();
+      expect(seekTo).toHaveBeenCalledWith(42);
+      expect(getState('player.isSeeking')).toBe(false);
+      expect(slider.value).toBe('42');
+    } finally {
+      bus.emit('player:stop-all-media');
+      clearAllManagedTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('releases an uncommitted draft on cancellation, blur, fallback, and teardown', () => {
+    vi.useFakeTimers();
+    try {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      initSeekBar();
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+
+      slider.dispatchEvent(new Event('pointerdown'));
+      slider.dispatchEvent(new Event('pointercancel'));
+      expect(getState('player.isSeeking')).toBe(false);
+
+      slider.dispatchEvent(new Event('pointerdown'));
+      slider.dispatchEvent(new Event('blur'));
+      expect(getState('player.isSeeking')).toBe(false);
+
+      slider.dispatchEvent(new Event('pointerdown'));
+      slider.dispatchEvent(new Event('pointerup'));
+      expect(getState('player.isSeeking')).toBe(true);
+      vi.advanceTimersByTime(349);
+      expect(getState('player.isSeeking')).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(getState('player.isSeeking')).toBe(false);
+
+      slider.dispatchEvent(new Event('pointerdown'));
+      bus.emit('ui:seek-reset');
+      expect(getState('player.isSeeking')).toBe(false);
+
+      slider.dispatchEvent(new Event('pointerdown'));
+      bus.emit('player:stop-all-media');
+      expect(getState('player.isSeeking')).toBe(false);
+      expect(seekTo).not.toHaveBeenCalled();
+    } finally {
+      bus.emit('player:stop-all-media');
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('commits one keyboard change without a pointer event or duplicate seek', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    initSeekBar();
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    slider.value = '18';
+    slider.dispatchEvent(new Event('input'));
+    expect(getState('player.isSeeking')).toBe(true);
+
+    slider.dispatchEvent(new Event('change'));
+    slider.dispatchEvent(new Event('blur'));
+
+    expect(seekTo).toHaveBeenCalledOnce();
+    expect(seekTo).toHaveBeenCalledWith(18);
+    expect(getState('player.isSeeking')).toBe(false);
   });
 
   it('blocks seek interaction while playback is idle', () => {

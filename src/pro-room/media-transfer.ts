@@ -58,6 +58,12 @@ export interface ProRoomMediaUploadResult {
   quota: ProRoomQuotaSnapshot;
 }
 
+export interface DeleteTransferredProRoomMediaInput {
+  code: string;
+  assetId: string;
+  signal?: AbortSignal;
+}
+
 export class ProRoomMediaTransferError extends Error {
   readonly code: string;
 
@@ -506,5 +512,26 @@ export class ProRoomMediaTransfer {
     if (file.size <= this.#cache.maxTotalBytes) this.#cache.put(input.source, file);
     report(1);
     return file;
+  }
+
+  /**
+   * Delete a completed or staged object through the authenticated room API.
+   * The server refuses assets still referenced by the canonical playlist, so
+   * this is also safe after an ambiguous snapshot response.
+   */
+  async deleteAsset(
+    input: DeleteTransferredProRoomMediaInput,
+  ): Promise<{ assetId: string; quota: ProRoomQuotaSnapshot }> {
+    throwIfAborted(input.signal);
+    const result = await this.#api.deleteMedia(
+      {
+        code: input.code,
+        assetId: input.assetId,
+        idempotencyKey: this.#createIdempotencyKey(),
+      },
+      input.signal,
+    );
+    this.#cache.deleteAsset(result.assetId);
+    return result;
   }
 }

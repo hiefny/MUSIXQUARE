@@ -1,0 +1,654 @@
+import type { UpdateProRoomSnapshotInput } from './api.ts';
+import {
+  PRO_ROOM_MAX_PLAYLIST_ITEMS,
+  type ProRoomPlaybackCheckpoint,
+  type ProRoomPlaylistWireItem,
+  type ProRoomSnapshot,
+} from './contracts.ts';
+import { createProRoomIdempotencyKey } from './idempotency.ts';
+import type {
+  ProRoomMediaProgress,
+  ProRoomMediaUploadResult,
+  UploadProRoomMediaInput,
+} from './media-transfer.ts';
+import { ProRoomPlaylistProjection } from './playlist-projection.ts';
+import { applyProRoomSnapshotMonotonically } from './revision.ts';
+import { isProRoomCode } from './room-code.ts';
+import {
+  isProRoomQueueItemId,
+  parseProRoomPlaylistItem,
+  parseProRoomSnapshot,
+} from './snapshot.ts';
+
+type QueueItemId = ProRoomPlaylistWireItem['queueItemId'];
+type ProjectedPlaylist = ReturnType<ProRoomPlaylistProjection['project']>;
+
+export interface ProRoomPlaylistStateApi {
+  getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  updateSnapshot(input: UpdateProRoomSnapshotInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+}
+
+export interface ProRoomPlaylistMediaTransfer {
+  upload(input: UploadProRoomMediaInput): Promise<ProRoomMediaUploadResult>;
+  deleteAsset(input: { code: string; assetId: string }): Promise<unknown>;
+}
+
+export interface ProRoomMediaCleanupErrorEvent {
+  reason: 'uploaded-orphan' | 'removed-unreferenced';
+  assetId: string;
+  error: unknown;
+}
+
+export type ProRoomMediaCleanupErrorReporter = (
+  event: ProRoomMediaCleanupErrorEvent,
+) => void | Promise<void>;
+
+export interface ProRoomPlaylistProjectionEvent {
+  snapshot: ProRoomSnapshot;
+  playlist: ProjectedPlaylist;
+}
+
+export type ProRoomPlaylistProjectionSink = (
+  event: ProRoomPlaylistProjectionEvent,
+) => void | Promise<void>;
+
+export interface ProRoomCoordinatorInvalidationEvent {
+  previous: ProRoomSnapshot;
+  next: ProRoomSnapshot;
+  playlistChanged: boolean;
+  playbackChanged: boolean;
+  coordinatorEpochChanged: boolean;
+}
+
+export type ProRoomCoordinatorInvalidator = (
+  event: ProRoomCoordinatorInvalidationEvent,
+) => void | Promise<void>;
+
+export interface ProRoomPlaylistStateManagerOptions {
+  code: string;
+  api: ProRoomPlaylistStateApi;
+  mediaTransfer: ProRoomPlaylistMediaTransfer;
+  sink: ProRoomPlaylistProjectionSink;
+  projection?: ProRoomPlaylistProjection;
+  invalidateCoordinator?: ProRoomCoordinatorInvalidator;
+  reportMediaCleanupError?: ProRoomMediaCleanupErrorReporter;
+  createIdempotencyKey?: () => string;
+  createQueueItemId?: () => QueueItemId;
+  now?: () => number;
+}
+
+export interface AddProRoomYouTubeInput {
+  queueItemId?: QueueItemId;
+  name: string;
+  videoId: string;
+  playlistId?: string;
+  title?: string;
+  artist?: string;
+  thumbnail?: string;
+  signal?: AbortSignal;
+}
+
+export interface UpdateProRoomPlaylistMetadataInput {
+  name?: string;
+  title?: string | null;
+  artist?: string | null;
+  thumbnail?: string | null;
+}
+
+export interface AddProRoomLocalFileInput {
+  file: File;
+  sha256?: string;
+  title?: string;
+  artist?: string;
+  thumbnail?: string;
+  onProgress?: ProRoomMediaProgress;
+}
+
+export interface ProRoomPlaylistMutationOptions {
+  signal?: AbortSignal;
+}
+
+export class ProRoomPlaylistStateError extends Error {
+  readonly code: string;
+
+  constructor(code: string, options?: ErrorOptions) {
+    super(code, options);
+    this.name = 'ProRoomPlaylistStateError';
+    this.code = code;
+  }
+}
+
+interface PlaylistMutation {
+  playlist: ProRoomPlaylistWireItem[];
+  currentQueueItemId: QueueItemId | null;
+  playback: ProRoomPlaybackCheckpoint;
+}
+
+type PlaylistMutationAttempt =
+  | { outcome: 'accepted'; snapshot: ProRoomSnapshot }
+  | { outcome: 'conflict'; error: unknown };
+
+type PlaylistIntent = (snapshot: ProRoomSnapshot, isRebase: boolean) => PlaylistMutation | null;
+
+function cloneSnapshot(snapshot: ProRoomSnapshot): ProRoomSnapshot {
+  const cloned = parseProRoomSnapshot(snapshot);
+  if (!cloned) throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SNAPSHOT_INVALID');
+  return cloned;
+}
+
+function clonePlaylist(items: readonly ProRoomPlaylistWireItem[]): ProRoomPlaylistWireItem[] {
+  return items.map((item) => {
+    const cloned = parseProRoomPlaylistItem(item);
+    if (!cloned) throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_ITEM_INVALID');
+    return cloned;
+  });
+}
+
+function clonePlayback(playback: ProRoomPlaybackCheckpoint): ProRoomPlaybackCheckpoint {
+  return {
+    coordinatorEpoch: playback.coordinatorEpoch,
+    revision: playback.revision,
+    state: playback.state,
+    queueItemId: playback.queueItemId,
+    positionSeconds: playback.positionSeconds,
+    updatedAtMs: playback.updatedAtMs,
+  };
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameMutation(snapshot: ProRoomSnapshot, mutation: PlaylistMutation): boolean {
+  return (
+    jsonEqual(snapshot.playlist, mutation.playlist) &&
+    snapshot.currentQueueItemId === mutation.currentQueueItemId &&
+    jsonEqual(snapshot.playback, mutation.playback)
+  );
+}
+
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_ABORTED');
+  }
+}
+
+function isRevisionConflict(error: unknown): boolean {
+  if (error === null || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; status?: unknown };
+  return candidate.status === 409 && candidate.code === 'REVISION_CONFLICT';
+}
+
+function defaultQueueItemId(): QueueItemId {
+  if (!globalThis.crypto || typeof globalThis.crypto.randomUUID !== 'function') {
+    throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SECURE_RANDOM_UNAVAILABLE');
+  }
+  return globalThis.crypto.randomUUID();
+}
+
+function assertMetadata(
+  metadata: Pick<ProRoomPlaylistWireItem, 'name' | 'title' | 'artist' | 'thumbnail'>,
+): void {
+  const values = [metadata.name, metadata.title, metadata.artist, metadata.thumbnail];
+  for (const value of values) {
+    if (
+      value !== undefined &&
+      (typeof value !== 'string' || value.length === 0 || value.length > 2048)
+    ) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_METADATA_INVALID');
+    }
+  }
+}
+
+function canonicalItem(item: ProRoomPlaylistWireItem): ProRoomPlaylistWireItem {
+  const parsed = parseProRoomPlaylistItem(item);
+  if (!parsed) throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_ITEM_INVALID');
+  return parsed;
+}
+
+function idlePlayback(
+  playback: ProRoomPlaybackCheckpoint,
+  updatedAtMs: number,
+): ProRoomPlaybackCheckpoint {
+  if (playback.revision >= Number.MAX_SAFE_INTEGER) {
+    throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_REVISION_EXHAUSTED');
+  }
+  return {
+    coordinatorEpoch: playback.coordinatorEpoch,
+    revision: playback.revision + 1,
+    state: 'idle',
+    queueItemId: null,
+    positionSeconds: 0,
+    updatedAtMs: Math.max(playback.updatedAtMs, updatedAtMs),
+  };
+}
+
+function shouldInvalidateCoordinator(
+  previous: ProRoomSnapshot,
+  next: ProRoomSnapshot,
+): Omit<ProRoomCoordinatorInvalidationEvent, 'previous' | 'next'> | null {
+  const playlistChanged =
+    previous.playlistRevision !== next.playlistRevision ||
+    previous.currentQueueItemId !== next.currentQueueItemId;
+  const playbackChanged = !jsonEqual(previous.playback, next.playback);
+  const coordinatorEpochChanged =
+    previous.presence.coordinatorEpoch !== next.presence.coordinatorEpoch;
+  return playlistChanged || playbackChanged || coordinatorEpochChanged
+    ? { playlistChanged, playbackChanged, coordinatorEpochChanged }
+    : null;
+}
+
+/**
+ * Isolated authoritative PRO-room playlist coordinator.
+ *
+ * This class deliberately has no app bus or transport dependency. Integrators
+ * inject the API, projected-playlist sink, and coordinator invalidation hook.
+ * Mutations are locally serialized and use one bounded CAS refresh/rebase.
+ */
+export class ProRoomPlaylistStateManager {
+  readonly #code: string;
+  readonly #api: ProRoomPlaylistStateApi;
+  readonly #mediaTransfer: ProRoomPlaylistMediaTransfer;
+  readonly #sink: ProRoomPlaylistProjectionSink;
+  readonly #projection: ProRoomPlaylistProjection;
+  readonly #invalidateCoordinator?: ProRoomCoordinatorInvalidator;
+  readonly #reportMediaCleanupError?: ProRoomMediaCleanupErrorReporter;
+  readonly #createIdempotencyKey: () => string;
+  readonly #createQueueItemId: () => QueueItemId;
+  readonly #now: () => number;
+  readonly #issuedIdempotencyKeys = new Set<string>();
+  #snapshot: ProRoomSnapshot | null = null;
+  #operationTail: Promise<void> = Promise.resolve();
+
+  constructor(options: ProRoomPlaylistStateManagerOptions) {
+    if (!isProRoomCode(options.code)) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_ROOM_CODE_INVALID');
+    }
+    this.#code = options.code;
+    this.#api = options.api;
+    this.#mediaTransfer = options.mediaTransfer;
+    this.#sink = options.sink;
+    this.#projection = options.projection ?? new ProRoomPlaylistProjection();
+    this.#invalidateCoordinator = options.invalidateCoordinator;
+    this.#reportMediaCleanupError = options.reportMediaCleanupError;
+    this.#createIdempotencyKey = options.createIdempotencyKey ?? createProRoomIdempotencyKey;
+    this.#createQueueItemId = options.createQueueItemId ?? defaultQueueItemId;
+    this.#now = options.now ?? Date.now;
+  }
+
+  get snapshot(): ProRoomSnapshot | null {
+    return this.#snapshot ? cloneSnapshot(this.#snapshot) : null;
+  }
+
+  acceptSnapshot(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
+    return this.#enqueue(() => this.#accept(snapshot));
+  }
+
+  addYouTube(input: AddProRoomYouTubeInput): Promise<ProRoomSnapshot> {
+    return this.#enqueue(async () => {
+      assertNotAborted(input.signal);
+      const queueItemId =
+        input.queueItemId === undefined
+          ? this.#nextQueueItemId()
+          : this.#validateQueueItemId(input.queueItemId);
+      assertMetadata(input);
+      const item = canonicalItem({
+        queueItemId,
+        name: input.name,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.artist === undefined ? {} : { artist: input.artist }),
+        ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
+        source: {
+          kind: 'youtube',
+          videoId: input.videoId,
+          ...(input.playlistId === undefined ? {} : { playlistId: input.playlistId }),
+        },
+      });
+      return this.#appendCanonicalItem(item, input.signal);
+    });
+  }
+
+  addLocalFiles(
+    inputs: readonly AddProRoomLocalFileInput[],
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    return this.#enqueue(async () => {
+      let accepted = this.#requireSnapshot();
+      for (const input of inputs) {
+        assertNotAborted(options.signal);
+        assertMetadata({
+          name: input.file.name,
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.artist === undefined ? {} : { artist: input.artist }),
+          ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
+        });
+        this.#assertCapacity(accepted, 1);
+        const queueItemId = this.#nextQueueItemId();
+        const upload = await this.#mediaTransfer.upload({
+          code: this.#code,
+          file: input.file,
+          ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
+          ...(input.onProgress === undefined ? {} : { onProgress: input.onProgress }),
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+        });
+        try {
+          assertNotAborted(options.signal);
+          const item = canonicalItem({
+            queueItemId,
+            name: input.file.name,
+            ...(input.title === undefined ? {} : { title: input.title }),
+            ...(input.artist === undefined ? {} : { artist: input.artist }),
+            ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
+            source: upload.asset,
+          });
+          accepted = await this.#appendCanonicalItem(item, options.signal);
+        } catch (error) {
+          await this.#bestEffortDelete(upload.asset.assetId, 'uploaded-orphan');
+          throw error;
+        }
+      }
+      return cloneSnapshot(accepted);
+    });
+  }
+
+  remove(
+    queueItemId: QueueItemId,
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    return this.removeMany([queueItemId], options);
+  }
+
+  removeMany(
+    queueItemIds: readonly QueueItemId[],
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    const requested = new Set(queueItemIds);
+    return this.#enqueue(async () => {
+      if ([...requested].some((queueItemId) => !isProRoomQueueItemId(queueItemId))) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_ID_INVALID');
+      }
+
+      let removedAssetIds = new Set<string>();
+      const accepted = await this.#mutate((snapshot) => {
+        const removed = snapshot.playlist.filter((item) => requested.has(item.queueItemId));
+        removedAssetIds = new Set(
+          removed.flatMap((item) => (item.source.kind === 'pro-r2' ? [item.source.assetId] : [])),
+        );
+        if (removed.length === 0) return null;
+
+        const nextPlaylist = snapshot.playlist.filter((item) => !requested.has(item.queueItemId));
+        const removedCurrent =
+          snapshot.currentQueueItemId !== null && requested.has(snapshot.currentQueueItemId);
+        return {
+          playlist: clonePlaylist(nextPlaylist),
+          currentQueueItemId: removedCurrent ? null : snapshot.currentQueueItemId,
+          playback: removedCurrent
+            ? idlePlayback(snapshot.playback, this.#currentTimeMs())
+            : clonePlayback(snapshot.playback),
+        };
+      }, options.signal);
+
+      const survivingAssetIds = new Set(
+        accepted.playlist.flatMap((item) =>
+          item.source.kind === 'pro-r2' ? [item.source.assetId] : [],
+        ),
+      );
+      for (const assetId of removedAssetIds) {
+        if (!survivingAssetIds.has(assetId)) {
+          await this.#bestEffortDelete(assetId, 'removed-unreferenced');
+        }
+      }
+      return accepted;
+    });
+  }
+
+  reorder(
+    orderedQueueItemIds: readonly QueueItemId[],
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    const requested = [...orderedQueueItemIds];
+    return this.#enqueue(() => {
+      if (
+        requested.some((queueItemId) => !isProRoomQueueItemId(queueItemId)) ||
+        new Set(requested).size !== requested.length
+      ) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_REORDER_INVALID');
+      }
+
+      const requestedSet = new Set(requested);
+      return this.#mutate((snapshot, isRebase) => {
+        const currentIds = snapshot.playlist.map((item) => item.queueItemId);
+        if (
+          !isRebase &&
+          (currentIds.length !== requested.length ||
+            currentIds.some((queueItemId) => !requestedSet.has(queueItemId)))
+        ) {
+          throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_REORDER_STALE');
+        }
+
+        const itemById = new Map(snapshot.playlist.map((item) => [item.queueItemId, item]));
+        const nextPlaylist: ProRoomPlaylistWireItem[] = [];
+        for (const queueItemId of requested) {
+          const item = itemById.get(queueItemId);
+          if (item) nextPlaylist.push(item);
+        }
+        for (const item of snapshot.playlist) {
+          if (!requestedSet.has(item.queueItemId)) nextPlaylist.push(item);
+        }
+        return {
+          playlist: clonePlaylist(nextPlaylist),
+          currentQueueItemId: snapshot.currentQueueItemId,
+          playback: clonePlayback(snapshot.playback),
+        };
+      }, options.signal);
+    });
+  }
+
+  updateMetadata(
+    queueItemId: QueueItemId,
+    patch: UpdateProRoomPlaylistMetadataInput,
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    return this.#enqueue(() => {
+      this.#validateQueueItemId(queueItemId);
+      return this.#mutate((snapshot) => {
+        const index = snapshot.playlist.findIndex((item) => item.queueItemId === queueItemId);
+        if (index === -1) {
+          throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_NOT_FOUND');
+        }
+        const current = snapshot.playlist[index]!;
+        const next: ProRoomPlaylistWireItem = {
+          ...current,
+          source: current.source,
+          ...(patch.name === undefined ? {} : { name: patch.name }),
+        };
+        for (const field of ['title', 'artist', 'thumbnail'] as const) {
+          const value = patch[field];
+          if (value === undefined) continue;
+          if (value === null) delete next[field];
+          else next[field] = value;
+        }
+        const canonical = canonicalItem(next);
+        if (jsonEqual(canonical, current)) return null;
+        const playlist = clonePlaylist(snapshot.playlist);
+        playlist[index] = canonical;
+        return {
+          playlist,
+          currentQueueItemId: snapshot.currentQueueItemId,
+          playback: clonePlayback(snapshot.playback),
+        };
+      }, options.signal);
+    });
+  }
+
+  #appendCanonicalItem(
+    item: ProRoomPlaylistWireItem,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot> {
+    return this.#mutate((snapshot) => {
+      const existing = snapshot.playlist.find(
+        (candidate) => candidate.queueItemId === item.queueItemId,
+      );
+      if (existing) {
+        if (jsonEqual(existing, item)) return null;
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
+      }
+      this.#assertCapacity(snapshot, 1);
+      return {
+        playlist: [...clonePlaylist(snapshot.playlist), canonicalItem(item)],
+        currentQueueItemId: snapshot.currentQueueItemId,
+        playback: clonePlayback(snapshot.playback),
+      };
+    }, signal);
+  }
+
+  async #mutate(intent: PlaylistIntent, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    assertNotAborted(signal);
+    const base = this.#requireSnapshot();
+    const mutation = intent(base, false);
+    if (!mutation || sameMutation(base, mutation)) return cloneSnapshot(base);
+
+    const initialAttempt = await this.#attemptMutation(base, mutation, signal);
+    if (initialAttempt.outcome === 'accepted') return initialAttempt.snapshot;
+
+    assertNotAborted(signal);
+    const refreshed = await this.#api.getSnapshot(this.#code, signal);
+    const accepted = await this.#accept(refreshed);
+    if (accepted.revision <= base.revision) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_CONFLICT_REFRESH_STALE');
+    }
+    const rebased = intent(accepted, true);
+    if (!rebased || sameMutation(accepted, rebased)) return cloneSnapshot(accepted);
+    const retry = await this.#attemptMutation(accepted, rebased, signal);
+    if (retry.outcome === 'conflict') throw retry.error;
+    return retry.snapshot;
+  }
+
+  async #attemptMutation(
+    base: ProRoomSnapshot,
+    mutation: PlaylistMutation,
+    signal?: AbortSignal,
+  ): Promise<PlaylistMutationAttempt> {
+    assertNotAborted(signal);
+    if (mutation.playlist.length > PRO_ROOM_MAX_PLAYLIST_ITEMS) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_LIMIT_REACHED');
+    }
+    const input: UpdateProRoomSnapshotInput = {
+      code: this.#code,
+      baseRevision: base.revision,
+      playlist: clonePlaylist(mutation.playlist),
+      currentQueueItemId: mutation.currentQueueItemId,
+      playback: clonePlayback(mutation.playback),
+      idempotencyKey: this.#nextIdempotencyKey(),
+    };
+    let incoming: ProRoomSnapshot;
+    try {
+      incoming = await this.#api.updateSnapshot(input, signal);
+    } catch (error) {
+      if (isRevisionConflict(error)) return { outcome: 'conflict', error };
+      throw error;
+    }
+    return { outcome: 'accepted', snapshot: await this.#accept(incoming) };
+  }
+
+  async #accept(incoming: ProRoomSnapshot): Promise<ProRoomSnapshot> {
+    const result = applyProRoomSnapshotMonotonically(this.#snapshot, incoming);
+    if (
+      result.outcome === 'invalid' ||
+      result.outcome === 'stale' ||
+      result.outcome === 'conflict'
+    ) {
+      throw new ProRoomPlaylistStateError(
+        `PRO_ROOM_PLAYLIST_SNAPSHOT_${result.outcome.toUpperCase()}`,
+      );
+    }
+    const accepted = result.snapshot;
+    if (!accepted || accepted.roomCode !== this.#code) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SNAPSHOT_MISMATCH');
+    }
+    if (result.outcome === 'duplicate') return cloneSnapshot(accepted);
+
+    const projected = this.#projection.project(accepted.playlist);
+    const previous = this.#snapshot;
+    this.#snapshot = accepted;
+
+    if (previous && this.#invalidateCoordinator) {
+      const reason = shouldInvalidateCoordinator(previous, accepted);
+      if (reason) {
+        await this.#invalidateCoordinator({
+          previous: cloneSnapshot(previous),
+          next: cloneSnapshot(accepted),
+          ...reason,
+        });
+      }
+    }
+    await this.#sink({ snapshot: cloneSnapshot(accepted), playlist: projected });
+    return cloneSnapshot(accepted);
+  }
+
+  #requireSnapshot(): ProRoomSnapshot {
+    if (!this.#snapshot) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SESSION_INACTIVE');
+    }
+    return this.#snapshot;
+  }
+
+  #assertCapacity(snapshot: ProRoomSnapshot, additionalItems: number): void {
+    if (snapshot.playlist.length + additionalItems > PRO_ROOM_MAX_PLAYLIST_ITEMS) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_LIMIT_REACHED');
+    }
+  }
+
+  #nextQueueItemId(): QueueItemId {
+    return this.#validateQueueItemId(this.#createQueueItemId());
+  }
+
+  #validateQueueItemId(queueItemId: QueueItemId): QueueItemId {
+    if (!isProRoomQueueItemId(queueItemId)) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_ID_INVALID');
+    }
+    return queueItemId;
+  }
+
+  #currentTimeMs(): number {
+    const now = this.#now();
+    if (!Number.isSafeInteger(now) || now < 0) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_CLOCK_INVALID');
+    }
+    return now;
+  }
+
+  #nextIdempotencyKey(): string {
+    const key = this.#createIdempotencyKey();
+    if (typeof key !== 'string' || key.length === 0 || this.#issuedIdempotencyKeys.has(key)) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_IDEMPOTENCY_KEY_REUSED');
+    }
+    this.#issuedIdempotencyKeys.add(key);
+    return key;
+  }
+
+  async #bestEffortDelete(
+    assetId: string,
+    reason: ProRoomMediaCleanupErrorEvent['reason'],
+  ): Promise<void> {
+    try {
+      await this.#mediaTransfer.deleteAsset({ code: this.#code, assetId });
+    } catch (error) {
+      try {
+        await this.#reportMediaCleanupError?.({ reason, assetId, error });
+      } catch {
+        // Cleanup reporting is observational and must not replace the original
+        // mutation result or failure.
+      }
+    }
+  }
+
+  #enqueue<T>(operation: () => Promise<T> | T): Promise<T> {
+    const result = this.#operationTail.then(operation, operation);
+    this.#operationTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+}

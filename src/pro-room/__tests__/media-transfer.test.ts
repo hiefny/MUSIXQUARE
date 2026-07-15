@@ -432,3 +432,26 @@ describe('PRO room signed R2 download orchestration', () => {
     expect(cache.size).toBe(0);
   });
 });
+
+describe('PRO room media cleanup', () => {
+  it('deletes through the authenticated API and evicts every cached asset version', async () => {
+    const harness = apiHarness();
+    harness.deleteMedia.mockResolvedValue({ assetId: ASSET_ID, quota });
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      createIdempotencyKey: () => 'delete-key-0001',
+    });
+    transfer.cache.put(source(), new File(['data'], 'cached.flac', { type: 'audio/flac' }));
+
+    await expect(transfer.deleteAsset({ code: ROOM_CODE, assetId: ASSET_ID })).resolves.toEqual({
+      assetId: ASSET_ID,
+      quota,
+    });
+
+    expect(harness.deleteMedia).toHaveBeenCalledWith(
+      { code: ROOM_CODE, assetId: ASSET_ID, idempotencyKey: 'delete-key-0001' },
+      undefined,
+    );
+    expect(transfer.cache.size).toBe(0);
+  });
+});

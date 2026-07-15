@@ -182,7 +182,6 @@ const th: Record<I18nKey, string> = {
   'connect.qr_title': 'เชิญด้วย QR หรือลิงก์',
   'connect.max_devices': 'ความจุห้อง',
   'connect.device_list': 'อุปกรณ์เชื่อมต่อ {{count}} เครื่อง',
-  'connect.device_list_one': 'อุปกรณ์เชื่อมต่อ {{count}} เครื่อง',
   'connect.no_session': 'โปรดสร้างห้องก่อน',
   'connect.generating_qr': 'กำลังสร้างรหัส QR...',
   'connect.cannot_reduce': 'ไม่สามารถลดความจุได้: มีอุปกรณ์เชื่อมต่ออยู่แล้ว {{count}} เครื่อง',

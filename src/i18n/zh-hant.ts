@@ -185,7 +185,6 @@ const zhHant: Record<I18nKey, string> = {
   'connect.qr_title': '透過 QR 或連結邀請',
   'connect.max_devices': '最大容納裝置數',
   'connect.device_list': '{{count}} 台已連線裝置',
-  'connect.device_list_one': '{{count}} 台已連線裝置',
   'connect.no_session': '請先建立房間',
   'connect.generating_qr': '正在產生 QR 碼...',
   'connect.cannot_reduce': '目前已有 {{count}} 台裝置連線，無法縮減容量',

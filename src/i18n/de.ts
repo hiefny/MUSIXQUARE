@@ -185,7 +185,6 @@ const de: Record<I18nKey, string> = {
   'connect.qr_title': 'Per QR oder Link einladen',
   'connect.max_devices': 'Raumkapazität',
   'connect.device_list': '{{count}} verbundene Geräte',
-  'connect.device_list_one': '{{count}} verbundenes Gerät',
   'connect.no_session': 'Starte zuerst einen Raum',
   'connect.generating_qr': 'QR-Code wird erstellt...',
   'connect.cannot_reduce':
@@ -530,9 +529,9 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_clear': 'Chat wurde gelöscht',
   'chat.cmd_filter_on': 'Schimpfwortfilter aktiviert',
   'chat.cmd_filter_off': 'Schimpfwortfilter deaktiviert',
-  'chat.cmd_slowmode_on': 'Langsammodus: {{sec}}s zwischen Nachrichten',
+  'chat.cmd_slowmode_on': 'Langsammodus: {{sec}} Sekunden zwischen Nachrichten',
   'chat.cmd_slowmode_off': 'Langsammodus deaktiviert',
-  'chat.cmd_slowmode_wait': 'Warte {{sec}}s vor dem Senden',
+  'chat.cmd_slowmode_wait': 'Warte {{sec}} Sekunden vor dem Senden',
   'chat.cmd_notice_prefix': 'Hinweis',
   'chat.system_sender': 'SYSTEM',
   'chat.decode_skip_system_message':

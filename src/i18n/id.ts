@@ -185,7 +185,6 @@ const id: Record<I18nKey, string> = {
   'connect.qr_title': 'Undang lewat QR atau tautan',
   'connect.max_devices': 'Kapasitas Ruang',
   'connect.device_list': '{{count}} perangkat tersambung',
-  'connect.device_list_one': '{{count}} perangkat tersambung',
   'connect.no_session': 'Buat ruang terlebih dahulu',
   'connect.generating_qr': 'Membuat kode QR...',
   'connect.cannot_reduce': 'Tidak dapat mengurangi kapasitas: {{count}} perangkat sudah terhubung',

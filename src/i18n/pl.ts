@@ -183,7 +183,6 @@ const pl: Record<I18nKey, string> = {
   'connect.qr_title': 'Zaproś przez kod QR lub link',
   'connect.max_devices': 'Pojemność pokoju',
   'connect.device_list': 'Połączone urządzenia: {{count}}',
-  'connect.device_list_one': '{{count}} połączone urządzenie',
   'connect.no_session': 'Najpierw utwórz pokój',
   'connect.generating_qr': 'Generowanie kodu QR...',
   'connect.cannot_reduce':

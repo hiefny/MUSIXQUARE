@@ -182,7 +182,6 @@ const tr: Record<I18nKey, string> = {
   'connect.qr_title': 'QR veya Link ile Davet Et',
   'connect.max_devices': 'Oda Kapasitesi',
   'connect.device_list': '{{count}} bağlı cihaz',
-  'connect.device_list_one': '{{count}} bağlı cihaz',
   'connect.no_session': 'Lütfen önce bir oda oluşturun',
   'connect.generating_qr': 'QR kodu oluşturuluyor...',
   'connect.cannot_reduce': 'Kapasite düşürülemez: Zaten {{count}} cihaz bağlı',

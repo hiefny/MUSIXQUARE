@@ -185,7 +185,6 @@ const ptBr: Record<I18nKey, string> = {
   'connect.qr_title': 'Convidar por QR ou link',
   'connect.max_devices': 'Capacidade da sala',
   'connect.device_list': '{{count}} dispositivos conectados',
-  'connect.device_list_one': '{{count}} dispositivo conectado',
   'connect.no_session': 'Crie uma sala primeiro',
   'connect.generating_qr': 'Gerando código QR...',
   'connect.cannot_reduce':
@@ -389,7 +388,7 @@ const ptBr: Record<I18nKey, string> = {
     'Um dispositivo não conseguiu decodificar esta faixa. A reprodução continua para os outros.',
   'toast.invite_code': 'Código de convite: {{code}}',
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
-  'toast.added_tracks': '{{count}} faixa(s) adicionada(s)',
+  'toast.added_tracks': '{{count}} faixas adicionadas',
   'toast.preparing': 'Preparando: {{name}}',
   'toast.file_save_error': 'Erro ao salvar arquivo: {{name}}',
   'toast.distortion_warn': 'Pode causar distorção',
@@ -533,9 +532,9 @@ const ptBr: Record<I18nKey, string> = {
   'chat.cmd_clear': 'O chat foi limpo',
   'chat.cmd_filter_on': 'Filtro de palavrões ativado',
   'chat.cmd_filter_off': 'Filtro de palavrões desativado',
-  'chat.cmd_slowmode_on': 'Modo lento: {{sec}}s entre mensagens',
+  'chat.cmd_slowmode_on': 'Modo lento: {{sec}} segundos entre mensagens',
   'chat.cmd_slowmode_off': 'Modo lento desativado',
-  'chat.cmd_slowmode_wait': 'Aguarde {{sec}}s antes de enviar',
+  'chat.cmd_slowmode_wait': 'Aguarde {{sec}} segundos antes de enviar',
   'chat.cmd_notice_prefix': 'Aviso',
   'chat.system_sender': 'SYSTEM',
   'chat.decode_skip_system_message':

@@ -185,7 +185,6 @@ const zhHans: Record<I18nKey, string> = {
   'connect.qr_title': '通过二维码或链接邀请',
   'connect.max_devices': '最大容纳设备数',
   'connect.device_list': '{{count}} 台已连接设备',
-  'connect.device_list_one': '{{count}} 台已连接设备',
   'connect.no_session': '请先创建房间',
   'connect.generating_qr': '正在生成二维码...',
   'connect.cannot_reduce': '当前已连接 {{count}} 台设备，无法缩减容量',

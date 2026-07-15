@@ -9,6 +9,13 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import ko from './ko.ts';
 import en from './en.ts';
+import {
+  PLURAL_MESSAGES,
+  PLURAL_PARAM_BY_KEY,
+  type LocalePluralMessages,
+  type PluralCategory,
+  type PluralI18nKey,
+} from './plural.ts';
 
 import type { I18nKey } from './ko.ts';
 export type { I18nKey };
@@ -61,6 +68,8 @@ const _dicts: Partial<Record<LanguageCode, Record<string, string>>> = {
   en,
 };
 
+const _pluralRules = new Map<LanguageCode, Intl.PluralRules>();
+
 const _localeLoaders: Partial<
   Record<LanguageCode, () => Promise<{ default: Record<string, string> }>>
 > = {
@@ -94,16 +103,49 @@ const _loadingFonts = new Map<LanguageCode, Promise<void>>();
 
 // ─── Public API ─────────────────────────────────────────────────
 
-/**
- * Translate a semantic key, optionally interpolating `{{param}}` placeholders.
- *
- * @example
- *   t('common.ok')                                   // "확인" or "OK"
- *   t('toast.device_connected', { name: 'iPhone' })  // "iPhone가 연결됐어요"
- */
-export function t(key: I18nKey, params?: Record<string, string | number>): string {
-  const dict = _dicts[_resolved] || en;
-  let str: string = dict[key] ?? en[key] ?? key;
+type TranslationParams = Record<string, string | number>;
+
+function _pluralCategory(value: number): PluralCategory {
+  try {
+    let rules = _pluralRules.get(_resolved);
+    if (!rules) {
+      rules = new Intl.PluralRules(_htmlLangFor(_resolved));
+      _pluralRules.set(_resolved, rules);
+    }
+    return rules.select(value) as PluralCategory;
+  } catch {
+    // Ancient or embedded browsers without Intl.PluralRules still get the
+    // English-style cardinal fallback instead of a broken placeholder.
+    return value === 1 ? 'one' : 'other';
+  }
+}
+
+function _pluralFormsFor(code: LanguageCode): LocalePluralMessages | undefined {
+  return (PLURAL_MESSAGES as Partial<Record<LanguageCode, LocalePluralMessages>>)[code];
+}
+
+function _translationTemplate(key: I18nKey, params?: TranslationParams): string {
+  const dict = _dicts[_resolved];
+  const pluralKey = key as PluralI18nKey;
+  const pluralParam = PLURAL_PARAM_BY_KEY[pluralKey];
+  const pluralValue = pluralParam ? params?.[pluralParam] : undefined;
+
+  if (typeof pluralValue === 'number' && Number.isFinite(pluralValue)) {
+    const category = _pluralCategory(pluralValue);
+
+    // Only use a locale-specific grammatical variant when that locale's main
+    // dictionary loaded successfully. Otherwise keep the established all-
+    // English fallback instead of rendering a mixed-language sentence.
+    if (dict) {
+      return _pluralFormsFor(_resolved)?.[pluralKey]?.[category] ?? dict[key] ?? en[key] ?? key;
+    }
+    return _pluralFormsFor('en')?.[pluralKey]?.[category] ?? en[key] ?? key;
+  }
+
+  return dict?.[key] ?? en[key] ?? key;
+}
+
+function _interpolate(str: string, params?: TranslationParams): string {
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       str = str.replaceAll(`{{${k}}}`, String(v));
@@ -112,10 +154,22 @@ export function t(key: I18nKey, params?: Record<string, string | number>): strin
   return str;
 }
 
+/**
+ * Translate a semantic key, optionally interpolating `{{param}}` placeholders.
+ * Count-sensitive keys also select their locale's grammatical plural form.
+ *
+ * @example
+ *   t('common.ok')                                   // "확인" or "OK"
+ *   t('toast.device_connected', { name: 'iPhone' })  // "iPhone가 연결됐어요"
+ *   t('toast.added_tracks', { count: 1 })             // "1 track added"
+ */
+export function t(key: I18nKey, params?: TranslationParams): string {
+  return _interpolate(_translationTemplate(key, params), params);
+}
+
 /** Translate with HTML-safe interpolation (escapes param values for innerHTML contexts). */
 export function tHtml(key: I18nKey, params?: Record<string, string | number>): string {
-  const dict = _dicts[_resolved] || en;
-  let str: string = dict[key] ?? en[key] ?? key;
+  let str = _translationTemplate(key, params);
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       const escaped = String(v).replace(

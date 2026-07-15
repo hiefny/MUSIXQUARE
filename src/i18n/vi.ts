@@ -185,7 +185,6 @@ const vi: Record<I18nKey, string> = {
   'connect.qr_title': 'Mời bằng QR hoặc liên kết',
   'connect.max_devices': 'Sức chứa phòng',
   'connect.device_list': '{{count}} thiết bị đã kết nối',
-  'connect.device_list_one': '{{count}} thiết bị đã kết nối',
   'connect.no_session': 'Hãy tạo phòng trước',
   'connect.generating_qr': 'Đang tạo mã QR...',
   'connect.cannot_reduce': 'Không thể giảm sức chứa: {{count}} thiết bị đã kết nối',

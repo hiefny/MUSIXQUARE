@@ -185,7 +185,6 @@ const ja: Record<I18nKey, string> = {
   'connect.qr_title': 'QRまたはリンクで招待',
   'connect.max_devices': '最大収容デバイス数',
   'connect.device_list': '{{count}}台の接続中デバイス',
-  'connect.device_list_one': '{{count}}台の接続中デバイス',
   'connect.no_session': '先にルームを作成してください',
   'connect.generating_qr': 'QRコードを生成中...',
   'connect.cannot_reduce': '接続中のデバイスが{{count}}台あるため、収容数を減らせません',

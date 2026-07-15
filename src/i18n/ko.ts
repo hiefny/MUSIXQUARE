@@ -181,7 +181,6 @@ const ko = {
   'connect.qr_title': 'QR 또는 링크로 초대',
   'connect.max_devices': '접속 가능한 기기 수',
   'connect.device_list': '연결된 기기 {{count}}대',
-  'connect.device_list_one': '연결된 기기 {{count}}대',
   'connect.no_session': '세션을 먼저 시작하세요',
   'connect.generating_qr': 'QR 코드 생성 중...',
   'connect.cannot_reduce': '현재 이미 {{count}}대의 기기가 연결되어 있어 더 줄일 수 없어요.',

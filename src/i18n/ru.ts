@@ -182,7 +182,6 @@ const ru: Record<I18nKey, string> = {
   'connect.qr_title': 'Пригласить по QR-коду или ссылке',
   'connect.max_devices': 'Вместимость комнаты',
   'connect.device_list': 'Подключено устройств: {{count}}',
-  'connect.device_list_one': 'Подключено устройств: {{count}}',
   'connect.no_session': 'Сначала создайте комнату',
   'connect.generating_qr': 'Генерация QR-кода...',
   'connect.cannot_reduce': 'Невозможно уменьшить лимит. Уже подключено устройств: {{count}}',

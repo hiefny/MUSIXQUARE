@@ -183,7 +183,6 @@ const it: Record<I18nKey, string> = {
   'connect.qr_title': 'Invita tramite QR o link',
   'connect.max_devices': 'Capacità stanza',
   'connect.device_list': '{{count}} dispositivi connessi',
-  'connect.device_list_one': '{{count}} dispositivo connesso',
   'connect.no_session': 'Avvia prima una sessione',
   'connect.generating_qr': 'Generazione codice QR...',
   'connect.cannot_reduce':

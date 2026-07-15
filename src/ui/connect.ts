@@ -367,11 +367,6 @@ function _updateDeviceTitles(): void {
 }
 
 function _deviceListTitle(count: number): string {
-  // Every locale defines device_list_one; languages without a grammatical
-  // singular duplicate the plural string, so this is safe unconditionally.
-  if (count === 1) {
-    return t('connect.device_list_one', { count });
-  }
   return t('connect.device_list', { count });
 }
 

@@ -6,4 +6,4 @@
  * changes only this line to `true`; rollback changes the same line back to
  * `false` and rebuilds the static application.
  */
-export const FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED: boolean = false;
+export const FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED: boolean = true;

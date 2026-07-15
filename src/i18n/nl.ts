@@ -451,6 +451,8 @@ const nl: Record<I18nKey, string> = {
     'Precieze sync aangevraagd.\nPas handmatige sync aan op een gastapparaat.',
   'toast.sync_not_in_system_audio': 'Sync is niet beschikbaar bij systeem-audio delen',
   'toast.sync_not_ready': 'Nog niet klaar.\nProbeer het zo opnieuw',
+  'toast.sync_no_media':
+    'Er is geen media om te synchroniseren.\nSelecteer eerst media om af te spelen',
   'toast.host_ad': 'De host lijkt een advertentie te bekijken',
   'toast.yt_sync_start': 'Synchroniseren...',
   'toast.yt_sync_done': 'Sync voltooid',

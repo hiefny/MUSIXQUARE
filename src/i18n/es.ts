@@ -427,6 +427,8 @@ const es: Record<I18nKey, string> = {
   'toast.sync_not_in_system_audio':
     'La sincronización no está disponible en modo de audio del sistema',
   'toast.sync_not_ready': 'Aún no está listo.\nInténtalo de nuevo en un momento',
+  'toast.sync_no_media':
+    'No hay contenido multimedia para sincronizar.\nPrimero selecciona algo para reproducir',
   'toast.host_ad': 'Parece que el host está viendo un anuncio',
   'toast.yt_sync_start': 'Sincronizando...',
   'toast.yt_sync_done': 'Sincronización completa',

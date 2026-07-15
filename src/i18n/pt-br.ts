@@ -426,6 +426,8 @@ const ptBr: Record<I18nKey, string> = {
   'toast.sync_not_in_system_audio':
     'Sincronização indisponível no modo de compartilhamento de áudio do sistema',
   'toast.sync_not_ready': 'Ainda não está pronto.\nTente novamente em instantes',
+  'toast.sync_no_media':
+    'Não há mídia para sincronizar.\nPrimeiro, selecione uma mídia para reproduzir',
   'toast.host_ad': 'Parece que o host está assistindo a um anúncio',
   'toast.yt_sync_start': 'Sincronizando...',
   'toast.yt_sync_done': 'Sincronização concluída',

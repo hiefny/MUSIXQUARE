@@ -374,6 +374,27 @@ describe('initPlayerControls sync button', () => {
     `;
   }
 
+  it('tells a fresh host to select media instead of suggesting a passive retry', () => {
+    renderSyncControls();
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(showToast).toHaveBeenCalledWith(
+      "There's no media to sync.\nSelect something to play first",
+    );
+  });
+
+  it('keeps the transient not-ready message for a guest waiting on the host', () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+  });
+
   it('runs guest YouTube rendezvous before opening the manual sync panel', () => {
     renderSyncControls();
     setState('network.hostConn', makeConnection('host-1'));

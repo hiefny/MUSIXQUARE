@@ -472,6 +472,8 @@ const it: Record<I18nKey, string> = {
   'toast.sync_not_in_system_audio':
     'La sincronizzazione non è supportata in modalità condivisione audio di sistema',
   'toast.sync_not_ready': 'Non ancora pronto.\nRiprova tra qualche istante',
+  'toast.sync_no_media':
+    'Non ci sono contenuti da sincronizzare.\nPrima seleziona un contenuto da riprodurre',
   'toast.host_ad': 'Il gestore della stanza potrebbe star visualizzando un annuncio',
   'toast.yt_sync_start': 'Sincronizzazione...',
   'toast.yt_sync_done': 'Sincronizzazione completata',

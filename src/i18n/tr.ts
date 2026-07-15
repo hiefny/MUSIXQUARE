@@ -465,6 +465,7 @@ const tr: Record<I18nKey, string> = {
     'Hassas senkronizasyon talep edildi.\nLütfen senkronizasyon ayarını misafir cihazından yapın.',
   'toast.sync_not_in_system_audio': 'Sistem sesi paylaşım modunda senkronizasyon kullanılamaz',
   'toast.sync_not_ready': 'Henüz hazır değil.\nLütfen birazdan tekrar deneyin',
+  'toast.sync_no_media': 'Senkronize edilecek medya yok.\nÖnce oynatılacak bir medya seçin',
   'toast.host_ad': 'Oda sahibi şu anda reklam izliyor olabilir',
   'toast.yt_sync_start': 'Senkronize ediliyor...',
   'toast.yt_sync_done': 'Senkronizasyon tamamlandı',

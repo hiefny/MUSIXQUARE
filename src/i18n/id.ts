@@ -422,6 +422,8 @@ const id: Record<I18nKey, string> = {
     'Sinkronisasi presisi diminta.\nAtur sinkronisasi manual di perangkat peserta.',
   'toast.sync_not_in_system_audio': 'Sinkronisasi tidak tersedia dalam mode berbagi audio sistem',
   'toast.sync_not_ready': 'Belum siap.\nCoba lagi sebentar lagi',
+  'toast.sync_no_media':
+    'Tidak ada media untuk disinkronkan.\nPilih media untuk diputar terlebih dahulu',
   'toast.host_ad': 'Host sepertinya sedang menonton iklan',
   'toast.yt_sync_start': 'Menyinkronkan...',
   'toast.yt_sync_done': 'Sinkronisasi selesai',

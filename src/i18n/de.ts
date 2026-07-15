@@ -424,6 +424,8 @@ const de: Record<I18nKey, string> = {
     'Präzise Synchronisierung angefordert.\nManuellen Sync auf einem Teilnehmergerät anpassen.',
   'toast.sync_not_in_system_audio': 'Sync ist im Systemaudio-Freigabemodus nicht verfügbar',
   'toast.sync_not_ready': 'Noch nicht bereit.\nVersuche es gleich erneut',
+  'toast.sync_no_media':
+    'Keine Medien zum Synchronisieren.\nWähle zuerst ein Medium zur Wiedergabe aus',
   'toast.host_ad': 'Der Host scheint eine Werbung anzusehen',
   'toast.yt_sync_start': 'Synchronisierung...',
   'toast.yt_sync_done': 'Synchronisierung abgeschlossen',

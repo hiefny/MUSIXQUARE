@@ -410,6 +410,7 @@ const zhHant: Record<I18nKey, string> = {
   'toast.host_sync_requested': '已要求精準同步。\n請在參與者裝置上調整手動同步。',
   'toast.sync_not_in_system_audio': '系統音訊分享模式無法使用同步',
   'toast.sync_not_ready': '尚未準備好。\n請稍後再試',
+  'toast.sync_no_media': '沒有可同步的媒體。\n請先選擇要播放的媒體',
   'toast.host_ad': '主持人似乎正在觀看廣告',
   'toast.yt_sync_start': '正在同步...',
   'toast.yt_sync_done': '同步完成',

@@ -419,6 +419,7 @@ const vi: Record<I18nKey, string> = {
     'Đã yêu cầu đồng bộ chính xác.\nHãy chỉnh đồng bộ thủ công trên thiết bị của người tham gia.',
   'toast.sync_not_in_system_audio': 'Không thể dùng đồng bộ trong chế độ chia sẻ âm thanh hệ thống',
   'toast.sync_not_ready': 'Chưa sẵn sàng.\nHãy thử lại sau',
+  'toast.sync_no_media': 'Không có nội dung để đồng bộ.\nHãy chọn nội dung để phát trước',
   'toast.host_ad': 'Có vẻ host đang xem quảng cáo',
   'toast.yt_sync_start': 'Đang đồng bộ...',
   'toast.yt_sync_done': 'Đồng bộ hoàn tất',

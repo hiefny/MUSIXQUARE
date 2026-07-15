@@ -456,6 +456,7 @@ const ko = {
     '정밀 동기화를 요청했어요.\n수동 싱크 조절은 참여자 기기에서 시도해주세요.',
   'toast.sync_not_in_system_audio': '시스템 오디오 공유 모드는 동기화를 사용할 수 없어요',
   'toast.sync_not_ready': '아직 준비 중이에요.\n잠시 후 다시 시도해주세요',
+  'toast.sync_no_media': '동기화할 미디어가 없어요.\n먼저 재생할 미디어를 선택해주세요',
   'toast.host_ad': '방장이 광고를 보고 있는 것 같아요',
   'toast.yt_sync_start': '동기화 중...',
   'toast.yt_sync_done': '동기화 완료',

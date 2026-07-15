@@ -459,6 +459,7 @@ const th: Record<I18nKey, string> = {
   'toast.host_sync_requested': 'ขอซิงค์ความแม่นยำสูงแล้ว\nปรับซิงค์แบบกำหนดเองบนอุปกรณ์ผู้เข้าร่วม',
   'toast.sync_not_in_system_audio': 'ใช้การซิงค์ไม่ได้ในโหมดแชร์เสียงระบบ',
   'toast.sync_not_ready': 'ยังไม่พร้อม\nโปรดลองอีกครั้งภายหลัง',
+  'toast.sync_no_media': 'ไม่มีสื่อให้ซิงค์\nโปรดเลือกสื่อที่จะเล่นก่อน',
   'toast.host_ad': 'ดูเหมือนโฮสต์กำลังดูโฆษณา',
   'toast.yt_sync_start': 'กำลังซิงค์...',
   'toast.yt_sync_done': 'ซิงค์เสร็จแล้ว',

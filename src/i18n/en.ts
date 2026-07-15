@@ -457,6 +457,7 @@ const en: Record<I18nKey, string> = {
   'toast.host_sync_requested': 'Precision sync requested.\nAdjust manual sync on a guest device.',
   'toast.sync_not_in_system_audio': 'Sync is unavailable in system audio sharing mode',
   'toast.sync_not_ready': 'Not ready yet.\nTry again in a moment',
+  'toast.sync_no_media': "There's no media to sync.\nSelect something to play first",
   'toast.host_ad': 'The host seems to be watching an ad',
   'toast.yt_sync_start': 'Syncing...',
   'toast.yt_sync_done': 'Sync complete',

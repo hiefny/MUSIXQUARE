@@ -430,6 +430,7 @@ const fr: Record<I18nKey, string> = {
   'toast.sync_not_in_system_audio':
     'La synchronisation n’est pas disponible en mode partage audio système',
   'toast.sync_not_ready': 'Pas encore prêt.\nRéessayez dans un instant',
+  'toast.sync_no_media': 'Aucun média à synchroniser.\nSélectionnez d’abord un média à lire',
   'toast.host_ad': 'L’hôte semble regarder une publicité',
   'toast.yt_sync_start': 'Synchronisation...',
   'toast.yt_sync_done': 'Synchronisation terminée',

@@ -420,6 +420,7 @@ const ja: Record<I18nKey, string> = {
     '高精度同期を要求しました。\n手動同期は参加者デバイスで調整してください。',
   'toast.sync_not_in_system_audio': 'システムオーディオ共有モードでは同期を利用できません',
   'toast.sync_not_ready': 'まだ準備中です。\n少し待ってから再試行してください',
+  'toast.sync_no_media': '同期するメディアがありません。\n先に再生するメディアを選択してください',
   'toast.host_ad': 'ホストが広告を見ているようです',
   'toast.yt_sync_start': '同期中...',
   'toast.yt_sync_done': '同期完了',

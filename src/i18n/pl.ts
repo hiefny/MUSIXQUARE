@@ -469,6 +469,8 @@ const pl: Record<I18nKey, string> = {
   'toast.sync_not_in_system_audio':
     'Synchronizacja nie jest obsługiwana w trybie udostępniania dźwięku systemowego',
   'toast.sync_not_ready': 'Jeszcze nie gotowe.\nSpróbuj ponownie za chwilę',
+  'toast.sync_no_media':
+    'Brak multimediów do synchronizacji.\nNajpierw wybierz multimedia do odtworzenia',
   'toast.host_ad': 'Host pokoju prawdopodobnie ogląda teraz reklamę',
   'toast.yt_sync_start': 'Synchronizowanie...',
   'toast.yt_sync_done': 'Synchronizacja zakończona',

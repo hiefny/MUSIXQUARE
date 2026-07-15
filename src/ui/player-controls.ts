@@ -495,6 +495,11 @@ function handleMainSyncBtn(): void {
   }
 
   const hostConn = getState('network.hostConn');
+  if (!hostConn && !isPlaybackModeFile() && !isPlaybackModeYouTube()) {
+    showToast(t('toast.sync_no_media'));
+    return;
+  }
+
   if (isPlaybackModeYouTube()) {
     if (!hostConn) {
       broadcastYouTubeSync(true);

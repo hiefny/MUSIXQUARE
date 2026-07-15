@@ -123,4 +123,16 @@ describe('count-sensitive translations', () => {
       }
     }
   });
+
+  it('preserves each count placeholder in every plural variant', () => {
+    for (const [locale, messages] of Object.entries(PLURAL_MESSAGES)) {
+      for (const [key, variants] of Object.entries(messages || {})) {
+        const parameter = PLURAL_PARAM_BY_KEY[key as keyof typeof PLURAL_PARAM_BY_KEY];
+        for (const [form, value] of Object.entries(variants || {})) {
+          const placeholders = [...value.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1]);
+          expect(placeholders, `${locale}.${key}.${form}`).toEqual([parameter]);
+        }
+      }
+    }
+  });
 });

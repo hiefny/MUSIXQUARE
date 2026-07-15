@@ -7,6 +7,7 @@ import fr from '../fr.ts';
 import id from '../id.ts';
 import italian from '../it.ts';
 import ja from '../ja.ts';
+import nl from '../nl.ts';
 import pl from '../pl.ts';
 import ptBr from '../pt-br.ts';
 import ru from '../ru.ts';
@@ -26,6 +27,7 @@ const locales = {
   id,
   italian,
   ja,
+  nl,
   pl,
   ptBr,
   ru,
@@ -113,6 +115,112 @@ describe('Translation key integrity', () => {
     }
 
     expect(mismatched).toEqual([]);
+  });
+
+  it('intentional line breaks match English in every translated locale', () => {
+    const newlineSequence = (value: string): string[] => value.match(/\n/g) || [];
+    const mismatched: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      // Korean and English are jointly authored sources and occasionally use
+      // different line wrapping. All other locale files are translated from
+      // the English reference and must preserve its intentional toast/dialog
+      // breaks.
+      if (locale === 'ko' || locale === 'en') continue;
+      for (const key of koKeys) {
+        const enNewlines = newlineSequence(en[key as keyof typeof en] || '');
+        const localeNewlines = newlineSequence(dict[key as keyof typeof dict] || '');
+
+        if (enNewlines.length !== localeNewlines.length) {
+          mismatched.push(
+            `${locale}.${key}: en=${enNewlines.length} ${locale}=${localeNewlines.length}`,
+          );
+        }
+      }
+    }
+
+    expect(mismatched).toEqual([]);
+  });
+
+  it('functional HTML attributes match Korean in every locale', () => {
+    const attrRe = /\b(?:href|target|rel|class|style|data-[\w-]+)=(?:"[^"]*"|'[^']*')/g;
+    const attributes = (value: string): string[] => (value.match(attrRe) || []).sort();
+    const mismatched: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of koKeys) {
+        const koAttrs = attributes(ko[key as keyof typeof ko] || '');
+        const localeAttrs = attributes(dict[key as keyof typeof dict] || '');
+
+        if (JSON.stringify(koAttrs) !== JSON.stringify(localeAttrs)) {
+          mismatched.push(`${locale}.${key}`);
+        }
+      }
+    }
+
+    expect(mismatched).toEqual([]);
+  });
+
+  it('keeps slash-command names executable in every locale', () => {
+    const commandKeys = koKeys.filter((key) => key.startsWith('chat.cmd_u_'));
+    const mismatched: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of commandKeys) {
+        const englishCommand = en[key as keyof typeof en].match(/^\/\w+/)?.[0];
+        const localized = dict[key as keyof typeof dict] || '';
+        if (englishCommand && !localized.startsWith(englishCommand)) {
+          mismatched.push(`${locale}.${key}: expected ${englishCommand}`);
+        }
+      }
+    }
+
+    expect(mismatched).toEqual([]);
+  });
+
+  it('preserves all-caps status labels in scripts that support letter case', () => {
+    const caseBearingLocales = { en, de, es, fr, id, italian, nl, pl, ptBr, ru, tr, vi };
+    const keys = ['youtube.tap_to_play', 'chat.system_sender'] as const;
+    const mismatched: string[] = [];
+
+    for (const [locale, dict] of Object.entries(caseBearingLocales)) {
+      for (const key of keys) {
+        if (/\p{Ll}/u.test(dict[key])) mismatched.push(`${locale}.${key}: ${dict[key]}`);
+      }
+    }
+
+    expect(mismatched).toEqual([]);
+  });
+
+  it('describes system-audio support as computer Chromium support, not desktop hardware', () => {
+    const desktopHardwareTerms = /desktop|데스크톱|デスクトップ|桌面|เดสก์ท็อป|masaüstü|настольн/i;
+    const keys = ['system_audio.desktop_only', 'player.play_media_action_html'] as const;
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of keys) {
+        expect(dict[key], `${locale}.${key}`).toMatch(/Chrom(?:e|ium)/i);
+        expect(dict[key], `${locale}.${key}`).not.toMatch(desktopHardwareTerms);
+      }
+    }
+    expect(en['system_audio.desktop_only']).toBe(
+      'Only available on computers using a Chromium-based browser (Chrome, Edge, etc.).',
+    );
+    expect(ko['system_audio.desktop_only']).toBe(
+      '컴퓨터의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
+    );
+  });
+
+  it('describes the subwoofer low-pass control as cutoff, not a full crossover', () => {
+    const crossoverTerms = /crossover|croisement|cruce|кроссов|分频|分頻|ครอสโอเวอร์/i;
+    const keys = ['settings.subwoofer_adjust', 'settings.subwoofer_cutoff'] as const;
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of keys) {
+        expect(dict[key], `${locale}.${key}`).not.toMatch(crossoverTerms);
+      }
+    }
+    expect(en['settings.subwoofer_cutoff']).toBe('Subwoofer Cutoff Frequency');
+    expect(ko['settings.subwoofer_cutoff']).toBe('서브우퍼 컷오프 주파수');
   });
 
   it('no machine-translation protection tokens remain in locale values', () => {

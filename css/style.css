@@ -451,15 +451,28 @@
     }
   }
 
-  @keyframes modalSlideUp {
+  /* Dialog dimming must stay fixed; the shared fadeIn keyframe also moves 10px. */
+  @keyframes dialogBackdropIn {
     from {
       opacity: 0;
-      transform: translateY(20px) scale(0.95);
     }
 
     to {
       opacity: 1;
-      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Keep the clipped, shadowed surface translation-only. Scaling it can snap
+     subpixel-centered multiline dialogs when WebKit drops the animation layer. */
+  @keyframes modalSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
@@ -1910,7 +1923,7 @@
   .sub-playlist {
     list-style: none;
     padding: 0 0 8px 48px;
-    margin: -4px 0 8px 0;
+    margin: 0 0 8px;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -3544,7 +3557,7 @@
     -webkit-backdrop-filter: none;
     z-index: 6000;
     /* Higher than onboarding-overlay (2000) and desktop overlay (5000) */
-    animation: fadeIn 0.3s ease-out;
+    animation: dialogBackdropIn 0.3s ease-out both;
   }
 
   .dialog-overlay.show {
@@ -3622,7 +3635,7 @@
     );
     filter: drop-shadow(0 20px 48px rgba(0, 0, 0, 0.32));
     overflow: hidden;
-    animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
     display: flex;
     flex-direction: column;
   }

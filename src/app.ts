@@ -90,6 +90,7 @@ import { initConnect } from './ui/connect.ts';
 import { initSetup } from './ui/setup.ts';
 import { initDemoMode } from './demo/mode.ts';
 import { initAnnouncementPolling } from './ui/announcement.ts';
+import { initProRoomBranding } from './pro-room/branding.ts';
 
 // ── Service Worker ──
 import { registerServiceWorker } from './sw-register.ts';
@@ -461,6 +462,7 @@ async function bootstrap(): Promise<void> {
   safeInit('Setup', initSetup);
   safeInit('DemoMode', initDemoMode);
   safeInit('AnnouncementPolling', initAnnouncementPolling);
+  safeInit('ProRoomBranding', initProRoomBranding);
 
   // 9. Service Worker
   safeInit('ServiceWorker', registerServiceWorker);

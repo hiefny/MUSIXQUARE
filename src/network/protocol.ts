@@ -55,6 +55,10 @@ const isArrayBufferLike = (v: unknown): boolean =>
 
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Cloudflare signaling's authenticated PRO participant identifier contract.
+// Keep member-management requests to one small opaque identifier so callers
+// cannot smuggle a connection object or other coordinator-owned state.
+const PRO_PEER_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
 // Tight numeric validator — rejects NaN, Infinity, -Infinity, and out-of-range
 // values. Without this, Number(undefined) → NaN silently passes typeof===number,
@@ -146,6 +150,8 @@ function isValidRequestSetting(data: Record<string, unknown>): boolean {
 }
 
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
+  [MSG.PRO_ROOM_INVALIDATED]: (d) =>
+    isNonNegSafeInt(d.revision) && isNonNegSafeInt(d.playlistRevision),
   [MSG.PLAY]: (d) =>
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&
@@ -287,6 +293,12 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: (d) =>
     typeof d.playlistId === 'string' && d.playlistId.length > 0 && d.playlistId.length <= 64,
   [MSG.REQUEST_SETTING]: isValidRequestSetting,
+  [MSG.REQUEST_KICK_DEVICE]: (d) =>
+    Object.keys(d).length === 2 &&
+    Object.prototype.hasOwnProperty.call(d, 'type') &&
+    Object.prototype.hasOwnProperty.call(d, 'targetPeerId') &&
+    typeof d.targetPeerId === 'string' &&
+    PRO_PEER_ID_RE.test(d.targetPeerId),
 
   // File transfer — validate session IDs and indices
   [MSG.FILE_PREPARE]: (d) =>

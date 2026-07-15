@@ -211,6 +211,50 @@ describe('local file picker hint', () => {
   });
 });
 
+describe('PRO room media-source capabilities', () => {
+  it('lets a PRO member add files and YouTube entries without granting live capture ownership', () => {
+    document.body.innerHTML = `
+      <button id="btn-add-media"></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <div id="media-source-overlay"></div>
+      <button id="btn-local-file"></button>
+      <input id="file-input" type="file" />
+      <button id="btn-youtube-source"></button>
+      <div id="youtube-url-overlay"></div>
+      <div id="youtube-url-input"></div>
+      <button id="btn-system-audio"></button>
+    `;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('coordinator'));
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate', 'asset.upload'],
+    });
+    const input = document.getElementById('file-input') as HTMLInputElement;
+    const inputClick = vi.spyOn(input, 'click');
+
+    initPlayerControls();
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
+    document.getElementById('btn-add-media')?.click();
+    expect(document.getElementById('media-source-overlay')?.classList.contains('active')).toBe(
+      true,
+    );
+
+    document.getElementById('btn-local-file')?.click();
+    expect(inputClick).toHaveBeenCalledTimes(1);
+
+    document.getElementById('btn-youtube-source')?.click();
+    expect(document.getElementById('youtube-url-overlay')?.classList.contains('active')).toBe(true);
+
+    expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
+  });
+});
+
 describe('initPlayerControls playback mode rendering', () => {
   function renderPlaybackControls(): void {
     document.body.innerHTML = `

@@ -313,6 +313,8 @@ export interface ProtocolMap {
     /** Only the first queue snapshot on a new host connection may rebaseline. */
     bootstrap?: true;
   };
+  /** Member hint that the authenticated PRO service has a newer snapshot. */
+  'pro-room-invalidated': { revision: number; playlistRevision: number };
   // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
   // resync) — the receiving handler applies the value but skips the toast.
   'repeat-mode': { value: number; _bootstrap?: boolean };
@@ -420,6 +422,8 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     sessionId?: number;
   };
+  /** Authenticated PRO controller request; the coordinator re-authorizes the target. */
+  'request-kick-device': { targetPeerId: string };
   'request-youtube-play': { queueItemId: QueueItemId };
   'request-youtube-pause': { queueItemId: QueueItemId };
   'request-youtube-toggle': { queueItemId: QueueItemId };
@@ -540,8 +544,8 @@ export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 
 // ─── State Tree ──────────────────────────────────────────────────────
 
-export type RoomKind = 'standard' | 'pro';
-export type RoomParticipantRole = 'coordinator' | 'member' | 'idle';
+type RoomKind = 'standard' | 'pro';
+type RoomParticipantRole = 'coordinator' | 'member' | 'idle';
 export type RoomCapability =
   | 'queue.mutate'
   | 'playback.control'
@@ -918,6 +922,7 @@ interface BaseEventMap {
       queueItemId: QueueItemId;
       autoplay?: boolean;
       subIndex?: number;
+      positionSeconds?: number;
     },
   ];
   'youtube:toggle-play': [];
@@ -939,6 +944,7 @@ interface BaseEventMap {
           videoId?: string;
           skipSeek?: boolean;
           rendezvousDelayMs?: number;
+          state?: 1 | 2;
         },
   ];
   'youtube:get-position': [callback: (pos: number) => void];

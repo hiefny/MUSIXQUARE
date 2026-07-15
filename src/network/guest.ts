@@ -505,6 +505,17 @@ function handleOperatorGrant(_data: Record<string, unknown>, conn?: DataConnecti
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
+  // PRO controller authority comes from the authenticated room snapshot, not
+  // legacy operator frames. Ratchet the compatibility flag back to true if a
+  // stale frame/state ever reaches this path, without showing a misleading
+  // grant/revoke toast.
+  if (getRoomContext().kind === 'pro') {
+    setState('network.isOperator', true);
+    bus.emit('ui:play-btn-state', true);
+    bus.emit('network:role-badge-update');
+    return;
+  }
+
   setState('network.isOperator', true);
   showToast(t('network.op_granted'));
   bus.emit('ui:play-btn-state', true);
@@ -520,6 +531,13 @@ function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnect
   // same trust-boundary rule as handleOperatorGrant.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
+
+  if (getRoomContext().kind === 'pro') {
+    setState('network.isOperator', true);
+    bus.emit('ui:play-btn-state', true);
+    bus.emit('network:role-badge-update');
+    return;
+  }
 
   setState('network.isOperator', false);
   showToast(t('network.op_revoked'));

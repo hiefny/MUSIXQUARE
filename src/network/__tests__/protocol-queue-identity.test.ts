@@ -18,6 +18,26 @@ beforeEach(() => {
 });
 
 describe('queue identity protocol validation', () => {
+  it('accepts only bounded integer PRO snapshot invalidations', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.PRO_ROOM_INVALIDATED, handler);
+    const conn = connection('pro-member');
+
+    await handleData({ type: MSG.PRO_ROOM_INVALIDATED, revision: 4, playlistRevision: 2 }, conn);
+    await handleData({ type: MSG.PRO_ROOM_INVALIDATED, revision: -1, playlistRevision: 2 }, conn);
+    await handleData({ type: MSG.PRO_ROOM_INVALIDATED, revision: 5, playlistRevision: 1.5 }, conn);
+    await handleData(
+      {
+        type: MSG.PRO_ROOM_INVALIDATED,
+        revision: Number.MAX_SAFE_INTEGER + 1,
+        playlistRevision: 3,
+      },
+      conn,
+    );
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('dispatches only complete, internally consistent playlist snapshots', async () => {
     const handler = vi.fn();
     registerHandler(MSG.PLAYLIST_UPDATE, handler);

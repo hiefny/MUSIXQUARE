@@ -2,7 +2,7 @@ import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api.ts';
-import { takeProRoomClaimFromFragment } from './claim-fragment.ts';
+import { takeProRoomClaimsFromFragment } from './claim-fragment.ts';
 import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 
 async function showUnavailable(title: string, message: string): Promise<void> {
@@ -54,7 +54,9 @@ function isMissingCookieSession(error: unknown): boolean {
  */
 export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   if (!isProRoomCode(code)) throw new Error('INVALID_PRO_ROOM_CODE');
-  const claimToken = takeProRoomClaimFromFragment();
+  // Consume and scrub both one-time credentials before the first dynamic
+  // import, network request, or dialog turn can yield back to the browser.
+  const fragmentClaims = takeProRoomClaimsFromFragment();
   // Lazy-load the runtime after the setup/guest module graph has initialized;
   // the runtime bridges back into peer.ts and would otherwise form an eager
   // guest -> runtime -> peer -> guest evaluation cycle at app startup.
@@ -67,7 +69,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   }
 
   if (bootstrap.status === 'activation_required') {
-    if (!claimToken) {
+    if (!fragmentClaims.activationClaimToken) {
       await showUnavailable(t('pro.not_ready_title'), t('pro.not_ready_message'));
       return false;
     }
@@ -81,12 +83,33 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     if (!newPin) return false;
     await runtime.activateProRoom({
       code,
-      claimToken,
+      claimToken: fragmentClaims.activationClaimToken,
       temporaryPin,
       newPin,
-      ownerName: 'Owner',
+      ownerName: getState('network.myDeviceLabel') || 'Owner',
     });
     return true;
+  }
+
+  if (fragmentClaims.ownerRecoveryClaimPresent) {
+    if (!fragmentClaims.ownerRecoveryClaimToken) {
+      await showUnavailable(t('pro.suspended_title'), t('pro.connect_failed'));
+      return false;
+    }
+    try {
+      await runtime.recoverProRoomOwner({
+        code,
+        claimToken: fragmentClaims.ownerRecoveryClaimToken,
+        displayName: getState('network.myDeviceLabel') || 'Owner',
+      });
+      return true;
+    } catch {
+      // Recovery failures deliberately collapse to one generic UI result. A
+      // used, expired, wrong-room, or invalid claim must not expose server
+      // details or silently fall through to the normal PIN flow.
+      await showUnavailable(t('pro.suspended_title'), t('pro.connect_failed'));
+      return false;
+    }
   }
 
   // A host-only HttpOnly cookie survives a reload. Try it before asking for

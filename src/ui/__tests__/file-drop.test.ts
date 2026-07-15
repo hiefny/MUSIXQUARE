@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
+import type { DataConnection } from '../../types/index.ts';
 import { showDialog } from '../dialog.ts';
 import { __resetGlobalFileDropForTests, initGlobalFileDrop } from '../file-drop.ts';
 
@@ -102,6 +103,28 @@ describe('global local-file drop', () => {
     dispatchDrag('drop', transfer);
     expect(document.documentElement.classList.contains('file-drop-drag-active')).toBe(false);
     expect(feedback?.classList.contains('is-visible')).toBe(false);
+  });
+
+  it('accepts dropped files from a PRO member with asset.upload capability', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['asset.upload'],
+    });
+    const transfer = makeTransfer([new File(['a'], 'one.flac', { type: 'audio/flac' })]);
+
+    dispatchDrag('dragover', transfer);
+
+    expect(transfer.dropEffect).toBe('copy');
+    expect(document.getElementById('file-drop-feedback')?.classList.contains('is-visible')).toBe(
+      true,
+    );
   });
 
   it('clears the visual feedback when an external drag is cancelled without a drop event', () => {

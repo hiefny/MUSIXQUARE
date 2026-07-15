@@ -3,7 +3,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
-import { initProRoomBranding, syncProRoomBranding } from '../branding.ts';
+import {
+  initProRoomBranding,
+  syncProRoomBrandingForTests as syncProRoomBranding,
+} from '../branding.ts';
 
 beforeEach(() => {
   document.body.innerHTML = '<span id="header-pro-badge" hidden>PRO</span>';

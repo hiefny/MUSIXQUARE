@@ -29,7 +29,11 @@ import {
   type TransportPeerOptions,
 } from './transport/index.ts';
 import { setPlaybackIdle } from '../player/ownership.ts';
-import { requestProRoomLeave } from '../pro-room/lifecycle-hook.ts';
+import {
+  requestProRoomLeave,
+  requestProRoomSignalingEpochAdvance,
+  requestProRoomSignalingReconnect,
+} from '../pro-room/lifecycle-hook.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
@@ -604,6 +608,50 @@ let _reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 
+async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promise<void> {
+  let peer = getPeer();
+  if (!peer || peer !== expectedPeer || peer.destroyed) {
+    _reconnectAttempts = 0;
+    return;
+  }
+  if (!peer.disconnected) {
+    log.info('[Transport] Already reconnected before scheduled attempt');
+    _reconnectAttempts = 0;
+    return;
+  }
+
+  const proRoom =
+    getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'));
+  if (proRoom) {
+    log.info('[Transport] Requesting a fresh PRO signaling ticket before reconnect');
+    const credentialReady = await requestProRoomSignalingReconnect();
+    peer = getPeer();
+    if (!peer || peer !== expectedPeer || peer.destroyed) {
+      _reconnectAttempts = 0;
+      return;
+    }
+    if (!peer.disconnected) {
+      _reconnectAttempts = 0;
+      return;
+    }
+    if (!credentialReady) {
+      log.warn('[Transport] Fresh PRO signaling ticket unavailable; retrying with backoff');
+      attemptPeerReconnect();
+      return;
+    }
+  }
+
+  log.info(`[Transport] Calling reconnect() (attempt ${_reconnectAttempts})`);
+  try {
+    peer.reconnect?.();
+  } catch (error) {
+    log.warn('[Transport] reconnect() threw:', (error as Error)?.message ?? error);
+  }
+  // Check after the next backoff window. If reconnect() succeeded, this sees
+  // !peer.disconnected and resets the counter.
+  attemptPeerReconnect();
+}
+
 function attemptPeerReconnect(): void {
   const peer = getPeer();
   if (!peer || peer.destroyed) {
@@ -638,26 +686,19 @@ function attemptPeerReconnect(): void {
         _reconnectAttempts = 0;
         return;
       }
-      if (!p.disconnected) {
-        log.info('[Transport] Already reconnected before scheduled attempt');
-        _reconnectAttempts = 0;
-        return;
-      }
-      log.info(`[Transport] Calling reconnect() (attempt ${_reconnectAttempts})`);
-      try {
-        if (p.reconnect) p.reconnect();
-      } catch (e) {
-        log.warn('[Transport] reconnect() threw:', (e as Error)?.message ?? e);
-      }
-      // Recurse to check after the next backoff window. If reconnect() actually
-      // succeeded, this next call sees !peer.disconnected and resets the counter.
-      attemptPeerReconnect();
+      void performScheduledPeerReconnect(p);
     },
     delay,
   );
 }
 
 function setupPeerEvents(peer: PeerInstance): void {
+  peer.on('pro-epoch-advanced', () => {
+    if (getPeer() !== peer) return;
+    log.info('[Transport] PRO coordinator epoch advanced; rebuilding transport');
+    requestProRoomSignalingEpochAdvance();
+  });
+
   peer.on('error', (err: unknown) => {
     if (getPeer() !== peer) return;
     // waitForPeerOpen rejects the owning setup promise with this same error.

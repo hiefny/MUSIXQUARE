@@ -30,6 +30,7 @@ import {
   createPlaylistFollowController,
   type PlaylistFollowController,
 } from './playlist-follow.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
@@ -249,8 +250,8 @@ export function updatePlaylistUI(): void {
 
   if (playlist.length === 0) {
     followController.reset();
-    const isHost = !getState('network.hostConn');
-    const key = isHost ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
+    const canMutateQueue = hasRoomCapability('queue.mutate');
+    const key = canMutateQueue ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
     const empty = document.createElement('li');
     empty.className = 'list-empty-state';
     empty.setAttribute('data-i18n', key);
@@ -263,8 +264,8 @@ export function updatePlaylistUI(): void {
 
   const currentQueueItemId = getState('playlist.currentQueueItemId');
   const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
-  const isHost = !getState('network.hostConn');
-  const canEditPlaylist = isHost && getState('playback.mode') !== 'system-audio';
+  const canEditPlaylist =
+    hasRoomCapability('queue.mutate') && getState('playback.mode') !== 'system-audio';
   const canReorder = canEditPlaylist && playlist.length > 1;
 
   playlist.forEach((item, idx) => {
@@ -418,7 +419,7 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
   const controller = createPlaylistReorderController({
     list,
     canReorder: () =>
-      !getState('network.hostConn') &&
+      hasRoomCapability('queue.mutate') &&
       getState('playback.mode') !== 'system-audio' &&
       !_removalController?.isActive &&
       getState('playlist.items').length > 1,
@@ -494,7 +495,7 @@ export function initPlaylistView(): void {
     _removalController = createPlaylistRemovalController({
       list,
       canRemove: () =>
-        !getState('network.hostConn') && getState('playback.mode') !== 'system-audio',
+        hasRoomCapability('queue.mutate') && getState('playback.mode') !== 'system-audio',
       isPlaylistVisible: playlistIsVisible,
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
@@ -562,6 +563,11 @@ export function initPlaylistView(): void {
       _reorderController?.cancel();
       _removalController?.cancel();
     }
+  });
+  _busScope.on('state:room.context', () => {
+    _reorderController?.cancel();
+    _removalController?.cancel();
+    schedulePlaylistUpdate();
   });
 
   updatePlaylistUI();

@@ -1,42 +1,672 @@
 import { log } from '../core/log.ts';
-import { batchSetState } from '../core/state.ts';
+import { bus } from '../core/events.ts';
+import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { resetRoomContext, setRoomContext } from '../rooms/authority.ts';
-import type { RoomContext } from '../types/index.ts';
+import { MSG } from '../core/constants.ts';
+import { scheduleSessionReset } from '../core/session-reset.ts';
+import { t } from '../i18n/index.ts';
+import { broadcast, sendToHost } from '../network/peer.ts';
+import { registerHandler } from '../network/protocol.ts';
+import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
+import { getTrackPosition } from '../player/transport.ts';
+import { getYouTubePlayer } from '../youtube/_state.ts';
+import {
+  isCoordinator,
+  resetRoomContext,
+  setRoomContext,
+  verifyPeerCapability,
+} from '../rooms/authority.ts';
+import type {
+  DataConnection,
+  PlaylistItem,
+  PlaylistWireItem,
+  QueueItemId,
+  RoomContext,
+} from '../types/index.ts';
 import {
   ProRoomApiClient,
+  ProRoomApiError,
   type ActivateProRoomInput,
   type CreateProRoomSessionInput,
   type ProRoomBootstrap,
+  type RecoverProRoomOwnerInput,
 } from './api.ts';
 import type { ProRoomSnapshot } from './contracts.ts';
-import { registerProRoomLeaveHandler } from './lifecycle-hook.ts';
+import {
+  registerProRoomLegacyMediaHooks,
+  restoreProRoomLegacyPlayback,
+  type ProRoomLegacyMediaHooks,
+} from './legacy-media-hooks.ts';
+import { ProRoomInvalidationHighWater } from './invalidation-high-water.ts';
+import { buildProRoomUnloadCheckpoint, waitForProRoomPresenceClose } from './hard-close.ts';
+import { createProRoomIdempotencyKey } from './idempotency.ts';
+import {
+  registerProRoomHardCloseHandler,
+  registerProRoomLeaveHandler,
+  registerProRoomSignalingEpochAdvanceHandler,
+  registerProRoomSignalingReconnectHandler,
+} from './lifecycle-hook.ts';
+import { ProRoomHeartbeatSingleFlight } from './heartbeat-single-flight.ts';
+import { ProRoomMediaTransfer } from './media-transfer.ts';
 import { LegacyProRoomNetworkBridge } from './network-bridge.ts';
+import { completeProRoomPinRotation } from './pin-rotation.ts';
+import { ProRoomPlaylistProjection } from './playlist-projection.ts';
+import { ProRoomPlaylistStateManager } from './playlist-state-manager.ts';
 import { ProRoomSessionController, type ProRoomSessionObserver } from './session-controller.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const SIGNALING_REFRESH_INTERVAL_MS = 45_000;
 const HEARTBEAT_TIMER = 'pro-room-heartbeat';
 const SIGNALING_REFRESH_TIMER = 'pro-room-signaling-refresh';
-
-type SnapshotListener = (snapshot: ProRoomSnapshot | null) => void;
+const PLAYBACK_CHECKPOINT_INTERVAL_MS = 10_000;
+const PLAYBACK_CHECKPOINT_DEBOUNCE_MS = 350;
+const PLAYBACK_CHECKPOINT_TIMER = 'pro-room-playback-checkpoint';
+const PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-playback-checkpoint-debounce';
+const PLAYBACK_RESTORE_TIMEOUT_MS = 120_000;
+const PLAYBACK_RESTORE_TIMEOUT_TIMER = 'pro-room-playback-restore-timeout';
+const INVALIDATION_REFRESH_MIN_INTERVAL_MS = 5_000;
+const INVALIDATION_REFRESH_TIMER = 'pro-room-invalidation-refresh';
+const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 
 const api = new ProRoomApiClient();
 const bridge = new LegacyProRoomNetworkBridge();
-const listeners = new Set<SnapshotListener>();
 let active = false;
-let heartbeatInFlight = false;
 let refreshInFlight = false;
 let visibilityBound = false;
+let playlistManager: ProRoomPlaylistStateManager | null = null;
+let playlistProjection: ProRoomPlaylistProjection | null = null;
+let mediaTransfer: ProRoomMediaTransfer | null = null;
+let playlistRoomCode: string | null = null;
+let playlistSignature = '';
+let playlistRuntimeAbort: AbortController | null = null;
+interface PlaylistRuntimeLease {
+  generation: number;
+  roomCode: string;
+}
+let playlistRuntimeGeneration = 0;
+let playlistRuntimeLease: PlaylistRuntimeLease | null = null;
+let coordinatorRefresh: Promise<void> | null = null;
+let checkpointInFlight = false;
+let checkpointDirty = false;
+let suppressPlaybackCheckpoint = false;
+let lastPlaybackRestoreKey = '';
+let terminalRecoveryInFlight = false;
+let invalidationRefreshScheduled = false;
+let lastInvalidationRefreshAt = 0;
+const invalidationHighWater = new ProRoomInvalidationHighWater();
+const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
+let pendingPlaybackRestore: {
+  queueItemId: QueueItemId;
+  state: 'playing' | 'paused';
+} | null = null;
+const pendingFileDownloads = new Map<QueueItemId, Promise<File | null>>();
 
-function notifySnapshot(snapshot: ProRoomSnapshot | null): void {
-  for (const listener of [...listeners]) {
+function isPlaylistLeaseCurrent(lease: PlaylistRuntimeLease): boolean {
+  return (
+    playlistRuntimeLease?.generation === lease.generation &&
+    playlistRuntimeLease.roomCode === lease.roomCode &&
+    playlistRoomCode === lease.roomCode
+  );
+}
+
+function projectedSignature(snapshot: ProRoomSnapshot): string {
+  return JSON.stringify([snapshot.playlist, snapshot.currentQueueItemId]);
+}
+
+function playlistWireItems(items: readonly PlaylistItem[]): PlaylistWireItem[] {
+  return items.map((item) => ({
+    queueItemId: item.queueItemId,
+    type: item.type,
+    name: item.name,
+    ...(item.title === undefined ? {} : { title: item.title }),
+    ...(item.artist === undefined ? {} : { artist: item.artist }),
+    ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+    videoId: item.videoId,
+    playlistId: item.playlistId,
+  }));
+}
+
+function attachCachedFiles(snapshot: ProRoomSnapshot): void {
+  if (!mediaTransfer) return;
+  const sourceById = new Map(snapshot.playlist.map((item) => [item.queueItemId, item]));
+  const current = getState('playlist.items');
+  let changed = false;
+  const next = current.map((item) => {
+    const wire = sourceById.get(item.queueItemId);
+    if (!wire || wire.source.kind !== 'pro-r2') return item;
+    const file = mediaTransfer?.cache.get(wire.source, wire.name) ?? null;
+    if (!file || item.file === file) return item;
+    changed = true;
+    return { ...item, file };
+  });
+  if (changed) setState('playlist.items', next);
+}
+
+async function applyProjectedPlaylist(
+  snapshot: ProRoomSnapshot,
+  playlist: PlaylistItem[],
+  lease: PlaylistRuntimeLease,
+): Promise<void> {
+  if (!isPlaylistLeaseCurrent(lease) || snapshot.roomCode !== lease.roomCode) return;
+  const nextSignature = projectedSignature(snapshot);
+  const firstProjection = playlistSignature === '';
+  if (firstProjection || nextSignature !== playlistSignature) {
+    const previousItems = getState('playlist.items');
+    const previousCurrent = getState('playlist.currentQueueItemId');
+    const previousIndex = previousCurrent
+      ? previousItems.findIndex((item) => item.queueItemId === previousCurrent)
+      : -1;
+    const removedCurrent =
+      !firstProjection &&
+      previousCurrent !== null &&
+      !playlist.some((item) => item.queueItemId === previousCurrent);
+    const successor = removedCurrent
+      ? (playlist[Math.min(Math.max(previousIndex, 0), playlist.length - 1)] ?? null)
+      : null;
+    const payload = {
+      list: playlistWireItems(playlist),
+      // The room revision, unlike playlistRevision, also advances when the
+      // selected item changes. It is therefore the safe legacy queue clock.
+      revision: snapshot.revision,
+      currentQueueItemId: snapshot.currentQueueItemId,
+    };
+    const outcome = applyPlaylistSnapshot(payload, firstProjection ? 'rebase' : 'monotonic');
+    if (outcome === 'invalid' || outcome === 'stale' || outcome === 'conflict') {
+      throw new Error(`PRO_ROOM_PLAYLIST_PROJECTION_${outcome.toUpperCase()}`);
+    }
+    playlistSignature = nextSignature;
+    attachCachedFiles(snapshot);
+    if (isCoordinator()) broadcast({ type: MSG.PLAYLIST_UPDATE, ...payload });
+    if (isCoordinator() && removedCurrent) {
+      if (successor) bus.emit('playlist:play-track', successor.queueItemId);
+      else bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
+    }
+    return;
+  }
+  attachCachedFiles(snapshot);
+}
+
+function reportPlaylistError(error: unknown): void {
+  log.warn('[PRO] Persistent playlist operation failed', error);
+  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : null;
+  const message =
+    code === 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID'
+      ? t('pro.file_too_large')
+      : code === 'ROOM_QUOTA_EXCEEDED'
+        ? t('pro.quota_exceeded')
+        : t('pro.connect_failed');
+  bus.emit('ui:show-toast', message);
+}
+
+function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
+  if (
+    snapshot.viewer?.participantId !== snapshot.presence.coordinatorParticipantId ||
+    getState('network.appRole') !== 'host'
+  ) {
+    return;
+  }
+  const present = new Set(snapshot.presence.participants.map((peer) => peer.participantId));
+  for (const peer of getState('network.connectedPeers')) {
+    if (present.has(peer.id)) continue;
+    log.info(`[PRO] Closing peer absent from authoritative presence: ${peer.id}`);
     try {
-      listener(snapshot);
-    } catch (error) {
-      log.warn('[PRO] Snapshot observer failed', error);
+      peer.conn?.close();
+    } catch {
+      /* connection close is best-effort; the next topology refresh also drops it */
     }
   }
+}
+
+function sendCoordinatorInvalidation(snapshot: ProRoomSnapshot): void {
+  if (isCoordinator()) return;
+  sendToHost({
+    type: MSG.PRO_ROOM_INVALIDATED,
+    revision: snapshot.revision,
+    playlistRevision: snapshot.playlistRevision,
+  });
+}
+
+function shouldStartFirstProjectedItem(
+  previous: ProRoomSnapshot,
+  next: ProRoomSnapshot,
+): next is ProRoomSnapshot & { currentQueueItemId: QueueItemId } {
+  return (
+    previous.playlist.length === 0 &&
+    previous.currentQueueItemId === null &&
+    previous.playback.state === 'idle' &&
+    next.playlist.length > 0 &&
+    next.currentQueueItemId !== null &&
+    next.playback.state === 'paused' &&
+    next.playback.queueItemId === next.currentQueueItemId &&
+    next.playback.positionSeconds === 0
+  );
+}
+
+function installLegacyMediaHooks(
+  manager: ProRoomPlaylistStateManager,
+  lease: PlaylistRuntimeLease,
+): void {
+  const reportCurrentPlaylistError = (error: unknown) => {
+    if (isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
+  };
+  const hooks: ProRoomLegacyMediaHooks = {
+    addFiles(files, rejectedCount) {
+      if (!isPlaylistLeaseCurrent(lease)) return true;
+      if (files.length === 0) return true;
+      const uploadingMessage = t('pro.uploading');
+      bus.emit(
+        'ui:show-toast',
+        rejectedCount > 0
+          ? `${uploadingMessage}\n${t('toast.unsupported_files_excluded', { count: rejectedCount })}`
+          : uploadingMessage,
+      );
+      void manager
+        .addLocalFiles(
+          files.map((file) => ({ file })),
+          { signal: playlistRuntimeAbort?.signal },
+        )
+        .catch(reportCurrentPlaylistError);
+      return true;
+    },
+    addYouTube(item) {
+      if (!isPlaylistLeaseCurrent(lease)) return true;
+      if (item.type !== 'youtube' || !item.videoId) return false;
+      void manager
+        .addYouTube({
+          queueItemId: item.queueItemId,
+          name: item.name,
+          videoId: item.videoId,
+          ...(item.playlistId ? { playlistId: item.playlistId } : {}),
+          ...(item.title === undefined ? {} : { title: item.title }),
+          ...(item.artist === undefined ? {} : { artist: item.artist }),
+          ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+          signal: playlistRuntimeAbort?.signal,
+        })
+        .catch(reportCurrentPlaylistError);
+      return true;
+    },
+    updateTrackMetadata(queueItemId, metadata) {
+      if (!isPlaylistLeaseCurrent(lease)) return true;
+      void manager
+        .updateMetadata(
+          queueItemId,
+          {
+            name: metadata.name,
+            ...(metadata.title === undefined ? {} : { title: metadata.title }),
+            ...(metadata.artist === undefined ? {} : { artist: metadata.artist }),
+            ...(metadata.thumbnail === undefined ? {} : { thumbnail: metadata.thumbnail }),
+          },
+          { signal: playlistRuntimeAbort?.signal },
+        )
+        .catch(reportCurrentPlaylistError);
+      return true;
+    },
+    removeTracks(queueItemIds) {
+      if (!isPlaylistLeaseCurrent(lease)) return true;
+      void manager
+        .removeMany(queueItemIds, { signal: playlistRuntimeAbort?.signal })
+        .catch(reportCurrentPlaylistError);
+      return true;
+    },
+    reorderTrack(queueItemId, beforeQueueItemId, baseRevision) {
+      if (!isPlaylistLeaseCurrent(lease)) return true;
+      if (baseRevision !== getState('playlist.revision')) return false;
+      const reordered = moveQueueItemBefore(queueItemId, beforeQueueItemId);
+      if (!reordered) return true;
+      void manager
+        .reorder(
+          reordered.map((item) => item.queueItemId),
+          { signal: playlistRuntimeAbort?.signal },
+        )
+        .catch(reportCurrentPlaylistError);
+      return true;
+    },
+    resolveFile(queueItemId) {
+      if (!isPlaylistLeaseCurrent(lease)) return null;
+      if (!isCoordinator() || !mediaTransfer || !playlistProjection) return null;
+      const existing = pendingFileDownloads.get(queueItemId);
+      if (existing) return existing;
+      const item = getState('playlist.items').find(
+        (candidate) => candidate.queueItemId === queueItemId,
+      );
+      const source = playlistProjection.sourceFor(queueItemId);
+      if (!item || !source || source.kind !== 'pro-r2') return null;
+      bus.emit('ui:show-toast', t('pro.downloading'));
+      const transfer = mediaTransfer;
+      const roomCode = lease.roomCode;
+      const download = transfer
+        .download({
+          code: roomCode,
+          name: item.name,
+          source,
+          signal: playlistRuntimeAbort?.signal,
+        })
+        .then((file) => {
+          if (!isPlaylistLeaseCurrent(lease)) return null;
+          const items = getState('playlist.items');
+          const index = items.findIndex((candidate) => candidate.queueItemId === queueItemId);
+          if (index < 0) return null;
+          const next = [...items];
+          next[index] = { ...next[index]!, file };
+          setState('playlist.items', next);
+          return file;
+        })
+        .catch((error) => {
+          if (isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
+          return null;
+        })
+        .finally(() => {
+          if (pendingFileDownloads.get(queueItemId) === download) {
+            pendingFileDownloads.delete(queueItemId);
+          }
+        });
+      pendingFileDownloads.set(queueItemId, download);
+      return download;
+    },
+  };
+  registerProRoomLegacyMediaHooks(hooks);
+}
+
+function resetPlaylistRuntime(): void {
+  playlistRuntimeGeneration += 1;
+  playlistRuntimeLease = null;
+  playlistRuntimeAbort?.abort();
+  playlistRuntimeAbort = null;
+  registerProRoomLegacyMediaHooks(null);
+  mediaTransfer?.cache.clear();
+  pendingFileDownloads.clear();
+  playlistManager = null;
+  playlistProjection = null;
+  mediaTransfer = null;
+  playlistRoomCode = null;
+  playlistSignature = '';
+  coordinatorRefresh = null;
+  invalidationRefreshScheduled = false;
+  invalidationHighWater.reset();
+  lastInvalidationRefreshAt = 0;
+  clearManagedTimer(INVALIDATION_REFRESH_TIMER);
+  checkpointInFlight = false;
+  checkpointDirty = false;
+  suppressPlaybackCheckpoint = false;
+  lastPlaybackRestoreKey = '';
+  pendingPlaybackRestore = null;
+  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
+}
+
+function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateManager {
+  if (playlistManager && playlistRoomCode === snapshot.roomCode) return playlistManager;
+  resetPlaylistRuntime();
+  playlistRuntimeAbort = new AbortController();
+  playlistRoomCode = snapshot.roomCode;
+  const lease: PlaylistRuntimeLease = {
+    generation: playlistRuntimeGeneration,
+    roomCode: snapshot.roomCode,
+  };
+  playlistRuntimeLease = lease;
+  playlistProjection = new ProRoomPlaylistProjection();
+  mediaTransfer = new ProRoomMediaTransfer({ api });
+  const manager = new ProRoomPlaylistStateManager({
+    code: snapshot.roomCode,
+    api,
+    mediaTransfer,
+    projection: playlistProjection,
+    sink: ({ snapshot: accepted, playlist }) => applyProjectedPlaylist(accepted, playlist, lease),
+    invalidateCoordinator: ({ previous, next, playlistChanged, playbackChanged }) => {
+      if (!isPlaylistLeaseCurrent(lease)) return;
+      // The first append atomically publishes both the row and its selection.
+      // Only the elected coordinator turns that accepted intent into the
+      // existing synchronized load/play path; members merely invalidate it.
+      if (isCoordinator() && shouldStartFirstProjectedItem(previous, next)) {
+        bus.emit('playlist:play-track', next.currentQueueItemId);
+      }
+      if (playlistChanged || playbackChanged) sendCoordinatorInvalidation(next);
+    },
+    reportMediaCleanupError: ({ assetId, error }) => {
+      if (isPlaylistLeaseCurrent(lease)) {
+        log.warn(`[PRO] Could not clean unused asset ${assetId}`, error);
+      }
+    },
+  });
+  playlistManager = manager;
+  installLegacyMediaHooks(manager, lease);
+  return manager;
+}
+
+async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> {
+  const manager = ensurePlaylistManager(snapshot);
+  const lease = playlistRuntimeLease;
+  if (!lease) return;
+  await manager.acceptSnapshot(snapshot);
+  if (!isPlaylistLeaseCurrent(lease)) return;
+  invalidationHighWater.acknowledge(snapshot);
+  if (!hasPendingCoordinatorInvalidation()) {
+    invalidationRefreshScheduled = false;
+    clearManagedTimer(INVALIDATION_REFRESH_TIMER);
+  }
+}
+
+function captureLocalPlaybackCheckpoint(): {
+  state: 'idle' | 'playing' | 'paused';
+  queueItemId: QueueItemId | null;
+  positionSeconds: number;
+  youtubeVideoId: string | null;
+  youtubeSubIndex: number | null;
+  updatedAtMs: number;
+} {
+  const mode = getState('playback.mode');
+  const activity = getState('playback.activity');
+  const queueItemId = getState('playlist.currentQueueItemId');
+  const item = queueItemId
+    ? getState('playlist.items').find((candidate) => candidate.queueItemId === queueItemId)
+    : null;
+  if (!item || !queueItemId || mode === null || mode === 'system-audio' || activity === 'idle') {
+    return {
+      state: 'idle',
+      queueItemId: null,
+      positionSeconds: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+      updatedAtMs: Date.now(),
+    };
+  }
+  const rawPosition = getTrackPosition();
+  const positionSeconds = Number.isFinite(rawPosition) ? Math.max(0, rawPosition) : 0;
+  const previous = playlistManager?.snapshot?.playback;
+  const previousMatches = previous?.queueItemId === queueItemId ? previous : null;
+  const liveYouTubeVideoId =
+    mode === 'youtube' ? (getYouTubePlayer()?.getVideoData?.()?.video_id ?? '') : '';
+  const rawYouTubeSubIndex = getState('youtube.currentSubIndex');
+  const playlistVideoIds =
+    item.type === 'youtube' && item.playlistId
+      ? getState('youtube.subItemsMap')[item.playlistId]?.ids
+      : undefined;
+  const liveYouTubeSubIndex = playlistVideoIds?.indexOf(liveYouTubeVideoId) ?? -1;
+  const youtubeVideoId =
+    item.type === 'youtube'
+      ? (/^[A-Za-z0-9_-]{11}$/.test(liveYouTubeVideoId)
+          ? liveYouTubeVideoId
+          : previousMatches?.youtubeVideoId) || item.videoId
+      : null;
+  const youtubeSubIndex =
+    item.type === 'youtube'
+      ? liveYouTubeSubIndex >= 0
+        ? liveYouTubeSubIndex
+        : Number.isSafeInteger(rawYouTubeSubIndex) && rawYouTubeSubIndex >= 0
+          ? rawYouTubeSubIndex
+          : (previousMatches?.youtubeSubIndex ?? 0)
+      : null;
+  return {
+    state: activity === 'playing' ? 'playing' : 'paused',
+    queueItemId,
+    positionSeconds,
+    youtubeVideoId,
+    youtubeSubIndex,
+    updatedAtMs: Date.now(),
+  };
+}
+
+async function persistPlaybackCheckpoint(): Promise<void> {
+  const manager = playlistManager;
+  const lease = playlistRuntimeLease;
+  const operationSignal = playlistRuntimeAbort?.signal;
+  if (
+    !active ||
+    suppressPlaybackCheckpoint ||
+    !manager ||
+    !lease ||
+    !operationSignal ||
+    !isCoordinator()
+  ) {
+    return;
+  }
+  if (checkpointInFlight) {
+    checkpointDirty = true;
+    return;
+  }
+  checkpointInFlight = true;
+  try {
+    await manager.updatePlayback(captureLocalPlaybackCheckpoint(), {
+      signal: operationSignal,
+    });
+  } catch (error) {
+    if (isPlaylistLeaseCurrent(lease) && !operationSignal.aborted) {
+      log.warn('[PRO] Playback checkpoint failed', error);
+    }
+  } finally {
+    if (isPlaylistLeaseCurrent(lease)) {
+      checkpointInFlight = false;
+      if (checkpointDirty) {
+        checkpointDirty = false;
+        schedulePlaybackCheckpoint();
+      }
+    }
+  }
+}
+
+function schedulePlaybackCheckpoint(): void {
+  if (!active || suppressPlaybackCheckpoint || !isCoordinator()) return;
+  clearManagedTimer(PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER);
+  setManagedTimer(
+    PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER,
+    () => void persistPlaybackCheckpoint(),
+    PLAYBACK_CHECKPOINT_DEBOUNCE_MS,
+  );
+}
+
+function schedulePlaybackCheckpointLoop(): void {
+  clearManagedTimer(PLAYBACK_CHECKPOINT_TIMER);
+  if (!active) return;
+  setManagedTimer(
+    PLAYBACK_CHECKPOINT_TIMER,
+    () => {
+      void persistPlaybackCheckpoint();
+      schedulePlaybackCheckpointLoop();
+    },
+    PLAYBACK_CHECKPOINT_INTERVAL_MS,
+  );
+}
+
+function showPlaybackRestoreHint(): void {
+  if (!pendingPlaybackRestore || !suppressPlaybackCheckpoint) return;
+  bus.emit('ui:show-toast', t('pro.resume_tap'));
+}
+
+function finishPlaybackRestore(): void {
+  if (!pendingPlaybackRestore && !suppressPlaybackCheckpoint) return;
+  pendingPlaybackRestore = null;
+  suppressPlaybackCheckpoint = false;
+  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
+  schedulePlaybackCheckpoint();
+}
+
+function cancelPlaybackRestoreForQueueOverride(): boolean {
+  const pending = pendingPlaybackRestore;
+  if (!pending) return false;
+  const selectedQueueItemId = getState('playlist.currentQueueItemId');
+  const targetExists = getState('playlist.items').some(
+    (item) => item.queueItemId === pending.queueItemId,
+  );
+  if (selectedQueueItemId === pending.queueItemId && targetExists) return false;
+
+  // A deliberate queue selection/removal supersedes the sleeping-room
+  // checkpoint. Only this explicit override (or a successful restore) may
+  // release suppression; a timeout/decoder failure must preserve server state.
+  finishPlaybackRestore();
+  return true;
+}
+
+function reconcilePlaybackRestore(): void {
+  const pending = pendingPlaybackRestore;
+  if (!pending) return;
+  const activity = getState('playback.activity');
+  if (
+    getState('playlist.currentQueueItemId') === pending.queueItemId &&
+    activity === pending.state
+  ) {
+    finishPlaybackRestore();
+  }
+}
+
+async function restorePersistedPlayback(snapshot: ProRoomSnapshot): Promise<void> {
+  const lease = playlistRuntimeLease;
+  if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease)) return;
+  if (!isCoordinator() || snapshot.playback.state === 'idle' || !snapshot.playback.queueItemId) {
+    return;
+  }
+  const item = getState('playlist.items').find(
+    (candidate) => candidate.queueItemId === snapshot.playback.queueItemId,
+  );
+  if (!item) return;
+  // A checkpoint revision changes during ordinary 10-second persistence. A
+  // restore belongs to one coordinator tenure, not to every checkpoint write.
+  const restoreKey = `${snapshot.roomCode}:${snapshot.presence.coordinatorEpoch}`;
+  if (restoreKey === lastPlaybackRestoreKey) return;
+  lastPlaybackRestoreKey = restoreKey;
+
+  const elapsedSeconds =
+    snapshot.playback.state === 'playing' && snapshot.playback.updatedAtMs > 0
+      ? Math.max(0, (Date.now() - snapshot.playback.updatedAtMs) / 1000)
+      : 0;
+  const positionSeconds = Math.max(0, snapshot.playback.positionSeconds + elapsedSeconds);
+  pendingPlaybackRestore = {
+    queueItemId: snapshot.playback.queueItemId,
+    state: snapshot.playback.state,
+  };
+  suppressPlaybackCheckpoint = true;
+  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
+  setManagedTimer(
+    PLAYBACK_RESTORE_TIMEOUT_TIMER,
+    () => showPlaybackRestoreHint(),
+    PLAYBACK_RESTORE_TIMEOUT_MS,
+  );
+
+  if (item.type === 'youtube') {
+    bus.emit('youtube:restore-room-playback', {
+      videoId: snapshot.playback.youtubeVideoId,
+      playlistId: item.playlistId,
+      name: item.name,
+      queueItemId: item.queueItemId,
+      autoplay: snapshot.playback.state === 'playing',
+      subIndex: snapshot.playback.youtubeSubIndex ?? 0,
+      positionSeconds,
+    });
+    return;
+  }
+
+  let restored: boolean;
+  try {
+    restored = await restoreProRoomLegacyPlayback({
+      queueItemId: item.queueItemId,
+      positionSeconds,
+      state: snapshot.playback.state,
+    });
+  } catch (error) {
+    if (!isPlaylistLeaseCurrent(lease)) return;
+    throw error;
+  }
+  if (!isPlaylistLeaseCurrent(lease)) return;
+  if (!restored) showPlaybackRestoreHint();
+  else reconcilePlaybackRestore();
 }
 
 function applyAuthority(context: RoomContext): void {
@@ -52,60 +682,129 @@ function applyAuthority(context: RoomContext): void {
 
 function stopLifecycle(): void {
   active = false;
-  heartbeatInFlight = false;
+  heartbeatSingleFlight.reset();
   refreshInFlight = false;
   clearManagedTimer(HEARTBEAT_TIMER);
   clearManagedTimer(SIGNALING_REFRESH_TIMER);
+  clearManagedTimer(PLAYBACK_CHECKPOINT_TIMER);
+  clearManagedTimer(PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER);
+  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
+  clearManagedTimer(INVALIDATION_REFRESH_TIMER);
+  invalidationRefreshScheduled = false;
 }
 
 const observer: ProRoomSessionObserver = {
   snapshot(snapshot) {
-    notifySnapshot(snapshot);
+    // Runtime entry points accept playlist state transactionally. The observer
+    // only enforces topology authority, avoiding a duplicate async projection
+    // of the same snapshot racing that explicit accept.
+    reconcileAuthoritativePeers(snapshot);
   },
   authority(context) {
     applyAuthority(context);
   },
   cleared() {
     stopLifecycle();
+    resetPlaylistRuntime();
     resetRoomContext();
-    notifySnapshot(null);
   },
 };
 
 const controller = new ProRoomSessionController(api, bridge, observer);
 
-async function runHeartbeat(): Promise<void> {
-  if (!active || heartbeatInFlight) return;
-  heartbeatInFlight = true;
+function isTerminalSessionError(error: unknown): error is ProRoomApiError {
+  return (
+    error instanceof ProRoomApiError &&
+    (error.status === 401 ||
+      error.code === 'SESSION_REQUIRED' ||
+      error.code === 'PRESENCE_SUPERSEDED' ||
+      error.status === 423 ||
+      error.code === 'ROOM_SUSPENDED')
+  );
+}
+
+async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
+  if (terminalRecoveryInFlight) return;
+  terminalRecoveryInFlight = true;
+  stopLifecycle();
+  log.warn(`[PRO] Session is no longer valid (${error.code}); re-authentication required`);
   try {
-    await controller.heartbeat();
-  } catch (error) {
-    // Presence is eventually reconciled by the DO TTL. A transient heartbeat
-    // failure must not tear down healthy P2P media.
-    log.warn('[PRO] Presence heartbeat failed', error);
-  } finally {
-    heartbeatInFlight = false;
-    if (active) setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
+    await controller.terminate();
+  } catch (disconnectError) {
+    log.warn('[PRO] Terminal session transport cleanup failed', disconnectError);
+  }
+  // Another tab with the same HttpOnly cookie explicitly entered and now
+  // owns the session incarnation. Stay locally terminated: an automatic
+  // reload would enter again and create an endless cross-tab takeover loop.
+  if (error.code === 'PRESENCE_SUPERSEDED') return;
+  if (typeof window !== 'undefined') {
+    scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
   }
 }
 
-async function refreshSignalingCredential(): Promise<void> {
-  if (!active || refreshInFlight) return;
+async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Promise<void> {
+  const lease = playlistRuntimeLease;
+  if (!active || !lease) return;
+  try {
+    await heartbeatSingleFlight.run(
+      async () => {
+        const invalidationGeneration = invalidationHighWater.beginHeartbeat();
+        const snapshot = await controller.heartbeat();
+        await acceptPlaylistSnapshot(snapshot);
+        invalidationHighWater.finishHeartbeat(snapshot, invalidationGeneration);
+        if (!invalidationHighWater.pending) {
+          invalidationRefreshScheduled = false;
+          clearManagedTimer(INVALIDATION_REFRESH_TIMER);
+        }
+        void restorePersistedPlayback(snapshot).catch((error) => {
+          log.warn('[PRO] Coordinator playback restore failed', error);
+          showPlaybackRestoreHint();
+        });
+      },
+      { forceFollowUp },
+    );
+  } catch (error) {
+    if (isTerminalSessionError(error)) {
+      await recoverTerminalSession(error);
+    } else {
+      // Presence is eventually reconciled by the DO TTL. A transient heartbeat
+      // failure must not tear down healthy P2P media during the ordinary loop.
+      log.warn('[PRO] Presence heartbeat failed', error);
+    }
+    if (propagateFailure) throw error;
+  } finally {
+    if (isPlaylistLeaseCurrent(lease) && active) {
+      setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
+    }
+  }
+}
+
+async function refreshSignalingCredential(): Promise<boolean> {
+  const lease = playlistRuntimeLease;
+  if (!active || refreshInFlight || !lease) return false;
   refreshInFlight = true;
   try {
     await controller.refreshSignaling();
+    return true;
   } catch (error) {
+    if (isTerminalSessionError(error)) {
+      await recoverTerminalSession(error);
+      return false;
+    }
     // Existing data channels remain valid without signaling. Retry soon so a
     // later coordinator failover or new member can still connect.
     log.warn('[PRO] Signaling credential refresh failed', error);
+    return false;
   } finally {
-    refreshInFlight = false;
-    if (active) {
-      setManagedTimer(
-        SIGNALING_REFRESH_TIMER,
-        () => void refreshSignalingCredential(),
-        SIGNALING_REFRESH_INTERVAL_MS,
-      );
+    if (isPlaylistLeaseCurrent(lease)) {
+      refreshInFlight = false;
+      if (active) {
+        setManagedTimer(
+          SIGNALING_REFRESH_TIMER,
+          () => void refreshSignalingCredential(),
+          SIGNALING_REFRESH_INTERVAL_MS,
+        );
+      }
     }
   }
 }
@@ -124,6 +823,7 @@ function bindVisibilityRefresh(): void {
 
 function startLifecycle(): void {
   active = true;
+  terminalRecoveryInFlight = false;
   bindVisibilityRefresh();
   clearManagedTimer(HEARTBEAT_TIMER);
   clearManagedTimer(SIGNALING_REFRESH_TIMER);
@@ -133,16 +833,31 @@ function startLifecycle(): void {
     () => void refreshSignalingCredential(),
     SIGNALING_REFRESH_INTERVAL_MS,
   );
+  schedulePlaybackCheckpointLoop();
 }
 
 export function getProRoomBootstrap(code: string, signal?: AbortSignal): Promise<ProRoomBootstrap> {
   return api.getBootstrap(code, signal);
 }
 
+async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
+  try {
+    await acceptPlaylistSnapshot(snapshot);
+  } catch (error) {
+    await controller.leave().catch(() => undefined);
+    throw error;
+  }
+  startLifecycle();
+  void restorePersistedPlayback(snapshot).catch((error) => {
+    log.warn('[PRO] Persistent playback restore failed', error);
+    showPlaybackRestoreHint();
+  });
+  return snapshot;
+}
+
 export async function resumeProRoom(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
   const snapshot = await controller.resume(code, signal);
-  startLifecycle();
-  return snapshot;
+  return finalizeOpenedRoom(snapshot);
 }
 
 export async function joinProRoom(
@@ -150,8 +865,7 @@ export async function joinProRoom(
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
   const snapshot = await controller.join(input, signal);
-  startLifecycle();
-  return snapshot;
+  return finalizeOpenedRoom(snapshot);
 }
 
 export async function activateProRoom(
@@ -159,39 +873,228 @@ export async function activateProRoom(
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
   const snapshot = await controller.activate(input, signal);
-  startLifecycle();
-  return snapshot;
+  return finalizeOpenedRoom(snapshot);
 }
 
-export function changeActiveProRoomPin(pin: string, signal?: AbortSignal): Promise<void> {
+export async function recoverProRoomOwner(
+  input: RecoverProRoomOwnerInput,
+  signal?: AbortSignal,
+): Promise<ProRoomSnapshot> {
+  const snapshot = await controller.recoverOwner(input, signal);
+  return finalizeOpenedRoom(snapshot);
+}
+
+export async function changeActiveProRoomPin(pin: string, signal?: AbortSignal): Promise<void> {
   const code = controller.snapshot?.roomCode;
-  if (!code) return Promise.reject(new Error('PRO_ROOM_SESSION_INACTIVE'));
-  return api.changePin(code, pin, signal);
+  if (!code) throw new Error('PRO_ROOM_SESSION_INACTIVE');
+  const lease = controller.captureSessionLease();
+  let pinMutationCompleted = false;
+  try {
+    // PIN rotation revokes every other cookie session. Pull the resulting
+    // presence snapshot through the authority-aware heartbeat path. Do not
+    // report success until a new-epoch coordinator ticket has rebuilt
+    // signaling and closed every revoked old-epoch peer.
+    const completed = await completeProRoomPinRotation({
+      changePin: async () => {
+        await api.changePin(code, pin, signal);
+        pinMutationCompleted = true;
+      },
+      isSessionCurrent: () => controller.isSessionLeaseCurrent(lease, code),
+      // Join the same single-flight used by timers/epoch-close events. The
+      // forced pass guarantees one authoritative post-PIN read even if an
+      // old-epoch heartbeat was already in progress, and strict propagation
+      // prevents a failed transport rebuild from looking successful.
+      heartbeat: () => runHeartbeat(true, true),
+    });
+    if (!completed || !controller.isSessionLeaseCurrent(lease, code)) return;
+  } catch (error) {
+    const leaseCurrent = controller.isSessionLeaseCurrent(lease, code);
+    // A failed transport rebuild clears the controller lease itself. Once the
+    // server has accepted the new PIN, that must still reject this operation
+    // rather than being mistaken for a harmless stale-tab completion.
+    if (!leaseCurrent && !pinMutationCompleted) return;
+    if (leaseCurrent && isTerminalSessionError(error)) await recoverTerminalSession(error);
+    throw error;
+  }
 }
 
-export async function leaveActiveProRoom(signal?: AbortSignal): Promise<void> {
+function leaveActiveProRoom(signal?: AbortSignal): Promise<void> {
   // `leave()` also supersedes an authentication/transport open that has not
   // published a snapshot yet. Skipping it when snapshot is null can let a
   // cancelled setup request finish later and silently re-enter the room.
-  await controller.leave(signal);
+  // Start one atomic final-checkpoint + presence-close fetch with the old
+  // room's cookie before invalidating local authority. This avoids a later
+  // async leave request accidentally authenticating with a newly-created
+  // same-room cookie.
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  const atomicPresenceClose = active && snapshot ? startAtomicPresenceClose(snapshot) : null;
+  const presenceClose = atomicPresenceClose
+    ? waitForProRoomPresenceClose(atomicPresenceClose, EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS)
+    : null;
+  stopLifecycle();
+  return controller.leave(signal, presenceClose ?? undefined);
 }
 
-export function getActiveProRoomSnapshot(): ProRoomSnapshot | null {
-  return controller.snapshot;
+function startAtomicPresenceClose(snapshot: ProRoomSnapshot): Promise<void> | null {
+  const viewer = snapshot.viewer;
+  if (!viewer) {
+    log.warn('[PRO] Refused atomic presence close without an authenticated participant');
+    return null;
+  }
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = createProRoomIdempotencyKey();
+  } catch (error) {
+    log.warn('[PRO] Could not create atomic presence close key', error);
+    return null;
+  }
+
+  const checkpoint =
+    !suppressPlaybackCheckpoint && playlistManager
+      ? buildProRoomUnloadCheckpoint(snapshot, captureLocalPlaybackCheckpoint())
+      : { currentQueueItemId: null, playback: null };
+  return api.closePresenceOnUnload({
+    code: snapshot.roomCode,
+    expectedParticipantId: viewer.participantId,
+    expectedPresenceIncarnationId: viewer.presenceIncarnationId,
+    baseRevision: snapshot.revision,
+    currentQueueItemId: checkpoint.currentQueueItemId,
+    playback: checkpoint.playback,
+    idempotencyKey,
+  });
 }
 
-export function subscribeProRoomSnapshot(listener: SnapshotListener): () => void {
-  listeners.add(listener);
-  listener(controller.snapshot);
-  return () => listeners.delete(listener);
+/**
+ * Start the one unload-safe server mutation before the app-wide pagehide
+ * teardown destroys player/network state. Returning true tells the lifecycle
+ * hook not to race this request with the ordinary async leave sequence.
+ */
+function hardCloseActiveProRoom(): boolean {
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  if (!active || !snapshot) return false;
+  // Calling the async API method synchronously reaches fetch() before it
+  // yields. Only after the keepalive request has started may local teardown
+  // abort managers, timers, and the WebRTC facade.
+  const closeRequest = startAtomicPresenceClose(snapshot);
+  if (!closeRequest) return false;
+  stopLifecycle();
+  void controller.closeForUnload().catch((error) => {
+    log.warn('[PRO] Unload transport cleanup failed', error);
+  });
+  void closeRequest.catch((error) => {
+    // Nothing else can be made more reliable during unload; the DO presence
+    // TTL remains the final fallback if the browser drops even keepalive.
+    log.warn('[PRO] Atomic unload close failed', error);
+  });
+  return true;
 }
 
-export function getProRoomApiClient(): ProRoomApiClient {
-  return api;
+for (const event of [
+  'state:playback.mode',
+  'state:playback.activity',
+  'state:playlist.currentQueueItemId',
+  'state:playlist.items',
+  'state:player.startedAt',
+  'state:player.pausedAt',
+] as const) {
+  bus.on(event, () => {
+    if (cancelPlaybackRestoreForQueueOverride()) return;
+    reconcilePlaybackRestore();
+    schedulePlaybackCheckpoint();
+  });
 }
 
-export function getProRoomSessionController(): ProRoomSessionController {
-  return controller;
+function hasPendingCoordinatorInvalidation(): boolean {
+  return invalidationHighWater.pending;
 }
 
+function scheduleCoordinatorInvalidationRefresh(): void {
+  if (
+    !active ||
+    !isCoordinator() ||
+    !hasPendingCoordinatorInvalidation() ||
+    coordinatorRefresh ||
+    invalidationRefreshScheduled
+  ) {
+    return;
+  }
+
+  const delay = Math.max(
+    0,
+    INVALIDATION_REFRESH_MIN_INTERVAL_MS - (Date.now() - lastInvalidationRefreshAt),
+  );
+  if (delay > 0) {
+    invalidationRefreshScheduled = true;
+    setManagedTimer(
+      INVALIDATION_REFRESH_TIMER,
+      () => {
+        invalidationRefreshScheduled = false;
+        void runCoordinatorInvalidationRefresh();
+      },
+      delay,
+    );
+    return;
+  }
+  void runCoordinatorInvalidationRefresh();
+}
+
+async function runCoordinatorInvalidationRefresh(): Promise<void> {
+  const lease = playlistRuntimeLease;
+  if (!active || !isCoordinator() || coordinatorRefresh || !lease) return;
+  invalidationRefreshScheduled = false;
+  clearManagedTimer(INVALIDATION_REFRESH_TIMER);
+  const attemptedRevision = invalidationHighWater.revision;
+  const attemptedPlaylistRevision = invalidationHighWater.playlistRevision;
+
+  const refresh = (async () => {
+    const snapshot = await controller.refresh();
+    await acceptPlaylistSnapshot(snapshot);
+  })();
+  coordinatorRefresh = refresh;
+  try {
+    await refresh;
+  } catch (error) {
+    if (isTerminalSessionError(error)) await recoverTerminalSession(error);
+    else log.warn('[PRO] Coordinator playlist refresh failed', error);
+  } finally {
+    if (isPlaylistLeaseCurrent(lease) && coordinatorRefresh === refresh) {
+      coordinatorRefresh = null;
+      lastInvalidationRefreshAt = Date.now();
+      // A hint arriving during this request may describe a later commit than
+      // the snapshot we just fetched. Preserve its high-water mark and
+      // schedule one throttled follow-up. A forged/server-ahead mark is not
+      // spun forever; the regular heartbeat will reconcile it later.
+      if (
+        invalidationHighWater.revision > attemptedRevision ||
+        invalidationHighWater.playlistRevision > attemptedPlaylistRevision
+      ) {
+        scheduleCoordinatorInvalidationRefresh();
+      }
+    }
+  }
+}
+
+registerHandler(MSG.PRO_ROOM_INVALIDATED, (data, conn: DataConnection) => {
+  const context = getState('room.context');
+  const current = playlistManager?.snapshot;
+  if (
+    context.kind !== 'pro' ||
+    !isCoordinator() ||
+    !verifyPeerCapability(conn, 'queue.mutate') ||
+    (data.revision <= (current?.revision ?? -1) &&
+      data.playlistRevision <= (current?.playlistRevision ?? -1))
+  ) {
+    return;
+  }
+
+  if (!invalidationHighWater.offer(data, current ?? { revision: -1, playlistRevision: -1 })) return;
+  scheduleCoordinatorInvalidationRefresh();
+});
+
+registerProRoomHardCloseHandler(() => hardCloseActiveProRoom());
 registerProRoomLeaveHandler(() => leaveActiveProRoom());
+registerProRoomSignalingReconnectHandler(() => refreshSignalingCredential());
+registerProRoomSignalingEpochAdvanceHandler(() => {
+  clearManagedTimer(HEARTBEAT_TIMER);
+  return runHeartbeat(true);
+});

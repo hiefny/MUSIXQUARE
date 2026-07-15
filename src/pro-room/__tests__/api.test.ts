@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  PRO_ROOM_PRODUCTION_ENDPOINT,
+  proRoomProductionEndpointForTests as PRO_ROOM_PRODUCTION_ENDPOINT,
   PRO_ROOM_R2_HOST,
   ProRoomApiClient,
   ProRoomApiError,
-  resolveProRoomEndpoint,
+  resolveProRoomEndpointForTests as resolveProRoomEndpoint,
 } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -50,6 +50,8 @@ function activeSnapshot(): ProRoomSnapshot {
       state: 'paused',
       queueItemId: QUEUE_ITEM_ID,
       positionSeconds: 12.5,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
       updatedAtMs: 1_800_000_000_000,
     },
     presence: {
@@ -74,6 +76,7 @@ function activeSnapshot(): ProRoomSnapshot {
     viewer: {
       memberId: 'member_0000000001',
       participantId: 'participant_00001',
+      presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
@@ -116,6 +119,16 @@ function quota(reservedBytes = 0) {
     usedBytes: 0,
     reservedBytes,
   };
+}
+
+async function establishPresence(
+  client: ProRoomApiClient,
+  fetchMock: ReturnType<typeof vi.fn<typeof fetch>>,
+  snapshot = activeSnapshot(),
+): Promise<void> {
+  fetchMock.mockResolvedValueOnce(jsonResponse({ snapshot }));
+  await client.enterPresence(snapshot.roomCode);
+  fetchMock.mockClear();
 }
 
 afterEach(() => {
@@ -229,6 +242,51 @@ describe('PRO room cookie session API', () => {
     });
   });
 
+  it('exchanges an owner-recovery claim only in a strict POST body', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ snapshot: activeSnapshot() }));
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(
+      client.recoverOwner({
+        code: ROOM_CODE,
+        claimToken: CLAIM_TOKEN,
+        displayName: ' Recovered Owner ',
+      }),
+    ).resolves.toEqual(activeSnapshot());
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe('/v1/rooms/000001/owner-recovery');
+    expect(url.search).toBe('');
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
+    expect(JSON.parse(String(init.body))).toEqual({
+      claimToken: CLAIM_TOKEN,
+      displayName: 'Recovered Owner',
+    });
+    expect(url.toString()).not.toContain(CLAIM_TOKEN);
+  });
+
+  it('rejects malformed recovery input and non-exact recovery responses', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        snapshot: activeSnapshot(),
+        ownerToken: CLAIM_TOKEN,
+      }),
+    );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    expect(() =>
+      client.recoverOwner({ code: ROOM_CODE, claimToken: 'short', displayName: 'Owner' }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_RECOVERY_CLAIM_TOKEN' }));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      client.recoverOwner({ code: ROOM_CODE, claimToken: CLAIM_TOKEN, displayName: 'Owner' }),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('creates a member session without exposing a token to browser code', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
@@ -249,67 +307,227 @@ describe('PRO room cookie session API', () => {
   });
 
   it('parses snapshot-returning methods and strict ok-only mutations', async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
       .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
       .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }));
-    const client = new ProRoomApiClient({ fetch: fetchMock });
 
     await expect(client.getSnapshot(ROOM_CODE)).resolves.toEqual(activeSnapshot());
     await expect(client.heartbeat(ROOM_CODE)).resolves.toEqual(activeSnapshot());
     await expect(client.changePin(ROOM_CODE, '87654321')).resolves.toBeUndefined();
-    await expect(client.closeSession(ROOM_CODE)).resolves.toBeUndefined();
+    await expect(
+      client.closeSessionFenced({
+        code: ROOM_CODE,
+        expectedParticipantId: activeSnapshot().viewer!.participantId,
+        expectedPresenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+      }),
+    ).resolves.toBeUndefined();
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
       '/v1/rooms/000001/snapshot',
       '/v1/rooms/000001/presence/heartbeat',
       '/v1/rooms/000001/pin',
-      '/v1/rooms/000001/sessions/current',
+      '/v1/rooms/000001/sessions/current/close',
     ]);
+    const activeHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(activeHeaders.get('x-mxqr-pro-participant-id')).toBe(
+      activeSnapshot().viewer!.participantId,
+    );
+    expect(activeHeaders.get('x-mxqr-pro-presence-incarnation')).toBe(
+      activeSnapshot().viewer!.presenceIncarnationId,
+    );
+    const fencedInit = fetchMock.mock.calls[3]?.[1];
+    expect(fencedInit?.method).toBe('POST');
+    expect(new Headers(fencedInit?.headers).get('content-type')).toBe('text/plain;charset=UTF-8');
+    expect(JSON.parse(String(fencedInit?.body))).toEqual({
+      expectedParticipantId: activeSnapshot().viewer!.participantId,
+      expectedPresenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+    });
+  });
+
+  it('keeps the activation/enter lease tab-local and never adopts identity from refresh data', async () => {
+    const replacement = {
+      ...activeSnapshot(),
+      revision: 4,
+      viewer: {
+        ...activeSnapshot().viewer!,
+        presenceIncarnationId: 'presence_0000000002',
+      },
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
+      .mockResolvedValueOnce(jsonResponse({ snapshot: replacement }))
+      .mockResolvedValueOnce(jsonResponse({ snapshot: replacement }));
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.getSnapshot(ROOM_CODE)).rejects.toMatchObject({
+      code: 'PRESENCE_IDENTITY_REQUIRED',
+      status: 409,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await client.enterPresence(ROOM_CODE);
+    expect(client.presenceIdentity(ROOM_CODE)).toEqual({
+      participantId: activeSnapshot().viewer!.participantId,
+      presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+    });
+    await client.getSnapshot(ROOM_CODE);
+    await client.heartbeat(ROOM_CODE);
+    const heartbeatHeaders = new Headers(fetchMock.mock.calls[2]?.[1]?.headers);
+    expect(heartbeatHeaders.get('x-mxqr-pro-presence-incarnation')).toBe(
+      activeSnapshot().viewer!.presenceIncarnationId,
+    );
+    expect(client.presenceIdentity(ROOM_CODE)?.presenceIncarnationId).toBe(
+      activeSnapshot().viewer!.presenceIncarnationId,
+    );
+
+    client.clearPresenceIdentity(ROOM_CODE, {
+      participantId: activeSnapshot().viewer!.participantId,
+      presenceIncarnationId: replacement.viewer.presenceIncarnationId,
+    });
+    expect(client.presenceIdentity(ROOM_CODE)).not.toBeNull();
+    client.clearPresenceIdentity(ROOM_CODE, client.presenceIdentity(ROOM_CODE)!);
+    expect(client.presenceIdentity(ROOM_CODE)).toBeNull();
   });
 
   it('leaves presence explicitly and obtains a short-lived signaling ticket', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
       .mockResolvedValueOnce(
         jsonResponse({
           ticket,
           expiresAtMs: 1_900_000_000_000,
           role: 'coordinator',
           coordinatorEpoch: 4,
+          presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+          ticketSequence: 7,
         }),
-      );
-    const client = new ProRoomApiClient({ fetch: fetchMock });
+      )
+      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }));
 
-    await expect(client.leavePresence(ROOM_CODE)).resolves.toEqual(activeSnapshot());
     await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual({
       ticket,
       expiresAtMs: 1_900_000_000_000,
       role: 'coordinator',
       coordinatorEpoch: 4,
+      presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+      ticketSequence: 7,
     });
+    await expect(client.leavePresence(ROOM_CODE)).resolves.toEqual(activeSnapshot());
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
-      '/v1/rooms/000001/presence/current',
       '/v1/rooms/000001/signaling-tickets',
+      '/v1/rooms/000001/presence/current',
     ]);
-    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['DELETE', 'POST']);
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST', 'DELETE']);
+  });
+
+  it('uses one small credentialed keepalive request for a confirmed unload close', async () => {
+    const snapshot = activeSnapshot();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await client.closePresenceOnUnload({
+      code: ROOM_CODE,
+      expectedParticipantId: snapshot.viewer!.participantId,
+      expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
+      baseRevision: snapshot.revision,
+      currentQueueItemId: snapshot.currentQueueItemId,
+      playback: snapshot.playback,
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe('/v1/rooms/000001/presence/close');
+    expect(init).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      keepalive: true,
+    });
+    const headers = new Headers(init.headers);
+    expect(headers.get('content-type')).toBe('text/plain;charset=UTF-8');
+    expect(headers.get('idempotency-key')).toBeNull();
+    expect(headers.get('x-mxqr-pro-participant-id')).toBeNull();
+    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBeNull();
+    expect(JSON.parse(String(init.body))).toEqual({
+      idempotencyKey: IDEMPOTENCY_KEY,
+      expectedParticipantId: snapshot.viewer!.participantId,
+      expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
+      baseRevision: snapshot.revision,
+      currentQueueItemId: snapshot.currentQueueItemId,
+      playback: snapshot.playback,
+    });
+    expect(new TextEncoder().encode(String(init.body)).byteLength).toBeLessThan(64 * 1024);
+  });
+
+  it('rejects an invalid captured participant before starting a close request', async () => {
+    const snapshot = activeSnapshot();
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(
+      client.closePresenceOnUnload({
+        code: ROOM_CODE,
+        expectedParticipantId: 'not-valid',
+        expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
+        baseRevision: snapshot.revision,
+        currentQueueItemId: snapshot.currentQueueItemId,
+        playback: snapshot.playback,
+        idempotencyKey: IDEMPOTENCY_KEY,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARTICIPANT_ID' });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      client.closePresenceOnUnload({
+        code: ROOM_CODE,
+        expectedParticipantId: snapshot.viewer!.participantId,
+        expectedPresenceIncarnationId: 'stale',
+        baseRevision: snapshot.revision,
+        currentQueueItemId: snapshot.currentQueueItemId,
+        playback: snapshot.playback,
+        idempotencyKey: IDEMPOTENCY_KEY,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_PRESENCE_INCARNATION_ID' });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      client.closeSessionFenced({
+        code: ROOM_CODE,
+        expectedParticipantId: 'not-valid',
+        expectedPresenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARTICIPANT_ID' });
+    await expect(
+      client.closeSessionFenced({
+        code: ROOM_CODE,
+        expectedParticipantId: snapshot.viewer!.participantId,
+        expectedPresenceIncarnationId: 'stale',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_PRESENCE_INCARNATION_ID' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects malformed or cross-room snapshots instead of admitting them to state', async () => {
     const malformed = activeSnapshot() as unknown as Record<string, unknown>;
     malformed.internalObjectKey = 'rooms/000001/private.flac';
-    const fetchMock = vi
-      .fn<typeof fetch>()
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
       .mockResolvedValueOnce(jsonResponse({ snapshot: malformed }))
       .mockResolvedValueOnce(
         jsonResponse({ snapshot: { ...activeSnapshot(), roomCode: '000000' } }),
       );
-    const client = new ProRoomApiClient({ fetch: fetchMock });
 
     await expect(client.getSnapshot(ROOM_CODE)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
@@ -323,10 +541,10 @@ describe('PRO room cookie session API', () => {
 
   it('sends snapshot revisions with the caller-stable idempotency key', async () => {
     const snapshot = activeSnapshot();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ snapshot: { ...snapshot, revision: 4 } }));
+    const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValue(jsonResponse({ snapshot: { ...snapshot, revision: 4 } }));
 
     await client.updateSnapshot({
       code: ROOM_CODE,
@@ -376,7 +594,10 @@ describe('PRO room cookie session API', () => {
 
 describe('PRO room private media API', () => {
   it('accepts only a bounded reservation and exact R2 presigned upload URL', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValue(
       jsonResponse({
         reservation: {
           assetId: ASSET_ID,
@@ -392,7 +613,6 @@ describe('PRO room private media API', () => {
         quota: quota(1024),
       }),
     );
-    const client = new ProRoomApiClient({ fetch: fetchMock });
 
     await expect(
       client.createMediaReservation({
@@ -423,7 +643,10 @@ describe('PRO room private media API', () => {
     'http://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com/object',
     'https://evil.example/object?X-Amz-Algorithm=AWS4-HMAC-SHA256',
   ])('rejects an untrusted returned upload URL: %s', async (uploadUrl) => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValue(
       jsonResponse({
         reservation: {
           assetId: ASSET_ID,
@@ -435,7 +658,6 @@ describe('PRO room private media API', () => {
         quota: quota(1024),
       }),
     );
-    const client = new ProRoomApiClient({ fetch: fetchMock });
 
     await expect(
       client.createMediaReservation({
@@ -457,8 +679,10 @@ describe('PRO room private media API', () => {
       mime: 'audio/flac',
       sha256: 'a'.repeat(64),
     };
-    const fetchMock = vi
-      .fn<typeof fetch>()
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
       .mockResolvedValueOnce(jsonResponse({ asset, quota: quota() }))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -467,8 +691,6 @@ describe('PRO room private media API', () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ ok: true, assetId: ASSET_ID, quota: quota() }));
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-
     await expect(
       client.completeMedia({ code: ROOM_CODE, assetId: ASSET_ID, idempotencyKey: IDEMPOTENCY_KEY }),
     ).resolves.toEqual({ asset, quota: quota() });

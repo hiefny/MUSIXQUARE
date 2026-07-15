@@ -154,6 +154,34 @@ describe('guest connection type authority', () => {
     });
   });
 
+  it('keeps PRO members promoted when legacy operator frames arrive', async () => {
+    const { initGuestProtocolHandlers } = await import('../guest.ts');
+    const { handleData } = await import('../protocol.ts');
+    const playButtonState = vi.fn();
+    bus.on('ui:play-btn-state', playButtonState);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    initGuestProtocolHandlers();
+
+    setState('network.isOperator', false);
+    await handleData({ type: MSG.OPERATOR_REVOKE }, conn);
+    expect(getState('network.isOperator')).toBe(true);
+
+    setState('network.isOperator', false);
+    await handleData({ type: MSG.OPERATOR_GRANT }, conn);
+    expect(getState('network.isOperator')).toBe(true);
+    expect(playButtonState).toHaveBeenNthCalledWith(1, true);
+    expect(playButtonState).toHaveBeenNthCalledWith(2, true);
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
   it('shows operator-only toasts only when they come from the host', async () => {
     const { initGuestProtocolHandlers } = await import('../guest.ts');
     const { handleData } = await import('../protocol.ts');

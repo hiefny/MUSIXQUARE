@@ -17,11 +17,13 @@ const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
 const PRO_ROOM_META_KEY = 'proRoomMeta';
 const PRO_TICKET_USES_KEY = 'proSignalingTicketUses';
+const PRO_PARTICIPANT_HIGH_WATER_KEY = 'proSignalingParticipantHighWater';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
 const MAX_PRO_TICKET_USES = 1024;
+const MAX_PRO_PARTICIPANT_HIGH_WATER = 256;
 const MAX_GUEST_BINDINGS = 256;
 // The client exhausts its automatic signaling reconnect backoff in about 30s,
 // and a host can reclaim its room for 60s. Five minutes leaves a conservative
@@ -142,6 +144,13 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
   if (!isValidPeerId(value.participantId)) return null;
   if (value.role !== 'coordinator' && value.role !== 'member') return null;
   if (!isValidProEpoch(value.coordinatorEpoch)) return null;
+  if (
+    typeof value.presenceIncarnationId !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.presenceIncarnationId)
+  ) {
+    return null;
+  }
+  if (!Number.isSafeInteger(value.ticketSequence) || value.ticketSequence < 1) return null;
   if (typeof value.jti !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value.jti)) return null;
   if (!Number.isSafeInteger(value.iat) || !Number.isSafeInteger(value.exp)) return null;
   if (value.exp <= value.iat || value.exp - value.iat > PRO_SIGNALING_TICKET_MAX_SECONDS)
@@ -156,6 +165,8 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     participantId: value.participantId,
     role: value.role,
     coordinatorEpoch: value.coordinatorEpoch,
+    presenceIncarnationId: value.presenceIncarnationId,
+    ticketSequence: value.ticketSequence,
     jti: value.jti,
     iat: value.iat,
     exp: value.exp,
@@ -261,6 +272,40 @@ function normalizeProTicketUses(value) {
     if (!Number.isSafeInteger(entry.exp) || entry.exp < 0 || seen.has(entry.jti)) return null;
     seen.add(entry.jti);
     entries.push({ jti: entry.jti, exp: entry.exp });
+  }
+  return { v: 1, entries };
+}
+
+function defaultProParticipantHighWater() {
+  return { v: 1, entries: [] };
+}
+
+function normalizeProParticipantHighWater(value) {
+  if (!isRecord(value) || value.v !== 1 || !Array.isArray(value.entries)) return null;
+  if (value.entries.length > MAX_PRO_PARTICIPANT_HIGH_WATER) return null;
+  const entries = [];
+  const seen = new Set();
+  for (const entry of value.entries) {
+    if (
+      !isRecord(entry) ||
+      !isValidPeerId(entry.participantId) ||
+      seen.has(entry.participantId) ||
+      typeof entry.presenceIncarnationId !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(entry.presenceIncarnationId) ||
+      !Number.isSafeInteger(entry.ticketSequence) ||
+      entry.ticketSequence < 1 ||
+      !Number.isSafeInteger(entry.exp) ||
+      entry.exp < 0
+    ) {
+      return null;
+    }
+    seen.add(entry.participantId);
+    entries.push({
+      participantId: entry.participantId,
+      presenceIncarnationId: entry.presenceIncarnationId,
+      ticketSequence: entry.ticketSequence,
+      exp: entry.exp,
+    });
   }
   return { v: 1, entries };
 }
@@ -500,6 +545,15 @@ function normalizeProRoomMeta(value) {
     coordinatorEpoch: value.coordinatorEpoch,
     coordinatorParticipantId: value.coordinatorParticipantId,
     coordinatorJti: value.coordinatorJti,
+    coordinatorPresenceIncarnationId:
+      typeof value.coordinatorPresenceIncarnationId === 'string' &&
+      /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.coordinatorPresenceIncarnationId)
+        ? value.coordinatorPresenceIncarnationId
+        : `legacy_${value.coordinatorJti.slice(0, 120)}`,
+    coordinatorTicketSequence:
+      Number.isSafeInteger(value.coordinatorTicketSequence) && value.coordinatorTicketSequence >= 1
+        ? value.coordinatorTicketSequence
+        : 0,
     coordinatorTicketIat: Number.isSafeInteger(value.coordinatorTicketIat)
       ? Math.max(0, value.coordinatorTicketIat)
       : 0,
@@ -528,6 +582,15 @@ function normalizeAttachment(value) {
       participantId: value.participantId,
       coordinatorEpoch: value.coordinatorEpoch,
       ticketJti: value.ticketJti,
+      presenceIncarnationId:
+        typeof value.presenceIncarnationId === 'string' &&
+        /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.presenceIncarnationId)
+          ? value.presenceIncarnationId
+          : `legacy_${value.ticketJti.slice(0, 120)}`,
+      ticketSequence:
+        Number.isSafeInteger(value.ticketSequence) && value.ticketSequence >= 1
+          ? value.ticketSequence
+          : 0,
       auth: 'ok',
     };
     if (value.role === 'guest') {
@@ -621,6 +684,7 @@ export class MusixquareRoom {
     this.pendingGuests = new Set();
     this.guestBindings = null;
     this.proTicketUses = null;
+    this.proParticipantHighWater = null;
     this.guestAdmissionSync = Promise.resolve();
     this.proAdmissionSync = Promise.resolve();
     this.alarmSync = Promise.resolve();
@@ -796,6 +860,74 @@ export class MusixquareRoom {
     return true;
   }
 
+  async loadProParticipantHighWater(nowSeconds = Math.floor(Date.now() / 1000)) {
+    if (this.proParticipantHighWater) return this.proParticipantHighWater;
+    const stored = await this.state.storage.get(PRO_PARTICIPANT_HIGH_WATER_KEY);
+    if (stored !== undefined && stored !== null) {
+      const normalized = normalizeProParticipantHighWater(stored);
+      if (!normalized) throw new Error('INVALID_PRO_SIGNALING_PARTICIPANT_HIGH_WATER');
+      this.proParticipantHighWater = normalized;
+      return normalized;
+    }
+
+    // Recover the monotonic fence from hibernated sockets before accepting a
+    // fresh credential. This prevents a delayed, lower-sequence ticket from
+    // reverse-replacing the socket that survived Worker eviction/deployment.
+    const byParticipant = new Map();
+    for (const socket of typeof this.state.getWebSockets === 'function'
+      ? this.state.getWebSockets()
+      : []) {
+      const attachment = readAttachment(socket);
+      if (attachment?.roomKind !== 'pro' || attachment.ticketSequence < 1) continue;
+      const current = byParticipant.get(attachment.participantId);
+      if (!current || attachment.ticketSequence > current.ticketSequence) {
+        byParticipant.set(attachment.participantId, {
+          participantId: attachment.participantId,
+          presenceIncarnationId: attachment.presenceIncarnationId,
+          ticketSequence: attachment.ticketSequence,
+          exp: nowSeconds + PRO_SIGNALING_TICKET_MAX_SECONDS,
+        });
+      }
+    }
+    const seeded = {
+      v: 1,
+      entries: [...byParticipant.values()].slice(0, MAX_PRO_PARTICIPANT_HIGH_WATER),
+    };
+    if (seeded.entries.length > 0) {
+      await this.state.storage.put(PRO_PARTICIPANT_HIGH_WATER_KEY, seeded);
+    }
+    this.proParticipantHighWater = seeded;
+    return seeded;
+  }
+
+  async advanceProParticipantHighWater(ticket, nowSeconds = Math.floor(Date.now() / 1000)) {
+    const current = await this.loadProParticipantHighWater(nowSeconds);
+    const entries = current.entries.filter(
+      (entry) => entry.exp > nowSeconds || entry.participantId === ticket.participantId,
+    );
+    const previous = entries.find((entry) => entry.participantId === ticket.participantId);
+    if (previous && ticket.ticketSequence <= previous.ticketSequence) return false;
+    const remaining = entries.filter((entry) => entry.participantId !== ticket.participantId);
+    if (remaining.length >= MAX_PRO_PARTICIPANT_HIGH_WATER) {
+      throw new Error('PRO_SIGNALING_PARTICIPANT_HIGH_WATER_FULL');
+    }
+    const next = {
+      v: 1,
+      entries: [
+        ...remaining,
+        {
+          participantId: ticket.participantId,
+          presenceIncarnationId: ticket.presenceIncarnationId,
+          ticketSequence: ticket.ticketSequence,
+          exp: ticket.exp,
+        },
+      ],
+    };
+    await this.state.storage.put(PRO_PARTICIPANT_HIGH_WATER_KEY, next);
+    this.proParticipantHighWater = next;
+    return true;
+  }
+
   enqueueProAdmission(task) {
     const run = this.proAdmissionSync.then(task, task);
     this.proAdmissionSync = run.catch(() => {});
@@ -812,6 +944,28 @@ export class MusixquareRoom {
         ]);
         closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_REPLAYED', 1008);
         this.recordMetric('pro_ticket_replayed');
+        return;
+      }
+    } catch {
+      this.acceptSocket(ws, null, [
+        'kind:pro',
+        ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
+        'rejected:ticket-state',
+      ]);
+      closeWithError(ws, 'unavailable', 'PRO_SIGNALING_TICKET_STATE_UNAVAILABLE', 1013);
+      this.recordMetric('pro_ticket_state_unavailable');
+      return;
+    }
+
+    try {
+      if (!(await this.advanceProParticipantHighWater(ticket))) {
+        this.acceptSocket(ws, null, [
+          'kind:pro',
+          ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
+          'rejected:ticket-sequence',
+        ]);
+        closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_STALE', 1008);
+        this.recordMetric('pro_ticket_stale_sequence');
         return;
       }
     } catch {
@@ -844,7 +998,10 @@ export class MusixquareRoom {
         meta?.kind === 'pro' &&
         meta.roomId === attachment.roomId &&
         meta.coordinatorEpoch === attachment.coordinatorEpoch &&
-        (attachment.role !== 'host' || meta.coordinatorParticipantId === attachment.participantId);
+        (attachment.role !== 'host' ||
+          (meta.coordinatorParticipantId === attachment.participantId &&
+            meta.coordinatorPresenceIncarnationId === attachment.presenceIncarnationId &&
+            meta.coordinatorTicketSequence === attachment.ticketSequence));
       if (current) continue;
       closeSocket(socket, 1012, 'PRO_COORDINATOR_EPOCH_STALE');
       if (attachment.role === 'host' && this.host === socket) {
@@ -1052,6 +1209,8 @@ export class MusixquareRoom {
       coordinatorEpoch: ticket.coordinatorEpoch,
       coordinatorParticipantId: ticket.participantId,
       coordinatorJti: ticket.jti,
+      coordinatorPresenceIncarnationId: ticket.presenceIncarnationId,
+      coordinatorTicketSequence: ticket.ticketSequence,
       coordinatorTicketIat: ticket.iat,
     });
   }
@@ -1077,7 +1236,7 @@ export class MusixquareRoom {
         closeWithError(ws, 'id-taken', 'PRO_COORDINATOR_MISMATCH', 1008);
         return;
       }
-      if (ticket.iat < meta.coordinatorTicketIat) {
+      if (ticket.ticketSequence <= meta.coordinatorTicketSequence) {
         this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:ticket-replay']);
         closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_REPLAYED', 1008);
         return;
@@ -1085,6 +1244,8 @@ export class MusixquareRoom {
       meta = await this.saveProRoomMeta({
         ...meta,
         coordinatorJti: ticket.jti,
+        coordinatorPresenceIncarnationId: ticket.presenceIncarnationId,
+        coordinatorTicketSequence: ticket.ticketSequence,
         coordinatorTicketIat: ticket.iat,
       });
     }
@@ -1099,6 +1260,8 @@ export class MusixquareRoom {
       participantId: ticket.participantId,
       coordinatorEpoch: meta.coordinatorEpoch,
       ticketJti: ticket.jti,
+      presenceIncarnationId: ticket.presenceIncarnationId,
+      ticketSequence: ticket.ticketSequence,
       auth: 'ok',
     };
     this.acceptSocket(ws, attachment, [
@@ -1160,6 +1323,8 @@ export class MusixquareRoom {
       participantId: ticket.participantId,
       coordinatorEpoch: ticket.coordinatorEpoch,
       ticketJti: ticket.jti,
+      presenceIncarnationId: ticket.presenceIncarnationId,
+      ticketSequence: ticket.ticketSequence,
       auth: 'ok',
       ...(Number.isFinite(previousAttachment?.guestMessageTokens) &&
       Number.isFinite(previousAttachment?.guestMessageUpdatedAt)

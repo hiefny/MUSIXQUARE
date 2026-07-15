@@ -21,7 +21,7 @@ custom_domain = true
 
 [vars]
 R2_BUCKET_NAME = "musixquare-pro-media"
-ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
 PRO_ROOM_CODES = "000000,000001"
 SESSION_TTL_SECONDS = "2592000"
 PRESENCE_TTL_SECONDS = "45"

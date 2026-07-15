@@ -43,6 +43,7 @@ import {
   isPlaybackModeYouTube,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
+import { hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -412,11 +413,12 @@ async function copyInviteCode(): Promise<void> {
 // ─── Media Source Popup ──────────────────────────────────────────
 
 function openMediaSourcePopup(): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) {
+  if (!hasRoomCapability('asset.upload') && !hasRoomCapability('queue.mutate')) {
     showToast(t('toast.host_only_media'));
     return;
   }
+  const systemAudioButton = document.getElementById('btn-system-audio');
+  if (systemAudioButton) systemAudioButton.hidden = !isCoordinator();
   animateTransition(() => {
     const overlay = document.getElementById('media-source-overlay');
     if (overlay) {
@@ -424,6 +426,13 @@ function openMediaSourcePopup(): void {
       updateOverlayOpenClass();
     }
   });
+}
+
+function syncMediaSourceButtonAuthority(): void {
+  const mediaBtn = document.getElementById('btn-media-source');
+  if (!mediaBtn) return;
+  const canSelectMedia = hasRoomCapability('asset.upload') || hasRoomCapability('queue.mutate');
+  mediaBtn.style.opacity = canSelectMedia ? '' : '0.15';
 }
 
 function closeMediaSourcePopup(): void {
@@ -437,8 +446,7 @@ function closeMediaSourcePopup(): void {
 }
 
 function openYouTubePopup(): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) {
+  if (!hasRoomCapability('queue.mutate')) {
     showToast(t('toast.host_only_youtube'));
     return;
   }
@@ -471,8 +479,7 @@ function closeYouTubePopup(): void {
 // ─── File Selector ───────────────────────────────────────────────
 
 function openFileSelector(): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) {
+  if (!hasRoomCapability('asset.upload')) {
     showToast(t('toast.host_only'));
     return;
   }
@@ -828,6 +835,13 @@ export function initPlayerControls(): void {
     openYouTubePopup();
   });
   $on('btn-system-audio', 'click', () => {
+    // Live system-audio capture remains coordinator-owned. PRO members can
+    // open this shared source picker to add files and YouTube entries, but a
+    // second capture source cannot safely replace the coordinator's stream.
+    if (!isCoordinator()) {
+      showToast(t('toast.host_only_media'));
+      return;
+    }
     if (canCaptureSystemAudio()) {
       closeMediaSourcePopup();
       bus.emit('system-audio:start');
@@ -921,13 +935,12 @@ export function initPlayerControls(): void {
     scheduleRoleClockPulse(true);
   });
 
-  // Guest: dim media source button (host-only action)
-  _busScope.on('state:network.hostConn', () => {
-    const mediaBtn = document.getElementById('btn-media-source');
-    if (mediaBtn) {
-      mediaBtn.style.opacity = getState('network.hostConn') ? '0.15' : '';
-    }
-  });
+  // Ordinary guests cannot select media, while every authenticated PRO
+  // controller can. Derive the visual affordance from the same capability
+  // guard as the click handler instead of the legacy host/guest topology.
+  _busScope.on('state:network.hostConn', syncMediaSourceButtonAuthority);
+  _busScope.on('state:room.context', syncMediaSourceButtonAuthority);
+  syncMediaSourceButtonAuthority();
 
   // Language switch → refresh translated track title + tab title
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
@@ -1064,8 +1077,7 @@ export function initPlayerControls(): void {
             mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
           }
           if (mediaBtn) {
-            // Restore host opacity only — guest stays dimmed via hostConn listener
-            if (!getState('network.hostConn')) mediaBtn.style.opacity = '';
+            syncMediaSourceButtonAuthority();
             mediaBtn.classList.remove('sys-audio-guest');
           }
         }

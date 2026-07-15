@@ -33,6 +33,7 @@ import { showToast } from './toast.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { syncOverlayState } from './dom.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -554,6 +555,7 @@ function isDeviceListRow(value: unknown): value is DeviceListRow {
 function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
   const container = document.getElementById('device-list');
   if (!container) return;
+  const isProRoom = getRoomContext().kind === 'pro';
 
   container.replaceChildren();
 
@@ -571,7 +573,7 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
     name.appendChild(document.createTextNode(' '));
     name.appendChild(shortId);
 
-    if (p.isOp) {
+    if (p.isOp && !isProRoom) {
       const op = document.createElement('span');
       op.style.cssText = 'color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;';
       op.textContent = 'ADMIN';
@@ -595,7 +597,7 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
       const right = document.createElement('div');
       right.style.cssText = 'display:flex; gap:4px; align-items:center;';
 
-      if (!p.isHost && p.status === 'connected') {
+      if (!isProRoom && !p.isHost && p.status === 'connected') {
         const opBtn = document.createElement('button');
         opBtn.className = `btn-action ${p.isOp ? 'active' : ''}`;
         opBtn.dataset.opPeer = String(p.id || '');
@@ -1009,6 +1011,11 @@ export function initSettings(): void {
   // Device list events
   _busScope.on('network:device-list-update', (list: unknown[]) => {
     if (Array.isArray(list)) renderDeviceList(list.filter(isDeviceListRow));
+  });
+
+  _busScope.on('state:room.context', () => {
+    const list = getState('network.lastKnownDeviceList') || [];
+    renderDeviceList(list.filter(isDeviceListRow));
   });
 
   // Language switch → re-render device list so status/grant-revoke button

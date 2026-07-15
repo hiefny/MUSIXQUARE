@@ -216,6 +216,33 @@ describe('verifyOperator', () => {
   });
 });
 
+describe('PRO member kick request validation', () => {
+  it('accepts only one bounded opaque target identifier', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('pro-controller-1');
+    registerHandler(MSG.REQUEST_KICK_DEVICE, handler);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'pro-member_00000001' }, conn);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { type: MSG.REQUEST_KICK_DEVICE },
+    { type: MSG.REQUEST_KICK_DEVICE, targetPeerId: '' },
+    { type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'member with spaces' },
+    { type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'x'.repeat(97) },
+    { type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'member-2', targetConn: {} },
+  ])('drops malformed or extended member-management frames: %o', async (message) => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_KICK_DEVICE, handler);
+
+    await handleData(message, makeConnection('pro-controller-1'));
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe('YOUTUBE_PLAYLIST_INFO validation', () => {
   it('allows large playlist IDs while titles are still lazy-filling', async () => {
     const handler = vi.fn();

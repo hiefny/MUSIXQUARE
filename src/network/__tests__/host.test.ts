@@ -286,6 +286,27 @@ describe('ordered host bootstrap phases', () => {
 });
 
 describe('host operator toggle', () => {
+  it('ignores the legacy operator toggle in a PRO room', () => {
+    const send = vi.fn();
+    const conn = makeConn(send);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+    setState('network.connectedPeers', [{ ...makePeer(conn), isOp: true }]);
+
+    bus.emit('network:toggle-operator', 'guest-1');
+
+    expect(getState('network.connectedPeers')[0].isOp).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
   it('grants operator only after the target connection receives the message', () => {
     const send = vi.fn();
     const conn = makeConn(send);

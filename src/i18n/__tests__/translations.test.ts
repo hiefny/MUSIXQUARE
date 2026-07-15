@@ -256,4 +256,28 @@ describe('Translation key integrity', () => {
 
     expect(badLegalCopy).toEqual([]);
   });
+
+  it('discloses persistent PRO-room media separately from ordinary remote sharing', () => {
+    const badLegalCopy: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      const legal = dict['legal.content_html' as keyof typeof dict] || '';
+      const markerCount = legal.match(/data-legal-pro-storage/g)?.length ?? 0;
+      const markerIndex = legal.indexOf('<span data-legal-pro-storage>');
+      const privacyLinkIndex = legal.indexOf('<a href="/privacy"');
+
+      if (
+        markerCount !== 1 ||
+        markerIndex < 0 ||
+        privacyLinkIndex <= markerIndex ||
+        !legal.includes('Cloudflare R2') ||
+        !legal.includes('PRO') ||
+        !legal.slice(0, markerIndex).includes('24')
+      ) {
+        badLegalCopy.push(locale);
+      }
+    }
+
+    expect(badLegalCopy).toEqual([]);
+  });
 });

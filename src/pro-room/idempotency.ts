@@ -1,8 +1,10 @@
 const IDEMPOTENCY_RANDOM_BYTES = 24;
 
-export interface ProRoomCryptoRandomSource {
+interface ProRoomCryptoRandomSource {
   getRandomValues<T extends ArrayBufferView>(array: T): T;
 }
+
+export type { ProRoomCryptoRandomSource as ProRoomCryptoRandomSourceForTests };
 
 /**
  * Generate an opaque, API-safe idempotency key with 192 bits of entropy.

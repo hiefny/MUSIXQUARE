@@ -8,21 +8,23 @@ const mocks = vi.hoisted(() => ({
   bootstrap: vi.fn(),
   getState: vi.fn(),
   join: vi.fn(),
+  recoverOwner: vi.fn(),
   resume: vi.fn(),
   showDialog: vi.fn(),
-  takeClaim: vi.fn(),
+  takeClaims: vi.fn(),
 }));
 
 vi.mock('../../core/state.ts', () => ({ getState: mocks.getState }));
 vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
 vi.mock('../claim-fragment.ts', () => ({
-  takeProRoomClaimFromFragment: mocks.takeClaim,
+  takeProRoomClaimsFromFragment: mocks.takeClaims,
 }));
 vi.mock('../runtime.ts', () => ({
   activateProRoom: mocks.activate,
   getProRoomBootstrap: mocks.bootstrap,
   joinProRoom: mocks.join,
+  recoverProRoomOwner: mocks.recoverOwner,
   resumeProRoom: mocks.resume,
 }));
 
@@ -34,10 +36,15 @@ const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getState.mockReturnValue('Peer 1');
-  mocks.takeClaim.mockReturnValue(null);
+  mocks.takeClaims.mockReturnValue({
+    activationClaimToken: null,
+    ownerRecoveryClaimToken: null,
+    ownerRecoveryClaimPresent: false,
+  });
   mocks.resume.mockResolvedValue({});
   mocks.join.mockResolvedValue({});
   mocks.activate.mockResolvedValue({});
+  mocks.recoverOwner.mockResolvedValue({});
 });
 
 describe('PRO room setup flow', () => {
@@ -85,7 +92,11 @@ describe('PRO room setup flow', () => {
   });
 
   it('activates a claimed room with its derived temporary PIN and chosen owner PIN', async () => {
-    mocks.takeClaim.mockReturnValue(CLAIM);
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: CLAIM,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+    });
     mocks.bootstrap.mockResolvedValue({
       roomCode: ROOM_CODE,
       status: 'activation_required',
@@ -99,8 +110,68 @@ describe('PRO room setup flow', () => {
       claimToken: CLAIM,
       temporaryPin: '00000001',
       newPin: '87654321',
-      ownerName: 'Owner',
+      ownerName: 'Peer 1',
     });
+  });
+
+  it('recovers an active owner before cookie resume or the normal PIN flow', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: CLAIM,
+      ownerRecoveryClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.recoverOwner).toHaveBeenCalledWith({
+      code: ROOM_CODE,
+      claimToken: CLAIM,
+      displayName: 'Peer 1',
+    });
+    expect(mocks.resume).not.toHaveBeenCalled();
+    expect(mocks.join).not.toHaveBeenCalled();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.takeClaims.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER).toBeLessThan(
+      mocks.bootstrap.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it('fails owner recovery generically without exposing details or falling back to PIN', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: CLAIM,
+      ownerRecoveryClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.recoverOwner.mockRejectedValue(new ProRoomApiError('RECOVERY_CLAIM_USED', 409));
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.suspended_title',
+      message: 'pro.connect_failed',
+      buttonText: 'common.ok',
+    });
+    expect(mocks.resume).not.toHaveBeenCalled();
+    expect(mocks.join).not.toHaveBeenCalled();
+  });
+
+  it('scrubs and rejects a malformed recovery fragment as the same generic failure', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.recoverOwner).not.toHaveBeenCalled();
+    expect(mocks.resume).not.toHaveBeenCalled();
+    expect(mocks.join).not.toHaveBeenCalled();
   });
 
   it('does not expose an unclaimed room or connect a suspended room', async () => {

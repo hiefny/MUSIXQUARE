@@ -10,10 +10,10 @@
   <meta name="theme-color" content="#121212">
 
   <title>Terms of Use · MUSIXQUARE</title>
-  <meta name="description" content="MUSIXQUARE terms of use for shared content, remote sharing, external services, and service limitations.">
+  <meta name="description" content="MUSIXQUARE terms for shared content, temporary remote sharing, persistent PRO-room media, external services, and service limits.">
 
   <meta property="og:title" content="Terms of Use · MUSIXQUARE">
-  <meta property="og:description" content="Terms for using MUSIXQUARE sharing, sync, and external-service features.">
+  <meta property="og:description" content="Terms for MUSIXQUARE sharing, sync, PRO-room storage, and external-service features.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
@@ -47,7 +47,7 @@
   <main class="policy-shell">
     <section class="policy-hero">
       <h1>Terms of Use</h1>
-      <p class="policy-date">Effective date: July 3, 2026</p>
+      <p class="policy-date">Effective date: July 16, 2026</p>
     </section>
 
     <article class="policy-doc">
@@ -80,11 +80,18 @@
       </section>
 
       <section>
-        <h2>3. Remote Sharing</h2>
+        <h2>3. Remote Sharing and PRO Rooms</h2>
         <p>
-          Remote file and system audio sharing may route data through Cloudflare infrastructure. Remote files are
-          encrypted in the host's browser before temporary upload, while remote system audio is relayed for live
-          delivery.
+          Ordinary remote file and system audio sharing may route data through Cloudflare infrastructure. Ordinary
+          remote-share files are encrypted in the host's browser before temporary upload, while remote system audio is
+          relayed for live delivery.
+        </p>
+        <p>
+          PRO-room storage is different. Original media uploaded by authenticated users is stored persistently in a
+          private Cloudflare R2 bucket for the room playlist and is not covered by the ordinary remote-share
+          client-encryption or 24-hour-retention statements. It remains until its last playlist reference is removed
+          and cleanup succeeds, or until the operator deletes the room data. Downloads are available only through
+          short-lived authorized URLs.
         </p>
         <p>
           Do not share unlawful, harmful, invasive, or unauthorized content. You are responsible for the people you

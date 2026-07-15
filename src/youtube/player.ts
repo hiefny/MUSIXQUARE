@@ -27,6 +27,11 @@ import {
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
+import {
+  handleProRoomTrackMetadata,
+  handleProRoomYouTube,
+} from '../pro-room/legacy-media-hooks.ts';
 import {
   YT_AUTO_SYNC_MS,
   STAGE2_RENDEZVOUS_BROADCAST_MS,
@@ -42,6 +47,7 @@ interface PendingAutoSyncOptions {
   videoId?: string;
   skipSeek?: boolean;
   rendezvousDelayMs?: number;
+  state?: 1 | 2;
 }
 
 // YouTube rendezvous-autoplay intent: set by any caller that loaded a track
@@ -61,9 +67,10 @@ export function setPendingAutoSyncOnReady(
   _pendingAutoSyncOnReady = v;
   _pendingAutoSyncOptions = v ? options : null;
 }
-export function getPendingAutoSyncOnReady(): boolean {
+function getPendingAutoSyncOnReady(): boolean {
   return _pendingAutoSyncOnReady;
 }
+export { getPendingAutoSyncOnReady as getPendingAutoSyncOnReadyForTests };
 export function consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null {
   if (!_pendingAutoSyncOnReady) return null;
   _pendingAutoSyncOnReady = false;
@@ -85,6 +92,7 @@ import {
   getYouTubeInputIntent,
   getSelectedYouTubeSearchResult,
   searchYouTubeFromInput,
+  resolveYouTubePlaylistEntry,
   clearYouTubeInputState,
   fetchPlaylistSubTitles,
   cancelSubTitleFetch,
@@ -527,6 +535,8 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initYouTube(): void {
+  const resolvingProPlaylists = new Set<string>();
+
   registerHandlers({
     [MSG.YOUTUBE_PLAY]: handleYouTubePlay,
     [MSG.REQUEST_YOUTUBE_PLAY]: handleRequestYouTubePlay,
@@ -562,13 +572,22 @@ export function initYouTube(): void {
     setPlaybackTrackMeta(playlistItem);
 
     const autoplay = payload.autoplay ?? true;
+    const positionSeconds =
+      typeof payload.positionSeconds === 'number' &&
+      Number.isFinite(payload.positionSeconds) &&
+      payload.positionSeconds >= 0
+        ? payload.positionSeconds
+        : 0;
     broadcast({
       type: MSG.YOUTUBE_PLAY,
       videoId,
       playlistId,
       name: payload.name || playlistItem?.name || playlistItem?.title,
       queueItemId,
-      autoplay,
+      // Restore always cues first. The shared-clock action below seeks to the
+      // persisted position and applies the final playing/paused state once the
+      // iframe is ready, avoiding an audible flash from time zero.
+      autoplay: false,
       subIndex,
     });
 
@@ -587,18 +606,17 @@ export function initYouTube(): void {
       videoId || payload.videoId || null,
       playlistId,
       queueItemId,
-      autoplay,
+      false,
       subIndex,
     );
-    if (autoplay) {
-      setPendingAutoSyncOnReady(true, {
-        isTrackTransition: false,
-        targetTime: 0,
-        subIndex,
-        videoId: videoId || payload.videoId || undefined,
-        skipSeek: true,
-      });
-    }
+    setPendingAutoSyncOnReady(true, {
+      isTrackTransition: false,
+      targetTime: positionSeconds,
+      subIndex,
+      videoId: videoId || payload.videoId || undefined,
+      skipSeek: positionSeconds === 0,
+      state: autoplay ? 1 : 2,
+    });
     schedulePreload();
   });
 
@@ -819,7 +837,8 @@ export function initYouTube(): void {
     // Flip intent BEFORE scheduleYtAutoSync so its final playVideo()
     // doesn't get caught by onStateChange's pause-back guard (the guard
     // was armed by loadYouTubeVideo's autoplay=false default).
-    setYtAutoplayIntent(true);
+    const targetState = options.state ?? 1;
+    if (targetState === 1) setYtAutoplayIntent(true);
     // Use scheduleYtAutoSync instead of raw playVideo so this path
     // (auto-play after track load or end-of-video auto-advance) goes
     // through the same 2-stage rendezvous broadcast as every other
@@ -834,6 +853,7 @@ export function initYouTube(): void {
       videoId: options.videoId,
       skipSeek: options.skipSeek ?? true,
       rendezvousDelayMs: options.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS,
+      state: targetState,
     });
   });
 
@@ -1097,6 +1117,47 @@ export function initYouTube(): void {
     fetchYouTubePreview(url || '');
   });
 
+  function _refreshYouTubeTitle(
+    queueItemId: QueueItemId,
+    url: string,
+    expectedVideoId: string | null,
+    expectedPlaylistId: string | null,
+  ): void {
+    fetchOEmbedTitle(url)
+      .then((fetchedTitle) => {
+        if (!fetchedTitle) return;
+
+        // A PRO add and this background lookup are serialized by their stable
+        // queue occurrence ID, even if the projected row has not arrived yet.
+        if (
+          handleProRoomTrackMetadata(queueItemId, {
+            name: fetchedTitle,
+            title: fetchedTitle,
+          })
+        ) {
+          return;
+        }
+
+        const currentPlaylist = getState('playlist.items') || [];
+        const currentIndex = findQueueItemIndex(queueItemId, currentPlaylist);
+        const item = currentIndex >= 0 ? currentPlaylist[currentIndex] : undefined;
+        if (item && item.videoId === expectedVideoId && item.playlistId === expectedPlaylistId) {
+          const updated = [...currentPlaylist];
+          updated[currentIndex] = { ...item, name: fetchedTitle, title: fetchedTitle };
+          const titleSnapshot = commitPlaylistItems(updated);
+          if (getCurrentQueueItemId() === queueItemId) {
+            setPlaybackTrackMeta(updated[currentIndex]);
+          }
+
+          // Broadcast updated title to peers (Host only)
+          if (!getState('network.hostConn')) {
+            broadcast({ type: MSG.PLAYLIST_UPDATE, ...titleSnapshot });
+          }
+        }
+      })
+      .catch((e) => log.warn('[YouTube] Title fetch handler error:', e));
+  }
+
   /**
    * Shared helper: add a YouTube entry to the playlist, broadcast, load, and fetch title.
    * Used by both `youtube:load-from-input` and `youtube:load-from-chat`.
@@ -1146,6 +1207,30 @@ export function initYouTube(): void {
       playlistId: playlistId || null,
       isExpanded: hasIndexedSubItems,
     };
+
+    if (playlistId) {
+      const subMap = getState('youtube.subItemsMap') || {};
+      const existingIds = subMap[playlistId]?.ids || [];
+      // Preserve already-indexed source data while an async PRO mutation
+      // publishes the projected playlist row.
+      if (videoId && existingIds.length <= 1) {
+        updateSubItemIds(playlistId, [videoId]);
+      }
+    }
+
+    if (getState('room.context').kind === 'pro' && hasRoomCapability('queue.mutate')) {
+      if (handleProRoomYouTube(newTrack, url)) {
+        _refreshYouTubeTitle(queueItemId, url, videoId, playlistId);
+        return queueItemId;
+      }
+
+      // A playlist-only link added while another track is active may not yet
+      // have a concrete entry video. Never leak that row into the ephemeral
+      // legacy queue: it would disappear on refresh and diverge from peers.
+      showToast(t('youtube.fetch_failed'));
+      return queueItemId;
+    }
+
     const updatedPlaylist = [...playlist, newTrack];
     const playlistSnapshot = commitPlaylistItems(updatedPlaylist, {
       currentQueueItemId: isIdle ? queueItemId : getCurrentQueueItemId(),
@@ -1156,15 +1241,6 @@ export function initYouTube(): void {
     // already-playing media keeps its managed sub-index.
     if (playlistId) {
       bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
-    }
-
-    if (playlistId) {
-      const subMap = getState('youtube.subItemsMap') || {};
-      const existingIds = subMap[playlistId]?.ids || [];
-      // Only pre-populate if empty. Preserves indexed results if they already arrived.
-      if (videoId && existingIds.length <= 1) {
-        updateSubItemIds(playlistId, [videoId]);
-      }
     }
 
     // Auto-play only when this YouTube entry really IS the first track —
@@ -1221,31 +1297,52 @@ export function initYouTube(): void {
 
     // Fetch title in background and update — capture the expected videoId/playlistId
     // to guard against stale playlist index if the playlist changes before fetch resolves
-    const expectedVideoId = videoId;
-    const expectedPlaylistId = playlistId;
-    fetchOEmbedTitle(url)
-      .then((fetchedTitle) => {
-        if (!fetchedTitle) return;
-        const currentPlaylist = getState('playlist.items') || [];
-        const currentIndex = findQueueItemIndex(queueItemId, currentPlaylist);
-        const item = currentIndex >= 0 ? currentPlaylist[currentIndex] : undefined;
-        if (item && item.videoId === expectedVideoId && item.playlistId === expectedPlaylistId) {
-          const updated = [...currentPlaylist];
-          updated[currentIndex] = { ...item, name: fetchedTitle, title: fetchedTitle };
-          const titleSnapshot = commitPlaylistItems(updated);
-          if (getCurrentQueueItemId() === queueItemId) {
-            setPlaybackTrackMeta(updated[currentIndex]);
-          }
-
-          // Broadcast updated title to peers (Host only)
-          if (!getState('network.hostConn')) {
-            broadcast({ type: MSG.PLAYLIST_UPDATE, ...titleSnapshot });
-          }
-        }
-      })
-      .catch((e) => log.warn('[YouTube] Title fetch handler error:', e));
+    _refreshYouTubeTitle(queueItemId, url, videoId, playlistId);
 
     return queueItemId;
+  }
+
+  function _resolveAndAddProPlaylist(
+    playlistId: string,
+    title: string,
+    sourceUrl: string,
+  ): boolean {
+    const context = getState('room.context');
+    if (context.kind !== 'pro' || !hasRoomCapability('queue.mutate')) return false;
+
+    const requestKey = `${context.roomId}:${playlistId}`;
+    if (resolvingProPlaylists.has(requestKey)) return true;
+    resolvingProPlaylists.add(requestKey);
+
+    const loaderId = `youtube-playlist-entry:${requestKey}`;
+    showLoader(true, t('youtube.fetching_info'), loaderId);
+    void resolveYouTubePlaylistEntry(playlistId)
+      .then((entry) => {
+        const currentContext = getState('room.context');
+        if (
+          currentContext.kind !== 'pro' ||
+          currentContext.roomId !== context.roomId ||
+          !hasRoomCapability('queue.mutate')
+        ) {
+          return;
+        }
+
+        const existingIds = getState('youtube.subItemsMap')[playlistId]?.ids || [];
+        if (existingIds.length === 0) updateSubItemIds(playlistId, [entry.videoId]);
+        const resolvedTitle = title && title !== sourceUrl ? title : entry.title;
+        _addYouTubeToPlaylist(entry.videoId, playlistId, resolvedTitle, sourceUrl);
+      })
+      .catch((error) => {
+        const currentContext = getState('room.context');
+        if (currentContext.kind !== 'pro' || currentContext.roomId !== context.roomId) return;
+        log.warn('[YouTube] PRO playlist entry resolution failed:', error);
+        showToast(t('youtube.fetch_failed'));
+      })
+      .finally(() => {
+        resolvingProPlaylists.delete(requestKey);
+        showLoader(false, undefined, loaderId);
+      });
+    return true;
   }
 
   function _closeYouTubeInputOverlay(input?: HTMLElement | null): void {
@@ -1257,6 +1354,10 @@ export function initYouTube(): void {
 
   // YouTube load from input field
   bus.on('youtube:load-from-input', () => {
+    if (getState('network.hostConn') && !hasRoomCapability('queue.mutate')) {
+      showToast(t('toast.host_only_youtube'));
+      return;
+    }
     const input = document.getElementById('youtube-url-input') as HTMLElement | null;
     if (!input) return;
     const rawInput = (input.textContent || '').trim();
@@ -1305,6 +1406,12 @@ export function initYouTube(): void {
     }
 
     _closeYouTubeInputOverlay(input);
+
+    // A persistent PRO playlist needs one concrete entry video. Resolve it
+    // without borrowing the hidden iframe indexer, which stops active media.
+    if (!videoId && playlistId && _resolveAndAddProPlaylist(playlistId, titleText, sourceUrl)) {
+      return;
+    }
 
     // Index-before-Add flow for new playlists — only when IDLE. Indexing
     // takes over the iframe (loadYouTubeVideo fires player:stop-all-media
@@ -1479,9 +1586,9 @@ export function initYouTube(): void {
   bus.on('youtube:load-from-chat', (url) => {
     if (!url) return;
 
-    // Host-only guard
+    // Standard guests cannot mutate the queue. Authenticated PRO members can.
     const hostConn = getState('network.hostConn');
-    if (hostConn) {
+    if (hostConn && !hasRoomCapability('queue.mutate')) {
       showToast(t('toast.host_only_youtube'));
       return;
     }
@@ -1505,6 +1612,8 @@ export function initYouTube(): void {
 
     // Close chat drawer if open
     bus.emit('ui:close-chat-drawer');
+
+    if (!videoId && playlistId && _resolveAndAddProPlaylist(playlistId, url, url)) return;
 
     _addYouTubeToPlaylist(videoId, playlistId, url, url);
   });

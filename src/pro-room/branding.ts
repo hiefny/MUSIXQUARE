@@ -4,12 +4,14 @@ import { isProRoomCode } from './room-code.ts';
 
 const PRO_BADGE_ID = 'header-pro-badge';
 
-export function syncProRoomBranding(roomCode: unknown = getState('network.sessionCode')): void {
+function syncProRoomBranding(roomCode: unknown = getState('network.sessionCode')): void {
   const badge = document.getElementById(PRO_BADGE_ID);
   if (!badge) return;
 
   badge.hidden = !isProRoomCode(roomCode);
 }
+
+export { syncProRoomBranding as syncProRoomBrandingForTests };
 
 export function initProRoomBranding(): void {
   syncProRoomBranding();

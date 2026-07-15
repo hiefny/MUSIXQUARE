@@ -51,6 +51,7 @@ import {
   isPlaybackPendingFile,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
+import { getRoomContext, verifyPeerCapability } from '../rooms/authority.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -500,6 +501,63 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 // Registered here instead of host.ts to avoid circular dependency
 // (host.ts → protocol.ts → peer.ts → host.ts).
 
+function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnection): void {
+  // Member-to-coordinator only. Normal rooms retain their existing host-local
+  // kick flow, and a PRO member must never execute a removal locally.
+  const room = getRoomContext();
+  if (
+    getState('network.hostConn') ||
+    room.kind !== 'pro' ||
+    room.role !== 'coordinator' ||
+    !room.coordinatorId ||
+    room.epoch < 1 ||
+    !room.capabilities.includes('members.manage') ||
+    room.roomId !== getState('network.sessionCode')
+  ) {
+    return;
+  }
+
+  const senderId = conn?.peer;
+  if (!senderId || !conn.open || !verifyPeerCapability(conn, 'members.manage')) return;
+
+  const peers = getState('network.connectedPeers');
+  const activeConnections = getState('network.activeHostConnByPeerId');
+  const sender = peers.find(
+    (peer) =>
+      peer.id === senderId &&
+      peer.conn === conn &&
+      peer.status === 'connected' &&
+      activeConnections.get(senderId) === conn,
+  );
+  if (!sender) return;
+
+  const targetPeerId = data.targetPeerId as string;
+  const coordinatorTransportId = getState('network.myId');
+  if (
+    targetPeerId === senderId ||
+    targetPeerId === coordinatorTransportId ||
+    targetPeerId === room.coordinatorId
+  ) {
+    return;
+  }
+
+  const target = peers.find((peer) => peer.id === targetPeerId);
+  const targetConnection = target?.conn as DataConnection | null | undefined;
+  if (
+    !target ||
+    target.status !== 'connected' ||
+    !targetConnection?.open ||
+    activeConnections.get(targetPeerId) !== targetConnection
+  ) {
+    return;
+  }
+
+  // Reuse the established host kick path (notification, kick frame and delayed
+  // connection close). This is a current-session removal; the room PIN still
+  // permits the participant to authenticate and join again.
+  bus.emit('network:kick-device', targetPeerId);
+}
+
 function handleRequestRename(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only host processes this
@@ -642,6 +700,7 @@ export function initSync(): void {
   registerHandlers({
     [MSG.SYNC_PING]: handleSyncPing,
     [MSG.SYNC_PONG]: handleSyncPong,
+    [MSG.REQUEST_KICK_DEVICE]: handleRequestKickDevice,
     [MSG.REQUEST_RENAME]: handleRequestRename,
     [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });

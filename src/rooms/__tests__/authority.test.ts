@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import type { ConnectedPeer, DataConnection, RoomContext } from '../../types/index.ts';
 import {
-  getAuthorityConnection,
+  getAuthorityConnectionForTests as getAuthorityConnection,
   hasRoomCapability,
   isAuthoritativeConnection,
   isCoordinator,

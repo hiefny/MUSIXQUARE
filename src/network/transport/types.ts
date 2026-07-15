@@ -64,11 +64,13 @@ export interface TransportPeer {
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;
   on(event: 'disconnected', callback: () => void): void;
+  on(event: 'pro-epoch-advanced', callback: () => void): void;
   on(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   on(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
   off(event: 'open', callback: (id: string) => void): void;
   off(event: 'error', callback: (error: unknown) => void): void;
   off(event: 'disconnected', callback: () => void): void;
+  off(event: 'pro-epoch-advanced', callback: () => void): void;
   off(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   off(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
 }
@@ -86,6 +88,8 @@ export interface ProSignalingOptions {
   readonly ticket: string;
   readonly role: 'coordinator' | 'member';
   readonly coordinatorEpoch: number;
+  readonly presenceIncarnationId: string;
+  readonly ticketSequence: number;
 }
 
 export interface TransportPeerOptions {

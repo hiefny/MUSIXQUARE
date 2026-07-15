@@ -10,13 +10,14 @@ import {
 import {
   isProRoomPin,
   parseProRoomClaimToken,
+  parseProRoomOwnerRecoveryClaimToken,
   parseProRoomSignalingTicket,
   type ProRoomSignalingTicket,
 } from './credentials.ts';
 import { isProRoomCode } from './room-code.ts';
 import { isProRoomQueueItemId, parseProRoomSnapshot } from './snapshot.ts';
 
-export const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://pro.musixquare.com';
+const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://pro.musixquare.com';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
 
 const MAX_REQUEST_JSON_BYTES = 4 * 1024 * 1024;
@@ -43,7 +44,7 @@ const FORBIDDEN_UPLOAD_HEADERS = new Set([
   'content-length',
 ]);
 
-export type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'suspended';
+type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'suspended';
 
 export interface ProRoomBootstrap {
   roomCode: string;
@@ -74,6 +75,13 @@ export interface ProRoomSignalingAccess {
   expiresAtMs: number;
   role: 'coordinator' | 'member';
   coordinatorEpoch: number;
+  presenceIncarnationId: string;
+  ticketSequence: number;
+}
+
+export interface ProRoomPresenceIdentity {
+  participantId: string;
+  presenceIncarnationId: string;
 }
 
 export interface ActivateProRoomInput {
@@ -90,12 +98,39 @@ export interface CreateProRoomSessionInput {
   displayName: string;
 }
 
+export interface RecoverProRoomOwnerInput {
+  code: string;
+  claimToken: string;
+  displayName: string;
+}
+
+export interface CloseProRoomSessionFencedInput {
+  code: string;
+  expectedParticipantId: string;
+  expectedPresenceIncarnationId: string;
+}
+
 export interface UpdateProRoomSnapshotInput {
   code: string;
   baseRevision: number;
   playlist: ProRoomPlaylistWireItem[];
   currentQueueItemId: string | null;
   playback: ProRoomPlaybackCheckpoint;
+  idempotencyKey: string;
+}
+
+/**
+ * Small unload-safe mutation used only after a confirmed pagehide. A member
+ * sends a null checkpoint; the elected coordinator may atomically persist its
+ * final observation while releasing presence.
+ */
+interface CloseProRoomPresenceInput {
+  code: string;
+  expectedParticipantId: string;
+  expectedPresenceIncarnationId: string;
+  baseRevision: number;
+  currentQueueItemId: string | null;
+  playback: ProRoomPlaybackCheckpoint | null;
   idempotencyKey: string;
 }
 
@@ -184,9 +219,14 @@ function readEndpointOverride(): unknown {
 }
 
 /** Resolve a build-time override without permitting arbitrary credential exfiltration origins. */
-export function resolveProRoomEndpoint(override: unknown = readEndpointOverride()): string {
+function resolveProRoomEndpoint(override: unknown = readEndpointOverride()): string {
   return parseEndpoint(override) ?? PRO_ROOM_PRODUCTION_ENDPOINT;
 }
+
+export {
+  PRO_ROOM_PRODUCTION_ENDPOINT as proRoomProductionEndpointForTests,
+  resolveProRoomEndpoint as resolveProRoomEndpointForTests,
+};
 
 function roomPath(code: string): string {
   if (!isProRoomCode(code)) throw new ProRoomApiError('INVALID_ROOM_CODE');
@@ -473,11 +513,16 @@ interface RequestOptions<T> {
   signal?: AbortSignal;
   parser: JsonParser<T>;
   maxResponseBytes?: number;
+  keepalive?: boolean;
+  simpleTextBody?: boolean;
+  /** Attach the tab-local incarnation lease to a live-session request. */
+  activeRoomCode?: string;
 }
 
 export class ProRoomApiClient {
   readonly endpoint: string;
   readonly #fetch: typeof fetch;
+  readonly #presenceIdentities = new Map<string, ProRoomPresenceIdentity>();
 
   constructor(options: { endpoint?: unknown; fetch?: typeof fetch } = {}) {
     this.endpoint = resolveProRoomEndpoint(options.endpoint);
@@ -493,10 +538,21 @@ export class ProRoomApiClient {
     let body: string | undefined;
     if (options.body !== undefined) {
       body = encodeRequestBody(options.body);
-      headers.set('Content-Type', 'application/json');
+      headers.set(
+        'Content-Type',
+        options.simpleTextBody === true ? 'text/plain;charset=UTF-8' : 'application/json',
+      );
     }
     if (options.idempotencyKey !== undefined) {
       headers.set('Idempotency-Key', validateIdempotencyKey(options.idempotencyKey));
+    }
+    if (options.activeRoomCode !== undefined) {
+      const roomCode = options.activeRoomCode;
+      if (!isProRoomCode(roomCode)) throw new ProRoomApiError('INVALID_ROOM_CODE');
+      const identity = this.#presenceIdentities.get(roomCode);
+      if (!identity) throw new ProRoomApiError('PRESENCE_IDENTITY_REQUIRED', 409);
+      headers.set('X-MXQR-Pro-Participant-Id', identity.participantId);
+      headers.set('X-MXQR-Pro-Presence-Incarnation', identity.presenceIncarnationId);
     }
 
     let response: Response;
@@ -510,6 +566,7 @@ export class ProRoomApiClient {
         redirect: 'error',
         referrerPolicy: 'no-referrer',
         signal: options.signal,
+        ...(options.keepalive === true ? { keepalive: true } : {}),
       });
     } catch {
       throw new ProRoomApiError(options.signal?.aborted ? 'ABORTED' : 'NETWORK_ERROR');
@@ -520,6 +577,46 @@ export class ProRoomApiClient {
     const parsed = options.parser(value);
     if (parsed === null) throw new ProRoomApiError('INVALID_RESPONSE', response.status);
     return parsed;
+  }
+
+  #bindPresenceIdentity(code: string, snapshot: ProRoomSnapshot): ProRoomSnapshot {
+    const viewer = snapshot.viewer;
+    if (
+      snapshot.roomCode !== code ||
+      !viewer ||
+      !OPAQUE_ID_RE.test(viewer.participantId) ||
+      !OPAQUE_ID_RE.test(viewer.presenceIncarnationId)
+    ) {
+      throw new ProRoomApiError('INVALID_RESPONSE');
+    }
+    this.#presenceIdentities.set(code, {
+      participantId: viewer.participantId,
+      presenceIncarnationId: viewer.presenceIncarnationId,
+    });
+    return snapshot;
+  }
+
+  /**
+   * Forget only this tab's in-memory lease. This never revokes a cookie or
+   * mutates server state, so terminal supersession cannot affect a newer tab.
+   */
+  clearPresenceIdentity(code: string, expected?: ProRoomPresenceIdentity): void {
+    if (!isProRoomCode(code)) return;
+    const current = this.#presenceIdentities.get(code);
+    if (!current) return;
+    if (
+      expected &&
+      (current.participantId !== expected.participantId ||
+        current.presenceIncarnationId !== expected.presenceIncarnationId)
+    ) {
+      return;
+    }
+    this.#presenceIdentities.delete(code);
+  }
+
+  presenceIdentity(code: string): Readonly<ProRoomPresenceIdentity> | null {
+    const identity = this.#presenceIdentities.get(code);
+    return identity ? { ...identity } : null;
   }
 
   getBootstrap(code: string, signal?: AbortSignal): Promise<ProRoomBootstrap> {
@@ -553,7 +650,22 @@ export class ProRoomApiClient {
       },
       signal,
       parser: (value) => parseSnapshotEnvelope(value, input.code),
-    });
+    }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));
+  }
+
+  recoverOwner(input: RecoverProRoomOwnerInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const path = roomPath(input.code);
+    if (!parseProRoomOwnerRecoveryClaimToken(input.claimToken)) {
+      throw new ProRoomApiError('INVALID_RECOVERY_CLAIM_TOKEN');
+    }
+    const displayName = parseBoundedString(input.displayName, MAX_DISPLAY_NAME_LENGTH);
+    if (displayName === null) throw new ProRoomApiError('INVALID_DISPLAY_NAME');
+    return this.#request(`${path}/owner-recovery`, {
+      method: 'POST',
+      body: { claimToken: input.claimToken, displayName },
+      signal,
+      parser: (value) => parseSnapshotEnvelope(value, input.code),
+    }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));
   }
 
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
@@ -565,15 +677,26 @@ export class ProRoomApiClient {
       body: { pin: validatePin(input.pin), displayName },
       signal,
       parser: (value) => parseSessionEnvelope(value, input.code),
-    });
+    }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));
   }
 
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const path = roomPath(code);
     return this.#request(`${path}/snapshot`, {
       signal,
+      activeRoomCode: code,
       parser: (value) => parseSnapshotEnvelope(value, code),
     });
+  }
+
+  async enterPresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const path = roomPath(code);
+    const snapshot = await this.#request(`${path}/presence/enter`, {
+      method: 'POST',
+      signal,
+      parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+    return this.#bindPresenceIdentity(code, snapshot);
   }
 
   async closeSession(code: string, signal?: AbortSignal): Promise<void> {
@@ -581,8 +704,43 @@ export class ProRoomApiClient {
     await this.#request(`${path}/sessions/current`, {
       method: 'DELETE',
       signal,
+      activeRoomCode: code,
       parser: parseOk,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+    });
+    this.clearPresenceIdentity(code);
+  }
+
+  /**
+   * Revoke only the server session that still owns the captured presence
+   * incarnation. The endpoint deliberately emits no cookie tombstone: a
+   * delayed response must not erase a newer same-name cookie from another tab.
+   */
+  async closeSessionFenced(
+    input: CloseProRoomSessionFencedInput,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const path = roomPath(input.code);
+    await this.#request(`${path}/sessions/current/close`, {
+      method: 'POST',
+      body: {
+        expectedParticipantId: validateOpaqueId(
+          input.expectedParticipantId,
+          'INVALID_PARTICIPANT_ID',
+        ),
+        expectedPresenceIncarnationId: validateOpaqueId(
+          input.expectedPresenceIncarnationId,
+          'INVALID_PRESENCE_INCARNATION_ID',
+        ),
+      },
+      simpleTextBody: true,
+      signal,
+      parser: parseOk,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+    });
+    this.clearPresenceIdentity(input.code, {
+      participantId: input.expectedParticipantId,
+      presenceIncarnationId: input.expectedPresenceIncarnationId,
     });
   }
 
@@ -592,6 +750,7 @@ export class ProRoomApiClient {
       method: 'POST',
       body: { pin: validatePin(pin) },
       signal,
+      activeRoomCode: code,
       parser: parseOk,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
     });
@@ -602,16 +761,58 @@ export class ProRoomApiClient {
     return this.#request(`${path}/presence/heartbeat`, {
       method: 'POST',
       signal,
+      activeRoomCode: code,
       parser: (value) => parseSnapshotEnvelope(value, code),
     });
   }
 
-  leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+  async leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const path = roomPath(code);
-    return this.#request(`${path}/presence/current`, {
+    const snapshot = await this.#request(`${path}/presence/current`, {
       method: 'DELETE',
       signal,
+      activeRoomCode: code,
       parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+    this.clearPresenceIdentity(code);
+    return snapshot;
+  }
+
+  /**
+   * Persist a final coordinator checkpoint and release presence in one
+   * keepalive request. This intentionally does not close the cookie session:
+   * unlike the explicit leave flow, a tab close has no reliable opportunity
+   * to consume a Set-Cookie response and the retained session makes a later
+   * resume deterministic.
+   */
+  async closePresenceOnUnload(input: CloseProRoomPresenceInput): Promise<void> {
+    const path = roomPath(input.code);
+    if (!isSafeNonNegativeInteger(input.baseRevision)) {
+      throw new ProRoomApiError('INVALID_REVISION');
+    }
+    if (input.currentQueueItemId !== null && !isProRoomQueueItemId(input.currentQueueItemId)) {
+      throw new ProRoomApiError('INVALID_QUEUE_ITEM_ID');
+    }
+    await this.#request(`${path}/presence/close`, {
+      method: 'POST',
+      body: {
+        idempotencyKey: validateIdempotencyKey(input.idempotencyKey),
+        expectedParticipantId: validateOpaqueId(
+          input.expectedParticipantId,
+          'INVALID_PARTICIPANT_ID',
+        ),
+        expectedPresenceIncarnationId: validateOpaqueId(
+          input.expectedPresenceIncarnationId,
+          'INVALID_PRESENCE_INCARNATION_ID',
+        ),
+        baseRevision: input.baseRevision,
+        currentQueueItemId: input.currentQueueItemId,
+        playback: input.playback,
+      },
+      keepalive: true,
+      simpleTextBody: true,
+      parser: parseOk,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
     });
   }
 
@@ -620,11 +821,19 @@ export class ProRoomApiClient {
     return this.#request(`${path}/signaling-tickets`, {
       method: 'POST',
       signal,
+      activeRoomCode: code,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
       parser: (value) => {
         if (
           !isRecord(value) ||
-          !hasExactKeys(value, ['ticket', 'expiresAtMs', 'role', 'coordinatorEpoch'])
+          !hasExactKeys(value, [
+            'ticket',
+            'expiresAtMs',
+            'role',
+            'coordinatorEpoch',
+            'presenceIncarnationId',
+            'ticketSequence',
+          ])
         ) {
           return null;
         }
@@ -633,7 +842,11 @@ export class ProRoomApiClient {
           !ticket ||
           !isSafeNonNegativeInteger(value.expiresAtMs) ||
           (value.role !== 'coordinator' && value.role !== 'member') ||
-          !isSafeNonNegativeInteger(value.coordinatorEpoch)
+          !isSafeNonNegativeInteger(value.coordinatorEpoch) ||
+          typeof value.presenceIncarnationId !== 'string' ||
+          !OPAQUE_ID_RE.test(value.presenceIncarnationId) ||
+          !Number.isSafeInteger(value.ticketSequence) ||
+          (value.ticketSequence as number) < 1
         ) {
           return null;
         }
@@ -642,6 +855,8 @@ export class ProRoomApiClient {
           expiresAtMs: value.expiresAtMs,
           role: value.role,
           coordinatorEpoch: value.coordinatorEpoch,
+          presenceIncarnationId: value.presenceIncarnationId,
+          ticketSequence: value.ticketSequence as number,
         };
       },
     });
@@ -668,6 +883,7 @@ export class ProRoomApiClient {
         playback: input.playback,
       },
       signal,
+      activeRoomCode: input.code,
       parser: (value) => parseSnapshotEnvelope(value, input.code),
     });
   }
@@ -700,6 +916,7 @@ export class ProRoomApiClient {
         ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
       },
       signal,
+      activeRoomCode: input.code,
       parser: (value) => {
         if (!isRecord(value) || !hasExactKeys(value, ['reservation', 'quota'])) return null;
         const quota = parseQuota(value.quota);
@@ -750,6 +967,7 @@ export class ProRoomApiClient {
       method: 'POST',
       idempotencyKey: input.idempotencyKey,
       signal,
+      activeRoomCode: input.code,
       parser: (value) => {
         if (!isRecord(value) || !hasExactKeys(value, ['asset', 'quota'])) return null;
         const asset = parseR2Asset(value.asset);
@@ -768,6 +986,7 @@ export class ProRoomApiClient {
     const safeAssetId = validateOpaqueId(assetId, 'INVALID_ASSET_ID');
     return this.#request(`${path}/media/${encodeURIComponent(safeAssetId)}/download`, {
       signal,
+      activeRoomCode: code,
       parser: (value) => {
         if (!isRecord(value) || !hasExactKeys(value, ['asset', 'download'])) return null;
         const asset = parseR2Asset(value.asset);
@@ -795,6 +1014,7 @@ export class ProRoomApiClient {
       method: 'DELETE',
       idempotencyKey: input.idempotencyKey,
       signal,
+      activeRoomCode: input.code,
       parser: (value) => {
         if (!isRecord(value) || !hasExactKeys(value, ['ok', 'assetId', 'quota'])) return null;
         const quota = parseQuota(value.quota);

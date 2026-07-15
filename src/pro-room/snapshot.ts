@@ -205,6 +205,8 @@ function parsePlaybackCheckpoint(value: unknown): ProRoomPlaybackCheckpoint | nu
       'state',
       'queueItemId',
       'positionSeconds',
+      'youtubeVideoId',
+      'youtubeSubIndex',
       'updatedAtMs',
     ])
   ) {
@@ -218,9 +220,23 @@ function parsePlaybackCheckpoint(value: unknown): ProRoomPlaybackCheckpoint | nu
     return null;
   }
   if (!isTimestampMs(value.updatedAtMs)) return null;
+  if (
+    value.youtubeVideoId !== null &&
+    (typeof value.youtubeVideoId !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(value.youtubeVideoId))
+  ) {
+    return null;
+  }
+  if (value.youtubeSubIndex !== null && !isRevision(value.youtubeSubIndex)) return null;
 
   if (value.state === 'idle') {
-    if (value.queueItemId !== null || value.positionSeconds !== 0) return null;
+    if (
+      value.queueItemId !== null ||
+      value.positionSeconds !== 0 ||
+      value.youtubeVideoId !== null ||
+      value.youtubeSubIndex !== null
+    ) {
+      return null;
+    }
   } else {
     if (value.state !== 'playing' && value.state !== 'paused') return null;
     if (!isProRoomQueueItemId(value.queueItemId)) return null;
@@ -232,6 +248,8 @@ function parsePlaybackCheckpoint(value: unknown): ProRoomPlaybackCheckpoint | nu
     state: value.state,
     queueItemId: value.queueItemId,
     positionSeconds: value.positionSeconds,
+    youtubeVideoId: value.youtubeVideoId,
+    youtubeSubIndex: value.youtubeSubIndex,
     updatedAtMs: value.updatedAtMs,
   };
 }
@@ -327,6 +345,7 @@ function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
     !hasExactKeys(value, [
       'memberId',
       'participantId',
+      'presenceIncarnationId',
       'displayName',
       'role',
       'capabilities',
@@ -337,6 +356,12 @@ function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
   }
   if (typeof value.memberId !== 'string' || !OPAQUE_ID_RE.test(value.memberId)) return null;
   if (typeof value.participantId !== 'string' || !OPAQUE_ID_RE.test(value.participantId)) {
+    return null;
+  }
+  if (
+    typeof value.presenceIncarnationId !== 'string' ||
+    !OPAQUE_ID_RE.test(value.presenceIncarnationId)
+  ) {
     return null;
   }
   if (
@@ -351,10 +376,7 @@ function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
   const uniqueCapabilities = new Set<ProRoomCapability>();
   for (const capability of value.capabilities) {
     if (!isCapability(capability) || uniqueCapabilities.has(capability)) return null;
-    if (
-      value.role === 'controller' &&
-      (capability === 'members.manage' || capability === 'room.configure')
-    ) {
+    if (value.role === 'controller' && capability === 'room.configure') {
       return null;
     }
     uniqueCapabilities.add(capability);
@@ -377,6 +399,7 @@ function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
   return {
     memberId: value.memberId,
     participantId: value.participantId,
+    presenceIncarnationId: value.presenceIncarnationId,
     displayName: value.displayName,
     role: value.role,
     capabilities,
@@ -441,6 +464,15 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   if (playback.coordinatorEpoch !== presence.coordinatorEpoch) return null;
   if (playback.queueItemId !== null && !queueItemIds.has(playback.queueItemId)) return null;
   if (playback.queueItemId !== currentQueueItemId) return null;
+  if (playback.queueItemId !== null) {
+    const playbackItem = playlist.find((item) => item.queueItemId === playback.queueItemId);
+    if (!playbackItem) return null;
+    if (playbackItem.source.kind === 'youtube') {
+      if (playback.youtubeVideoId === null || playback.youtubeSubIndex === null) return null;
+    } else if (playback.youtubeVideoId !== null || playback.youtubeSubIndex !== null) {
+      return null;
+    }
+  }
 
   let viewer: ProRoomViewerSnapshot | null = null;
   if (value.viewer !== null) {
@@ -511,6 +543,7 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
               'effects.control',
               'asset.upload',
               'coordinator.eligible',
+              'members.manage',
             ];
     if (
       viewer.capabilities.length !== expectedCapabilities.length ||

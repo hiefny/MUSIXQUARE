@@ -11,6 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { partitionAudioFileCandidates } from '../media/audio-file.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 import { showDialog } from './dialog.ts';
 import { isAnyOverlayShown } from './dom.ts';
 
@@ -124,8 +125,7 @@ function snapshotDroppedFiles(dataTransfer: DataTransfer): File[] {
 function canAcceptDroppedFiles(): boolean {
   return (
     getState('setup.sessionStarted') === true &&
-    getState('network.appRole') === 'host' &&
-    !getState('network.hostConn') &&
+    hasRoomCapability('asset.upload') &&
     !getState('demo.active') &&
     !getState('demo.loading') &&
     !isAnyOverlayShown()

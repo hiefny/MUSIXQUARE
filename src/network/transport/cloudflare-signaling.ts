@@ -89,6 +89,8 @@ interface ProTicketClaims {
   participantId: string;
   role: 'coordinator' | 'member';
   coordinatorEpoch: number;
+  presenceIncarnationId: string;
+  ticketSequence: number;
 }
 
 function proTicketClaims(ticket: string): ProTicketClaims | null {
@@ -107,7 +109,11 @@ function proTicketClaims(ticket: string): ProTicketClaims | null {
       !/^[A-Za-z0-9_-]{1,96}$/.test(payload.participantId) ||
       (payload.role !== 'coordinator' && payload.role !== 'member') ||
       !Number.isSafeInteger(payload.coordinatorEpoch) ||
-      (payload.coordinatorEpoch ?? 0) < 1
+      (payload.coordinatorEpoch ?? 0) < 1 ||
+      typeof payload.presenceIncarnationId !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(payload.presenceIncarnationId) ||
+      !Number.isSafeInteger(payload.ticketSequence) ||
+      (payload.ticketSequence ?? 0) < 1
     ) {
       return null;
     }
@@ -457,6 +463,22 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private proSignalingAccess: ProSignalingOptions | null;
   private roomPassword: string | null = null;
 
+  private handleProEpochAdvanced(): void {
+    if (!this.proSignalingAccess || this.destroyed) return;
+    // The signaling close is an authority event, not a transient network
+    // blip. Tear down every RTC facade immediately; the PRO runtime fetches
+    // the new snapshot/epoch and constructs a fresh transport.
+    for (const conn of this.connections.values()) conn.close();
+    this.connections.clear();
+    this.guestRooms.clear();
+    for (const mediaConn of this.mediaCalls.values()) mediaConn.closeFromRemote();
+    this.mediaCalls.clear();
+    this.pendingCandidates.clear();
+    this.open = false;
+    this.disconnected = true;
+    this.emit('pro-epoch-advanced');
+  }
+
   constructor(
     requestedId: string | null,
     private readonly options: TransportPeerOptions,
@@ -472,6 +494,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         claims?.roomCode === proSignaling.roomCode &&
         claims.role === proSignaling.role &&
         claims.coordinatorEpoch === proSignaling.coordinatorEpoch &&
+        claims.presenceIncarnationId === proSignaling.presenceIncarnationId &&
+        claims.ticketSequence === proSignaling.ticketSequence &&
         Number.isSafeInteger(proSignaling.coordinatorEpoch) &&
         proSignaling.coordinatorEpoch >= 1;
       const validRoleShape =
@@ -605,9 +629,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       claims.roomCode !== access.roomCode ||
       claims.role !== access.role ||
       claims.coordinatorEpoch !== access.coordinatorEpoch ||
+      claims.presenceIncarnationId !== access.presenceIncarnationId ||
+      claims.ticketSequence !== access.ticketSequence ||
       access.roomCode !== current.roomCode ||
       access.role !== current.role ||
-      access.coordinatorEpoch !== current.coordinatorEpoch
+      access.coordinatorEpoch !== current.coordinatorEpoch ||
+      access.presenceIncarnationId !== current.presenceIncarnationId ||
+      access.ticketSequence <= current.ticketSequence
     ) {
       return false;
     }
@@ -749,8 +777,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     socket.addEventListener('message', (event) => {
       this.handleHostMessage(event.data).catch((error) => this.emit('error', error));
     });
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
       if (this.destroyed) return;
+      if ((event as CloseEvent).reason === 'PRO_COORDINATOR_EPOCH_ADVANCED') {
+        if (this.hostSocket === socket) this.hostSocket = null;
+        this.handleProEpochAdvanced();
+        return;
+      }
       if (this.hostSocket === socket) {
         this.open = false;
         const wasDisconnected = this.disconnected;
@@ -824,8 +857,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         conn.emit('error', error),
       );
     });
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
       if (this.destroyed) return;
+      if ((event as CloseEvent).reason === 'PRO_COORDINATOR_EPOCH_ADVANCED') {
+        if (this.roomSockets.get(roomId) === socket) this.roomSockets.delete(roomId);
+        this.handleProEpochAdvanced();
+        return;
+      }
       if (this.roomSockets.get(roomId) === socket) {
         this.roomSockets.delete(roomId);
         if (conn.peerConnection) {

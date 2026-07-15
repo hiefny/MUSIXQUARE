@@ -10,7 +10,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
   consumePendingAutoSyncOnReady,
-  getPendingAutoSyncOnReady,
+  getPendingAutoSyncOnReadyForTests as getPendingAutoSyncOnReady,
   setPendingAutoSyncOnReady,
 } from '../../youtube/player.ts';
 import { setPlaybackYouTubePlaying } from '../ownership.ts';
@@ -39,6 +39,12 @@ import type {
 } from '../../types/index.ts';
 import { findQueueItemIndex } from '../queue-model.ts';
 import { t } from '../../i18n/index.ts';
+import * as transport from '../transport.ts';
+import {
+  registerProRoomLegacyMediaHooks,
+  restoreProRoomLegacyPlayback,
+  type ProRoomLegacyMediaHooks,
+} from '../../pro-room/legacy-media-hooks.ts';
 
 const decodeMocks = vi.hoisted(() => ({
   loadPreloadedTrack: vi.fn<(queueItemId: QueueItemId, epoch?: number) => Promise<boolean>>(),
@@ -62,12 +68,41 @@ beforeEach(() => {
   resetState();
   bus.clear();
   setPendingAutoSyncOnReady(false);
+  registerProRoomLegacyMediaHooks(null);
 });
 
 afterEach(() => {
+  registerProRoomLegacyMediaHooks(null);
   clearAllManagedTimers();
   vi.useRealTimers();
 });
+
+function proMediaHooks(overrides: Partial<ProRoomLegacyMediaHooks> = {}): ProRoomLegacyMediaHooks {
+  return {
+    addFiles: () => false,
+    addYouTube: () => false,
+    updateTrackMetadata: () => false,
+    removeTracks: () => false,
+    reorderTrack: () => false,
+    resolveFile: () => null,
+    ...overrides,
+  };
+}
+
+function enterProRoom(
+  capabilities: Array<'asset.upload' | 'queue.mutate' | 'playback.control'>,
+  role: 'member' | 'coordinator' = 'member',
+): void {
+  setState('room.context', {
+    kind: 'pro',
+    roomId: '000001',
+    role,
+    coordinatorId: 'coordinator-1',
+    epoch: 1,
+    snapshotRevision: 1,
+    capabilities,
+  });
+}
 
 function makeConnection(peer: string): DataConnection {
   return { peer } as DataConnection;
@@ -243,6 +278,149 @@ describe('local file admission', () => {
         count: 1,
       })}`,
     );
+  });
+
+  it('delegates filtered PRO uploads without mutating the legacy queue', async () => {
+    const addFiles = vi.fn(() => true);
+    registerProRoomLegacyMediaHooks(proMediaHooks({ addFiles }));
+    enterProRoom(['asset.upload', 'queue.mutate']);
+    setState('network.hostConn', makeConnection('coordinator-1'));
+    initPlaylist();
+
+    const audio = new File(['a'], 'track.flac', { type: 'audio/flac' });
+    bus.emit('app:files-selected', [audio, new File(['x'], 'cover.png', { type: 'image/png' })]);
+
+    await vi.waitFor(() => expect(addFiles).toHaveBeenCalledWith([audio], 1));
+    expect(getState('playlist.items')).toEqual([]);
+  });
+});
+
+describe('PRO playlist mutation bridge', () => {
+  it('delegates removal and reorder without applying local legacy revisions', () => {
+    const removeTracks = vi.fn(() => true);
+    const reorderTrack = vi.fn(() => true);
+    registerProRoomLegacyMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
+    enterProRoom(['queue.mutate']);
+    setState('network.hostConn', makeConnection('coordinator-1'));
+    const a = fileItem('a.flac');
+    const b = fileItem('b.flac');
+    setState('playlist.items', [a, b]);
+    setState('playlist.revision', 7);
+    initPlaylist();
+
+    bus.emit('playlist:remove-tracks', [a.queueItemId]);
+    bus.emit('playlist:reorder-track', b.queueItemId, a.queueItemId, 7);
+
+    expect(removeTracks).toHaveBeenCalledWith([a.queueItemId]);
+    expect(reorderTrack).toHaveBeenCalledWith(b.queueItemId, a.queueItemId, 7);
+    expect(getState('playlist.items')).toEqual([a, b]);
+    expect(getState('playlist.revision')).toBe(7);
+  });
+
+  it('retries a selected unloaded PRO row only after its verified File is published', async () => {
+    const unloaded = fileItem('private.flac');
+    const downloaded = new File(['audio'], 'private.flac', { type: 'audio/flac' });
+    setState('playlist.items', [unloaded]);
+    decodeMocks.loadAndBroadcastFile.mockResolvedValue(false);
+    const resolveFile = vi.fn(async () => {
+      setState('playlist.items', [{ ...unloaded, file: downloaded }]);
+      return downloaded;
+    });
+    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
+
+    await playTrack(unloaded.queueItemId);
+
+    expect(resolveFile).toHaveBeenCalledWith(unloaded.queueItemId);
+    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
+      downloaded,
+      unloaded.queueItemId,
+      expect.any(Number),
+      expect.any(Number),
+      expect.objectContaining({ queueItemId: unloaded.queueItemId, mime: 'audio/flac' }),
+    );
+  });
+
+  it('restores an unloaded persistent file as decoded and paused at its checkpoint', async () => {
+    const unloaded = fileItem('sleeping.flac');
+    const downloaded = new File(['audio'], 'sleeping.flac', { type: 'audio/flac' });
+    setState('playlist.items', [unloaded]);
+    enterProRoom(['playback.control'], 'coordinator');
+    const resolveFile = vi.fn(async () => {
+      setState('playlist.items', [{ ...unloaded, file: downloaded }]);
+      return downloaded;
+    });
+    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
+    decodeMocks.loadAndBroadcastFile.mockImplementation(async (_file, queueItemId, sessionId) => {
+      setCurrentAudioBuffer({ duration: 180 } as AudioBuffer);
+      setState('files.current', {
+        queueItemId,
+        indexHint: 0,
+        name: downloaded.name,
+        sessionId,
+        blob: downloaded,
+        mime: downloaded.type,
+        size: downloaded.size,
+      });
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'pending');
+      return true;
+    });
+    initPlaylist();
+
+    await expect(
+      restoreProRoomLegacyPlayback({
+        queueItemId: unloaded.queueItemId,
+        positionSeconds: 42.25,
+        state: 'paused',
+      }),
+    ).resolves.toBe(true);
+
+    expect(resolveFile).toHaveBeenCalledOnce();
+    expect(getState('player.pausedAt')).toBe(42.25);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it('restores a decoded persistent file through the precise play path at its checkpoint', async () => {
+    const file = new File(['audio'], 'resume.flac', { type: 'audio/flac' });
+    const item = fileItem(file.name, file);
+    setState('playlist.items', [item]);
+    enterProRoom(['playback.control'], 'coordinator');
+    decodeMocks.loadAndBroadcastFile.mockImplementation(async (_file, queueItemId, sessionId) => {
+      setCurrentAudioBuffer({ duration: 180 } as AudioBuffer);
+      setState('files.current', {
+        queueItemId,
+        indexHint: 0,
+        name: file.name,
+        sessionId,
+        blob: file,
+        mime: file.type,
+        size: file.size,
+      });
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'pending');
+      return true;
+    });
+    const playSpy = vi.spyOn(transport, 'play').mockImplementation(async (position) => {
+      setState('player.pausedAt', position);
+      setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+    });
+    initPlaylist();
+
+    await expect(
+      restoreProRoomLegacyPlayback({
+        queueItemId: item.queueItemId,
+        positionSeconds: 61.5,
+        state: 'playing',
+      }),
+    ).resolves.toBe(true);
+
+    expect(playSpy).toHaveBeenCalledWith(61.5);
+    expect(getState('playback.activity')).toBe('playing');
   });
 });
 

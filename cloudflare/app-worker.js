@@ -1,4 +1,7 @@
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
+const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const REALTIME_API_BASE = 'https://rtc.live.cloudflare.com/v1';
 const DEFAULT_MAX_RESULTS = 10;
 const MAX_RESULTS_LIMIT = 12;
@@ -1639,6 +1642,22 @@ function normalizeResults(items) {
     .filter(Boolean);
 }
 
+function normalizePlaylistEntry(items, playlistId) {
+  if (!Array.isArray(items)) return null;
+  for (const item of items) {
+    const videoId = item?.contentDetails?.videoId || item?.snippet?.resourceId?.videoId;
+    if (typeof videoId !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(videoId)) continue;
+
+    const privacyStatus = item?.status?.privacyStatus;
+    if (privacyStatus === 'private') continue;
+
+    const title = normalizeExternalText(item?.snippet?.title).slice(0, 300);
+    if (!title || title === 'Deleted video' || title === 'Private video') continue;
+    return { playlistId, videoId, title };
+  }
+  return null;
+}
+
 function normalizeUpstreamError(payload) {
   const firstError = payload?.error?.errors?.[0] || {};
   return {
@@ -1718,6 +1737,75 @@ async function handleYoutubeSearch(request, env) {
       502,
       headers,
     );
+  }
+}
+
+async function handleYoutubePlaylistEntry(request, env) {
+  const trust = trustedCors(request, 'GET, OPTIONS', env);
+  const { headers } = trust;
+  if (request.method === 'OPTIONS')
+    return withSecurityHeaders(new Response(null, { status: 204, headers }));
+  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
+  const guard = await guardSensitiveRequest(
+    request,
+    env,
+    trust,
+    'youtube-search',
+    'yt-playlist-entry',
+    20,
+  );
+  if (guard) return guard;
+
+  const apiKey = env.YOUTUBE_API_KEY || env.YOUTUBE_DATA_API_KEY || '';
+  if (!apiKey) return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_UNAVAILABLE' }, 503, headers);
+
+  const url = new URL(request.url);
+  const keys = [...url.searchParams.keys()];
+  const playlistIds = url.searchParams.getAll('playlistId');
+  if (
+    keys.length !== 1 ||
+    keys[0] !== 'playlistId' ||
+    playlistIds.length !== 1 ||
+    !YOUTUBE_PLAYLIST_ID_RE.test(playlistIds[0])
+  ) {
+    return json({ error: 'INVALID_YOUTUBE_PLAYLIST_ID' }, 400, headers);
+  }
+  const playlistId = playlistIds[0];
+
+  const params = new URLSearchParams({
+    key: apiKey,
+    part: 'snippet,contentDetails,status',
+    playlistId,
+    // One quota unit resolves up to 50 rows. Scan the first page so a private
+    // or deleted leading item does not make an otherwise usable list fail.
+    maxResults: '50',
+    fields:
+      'items(contentDetails/videoId,snippet/resourceId/videoId,snippet/title,status/privacyStatus)',
+  });
+
+  try {
+    const response = await fetch(`${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const upstreamError = normalizeUpstreamError(payload);
+      return json(
+        {
+          error: 'YOUTUBE_PLAYLIST_RESOLUTION_FAILED',
+          upstreamStatus: response.status,
+          reason: upstreamError.reason,
+        },
+        getClientStatusForUpstreamError(response.status, upstreamError.reason),
+        headers,
+      );
+    }
+
+    const entry = normalizePlaylistEntry(payload.items, playlistId);
+    if (!entry) {
+      return json({ error: 'YOUTUBE_PLAYLIST_HAS_NO_PLAYABLE_ENTRY' }, 404, headers);
+    }
+    return json(entry, 200, headers);
+  } catch {
+    return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_PROXY_FAILED' }, 502, headers);
   }
 }
 
@@ -3551,6 +3639,8 @@ export default {
         return handleCapabilityToken(request, env);
       case '/api/youtube-search':
         return handleYoutubeSearch(request, env);
+      case '/api/youtube-playlist-entry':
+        return handleYoutubePlaylistEntry(request, env);
       case '/api/get-turn-config':
         return handleTurnConfig(request, env);
       case '/api/cloudflare-realtime':

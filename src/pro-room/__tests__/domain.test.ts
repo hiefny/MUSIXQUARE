@@ -3,11 +3,16 @@ import {
   capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,
-  proRoomRoleCan,
+  proRoomRoleCanForTests as proRoomRoleCan,
   type ProRoomCapability,
   type ProRoomSnapshot,
 } from '../contracts.ts';
-import { isProRoomPin, parseProRoomClaimToken, parseProRoomMemberToken } from '../credentials.ts';
+import {
+  isProRoomPin,
+  parseProRoomClaimToken,
+  parseProRoomMemberTokenForTests as parseProRoomMemberToken,
+  parseProRoomOwnerRecoveryClaimToken,
+} from '../credentials.ts';
 import { applyProRoomSnapshotMonotonically } from '../revision.ts';
 import { parseProRoomPlaylistItem, parseProRoomSnapshot } from '../snapshot.ts';
 
@@ -66,6 +71,8 @@ function activeSnapshot(): ProRoomSnapshot {
       state: 'playing',
       queueItemId: Q1,
       positionSeconds: 42.25,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
       updatedAtMs: 1_800_000_000_000,
     },
     presence: {
@@ -90,6 +97,7 @@ function activeSnapshot(): ProRoomSnapshot {
     viewer: {
       memberId: MEMBER_ID,
       participantId: PARTICIPANT_ID,
+      presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
@@ -114,6 +122,8 @@ function unactivatedSnapshot(): ProRoomSnapshot {
       state: 'idle',
       queueItemId: null,
       positionSeconds: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
       updatedAtMs: 0,
     },
     presence: {
@@ -133,16 +143,18 @@ function unactivatedSnapshot(): ProRoomSnapshot {
 }
 
 describe('PRO room roles and credentials', () => {
-  it('keeps content control equal while reserving member and room management for owners', () => {
+  it('lets trusted controllers manage members while reserving room configuration for owners', () => {
     expect(capabilitiesForProRoomRole('controller')).toEqual([
       'queue.mutate',
       'playback.control',
       'effects.control',
       'asset.upload',
       'coordinator.eligible',
+      'members.manage',
     ]);
     expect(capabilitiesForProRoomRole('owner')).toEqual(OWNER_CAPABILITIES);
     expect(proRoomRoleCan('controller', 'playback.control')).toBe(true);
+    expect(proRoomRoleCan('controller', 'members.manage')).toBe(true);
     expect(proRoomRoleCan('controller', 'room.configure')).toBe(false);
     expect(proRoomRoleCan('owner', 'members.manage')).toBe(true);
   });
@@ -158,9 +170,11 @@ describe('PRO room roles and credentials', () => {
     const opaque = 'v1.' + 'a'.repeat(32) + '.' + 'B'.repeat(43);
     expect(parseProRoomMemberToken(opaque)).toBe(opaque);
     expect(parseProRoomClaimToken(opaque)).toBe(opaque);
+    expect(parseProRoomOwnerRecoveryClaimToken(opaque)).toBe(opaque);
     expect(parseProRoomMemberToken('short')).toBeNull();
     expect(parseProRoomMemberToken('a'.repeat(31) + '/')).toBeNull();
     expect(parseProRoomClaimToken('a'.repeat(2049))).toBeNull();
+    expect(parseProRoomOwnerRecoveryClaimToken('short')).toBeNull();
   });
 });
 
@@ -282,6 +296,25 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(overQuota)).toBeNull();
   });
 
+  it('pairs a YouTube checkpoint with its exact video and sub-item index only', () => {
+    const youtube = activeSnapshot();
+    youtube.currentQueueItemId = Q2;
+    youtube.playback = {
+      ...youtube.playback,
+      queueItemId: Q2,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 7,
+    };
+    expect(parseProRoomSnapshot(youtube)).not.toBeNull();
+
+    youtube.playback.youtubeSubIndex = null;
+    expect(parseProRoomSnapshot(youtube)).toBeNull();
+
+    youtube.playback.youtubeSubIndex = 7;
+    youtube.playback.youtubeVideoId = null;
+    expect(parseProRoomSnapshot(youtube)).toBeNull();
+  });
+
   it('permits repeated R2 assets as distinct queue occurrences but not duplicate queue IDs', () => {
     const repeatedAsset = activeSnapshot();
     const first = repeatedAsset.playlist[0];
@@ -294,7 +327,7 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(repeatedAsset)).toBeNull();
   });
 
-  it('rejects unknown top-level keys and a viewer whose capability claim exceeds its role', () => {
+  it('accepts controller member management but rejects owner-only room configuration', () => {
     const extra = activeSnapshot() as unknown as Record<string, unknown>;
     extra.debug = true;
     expect(parseProRoomSnapshot(extra)).toBeNull();
@@ -302,8 +335,13 @@ describe('PRO room snapshot validation', () => {
     const controller = activeSnapshot();
     if (!controller.viewer) throw new Error('fixture');
     controller.viewer.role = 'controller';
-    controller.viewer.capabilities = [...OWNER_CAPABILITIES];
+    controller.viewer.capabilities = OWNER_CAPABILITIES.filter(
+      (capability) => capability !== 'room.configure',
+    );
     controller.presence.participants[0]!.role = 'controller';
+    expect(parseProRoomSnapshot(controller)).not.toBeNull();
+
+    controller.viewer.capabilities.push('room.configure');
     expect(parseProRoomSnapshot(controller)).toBeNull();
   });
 });

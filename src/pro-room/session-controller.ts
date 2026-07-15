@@ -1,22 +1,32 @@
-import type {
-  ActivateProRoomInput,
-  CreateProRoomSessionInput,
-  ProRoomSignalingAccess,
+import {
+  ProRoomApiError,
+  type ProRoomPresenceIdentity,
+  type ActivateProRoomInput,
+  type CloseProRoomSessionFencedInput,
+  type CreateProRoomSessionInput,
+  type ProRoomSignalingAccess,
+  type RecoverProRoomOwnerInput,
 } from './api.ts';
 import type { ProRoomSnapshot } from './contracts.ts';
 import { projectProRoomContext } from './context.ts';
 import { applyProRoomSnapshotMonotonically } from './revision.ts';
 import type { RoomContext } from '../types/index.ts';
 
-export interface ProRoomSessionApi {
+interface ProRoomSessionApi {
   activate(input: ActivateProRoomInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  recoverOwner(input: RecoverProRoomOwnerInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  enterPresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   heartbeat(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess>;
   closeSession(code: string, signal?: AbortSignal): Promise<void>;
+  closeSessionFenced(input: CloseProRoomSessionFencedInput, signal?: AbortSignal): Promise<void>;
+  clearPresenceIdentity?(code: string, expected?: ProRoomPresenceIdentity): void;
 }
+
+export type { ProRoomSessionApi as ProRoomSessionApiForTests };
 
 export interface ProRoomTransportBridge {
   connect(
@@ -59,6 +69,7 @@ export class ProRoomSessionController {
   #operationEpoch = 0;
   #openAbort: AbortController | null = null;
   #pendingRoomCode: string | null = null;
+  #ownedPresence: (ProRoomPresenceIdentity & { roomCode: string }) | null = null;
 
   constructor(
     private readonly api: ProRoomSessionApi,
@@ -74,6 +85,16 @@ export class ProRoomSessionController {
     return this.#context;
   }
 
+  /** Capture a cheap local lease for runtime operations that bypass this API. */
+  captureSessionLease(): number {
+    if (!this.#snapshot) throw new Error('PRO_ROOM_SESSION_INACTIVE');
+    return this.#operationEpoch;
+  }
+
+  isSessionLeaseCurrent(lease: number, roomCode: string): boolean {
+    return lease === this.#operationEpoch && this.#snapshot?.roomCode === roomCode;
+  }
+
   async join(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
     return this.#open(
       (operationSignal) => this.api.createSession(input, operationSignal),
@@ -84,7 +105,7 @@ export class ProRoomSessionController {
 
   async resume(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
     return this.#open(
-      (operationSignal) => this.api.getSnapshot(code, operationSignal),
+      (operationSignal) => this.api.enterPresence(code, operationSignal),
       code,
       signal,
     );
@@ -98,10 +119,27 @@ export class ProRoomSessionController {
     );
   }
 
+  async recoverOwner(
+    input: RecoverProRoomOwnerInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot> {
+    return this.#open(
+      (operationSignal) => this.api.recoverOwner(input, operationSignal),
+      input.code,
+      signal,
+    );
+  }
+
   async refresh(signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
-    const incoming = await this.api.getSnapshot(roomCode, signal);
+    let incoming: ProRoomSnapshot;
+    try {
+      incoming = await this.api.getSnapshot(roomCode, signal);
+    } catch (error) {
+      this.#assertOperationCurrent(operationEpoch);
+      throw error;
+    }
     this.#assertOperationCurrent(operationEpoch);
     return this.#accept(incoming, false, signal, operationEpoch);
   }
@@ -109,7 +147,13 @@ export class ProRoomSessionController {
   async heartbeat(signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
-    const incoming = await this.api.heartbeat(roomCode, signal);
+    let incoming: ProRoomSnapshot;
+    try {
+      incoming = await this.api.heartbeat(roomCode, signal);
+    } catch (error) {
+      this.#assertOperationCurrent(operationEpoch);
+      throw error;
+    }
     this.#assertOperationCurrent(operationEpoch);
     return this.#accept(incoming, true, signal, operationEpoch);
   }
@@ -124,42 +168,130 @@ export class ProRoomSessionController {
     const roomCode = this.#requireRoomCode();
     const snapshot = this.#snapshot;
     if (!snapshot) throw new Error('PRO_ROOM_SESSION_INACTIVE');
-    const access = await this.api.createSignalingTicket(roomCode, signal);
+    let access: ProRoomSignalingAccess;
+    try {
+      access = await this.api.createSignalingTicket(roomCode, signal);
+    } catch (error) {
+      this.#assertOperationCurrent(operationEpoch);
+      throw error;
+    }
     this.#assertOperationCurrent(operationEpoch);
     this.#assertAccessMatches(snapshot, access);
-    const refreshed = this.transport.refreshCredentials
-      ? await this.transport.refreshCredentials(snapshot, access, signal)
-      : false;
+    let refreshed: boolean;
+    try {
+      refreshed = this.transport.refreshCredentials
+        ? await this.transport.refreshCredentials(snapshot, access, signal)
+        : false;
+    } catch (error) {
+      this.#assertOperationCurrent(operationEpoch);
+      throw error;
+    }
     this.#assertOperationCurrent(operationEpoch);
     if (!refreshed) {
-      await this.transport.reconfigure(snapshot, access, signal);
+      try {
+        await this.transport.reconfigure(snapshot, access, signal);
+      } catch (error) {
+        this.#assertOperationCurrent(operationEpoch);
+        throw error;
+      }
       this.#assertOperationCurrent(operationEpoch);
     }
   }
 
-  async leave(signal?: AbortSignal): Promise<void> {
-    const roomCode = this.#snapshot?.roomCode ?? this.#pendingRoomCode;
-    const epoch = ++this.#operationEpoch;
+  async leave(signal?: AbortSignal, capturedPresenceRelease?: Promise<void>): Promise<void> {
+    const capturedSnapshot = this.#snapshot;
+    const capturedPresenceIdentity = capturedSnapshot?.viewer
+      ? {
+          code: capturedSnapshot.roomCode,
+          expectedParticipantId: capturedSnapshot.viewer.participantId,
+          expectedPresenceIncarnationId: capturedSnapshot.viewer.presenceIncarnationId,
+        }
+      : null;
+    ++this.#operationEpoch;
     this.#openAbort?.abort();
     this.#openAbort = null;
     this.#pendingRoomCode = null;
+
+    // Disconnect and revoke local authority before the first await. The
+    // caller can therefore enter an ordinary room (or another PRO room)
+    // immediately even while the old room's checkpoint/presence requests are
+    // still in flight. Capture the disconnect promise now: invoking the
+    // shared transport later could tear down the replacement room instead.
+    let disconnectError: unknown;
+    let disconnectResult: void | Promise<void>;
     try {
-      if (roomCode) await this.api.leavePresence(roomCode, signal);
-    } finally {
-      try {
-        await this.transport.disconnect();
-      } finally {
-        if (roomCode) {
-          try {
-            await this.api.closeSession(roomCode, signal);
-          } catch {
-            // Presence has already been released and local credentials are
-            // cookie-only. A close failure must not resurrect local authority.
-          }
+      disconnectResult = this.transport.disconnect();
+    } catch (error) {
+      disconnectError = error;
+      disconnectResult = undefined;
+    }
+    const disconnectCompletion = Promise.resolve(disconnectResult).catch((error) => {
+      disconnectError = error;
+    });
+    this.#clear();
+
+    // Everything below is bound only to the captured room/incarnation and can
+    // finish in the background without consulting or mutating the
+    // controller's new session state. `capturedPresenceRelease`, when
+    // present, has already started an atomic final-checkpoint + presence-close
+    // request with the old room cookie before local invalidation.
+    try {
+      if (capturedPresenceIdentity) {
+        try {
+          await capturedPresenceRelease;
+        } catch {
+          // The timeout wrapper deliberately does not abort the underlying
+          // atomic request. The fenced session close below is safe in either
+          // queue order and is the only allowed fallback for an authenticated
+          // presence.
         }
-        if (epoch === this.#operationEpoch) this.#clear();
+      }
+    } finally {
+      await disconnectCompletion;
+      if (capturedPresenceIdentity) {
+        try {
+          await this.api.closeSessionFenced(capturedPresenceIdentity, signal);
+        } catch {
+          // A replacement incarnation returns 409 by design. Network failure
+          // is also non-fatal because local authority is already revoked and
+          // presence TTL remains the final fallback.
+        }
       }
     }
+    if (disconnectError !== undefined) throw disconnectError;
+  }
+
+  /**
+   * Drop a server-rejected session locally without issuing more authenticated
+   * requests. This is used after terminal heartbeat/ticket responses where a
+   * normal leave would only repeat the same 401/423 before cleanup.
+   */
+  async terminate(): Promise<void> {
+    const hadSession = Boolean(
+      this.#snapshot || this.#context || this.#pendingRoomCode || this.#openAbort,
+    );
+    ++this.#operationEpoch;
+    this.#openAbort?.abort();
+    this.#openAbort = null;
+    this.#pendingRoomCode = null;
+    let disconnectResult: void | Promise<void>;
+    try {
+      disconnectResult = this.transport.disconnect();
+    } catch (error) {
+      if (hadSession) this.#clear();
+      throw error;
+    }
+    if (hadSession) this.#clear();
+    await disconnectResult;
+  }
+
+  /**
+   * Confirmed pagehide has already issued the atomic keepalive mutation. Only
+   * release local transport/authority here; calling the explicit leave APIs
+   * would race that mutation and would also revoke the resumable server session.
+   */
+  async closeForUnload(): Promise<void> {
+    await this.terminate();
   }
 
   async #open(
@@ -167,6 +299,9 @@ export class ProRoomSessionController {
     expectedRoomCode: string,
     signal?: AbortSignal,
   ): Promise<ProRoomSnapshot> {
+    if (this.#snapshot || this.#ownedPresence || this.#pendingRoomCode) {
+      throw new Error('PRO_ROOM_SESSION_ALREADY_ACTIVE');
+    }
     const operationEpoch = ++this.#operationEpoch;
     this.#openAbort?.abort();
     const operationAbort = new AbortController();
@@ -176,11 +311,13 @@ export class ProRoomSessionController {
     if (signal?.aborted) operationAbort.abort();
     else signal?.addEventListener('abort', forwardAbort, { once: true });
     let authenticated = false;
+    let authenticatedSnapshot: ProRoomSnapshot | null = null;
     let committed = false;
 
     try {
       const incoming = await authenticate(operationAbort.signal);
       authenticated = true;
+      authenticatedSnapshot = incoming;
       this.#assertOperationCurrent(operationEpoch);
       if (incoming.roomCode !== expectedRoomCode) throw new Error('PRO_ROOM_SESSION_MISMATCH');
 
@@ -196,8 +333,16 @@ export class ProRoomSessionController {
       if (operationEpoch === this.#operationEpoch) {
         if (committed) this.#clear();
         if (authenticated) {
-          void this.api.leavePresence(expectedRoomCode).catch(() => undefined);
-          void this.api.closeSession(expectedRoomCode).catch(() => undefined);
+          const viewer = authenticatedSnapshot?.viewer;
+          if (viewer) {
+            void this.api
+              .closeSessionFenced({
+                code: expectedRoomCode,
+                expectedParticipantId: viewer.participantId,
+                expectedPresenceIncarnationId: viewer.presenceIncarnationId,
+              })
+              .catch(() => undefined);
+          }
         }
       }
       throw error;
@@ -232,8 +377,9 @@ export class ProRoomSessionController {
       } catch (error) {
         if (operationEpoch === this.#operationEpoch) {
           await this.transport.disconnect();
-          this.#clear();
+          if (operationEpoch === this.#operationEpoch) this.#clear();
         }
+        this.#assertOperationCurrent(operationEpoch);
         throw error;
       }
     }
@@ -241,6 +387,23 @@ export class ProRoomSessionController {
   }
 
   #commit(incoming: ProRoomSnapshot): ProRoomSnapshot {
+    const viewer = incoming.viewer;
+    if (!viewer) throw new ProRoomApiError('PRESENCE_SUPERSEDED', 409);
+    const incomingIdentity = {
+      roomCode: incoming.roomCode,
+      participantId: viewer.participantId,
+      presenceIncarnationId: viewer.presenceIncarnationId,
+    };
+    if (
+      this.#ownedPresence &&
+      (this.#ownedPresence.roomCode !== incomingIdentity.roomCode ||
+        this.#ownedPresence.participantId !== incomingIdentity.participantId ||
+        this.#ownedPresence.presenceIncarnationId !== incomingIdentity.presenceIncarnationId)
+    ) {
+      // A snapshot that belongs to another tab must never replace this tab's
+      // local authority, even if its room revision is otherwise newer.
+      throw new ProRoomApiError('PRESENCE_SUPERSEDED', 409);
+    }
     const result = applyProRoomSnapshotMonotonically(this.#snapshot, incoming);
     if (
       result.outcome === 'stale' ||
@@ -254,6 +417,7 @@ export class ProRoomSessionController {
     const context = projectProRoomContext(accepted);
     if (!context) throw new Error('PRO_ROOM_NOT_ACTIVE');
 
+    this.#ownedPresence ??= incomingIdentity;
     this.#snapshot = accepted;
     this.#context = context;
     // Publish capabilities before the snapshot so synchronous UI/projector
@@ -268,6 +432,15 @@ export class ProRoomSessionController {
     if (!context) throw new Error('PRO_ROOM_NOT_ACTIVE');
     const expectedRole = context.role === 'coordinator' ? 'coordinator' : 'member';
     if (access.role !== expectedRole || access.coordinatorEpoch !== context.epoch) {
+      throw new Error('PRO_ROOM_SIGNALING_TICKET_MISMATCH');
+    }
+    const viewer = snapshot.viewer;
+    if (
+      !viewer ||
+      access.presenceIncarnationId !== viewer.presenceIncarnationId ||
+      !Number.isSafeInteger(access.ticketSequence) ||
+      access.ticketSequence < 1
+    ) {
       throw new Error('PRO_ROOM_SIGNALING_TICKET_MISMATCH');
     }
   }
@@ -285,8 +458,16 @@ export class ProRoomSessionController {
   }
 
   #clear(): void {
+    const ownedPresence = this.#ownedPresence;
+    this.#ownedPresence = null;
     this.#snapshot = null;
     this.#context = null;
+    if (ownedPresence) {
+      this.api.clearPresenceIdentity?.(ownedPresence.roomCode, {
+        participantId: ownedPresence.participantId,
+        presenceIncarnationId: ownedPresence.presenceIncarnationId,
+      });
+    }
     this.observer.cleared();
   }
 }

@@ -4,7 +4,8 @@ export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 export const PRO_ROOM_MAX_ASSET_BYTES = 200 * 1024 * 1024;
 export const PRO_ROOM_MAX_PLAYLIST_ITEMS = 1000;
-export const PRO_ROOM_MAX_PRESENCE_ITEMS = 256;
+/** One elected coordinator plus at most 32 connected members. */
+export const PRO_ROOM_MAX_PRESENCE_ITEMS = 33;
 
 export type ProRoomStatus = 'unactivated' | 'active' | 'suspended';
 export type ProRoomRuntimeStatus = 'awake' | 'sleeping';
@@ -25,11 +26,11 @@ const CONTROLLER_CAPABILITIES = [
   'effects.control',
   'asset.upload',
   'coordinator.eligible',
+  'members.manage',
 ] as const satisfies readonly ProRoomCapability[];
 
 const OWNER_CAPABILITIES = [
   ...CONTROLLER_CAPABILITIES,
-  'members.manage',
   'room.configure',
 ] as const satisfies readonly ProRoomCapability[];
 
@@ -37,11 +38,13 @@ export function capabilitiesForProRoomRole(role: ProRoomRole): readonly ProRoomC
   return role === 'owner' ? OWNER_CAPABILITIES : CONTROLLER_CAPABILITIES;
 }
 
-export function proRoomRoleCan(role: ProRoomRole, capability: ProRoomCapability): boolean {
+function proRoomRoleCan(role: ProRoomRole, capability: ProRoomCapability): boolean {
   return (capabilitiesForProRoomRole(role) as readonly ProRoomCapability[]).includes(capability);
 }
 
-export interface ProRoomPlaylistItemBase {
+export { proRoomRoleCan as proRoomRoleCanForTests };
+
+interface ProRoomPlaylistItemBase {
   queueItemId: QueueItemId;
   name: string;
   title?: string;
@@ -75,7 +78,7 @@ export interface ProRoomPlaylistWireItem extends ProRoomPlaylistItemBase {
   source: ProRoomMediaSource;
 }
 
-export type ProRoomPlaybackState = 'idle' | 'playing' | 'paused';
+type ProRoomPlaybackState = 'idle' | 'playing' | 'paused';
 
 export interface ProRoomPlaybackCheckpoint {
   coordinatorEpoch: number;
@@ -83,6 +86,10 @@ export interface ProRoomPlaybackCheckpoint {
   state: ProRoomPlaybackState;
   queueItemId: QueueItemId | null;
   positionSeconds: number;
+  /** Exact video currently playing inside a persisted YouTube playlist item. */
+  youtubeVideoId: string | null;
+  /** Zero-based sub-item index paired with `youtubeVideoId`. */
+  youtubeSubIndex: number | null;
   updatedAtMs: number;
 }
 
@@ -110,6 +117,8 @@ export interface ProRoomQuotaSnapshot {
 export interface ProRoomViewerSnapshot {
   memberId: string;
   participantId: string;
+  /** Server-issued nonce identifying this tab/resume presence incarnation. */
+  presenceIncarnationId: string;
   displayName: string;
   role: ProRoomRole;
   capabilities: ProRoomCapability[];
@@ -117,7 +126,7 @@ export interface ProRoomViewerSnapshot {
 }
 
 /** Authoritative, fully validated room state returned after activation/authentication. */
-export interface ProRoomSnapshotV1 {
+interface ProRoomSnapshotV1 {
   schemaVersion: typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;
   roomCode: string;
   status: ProRoomStatus;

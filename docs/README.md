@@ -7,6 +7,9 @@ or a substitute for the current source and tests.
 
 ## Current References
 
+- [PRO room architecture and operations](design/pro-room-architecture-and-operations.md) —
+  persistent-room ADR, Cloudflare runbook, offline activation, rollback, and
+  physical-device QA gate.
 - [Browser media storage policy](design/browser-media-storage-policy.md) —
   accepted RAM-only media-storage ADR and the gate for reconsidering OPFS.
 - [Playback state consumption contract](state-patterns.md) — current rules for

@@ -1,9 +1,11 @@
 import { resolveAudioMime } from '../media/audio-file.ts';
 import { PRO_ROOM_MAX_ASSET_BYTES, type ProRoomR2Source } from './contracts.ts';
 
-export function proRoomAssetCacheKey(source: Pick<ProRoomR2Source, 'assetId' | 'version'>): string {
+function proRoomAssetCacheKey(source: Pick<ProRoomR2Source, 'assetId' | 'version'>): string {
   return `${source.assetId}:${source.version}`;
 }
+
+export { proRoomAssetCacheKey as proRoomAssetCacheKeyForTests };
 
 interface CacheEntry {
   source: ProRoomR2Source;

@@ -32,6 +32,8 @@ type ProTicketPayload = {
   participantId: string;
   role: 'coordinator' | 'member';
   coordinatorEpoch: number;
+  presenceIncarnationId: string;
+  ticketSequence: number;
   jti: string;
   iat: number;
   exp: number;
@@ -220,6 +222,8 @@ async function proTicket(
     participantId: 'pro-member-1',
     role: 'member',
     coordinatorEpoch: 1,
+    presenceIncarnationId: 'presence-incarnation-0001',
+    ticketSequence: 1,
     jti: 'ticket-identifier-0001',
     iat: now - 1,
     exp: now + 60,
@@ -693,6 +697,67 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(staleMember)[0]).toMatchObject({ message: 'PRO_COORDINATOR_EPOCH_STALE' });
   });
 
+  it('reconnects the same coordinator after a PIN security epoch and closes revoked members', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'pin-owner',
+        presenceIncarnationId: 'pin-owner-incarnation01',
+        ticketSequence: 1,
+        jti: 'pin-owner-old-ticket-01',
+      }),
+    );
+    const oldOwner = lastServer();
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'pin-revoked-member',
+        presenceIncarnationId: 'pin-member-incarnation1',
+        ticketSequence: 1,
+        jti: 'pin-member-old-ticket01',
+      }),
+    );
+    const revokedMember = lastServer();
+
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'pin-owner',
+        coordinatorEpoch: 2,
+        presenceIncarnationId: 'pin-owner-incarnation01',
+        ticketSequence: 2,
+        jti: 'pin-owner-new-ticket-02',
+      }),
+    );
+    const reconnectedOwner = lastServer();
+
+    expect(oldOwner.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
+    expect(revokedMember.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
+    expect(reconnectedOwner.closed).toBe(false);
+    expect(reconnectedOwner.deserializeAttachment()).toMatchObject({
+      participantId: 'pin-owner',
+      coordinatorEpoch: 2,
+      ticketSequence: 2,
+    });
+
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'pin-revoked-member',
+        presenceIncarnationId: 'pin-member-incarnation1',
+        ticketSequence: 2,
+        coordinatorEpoch: 1,
+        jti: 'pin-member-stale-ticket2',
+      }),
+    );
+    const staleMember = lastServer();
+    expect(staleMember.closed).toBe(true);
+    expect(sent(staleMember)[0]).toMatchObject({ message: 'PRO_COORDINATOR_EPOCH_STALE' });
+    expect(reconnectedOwner.closed).toBe(false);
+  });
+
   it('rejects a replayed member ticket without replacing the live participant', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
@@ -752,6 +817,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         role: 'member',
         participantId: 'same-member',
         jti: 'fresh-member-ticket-0002',
+        ticketSequence: 2,
       }),
     );
     const reconnect = lastServer();
@@ -759,6 +825,131 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(first.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
     expect(reconnect.closed).toBe(false);
     expect(sent(reconnect)[0]).toMatchObject({ type: 'peer-open', peerId: 'same-member' });
+  });
+
+  it('never lets a delayed lower-sequence member ticket reverse-replace a newer socket', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-one',
+        jti: 'coordinator-high-water',
+      }),
+    );
+    const delayed = await proWsRequest({
+      role: 'member',
+      participantId: 'sequenced-member',
+      presenceIncarnationId: 'presence-incarnation-old1',
+      ticketSequence: 1,
+      jti: 'delayed-member-ticket-01',
+    });
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'sequenced-member',
+        presenceIncarnationId: 'presence-incarnation-new2',
+        ticketSequence: 2,
+        jti: 'newer-member-ticket-0002',
+      }),
+    );
+    const live = lastServer();
+
+    await room.fetch(delayed);
+    const stale = lastServer();
+    expect(stale.closed).toBe(true);
+    expect(sent(stale)[0]).toMatchObject({ message: 'PRO_SIGNALING_TICKET_STALE' });
+    expect(live.closed).toBe(false);
+
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'sequenced-member',
+        presenceIncarnationId: 'presence-incarnation-new2',
+        ticketSequence: 3,
+        jti: 'higher-member-ticket-0003',
+      }),
+    );
+    const reconnected = lastServer();
+    expect(live.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(reconnected.closed).toBe(false);
+  });
+
+  it('never lets a delayed lower-sequence coordinator ticket reverse-replace a newer socket', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const delayed = await proWsRequest({
+      role: 'coordinator',
+      participantId: 'sequenced-coordinator',
+      presenceIncarnationId: 'presence-incarnation-old1',
+      ticketSequence: 1,
+      jti: 'delayed-host-ticket-0001',
+    });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'sequenced-coordinator',
+        presenceIncarnationId: 'presence-incarnation-new2',
+        ticketSequence: 2,
+        jti: 'newer-host-ticket-00002',
+      }),
+    );
+    const live = lastServer();
+
+    await room.fetch(delayed);
+    const stale = lastServer();
+    expect(stale.closed).toBe(true);
+    expect(sent(stale)[0]).toMatchObject({ message: 'PRO_SIGNALING_TICKET_STALE' });
+    expect(live.closed).toBe(false);
+  });
+
+  it('recovers participant sequence high-water from a hibernated socket', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'hibernated-coordinator',
+        ticketSequence: 1,
+        jti: 'hibernated-host-ticket-01',
+      }),
+    );
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'hibernated-member',
+        presenceIncarnationId: 'presence-incarnation-new2',
+        ticketSequence: 2,
+        jti: 'hibernated-member-ticket2',
+      }),
+    );
+    const live = lastServer();
+    expect(live.closed).toBe(false);
+
+    // Simulate a rolling upgrade from a build that persisted attachments but
+    // did not yet have the participant high-water storage record.
+    state.storage.data.delete('proSignalingParticipantHighWater');
+    const rehydrated = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await rehydrated.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'hibernated-member',
+        presenceIncarnationId: 'presence-incarnation-old1',
+        ticketSequence: 1,
+        jti: 'delayed-after-hibernate-01',
+      }),
+    );
+    const stale = lastServer();
+
+    expect(stale.closed).toBe(true);
+    expect(sent(stale)[0]).toMatchObject({ message: 'PRO_SIGNALING_TICKET_STALE' });
+    expect(live.closed).toBe(false);
+    expect(await state.storage.get('proSignalingParticipantHighWater')).toMatchObject({
+      entries: [
+        expect.objectContaining({ participantId: 'hibernated-coordinator', ticketSequence: 1 }),
+        expect.objectContaining({ participantId: 'hibernated-member', ticketSequence: 2 }),
+      ],
+    });
   });
 
   it('admits one PRO coordinator plus at most 32 distinct members', async () => {
@@ -816,6 +1007,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         role: 'coordinator',
         participantId: 'same-coordinator',
         jti: 'newer-coordinator-ticket',
+        ticketSequence: 2,
         iat: now - 5,
         exp: now + 60,
       }),

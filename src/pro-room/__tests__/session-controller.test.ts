@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProRoomSignalingAccess } from '../api.ts';
+import { ProRoomApiError, type ProRoomSignalingAccess } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,
@@ -7,7 +7,7 @@ import {
 } from '../contracts.ts';
 import {
   ProRoomSessionController,
-  type ProRoomSessionApi,
+  type ProRoomSessionApiForTests as ProRoomSessionApi,
   type ProRoomSessionObserver,
   type ProRoomTransportBridge,
 } from '../session-controller.ts';
@@ -31,6 +31,8 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
       state: 'idle',
       queueItemId: null,
       positionSeconds: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
       updatedAtMs: 1,
     },
     presence: {
@@ -55,6 +57,7 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
     viewer: {
       memberId: 'member_0000000001',
       participantId: PARTICIPANT_ID,
+      presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
       role: 'owner',
       capabilities: [
@@ -78,6 +81,8 @@ function signaling(role: 'coordinator' | 'member', epoch = 1): ProRoomSignalingA
     expiresAtMs: 10_000,
     role,
     coordinatorEpoch: epoch,
+    presenceIncarnationId: 'presence_0000000001',
+    ticketSequence: 1,
   };
 }
 
@@ -85,12 +90,15 @@ function fixtures() {
   const initial = snapshot();
   const api = {
     activate: vi.fn(async () => initial),
+    recoverOwner: vi.fn(async () => initial),
     createSession: vi.fn(async () => initial),
+    enterPresence: vi.fn(async () => initial),
     getSnapshot: vi.fn(async () => initial),
     heartbeat: vi.fn(async () => initial),
     leavePresence: vi.fn(async () => initial),
     createSignalingTicket: vi.fn(async () => signaling('coordinator')),
     closeSession: vi.fn(async () => undefined),
+    closeSessionFenced: vi.fn(async () => undefined),
   } satisfies ProRoomSessionApi;
   const transport = {
     connect: vi.fn(async () => undefined),
@@ -135,17 +143,80 @@ describe('PRO room session controller', () => {
 
   it('resumes an HttpOnly-cookie session without asking for the PIN again', async () => {
     const { api, transport, controller } = fixtures();
+    const resumed = snapshot({
+      revision: 2,
+      viewer: {
+        ...snapshot().viewer!,
+        presenceIncarnationId: 'presence_0000000002',
+      },
+    });
+    api.enterPresence.mockResolvedValueOnce(resumed);
+    api.createSignalingTicket.mockResolvedValueOnce({
+      ...signaling('coordinator'),
+      presenceIncarnationId: 'presence_0000000002',
+    });
 
-    await expect(controller.resume(ROOM_CODE)).resolves.toEqual(snapshot());
+    await expect(controller.resume(ROOM_CODE)).resolves.toEqual(resumed);
 
-    expect(api.getSnapshot).toHaveBeenCalledWith(ROOM_CODE, expect.any(AbortSignal));
+    expect(api.enterPresence).toHaveBeenCalledWith(ROOM_CODE, expect.any(AbortSignal));
+    expect(api.getSnapshot).not.toHaveBeenCalled();
     expect(api.createSession).not.toHaveBeenCalled();
+    expect(transport.connect).toHaveBeenCalledOnce();
+  });
+
+  it('fails locally instead of rotating the cookie incarnation while already active', async () => {
+    const { api, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    api.enterPresence.mockClear();
+
+    await expect(controller.resume(ROOM_CODE)).rejects.toThrow('PRO_ROOM_SESSION_ALREADY_ACTIVE');
+    expect(api.enterPresence).not.toHaveBeenCalled();
+    expect(controller.snapshot?.viewer?.presenceIncarnationId).toBe('presence_0000000001');
+  });
+
+  it('rejects a second open while authentication is still pending', async () => {
+    const { api, controller } = fixtures();
+    let finishAuthentication!: (value: ProRoomSnapshot) => void;
+    api.createSession.mockImplementationOnce(
+      () =>
+        new Promise<ProRoomSnapshot>((resolve) => {
+          finishAuthentication = resolve;
+        }),
+    );
+
+    const joining = controller.join({
+      code: ROOM_CODE,
+      pin: '12345678',
+      displayName: 'Owner',
+    });
+    await vi.waitFor(() => expect(api.createSession).toHaveBeenCalledOnce());
+
+    await expect(controller.resume(ROOM_CODE)).rejects.toThrow('PRO_ROOM_SESSION_ALREADY_ACTIVE');
+    expect(api.enterPresence).not.toHaveBeenCalled();
+
+    finishAuthentication(snapshot());
+    await expect(joining).resolves.toEqual(snapshot());
+  });
+
+  it('adopts owner recovery through the same signaling and transport open lifecycle', async () => {
+    const { api, transport, controller } = fixtures();
+    const claimToken = `v1.${'r'.repeat(32)}.${'C'.repeat(43)}`;
+
+    await expect(
+      controller.recoverOwner({ code: ROOM_CODE, claimToken, displayName: 'Recovered Owner' }),
+    ).resolves.toEqual(snapshot());
+
+    expect(api.recoverOwner).toHaveBeenCalledWith(
+      { code: ROOM_CODE, claimToken, displayName: 'Recovered Owner' },
+      expect.any(AbortSignal),
+    );
+    expect(api.createSignalingTicket).toHaveBeenCalledOnce();
     expect(transport.connect).toHaveBeenCalledOnce();
   });
 
   it('does not race a later PIN join with cleanup when cookie resume is unauthenticated', async () => {
     const { api, observer, controller } = fixtures();
-    api.getSnapshot.mockRejectedValue(new Error('SESSION_REQUIRED'));
+    api.enterPresence.mockRejectedValue(new Error('SESSION_REQUIRED'));
 
     await expect(controller.resume(ROOM_CODE)).rejects.toThrow('SESSION_REQUIRED');
 
@@ -193,6 +264,26 @@ describe('PRO room session controller', () => {
 
     await controller.heartbeat();
     expect(transport.reconfigure).toHaveBeenCalledWith(changed, signaling('member', 2), undefined);
+  });
+
+  it('rejects a replacement tab incarnation before publishing or adopting its snapshot', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    const replacement = snapshot({
+      revision: 2,
+      viewer: {
+        ...snapshot().viewer!,
+        presenceIncarnationId: 'presence_0000000002',
+      },
+    });
+    api.heartbeat.mockResolvedValueOnce(replacement);
+
+    const error = await controller.heartbeat().catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ProRoomApiError);
+    expect(error).toMatchObject({ code: 'PRESENCE_SUPERSEDED', status: 409 });
+    expect(controller.snapshot?.viewer?.presenceIncarnationId).toBe('presence_0000000001');
+    expect(observer.snapshot).toHaveBeenCalledTimes(1);
+    expect(transport.reconfigure).not.toHaveBeenCalled();
   });
 
   it('rotates a signaling ticket in place while authority is unchanged', async () => {
@@ -245,19 +336,198 @@ describe('PRO room session controller', () => {
     expect(controller.snapshot).toBeNull();
   });
 
-  it('always clears local authority even when closing the cookie session fails', async () => {
+  it('always clears local authority even when revoking the server session fails', async () => {
     const { api, transport, observer, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
-    api.closeSession.mockRejectedValue(new Error('offline'));
+    api.closeSessionFenced.mockRejectedValue(new Error('offline'));
 
     await expect(controller.leave()).resolves.toBeUndefined();
-    expect(api.leavePresence).toHaveBeenCalled();
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        expectedParticipantId: PARTICIPANT_ID,
+        expectedPresenceIncarnationId: snapshot().viewer!.presenceIncarnationId,
+      },
+      undefined,
+    );
     expect(transport.disconnect).toHaveBeenCalled();
     expect(observer.cleared).toHaveBeenCalled();
     expect(controller.snapshot).toBeNull();
   });
 
-  it('cancels an in-flight authentication and closes its pending cookie session on leave', async () => {
+  it('invalidates locally before a slow old-room leave and never disconnects a replacement room', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.disconnect.mockClear();
+    observer.cleared.mockClear();
+
+    let finishOldClose!: () => void;
+    api.closeSessionFenced.mockImplementationOnce(
+      async () =>
+        new Promise<void>((resolve) => {
+          finishOldClose = resolve;
+        }),
+    );
+
+    const leaving = controller.leave();
+
+    // These assertions intentionally run before awaiting even one microtask.
+    expect(controller.snapshot).toBeNull();
+    expect(controller.context).toBeNull();
+    expect(observer.cleared).toHaveBeenCalledOnce();
+    expect(transport.disconnect).toHaveBeenCalledOnce();
+
+    const replacement = snapshot({ roomCode: '000000', revision: 1 });
+    api.createSession.mockResolvedValueOnce(replacement);
+    await expect(
+      controller.join({ code: '000000', pin: '00000000', displayName: 'Friend' }),
+    ).resolves.toEqual(replacement);
+
+    finishOldClose();
+    await expect(leaving).resolves.toBeUndefined();
+
+    expect(controller.snapshot?.roomCode).toBe('000000');
+    expect(observer.cleared).toHaveBeenCalledOnce();
+    // The old completion only awaits the disconnect that was invoked before
+    // the replacement connect. It must never invoke the shared bridge again.
+    expect(transport.disconnect).toHaveBeenCalledOnce();
+    expect(api.closeSessionFenced).toHaveBeenCalledWith(
+      expect.objectContaining({ code: ROOM_CODE }),
+      undefined,
+    );
+  });
+
+  it('does not revoke a newly-created same-room session when old atomic cleanup finishes late', async () => {
+    const { api, transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.disconnect.mockClear();
+
+    let finishCapturedClose!: () => void;
+    const capturedClose = new Promise<void>((resolve) => {
+      finishCapturedClose = resolve;
+    });
+    const leaving = controller.leave(undefined, capturedClose);
+
+    expect(controller.snapshot).toBeNull();
+    await expect(
+      controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Rejoined' }),
+    ).resolves.toEqual(snapshot());
+
+    finishCapturedClose();
+    await expect(leaving).resolves.toBeUndefined();
+
+    expect(controller.snapshot?.roomCode).toBe(ROOM_CODE);
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSession).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        expectedParticipantId: PARTICIPANT_ID,
+        expectedPresenceIncarnationId: snapshot().viewer!.presenceIncarnationId,
+      },
+      undefined,
+    );
+    expect(transport.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('revokes the server session after an atomic explicit leave when no replacement exists', async () => {
+    const { api, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+
+    await controller.leave(undefined, Promise.resolve());
+
+    // The captured atomic request already released presence; explicit leave
+    // still differs from pagehide by revoking the resumable server session.
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        expectedParticipantId: PARTICIPANT_ID,
+        expectedPresenceIncarnationId: snapshot().viewer!.presenceIncarnationId,
+      },
+      undefined,
+    );
+    expect(controller.snapshot).toBeNull();
+  });
+
+  it('skips stale-cookie fallback after failed cleanup when the same room has re-opened', async () => {
+    const { api, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+
+    let failCapturedClose!: (reason: unknown) => void;
+    const capturedClose = new Promise<void>((_resolve, reject) => {
+      failCapturedClose = reject;
+    });
+    const leaving = controller.leave(undefined, capturedClose);
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Rejoined' });
+
+    failCapturedClose(new Error('offline'));
+    await expect(leaving).resolves.toBeUndefined();
+
+    expect(controller.snapshot?.roomCode).toBe(ROOM_CODE);
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSession).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).toHaveBeenCalledWith(
+      expect.objectContaining({ code: ROOM_CODE }),
+      undefined,
+    );
+  });
+
+  it('finishes failed captured cleanup against the old cookie path after another room opens', async () => {
+    const { api, transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.disconnect.mockClear();
+
+    let failCapturedClose!: (reason: unknown) => void;
+    const capturedClose = new Promise<void>((_resolve, reject) => {
+      failCapturedClose = reject;
+    });
+    const leaving = controller.leave(undefined, capturedClose);
+    const replacement = snapshot({ roomCode: '000000', revision: 1 });
+    api.createSession.mockResolvedValueOnce(replacement);
+    await controller.join({ code: '000000', pin: '00000000', displayName: 'Friend' });
+
+    failCapturedClose(new Error('offline'));
+    await expect(leaving).resolves.toBeUndefined();
+
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSession).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).toHaveBeenCalledWith(
+      expect.objectContaining({ code: ROOM_CODE }),
+      undefined,
+    );
+    expect(controller.snapshot?.roomCode).toBe('000000');
+    expect(transport.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('terminates a server-rejected session locally without retrying authenticated APIs', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+
+    await controller.terminate();
+
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSession).not.toHaveBeenCalled();
+    expect(transport.disconnect).toHaveBeenCalledOnce();
+    expect(observer.cleared).toHaveBeenCalledOnce();
+    expect(controller.snapshot).toBeNull();
+  });
+
+  it('closes locally after pagehide without leaving twice or revoking the resumable session', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+
+    await controller.closeForUnload();
+
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSession).not.toHaveBeenCalled();
+    expect(transport.disconnect).toHaveBeenCalledOnce();
+    expect(observer.cleared).toHaveBeenCalledOnce();
+    expect(controller.snapshot).toBeNull();
+  });
+
+  it('cancels an in-flight authentication without risking another tab cookie on leave', async () => {
     const { api, transport, controller } = fixtures();
     let authenticationAborted = false;
     api.createSession.mockImplementation(
@@ -285,8 +555,9 @@ describe('PRO room session controller', () => {
 
     await expect(joining).rejects.toThrow('ABORTED');
     expect(authenticationAborted).toBe(true);
-    expect(api.leavePresence).toHaveBeenCalledWith(ROOM_CODE, undefined);
-    expect(api.closeSession).toHaveBeenCalledWith(ROOM_CODE, undefined);
+    expect(api.leavePresence).not.toHaveBeenCalled();
+    expect(api.closeSession).not.toHaveBeenCalled();
+    expect(api.closeSessionFenced).not.toHaveBeenCalled();
     expect(transport.connect).not.toHaveBeenCalled();
     expect(controller.snapshot).toBeNull();
   });
@@ -311,5 +582,30 @@ describe('PRO room session controller', () => {
     await expect(heartbeat).rejects.toThrow('PRO_ROOM_SESSION_SUPERSEDED');
     expect(controller.snapshot).toBeNull();
     expect(observer.snapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns an old rejected heartbeat into superseded after another room opens', async () => {
+    const { api, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+
+    let rejectHeartbeat!: (reason: unknown) => void;
+    api.heartbeat.mockImplementationOnce(
+      async () =>
+        new Promise<ProRoomSnapshot>((_resolve, reject) => {
+          rejectHeartbeat = reject;
+        }),
+    );
+    const heartbeat = controller.heartbeat();
+    await vi.waitFor(() => expect(api.heartbeat).toHaveBeenCalledOnce());
+
+    await controller.leave(undefined, Promise.resolve());
+    const replacement = snapshot({ roomCode: '000000', revision: 1 });
+    api.createSession.mockResolvedValueOnce(replacement);
+    await controller.join({ code: '000000', pin: '00000000', displayName: 'Friend' });
+    rejectHeartbeat(new Error('SESSION_REQUIRED'));
+
+    await expect(heartbeat).rejects.toThrow('PRO_ROOM_SESSION_SUPERSEDED');
+    expect(controller.snapshot?.roomCode).toBe('000000');
+    expect(observer.snapshot).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveTemporaryProRoomPin,
-  formatProRoomPin,
-  INITIAL_PRO_ROOM_CODES,
-  isInitialProRoomCode,
+  formatProRoomPinForTests as formatProRoomPin,
+  initialProRoomCodesForTests as INITIAL_PRO_ROOM_CODES,
+  isInitialProRoomCodeForTests as isInitialProRoomCode,
   isProRoomCode,
   normalizeProRoomPin,
 } from '../room-code.ts';

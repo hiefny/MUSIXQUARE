@@ -1,9 +1,9 @@
 const PRO_ROOM_CODE_RE = /^0\d{5}$/;
 const PRO_ROOM_PIN_RE = /^\d{8}$/;
 
-export const INITIAL_PRO_ROOM_CODES = ['000000', '000001'] as const;
+const INITIAL_PRO_ROOM_CODES = ['000000', '000001'] as const;
 
-export type InitialProRoomCode = (typeof INITIAL_PRO_ROOM_CODES)[number];
+type InitialProRoomCode = (typeof INITIAL_PRO_ROOM_CODES)[number];
 
 /**
  * PRO rooms occupy the 000000-099999 range. Standard ephemeral sessions are
@@ -14,7 +14,7 @@ export function isProRoomCode(value: unknown): value is string {
   return typeof value === 'string' && PRO_ROOM_CODE_RE.test(value);
 }
 
-export function isInitialProRoomCode(value: unknown): value is InitialProRoomCode {
+function isInitialProRoomCode(value: unknown): value is InitialProRoomCode {
   return isProRoomCode(value) && (INITIAL_PRO_ROOM_CODES as readonly string[]).includes(value);
 }
 
@@ -34,8 +34,14 @@ export function normalizeProRoomPin(value: unknown): string | null {
   return PRO_ROOM_PIN_RE.test(digits) ? digits : null;
 }
 
-export function formatProRoomPin(value: string): string {
+function formatProRoomPin(value: string): string {
   const pin = normalizeProRoomPin(value);
   if (!pin) throw new Error('Invalid PRO room PIN');
   return `${pin.slice(0, 4)}-${pin.slice(4)}`;
 }
+
+export {
+  formatProRoomPin as formatProRoomPinForTests,
+  INITIAL_PRO_ROOM_CODES as initialProRoomCodesForTests,
+  isInitialProRoomCode as isInitialProRoomCodeForTests,
+};

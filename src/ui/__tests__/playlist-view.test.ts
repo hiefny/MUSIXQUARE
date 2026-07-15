@@ -20,6 +20,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   localStorage.clear();
+  setState('network.appRole', 'host');
   document.body.innerHTML =
     '<section id="tab-playlist" class="tab-content active"><div class="tab-body"><ul id="playlist-ui"></ul></div></section>';
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
@@ -160,6 +161,26 @@ describe('playlist queue identity rendering and actions', () => {
     updatePlaylistUI();
     expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
     expect(document.querySelectorAll('.track-leading-static .track-idx')).toHaveLength(2);
+  });
+
+  it('shows queue editing controls to a PRO member with queue.mutate capability', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate'],
+    });
+    setState('playlist.items', sampleItems());
+
+    updatePlaylistUI();
+
+    expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(2);
+    expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(2);
   });
 
   it('delegates play, remove, expansion, and sub-seek actions by queueItemId', async () => {

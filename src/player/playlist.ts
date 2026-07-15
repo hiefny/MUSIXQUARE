@@ -18,6 +18,7 @@ import {
   stopAllMedia,
   getTrackPosition,
   isFilePipelineBusyForPlay,
+  fmtTime,
 } from './transport.ts';
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import {
@@ -62,6 +63,15 @@ import { cancelRemoteShareWait, shareRemoteFileIfNeeded } from '../share/remote-
 import { getHostNow } from '../network/shared-clock.ts';
 import { hasQueueAuthority, markQueueAuthorityReady } from '../network/queue-authority.ts';
 import { resetRecoveryAuthority } from '../storage/recovery.ts';
+import { hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import {
+  handleProRoomFiles,
+  handleProRoomTrackRemoval,
+  handleProRoomTrackReorder,
+  registerProRoomLegacyPlaybackRestoreHandler,
+  resolveProRoomPlaylistFile,
+  type ProRoomLegacyPlaybackRestore,
+} from '../pro-room/legacy-media-hooks.ts';
 import {
   applyPlaylistSnapshot,
   commitPlaylistItems,
@@ -79,10 +89,45 @@ const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 
 interface PlayTrackOptions {
   navigateToPlay?: boolean;
+  proRestore?: ProRoomLegacyPlaybackRestore;
 }
 
 function getLocalFileHostPlayAt(): number {
   return getHostNow() + LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS;
+}
+
+function clampRestorePosition(positionSeconds: number): number {
+  const position = Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0;
+  const duration = getCurrentAudioBuffer()?.duration;
+  if (!duration || !Number.isFinite(duration) || duration <= 0) return position;
+  return Math.min(position, Math.max(0, duration - 0.001));
+}
+
+async function restoreProRoomFilePlayback(
+  checkpoint: ProRoomLegacyPlaybackRestore,
+): Promise<boolean> {
+  if (
+    getState('room.context').kind !== 'pro' ||
+    !isCoordinator() ||
+    !Number.isFinite(checkpoint.positionSeconds) ||
+    checkpoint.positionSeconds < 0
+  ) {
+    return false;
+  }
+  const item = getQueueItemById(checkpoint.queueItemId);
+  if (!item || item.type !== 'file') return false;
+
+  await playTrack(checkpoint.queueItemId, undefined, {
+    navigateToPlay: false,
+    proRestore: checkpoint,
+  });
+
+  return (
+    getCurrentQueueItemId() === checkpoint.queueItemId &&
+    getState('files.current')?.queueItemId === checkpoint.queueItemId &&
+    !!getCurrentAudioBuffer() &&
+    getState('playback.activity') === checkpoint.state
+  );
 }
 
 // ─── Shuffle Order (Fisher-Yates) ──────────────────────────────────
@@ -432,7 +477,13 @@ export async function playTrack(
   const _resident = getState('files.current');
   const _bufferMatchesTrack = !!getCurrentAudioBuffer() && _resident?.queueItemId === queueItemId;
 
-  if (!hostConn && _isSameTrack && _isLocalFileTrack && _bufferMatchesTrack) {
+  if (
+    !options.proRestore &&
+    !hostConn &&
+    _isSameTrack &&
+    _isLocalFileTrack &&
+    _bufferMatchesTrack
+  ) {
     log.debug('[Host] Same-track re-click — fast replay path (no redecode/rebroadcast)');
 
     const file = item.file!;
@@ -500,7 +551,12 @@ export async function playTrack(
   const nextQueueItemId = getState('preload.nextQueueItemId');
   const readyPreload = getState('preload.ready');
 
-  if (queueItemId === nextQueueItemId && readyPreload?.queueItemId === queueItemId && !hostConn) {
+  if (
+    !options.proRestore &&
+    queueItemId === nextQueueItemId &&
+    readyPreload?.queueItemId === queueItemId &&
+    !hostConn
+  ) {
     log.debug('[Host] Using preloaded queue item:', queueItemId);
     selectQueueItemById(queueItemId);
     setPlaybackTrackMeta(item);
@@ -661,6 +717,33 @@ export async function playTrack(
 
   const file = item.file;
   if (!file) {
+    const pendingFile = resolveProRoomPlaylistFile(queueItemId);
+    if (pendingFile) {
+      try {
+        const resolvedFile = await pendingFile;
+        if (
+          !resolvedFile ||
+          !isCurrentLoadEpoch(myLoadEpoch) ||
+          getCurrentQueueItemId() !== queueItemId
+        ) {
+          return;
+        }
+
+        // The PRO runtime publishes the verified File onto the authoritative
+        // projected row before resolving. Only retry once that publication is
+        // visible; otherwise a faulty hook could recurse forever.
+        if (!getQueueItemById(queueItemId)?.file) {
+          log.warn('[Playlist] PRO media resolver returned without publishing the file');
+          return;
+        }
+        return playTrack(queueItemId, subIndex, options);
+      } catch (error) {
+        if (isCurrentLoadEpoch(myLoadEpoch)) {
+          log.warn('[Playlist] PRO media download failed', error);
+        }
+        return;
+      }
+    }
     log.warn('[Playlist] No file for queue item', queueItemId);
     return;
   }
@@ -674,7 +757,7 @@ export async function playTrack(
     // Guests on the "same-file replay" path use this to defer their own
     // play(0), otherwise they ghost-play for 3s while the host is still
     // waiting on its autoPlayTimer.
-    const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
+    const autoPlayDelayMs = options.proRestore || isFirstTrackLoad ? 0 : 3000;
 
     // FILE_PREPARE is coalesced into the same debounce as broadcastFile.
     // Sending it eagerly here would flood guests with metadata updates for
@@ -699,6 +782,63 @@ export async function playTrack(
       prepareMsg,
     );
     if (!didLoad) return;
+
+    if (options.proRestore) {
+      if (
+        options.proRestore.queueItemId !== queueItemId ||
+        !isCurrentLoadEpoch(myLoadEpoch) ||
+        getCurrentQueueItemId() !== queueItemId
+      ) {
+        return;
+      }
+
+      const restorePosition = clampRestorePosition(options.proRestore.positionSeconds);
+      setState('player.isFirstTrackLoad', false);
+
+      if (options.proRestore.state === 'paused') {
+        setState('player.pausedAt', restorePosition);
+        transition({
+          type: 'PAUSE',
+          time: restorePosition,
+          queueItemId,
+          endOfPlaylist: false,
+        });
+        if (getState('playback.activity') !== 'paused') return;
+        const duration = getCurrentAudioBuffer()?.duration ?? 0;
+        bus.emit(
+          'ui:time-update',
+          fmtTime(restorePosition),
+          fmtTime(duration),
+          restorePosition,
+          duration,
+        );
+        bus.emit('ui:update-play-state', false);
+        broadcast({
+          type: MSG.PAUSE,
+          time: restorePosition,
+          queueItemId,
+          reason: 'seek',
+        });
+        return;
+      }
+
+      await play(restorePosition);
+      if (
+        !isCurrentLoadEpoch(myLoadEpoch) ||
+        getCurrentQueueItemId() !== queueItemId ||
+        getState('playback.activity') !== 'playing'
+      ) {
+        return;
+      }
+      broadcast({
+        type: MSG.PLAY,
+        time: restorePosition,
+        queueItemId,
+        name: file.name,
+        hostPlayAt: getLocalFileHostPlayAt(),
+      });
+      return;
+    }
 
     if (isFirstTrackLoad) {
       setState('player.isFirstTrackLoad', false);
@@ -1251,7 +1391,7 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
   if (!files || files.length === 0) return;
 
   const hostConn = getState('network.hostConn');
-  if (hostConn) {
+  if (hostConn && !hasRoomCapability('asset.upload')) {
     showToast(t('toast.host_only_file'));
     return;
   }
@@ -1264,6 +1404,13 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
 
   if (accepted.length === 0) {
     if (rejected.length > 0) showToast(t('toast.no_supported_audio_files'));
+    return;
+  }
+
+  // A persistent PRO room owns upload, quota accounting, and authoritative
+  // playlist publication. Standard rooms have no registered hook and retain
+  // the original in-memory path below.
+  if (hasRoomCapability('asset.upload') && handleProRoomFiles(accepted, rejected.length)) {
     return;
   }
 
@@ -1378,6 +1525,9 @@ function findShuffleRemovalSuccessor(
 }
 
 function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
+  if (hasRoomCapability('queue.mutate') && handleProRoomTrackRemoval(queueItemIds)) {
+    return;
+  }
   if (getState('network.hostConn')) return;
 
   const previousItems = getState('playlist.items') || [];
@@ -1486,6 +1636,12 @@ function reorderQueueItem(
   beforeQueueItemId: QueueItemId | null,
   baseRevision: number,
 ): void {
+  if (
+    hasRoomCapability('queue.mutate') &&
+    handleProRoomTrackReorder(queueItemId, beforeQueueItemId, baseRevision)
+  ) {
+    return;
+  }
   if (getState('network.hostConn')) return;
   if (baseRevision !== getState('playlist.revision')) {
     log.debug('[Playlist] Ignoring reorder from a stale playlist revision');
@@ -1506,6 +1662,7 @@ function reorderQueueItem(
 }
 
 export function initPlaylist(): void {
+  registerProRoomLegacyPlaybackRestoreHandler(restoreProRoomFilePlayback);
   registerHandlers({
     [MSG.REPEAT_MODE]: handleRepeatMode,
     [MSG.SHUFFLE_MODE]: handleShuffleMode,

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createProRoomIdempotencyKey, type ProRoomCryptoRandomSource } from '../idempotency.ts';
+import {
+  createProRoomIdempotencyKey,
+  type ProRoomCryptoRandomSourceForTests as ProRoomCryptoRandomSource,
+} from '../idempotency.ts';
 
 function deterministicSource(start: number): ProRoomCryptoRandomSource {
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { takeProRoomClaimFromFragment } from '../claim-fragment.ts';
+import { takeProRoomClaimsFromFragment } from '../claim-fragment.ts';
 
 const VALID_CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 
@@ -10,35 +10,56 @@ function harness(hash: string, search = '') {
   return { location, history, replaceState };
 }
 
-describe('PRO room activation claim fragment', () => {
-  it('returns a valid fragment claim and scrubs it immediately', () => {
+describe('PRO room one-time claim fragments', () => {
+  it('returns a valid activation fragment claim and scrubs it immediately', () => {
     const { location, history, replaceState } = harness(`#pro-claim=${VALID_CLAIM}`);
 
-    expect(takeProRoomClaimFromFragment(location, history)).toBe(VALID_CLAIM);
+    expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
+      activationClaimToken: VALID_CLAIM,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+    });
     expect(replaceState).toHaveBeenCalledWith({ test: true }, '', '/000001');
   });
 
-  it('preserves a non-secret query while removing the complete fragment', () => {
+  it('consumes activation and recovery claims together while preserving the query', () => {
     const { location, history, replaceState } = harness(
-      `#view=setup&pro-claim=${VALID_CLAIM}`,
+      `#view=setup&pro-claim=${VALID_CLAIM}&pro-recovery=${VALID_CLAIM}`,
       '?lang=ko',
     );
 
-    expect(takeProRoomClaimFromFragment(location, history)).toBe(VALID_CLAIM);
+    expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
+      activationClaimToken: VALID_CLAIM,
+      ownerRecoveryClaimToken: VALID_CLAIM,
+      ownerRecoveryClaimPresent: true,
+    });
     expect(replaceState).toHaveBeenCalledWith({ test: true }, '', '/000001?lang=ko');
   });
 
-  it('scrubs malformed claims but never accepts them', () => {
-    const { location, history, replaceState } = harness('#pro-claim=too-short');
+  it('scrubs malformed or duplicated recovery claims but records the attempted path', () => {
+    const { location, history, replaceState } = harness(
+      `#pro-recovery=too-short&pro-recovery=${VALID_CLAIM}`,
+    );
 
-    expect(takeProRoomClaimFromFragment(location, history)).toBeNull();
+    expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: true,
+    });
     expect(replaceState).toHaveBeenCalledOnce();
   });
 
-  it('does not read a claim from the query string', () => {
-    const { location, history, replaceState } = harness('', `?pro-claim=${VALID_CLAIM}`);
+  it('does not read either claim from the query string', () => {
+    const { location, history, replaceState } = harness(
+      '',
+      `?pro-claim=${VALID_CLAIM}&pro-recovery=${VALID_CLAIM}`,
+    );
 
-    expect(takeProRoomClaimFromFragment(location, history)).toBeNull();
+    expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+    });
     expect(replaceState).not.toHaveBeenCalled();
   });
 });

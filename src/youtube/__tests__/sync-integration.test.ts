@@ -316,8 +316,11 @@ describe('YouTube Sync — Regression Integration', () => {
 
     it('player-ready pending sync can resume a recovered iframe from the last known position', async () => {
       const player = installPlayer({ __state: 2, __currentTime: 37 });
-      const { initYouTube, setPendingAutoSyncOnReady, getPendingAutoSyncOnReady } =
-        await importPlayer();
+      const {
+        initYouTube,
+        setPendingAutoSyncOnReady,
+        getPendingAutoSyncOnReadyForTests: getPendingAutoSyncOnReady,
+      } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
       const broadcastMock = vi.mocked(broadcast);
 

@@ -7,7 +7,10 @@ import {
   type ProRoomR2Source,
 } from '../contracts.ts';
 import { ProRoomAssetCache } from '../media-cache.ts';
-import { ProRoomMediaTransfer, type ProRoomMediaApi } from '../media-transfer.ts';
+import {
+  ProRoomMediaTransfer,
+  type ProRoomMediaApiForTests as ProRoomMediaApi,
+} from '../media-transfer.ts';
 
 const ROOM_CODE = '000001';
 const ASSET_ID = 'asset_00000000001';

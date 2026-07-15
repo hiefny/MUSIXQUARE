@@ -443,6 +443,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 bus.on('network:toggle-operator', (peerId) => {
   if (!peerId) return;
 
+  // PRO authority is server-issued and represented by room capabilities.
+  // Never let the legacy ADMIN event mutate that compatibility projection.
+  if (getRoomContext().kind === 'pro') return;
+
   // Only Host can toggle operator
   const hostConn = getState('network.hostConn');
   if (hostConn) return;

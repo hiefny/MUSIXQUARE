@@ -23,36 +23,41 @@ import {
 type QueueItemId = ProRoomPlaylistWireItem['queueItemId'];
 type ProjectedPlaylist = ReturnType<ProRoomPlaylistProjection['project']>;
 
-export interface ProRoomPlaylistStateApi {
+interface ProRoomPlaylistStateApi {
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   updateSnapshot(input: UpdateProRoomSnapshotInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
 }
 
-export interface ProRoomPlaylistMediaTransfer {
+interface ProRoomPlaylistMediaTransfer {
   upload(input: UploadProRoomMediaInput): Promise<ProRoomMediaUploadResult>;
   deleteAsset(input: { code: string; assetId: string }): Promise<unknown>;
 }
 
-export interface ProRoomMediaCleanupErrorEvent {
+export type {
+  ProRoomPlaylistMediaTransfer as ProRoomPlaylistMediaTransferForTests,
+  ProRoomPlaylistStateApi as ProRoomPlaylistStateApiForTests,
+};
+
+interface ProRoomMediaCleanupErrorEvent {
   reason: 'uploaded-orphan' | 'removed-unreferenced';
   assetId: string;
   error: unknown;
 }
 
-export type ProRoomMediaCleanupErrorReporter = (
+type ProRoomMediaCleanupErrorReporter = (
   event: ProRoomMediaCleanupErrorEvent,
 ) => void | Promise<void>;
 
-export interface ProRoomPlaylistProjectionEvent {
+interface ProRoomPlaylistProjectionEvent {
   snapshot: ProRoomSnapshot;
   playlist: ProjectedPlaylist;
 }
 
-export type ProRoomPlaylistProjectionSink = (
+type ProRoomPlaylistProjectionSink = (
   event: ProRoomPlaylistProjectionEvent,
 ) => void | Promise<void>;
 
-export interface ProRoomCoordinatorInvalidationEvent {
+interface ProRoomCoordinatorInvalidationEvent {
   previous: ProRoomSnapshot;
   next: ProRoomSnapshot;
   playlistChanged: boolean;
@@ -60,11 +65,11 @@ export interface ProRoomCoordinatorInvalidationEvent {
   coordinatorEpochChanged: boolean;
 }
 
-export type ProRoomCoordinatorInvalidator = (
+type ProRoomCoordinatorInvalidator = (
   event: ProRoomCoordinatorInvalidationEvent,
 ) => void | Promise<void>;
 
-export interface ProRoomPlaylistStateManagerOptions {
+interface ProRoomPlaylistStateManagerOptions {
   code: string;
   api: ProRoomPlaylistStateApi;
   mediaTransfer: ProRoomPlaylistMediaTransfer;
@@ -77,7 +82,7 @@ export interface ProRoomPlaylistStateManagerOptions {
   now?: () => number;
 }
 
-export interface AddProRoomYouTubeInput {
+interface AddProRoomYouTubeInput {
   queueItemId?: QueueItemId;
   name: string;
   videoId: string;
@@ -88,14 +93,14 @@ export interface AddProRoomYouTubeInput {
   signal?: AbortSignal;
 }
 
-export interface UpdateProRoomPlaylistMetadataInput {
+interface UpdateProRoomPlaylistMetadataInput {
   name?: string;
   title?: string | null;
   artist?: string | null;
   thumbnail?: string | null;
 }
 
-export interface AddProRoomLocalFileInput {
+interface AddProRoomLocalFileInput {
   file: File;
   sha256?: string;
   title?: string;
@@ -104,11 +109,21 @@ export interface AddProRoomLocalFileInput {
   onProgress?: ProRoomMediaProgress;
 }
 
-export interface ProRoomPlaylistMutationOptions {
+interface ProRoomPlaylistMutationOptions {
   signal?: AbortSignal;
 }
 
-export class ProRoomPlaylistStateError extends Error {
+interface UpdateProRoomPlaybackInput {
+  state: ProRoomPlaybackCheckpoint['state'];
+  queueItemId: QueueItemId | null;
+  positionSeconds: number;
+  youtubeVideoId?: string | null;
+  youtubeSubIndex?: number | null;
+  updatedAtMs?: number;
+  coordinatorEpoch?: number;
+}
+
+class ProRoomPlaylistStateError extends Error {
   readonly code: string;
 
   constructor(code: string, options?: ErrorOptions) {
@@ -151,6 +166,8 @@ function clonePlayback(playback: ProRoomPlaybackCheckpoint): ProRoomPlaybackChec
     state: playback.state,
     queueItemId: playback.queueItemId,
     positionSeconds: playback.positionSeconds,
+    youtubeVideoId: playback.youtubeVideoId,
+    youtubeSubIndex: playback.youtubeSubIndex,
     updatedAtMs: playback.updatedAtMs,
   };
 }
@@ -171,6 +188,14 @@ function assertNotAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_ABORTED');
   }
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function isRevisionConflict(error: unknown): boolean {
@@ -219,6 +244,28 @@ function idlePlayback(
     state: 'idle',
     queueItemId: null,
     positionSeconds: 0,
+    youtubeVideoId: null,
+    youtubeSubIndex: null,
+    updatedAtMs: Math.max(playback.updatedAtMs, updatedAtMs),
+  };
+}
+
+function selectFirstItemPlayback(
+  playback: ProRoomPlaybackCheckpoint,
+  item: ProRoomPlaylistWireItem,
+  updatedAtMs: number,
+): ProRoomPlaybackCheckpoint {
+  if (playback.revision >= Number.MAX_SAFE_INTEGER) {
+    throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_REVISION_EXHAUSTED');
+  }
+  return {
+    coordinatorEpoch: playback.coordinatorEpoch,
+    revision: playback.revision + 1,
+    state: 'paused',
+    queueItemId: item.queueItemId,
+    positionSeconds: 0,
+    youtubeVideoId: item.source.kind === 'youtube' ? item.source.videoId : null,
+    youtubeSubIndex: item.source.kind === 'youtube' ? 0 : null,
     updatedAtMs: Math.max(playback.updatedAtMs, updatedAtMs),
   };
 }
@@ -481,6 +528,103 @@ export class ProRoomPlaylistStateManager {
     });
   }
 
+  updatePlayback(
+    input: UpdateProRoomPlaybackInput,
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    return this.#enqueue(() => {
+      if (
+        (input.state !== 'idle' && input.state !== 'playing' && input.state !== 'paused') ||
+        !isFiniteNonNegative(input.positionSeconds) ||
+        (input.updatedAtMs !== undefined && !isSafeNonNegativeInteger(input.updatedAtMs)) ||
+        (input.coordinatorEpoch !== undefined &&
+          !isSafeNonNegativeInteger(input.coordinatorEpoch)) ||
+        (input.youtubeVideoId !== undefined &&
+          input.youtubeVideoId !== null &&
+          !/^[A-Za-z0-9_-]{11}$/.test(input.youtubeVideoId)) ||
+        (input.youtubeSubIndex !== undefined &&
+          input.youtubeSubIndex !== null &&
+          !isSafeNonNegativeInteger(input.youtubeSubIndex))
+      ) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_INVALID');
+      }
+
+      const positionSeconds = input.positionSeconds === 0 ? 0 : input.positionSeconds;
+      if (input.state === 'idle') {
+        if (input.queueItemId !== null || positionSeconds !== 0) {
+          throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_IDLE_INVALID');
+        }
+      } else if (input.queueItemId === null || !isProRoomQueueItemId(input.queueItemId)) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_ID_INVALID');
+      }
+
+      return this.#mutate((snapshot) => {
+        const coordinatorEpoch = input.coordinatorEpoch ?? snapshot.presence.coordinatorEpoch;
+        if (coordinatorEpoch !== snapshot.presence.coordinatorEpoch) {
+          throw new ProRoomPlaylistStateError(
+            'PRO_ROOM_PLAYLIST_PLAYBACK_COORDINATOR_EPOCH_MISMATCH',
+          );
+        }
+
+        const currentQueueItemId = input.state === 'idle' ? null : input.queueItemId;
+        const selectedItem =
+          currentQueueItemId === null
+            ? null
+            : snapshot.playlist.find((item) => item.queueItemId === currentQueueItemId);
+        if (currentQueueItemId !== null && !selectedItem) {
+          throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_NOT_FOUND');
+        }
+
+        let youtubeVideoId: string | null = null;
+        let youtubeSubIndex: number | null = null;
+        if (selectedItem?.source.kind === 'youtube') {
+          youtubeVideoId =
+            input.youtubeVideoId === undefined ? selectedItem.source.videoId : input.youtubeVideoId;
+          youtubeSubIndex = input.youtubeSubIndex === undefined ? 0 : input.youtubeSubIndex;
+          if (
+            youtubeVideoId === null ||
+            youtubeSubIndex === null ||
+            !/^[A-Za-z0-9_-]{11}$/.test(youtubeVideoId) ||
+            !isSafeNonNegativeInteger(youtubeSubIndex)
+          ) {
+            throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_YOUTUBE_INVALID');
+          }
+        } else if (input.youtubeVideoId != null || input.youtubeSubIndex != null) {
+          throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_YOUTUBE_INVALID');
+        }
+
+        const semanticallyIdentical =
+          snapshot.currentQueueItemId === currentQueueItemId &&
+          snapshot.playback.coordinatorEpoch === coordinatorEpoch &&
+          snapshot.playback.state === input.state &&
+          snapshot.playback.queueItemId === currentQueueItemId &&
+          snapshot.playback.positionSeconds === positionSeconds &&
+          snapshot.playback.youtubeVideoId === youtubeVideoId &&
+          snapshot.playback.youtubeSubIndex === youtubeSubIndex;
+        if (semanticallyIdentical) return null;
+
+        if (snapshot.playback.revision >= Number.MAX_SAFE_INTEGER) {
+          throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_REVISION_EXHAUSTED');
+        }
+        const requestedUpdatedAtMs = input.updatedAtMs ?? this.#currentTimeMs();
+        return {
+          playlist: clonePlaylist(snapshot.playlist),
+          currentQueueItemId,
+          playback: {
+            coordinatorEpoch,
+            revision: snapshot.playback.revision + 1,
+            state: input.state,
+            queueItemId: currentQueueItemId,
+            positionSeconds,
+            youtubeVideoId,
+            youtubeSubIndex,
+            updatedAtMs: Math.max(snapshot.playback.updatedAtMs, requestedUpdatedAtMs),
+          },
+        };
+      }, options.signal);
+    });
+  }
+
   #appendCanonicalItem(
     item: ProRoomPlaylistWireItem,
     signal?: AbortSignal,
@@ -494,10 +638,16 @@ export class ProRoomPlaylistStateManager {
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
       }
       this.#assertCapacity(snapshot, 1);
+      const selectFirstItem =
+        snapshot.playlist.length === 0 &&
+        snapshot.currentQueueItemId === null &&
+        snapshot.playback.state === 'idle';
       return {
         playlist: [...clonePlaylist(snapshot.playlist), canonicalItem(item)],
-        currentQueueItemId: snapshot.currentQueueItemId,
-        playback: clonePlayback(snapshot.playback),
+        currentQueueItemId: selectFirstItem ? item.queueItemId : snapshot.currentQueueItemId,
+        playback: selectFirstItem
+          ? selectFirstItemPlayback(snapshot.playback, item, this.#currentTimeMs())
+          : clonePlayback(snapshot.playback),
       };
     }, signal);
   }
@@ -570,6 +720,13 @@ export class ProRoomPlaylistStateManager {
 
     const projected = this.#projection.project(accepted.playlist);
     const previous = this.#snapshot;
+
+    // Projection is part of accepting a snapshot, not a best-effort side
+    // effect. Do not advance the manager clock until the sink has committed
+    // the corresponding legacy view; otherwise a transient sink failure makes
+    // the same authoritative snapshot look like a duplicate and it can never
+    // be projected on retry.
+    await this.#sink({ snapshot: cloneSnapshot(accepted), playlist: projected });
     this.#snapshot = accepted;
 
     if (previous && this.#invalidateCoordinator) {
@@ -582,7 +739,6 @@ export class ProRoomPlaylistStateManager {
         });
       }
     }
-    await this.#sink({ snapshot: cloneSnapshot(accepted), playlist: projected });
     return cloneSnapshot(accepted);
   }
 

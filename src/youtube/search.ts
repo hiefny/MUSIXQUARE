@@ -28,6 +28,7 @@ import {
 import { fetchWithTimeout, normalizeExternalTitle } from './oembed.ts';
 
 const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
+const YOUTUBE_PLAYLIST_ENTRY_ENDPOINT = '/api/youtube-playlist-entry';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -56,6 +57,12 @@ interface YouTubeSearchErrorPayload {
   upstreamStatus?: number;
   reason?: string;
   message?: string;
+}
+
+interface YouTubePlaylistEntry {
+  playlistId: string;
+  videoId: string;
+  title: string;
 }
 
 // fetchWithTimeout / normalizeExternalTitle / fetchOEmbedTitle live in
@@ -216,6 +223,57 @@ export async function fetchYouTubeSearchResults(
   const results = normalizeSearchResults(await response.json());
   searchCacheSet(normalizedQuery, results);
   return results;
+}
+
+export async function resolveYouTubePlaylistEntry(
+  playlistId: string,
+  externalSignal?: AbortSignal,
+): Promise<YouTubePlaylistEntry> {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(playlistId)) {
+    throw new Error('Invalid YouTube playlist ID');
+  }
+
+  const endpoint = `${YOUTUBE_PLAYLIST_ENTRY_ENDPOINT}?playlistId=${encodeURIComponent(playlistId)}`;
+  const response = await fetchWithTimeout(
+    endpoint,
+    YOUTUBE_SEARCH_TIMEOUT_MS,
+    externalSignal,
+    { headers: { Accept: 'application/json' } },
+    'youtube-search',
+  );
+  if (!response.ok) {
+    let payload: YouTubeSearchErrorPayload = {};
+    try {
+      payload = (await response.json()) as YouTubeSearchErrorPayload;
+    } catch {
+      /* malformed error bodies are reported using the HTTP status */
+    }
+    const reason = payload.reason || payload.error || 'unknown';
+    throw new Error(`YouTube playlist resolution HTTP ${response.status} (${reason})`);
+  }
+
+  const value: unknown = await response.json();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid YouTube playlist resolution response');
+  }
+  const payload = value as Record<string, unknown>;
+  const keys = Object.keys(payload).sort();
+  const title = typeof payload.title === 'string' ? normalizeExternalTitle(payload.title) : '';
+  if (
+    keys.length !== 3 ||
+    keys[0] !== 'playlistId' ||
+    keys[1] !== 'title' ||
+    keys[2] !== 'videoId' ||
+    payload.playlistId !== playlistId ||
+    typeof payload.videoId !== 'string' ||
+    !/^[A-Za-z0-9_-]{11}$/.test(payload.videoId) ||
+    !title ||
+    title.length > 300
+  ) {
+    throw new Error('Invalid YouTube playlist resolution response');
+  }
+
+  return { playlistId, videoId: payload.videoId, title };
 }
 
 function getStatusText(): HTMLElement | null {

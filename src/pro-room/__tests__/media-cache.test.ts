@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ProRoomR2Source } from '../contracts.ts';
-import { ProRoomAssetCache, proRoomAssetCacheKey } from '../media-cache.ts';
+import {
+  ProRoomAssetCache,
+  proRoomAssetCacheKeyForTests as proRoomAssetCacheKey,
+} from '../media-cache.ts';
 
 function mediaSource(assetId: string, version: number, byteLength: number): ProRoomR2Source {
   return {

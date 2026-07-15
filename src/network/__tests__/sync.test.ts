@@ -6,7 +6,7 @@ import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import { handleData, resetInboundRateLimit } from '../protocol.ts';
 import {
   getSyncPongPlaybackState,
@@ -647,5 +647,163 @@ describe('SYNC_PONG playback state (production scenario matrix)', () => {
     expect(isSyncPongPlayingFile({})).toBe(false);
     expect(isSyncPongPlayingFile({ mode: 'file' })).toBe(false);
     expect(isSyncPongPlayingFile({ activity: 'playing' })).toBe(false);
+  });
+});
+
+function memberManagementPeer(
+  id: string,
+  conn: DataConnection,
+  capabilities: ConnectedPeer['roomCapabilities'] = ['members.manage'],
+): ConnectedPeer {
+  return {
+    id,
+    slot: id === 'controller-member' ? 1 : 2,
+    label: id,
+    conn,
+    isOp: true,
+    preloadedQueueItemIds: new Set(),
+    status: 'connected',
+    isDataTarget: true,
+    joinOrder: id === 'controller-member' ? 1 : 2,
+    connectionType: 'local',
+    lastHeartbeat: Date.now(),
+    roomCapabilities: capabilities,
+  };
+}
+
+function configureProKickTopology(
+  senderConn: DataConnection,
+  targetConn: DataConnection,
+  senderCapabilities: ConnectedPeer['roomCapabilities'] = ['members.manage'],
+): void {
+  setState('network.appRole', 'host');
+  setState('network.myId', '000001');
+  setState('network.sessionCode', '000001');
+  setState('room.context', {
+    kind: 'pro',
+    roomId: '000001',
+    role: 'coordinator',
+    coordinatorId: 'owner-participant',
+    epoch: 4,
+    snapshotRevision: 12,
+    capabilities: ['members.manage'],
+  });
+  setState('network.connectedPeers', [
+    memberManagementPeer('controller-member', senderConn, senderCapabilities),
+    memberManagementPeer('target-member', targetConn),
+  ]);
+  setState(
+    'network.activeHostConnByPeerId',
+    new Map([
+      ['controller-member', senderConn],
+      ['target-member', targetConn],
+    ]),
+  );
+}
+
+describe('PRO controller member kick requests', () => {
+  function openConnection(peer: string): DataConnection {
+    return { peer, open: true } as DataConnection;
+  }
+
+  it('lets an active authenticated PRO controller ask the coordinator to kick a live member', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureProKickTopology(senderConn, targetConn);
+    initSync();
+    const kick = vi.fn();
+    bus.on('network:kick-device', kick);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'target-member' }, senderConn);
+
+    expect(kick).toHaveBeenCalledTimes(1);
+    expect(kick).toHaveBeenCalledWith('target-member');
+  });
+
+  it('rejects a forged PRO sender without the server-projected capability', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureProKickTopology(senderConn, targetConn, ['playback.control']);
+    initSync();
+    const kick = vi.fn();
+    bus.on('network:kick-device', kick);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'target-member' }, senderConn);
+
+    expect(kick).not.toHaveBeenCalled();
+  });
+
+  it('rejects a request from a replaced sender connection with the same peer id', async () => {
+    const staleSender = openConnection('controller-member');
+    const liveSender = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureProKickTopology(liveSender, targetConn);
+    initSync();
+    const kick = vi.fn();
+    bus.on('network:kick-device', kick);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'target-member' }, staleSender);
+
+    expect(kick).not.toHaveBeenCalled();
+  });
+
+  it.each(['controller-member', '000001', 'owner-participant'])(
+    'rejects self or coordinator target %s',
+    async (targetPeerId) => {
+      const senderConn = openConnection('controller-member');
+      const targetConn = openConnection('target-member');
+      configureProKickTopology(senderConn, targetConn);
+      initSync();
+      const kick = vi.fn();
+      bus.on('network:kick-device', kick);
+
+      await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId }, senderConn);
+
+      expect(kick).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects unknown and stale target connections', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    const replacementTarget = openConnection('target-member');
+    configureProKickTopology(senderConn, targetConn);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([
+        ['controller-member', senderConn],
+        ['target-member', replacementTarget],
+      ]),
+    );
+    initSync();
+    const kick = vi.fn();
+    bus.on('network:kick-device', kick);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'target-member' }, senderConn);
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'unknown-member' }, senderConn);
+
+    expect(kick).not.toHaveBeenCalled();
+  });
+
+  it('rejects the new request in an ordinary room even from a legacy operator', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureProKickTopology(senderConn, targetConn);
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '123456',
+      role: 'coordinator',
+      coordinatorId: '123456',
+      epoch: 0,
+      snapshotRevision: 0,
+      capabilities: [],
+    });
+    initSync();
+    const kick = vi.fn();
+    bus.on('network:kick-device', kick);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'target-member' }, senderConn);
+
+    expect(kick).not.toHaveBeenCalled();
   });
 });

@@ -271,6 +271,42 @@ describe('initSettings playback mode guards', () => {
   });
 });
 
+describe('initSettings PRO device authority', () => {
+  it('does not render the legacy ADMIN badge or grant/revoke action', () => {
+    document.body.insertAdjacentHTML('beforeend', '<div id="device-list"></div>');
+    initSettings();
+
+    const deviceList = [
+      {
+        id: 'peer-1',
+        label: 'Peer 1',
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+      },
+    ];
+    setState('network.lastKnownDeviceList', deviceList);
+    bus.emit('network:device-list-update', deviceList);
+
+    expect(document.querySelector('.d-name')?.textContent).toContain('ADMIN');
+    expect(document.querySelector('.btn-action')).not.toBeNull();
+
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+
+    expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
+    expect(document.querySelector('.btn-action')).toBeNull();
+    expect(document.querySelector('.d-status')?.textContent).toBe('Connected');
+  });
+});
+
 describe('initSettings language controls', () => {
   it('opens the language dialog with all supported languages and a custom scrollbar', () => {
     setLanguageMode('ko');

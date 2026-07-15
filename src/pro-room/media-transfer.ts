@@ -17,7 +17,7 @@ import { ProRoomAssetCache } from './media-cache.ts';
 
 export type ProRoomMediaProgress = (fraction: number) => void;
 
-export interface ProRoomMediaApi {
+interface ProRoomMediaApi {
   createMediaReservation(
     input: CreateProRoomMediaReservationInput,
     signal?: AbortSignal,
@@ -37,6 +37,8 @@ export interface ProRoomMediaApi {
   ): Promise<{ assetId: string; quota: ProRoomQuotaSnapshot }>;
 }
 
+export type { ProRoomMediaApi as ProRoomMediaApiForTests };
+
 export interface UploadProRoomMediaInput {
   code: string;
   file: File;
@@ -45,7 +47,7 @@ export interface UploadProRoomMediaInput {
   signal?: AbortSignal;
 }
 
-export interface DownloadProRoomMediaInput {
+interface DownloadProRoomMediaInput {
   code: string;
   name: string;
   source: ProRoomR2Source;
@@ -58,13 +60,13 @@ export interface ProRoomMediaUploadResult {
   quota: ProRoomQuotaSnapshot;
 }
 
-export interface DeleteTransferredProRoomMediaInput {
+interface DeleteTransferredProRoomMediaInput {
   code: string;
   assetId: string;
   signal?: AbortSignal;
 }
 
-export class ProRoomMediaTransferError extends Error {
+class ProRoomMediaTransferError extends Error {
   readonly code: string;
 
   constructor(code: string, options?: ErrorOptions) {

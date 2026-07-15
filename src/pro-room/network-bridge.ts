@@ -17,6 +17,8 @@ function transportAccess(
     ticket: access.ticket,
     role: access.role,
     coordinatorEpoch: access.coordinatorEpoch,
+    presenceIncarnationId: access.presenceIncarnationId,
+    ticketSequence: access.ticketSequence,
   };
 }
 

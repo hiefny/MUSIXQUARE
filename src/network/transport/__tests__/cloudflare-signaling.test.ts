@@ -11,7 +11,7 @@ const originalWebSocket = globalThis.WebSocket;
 const originalRTCPeerConnection = globalThis.RTCPeerConnection;
 const originalMediaStream = globalThis.MediaStream;
 
-type FakeSocketListener = (event: { data?: unknown }) => void;
+type FakeSocketListener = (event: { data?: unknown; reason?: string }) => void;
 type FakeChannelListener = (event: { data?: unknown }) => void;
 
 class FakeWebSocket {
@@ -47,10 +47,11 @@ class FakeWebSocket {
     this.dispatch('close');
   }
 
-  dispatch(event: string, data?: unknown): void {
+  dispatch(event: string, data?: unknown, reason?: string): void {
     if (event === 'open') this.readyState = FakeWebSocket.OPEN;
+    if (event === 'close') this.readyState = FakeWebSocket.CLOSED;
     for (const listener of this.listeners.get(event) ?? []) {
-      listener({ data });
+      listener({ data, reason });
     }
   }
 }
@@ -319,6 +320,8 @@ function clientProTicket(
     roomCode: string;
     role: 'coordinator' | 'member';
     coordinatorEpoch: number;
+    presenceIncarnationId: string;
+    ticketSequence: number;
     jti: string;
   }> = {},
 ): string {
@@ -330,6 +333,8 @@ function clientProTicket(
       participantId,
       role: overrides.role ?? 'member',
       coordinatorEpoch: overrides.coordinatorEpoch ?? 7,
+      presenceIncarnationId: overrides.presenceIncarnationId ?? 'presence-incarnation-0001',
+      ticketSequence: overrides.ticketSequence ?? 1,
       jti: overrides.jti ?? 'client-ticket-identifier',
       iat: 1,
       exp: 2,
@@ -420,6 +425,8 @@ describe('Cloudflare PRO signaling client contract', () => {
         ticket,
         role: 'coordinator',
         coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
       },
     });
     await Promise.resolve();
@@ -439,6 +446,72 @@ describe('Cloudflare PRO signaling client contract', () => {
     peer.destroy();
   });
 
+  it('rebuilds RTC only for an epoch-advanced close and preserves it for an ordinary signaling blip', async () => {
+    installFakeWebSocket();
+    const makePeer = (sequence: number) => {
+      const ticket = clientProTicket('coordinator-device', {
+        role: 'coordinator',
+        ticketSequence: sequence,
+        jti: `epoch-close-ticket-000${sequence}`,
+      });
+      return new CloudflareSignalingPeer('000001', {
+        provider: 'cloudflare',
+        signalingUrl: 'wss://signal.example.test/api/rooms',
+        config: { iceServers: [] },
+        proSignaling: {
+          roomCode: '000001',
+          ticket,
+          role: 'coordinator',
+          coordinatorEpoch: 7,
+          presenceIncarnationId: 'presence-incarnation-0001',
+          ticketSequence: sequence,
+        },
+      });
+    };
+    const attachLiveConnection = (peer: CloudflareSignalingPeer, id: string) => {
+      const connection = new CloudflareDataConnection(id);
+      connection.attach(
+        new FakePeerConnection() as unknown as RTCPeerConnection,
+        new FakeDataChannel('musixquare-data') as unknown as RTCDataChannel,
+      );
+      connection.attach(
+        connection.peerConnection!,
+        new FakeDataChannel('musixquare-control') as unknown as RTCDataChannel,
+      );
+      privateMaps(peer).connections.set(id, connection);
+      return connection;
+    };
+
+    const ordinary = makePeer(1);
+    await Promise.resolve();
+    const ordinaryConnection = attachLiveConnection(ordinary, 'ordinary-member');
+    await Promise.resolve();
+    const ordinaryDisconnected = vi.fn();
+    const ordinaryEpochAdvanced = vi.fn();
+    ordinary.on('disconnected', ordinaryDisconnected);
+    ordinary.on('pro-epoch-advanced', ordinaryEpochAdvanced);
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'network blip');
+    expect(ordinaryConnection.open).toBe(true);
+    expect(ordinaryDisconnected).toHaveBeenCalledOnce();
+    expect(ordinaryEpochAdvanced).not.toHaveBeenCalled();
+    ordinary.destroy();
+
+    const advanced = makePeer(2);
+    await Promise.resolve();
+    const advancedConnection = attachLiveConnection(advanced, 'stale-member');
+    await Promise.resolve();
+    const advancedDisconnected = vi.fn();
+    const epochAdvanced = vi.fn();
+    advanced.on('disconnected', advancedDisconnected);
+    advanced.on('pro-epoch-advanced', epochAdvanced);
+    FakeWebSocket.instances[1].dispatch('close', undefined, 'PRO_COORDINATOR_EPOCH_ADVANCED');
+    expect(advancedConnection.open).toBe(false);
+    expect(privateMaps(advanced).connections.size).toBe(0);
+    expect(epochAdvanced).toHaveBeenCalledOnce();
+    expect(advancedDisconnected).not.toHaveBeenCalled();
+    advanced.destroy();
+  });
+
   it('atomically refreshes a same-room/role/epoch ticket for the next reconnect URL', async () => {
     installFakeWebSocket();
     const initialTicket = clientProTicket('coordinator-device', {
@@ -448,6 +521,7 @@ describe('Cloudflare PRO signaling client contract', () => {
     const refreshedTicket = clientProTicket('coordinator-device', {
       role: 'coordinator',
       jti: 'refreshed-client-ticket',
+      ticketSequence: 2,
     });
     const peer = new CloudflareSignalingPeer('000001', {
       provider: 'cloudflare',
@@ -458,6 +532,8 @@ describe('Cloudflare PRO signaling client contract', () => {
         ticket: initialTicket,
         role: 'coordinator',
         coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
       },
     });
     await Promise.resolve();
@@ -468,6 +544,8 @@ describe('Cloudflare PRO signaling client contract', () => {
       ticket: refreshedTicket,
       role: 'coordinator' as const,
       coordinatorEpoch: 7,
+      presenceIncarnationId: 'presence-incarnation-0001',
+      ticketSequence: 2,
     };
     expect(peer.setProSignalingAccess(refreshedAccess)).toBe(true);
     refreshedAccess.ticket = initialTicket;
@@ -486,15 +564,29 @@ describe('Cloudflare PRO signaling client contract', () => {
         roomCode: '000000',
         role: 'coordinator' as const,
         coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 2,
       },
     },
     {
       label: 'role',
-      access: { roomCode: '000001', role: 'member' as const, coordinatorEpoch: 7 },
+      access: {
+        roomCode: '000001',
+        role: 'member' as const,
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 2,
+      },
     },
     {
       label: 'epoch',
-      access: { roomCode: '000001', role: 'coordinator' as const, coordinatorEpoch: 8 },
+      access: {
+        roomCode: '000001',
+        role: 'coordinator' as const,
+        coordinatorEpoch: 8,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 2,
+      },
     },
   ])('rejects an in-place PRO $label change', async ({ access }) => {
     installFakeWebSocket();
@@ -508,6 +600,8 @@ describe('Cloudflare PRO signaling client contract', () => {
         ticket: initialTicket,
         role: 'coordinator',
         coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
       },
     });
     await Promise.resolve();
@@ -531,6 +625,8 @@ describe('Cloudflare PRO signaling client contract', () => {
         ticket: clientProTicket('coordinator-device', { role: 'coordinator' }),
         role: 'coordinator',
         coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 2,
       }),
     ).toBe(false);
     expect(new URL(FakeWebSocket.instances[0].url).pathname).toBe('/api/rooms/123456/ws');
@@ -549,6 +645,8 @@ describe('Cloudflare PRO signaling client contract', () => {
         ticket,
         role: 'member',
         coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
       },
     });
 

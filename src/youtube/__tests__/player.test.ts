@@ -8,6 +8,10 @@ import { MSG } from '../../core/constants.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
+import {
+  registerProRoomLegacyMediaHooks,
+  type ProRoomLegacyMediaHooks,
+} from '../../pro-room/legacy-media-hooks.ts';
 
 const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444';
 const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555';
@@ -66,6 +70,11 @@ vi.mock('../search.ts', () => ({
   getYouTubeInputIntent: vi.fn(() => ({ kind: 'invalid-url' })),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
+  resolveYouTubePlaylistEntry: vi.fn(async (playlistId: string) => ({
+    playlistId,
+    videoId: 'RESOLVED001',
+    title: 'Resolved first video',
+  })),
   clearYouTubeInputState: vi.fn(),
   fetchYouTubePreview: vi.fn(),
   fetchPlaylistSubTitles: vi.fn(),
@@ -99,6 +108,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.useFakeTimers();
+  registerProRoomLegacyMediaHooks(null);
 
   const container = document.createElement('div');
   container.id = 'youtube-container';
@@ -110,12 +120,25 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  registerProRoomLegacyMediaHooks(null);
   vi.useRealTimers();
   vi.restoreAllMocks();
   document.body.innerHTML = '';
   delete (window as unknown as { YT?: unknown }).YT;
   delete (window as unknown as { onYouTubeIframeAPIReady?: unknown }).onYouTubeIframeAPIReady;
 });
+
+function proMediaHooks(overrides: Partial<ProRoomLegacyMediaHooks> = {}): ProRoomLegacyMediaHooks {
+  return {
+    addFiles: () => false,
+    addYouTube: () => false,
+    updateTrackMetadata: () => false,
+    removeTracks: () => false,
+    reorderTrack: () => false,
+    resolveFile: () => null,
+    ...overrides,
+  };
+}
 
 describe('YouTube Player', () => {
   describe('getYouTubePlayer()', () => {
@@ -447,11 +470,160 @@ describe('YouTube Player', () => {
         skipSeek: true,
       });
     });
+
+    it('delegates a stable queue occurrence and title patch for a PRO member', async () => {
+      const addYouTube = vi.fn(() => true);
+      const updateTrackMetadata = vi.fn(() => true);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube, updateTrackMetadata }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['queue.mutate'],
+      });
+      setState('network.hostConn', { peer: 'coordinator-1' } as DataConnection);
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      const sourceUrl = 'https://www.youtube.com/watch?v=VIDEO_ID_01';
+      bus.emit('youtube:load-from-chat', sourceUrl);
+
+      expect(addYouTube).toHaveBeenCalledTimes(1);
+      const [addedItem, addedUrl] = addYouTube.mock.calls[0]!;
+      expect(addedUrl).toBe(sourceUrl);
+      expect(addedItem).toMatchObject({
+        type: 'youtube',
+        videoId: 'VIDEO_ID_01',
+        playlistId: null,
+      });
+      expect(addedItem.queueItemId).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(getState('playlist.items')).toEqual([]);
+
+      await vi.waitFor(() => {
+        expect(updateTrackMetadata).toHaveBeenCalledWith(addedItem.queueItemId, {
+          name: 'Test Title',
+          title: 'Test Title',
+        });
+      });
+    });
+
+    it('resolves a playlist-only PRO add without interrupting current playback', async () => {
+      const addYouTube = vi.fn(() => true);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['queue.mutate'],
+      });
+      setState('network.hostConn', { peer: 'coordinator-1' } as DataConnection);
+      setPlaybackYouTubePlaying();
+      const existing = {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Existing',
+        videoId: 'EXISTING_01',
+        playlistId: null,
+      } satisfies PlaylistItem;
+      setState('playlist.items', [existing]);
+      setState('playlist.currentQueueItemId', existing.queueItemId);
+
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = 'https://www.youtube.com/playlist?list=PL_PERSISTENT';
+      document.body.appendChild(input);
+      const search = await import('../search.ts');
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValue({
+        kind: 'playlist-url',
+        raw: input.textContent,
+        videoId: null,
+        playlistId: 'PL_PERSISTENT',
+        query: null,
+      });
+      vi.mocked(search.resolveYouTubePlaylistEntry).mockResolvedValue({
+        playlistId: 'PL_PERSISTENT',
+        videoId: 'RESOLVED001',
+        title: 'Resolved first video',
+      });
+      const stopMedia = vi.fn();
+      bus.on('player:stop-all-media', stopMedia);
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:load-from-input');
+
+      await vi.waitFor(() => {
+        expect(addYouTube).toHaveBeenCalledWith(
+          expect.objectContaining({
+            videoId: 'RESOLVED001',
+            playlistId: 'PL_PERSISTENT',
+          }),
+          'https://www.youtube.com/playlist?list=PL_PERSISTENT',
+        );
+      });
+      expect(getState('playlist.items')).toEqual([existing]);
+      expect(getState('playlist.currentQueueItemId')).toBe(existing.queueItemId);
+      expect(stopMedia).not.toHaveBeenCalled();
+    });
+
+    it('reports a playlist-only PRO resolution failure without mutating the queue', async () => {
+      const addYouTube = vi.fn(() => true);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['queue.mutate'],
+      });
+      setState('network.hostConn', { peer: 'coordinator-1' } as DataConnection);
+      const existing = {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Existing',
+        videoId: 'EXISTING_01',
+        playlistId: null,
+      } satisfies PlaylistItem;
+      setState('playlist.items', [existing]);
+      setState('playlist.currentQueueItemId', existing.queueItemId);
+
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = 'https://www.youtube.com/playlist?list=PL_UNAVAILABLE';
+      document.body.appendChild(input);
+      const search = await import('../search.ts');
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValue({
+        kind: 'playlist-url',
+        raw: input.textContent,
+        videoId: null,
+        playlistId: 'PL_UNAVAILABLE',
+        query: null,
+      });
+      vi.mocked(search.resolveYouTubePlaylistEntry).mockRejectedValue(new Error('unavailable'));
+      const { showToast } = await import('../../ui/toast.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:load-from-input');
+
+      await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('youtube.fetch_failed'));
+      expect(addYouTube).not.toHaveBeenCalled();
+      expect(getState('playlist.items')).toEqual([existing]);
+      expect(getState('playlist.currentQueueItemId')).toBe(existing.queueItemId);
+    });
   });
 
   describe('System audio restore bootstrap', () => {
     it('rebroadcasts YouTube playback when restoring the room after system audio', async () => {
-      const { initYouTube } = await import('../player.ts');
+      const { consumePendingAutoSyncOnReady, initYouTube } = await import('../player.ts');
       const { broadcast } = await import('../../network/peer.ts');
 
       setState('playlist.items', [
@@ -483,6 +655,7 @@ describe('YouTube Player', () => {
         queueItemId: QUEUE_ITEM_ID,
         autoplay: true,
         subIndex: 1,
+        positionSeconds: 37.5,
       });
 
       expect(broadcast).toHaveBeenCalledWith(
@@ -491,7 +664,7 @@ describe('YouTube Player', () => {
           videoId: 'secondVideo',
           playlistId: 'playlist-1',
           queueItemId: QUEUE_ITEM_ID,
-          autoplay: true,
+          autoplay: false,
           subIndex: 1,
         }),
       );
@@ -503,7 +676,10 @@ describe('YouTube Player', () => {
           titles: ['First', 'Second'],
         }),
       );
-      expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', QUEUE_ITEM_ID, true, 1);
+      expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', QUEUE_ITEM_ID, false, 1);
+      expect(consumePendingAutoSyncOnReady()).toEqual(
+        expect.objectContaining({ targetTime: 37.5, skipSeek: false, state: 1 }),
+      );
     });
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MusixquareProRoom,
   issueProRoomActivationClaim,
+  issueProRoomOwnerRecoveryClaim,
   default as proRoomWorker,
 } from '../../../cloudflare/pro-room-worker.js';
 import { parseProRoomSnapshot } from '../snapshot.ts';
@@ -14,6 +15,10 @@ const SESSION_SECRET = 'session-secret-'.padEnd(48, 's');
 const SIGNALING_SECRET = 'signaling-secret-'.padEnd(48, 'g');
 const R2_ACCOUNT_ID = '01353882e4eea3a5acaa0c45e8336af4';
 const IDEMPOTENCY_KEY = '018f977e-5df5-7c8f-bb80-55d847ddec0f';
+const presenceByCookie = new Map<
+  string,
+  { participantId: string; presenceIncarnationId: string }
+>();
 
 type StoredRoom = {
   revision: number;
@@ -30,12 +35,14 @@ type StoredRoom = {
       status: 'reserved' | 'ready';
       assetId: string;
       objectKey: string;
+      stagingObjectKey: string;
       version: number;
       byteLength: number;
       mime: string;
       sha256?: string;
       expiresAtMs?: number;
       gcAfterMs?: number;
+      stagingCleanupAfterMs?: number;
     }
   >;
 };
@@ -66,12 +73,29 @@ class FakeState {
 }
 
 class FakeR2Bucket {
-  readonly objects = new Map<string, unknown>();
+  readonly objects = new Map<string, any>();
   readonly deleted: string[] = [];
   deleteError: Error | null = null;
 
   async head(key: string): Promise<unknown> {
     return structuredClone(this.objects.get(key)) ?? null;
+  }
+
+  async get(key: string): Promise<unknown> {
+    const object = this.objects.get(key);
+    return object ? { ...structuredClone(object), body: { size: object.size } } : null;
+  }
+
+  async put(
+    key: string,
+    body: { size?: number },
+    options: { httpMetadata?: unknown; customMetadata?: unknown },
+  ): Promise<void> {
+    this.objects.set(key, {
+      size: body.size ?? 0,
+      httpMetadata: structuredClone(options.httpMetadata),
+      customMetadata: structuredClone(options.customMetadata),
+    });
   }
 
   async delete(key: string): Promise<void> {
@@ -96,11 +120,40 @@ function environment(bucket = new FakeR2Bucket()) {
 }
 
 function request(path: string, init: RequestInit = {}, cookie?: string): Request {
+  return requestForRoom(ROOM_CODE, path, init, cookie);
+}
+
+function requestWithPresence(
+  path: string,
+  init: RequestInit,
+  cookie: string,
+  identity: { participantId: string; presenceIncarnationId: string },
+): Request {
+  const result = request(path, init, cookie);
+  result.headers.set('x-mxqr-pro-participant-id', identity.participantId);
+  result.headers.set('x-mxqr-pro-presence-incarnation', identity.presenceIncarnationId);
+  return result;
+}
+
+function requestForRoom(
+  roomCode: string,
+  path: string,
+  init: RequestInit = {},
+  cookie?: string,
+): Request {
   const headers = new Headers(init.headers);
-  headers.set('x-mxqr-pro-room-code', ROOM_CODE);
+  headers.set('x-mxqr-pro-room-code', roomCode);
   headers.set('x-mxqr-pro-ip-hash', 'hashed-client-address');
   if (cookie) headers.set('cookie', cookie);
-  return new Request(`${BASE_URL}${path}`, { ...init, headers });
+  const presence = cookie ? presenceByCookie.get(cookie) : null;
+  if (presence) {
+    headers.set('x-mxqr-pro-participant-id', presence.participantId);
+    headers.set('x-mxqr-pro-presence-incarnation', presence.presenceIncarnationId);
+  }
+  return new Request(`https://pro.musixquare.com/v1/rooms/${roomCode}${path}`, {
+    ...init,
+    headers,
+  });
 }
 
 function jsonRequest(
@@ -115,6 +168,50 @@ function jsonRequest(
   return request(path, { method, headers, body: JSON.stringify(body) }, cookie);
 }
 
+function unloadCloseRequest(
+  body: Record<string, unknown>,
+  cookie: string | undefined,
+  key: string,
+): Request {
+  return request(
+    '/presence/close',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ idempotencyKey: key, ...body }),
+    },
+    cookie,
+  );
+}
+
+function fencedSessionCloseRequest(
+  body: Record<string, unknown>,
+  cookie: string | undefined,
+): Request {
+  return request(
+    '/sessions/current/close',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify(body),
+    },
+    cookie,
+  );
+}
+
+function jsonRequestForRoom(
+  roomCode: string,
+  path: string,
+  method: 'POST' | 'PUT' | 'DELETE',
+  body: unknown,
+  cookie?: string,
+  idempotencyKey?: string,
+): Request {
+  const headers = new Headers({ 'content-type': 'application/json' });
+  if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
+  return requestForRoom(roomCode, path, { method, headers, body: JSON.stringify(body) }, cookie);
+}
+
 async function responseJson(response: Response): Promise<Record<string, any>> {
   return (await response.json()) as Record<string, any>;
 }
@@ -123,6 +220,15 @@ function cookieFrom(response: Response): string {
   const setCookie = response.headers.get('set-cookie');
   if (!setCookie) throw new Error('missing session cookie');
   return setCookie.split(';')[0] ?? '';
+}
+
+function bindCookiePresence(cookie: string, envelope: Record<string, any>): void {
+  const viewer = envelope.snapshot?.viewer;
+  if (!viewer) throw new Error('missing viewer presence identity');
+  presenceByCookie.set(cookie, {
+    participantId: viewer.participantId,
+    presenceIncarnationId: viewer.presenceIncarnationId,
+  });
 }
 
 async function activatedRoom() {
@@ -146,10 +252,11 @@ async function activatedRoom() {
   const ownerCookie = cookieFrom(activation);
   const ownerRecoveryCookie = activation.headers
     .getSetCookie()
-    .find((value) => value.startsWith('__Host-mxqr_pro_owner='))
+    .find((value) => value.startsWith(`__Host-mxqr_pro_owner_${ROOM_CODE}=`))
     ?.split(';')[0];
   expect(ownerRecoveryCookie).toBeTruthy();
   const activationEnvelope = await responseJson(activation);
+  bindCookiePresence(ownerCookie, activationEnvelope);
   expect(Object.keys(activationEnvelope)).toEqual(['snapshot']);
   return {
     worker,
@@ -180,7 +287,7 @@ async function completeReadyAsset(
   const assetId = reservationEnvelope.reservation.assetId as string;
   const internal = context.worker as unknown as { room: StoredRoom };
   const asset = internal.room.assets[assetId]!;
-  context.bucket.objects.set(asset.objectKey, {
+  context.bucket.objects.set(asset.stagingObjectKey, {
     size: asset.byteLength,
     httpMetadata: { contentType: asset.mime },
     customMetadata: {
@@ -220,11 +327,13 @@ async function replacePlaylist(
         currentQueueItemId: null,
         playback: {
           coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
-          revision: current.snapshot.playback.revision + 1,
+          revision: current.snapshot.playback.revision,
           state: 'idle',
           queueItemId: null,
           positionSeconds: 0,
           updatedAtMs: Date.now(),
+          youtubeVideoId: null,
+          youtubeSubIndex: null,
         },
       },
       context.ownerCookie,
@@ -305,6 +414,36 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(await responseJson(response)).toEqual({ error: 'NOT_FOUND' });
   });
 
+  it('scopes session and owner cookies per room so fixed rooms can coexist', async () => {
+    const cookies: string[] = [];
+    for (const roomCode of ['000000', '000001']) {
+      const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+      const claimToken = await issueProRoomActivationClaim(roomCode, ACTIVATION_SECRET, {
+        nowMs: Date.now() - 1_000,
+        expiresAtMs: Date.now() + 60_000,
+        nonce: `fixed-cookie-nonce-${roomCode}`,
+      });
+      const response = await worker.fetch(
+        jsonRequestForRoom(roomCode, '/activation', 'POST', {
+          claimToken,
+          temporaryPin: roomCode.padStart(8, '0'),
+          newPin: roomCode === '000000' ? '11111111' : '22222222',
+        }),
+      );
+      expect(response.status).toBe(200);
+      const setCookies = response.headers.getSetCookie();
+      expect(
+        setCookies.some((value) => value.startsWith(`__Host-mxqr_pro_session_${roomCode}=`)),
+      ).toBe(true);
+      expect(
+        setCookies.some((value) => value.startsWith(`__Host-mxqr_pro_owner_${roomCode}=`)),
+      ).toBe(true);
+      cookies.push(...setCookies.map((value) => value.split(';')[0]!));
+    }
+    expect(cookies).toHaveLength(4);
+    expect(new Set(cookies.map((value) => value.split('=')[0])).size).toBe(4);
+  });
+
   it('sets credentialed CORS only for an explicit allowlisted origin', async () => {
     const state = new FakeState();
     const env = environment() as ReturnType<typeof environment> & {
@@ -329,6 +468,32 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(allowed.headers.get('access-control-allow-origin')).toBe('https://musixquare.com');
     expect(allowed.headers.get('access-control-allow-credentials')).toBe('true');
     expect(allowed.headers.get('vary')).toBe('origin');
+    const preflight = await proRoomWorker.fetch(
+      new Request(`${BASE_URL}/snapshot`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'https://musixquare.com',
+          'access-control-request-method': 'GET',
+          'access-control-request-headers':
+            'x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation',
+        },
+      }),
+      env as never,
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-headers')).toBe(
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation',
+    );
+
+    for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
+      const preview = await proRoomWorker.fetch(
+        new Request(`${BASE_URL}/bootstrap`, {
+          headers: { origin: previewOrigin, 'cf-connecting-ip': '192.0.2.2' },
+        }),
+        env as never,
+      );
+      expect(preview.headers.get('access-control-allow-origin')).toBe(previewOrigin);
+    }
 
     const blocked = await proRoomWorker.fetch(
       new Request(`${BASE_URL}/bootstrap`, { headers: { origin: 'https://evil.example' } }),
@@ -342,7 +507,11 @@ describe('persistent PRO room bootstrap and activation', () => {
 describe('persistent PRO room authentication, presence, and state', () => {
   it('restores the owner role from the separate host-only owner credential', async () => {
     const { worker, ownerCookie, ownerRecoveryCookie, activationEnvelope } = await activatedRoom();
-    await worker.fetch(request('/sessions/current', { method: 'DELETE' }, ownerCookie));
+    const closed = await worker.fetch(
+      request('/sessions/current', { method: 'DELETE' }, ownerCookie),
+    );
+    expect(closed.status).toBe(200);
+    expect(closed.headers.get('set-cookie')).toBeNull();
     const restored = await worker.fetch(
       jsonRequest(
         '/sessions',
@@ -358,6 +527,61 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
+  it('redeems a short-lived owner recovery claim once and revokes prior owner credentials', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const controllerResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const controllerCookie = cookieFrom(controllerResponse);
+    bindCookiePresence(controllerCookie, await responseJson(controllerResponse));
+    const nowMs = Date.now();
+    const wrongRoomClaim = await issueProRoomOwnerRecoveryClaim('000000', ACTIVATION_SECRET, {
+      nowMs: nowMs - 1_000,
+      expiresAtMs: nowMs + 60_000,
+      nonce: 'wrong-room-recovery-nonce',
+    });
+    const wrongRoom = await worker.fetch(
+      jsonRequest('/owner-recovery', 'POST', { claimToken: wrongRoomClaim }),
+    );
+    expect(wrongRoom.status).toBe(401);
+    expect(await responseJson(wrongRoom)).toEqual({ error: 'RECOVERY_INVALID' });
+    await expect(
+      issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+        nowMs,
+        expiresAtMs: nowMs + 16 * 60_000,
+        nonce: 'too-long-recovery-nonce',
+      }),
+    ).rejects.toThrow('Invalid expiry');
+    const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: nowMs - 1_000,
+      expiresAtMs: nowMs + 60_000,
+      nonce: 'fixed-owner-recovery-nonce',
+    });
+    const recovered = await worker.fetch(
+      jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Recovered Owner' }),
+    );
+    expect(recovered.status).toBe(200);
+    const recoveryEnvelope = await responseJson(recovered);
+    expect(recoveryEnvelope.snapshot.viewer).toMatchObject({
+      role: 'owner',
+      displayName: 'Recovered Owner',
+    });
+    expect(recovered.headers.getSetCookie()).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^__Host-mxqr_pro_session_000001=/),
+        expect.stringMatching(/^__Host-mxqr_pro_owner_000001=/),
+      ]),
+    );
+    expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(401);
+    expect((await worker.fetch(request('/snapshot', {}, controllerCookie))).status).toBe(200);
+
+    const replay = await worker.fetch(
+      jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Replay' }),
+    );
+    expect(replay.status).toBe(409);
+    expect(await responseJson(replay)).toEqual({ error: 'RECOVERY_CLAIM_USED' });
+  });
+
   it('revokes controller sessions on owner PIN rotation while retaining the owner session', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controller = await worker.fetch(
@@ -365,17 +589,37 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(controller.status).toBe(200);
     const controllerCookie = cookieFrom(controller);
-    expect(controllerCookie).toMatch(/^__Host-mxqr_pro_session=/);
+    expect(controllerCookie).toMatch(/^__Host-mxqr_pro_session_000001=/);
     expect(controller.headers.get('set-cookie')).not.toMatch(/Domain=/i);
     const sessionEnvelope = await responseJson(controller);
+    bindCookiePresence(controllerCookie, sessionEnvelope);
     expect(Object.keys(sessionEnvelope)).toEqual(['snapshot', 'session']);
     expect(Object.keys(sessionEnvelope.session)).toEqual(['expiresAtMs']);
+    expect(sessionEnvelope.snapshot.viewer).toMatchObject({
+      role: 'controller',
+      capabilities: [
+        'queue.mutate',
+        'playback.control',
+        'effects.control',
+        'asset.upload',
+        'coordinator.eligible',
+        'members.manage',
+      ],
+    });
+    expect(sessionEnvelope.snapshot.viewer.capabilities).not.toContain('room.configure');
+    const epochBeforeRotation = sessionEnvelope.snapshot.presence.coordinatorEpoch as number;
 
     const rotate = await worker.fetch(
       jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
     );
     expect(await responseJson(rotate)).toEqual({ ok: true });
-    expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(200);
+    const ownerAfterRotationResponse = await worker.fetch(request('/snapshot', {}, ownerCookie));
+    expect(ownerAfterRotationResponse.status).toBe(200);
+    const ownerAfterRotation = await responseJson(ownerAfterRotationResponse);
+    expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
+    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBe(
+      ownerAfterRotation.snapshot.viewer.participantId,
+    );
     expect((await worker.fetch(request('/snapshot', {}, controllerCookie))).status).toBe(401);
 
     const oldPin = await worker.fetch(
@@ -386,6 +630,95 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(oldPin.status).toBe(401);
     expect(newPin.status).toBe(200);
+  });
+
+  it('bulk-revokes multiple controllers with exactly one PIN security epoch advance', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const firstMemberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'First Friend' }),
+    );
+    const firstMemberCookie = cookieFrom(firstMemberResponse);
+    bindCookiePresence(firstMemberCookie, await responseJson(firstMemberResponse));
+    const secondMemberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Second Friend' }),
+    );
+    const secondMemberCookie = cookieFrom(secondMemberResponse);
+    bindCookiePresence(secondMemberCookie, await responseJson(secondMemberResponse));
+
+    const leaveOwner = await worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, ownerCookie),
+    );
+    expect(leaveOwner.status).toBe(200);
+    const memberAsCoordinator = await responseJson(
+      await worker.fetch(request('/snapshot', {}, firstMemberCookie)),
+    );
+    expect(memberAsCoordinator.snapshot.presence.coordinatorParticipantId).toBe(
+      memberAsCoordinator.snapshot.viewer.participantId,
+    );
+
+    const ownerReentryResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, ownerCookie),
+    );
+    expect(ownerReentryResponse.status).toBe(200);
+    const ownerReentry = await responseJson(ownerReentryResponse);
+    bindCookiePresence(ownerCookie, ownerReentry);
+    const epochBeforeRotation = ownerReentry.snapshot.presence.coordinatorEpoch as number;
+    const presenceRevisionBeforeRotation = ownerReentry.snapshot.presence.revision as number;
+    const playbackRevisionBeforeRotation = ownerReentry.snapshot.playback.revision as number;
+    expect(ownerReentry.snapshot.presence.participants).toHaveLength(3);
+    expect(ownerReentry.snapshot.presence.coordinatorParticipantId).not.toBe(
+      ownerReentry.snapshot.viewer.participantId,
+    );
+
+    const rotate = await worker.fetch(
+      jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
+    );
+    expect(rotate.status).toBe(200);
+    const ownerAfterRotation = await responseJson(
+      await worker.fetch(request('/snapshot', {}, ownerCookie)),
+    );
+    expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
+    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBe(
+      ownerAfterRotation.snapshot.viewer.participantId,
+    );
+    expect(ownerAfterRotation.snapshot.presence.participants).toEqual([
+      expect.objectContaining({ participantId: ownerAfterRotation.snapshot.viewer.participantId }),
+    ]);
+    expect(ownerAfterRotation.snapshot.presence.revision).toBe(
+      presenceRevisionBeforeRotation + 1,
+    );
+    expect(ownerAfterRotation.snapshot.playback).toMatchObject({
+      coordinatorEpoch: epochBeforeRotation + 1,
+      revision: playbackRevisionBeforeRotation + 1,
+    });
+    expect(ownerAfterRotation.snapshot.runtime).toBe('awake');
+    expect((await worker.fetch(request('/snapshot', {}, firstMemberCookie))).status).toBe(401);
+    expect((await worker.fetch(request('/snapshot', {}, secondMemberCookie))).status).toBe(401);
+  });
+
+  it('charges the IP limiter only for failed PIN verification', async () => {
+    const { worker } = await activatedRoom();
+    for (let index = 0; index < 10; index += 1) {
+      const failedRequest = jsonRequest('/sessions', 'POST', {
+        pin: '99999999',
+        displayName: 'Wrong',
+      });
+      failedRequest.headers.set('x-mxqr-pro-ip-hash', 'failed-pin-address');
+      expect((await worker.fetch(failedRequest)).status).toBe(401);
+    }
+    const blockedRequest = jsonRequest('/sessions', 'POST', {
+      pin: '99999999',
+      displayName: 'Blocked',
+    });
+    blockedRequest.headers.set('x-mxqr-pro-ip-hash', 'failed-pin-address');
+    const blocked = await worker.fetch(blockedRequest);
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('retry-after')).toMatch(/^\d+$/);
+
+    const validOtherAddress = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Valid' }),
+    );
+    expect(validOtherAddress.status).toBe(200);
   });
 
   it('freezes an empty room, wakes on return, and scopes signaling tickets to the coordinator epoch', async () => {
@@ -400,10 +733,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
       presence: { coordinatorParticipantId: null },
     });
 
-    const awake = await worker.fetch(
+    const rejectedHeartbeat = await worker.fetch(
       request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
     );
+    expect(rejectedHeartbeat.status).toBe(409);
+    expect(await responseJson(rejectedHeartbeat)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+    const awake = await worker.fetch(request('/presence/enter', { method: 'POST' }, ownerCookie));
     const awakeEnvelope = await responseJson(awake);
+    bindCookiePresence(ownerCookie, awakeEnvelope);
     expect(Object.keys(awakeEnvelope)).toEqual(['snapshot']);
     const awakeSnapshot = awakeEnvelope.snapshot;
     expect(awakeSnapshot).toMatchObject({ runtime: 'awake', presence: { coordinatorEpoch: 3 } });
@@ -412,7 +749,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
       request('/signaling-tickets', { method: 'POST' }, ownerCookie),
     );
     const envelope = await responseJson(access);
-    expect(Object.keys(envelope)).toEqual(['ticket', 'expiresAtMs', 'role', 'coordinatorEpoch']);
+    expect(Object.keys(envelope)).toEqual([
+      'ticket',
+      'expiresAtMs',
+      'role',
+      'coordinatorEpoch',
+      'presenceIncarnationId',
+      'ticketSequence',
+    ]);
     expect(envelope).toMatchObject({ role: 'coordinator', coordinatorEpoch: 3 });
     expect(envelope.ticket).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     expect(envelope.expiresAtMs).toBeGreaterThan(Date.now());
@@ -428,6 +772,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
       'participantId',
       'role',
       'coordinatorEpoch',
+      'presenceIncarnationId',
+      'ticketSequence',
       'jti',
       'iat',
       'exp',
@@ -438,6 +784,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
       roomCode: ROOM_CODE,
       role: 'coordinator',
       coordinatorEpoch: 3,
+      presenceIncarnationId: awakeSnapshot.viewer.presenceIncarnationId,
+      ticketSequence: 1,
     });
     expect((decoded.exp as number) - (decoded.iat as number)).toBe(90);
   });
@@ -448,6 +796,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
     );
     const controllerCookie = cookieFrom(controller);
+    bindCookiePresence(controllerCookie, await responseJson(controller));
     const leave = await responseJson(
       await worker.fetch(request('/presence/current', { method: 'DELETE' }, ownerCookie)),
     );
@@ -459,6 +808,652 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(current.snapshot.presence.coordinatorParticipantId).toBe(
       current.snapshot.viewer.participantId,
     );
+  });
+
+  it('rotates the presence incarnation and coordinator epoch on coordinator resume only', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+
+    const enteredResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, ownerCookie),
+    );
+    expect(enteredResponse.status).toBe(200);
+    const entered = await responseJson(enteredResponse);
+    bindCookiePresence(ownerCookie, entered);
+    expect(entered.snapshot.viewer.participantId).toBe(before.snapshot.viewer.participantId);
+    expect(entered.snapshot.viewer.presenceIncarnationId).not.toBe(
+      before.snapshot.viewer.presenceIncarnationId,
+    );
+    expect(entered.snapshot.presence.coordinatorEpoch).toBe(
+      before.snapshot.presence.coordinatorEpoch + 1,
+    );
+
+    const refreshed = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    expect(refreshed.snapshot.viewer.presenceIncarnationId).toBe(
+      entered.snapshot.viewer.presenceIncarnationId,
+    );
+  });
+
+  it('rotates a member incarnation without advancing coordinator authority', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    const memberBefore = await responseJson(memberResponse);
+    bindCookiePresence(memberCookie, memberBefore);
+    const ownerBefore = await responseJson(
+      await worker.fetch(request('/snapshot', {}, ownerCookie)),
+    );
+
+    const enteredResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, memberCookie),
+    );
+    expect(enteredResponse.status).toBe(200);
+    const entered = await responseJson(enteredResponse);
+    bindCookiePresence(memberCookie, entered);
+
+    expect(entered.snapshot.viewer.participantId).toBe(memberBefore.snapshot.viewer.participantId);
+    expect(entered.snapshot.viewer.presenceIncarnationId).not.toBe(
+      memberBefore.snapshot.viewer.presenceIncarnationId,
+    );
+    expect(entered.snapshot.presence.coordinatorEpoch).toBe(
+      ownerBefore.snapshot.presence.coordinatorEpoch,
+    );
+    expect(entered.snapshot.presence.coordinatorParticipantId).toBe(
+      ownerBefore.snapshot.viewer.participantId,
+    );
+  });
+
+  it('fences every old-tab active request after a same-cookie tab enters', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const oldIdentity = {
+      participantId: before.snapshot.viewer.participantId as string,
+      presenceIncarnationId: before.snapshot.viewer.presenceIncarnationId as string,
+    };
+    const oldEpoch = before.snapshot.presence.coordinatorEpoch as number;
+
+    // Pre-issue but do not deliver the old tab's signaling credential.
+    const oldTicket = await responseJson(
+      await worker.fetch(request('/signaling-tickets', { method: 'POST' }, ownerCookie)),
+    );
+    expect(oldTicket).toMatchObject({
+      ticketSequence: 1,
+      presenceIncarnationId: oldIdentity.presenceIncarnationId,
+    });
+
+    const enteredResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, ownerCookie),
+    );
+    const entered = await responseJson(enteredResponse);
+    bindCookiePresence(ownerCookie, entered);
+    expect(entered.snapshot.presence.coordinatorEpoch).toBe(oldEpoch + 1);
+
+    const staleRequests = [
+      requestWithPresence('/snapshot', {}, ownerCookie, oldIdentity),
+      requestWithPresence('/presence/heartbeat', { method: 'POST' }, ownerCookie, oldIdentity),
+      requestWithPresence('/signaling-tickets', { method: 'POST' }, ownerCookie, oldIdentity),
+      requestWithPresence(
+        '/pin',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ pin: '87654321' }),
+        },
+        ownerCookie,
+        oldIdentity,
+      ),
+      requestWithPresence(
+        '/media/reservations',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': `${IDEMPOTENCY_KEY}-stale-tab-reserve`,
+          },
+          body: JSON.stringify({ byteLength: 1024, name: 'stale.wav', mime: 'audio/wav' }),
+        },
+        ownerCookie,
+        oldIdentity,
+      ),
+    ];
+    for (const staleRequest of staleRequests) {
+      const response = await worker.fetch(staleRequest);
+      expect(response.status).toBe(409);
+      expect(await responseJson(response)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+    }
+
+    const newTicket = await responseJson(
+      await worker.fetch(request('/signaling-tickets', { method: 'POST' }, ownerCookie)),
+    );
+    expect(newTicket).toMatchObject({
+      ticketSequence: 2,
+      presenceIncarnationId: entered.snapshot.viewer.presenceIncarnationId,
+      coordinatorEpoch: oldEpoch + 1,
+    });
+    expect(
+      (await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie))).status,
+    ).toBe(200);
+  });
+
+  it('revokes exactly the captured server session without a racy cookie tombstone', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const identity = {
+      expectedParticipantId: before.snapshot.viewer.participantId,
+      expectedPresenceIncarnationId: before.snapshot.viewer.presenceIncarnationId,
+    };
+    const atomic = await worker.fetch(
+      unloadCloseRequest(
+        {
+          ...identity,
+          baseRevision: before.snapshot.revision,
+          currentQueueItemId: null,
+          playback: null,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-atomic-before-fenced-session`,
+      ),
+    );
+    expect(atomic.status).toBe(200);
+
+    const fenced = await worker.fetch(fencedSessionCloseRequest(identity, ownerCookie));
+    expect(fenced.status).toBe(200);
+    expect(await responseJson(fenced)).toEqual({ ok: true });
+    // A successful response can arrive after another tab installed a newer
+    // same-name cookie, so even the success path must never clear it.
+    expect(fenced.headers.get('set-cookie')).toBeNull();
+
+    const internal = worker as unknown as {
+      room: {
+        presence: { participants: Record<string, unknown> };
+        sessions: Record<string, unknown>;
+      };
+    };
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(0);
+    expect(Object.keys(internal.room.sessions)).toHaveLength(0);
+  });
+
+  it('preserves a resumed same-cookie tab against both delayed explicit-leave phases', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const oldIdentity = {
+      expectedParticipantId: before.snapshot.viewer.participantId,
+      expectedPresenceIncarnationId: before.snapshot.viewer.presenceIncarnationId,
+    };
+
+    const entered = await worker.fetch(request('/presence/enter', { method: 'POST' }, ownerCookie));
+    expect(entered.status).toBe(200);
+    const enteredEnvelope = await responseJson(entered);
+    bindCookiePresence(ownerCookie, enteredEnvelope);
+    expect(enteredEnvelope.snapshot.viewer.participantId).toBe(oldIdentity.expectedParticipantId);
+    expect(enteredEnvelope.snapshot.viewer.presenceIncarnationId).not.toBe(
+      oldIdentity.expectedPresenceIncarnationId,
+    );
+    const resumedRevision = enteredEnvelope.snapshot.revision;
+
+    const staleAtomic = await worker.fetch(
+      unloadCloseRequest(
+        {
+          ...oldIdentity,
+          baseRevision: before.snapshot.revision,
+          currentQueueItemId: null,
+          playback: null,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-stale-atomic-before-fenced-session`,
+      ),
+    );
+    expect(staleAtomic.status).toBe(409);
+    expect(await responseJson(staleAtomic)).toEqual({
+      error: 'PRESENCE_IDENTITY_MISMATCH',
+    });
+
+    const staleFenced = await worker.fetch(fencedSessionCloseRequest(oldIdentity, ownerCookie));
+    expect(staleFenced.status).toBe(409);
+    expect(await responseJson(staleFenced)).toEqual({
+      error: 'PRESENCE_IDENTITY_MISMATCH',
+    });
+    expect(staleFenced.headers.get('set-cookie')).toBeNull();
+
+    const current = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    expect(current.snapshot.revision).toBe(resumedRevision);
+    expect(current.snapshot.viewer.presenceIncarnationId).toBe(
+      enteredEnvelope.snapshot.viewer.presenceIncarnationId,
+    );
+    expect(current.snapshot.presence.participants).toHaveLength(1);
+    const internal = worker as unknown as {
+      room: { sessions: Record<string, unknown> };
+    };
+    expect(Object.keys(internal.room.sessions)).toHaveLength(1);
+  });
+
+  it('atomically checkpoints and leaves on unload while retaining an idempotent resumable session', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const initial = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const queueItemId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const selected = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/snapshot',
+          'PUT',
+          {
+            baseRevision: initial.snapshot.revision,
+            playlist: [
+              {
+                queueItemId,
+                name: 'Persistent video',
+                source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+              },
+            ],
+            currentQueueItemId: queueItemId,
+            playback: {
+              coordinatorEpoch: initial.snapshot.presence.coordinatorEpoch,
+              revision: initial.snapshot.playback.revision + 1,
+              state: 'paused',
+              queueItemId,
+              positionSeconds: 10,
+              updatedAtMs: Date.now(),
+              youtubeVideoId: 'dQw4w9WgXcQ',
+              youtubeSubIndex: 0,
+            },
+          },
+          ownerCookie,
+          `${IDEMPOTENCY_KEY}-unload-seed`,
+        ),
+      ),
+    );
+    const closeBody = {
+      expectedParticipantId: selected.snapshot.viewer.participantId,
+      expectedPresenceIncarnationId: selected.snapshot.viewer.presenceIncarnationId,
+      baseRevision: selected.snapshot.revision,
+      currentQueueItemId: queueItemId,
+      playback: {
+        coordinatorEpoch: selected.snapshot.presence.coordinatorEpoch,
+        revision: selected.snapshot.playback.revision + 1,
+        state: 'playing',
+        queueItemId,
+        positionSeconds: 42.25,
+        updatedAtMs: Date.now(),
+        youtubeVideoId: '9bZkp7q19f0',
+        youtubeSubIndex: 7,
+      },
+    };
+    // Simulate an already in-flight periodic checkpoint winning the Durable
+    // Object queue after pagehide captured closeBody from the same base.
+    const periodic = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: selected.snapshot.revision,
+          playlist: selected.snapshot.playlist,
+          currentQueueItemId: queueItemId,
+          playback: {
+            ...selected.snapshot.playback,
+            revision: selected.snapshot.playback.revision + 1,
+            state: 'playing',
+            positionSeconds: 40,
+            updatedAtMs: Date.now(),
+          },
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-unload-periodic-race`,
+      ),
+    );
+    expect(periodic.status).toBe(200);
+    const closeKey = `${IDEMPOTENCY_KEY}-unload-close`;
+    const first = await worker.fetch(unloadCloseRequest(closeBody, ownerCookie, closeKey));
+    expect(first.status).toBe(200);
+    expect(await responseJson(first)).toEqual({ ok: true });
+    expect(first.headers.get('set-cookie')).toBeNull();
+
+    const internal = worker as unknown as {
+      room: {
+        revision: number;
+        runtime: string;
+        playback: Record<string, any>;
+        presence: { participants: Record<string, unknown> };
+        sessions: Record<string, unknown>;
+      };
+    };
+    expect(internal.room.runtime).toBe('sleeping');
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(0);
+    expect(Object.keys(internal.room.sessions)).toHaveLength(1);
+    expect(internal.room.playback).toMatchObject({
+      state: 'playing',
+      youtubeVideoId: '9bZkp7q19f0',
+      youtubeSubIndex: 7,
+    });
+    expect(internal.room.playback.positionSeconds).toBeGreaterThanOrEqual(42.25);
+    const committedRevision = internal.room.revision;
+
+    const replay = await worker.fetch(unloadCloseRequest(closeBody, ownerCookie, closeKey));
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual({ ok: true });
+    expect(internal.room.revision).toBe(committedRevision);
+
+    // Ordinary refresh must not resurrect a closed presence. Resume has one
+    // explicit enter endpoint that rotates the server-issued incarnation.
+    const refreshWhileClosed = await worker.fetch(request('/snapshot', {}, ownerCookie));
+    expect(refreshWhileClosed.status).toBe(409);
+    expect(await responseJson(refreshWhileClosed)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+
+    const entered = await worker.fetch(request('/presence/enter', { method: 'POST' }, ownerCookie));
+    expect(entered.status).toBe(200);
+    const enteredEnvelope = await responseJson(entered);
+    bindCookiePresence(ownerCookie, enteredEnvelope);
+    expect(enteredEnvelope.snapshot.viewer.role).toBe('owner');
+    expect(enteredEnvelope.snapshot.viewer.participantId).toBe(closeBody.expectedParticipantId);
+    expect(enteredEnvelope.snapshot.viewer.presenceIncarnationId).not.toBe(
+      closeBody.expectedPresenceIncarnationId,
+    );
+    const resumedRevision = internal.room.revision;
+
+    // A retry of the already-processed old close replays harmlessly even
+    // after enter rotated the incarnation.
+    const oldReplayAfterEnter = await worker.fetch(
+      unloadCloseRequest(closeBody, ownerCookie, closeKey),
+    );
+    expect(oldReplayAfterEnter.status).toBe(200);
+    expect(await responseJson(oldReplayAfterEnter)).toEqual({ ok: true });
+    expect(internal.room.revision).toBe(resumedRevision);
+
+    // The same captured body under a never-processed key is stale and cannot
+    // close or checkpoint the new incarnation.
+    const staleUnprocessed = await worker.fetch(
+      unloadCloseRequest(
+        closeBody,
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-unload-close-stale-after-enter`,
+      ),
+    );
+    expect(staleUnprocessed.status).toBe(409);
+    expect(await responseJson(staleUnprocessed)).toEqual({
+      error: 'PRESENCE_IDENTITY_MISMATCH',
+    });
+    expect(internal.room.revision).toBe(resumedRevision);
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(1);
+  });
+
+  it('authorizes and validates unload checkpoint revisions and YouTube metadata before leaving', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const controllerResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const controllerEnvelope = await responseJson(controllerResponse);
+    const controllerCookie = cookieFrom(controllerResponse);
+    bindCookiePresence(controllerCookie, controllerEnvelope);
+    const current = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const baseBody = {
+      expectedParticipantId: current.snapshot.viewer.participantId,
+      expectedPresenceIncarnationId: current.snapshot.viewer.presenceIncarnationId,
+      baseRevision: current.snapshot.revision,
+      currentQueueItemId: null,
+      playback: current.snapshot.playback,
+    };
+
+    const preflightShape = await worker.fetch(
+      jsonRequest(
+        '/presence/close',
+        'POST',
+        { idempotencyKey: `${IDEMPOTENCY_KEY}-json-close`, ...baseBody },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-json-close`,
+      ),
+    );
+    expect(preflightShape.status).toBe(400);
+    expect(await responseJson(preflightShape)).toEqual({ error: 'INVALID_REQUEST' });
+
+    const nonStringKey = await worker.fetch(
+      unloadCloseRequest(
+        { ...baseBody, idempotencyKey: 1234567890123456 },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-ignored`,
+      ),
+    );
+    expect(nonStringKey.status).toBe(400);
+    expect(await responseJson(nonStringKey)).toEqual({ error: 'INVALID_REQUEST' });
+
+    const unauthenticated = await worker.fetch(
+      unloadCloseRequest(
+        { ...baseBody, playback: null },
+        undefined,
+        `${IDEMPOTENCY_KEY}-unload-unauth`,
+      ),
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const wrongCookieIdentity = await worker.fetch(
+      unloadCloseRequest(
+        baseBody,
+        controllerCookie,
+        `${IDEMPOTENCY_KEY}-unload-wrong-cookie-identity`,
+      ),
+    );
+    expect(wrongCookieIdentity.status).toBe(409);
+    expect(await responseJson(wrongCookieIdentity)).toEqual({
+      error: 'PRESENCE_IDENTITY_MISMATCH',
+    });
+
+    const unauthorized = await worker.fetch(
+      unloadCloseRequest(
+        {
+          ...baseBody,
+          expectedParticipantId: controllerEnvelope.snapshot.viewer.participantId,
+          expectedPresenceIncarnationId: controllerEnvelope.snapshot.viewer.presenceIncarnationId,
+        },
+        controllerCookie,
+        `${IDEMPOTENCY_KEY}-unload-member-playback`,
+      ),
+    );
+    expect(unauthorized.status).toBe(403);
+    expect(await responseJson(unauthorized)).toEqual({ error: 'COORDINATOR_REQUIRED' });
+
+    const futureRevision = await worker.fetch(
+      unloadCloseRequest(
+        { ...baseBody, baseRevision: current.snapshot.revision + 1 },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-unload-future`,
+      ),
+    );
+    expect(futureRevision.status).toBe(400);
+    expect(await responseJson(futureRevision)).toEqual({ error: 'INVALID_REVISION' });
+
+    const queueItemId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const selected = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/snapshot',
+          'PUT',
+          {
+            baseRevision: current.snapshot.revision,
+            playlist: [
+              {
+                queueItemId,
+                name: 'Video',
+                source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+              },
+            ],
+            currentQueueItemId: queueItemId,
+            playback: {
+              coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+              revision: current.snapshot.playback.revision + 1,
+              state: 'paused',
+              queueItemId,
+              positionSeconds: 1,
+              updatedAtMs: Date.now(),
+              youtubeVideoId: 'dQw4w9WgXcQ',
+              youtubeSubIndex: 0,
+            },
+          },
+          ownerCookie,
+          `${IDEMPOTENCY_KEY}-unload-validation-seed`,
+        ),
+      ),
+    );
+    const invalidPlayback = {
+      expectedParticipantId: selected.snapshot.viewer.participantId,
+      expectedPresenceIncarnationId: selected.snapshot.viewer.presenceIncarnationId,
+      baseRevision: selected.snapshot.revision,
+      currentQueueItemId: queueItemId,
+      playback: {
+        ...selected.snapshot.playback,
+        revision: selected.snapshot.playback.revision + 1,
+        positionSeconds: 2,
+        updatedAtMs: Date.now(),
+        youtubeVideoId: null,
+      },
+    };
+    const invalidYouTube = await worker.fetch(
+      unloadCloseRequest(invalidPlayback, ownerCookie, `${IDEMPOTENCY_KEY}-unload-invalid-youtube`),
+    );
+    expect(invalidYouTube.status).toBe(400);
+    expect(await responseJson(invalidYouTube)).toEqual({ error: 'INVALID_PLAYBACK' });
+    const stillPresent = await responseJson(
+      await worker.fetch(request('/snapshot', {}, ownerCookie)),
+    );
+    expect(stillPresent.snapshot.presence.participants).toHaveLength(2);
+  });
+
+  it('allows 32 valid same-NAT members and evicts only inactive sessions during long churn', async () => {
+    const { worker } = await activatedRoom();
+    const activeCookies: string[] = [];
+    for (let index = 0; index < 32; index += 1) {
+      const joined = await worker.fetch(
+        jsonRequest('/sessions', 'POST', {
+          pin: '12345678',
+          displayName: `Friend ${index}`,
+        }),
+      );
+      expect(joined.status).toBe(200);
+      const cookie = cookieFrom(joined);
+      bindCookiePresence(cookie, await responseJson(joined));
+      activeCookies.push(cookie);
+    }
+    const full = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Too many' }),
+    );
+    expect(full.status).toBe(409);
+    expect(await responseJson(full)).toEqual({ error: 'ROOM_FULL' });
+    const internal = worker as unknown as {
+      room: { sessions: Record<string, unknown>; rateLimits: Record<string, unknown> };
+    };
+    expect(Object.keys(internal.room.rateLimits)).not.toContain(
+      'pin-failure:hashed-client-address',
+    );
+
+    for (const cookie of activeCookies) {
+      await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie));
+    }
+    for (let index = 0; index < 140; index += 1) {
+      const joined = await worker.fetch(
+        jsonRequest('/sessions', 'POST', {
+          pin: '12345678',
+          displayName: `Churn ${index}`,
+        }),
+      );
+      expect(joined.status).toBe(200);
+      const cookie = cookieFrom(joined);
+      bindCookiePresence(cookie, await responseJson(joined));
+      expect(
+        (await worker.fetch(request('/presence/current', { method: 'DELETE' }, cookie))).status,
+      ).toBe(200);
+    }
+    expect(Object.keys(internal.room.sessions).length).toBeLessThanOrEqual(128);
+  }, 30_000);
+
+  it('requires live presence for state/media mutations and for creator-only completion', async () => {
+    const context = await activatedRoom();
+    const reservation = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 2048, name: 'presence.wav', mime: 'audio/wav' },
+          context.ownerCookie,
+          `${IDEMPOTENCY_KEY}-presence-reserve`,
+        ),
+      ),
+    );
+    const assetId = reservation.reservation.assetId as string;
+    const internal = context.worker as unknown as { room: StoredRoom };
+    const asset = internal.room.assets[assetId]!;
+    context.bucket.objects.set(asset.stagingObjectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+    const beforeLeave = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const controller = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const controllerCookie = cookieFrom(controller);
+    bindCookiePresence(controllerCookie, await responseJson(controller));
+    const wrongCompleter = await context.worker.fetch(
+      request(
+        `/media/${assetId}/complete`,
+        { method: 'POST', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-wrong-completer` } },
+        controllerCookie,
+      ),
+    );
+    expect(wrongCompleter.status).toBe(403);
+    expect(await responseJson(wrongCompleter)).toEqual({
+      error: 'RESERVATION_OWNER_REQUIRED',
+    });
+    await context.worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+    );
+    const completeWhileAway = await context.worker.fetch(
+      request(
+        `/media/${assetId}/complete`,
+        { method: 'POST', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-presence-complete` } },
+        context.ownerCookie,
+      ),
+    );
+    expect(completeWhileAway.status).toBe(409);
+    expect(await responseJson(completeWhileAway)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+    const mutateWhileAway = await context.worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: beforeLeave.snapshot.revision,
+          playlist: [],
+          currentQueueItemId: null,
+          playback: beforeLeave.snapshot.playback,
+        },
+        context.ownerCookie,
+        `${IDEMPOTENCY_KEY}-presence-away`,
+      ),
+    );
+    expect(mutateWhileAway.status).toBe(409);
+    expect(await responseJson(mutateWhileAway)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      409,
+    );
+    const reentered = await context.worker.fetch(
+      request('/presence/enter', { method: 'POST' }, context.ownerCookie),
+    );
+    expect(reentered.status).toBe(200);
+    bindCookiePresence(context.ownerCookie, await responseJson(reentered));
+    const completed = await context.worker.fetch(
+      request(
+        `/media/${assetId}/complete`,
+        { method: 'POST', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-presence-complete` } },
+        context.ownerCookie,
+      ),
+    );
+    expect(completed.status).toBe(200);
   });
 
   it('applies one exact revision and replays the same idempotent mutation', async () => {
@@ -482,16 +1477,141 @@ describe('persistent PRO room authentication, presence, and state', () => {
         queueItemId,
         positionSeconds: 12.5,
         updatedAtMs: Date.now(),
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
       },
     };
     const first = await worker.fetch(
       jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
     );
+    const firstEnvelope = await responseJson(first);
+    const controller = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    expect(controller.status).toBe(200);
     const replay = await worker.fetch(
       jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
     );
     expect(first.status).toBe(200);
-    expect(await responseJson(replay)).toEqual(await responseJson(first));
+    const replayEnvelope = await responseJson(replay);
+    expect(replayEnvelope.snapshot.revision).toBeGreaterThan(firstEnvelope.snapshot.revision);
+    expect(replayEnvelope.snapshot.playlist).toEqual(firstEnvelope.snapshot.playlist);
+    const internal = worker as unknown as {
+      room: { idempotency: Record<string, Record<string, unknown>> };
+    };
+    const record = Object.values(internal.room.idempotency).find(
+      (candidate) => candidate.kind === 'snapshot',
+    );
+    expect(record).toMatchObject({
+      kind: 'snapshot',
+      committedRevision: firstEnvelope.snapshot.revision,
+      status: 200,
+    });
+    expect(record).not.toHaveProperty('body');
+  });
+
+  it('rejects playback revision jumps, stale clocks, excessive positions, and invalid YouTube checkpoints', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const current = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const queueItemId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const baseBody = {
+      baseRevision: current.snapshot.revision,
+      playlist: [
+        {
+          queueItemId,
+          name: 'Video',
+          source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+        },
+      ],
+      currentQueueItemId: queueItemId,
+      playback: {
+        coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+        revision: current.snapshot.playback.revision + 1,
+        state: 'paused',
+        queueItemId,
+        positionSeconds: 42,
+        updatedAtMs: Date.now(),
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+      },
+    };
+    const attempts = [
+      { ...baseBody.playback, revision: current.snapshot.playback.revision + 99 },
+      { ...baseBody.playback, updatedAtMs: Date.now() + 5 * 60_000 },
+      { ...baseBody.playback, positionSeconds: 8 * 24 * 60 * 60 },
+      { ...baseBody.playback, youtubeVideoId: null },
+      { ...baseBody.playback, youtubeSubIndex: null },
+    ];
+    for (const [index, playback] of attempts.entries()) {
+      const rejected = await worker.fetch(
+        jsonRequest(
+          '/snapshot',
+          'PUT',
+          { ...baseBody, playback },
+          ownerCookie,
+          `${IDEMPOTENCY_KEY}-poison-${index}`,
+        ),
+      );
+      expect(rejected.status).toBe(400);
+      expect(await responseJson(rejected)).toEqual({ error: 'INVALID_PLAYBACK' });
+    }
+    const acceptedAt = Date.now();
+    const accepted = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        { ...baseBody, playback: { ...baseBody.playback, updatedAtMs: acceptedAt } },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-playback-valid`,
+      ),
+    );
+    expect(accepted.status).toBe(200);
+    const envelope = await responseJson(accepted);
+    expect(envelope.snapshot.playback).toMatchObject({
+      revision: current.snapshot.playback.revision + 1,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    });
+    expect(envelope.snapshot.playback.updatedAtMs).toBeGreaterThanOrEqual(acceptedAt);
+    expect(envelope.snapshot.playback.updatedAtMs).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('atomically rejects a legal-shape snapshot that exceeds the bounded DO state budget', async () => {
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const longText = 'x'.repeat(1_900);
+    const playlist = Array.from({ length: 160 }, (_, index) => ({
+      queueItemId: `${index.toString(16).padStart(8, '0')}-0000-4000-8000-${index
+        .toString(16)
+        .padStart(12, '0')}`,
+      name: longText,
+      title: longText,
+      artist: longText,
+      thumbnail: longText,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    }));
+    const rejected = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: before.snapshot.revision,
+          playlist,
+          currentQueueItemId: null,
+          playback: before.snapshot.playback,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-state-budget`,
+      ),
+    );
+    expect(rejected.status).toBe(409);
+    expect(await responseJson(rejected)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    const after = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    expect(after.snapshot.revision).toBe(before.snapshot.revision);
+    expect(after.snapshot.playlist).toEqual([]);
+    const stored = state.storage.data.get('pro-room:v1') as StoredRoom;
+    expect(stored.revision).toBe(before.snapshot.revision);
+    expect(stored.playlist).toEqual([]);
   });
 });
 
@@ -524,7 +1644,7 @@ describe('persistent PRO room private media accounting', () => {
 
     const stored = state.storage.data.get('pro-room:v1') as StoredRoom;
     const asset = stored.assets[reservation.reservation.assetId];
-    bucket.objects.set(asset.objectKey, {
+    bucket.objects.set(asset.stagingObjectKey, {
       size: asset.byteLength,
       httpMetadata: { contentType: asset.mime },
       customMetadata: {
@@ -569,6 +1689,7 @@ describe('persistent PRO room private media accounting', () => {
     expect(Object.keys(deleteEnvelope)).toEqual(['ok', 'assetId', 'quota']);
     expect(deleteEnvelope.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
     expect(bucket.deleted).toContain(asset.objectKey);
+    expect(bucket.deleted).toContain(asset.stagingObjectKey);
   });
 
   it('serializes quota reservations so six 200 MiB requests cannot exceed 1 GiB', async () => {
@@ -606,7 +1727,7 @@ describe('persistent PRO room private media accounting', () => {
     );
     const assetId = reservation.reservation.assetId as string;
     const asset = (state.storage.data.get('pro-room:v1') as StoredRoom).assets[assetId]!;
-    bucket.objects.set(asset.objectKey, { staged: true });
+    bucket.objects.set(asset.stagingObjectKey, { staged: true });
 
     const remove = await worker.fetch(
       request(
@@ -622,8 +1743,8 @@ describe('persistent PRO room private media accounting', () => {
       assetId,
       quota: { usedBytes: 0, reservedBytes: 0 },
     });
-    expect(bucket.deleted).toContain(asset.objectKey);
-    expect(bucket.objects.has(asset.objectKey)).toBe(false);
+    expect(bucket.deleted).toContain(asset.stagingObjectKey);
+    expect(bucket.objects.has(asset.stagingObjectKey)).toBe(false);
     const stored = state.storage.data.get('pro-room:v1') as StoredRoom & {
       quota: { usedBytes: number; reservedBytes: number };
     };
@@ -638,7 +1759,78 @@ describe('persistent PRO room private media accounting', () => {
       ),
     );
     expect(await responseJson(replay)).toEqual(removeEnvelope);
-    expect(bucket.deleted.filter((key) => key === asset.objectKey)).toHaveLength(1);
+    expect(bucket.deleted.filter((key) => key === asset.stagingObjectKey)).toHaveLength(1);
+  });
+
+  it('keeps an abort tombstone until a reusable staging URL has expired and is cleaned again', async () => {
+    const { worker, bucket, ownerCookie } = await activatedRoom();
+    const reservation = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 4096, name: 'replay.wav', mime: 'audio/wav' },
+          ownerCookie,
+          `${IDEMPOTENCY_KEY}-tombstone-reserve`,
+        ),
+      ),
+    );
+    const assetId = reservation.reservation.assetId as string;
+    const internal = worker as unknown as {
+      room: StoredRoom & {
+        stagingTombstones: Record<string, { objectKey: string; cleanupAfterMs: number }>;
+      };
+      alarm(): Promise<void>;
+    };
+    const stagingObjectKey = internal.room.assets[assetId]!.stagingObjectKey;
+    bucket.objects.set(stagingObjectKey, { staged: true });
+    const removed = await worker.fetch(
+      request(
+        `/media/${assetId}`,
+        {
+          method: 'DELETE',
+          headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-tombstone-delete` },
+        },
+        ownerCookie,
+      ),
+    );
+    expect(removed.status).toBe(200);
+    expect(internal.room.assets[assetId]).toBeUndefined();
+    expect(internal.room.stagingTombstones[assetId]?.objectKey).toBe(stagingObjectKey);
+
+    // Model a malicious reuse of the still-valid presigned PUT after abort.
+    bucket.objects.set(stagingObjectKey, { staged: 'recreated' });
+    internal.room.stagingTombstones[assetId]!.cleanupAfterMs = Date.now() - 1;
+    await internal.alarm();
+    expect(bucket.objects.has(stagingObjectKey)).toBe(false);
+    expect(internal.room.stagingTombstones[assetId]).toBeUndefined();
+  });
+
+  it('promotes a verified staging upload to an immutable final key before exposing download', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'immutable', 4096);
+    const finalObjectKey = asset.objectKey;
+    const stagingObjectKey = asset.stagingObjectKey;
+    expect(finalObjectKey).toContain('/object_');
+    expect(stagingObjectKey).toContain('/staging_');
+    expect(context.bucket.objects.get(finalObjectKey)?.size).toBe(4096);
+    expect(context.bucket.objects.has(stagingObjectKey)).toBe(false);
+
+    // Reusing the upload URL can only recreate staging; it cannot overwrite
+    // the fresh final key referenced by the ready asset and download URL.
+    context.bucket.objects.set(stagingObjectKey, { size: 5 * 1024 * 1024 * 1024 });
+    const download = await responseJson(
+      await context.worker.fetch(request(`/media/${assetId}/download`, {}, context.ownerCookie)),
+    );
+    expect(download.download.url).toContain('/object_');
+    expect(download.download.url).not.toContain('/staging_');
+    expect(context.bucket.objects.get(finalObjectKey)?.size).toBe(4096);
+
+    const internal = context.worker as unknown as { alarm(): Promise<void> };
+    asset.stagingCleanupAfterMs = Date.now() - 1;
+    await internal.alarm();
+    expect(context.bucket.objects.has(stagingObjectKey)).toBe(false);
+    expect(context.bucket.objects.get(finalObjectKey)?.size).toBe(4096);
   });
 
   it('keeps staged quota reserved when R2 deletion fails so cleanup can be retried', async () => {
@@ -656,7 +1848,7 @@ describe('persistent PRO room private media accounting', () => {
     );
     const assetId = reservation.reservation.assetId as string;
     const asset = (state.storage.data.get('pro-room:v1') as StoredRoom).assets[assetId]!;
-    bucket.objects.set(asset.objectKey, { staged: true });
+    bucket.objects.set(asset.stagingObjectKey, { staged: true });
     bucket.deleteError = new Error('temporary R2 failure');
 
     const failed = await worker.fetch(
@@ -689,7 +1881,7 @@ describe('persistent PRO room private media accounting', () => {
     };
     expect(stored.assets[assetId]).toBeUndefined();
     expect(stored.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
-    expect(bucket.deleted).toContain(asset.objectKey);
+    expect(bucket.deleted).toContain(asset.stagingObjectKey);
   });
 
   it('scopes idempotency replay records to one authenticated member', async () => {
@@ -698,6 +1890,7 @@ describe('persistent PRO room private media accounting', () => {
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
     );
     const controllerCookie = cookieFrom(controller);
+    bindCookiePresence(controllerCookie, await responseJson(controller));
     const body = { byteLength: 1024, name: 'same.wav', mime: 'audio/wav' };
     const ownerReservation = await responseJson(
       await worker.fetch(
@@ -736,7 +1929,7 @@ describe('persistent PRO room private media accounting', () => {
       alarm(): Promise<void>;
     };
     const asset = internal.room.assets[reservation.reservation.assetId]!;
-    const objectKey = asset.objectKey;
+    const objectKey = asset.stagingObjectKey;
     asset.expiresAtMs = Date.now() - 1;
     await internal.alarm();
     expect(bucket.deleted).toContain(objectKey);
@@ -762,7 +1955,8 @@ describe('persistent PRO room orphan asset garbage collection', () => {
     await context.worker.fetch(
       request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
     );
-    expect(context.state.storage.alarm).toBe(originalDeadline);
+    expect(context.state.storage.alarm).toBe(asset.stagingCleanupAfterMs);
+    expect(context.state.storage.alarm).toBeLessThan(originalDeadline!);
   });
 
   it('cancels orphan collection when an accepted snapshot references the asset', async () => {

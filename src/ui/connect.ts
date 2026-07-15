@@ -14,6 +14,7 @@ import {
   DEVICE_LABEL_SANITIZE_RE,
   MIN_GUEST_SLOTS,
   MAX_GUEST_SLOTS_LIMIT,
+  MSG,
   RESERVED_NAMES,
 } from '../core/constants.ts';
 import { getOtherDeviceLabels } from '../network/guards.ts';
@@ -23,6 +24,8 @@ import { containsProfanity } from '../chat/profanity.ts';
 import { showToast } from './toast.ts';
 import { copyTextToClipboard } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 
 let _langObserver: MutationObserver | null = null;
 let _lastDeviceList: Array<Record<string, unknown>> = [];
@@ -132,7 +135,6 @@ function refreshAllQR(): void {
 // ─── Max Device Stepper (−  N  +) ───────────────────────────────
 
 const VALUE_IDS = ['max-device-value', 'desktop-max-device-value'];
-const HOST_OWNED_SECTION_SELECTORS = ['.room-password-section', '.max-guests-section'];
 
 function _applyValue(value: number): void {
   const clamped = Math.max(MIN_GUEST_SLOTS, Math.min(MAX_GUEST_SLOTS_LIMIT, value));
@@ -241,16 +243,32 @@ const ROOM_PASSWORD_CODE_ROW_IDS = ['room-password-code-row', 'desktop-room-pass
 const ROOM_PASSWORD_CODE_IDS = ['room-password-code', 'desktop-room-password-code'];
 const ROOM_PASSWORD_REFRESH_IDS = ['room-password-refresh', 'desktop-room-password-refresh'];
 const ROOM_PASSWORD_OFF_TEXT = '- - - - - - - -';
+const PRO_ROOM_PASSWORD_MASKED_TEXT = '••••-••••';
+const ROOM_PASSWORD_REFRESH_PATH =
+  'M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h8V3z';
+const ROOM_PASSWORD_EDIT_PATH =
+  'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a.996.996 0 0 0 0-1.41l-2.51-2.51a.996.996 0 0 0-1.41 0l-1.96 1.96 3.75 3.75 2.13-1.79z';
+let _proPinChangeInFlight = false;
+
+function _isProRoom(): boolean {
+  return getRoomContext().kind === 'pro';
+}
 
 function _formatRoomPassword(password: string): string {
   return password.replace(/^(\d{4})(\d{4})$/, '$1-$2');
 }
 
 function _canEditRoomPassword(): boolean {
+  if (_isProRoom()) return hasRoomCapability('room.configure');
   return _canEditHostOwnedSetting();
 }
 
 function _guardRoomPasswordCtrl(): boolean {
+  if (_isProRoom()) {
+    if (hasRoomCapability('room.configure')) return false;
+    showToast(t('pro.owner_only'));
+    return true;
+  }
   return _guardHostSettingCtrl();
 }
 
@@ -273,13 +291,24 @@ function _applyRoomPassword(password: string | null): void {
 }
 
 function syncRoomPasswordControls(): void {
+  const isProRoom = _isProRoom();
   const password = getState('network.roomPassword') || '';
-  const active = getState('network.roomPasswordRequired') && /^\d{8}$/.test(password);
+  const active =
+    isProRoom || (getState('network.roomPasswordRequired') && /^\d{8}$/.test(password));
   const canEdit = _canEditRoomPassword();
+
+  document
+    .querySelectorAll<HTMLElement>('.room-password-section .section-title')
+    .forEach((title) => {
+      const key = isProRoom ? 'pro.pin_change_title' : 'connect.room_password_title';
+      title.setAttribute('data-i18n', key);
+      title.textContent = t(key);
+    });
 
   ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
     const toggle = document.getElementById(id) as HTMLButtonElement | null;
     if (!toggle) return;
+    toggle.hidden = isProRoom;
     toggle.classList.toggle('active', active);
     toggle.setAttribute('aria-pressed', active ? 'true' : 'false');
     toggle.disabled = false;
@@ -300,27 +329,92 @@ function syncRoomPasswordControls(): void {
   ROOM_PASSWORD_CODE_IDS.forEach((id) => {
     const code = document.getElementById(id);
     if (!code) return;
-    code.textContent = active ? _formatRoomPassword(password) : ROOM_PASSWORD_OFF_TEXT;
+    code.textContent = isProRoom
+      ? PRO_ROOM_PASSWORD_MASKED_TEXT
+      : active
+        ? _formatRoomPassword(password)
+        : ROOM_PASSWORD_OFF_TEXT;
     code.classList.toggle('is-placeholder', !active);
   });
 
   ROOM_PASSWORD_REFRESH_IDS.forEach((id) => {
     const button = document.getElementById(id) as HTMLButtonElement | null;
     if (!button) return;
-    button.hidden = !active;
-    button.disabled = !active;
-    button.setAttribute('aria-disabled', canEdit ? 'false' : 'true');
+    const ariaKey = isProRoom ? 'pro.pin_change_title' : 'connect.room_password_refresh_aria';
+    button.setAttribute('data-i18n-aria-label', ariaKey);
+    button.setAttribute('aria-label', t(ariaKey));
+    const path = button.querySelector('path');
+    if (path)
+      path.setAttribute('d', isProRoom ? ROOM_PASSWORD_EDIT_PATH : ROOM_PASSWORD_REFRESH_PATH);
+    button.hidden = !active || !canEdit;
+    button.disabled = !active || !canEdit || _proPinChangeInFlight;
+    button.setAttribute(
+      'aria-disabled',
+      !active || !canEdit || _proPinChangeInFlight ? 'true' : 'false',
+    );
   });
 }
 
 function syncHostOwnedConnectSections(): void {
-  const visible = _canEditHostOwnedSetting();
-  HOST_OWNED_SECTION_SELECTORS.forEach((selector) => {
-    document.querySelectorAll<HTMLElement>(selector).forEach((section) => {
-      section.hidden = !visible;
-      section.setAttribute('aria-hidden', visible ? 'false' : 'true');
-    });
+  const isProRoom = _isProRoom();
+  const passwordVisible = isProRoom
+    ? hasRoomCapability('room.configure')
+    : _canEditHostOwnedSetting();
+  const maxGuestsVisible = !isProRoom && _canEditHostOwnedSetting();
+
+  document.querySelectorAll<HTMLElement>('.room-password-section').forEach((section) => {
+    section.hidden = !passwordVisible;
+    section.setAttribute('aria-hidden', passwordVisible ? 'false' : 'true');
   });
+  document.querySelectorAll<HTMLElement>('.max-guests-section').forEach((section) => {
+    section.hidden = !maxGuestsVisible;
+    section.setAttribute('aria-hidden', maxGuestsVisible ? 'false' : 'true');
+  });
+}
+
+async function changeProRoomPin(): Promise<void> {
+  if (_proPinChangeInFlight || _guardRoomPasswordCtrl()) return;
+
+  const result = await showDialog({
+    title: t('pro.pin_change_title'),
+    message: t('pro.pin_change_message'),
+    inputField: {
+      placeholder: t('dialog.room_password_placeholder'),
+      maxLength: 8,
+      inputMode: 'numeric',
+      pattern: '[0-9]*',
+      autocomplete: 'new-password',
+      splitEvery: 4,
+      separator: '-',
+      validator: (value) =>
+        normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
+    },
+    buttonText: t('common.ok'),
+    secondaryText: t('common.cancel'),
+    defaultFocus: 'primary',
+  });
+  const pin = result.action === 'ok' ? normalizeProRoomPin(result.inputValue) : null;
+  if (!pin) return;
+  if (!_isProRoom() || !hasRoomCapability('room.configure')) {
+    showToast(t('pro.owner_only'));
+    return;
+  }
+
+  _proPinChangeInFlight = true;
+  syncRoomPasswordControls();
+  try {
+    // Lazy-load the PRO runtime so the standard-room connect UI does not pull
+    // the persistent-room/network bridge into its eager module graph.
+    const { changeActiveProRoomPin } = await import('../pro-room/runtime.ts');
+    await changeActiveProRoomPin(pin);
+    showToast(t('pro.pin_changed'));
+  } catch (error) {
+    log.warn('[Connect] PRO room password change failed', error);
+    showToast(t('error.network_generic'));
+  } finally {
+    _proPinChangeInFlight = false;
+    syncRoomPasswordControls();
+  }
 }
 
 function initRoomPasswordControls(): void {
@@ -345,6 +439,10 @@ function initRoomPasswordControls(): void {
     const button = document.getElementById(id);
     if (!button) return;
     button.addEventListener('click', () => {
+      if (_isProRoom()) {
+        void changeProRoomPin();
+        return;
+      }
       if (_guardRoomPasswordCtrl()) return;
       _applyRoomPassword(_generateRoomPassword());
     });
@@ -373,6 +471,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   _lastDeviceList = list;
   _lastDeviceCount = list.length;
   _updateDeviceTitles();
+  const isProRoom = _isProRoom();
 
   const containers = [
     document.getElementById('connect-device-list'),
@@ -398,7 +497,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       name.className = 'd-name';
       name.textContent = String(p.label || t('common.peer'));
 
-      if (p.isOp) {
+      if (p.isOp && !isProRoom) {
         const op = document.createElement('span');
         op.className = 'd-op-badge';
         op.textContent = 'ADMIN';
@@ -408,22 +507,39 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
 
       row.appendChild(name);
 
-      // Action buttons (host view only, non-host peers only)
+      // Action buttons: standard-room host behavior stays unchanged. In a PRO
+      // room, an authenticated member with members.manage may ask the current
+      // coordinator to remove another connected member.
       const hostConn = getState('network.hostConn');
-      if (!hostConn && !p.isHost && p.status === 'connected') {
+      const peerId = typeof p.id === 'string' ? p.id : '';
+      const canRequestProKick = isProRoom && hasRoomCapability('members.manage');
+      const canKick = !hostConn || canRequestProKick;
+      const memberCoordinatorConnection = hostConn && canRequestProKick ? hostConn : null;
+      if (
+        canKick &&
+        peerId &&
+        peerId !== getState('network.myId') &&
+        !p.isHost &&
+        p.status === 'connected'
+      ) {
         const actions = document.createElement('div');
         actions.className = 'd-actions';
 
-        const opBtn = document.createElement('button');
-        opBtn.className = `d-op-btn ${p.isOp ? 'active' : ''}`;
-        opBtn.dataset.opPeer = String(p.id || '');
-        opBtn.textContent = p.isOp ? t('common.revoke') : t('common.grant');
-        opBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          const peerId = opBtn.dataset.opPeer;
-          if (peerId) bus.emit('network:toggle-operator', peerId);
-        });
-        actions.appendChild(opBtn);
+        // PRO participants derive their controller authority from the room
+        // capability snapshot. The legacy ADMIN toggle must not suggest that
+        // this authority can be granted or revoked peer-to-peer.
+        if (!isProRoom) {
+          const opBtn = document.createElement('button');
+          opBtn.className = `d-op-btn ${p.isOp ? 'active' : ''}`;
+          opBtn.dataset.opPeer = String(p.id || '');
+          opBtn.textContent = p.isOp ? t('common.revoke') : t('common.grant');
+          opBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const peerId = opBtn.dataset.opPeer;
+            if (peerId) bus.emit('network:toggle-operator', peerId);
+          });
+          actions.appendChild(opBtn);
+        }
 
         const kickBtn = document.createElement('button');
         kickBtn.type = 'button';
@@ -444,6 +560,29 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
             secondaryText: t('connect.kick_no'),
           });
           if (result.action !== 'ok') return;
+          if (memberCoordinatorConnection) {
+            const coordinatorConnection = getState('network.hostConn');
+            // Fail closed if authority changed while the confirmation dialog
+            // was open. The coordinator independently re-authorizes this
+            // exact live connection and target before acting.
+            if (
+              coordinatorConnection !== memberCoordinatorConnection ||
+              !_isProRoom() ||
+              !hasRoomCapability('members.manage') ||
+              !memberCoordinatorConnection.open
+            ) {
+              return;
+            }
+            try {
+              memberCoordinatorConnection.send({
+                type: MSG.REQUEST_KICK_DEVICE,
+                targetPeerId: peerId,
+              });
+            } catch {
+              /* the next device-list refresh reconciles a closed channel */
+            }
+            return;
+          }
           bus.emit('network:kick-device', peerId);
         });
         actions.appendChild(kickBtn);
@@ -531,6 +670,11 @@ export function initConnect(): void {
   _busScope.on('state:network.appRole', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
+  });
+  _busScope.on('state:room.context', () => {
+    syncRoomPasswordControls();
+    syncHostOwnedConnectSections();
+    if (_lastDeviceList.length > 0) renderConnectDeviceList(_lastDeviceList);
   });
 
   // Leave Session buttons (mobile + desktop)

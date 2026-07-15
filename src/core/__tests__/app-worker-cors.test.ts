@@ -965,6 +965,115 @@ describe('Cloudflare app worker YouTube search proxy', () => {
   });
 });
 
+describe('Cloudflare app worker YouTube playlist entry proxy', () => {
+  const playlistRequest = (playlistId = 'PL_VALID_01', ip = '203.0.113.81') =>
+    new Request(
+      `https://musixquare.com/api/youtube-playlist-entry?playlistId=${encodeURIComponent(playlistId)}`,
+      {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': ip,
+        },
+      },
+    );
+
+  it('returns the first concrete public entry with an exact, minimal response shape', async () => {
+    const upstreamFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(`${url.origin}${url.pathname}`).toBe(
+        'https://www.googleapis.com/youtube/v3/playlistItems',
+      );
+      expect(url.searchParams.get('playlistId')).toBe('PL_VALID_01');
+      expect(url.searchParams.get('maxResults')).toBe('50');
+      return Response.json({
+        items: [
+          {
+            contentDetails: { videoId: 'PRIVATE0001' },
+            snippet: { title: 'Private video' },
+            status: { privacyStatus: 'private' },
+          },
+          {
+            contentDetails: { videoId: 'DELETED0001' },
+            snippet: { title: 'Deleted video' },
+            status: { privacyStatus: 'public' },
+          },
+          {
+            contentDetails: { videoId: 'PLAYABLE001' },
+            snippet: { title: 'First &amp; Playable' },
+            status: { privacyStatus: 'public' },
+          },
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await appWorker.fetch(playlistRequest(), {
+      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+      YOUTUBE_API_KEY: 'test-key',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      playlistId: 'PL_VALID_01',
+      videoId: 'PLAYABLE001',
+      title: 'First & Playable',
+    });
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed without capability configuration and rejects malformed IDs', async () => {
+    const guarded = await appWorker.fetch(playlistRequest(), { YOUTUBE_API_KEY: 'test-key' });
+    expect(guarded.status).toBe(503);
+    expect(await guarded.json()).toEqual({ error: 'CAPABILITY_NOT_CONFIGURED' });
+
+    const malformed = await appWorker.fetch(playlistRequest('bad/id'), {
+      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+      YOUTUBE_API_KEY: 'test-key',
+    });
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: 'INVALID_YOUTUBE_PLAYLIST_ID' });
+  });
+
+  it('applies an independent twenty-request per-minute guard', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn(async (request: Request) => {
+          const value = store.get(request.url);
+          return value === undefined ? undefined : new Response(value);
+        }),
+        put: vi.fn(async (request: Request, response: Response) => {
+          store.set(request.url, await response.text());
+        }),
+      },
+    });
+    const upstreamFetch = vi.fn(async () =>
+      Response.json({
+        items: [
+          {
+            contentDetails: { videoId: 'PLAYABLE001' },
+            snippet: { title: 'Playable' },
+            status: { privacyStatus: 'public' },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+    const env = {
+      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+      YOUTUBE_API_KEY: 'test-key',
+    };
+
+    for (let index = 0; index < 20; index += 1) {
+      expect((await appWorker.fetch(playlistRequest(), env)).status).toBe(200);
+    }
+    const limited = await appWorker.fetch(playlistRequest(), env);
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBe('60');
+    expect(upstreamFetch).toHaveBeenCalledTimes(20);
+  });
+});
+
 describe('Cloudflare app worker admin dashboard', () => {
   function createMetricsDb(rows: Array<{ bucket_minute: number; event: string; count: number }>) {
     return {

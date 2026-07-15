@@ -1,14 +1,9 @@
 import type { ProRoomSnapshot } from './contracts.ts';
 import { parseProRoomSnapshot } from './snapshot.ts';
 
-export type ProRoomSnapshotApplyOutcome =
-  | 'applied'
-  | 'duplicate'
-  | 'stale'
-  | 'conflict'
-  | 'invalid';
+type ProRoomSnapshotApplyOutcome = 'applied' | 'duplicate' | 'stale' | 'conflict' | 'invalid';
 
-export interface ProRoomSnapshotApplyResult {
+interface ProRoomSnapshotApplyResult {
   outcome: ProRoomSnapshotApplyOutcome;
   snapshot: ProRoomSnapshot | null;
 }

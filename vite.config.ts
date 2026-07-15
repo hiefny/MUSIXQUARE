@@ -152,6 +152,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      '/api/youtube-playlist-entry': {
+        target: 'https://musixquare.com',
+        changeOrigin: true,
+        secure: true,
+      },
     },
   },
   worker: {

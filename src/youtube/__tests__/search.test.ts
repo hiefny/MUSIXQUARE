@@ -11,6 +11,7 @@ import {
   getSelectedYouTubeSearchResult,
   getYouTubeInputIntent,
   isYouTubeLiveUrl,
+  resolveYouTubePlaylistEntry,
   searchYouTubeFromInput,
 } from '../search.ts';
 import { fetchOEmbedTitle } from '../oembed.ts';
@@ -210,6 +211,61 @@ describe('YouTube search result normalization', () => {
       thumbnailUrl: 'https://i.ytimg.com/vi/BBBBBBBBBBB/mqdefault.jpg',
       url: 'https://www.youtube.com/watch?v=BBBBBBBBBBB&t=10s',
     });
+  });
+});
+
+describe('YouTube playlist entry resolution', () => {
+  it('rejects invalid playlist IDs before making a request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resolveYouTubePlaylistEntry('bad/id')).rejects.toThrow(
+      'Invalid YouTube playlist ID',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts only a matching, concrete playlist entry from the protected proxy', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/security-config')) {
+        return Response.json({ capabilityRequired: false });
+      }
+      expect(url).toContain('/api/youtube-playlist-entry?playlistId=PL_VALID_01');
+      return Response.json({
+        playlistId: 'PL_VALID_01',
+        videoId: 'AAAAAAAAAAA',
+        title: 'First &amp; playable',
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resolveYouTubePlaylistEntry('PL_VALID_01')).resolves.toEqual({
+      playlistId: 'PL_VALID_01',
+      videoId: 'AAAAAAAAAAA',
+      title: 'First & playable',
+    });
+  });
+
+  it('rejects mismatched or expanded response shapes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        return Response.json({
+          playlistId: 'PL_OTHER',
+          videoId: 'AAAAAAAAAAA',
+          title: 'First',
+          unexpected: true,
+        });
+      }),
+    );
+
+    await expect(resolveYouTubePlaylistEntry('PL_EXPECTED')).rejects.toThrow(
+      'Invalid YouTube playlist resolution response',
+    );
   });
 });
 

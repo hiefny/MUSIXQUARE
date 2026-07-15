@@ -21,6 +21,8 @@ function snapshot(): ProRoomSnapshot {
       state: 'idle',
       queueItemId: null,
       positionSeconds: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
       updatedAtMs: 1,
     },
     presence: {
@@ -45,6 +47,7 @@ function snapshot(): ProRoomSnapshot {
     viewer: {
       memberId: 'member_0000000001',
       participantId: PARTICIPANT_ID,
+      presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
       role: 'owner',
       capabilities: [

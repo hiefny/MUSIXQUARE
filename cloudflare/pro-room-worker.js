@@ -22,9 +22,22 @@ const STORAGE_KEY = 'pro-room:v1';
 const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYLIST_MAX_ITEMS = 1000;
-const PRESENCE_MAX_ITEMS = 256;
-const REQUEST_MAX_BYTES = 4 * 1024 * 1024;
+// One coordinator plus the same 32-member ceiling enforced by signaling.
+const PRESENCE_MAX_ITEMS = 33;
+const SESSION_MAX_ITEMS = 128;
+const ASSET_MAX_ITEMS = 1024;
+const RESERVED_ASSET_MAX_ITEMS = 32;
+const RESERVED_ASSET_MAX_ITEMS_PER_PARTICIPANT = 8;
+const IDEMPOTENCY_MAX_ITEMS = 256;
+const RATE_LIMIT_MAX_ITEMS = 512;
+const RECOVERY_NONCE_MAX_ITEMS = 128;
+const STAGING_TOMBSTONE_MAX_ITEMS = ASSET_MAX_ITEMS;
+// Durable Object KV rejects a single key + value above 2 MiB. Keep enough
+// headroom for storage encoding overhead and future schema additions.
+const STATE_MAX_BYTES = 1200 * 1024;
+const REQUEST_MAX_BYTES = 1500 * 1024;
 const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
+const UNLOAD_CLOSE_REQUEST_MAX_BYTES = 4 * 1024;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const PRESENCE_TTL_SECONDS = 45;
 const RESERVATION_TTL_SECONDS = 15 * 60;
@@ -40,20 +53,23 @@ const PBKDF2_ITERATIONS = 210_000;
 const MAX_DISPLAY_NAME_LENGTH = 64;
 const MAX_MEDIA_NAME_LENGTH = 2048;
 const MAX_TEXT_LENGTH = 2048;
-const SESSION_COOKIE = '__Host-mxqr_pro_session';
-const OWNER_COOKIE = '__Host-mxqr_pro_owner';
+const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
+const PLAYBACK_CLOCK_SKEW_MS = 60_000;
+const RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 
-const OWNER_CAPABILITIES = [
+const CONTROLLER_CAPABILITIES = [
   'queue.mutate',
   'playback.control',
   'effects.control',
   'asset.upload',
   'coordinator.eligible',
   'members.manage',
+];
+const OWNER_CAPABILITIES = [
+  ...CONTROLLER_CAPABILITIES,
   'room.configure',
 ];
-const CONTROLLER_CAPABILITIES = OWNER_CAPABILITIES.slice(0, 5);
 
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
@@ -62,6 +78,8 @@ const DEFAULT_ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:3000',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
 ]);
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -106,7 +124,8 @@ function corsHeaders(origin) {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'access-control-allow-headers': 'content-type,idempotency-key,authorization',
+    'access-control-allow-headers':
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -301,6 +320,57 @@ async function verifyActivationClaim(token, roomCode, secret, nowMs) {
   );
 }
 
+export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options = {}) {
+  if (!ROOM_CODES.has(roomCode)) throw new Error('Unsupported PRO room code');
+  if (typeof secret !== 'string' || secret.length < 32)
+    throw new Error('Activation secret too short');
+  const nowMs = options.nowMs ?? Date.now();
+  const expiresAtMs = options.expiresAtMs ?? nowMs + 10 * 60 * 1000;
+  if (
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= nowMs ||
+    expiresAtMs - nowMs > RECOVERY_CLAIM_MAX_LIFETIME_MS
+  ) {
+    throw new Error('Invalid expiry');
+  }
+  const nonce = options.nonce ?? randomToken(18);
+  if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
+    throw new Error('Invalid nonce');
+  }
+  return createSignedToken(
+    {
+      v: 1,
+      purpose: 'pro-room-owner-recovery',
+      roomCode,
+      iat: nowMs,
+      exp: expiresAtMs,
+      nonce,
+    },
+    secret,
+  );
+}
+
+async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
+  if (typeof secret !== 'string' || secret.length < 32) return null;
+  const payload = await verifySignedToken(token, secret);
+  if (
+    !payload ||
+    payload.v !== 1 ||
+    payload.purpose !== 'pro-room-owner-recovery' ||
+    payload.roomCode !== roomCode ||
+    !Number.isSafeInteger(payload.iat) ||
+    payload.iat > nowMs + 60_000 ||
+    !Number.isSafeInteger(payload.exp) ||
+    payload.exp <= nowMs ||
+    payload.exp - payload.iat > RECOVERY_CLAIM_MAX_LIFETIME_MS ||
+    typeof payload.nonce !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
+  ) {
+    return null;
+  }
+  return payload;
+}
+
 async function derivePinHash(pin, salt, pepper, iterations = PBKDF2_ITERATIONS) {
   const material = await crypto.subtle.importKey(
     'raw',
@@ -331,9 +401,12 @@ async function verifyPin(pin, record, pepper) {
   return constantTimeEqual(actual, record.hash);
 }
 
-async function readJsonBody(request, maxBytes) {
+async function readJsonBody(request, maxBytes, allowSimpleText = false) {
   const contentType = request.headers.get('content-type') || '';
-  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) return { error: 'INVALID_REQUEST' };
+  const acceptedContentType = allowSimpleText
+    ? /^text\/plain(?:\s*;|$)/i.test(contentType)
+    : /^application\/json(?:\s*;|$)/i.test(contentType);
+  if (!acceptedContentType) return { error: 'INVALID_REQUEST' };
   const declared = request.headers.get('content-length');
   if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
     return { error: 'REQUEST_TOO_LARGE', status: 413 };
@@ -382,26 +455,30 @@ function cookieValue(request, name) {
   return '';
 }
 
-function requestSessionToken(request) {
+function sessionCookieName(roomCode) {
+  return `__Host-mxqr_pro_session_${roomCode}`;
+}
+
+function ownerCookieName(roomCode) {
+  return `__Host-mxqr_pro_owner_${roomCode}`;
+}
+
+function requestSessionToken(request, roomCode) {
   const authorization = request.headers.get('authorization') || '';
   const bearer = authorization.match(/^Bearer\s+([^\s]+)$/i);
-  return bearer ? bearer[1] : cookieValue(request, SESSION_COOKIE);
+  return bearer ? bearer[1] : cookieValue(request, sessionCookieName(roomCode));
 }
 
-function requestOwnerToken(request) {
-  return cookieValue(request, OWNER_COOKIE);
+function requestOwnerToken(request, roomCode) {
+  return cookieValue(request, ownerCookieName(roomCode));
 }
 
-function sessionCookie(token, maxAgeSeconds) {
-  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Strict`;
+function sessionCookie(roomCode, token, maxAgeSeconds) {
+  return `${sessionCookieName(roomCode)}=${token}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Strict`;
 }
 
-function ownerCookie(token) {
-  return `${OWNER_COOKIE}=${token}; Path=/; Max-Age=${OWNER_COOKIE_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Strict`;
-}
-
-function clearSessionCookie() {
-  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`;
+function ownerCookie(roomCode, token) {
+  return `${ownerCookieName(roomCode)}=${token}; Path=/; Max-Age=${OWNER_COOKIE_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Strict`;
 }
 
 function initialRoomState(roomCode) {
@@ -421,6 +498,8 @@ function initialRoomState(roomCode) {
       queueItemId: null,
       positionSeconds: 0,
       updatedAtMs: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
     },
     presence: {
       coordinatorEpoch: 0,
@@ -442,6 +521,8 @@ function initialRoomState(roomCode) {
     assets: {},
     idempotency: {},
     rateLimits: {},
+    consumedRecoveryNonces: {},
+    stagingTombstones: {},
   };
 }
 
@@ -473,6 +554,8 @@ function publicSnapshot(room, session = null) {
     ? {
         memberId: session.memberId,
         participantId: session.participantId,
+        presenceIncarnationId:
+          participant?.presenceIncarnationId || session.presenceIncarnationId,
         displayName: session.displayName,
         role: session.role,
         capabilities:
@@ -585,7 +668,18 @@ function parsePlaylist(value) {
   return result;
 }
 
-function parsePlayback(value, queueIds, currentQueueItemId, coordinatorEpoch) {
+function playbackSemanticallyEqual(left, right) {
+  return (
+    left.coordinatorEpoch === right.coordinatorEpoch &&
+    left.state === right.state &&
+    left.queueItemId === right.queueItemId &&
+    left.positionSeconds === right.positionSeconds &&
+    left.youtubeVideoId === right.youtubeVideoId &&
+    left.youtubeSubIndex === right.youtubeSubIndex
+  );
+}
+
+function parsePlaybackCandidate(value, playlistById, currentQueueItemId, coordinatorEpoch) {
   if (
     !hasExactKeys(value, [
       'coordinatorEpoch',
@@ -594,30 +688,74 @@ function parsePlayback(value, queueIds, currentQueueItemId, coordinatorEpoch) {
       'queueItemId',
       'positionSeconds',
       'updatedAtMs',
+      'youtubeVideoId',
+      'youtubeSubIndex',
     ]) ||
     value.coordinatorEpoch !== coordinatorEpoch ||
     !isSafeNonNegativeInteger(value.revision) ||
     typeof value.positionSeconds !== 'number' ||
     !Number.isFinite(value.positionSeconds) ||
     value.positionSeconds < 0 ||
+    value.positionSeconds > PLAYBACK_MAX_POSITION_SECONDS ||
     !isSafeNonNegativeInteger(value.updatedAtMs)
   ) {
     return null;
   }
   if (value.state === 'idle') {
-    if (value.queueItemId !== null || currentQueueItemId !== null || value.positionSeconds !== 0)
+    if (
+      value.queueItemId !== null ||
+      currentQueueItemId !== null ||
+      value.positionSeconds !== 0 ||
+      value.youtubeVideoId !== null ||
+      value.youtubeSubIndex !== null
+    )
       return null;
   } else {
+    const currentItem = playlistById.get(value.queueItemId);
     if (
       (value.state !== 'playing' && value.state !== 'paused') ||
       !QUEUE_ITEM_ID_RE.test(value.queueItemId) ||
       value.queueItemId !== currentQueueItemId ||
-      !queueIds.has(value.queueItemId)
+      !currentItem
     ) {
+      return null;
+    }
+    if (currentItem.source.kind === 'youtube') {
+      if (
+        !YOUTUBE_VIDEO_ID_RE.test(value.youtubeVideoId) ||
+        !isSafeNonNegativeInteger(value.youtubeSubIndex) ||
+        value.youtubeSubIndex > 100_000
+      ) {
+        return null;
+      }
+    } else if (value.youtubeVideoId !== null || value.youtubeSubIndex !== null) {
       return null;
     }
   }
   return structuredClone(value);
+}
+
+function parsePlayback(
+  value,
+  playlistById,
+  currentQueueItemId,
+  coordinatorEpoch,
+  currentPlayback,
+  nowMs,
+) {
+  const parsed = parsePlaybackCandidate(value, playlistById, currentQueueItemId, coordinatorEpoch);
+  if (!parsed) return null;
+  const unchanged = playbackSemanticallyEqual(parsed, currentPlayback);
+  const expectedRevision = currentPlayback.revision + (unchanged ? 0 : 1);
+  if (!Number.isSafeInteger(expectedRevision) || parsed.revision !== expectedRevision) return null;
+  if (unchanged) return structuredClone(currentPlayback);
+  if (Math.abs(parsed.updatedAtMs - nowMs) > PLAYBACK_CLOCK_SKEW_MS) return null;
+  parsed.revision = expectedRevision;
+  // Persist a server clock checkpoint after accepting a reasonably fresh
+  // client observation. This prevents a forged far-future timestamp from
+  // accelerating a sleeping room's resume position.
+  parsed.updatedAtMs = nowMs;
+  return parsed;
 }
 
 function hex(bytes) {
@@ -713,6 +851,34 @@ async function createR2PresignedUrl({
   return `https://${host}${canonicalUri}?${query}&X-Amz-Signature=${signature}`;
 }
 
+class RoomStateCapacityError extends Error {
+  constructor() {
+    super('PRO room state exceeds its bounded storage budget');
+    this.name = 'RoomStateCapacityError';
+  }
+}
+
+function serializedStateByteLength(room) {
+  return encoder.encode(JSON.stringify(room)).byteLength;
+}
+
+function assertBoundedRoomState(room) {
+  if (
+    Object.keys(room.presence.participants).length > PRESENCE_MAX_ITEMS ||
+    Object.keys(room.sessions).length > SESSION_MAX_ITEMS ||
+    Object.keys(room.assets).length > ASSET_MAX_ITEMS ||
+    Object.keys(room.assets).length + Object.keys(room.stagingTombstones || {}).length >
+      ASSET_MAX_ITEMS ||
+    Object.keys(room.idempotency).length > IDEMPOTENCY_MAX_ITEMS ||
+    Object.keys(room.rateLimits).length > RATE_LIMIT_MAX_ITEMS ||
+    Object.keys(room.consumedRecoveryNonces || {}).length > RECOVERY_NONCE_MAX_ITEMS ||
+    Object.keys(room.stagingTombstones || {}).length > STAGING_TOMBSTONE_MAX_ITEMS ||
+    serializedStateByteLength(room) > STATE_MAX_BYTES
+  ) {
+    throw new RoomStateCapacityError();
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -781,6 +947,17 @@ export class MusixquareProRoom {
       '';
     if (!ROOM_CODES.has(roomCode)) return false;
     if (!this.room) this.room = initialRoomState(roomCode);
+    if (!this.room.consumedRecoveryNonces) this.room.consumedRecoveryNonces = {};
+    if (!this.room.stagingTombstones) this.room.stagingTombstones = {};
+    if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
+      this.room.playback.youtubeVideoId = null;
+      this.room.playback.youtubeSubIndex = null;
+    }
+    for (const session of Object.values(this.room.sessions)) {
+      if (!Number.isSafeInteger(session.signalingTicketSequence)) {
+        session.signalingTicketSequence = 0;
+      }
+    }
     return this.room.roomCode === roomCode;
   }
 
@@ -798,7 +975,21 @@ export class MusixquareProRoom {
     }
   }
 
+  async withStateCapacityRollback(callback) {
+    const rollbackRoom = structuredClone(this.room);
+    try {
+      return await callback();
+    } catch (error) {
+      if (!(error instanceof RoomStateCapacityError)) throw error;
+      this.room = rollbackRoom;
+      await this.storage.put(STORAGE_KEY, this.room);
+      await this.scheduleAlarm();
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    }
+  }
+
   async persist() {
+    assertBoundedRoomState(this.room);
     await this.storage.put(STORAGE_KEY, this.room);
     await this.scheduleAlarm();
   }
@@ -812,9 +1003,18 @@ export class MusixquareProRoom {
     }
     for (const asset of Object.values(this.room.assets)) {
       if (asset.status === 'reserved') candidates.push(asset.expiresAtMs);
+      if (Number.isSafeInteger(asset.stagingCleanupAfterMs)) {
+        candidates.push(asset.stagingCleanupAfterMs);
+      }
       if (asset.status === 'ready' && Number.isSafeInteger(asset.gcAfterMs)) {
         candidates.push(asset.gcAfterMs);
       }
+    }
+    for (const expiresAtMs of Object.values(this.room.consumedRecoveryNonces || {})) {
+      candidates.push(expiresAtMs);
+    }
+    for (const tombstone of Object.values(this.room.stagingTombstones || {})) {
+      candidates.push(tombstone.cleanupAfterMs);
     }
     const next = candidates
       .filter((value) => Number.isSafeInteger(value) && value > Date.now())
@@ -873,6 +1073,20 @@ export class MusixquareProRoom {
     return changed;
   }
 
+  retainStagingTombstone(asset, nowMs = Date.now()) {
+    if (!asset.stagingObjectKey || !Number.isSafeInteger(asset.uploadExpiresAtMs)) return;
+    const cleanupAfterMs = Math.max(
+      asset.uploadExpiresAtMs + 5_000,
+      Number.isSafeInteger(asset.stagingCleanupAfterMs)
+        ? asset.stagingCleanupAfterMs
+        : nowMs + 5_000,
+    );
+    this.room.stagingTombstones[asset.assetId] = {
+      objectKey: asset.stagingObjectKey,
+      cleanupAfterMs,
+    };
+  }
+
   async fetch(request) {
     if (!(await this.ensureReady(request))) return errorResponse('ROOM_NOT_FOUND', 404);
     const url = new URL(request.url);
@@ -883,39 +1097,49 @@ export class MusixquareProRoom {
     }
     return this.withMutation(async () => {
       await this.prune(Date.now());
-      if (request.method === 'POST' && url.pathname === `${prefix}/activation`)
-        return this.handleActivation(request);
-      if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
-        return this.handleCreateSession(request);
-      if (request.method === 'GET' && url.pathname === `${prefix}/snapshot`)
-        return this.handleGetSnapshot(request);
-      if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
-        return this.handleCloseSession(request);
-      if (request.method === 'POST' && url.pathname === `${prefix}/pin`)
-        return this.handleChangePin(request);
-      if (request.method === 'POST' && url.pathname === `${prefix}/presence/heartbeat`)
-        return this.handleHeartbeat(request);
-      if (request.method === 'DELETE' && url.pathname === `${prefix}/presence/current`)
-        return this.handleLeavePresence(request);
-      if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
-        return this.handleSignalingTicket(request);
-      if (request.method === 'PUT' && url.pathname === `${prefix}/snapshot`)
-        return this.handleUpdateSnapshot(request);
-      if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
-        return this.handleCreateReservation(request);
-      const complete = url.pathname.match(
-        new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/complete$`),
-      );
-      if (request.method === 'POST' && complete)
-        return this.handleCompleteMedia(request, complete[1]);
-      const download = url.pathname.match(
-        new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/download$`),
-      );
-      if (request.method === 'GET' && download)
-        return this.handleDownloadMedia(request, download[1]);
-      const media = url.pathname.match(new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`));
-      if (request.method === 'DELETE' && media) return this.handleDeleteMedia(request, media[1]);
-      return errorResponse('NOT_FOUND', 404);
+      return this.withStateCapacityRollback(async () => {
+        if (request.method === 'POST' && url.pathname === `${prefix}/activation`)
+          return this.handleActivation(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/owner-recovery`)
+          return this.handleOwnerRecovery(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
+          return this.handleCreateSession(request);
+        if (request.method === 'GET' && url.pathname === `${prefix}/snapshot`)
+          return this.handleGetSnapshot(request);
+        if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
+          return this.handleCloseSession(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/close`)
+          return this.handleCloseSessionFenced(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/pin`)
+          return this.handleChangePin(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/presence/heartbeat`)
+          return this.handleHeartbeat(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/presence/enter`)
+          return this.handleEnterPresence(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/presence/close`)
+          return this.handleClosePresence(request);
+        if (request.method === 'DELETE' && url.pathname === `${prefix}/presence/current`)
+          return this.handleLeavePresence(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
+          return this.handleSignalingTicket(request);
+        if (request.method === 'PUT' && url.pathname === `${prefix}/snapshot`)
+          return this.handleUpdateSnapshot(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
+          return this.handleCreateReservation(request);
+        const complete = url.pathname.match(
+          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/complete$`),
+        );
+        if (request.method === 'POST' && complete)
+          return this.handleCompleteMedia(request, complete[1]);
+        const download = url.pathname.match(
+          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/download$`),
+        );
+        if (request.method === 'GET' && download)
+          return this.handleDownloadMedia(request, download[1]);
+        const media = url.pathname.match(new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`));
+        if (request.method === 'DELETE' && media) return this.handleDeleteMedia(request, media[1]);
+        return errorResponse('NOT_FOUND', 404);
+      });
     });
   }
 
@@ -929,41 +1153,80 @@ export class MusixquareProRoom {
     return jsonResponse({ roomCode: this.room.roomCode, status });
   }
 
-  async parseBody(request, maxBytes = SMALL_REQUEST_MAX_BYTES) {
-    const parsed = await readJsonBody(request, maxBytes);
+  async parseBody(request, maxBytes = SMALL_REQUEST_MAX_BYTES, allowSimpleText = false) {
+    const parsed = await readJsonBody(request, maxBytes, allowSimpleText);
     return parsed.error
       ? { response: errorResponse(parsed.error, parsed.status || 400) }
       : { value: parsed.value };
   }
 
-  async applyRateLimit(request, kind, limit, windowMs) {
+  rateLimitKey(request, kind) {
     const ipHash = request.headers.get('x-mxqr-pro-ip-hash') || 'internal-test';
-    const now = Date.now();
-    const key = `${kind}:${ipHash}`;
+    return `${kind}:${ipHash}`;
+  }
+
+  readRateLimit(request, kind, limit, now = Date.now()) {
+    const key = this.rateLimitKey(request, kind);
     const current = this.room.rateLimits[key];
-    if (!current || current.resetAtMs <= now) {
-      this.room.rateLimits[key] = { count: 1, resetAtMs: now + windowMs };
-      await this.storage.put(STORAGE_KEY, this.room);
-      return null;
-    }
-    if (current.count >= limit) {
+    if (current && current.resetAtMs > now && current.count >= limit) {
       const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAtMs - now) / 1000));
       return errorResponse('RATE_LIMITED', 429, { 'retry-after': String(retryAfterSeconds) });
     }
+    return null;
+  }
+
+  recordRateLimitHit(request, kind, windowMs, now = Date.now()) {
+    const key = this.rateLimitKey(request, kind);
+    const current = this.room.rateLimits[key];
+    if (!current || current.resetAtMs <= now) {
+      if (!current && Object.keys(this.room.rateLimits).length >= RATE_LIMIT_MAX_ITEMS) {
+        const oldest = Object.entries(this.room.rateLimits).sort(
+          ([, left], [, right]) => left.resetAtMs - right.resetAtMs,
+        )[0]?.[0];
+        if (oldest) delete this.room.rateLimits[oldest];
+      }
+      this.room.rateLimits[key] = { count: 1, resetAtMs: now + windowMs };
+      return;
+    }
     current.count += 1;
-    await this.storage.put(STORAGE_KEY, this.room);
+  }
+
+  async applyRateLimit(request, kind, limit, windowMs) {
+    const rateError = this.readRateLimit(request, kind, limit);
+    if (rateError) return rateError;
+    this.recordRateLimitHit(request, kind, windowMs);
+    await this.persist();
     return null;
   }
 
   async createSessionRecord(role, displayName, nowMs, memberId = null) {
     const secret = String(this.env.PRO_ROOM_SESSION_SECRET || '');
     if (secret.length < 32) return null;
+    const sessions = Object.entries(this.room.sessions);
+    if (sessions.length >= SESSION_MAX_ITEMS) {
+      const presentSessionHashes = new Set(
+        Object.values(this.room.presence.participants).map(
+          (participant) => participant.sessionHash,
+        ),
+      );
+      const evictable = sessions
+        .filter(([tokenHash]) => !presentSessionHashes.has(tokenHash))
+        .sort(
+          ([, left], [, right]) =>
+            Number(left.role === 'owner') - Number(right.role === 'owner') ||
+            left.createdAtMs - right.createdAtMs,
+        )[0];
+      if (!evictable) return null;
+      delete this.room.sessions[evictable[0]];
+    }
     const token = await createOpaqueCredential(secret);
     const tokenHash = await sha256Base64Url(token);
     const session = {
       memberId:
         memberId || (role === 'owner' ? `owner_${randomToken(18)}` : `member_${randomToken(18)}`),
       participantId: `participant_${randomToken(18)}`,
+      presenceIncarnationId: null,
+      signalingTicketSequence: 0,
       displayName,
       role,
       authEpoch: this.room.authEpoch,
@@ -982,7 +1245,7 @@ export class MusixquareProRoom {
   }
 
   async hasOwnerCredential(request) {
-    const token = requestOwnerToken(request);
+    const token = requestOwnerToken(request, this.room.roomCode);
     const secret = String(this.env.PRO_ROOM_SESSION_SECRET || '');
     if (!(await verifyOpaqueCredential(token, secret))) return false;
     const hash = await sha256Base64Url(token);
@@ -990,7 +1253,7 @@ export class MusixquareProRoom {
   }
 
   async authenticate(request) {
-    const token = requestSessionToken(request);
+    const token = requestSessionToken(request, this.room.roomCode);
     const secret = String(this.env.PRO_ROOM_SESSION_SECRET || '');
     if (!token || secret.length < 32) return null;
     if (!(await verifyOpaqueCredential(token, secret))) return null;
@@ -1013,6 +1276,25 @@ export class MusixquareProRoom {
     if (this.room.status === 'suspended') return { response: errorResponse('ROOM_SUSPENDED', 423) };
     if (options.owner && auth.session.role !== 'owner')
       return { response: errorResponse('OWNER_REQUIRED', 403) };
+    if (options.activePresence) {
+      const expectedParticipantId = request.headers.get('x-mxqr-pro-participant-id') || '';
+      const expectedPresenceIncarnationId =
+        request.headers.get('x-mxqr-pro-presence-incarnation') || '';
+      const participant = this.room.presence.participants[auth.session.participantId];
+      if (
+        !OPAQUE_ID_RE.test(expectedParticipantId) ||
+        !OPAQUE_ID_RE.test(expectedPresenceIncarnationId) ||
+        auth.session.participantId !== expectedParticipantId ||
+        auth.session.presenceIncarnationId !== expectedPresenceIncarnationId ||
+        !participant ||
+        participant.sessionHash !== auth.tokenHash ||
+        participant.participantId !== expectedParticipantId ||
+        participant.presenceIncarnationId !== expectedPresenceIncarnationId
+      ) {
+        return { response: errorResponse('PRESENCE_SUPERSEDED', 409) };
+      }
+      auth.participant = participant;
+    }
     return auth;
   }
 
@@ -1020,12 +1302,16 @@ export class MusixquareProRoom {
     const existing = this.room.presence.participants[session.participantId];
     if (existing) {
       existing.lastSeenAtMs = nowMs;
+      session.presenceIncarnationId = existing.presenceIncarnationId;
       return false;
     }
     if (Object.keys(this.room.presence.participants).length >= PRESENCE_MAX_ITEMS) return null;
     const wasSleeping = this.room.runtime === 'sleeping';
+    const presenceIncarnationId = `presence_${randomToken(18)}`;
+    session.presenceIncarnationId = presenceIncarnationId;
     this.room.presence.participants[session.participantId] = {
       participantId: session.participantId,
+      presenceIncarnationId,
       memberId: session.memberId,
       sessionHash: tokenHash,
       displayName: session.displayName,
@@ -1041,6 +1327,33 @@ export class MusixquareProRoom {
     }
     this.room.revision += 1;
     return true;
+  }
+
+  enterPresence(session, tokenHash, nowMs) {
+    const existing = this.room.presence.participants[session.participantId];
+    if (!existing) {
+      return this.joinPresence(session, tokenHash, nowMs) === null ? 'room-full' : 'entered';
+    }
+    if (existing.sessionHash !== tokenHash) return 'identity-mismatch';
+
+    // A resumed tab is a new presence incarnation even though its long-lived
+    // HttpOnly session and participant identity are intentionally reused.
+    // Rotating this nonce fences every active request captured by the prior
+    // tab. A coordinator re-entry also advances the epoch exactly once: the
+    // signaling Worker then closes every prior-epoch socket so legacy RTC data
+    // channels cannot survive as a split-brain control plane. Member re-entry
+    // deliberately leaves the room-wide epoch untouched.
+    const presenceIncarnationId = `presence_${randomToken(18)}`;
+    session.presenceIncarnationId = presenceIncarnationId;
+    existing.presenceIncarnationId = presenceIncarnationId;
+    existing.joinedAtMs = nowMs;
+    existing.lastSeenAtMs = nowMs;
+    if (this.room.presence.coordinatorParticipantId === session.participantId) {
+      this.bumpCoordinatorEpoch(nowMs);
+    }
+    this.room.presence.revision += 1;
+    this.room.revision += 1;
+    return 'entered';
   }
 
   bumpCoordinatorEpoch(nowMs, waking = false) {
@@ -1133,16 +1446,77 @@ export class MusixquareProRoom {
     this.joinPresence(created.session, created.tokenHash, nowMs);
     await this.persist();
     const response = jsonResponse({ snapshot: publicSnapshot(this.room, created.session) }, 200, {
-      'set-cookie': sessionCookie(created.token, this.sessionTtlSeconds()),
+      'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
     });
-    response.headers.append('set-cookie', ownerCookie(ownerCredential.token));
+    response.headers.append('set-cookie', ownerCookie(this.room.roomCode, ownerCredential.token));
+    return response;
+  }
+
+  async handleOwnerRecovery(request) {
+    if (this.room.status !== 'active') return errorResponse('RECOVERY_UNAVAILABLE', 409);
+    const rateError = await this.applyRateLimit(request, 'owner-recovery', 10, 60 * 60 * 1000);
+    if (rateError) return rateError;
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    if (!hasExactKeys(parsed.value, ['claimToken'], ['displayName'])) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const displayName =
+      parsed.value.displayName === undefined
+        ? 'Owner'
+        : boundedString(parsed.value.displayName, MAX_DISPLAY_NAME_LENGTH);
+    if (!displayName) return errorResponse('INVALID_REQUEST', 400);
+    const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    if (
+      activationSecret.length < 32 ||
+      String(this.env.PRO_ROOM_SESSION_SECRET || '').length < 32
+    ) {
+      return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    }
+    const nowMs = Date.now();
+    const claim = await verifyOwnerRecoveryClaim(
+      parsed.value.claimToken,
+      this.room.roomCode,
+      activationSecret,
+      nowMs,
+    );
+    if (!claim) return errorResponse('RECOVERY_INVALID', 401);
+    const nonceHash = await sha256Base64Url(`owner-recovery:${claim.nonce}`);
+    if (this.room.consumedRecoveryNonces[nonceHash]) {
+      return errorResponse('RECOVERY_CLAIM_USED', 409);
+    }
+    if (Object.keys(this.room.consumedRecoveryNonces).length >= RECOVERY_NONCE_MAX_ITEMS) {
+      return errorResponse('RECOVERY_CAPACITY_EXCEEDED', 409);
+    }
+
+    for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
+      if (session.role !== 'owner') continue;
+      this.removePresence(session.participantId, nowMs);
+      delete this.room.sessions[tokenHash];
+    }
+    const ownerCredential = await this.createOwnerCredential();
+    const created = await this.createSessionRecord(
+      'owner',
+      displayName,
+      nowMs,
+      this.room.ownerMemberId,
+    );
+    if (!created || !ownerCredential) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    this.room.ownerCredentialHash = ownerCredential.hash;
+    this.room.consumedRecoveryNonces[nonceHash] = claim.exp;
+    this.joinPresence(created.session, created.tokenHash, nowMs);
+    await this.persist();
+    const response = jsonResponse({ snapshot: publicSnapshot(this.room, created.session) }, 200, {
+      'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
+    });
+    response.headers.append('set-cookie', ownerCookie(this.room.roomCode, ownerCredential.token));
     return response;
   }
 
   async handleCreateSession(request) {
     if (this.room.status === 'unactivated') return errorResponse('ACTIVATION_REQUIRED', 409);
     if (this.room.status === 'suspended') return errorResponse('ROOM_SUSPENDED', 423);
-    const rateError = await this.applyRateLimit(request, 'session', 30, 60 * 60 * 1000);
+    const rateError = this.readRateLimit(request, 'pin-failure', 10);
     if (rateError) return rateError;
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
@@ -1154,8 +1528,11 @@ export class MusixquareProRoom {
     if (pepper.length < 32 || String(this.env.PRO_ROOM_SESSION_SECRET || '').length < 32) {
       return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     }
-    if (!(await verifyPin(body.pin, this.room.pin, pepper)))
+    if (!(await verifyPin(body.pin, this.room.pin, pepper))) {
+      this.recordRateLimitHit(request, 'pin-failure', 60 * 60 * 1000);
+      await this.persist();
       return errorResponse('PIN_INVALID', 401);
+    }
     const nowMs = Date.now();
     const role = (await this.hasOwnerCredential(request)) ? 'owner' : 'controller';
     const created = await this.createSessionRecord(
@@ -1176,32 +1553,94 @@ export class MusixquareProRoom {
         session: { expiresAtMs: created.session.expiresAtMs },
       },
       200,
-      { 'set-cookie': sessionCookie(created.token, this.sessionTtlSeconds()) },
+      {
+        'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
+      },
     );
   }
 
   async handleGetSnapshot(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
+  }
+
+  async handleEnterPresence(request) {
     const auth = await this.requireSession(request);
     if (auth.response) return auth.response;
-    if (!this.room.presence.participants[auth.session.participantId]) {
-      const joined = this.joinPresence(auth.session, auth.tokenHash, Date.now());
-      if (joined === null) return errorResponse('ROOM_FULL', 409);
-      await this.persist();
+    if (request.body && (request.headers.get('content-length') || '') !== '0') {
+      return errorResponse('INVALID_REQUEST', 400);
     }
+    const entered = this.enterPresence(auth.session, auth.tokenHash, Date.now());
+    if (entered === 'room-full') return errorResponse('ROOM_FULL', 409);
+    if (entered === 'identity-mismatch') {
+      return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
+    }
+    await this.persist();
     return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
   }
 
   async handleCloseSession(request) {
-    const auth = await this.requireSession(request);
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     this.removePresence(auth.session.participantId, Date.now());
     delete this.room.sessions[auth.tokenHash];
     await this.persist();
-    return jsonResponse({ ok: true }, 200, { 'set-cookie': clearSessionCookie() });
+    // The browser token is inert once its exact server record is removed. Do
+    // not return a same-name cookie tombstone: a delayed response could arrive
+    // after a replacement tab has installed a new room cookie and erase it.
+    return jsonResponse({ ok: true });
+  }
+
+  async handleCloseSessionFenced(request) {
+    const auth = await this.requireSession(request);
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, UNLOAD_CLOSE_REQUEST_MAX_BYTES, true);
+    if (parsed.response) return parsed.response;
+    const body = parsed.value;
+    if (
+      !hasExactKeys(body, ['expectedParticipantId', 'expectedPresenceIncarnationId']) ||
+      typeof body.expectedParticipantId !== 'string' ||
+      !OPAQUE_ID_RE.test(body.expectedParticipantId) ||
+      typeof body.expectedPresenceIncarnationId !== 'string' ||
+      !OPAQUE_ID_RE.test(body.expectedPresenceIncarnationId)
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    if (
+      auth.session.participantId !== body.expectedParticipantId ||
+      auth.session.presenceIncarnationId !== body.expectedPresenceIncarnationId
+    ) {
+      return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
+    }
+    const participant = this.room.presence.participants[body.expectedParticipantId];
+    if (
+      participant &&
+      (participant.sessionHash !== auth.tokenHash ||
+        participant.presenceIncarnationId !== body.expectedPresenceIncarnationId)
+    ) {
+      return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
+    }
+
+    // The atomic presence close may already have removed the participant. The
+    // session deliberately retains its last incarnation so this second phase
+    // can still revoke exactly the server record represented by that cookie,
+    // while a newer explicit enter rotates the value and fences this request
+    // with a harmless 409.
+    this.removePresence(body.expectedParticipantId, Date.now());
+    delete this.room.sessions[auth.tokenHash];
+    await this.persist();
+    // Do not emit a cookie tombstone here. This response may arrive after a
+    // different tab has authenticated again and installed a newer cookie with
+    // the same room-scoped name; a delayed Max-Age=0 header would erase that
+    // replacement even though the server mutation was correctly fenced to the
+    // captured session/incarnation. The exact server-side session is already
+    // revoked above, so leaving its now-inert browser token is the safe choice.
+    return jsonResponse({ ok: true });
   }
 
   async handleChangePin(request) {
-    const auth = await this.requireSession(request, { owner: true });
+    const auth = await this.requireSession(request, { owner: true, activePresence: true });
     if (auth.response) return auth.response;
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
@@ -1215,30 +1654,40 @@ export class MusixquareProRoom {
     this.room.pin = nextPin;
     const ownerSession = auth.session;
     ownerSession.authEpoch = this.room.authEpoch;
-    for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
+    const nowMs = Date.now();
+    for (const tokenHash of Object.keys(this.room.sessions)) {
       if (tokenHash === auth.tokenHash) continue;
-      this.removePresence(session.participantId, Date.now());
       delete this.room.sessions[tokenHash];
     }
+    // Revoke every other participant atomically. Calling removePresence in a
+    // loop would briefly elect M1, then M2, then the owner and advance the
+    // security epoch for each transient coordinator. No such intermediate
+    // topology is externally valid during a PIN rotation.
+    const ownerParticipant = auth.participant;
+    ownerParticipant.lastSeenAtMs = nowMs;
+    this.room.presence.participants = {
+      [ownerSession.participantId]: ownerParticipant,
+    };
+    this.room.presence.coordinatorParticipantId = ownerSession.participantId;
+    this.room.presence.revision += 1;
+    this.room.runtime = 'awake';
+    this.bumpCoordinatorEpoch(nowMs);
     this.room.revision += 1;
     await this.persist();
     return jsonResponse({ ok: true });
   }
 
   async handleHeartbeat(request) {
-    const auth = await this.requireSession(request);
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     const nowMs = Date.now();
-    const participant = this.room.presence.participants[auth.session.participantId];
-    if (participant) participant.lastSeenAtMs = nowMs;
-    else if (this.joinPresence(auth.session, auth.tokenHash, nowMs) === null)
-      return errorResponse('ROOM_FULL', 409);
+    auth.participant.lastSeenAtMs = nowMs;
     await this.persist();
     return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
   }
 
   async handleLeavePresence(request) {
-    const auth = await this.requireSession(request);
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     // The v1 client contract requires an awake snapshot's viewer to remain in
     // its presence list. When other peers remain, return the last internally
@@ -1253,18 +1702,144 @@ export class MusixquareProRoom {
     });
   }
 
-  async handleSignalingTicket(request) {
+  async handleClosePresence(request) {
+    // Keep the cookie session alive so a later tab can resume without asking
+    // for the PIN. Only UI-driven explicit leave closes that session.
     const auth = await this.requireSession(request);
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, UNLOAD_CLOSE_REQUEST_MAX_BYTES, true);
+    if (parsed.response) return parsed.response;
+    const body = parsed.value;
+    if (
+      !hasExactKeys(body, [
+        'idempotencyKey',
+        'expectedParticipantId',
+        'expectedPresenceIncarnationId',
+        'baseRevision',
+        'currentQueueItemId',
+        'playback',
+      ]) ||
+      typeof body.idempotencyKey !== 'string' ||
+      !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey) ||
+      typeof body.expectedParticipantId !== 'string' ||
+      !OPAQUE_ID_RE.test(body.expectedParticipantId) ||
+      typeof body.expectedPresenceIncarnationId !== 'string' ||
+      !OPAQUE_ID_RE.test(body.expectedPresenceIncarnationId)
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    if (auth.session.participantId !== body.expectedParticipantId) {
+      return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
+    }
+
+    const key = body.idempotencyKey;
+    const mutation = {
+      expectedParticipantId: body.expectedParticipantId,
+      expectedPresenceIncarnationId: body.expectedPresenceIncarnationId,
+      baseRevision: body.baseRevision,
+      currentQueueItemId: body.currentQueueItemId,
+      playback: body.playback,
+    };
+    // Scope replay to the captured presence incarnation and exact cookie
+    // session. A processed old request may replay harmlessly after resume,
+    // while a never-processed old request cannot target the new incarnation.
+    const scope = `participant:${body.expectedParticipantId}:incarnation:${body.expectedPresenceIncarnationId}:session:${auth.tokenHash}:presence-close`;
+    const fingerprint = await this.idempotencyFingerprint(scope, mutation);
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
+    if (replay) return replay;
+    const participant = this.room.presence.participants[body.expectedParticipantId];
+    if (
+      !participant ||
+      participant.sessionHash !== auth.tokenHash ||
+      participant.presenceIncarnationId !== body.expectedPresenceIncarnationId
+    ) {
+      return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
+    }
+    if (!isSafeNonNegativeInteger(body.baseRevision) || body.baseRevision > this.room.revision) {
+      return errorResponse('INVALID_REVISION', 400);
+    }
+
+    let checkpointChanged = false;
+    if (body.playback === null) {
+      if (body.currentQueueItemId !== null) return errorResponse('INVALID_PLAYBACK', 400);
+    } else {
+      if (this.room.presence.coordinatorParticipantId !== body.expectedParticipantId) {
+        return errorResponse('COORDINATOR_REQUIRED', 403);
+      }
+      const playlistById = new Map(this.room.playlist.map((item) => [item.queueItemId, item]));
+      const candidate = parsePlaybackCandidate(
+        body.playback,
+        playlistById,
+        body.currentQueueItemId,
+        this.room.presence.coordinatorEpoch,
+      );
+      if (!candidate) return errorResponse('INVALID_PLAYBACK', 400);
+
+      const nowMs = Date.now();
+      const semanticallyUnchanged =
+        body.currentQueueItemId === this.room.currentQueueItemId &&
+        playbackSemanticallyEqual(candidate, this.room.playback);
+      if (
+        !semanticallyUnchanged &&
+        Math.abs(candidate.updatedAtMs - nowMs) > PLAYBACK_CLOCK_SKEW_MS
+      ) {
+        return errorResponse('INVALID_PLAYBACK', 400);
+      }
+      let accepted = parsePlayback(
+        candidate,
+        playlistById,
+        body.currentQueueItemId,
+        this.room.presence.coordinatorEpoch,
+        this.room.playback,
+        nowMs,
+      );
+      if (
+        !accepted &&
+        body.baseRevision < this.room.revision &&
+        candidate.revision === this.room.playback.revision &&
+        !semanticallyUnchanged &&
+        this.room.playback.revision < Number.MAX_SAFE_INTEGER
+      ) {
+        // A periodic checkpoint can win the DO queue after pagehide captured
+        // the same base revision. This is a sibling conflict, not an arbitrary
+        // revision jump: rebase the fresh final observation exactly once so
+        // presence never falls back to its TTL solely because of that race.
+        accepted = {
+          ...candidate,
+          revision: this.room.playback.revision + 1,
+          updatedAtMs: nowMs,
+        };
+      }
+      if (accepted) {
+        checkpointChanged =
+          body.currentQueueItemId !== this.room.currentQueueItemId ||
+          !playbackSemanticallyEqual(accepted, this.room.playback);
+        this.room.currentQueueItemId = body.currentQueueItemId;
+        this.room.playback = accepted;
+      } else if (candidate.revision >= this.room.playback.revision) {
+        // A narrowly stale unload can race an already-committed periodic
+        // checkpoint. Older revisions are safe to ignore; equal/future
+        // invalid revisions must never overwrite authoritative playback.
+        return errorResponse('INVALID_PLAYBACK', 400);
+      }
+    }
+
+    if (checkpointChanged) this.room.revision += 1;
+    this.removePresence(body.expectedParticipantId, Date.now());
+    const responseBody = { ok: true };
+    this.storeIdempotency(scope, key, fingerprint, responseBody);
+    await this.persist();
+    return jsonResponse(responseBody);
+  }
+
+  async handleSignalingTicket(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     if (request.body && (request.headers.get('content-length') || '') !== '0')
       return errorResponse('INVALID_REQUEST', 400);
     const secret = String(this.env.PRO_SIGNALING_SECRET || '');
     if (secret.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     const nowMs = Date.now();
-    if (!this.room.presence.participants[auth.session.participantId]) {
-      if (this.joinPresence(auth.session, auth.tokenHash, nowMs) === null)
-        return errorResponse('ROOM_FULL', 409);
-    }
     const role =
       this.room.presence.coordinatorParticipantId === auth.session.participantId
         ? 'coordinator'
@@ -1272,6 +1847,15 @@ export class MusixquareProRoom {
     const issuedAtSeconds = Math.floor(nowMs / 1000);
     const expiresAtSeconds = issuedAtSeconds + SIGNALING_TICKET_TTL_SECONDS;
     const expiresAtMs = expiresAtSeconds * 1000;
+    if (
+      !Number.isSafeInteger(auth.session.signalingTicketSequence) ||
+      auth.session.signalingTicketSequence >= Number.MAX_SAFE_INTEGER
+    ) {
+      return errorResponse('SIGNALING_TICKET_SEQUENCE_EXHAUSTED', 409);
+    }
+    const ticketSequence = auth.session.signalingTicketSequence + 1;
+    auth.session.signalingTicketSequence = ticketSequence;
+    const presenceIncarnationId = auth.participant.presenceIncarnationId;
     const ticket = await createProSignalingTicket(
       {
         v: 1,
@@ -1280,6 +1864,8 @@ export class MusixquareProRoom {
         participantId: auth.session.participantId,
         role,
         coordinatorEpoch: this.room.presence.coordinatorEpoch,
+        presenceIncarnationId,
+        ticketSequence,
         jti: randomToken(18),
         iat: issuedAtSeconds,
         exp: expiresAtSeconds,
@@ -1292,6 +1878,8 @@ export class MusixquareProRoom {
       expiresAtMs,
       role,
       coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      presenceIncarnationId,
+      ticketSequence,
     });
   }
 
@@ -1304,11 +1892,14 @@ export class MusixquareProRoom {
     return sha256Base64Url(`${scope}\n${JSON.stringify(body)}`);
   }
 
-  replayIdempotency(scope, key, fingerprint) {
+  replayIdempotency(scope, key, fingerprint, session = null) {
     const record = this.room.idempotency[`${scope}:${key}`];
     if (!record) return null;
     if (!constantTimeEqual(record.fingerprint, fingerprint)) {
       return errorResponse('IDEMPOTENCY_CONFLICT', 409);
+    }
+    if (record.kind === 'snapshot') {
+      return jsonResponse({ snapshot: publicSnapshot(this.room, session) }, record.status);
     }
     return jsonResponse(record.body, record.status);
   }
@@ -1324,10 +1915,28 @@ export class MusixquareProRoom {
     const records = this.room.idempotency;
     records[`${scope}:${key}`] = { fingerprint, body: structuredClone(body), status, expiresAtMs };
     const keys = Object.keys(records);
-    if (keys.length > 256) {
+    if (keys.length > IDEMPOTENCY_MAX_ITEMS) {
       keys
         .sort((left, right) => records[left].expiresAtMs - records[right].expiresAtMs)
-        .slice(0, keys.length - 256)
+        .slice(0, keys.length - IDEMPOTENCY_MAX_ITEMS)
+        .forEach((oldKey) => delete records[oldKey]);
+    }
+  }
+
+  storeSnapshotIdempotency(scope, key, fingerprint, committedRevision) {
+    const records = this.room.idempotency;
+    records[`${scope}:${key}`] = {
+      fingerprint,
+      kind: 'snapshot',
+      committedRevision,
+      status: 200,
+      expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
+    };
+    const keys = Object.keys(records);
+    if (keys.length > IDEMPOTENCY_MAX_ITEMS) {
+      keys
+        .sort((left, right) => records[left].expiresAtMs - records[right].expiresAtMs)
+        .slice(0, keys.length - IDEMPOTENCY_MAX_ITEMS)
         .forEach((oldKey) => delete records[oldKey]);
     }
   }
@@ -1351,7 +1960,7 @@ export class MusixquareProRoom {
   }
 
   async handleUpdateSnapshot(request) {
-    const auth = await this.requireSession(request);
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     const key = this.readIdempotencyKey(request);
     if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
@@ -1363,7 +1972,7 @@ export class MusixquareProRoom {
     }
     const scope = `participant:${auth.session.participantId}:snapshot`;
     const fingerprint = await this.idempotencyFingerprint(scope, body);
-    const replay = this.replayIdempotency(scope, key, fingerprint);
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
     if (replay) return replay;
     if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
     if (body.baseRevision !== this.room.revision) {
@@ -1374,20 +1983,23 @@ export class MusixquareProRoom {
     }
     const playlist = parsePlaylist(body.playlist);
     if (!playlist) return errorResponse('INVALID_PLAYLIST', 400);
-    const queueIds = new Set(playlist.map((item) => item.queueItemId));
+    const playlistById = new Map(playlist.map((item) => [item.queueItemId, item]));
     if (
       body.currentQueueItemId !== null &&
-      (!QUEUE_ITEM_ID_RE.test(body.currentQueueItemId) || !queueIds.has(body.currentQueueItemId))
+      (!QUEUE_ITEM_ID_RE.test(body.currentQueueItemId) ||
+        !playlistById.has(body.currentQueueItemId))
     ) {
       return errorResponse('INVALID_QUEUE_ITEM_ID', 400);
     }
     const playback = parsePlayback(
       body.playback,
-      queueIds,
+      playlistById,
       body.currentQueueItemId,
       this.room.presence.coordinatorEpoch,
+      this.room.playback,
+      Date.now(),
     );
-    if (!playback || playback.revision < this.room.playback.revision) {
+    if (!playback) {
       return errorResponse('INVALID_PLAYBACK', 400);
     }
     if (!this.validatePlaylistAssets(playlist)) return errorResponse('ASSET_NOT_READY', 409);
@@ -1400,13 +2012,13 @@ export class MusixquareProRoom {
     if (playlistChanged) this.room.playlistRevision += 1;
     this.room.revision += 1;
     const responseBody = { snapshot: publicSnapshot(this.room, auth.session) };
-    this.storeIdempotency(scope, key, fingerprint, responseBody);
+    this.storeSnapshotIdempotency(scope, key, fingerprint, this.room.revision);
     await this.persist();
     return jsonResponse(responseBody);
   }
 
   async handleCreateReservation(request) {
-    const auth = await this.requireSession(request);
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     const key = this.readIdempotencyKey(request);
     if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
@@ -1442,6 +2054,20 @@ export class MusixquareProRoom {
     if (!this.env.PRO_MEDIA_BUCKET || !r2S3Config(this.env)) {
       return errorResponse('MEDIA_NOT_CONFIGURED', 503);
     }
+    const assets = Object.values(this.room.assets);
+    const reservations = assets.filter((asset) => asset.status === 'reserved');
+    if (assets.length + Object.keys(this.room.stagingTombstones).length >= ASSET_MAX_ITEMS) {
+      return errorResponse('ASSET_CAPACITY_EXCEEDED', 409);
+    }
+    if (reservations.length >= RESERVED_ASSET_MAX_ITEMS) {
+      return errorResponse('RESERVATION_CAPACITY_EXCEEDED', 409);
+    }
+    if (
+      reservations.filter((asset) => asset.reservedByParticipantId === auth.session.participantId)
+        .length >= RESERVED_ASSET_MAX_ITEMS_PER_PARTICIPANT
+    ) {
+      return errorResponse('RESERVATION_CAPACITY_EXCEEDED', 409);
+    }
     if (
       this.room.quota.usedBytes + this.room.quota.reservedBytes + body.byteLength >
       ROOM_QUOTA_BYTES
@@ -1451,7 +2077,9 @@ export class MusixquareProRoom {
     const nowMs = Date.now();
     const assetId = `asset_${randomToken(24)}`;
     const version = 1;
-    const objectKey = `rooms/${this.room.roomCode}/assets/${assetId}/v${version}`;
+    const objectPrefix = `rooms/${this.room.roomCode}/assets/${assetId}/v${version}`;
+    const stagingObjectKey = `${objectPrefix}/staging_${randomToken(18)}`;
+    const objectKey = `${objectPrefix}/object_${randomToken(24)}`;
     const expiresAtMs = nowMs + this.reservationTtlSeconds() * 1000;
     const uploadHeaders = {
       'content-type': body.mime,
@@ -1468,7 +2096,7 @@ export class MusixquareProRoom {
     const uploadUrl = await createR2PresignedUrl({
       env: this.env,
       method: 'PUT',
-      objectKey,
+      objectKey: stagingObjectKey,
       headers: uploadHeaders,
       expiresInSeconds: presignTtl,
       now: new Date(nowMs),
@@ -1480,6 +2108,9 @@ export class MusixquareProRoom {
       assetId,
       version,
       objectKey,
+      stagingObjectKey,
+      uploadExpiresAtMs: nowMs + presignTtl * 1000,
+      reservedByParticipantId: auth.session.participantId,
       byteLength: body.byteLength,
       name,
       mime: body.mime,
@@ -1505,7 +2136,10 @@ export class MusixquareProRoom {
   }
 
   async handleCompleteMedia(request, assetId) {
-    const auth = await this.requireSession(request);
+    // Completion remains creator-only and requires an active heartbeat. A
+    // client that leaves mid-upload can rejoin, but another participant cannot
+    // adopt its still-valid presigned staging URL/reservation.
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     const key = this.readIdempotencyKey(request);
     if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
@@ -1518,10 +2152,16 @@ export class MusixquareProRoom {
     if (replay) return replay;
     const asset = this.room.assets[assetId];
     if (!asset || asset.status !== 'reserved') return errorResponse('ASSET_NOT_FOUND', 404);
+    if (asset.reservedByParticipantId !== auth.session.participantId) {
+      return errorResponse('RESERVATION_OWNER_REQUIRED', 403);
+    }
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
+    if (serializedStateByteLength(this.room) > STATE_MAX_BYTES - 8 * 1024) {
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    }
     let object;
     try {
-      object = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
+      object = await this.env.PRO_MEDIA_BUCKET.head(asset.stagingObjectKey);
     } catch {
       return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
@@ -1538,22 +2178,59 @@ export class MusixquareProRoom {
         : metadata['mxqr-sha256'] === undefined);
     if (object.size !== asset.byteLength || contentType !== asset.mime || !metadataMatches) {
       try {
-        await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
+        await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
       } catch {
         asset.expiresAtMs = Date.now() + 60_000;
         await this.persist();
         return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
       }
       this.room.quota.reservedBytes -= asset.byteLength;
+      this.retainStagingTombstone(asset);
       delete this.room.assets[assetId];
       this.room.revision += 1;
       await this.persist();
       return errorResponse('UPLOAD_MISMATCH', 409);
     }
+    const finalMetadata = {
+      'mxqr-room': this.room.roomCode,
+      'mxqr-asset': asset.assetId,
+      'mxqr-version': String(asset.version),
+      'mxqr-bytes': String(asset.byteLength),
+      ...(asset.sha256 === undefined ? {} : { 'mxqr-sha256': asset.sha256 }),
+    };
+    try {
+      const staged = await this.env.PRO_MEDIA_BUCKET.get(asset.stagingObjectKey);
+      if (!staged?.body) return errorResponse('UPLOAD_INCOMPLETE', 409);
+      await this.env.PRO_MEDIA_BUCKET.put(asset.objectKey, staged.body, {
+        httpMetadata: { contentType: asset.mime },
+        customMetadata: finalMetadata,
+      });
+      const finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
+      const finalObjectMetadata = finalObject?.customMetadata || {};
+      if (
+        !finalObject ||
+        finalObject.size !== asset.byteLength ||
+        finalObject.httpMetadata?.contentType !== asset.mime ||
+        Object.entries(finalMetadata).some(
+          ([metadataKey, metadataValue]) => finalObjectMetadata[metadataKey] !== metadataValue,
+        )
+      ) {
+        await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
+        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      }
+      // A presigned staging URL is reusable until it expires. Delete now for
+      // normal clients, then retain a cleanup marker so an after-completion
+      // replay is deleted again once the URL can no longer be used.
+      await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey).catch(() => {});
+    } catch {
+      await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
+      return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+    }
     const completedAtMs = Date.now();
     asset.status = 'ready';
     delete asset.expiresAtMs;
     asset.completedAtMs = completedAtMs;
+    asset.stagingCleanupAfterMs = Math.max(asset.uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
     this.room.quota.reservedBytes -= asset.byteLength;
     this.room.quota.usedBytes += asset.byteLength;
     // Completion and playlist insertion are separate idempotent operations.
@@ -1568,7 +2245,7 @@ export class MusixquareProRoom {
   }
 
   async handleDownloadMedia(request, assetId) {
-    const auth = await this.requireSession(request);
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     if (!OPAQUE_ID_RE.test(assetId)) return errorResponse('INVALID_ASSET_ID', 400);
     const asset = this.room.assets[assetId];
@@ -1590,7 +2267,7 @@ export class MusixquareProRoom {
   }
 
   async handleDeleteMedia(request, assetId) {
-    const auth = await this.requireSession(request);
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     const key = this.readIdempotencyKey(request);
     if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
@@ -1614,12 +2291,16 @@ export class MusixquareProRoom {
     }
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
     try {
-      await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
+      if (asset.stagingObjectKey) {
+        await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
+      }
+      if (asset.status === 'ready') await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
     } catch {
       return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
     if (asset.status === 'reserved') this.room.quota.reservedBytes -= asset.byteLength;
     else this.room.quota.usedBytes -= asset.byteLength;
+    this.retainStagingTombstone(asset);
     delete this.room.assets[assetId];
     this.room.revision += 1;
     const responseBody = { ok: true, assetId, quota: { ...this.room.quota } };
@@ -1650,8 +2331,45 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
+    for (const [assetId, tombstone] of Object.entries(this.room.stagingTombstones)) {
+      if (tombstone.cleanupAfterMs > nowMs) continue;
+      if (!this.env.PRO_MEDIA_BUCKET) {
+        tombstone.cleanupAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+        changed = true;
+        continue;
+      }
+      try {
+        await this.env.PRO_MEDIA_BUCKET.delete(tombstone.objectKey);
+        delete this.room.stagingTombstones[assetId];
+        changed = true;
+      } catch {
+        tombstone.cleanupAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+        changed = true;
+      }
+    }
     const referencedAssets = this.referencedAssetIds();
     for (const [assetId, asset] of Object.entries(this.room.assets)) {
+      if (
+        asset.stagingObjectKey &&
+        Number.isSafeInteger(asset.stagingCleanupAfterMs) &&
+        asset.stagingCleanupAfterMs <= nowMs
+      ) {
+        if (!this.env.PRO_MEDIA_BUCKET) {
+          asset.stagingCleanupAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+          changed = true;
+        } else {
+          try {
+            await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
+            delete asset.stagingObjectKey;
+            delete asset.stagingCleanupAfterMs;
+            delete asset.uploadExpiresAtMs;
+            changed = true;
+          } catch {
+            asset.stagingCleanupAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+            changed = true;
+          }
+        }
+      }
       if (asset.status === 'reserved' && asset.expiresAtMs <= nowMs) {
         if (!this.env.PRO_MEDIA_BUCKET) {
           asset.expiresAtMs = nowMs + 60_000;
@@ -1659,13 +2377,14 @@ export class MusixquareProRoom {
           continue;
         }
         try {
-          await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
+          await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
         } catch {
           asset.expiresAtMs = nowMs + 60_000;
           changed = true;
           continue;
         }
         this.room.quota.reservedBytes -= asset.byteLength;
+        this.retainStagingTombstone(asset, nowMs);
         delete this.room.assets[assetId];
         changed = true;
         continue;
@@ -1689,6 +2408,9 @@ export class MusixquareProRoom {
         }
         try {
           await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
+          if (asset.stagingObjectKey) {
+            await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
+          }
         } catch {
           // R2 is authoritative for byte deletion. Keep both the asset ledger
           // and used-byte charge intact until deletion succeeds.
@@ -1697,13 +2419,23 @@ export class MusixquareProRoom {
           continue;
         }
         this.room.quota.usedBytes -= asset.byteLength;
+        this.retainStagingTombstone(asset, nowMs);
         delete this.room.assets[assetId];
         this.room.revision += 1;
         changed = true;
       }
     }
     for (const [key, value] of Object.entries(this.room.rateLimits)) {
-      if (value.resetAtMs <= nowMs) delete this.room.rateLimits[key];
+      if (value.resetAtMs <= nowMs) {
+        delete this.room.rateLimits[key];
+        changed = true;
+      }
+    }
+    for (const [nonceHash, expiresAtMs] of Object.entries(this.room.consumedRecoveryNonces)) {
+      if (expiresAtMs <= nowMs) {
+        delete this.room.consumedRecoveryNonces[nonceHash];
+        changed = true;
+      }
     }
     if (changed) await this.persist();
     return changed;

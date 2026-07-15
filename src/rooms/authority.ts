@@ -16,7 +16,7 @@ const STANDARD_OPERATOR_CAPABILITIES = new Set<RoomCapability>([
   'effects.control',
 ]);
 
-export function createIdleRoomContext(): RoomContext {
+function createIdleRoomContext(): RoomContext {
   return {
     kind: 'standard',
     roomId: null,
@@ -49,10 +49,12 @@ export function isCoordinator(): boolean {
   return getState('network.appRole') === 'host' && !getState('network.hostConn');
 }
 
-export function getAuthorityConnection(): DataConnection | null {
+function getAuthorityConnection(): DataConnection | null {
   if (isCoordinator()) return null;
   return getState('network.hostConn');
 }
+
+export { getAuthorityConnection as getAuthorityConnectionForTests };
 
 export function hasRoomCapability(capability: RoomCapability): boolean {
   const context = getRoomContext();

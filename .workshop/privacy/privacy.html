@@ -11,11 +11,11 @@
 
   <title>Privacy Policy · MUSIXQUARE</title>
   <meta name="description"
-    content="MUSIXQUARE privacy policy for real-time audio sync, remote sharing, and temporary encrypted file storage.">
+    content="MUSIXQUARE privacy policy for real-time audio sync, temporary encrypted remote sharing, and persistent private PRO-room media storage.">
 
   <meta property="og:title" content="Privacy Policy · MUSIXQUARE">
   <meta property="og:description"
-    content="How MUSIXQUARE handles connection data, remote sharing, and temporary encrypted file storage.">
+    content="How MUSIXQUARE handles connection data, temporary remote sharing, and persistent PRO-room media.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
@@ -26,7 +26,7 @@
   <meta property="og:image:alt" content="MUSIXQUARE">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Privacy Policy · MUSIXQUARE">
-  <meta name="twitter:description" content="How MUSIXQUARE handles service data.">
+  <meta name="twitter:description" content="How MUSIXQUARE handles remote sharing and PRO-room media.">
   <meta name="twitter:image" content="https://musixquare.com/og-image.png">
 
   <link rel="icon" href="/designsystem/assets/favicon.svg">
@@ -49,7 +49,7 @@
   <main class="policy-shell">
     <section class="policy-hero">
       <h1>Privacy Policy</h1>
-      <p class="policy-date">Effective date: July 3, 2026</p>
+      <p class="policy-date">Effective date: July 16, 2026</p>
     </section>
 
     <article class="policy-doc">
@@ -93,8 +93,18 @@
           <div>
             <dt>Remote file data</dt>
             <dd>
-              Files needed by remote participants are encrypted in the host's browser before upload. Cloudflare R2
-              temporarily stores the encrypted object; the decryption key is not stored with the object.
+              For ordinary remote file sharing, files needed by remote participants are encrypted in the host's
+              browser before upload. Cloudflare R2 temporarily stores the encrypted object; the decryption key is not
+              stored with the object.
+            </dd>
+          </div>
+          <div>
+            <dt>PRO-room media</dt>
+            <dd>
+              In a PRO room, original media uploaded by an authenticated participant is stored persistently in a
+              private Cloudflare R2 bucket for the room playlist. This storage is not covered by the ordinary
+              remote-share client-encryption or 24-hour-retention statements. Downloads are issued only through
+              short-lived authorized URLs.
             </dd>
           </div>
           <div>
@@ -133,8 +143,12 @@
         </p>
         <p>
           Access to encrypted remote-file objects normally expires after one hour. A bucket-level R2 lifecycle rule
-          automatically deletes remote-share objects, with a maximum intended retention of 24 hours. Expired objects
-          cannot be downloaded through MUSIXQUARE.
+          automatically deletes ordinary remote-share objects, with a maximum intended retention of 24 hours. Expired
+          objects cannot be downloaded through MUSIXQUARE.
+        </p>
+        <p>
+          PRO-room media remains stored until its last playlist reference is removed and cleanup succeeds, or until
+          the operator deletes the room data. If cleanup fails, deletion may be delayed until a retry succeeds.
         </p>
         <p>
           Short-lived rate-limit records used to prevent remote-share abuse identify an IP address with a keyed,
@@ -151,8 +165,9 @@
         <h2>5. Service Providers and International Processing</h2>
         <p>
           MUSIXQUARE uses Cloudflare for website delivery, signaling, relay services, remote system audio, temporary
-          encrypted file delivery, security, and aggregate web analytics. Cloudflare may process technical data in the
-          countries and regions where its network and service providers operate.
+          encrypted remote-file delivery, persistent private PRO-room media storage, security, and aggregate web
+          analytics. Cloudflare may process technical data in the countries and regions where its network and service
+          providers operate.
         </p>
         <p>
           YouTube features use YouTube API Services and the YouTube embedded player. Their use is also subject to the
@@ -167,7 +182,9 @@
         <h2>6. Security</h2>
         <p>
           MUSIXQUARE uses HTTPS, WebRTC transport security, browser security controls, restricted service capabilities,
-          and Cloudflare infrastructure. Remote files use client-side AES-GCM encryption before upload.
+          and Cloudflare infrastructure. Ordinary remote-share files use client-side AES-GCM encryption before upload.
+          This client-side encryption statement does not apply to persistent PRO-room media, which is kept in a private
+          bucket and made downloadable only through short-lived authorized URLs.
         </p>
         <p>
           No internet service can guarantee absolute security. Users should share room codes and passwords only with

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { randomInt, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 
 const APP_ORIGIN = 'https://musixquare.com';
@@ -20,6 +20,12 @@ function createSocketInbox(url, label) {
   const queued = [];
   const waiters = new Set();
   let terminalError = null;
+
+  const closed = new Promise((resolve) => {
+    socket.once('close', (code, reason) => {
+      resolve({ code, reason: reason.toString() });
+    });
+  });
 
   const opened = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label} open timeout`)), MESSAGE_TIMEOUT_MS);
@@ -82,7 +88,7 @@ function createSocketInbox(url, label) {
     });
   }
 
-  return { socket, opened, waitFor };
+  return { socket, opened, closed, waitFor };
 }
 
 function waitForType(inbox, type) {
@@ -91,6 +97,49 @@ function waitForType(inbox, type) {
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function withTimeout(promise, description) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`timed out waiting for ${description}`)),
+      MESSAGE_TIMEOUT_MS,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function expectGuestRejection(
+  inbox,
+  expectedErrorType,
+  expectedCloseReason,
+  expectedCloseCode = 1008,
+) {
+  const rejection = await inbox.waitFor(
+    (message) => message?.type === 'error' || message?.type === 'peer-open',
+    `${expectedErrorType} rejection`,
+  );
+  if (rejection.type !== 'error' || rejection.errorType !== expectedErrorType) {
+    throw new Error(
+      `guest admission returned ${rejection.type}/${rejection.errorType || 'unknown'}`,
+    );
+  }
+
+  const closed = await withTimeout(inbox.closed, `${expectedErrorType} socket close`);
+  if (closed.code !== expectedCloseCode || closed.reason !== expectedCloseReason) {
+    throw new Error(
+      `${expectedErrorType} closed ${closed.code}/${closed.reason || 'without reason'}`,
+    );
+  }
 }
 
 async function closeSocket(socket) {
@@ -114,12 +163,20 @@ async function runRoom(password) {
   const hostPeerId = `host-${suffix}`;
   const guestPeerId = `guest-${suffix}`;
   const hostSecret = `secret-${randomUUID()}`;
+  const reconnectSecret = randomBytes(32).toString('base64url');
+  const wrongReconnectSecret = randomBytes(32).toString('base64url');
   const host = createSocketInbox(
     socketUrl(roomId, 'host', hostPeerId, hostSecret),
     `${password ? 'protected' : 'passwordless'} host`,
   );
-  let guest;
-  let invalidPasswordGuest;
+  const guestSockets = new Set();
+  const createGuest = (peerId, label) => {
+    const inbox = createSocketInbox(socketUrl(roomId, 'guest', peerId), label);
+    guestSockets.add(inbox);
+    return inbox;
+  };
+  let originalGuest;
+  let reconnectedGuest;
 
   try {
     await host.opened;
@@ -131,36 +188,117 @@ async function runRoom(password) {
     await delay(150);
 
     if (password) {
-      invalidPasswordGuest = createSocketInbox(
-        socketUrl(roomId, 'guest', `invalid-${suffix}`),
-        'invalid-password guest',
-      );
+      const invalidPasswordGuest = createGuest(`invalid-${suffix}`, 'invalid-password guest');
       await invalidPasswordGuest.opened;
       invalidPasswordGuest.socket.send(
         JSON.stringify({ type: 'guest-auth', password: '00000000' }),
       );
-      const rejection = await invalidPasswordGuest.waitFor(
-        (message) => message?.type === 'error' || message?.type === 'peer-open',
-        'wrong-password rejection',
+      await expectGuestRejection(
+        invalidPasswordGuest,
+        'room-password-invalid',
+        'ROOM_PASSWORD_INVALID',
+        1011,
       );
-      if (rejection.type !== 'error' || rejection.errorType !== 'room-password-invalid') {
-        throw new Error('protected room admitted a guest with the wrong password');
-      }
-      await closeSocket(invalidPasswordGuest.socket);
-      invalidPasswordGuest = undefined;
     }
 
-    guest = createSocketInbox(
-      socketUrl(roomId, 'guest', guestPeerId),
-      `${password ? 'protected' : 'passwordless'} guest`,
-    );
-    await guest.opened;
-    // This is the first frame emitted by the production client for both room
-    // modes. In a passwordless room it must remain a harmless no-op.
-    guest.socket.send(JSON.stringify({ type: 'guest-auth', password }));
-    const guestOpen = await waitForType(guest, 'peer-open');
+    originalGuest = createGuest(guestPeerId, `${password ? 'protected' : 'passwordless'} guest`);
+    await originalGuest.opened;
+    // The production client authenticates every guest with this first frame.
+    // Passwordless rooms use an empty password while still binding the identity
+    // to the reconnect secret.
+    originalGuest.socket.send(JSON.stringify({ type: 'guest-auth', password, reconnectSecret }));
+    const guestOpen = await waitForType(originalGuest, 'peer-open');
     if (guestOpen.roomId !== roomId || guestOpen.peerId !== guestPeerId) {
       throw new Error('guest room or peer mismatch');
+    }
+
+    const missingSecretGuest = createGuest(guestPeerId, 'missing-reconnect-secret guest');
+    await missingSecretGuest.opened;
+    missingSecretGuest.socket.send(JSON.stringify({ type: 'guest-auth', password }));
+    await expectGuestRejection(
+      missingSecretGuest,
+      'guest-reconnect-denied',
+      'GUEST_RECONNECT_DENIED',
+    );
+
+    const wrongSecretGuest = createGuest(guestPeerId, 'wrong-reconnect-secret guest');
+    await wrongSecretGuest.opened;
+    wrongSecretGuest.socket.send(
+      JSON.stringify({
+        type: 'guest-auth',
+        password,
+        reconnectSecret: wrongReconnectSecret,
+      }),
+    );
+    await expectGuestRejection(
+      wrongSecretGuest,
+      'guest-reconnect-denied',
+      'GUEST_RECONNECT_DENIED',
+    );
+
+    if (password) {
+      const wrongPasswordReplacement = createGuest(guestPeerId, 'wrong-password replacement');
+      await wrongPasswordReplacement.opened;
+      wrongPasswordReplacement.socket.send(
+        JSON.stringify({
+          type: 'guest-auth',
+          password: '00000000',
+          reconnectSecret,
+        }),
+      );
+      await expectGuestRejection(
+        wrongPasswordReplacement,
+        'room-password-invalid',
+        'ROOM_PASSWORD_INVALID',
+        1011,
+      );
+    }
+
+    originalGuest.socket.send(
+      JSON.stringify({
+        type: 'signal-candidate',
+        to: 'host',
+        candidate: { candidate: `original-still-live-${suffix}` },
+      }),
+    );
+    await host.waitFor(
+      (message) =>
+        message?.type === 'signal-candidate' &&
+        message?.from === guestPeerId &&
+        message?.candidate?.candidate === `original-still-live-${suffix}`,
+      'original guest after rejected replacements',
+    );
+
+    await closeSocket(originalGuest.socket);
+    await host.waitFor(
+      (message) => message?.type === 'peer-left' && message?.peerId === guestPeerId,
+      'original guest departure',
+    );
+
+    const disconnectedWrongSecretGuest = createGuest(
+      guestPeerId,
+      'disconnected wrong-reconnect-secret guest',
+    );
+    await disconnectedWrongSecretGuest.opened;
+    disconnectedWrongSecretGuest.socket.send(
+      JSON.stringify({
+        type: 'guest-auth',
+        password,
+        reconnectSecret: wrongReconnectSecret,
+      }),
+    );
+    await expectGuestRejection(
+      disconnectedWrongSecretGuest,
+      'guest-reconnect-denied',
+      'GUEST_RECONNECT_DENIED',
+    );
+
+    reconnectedGuest = createGuest(guestPeerId, 'legitimate reconnect guest');
+    await reconnectedGuest.opened;
+    reconnectedGuest.socket.send(JSON.stringify({ type: 'guest-auth', password, reconnectSecret }));
+    const reconnectOpen = await waitForType(reconnectedGuest, 'peer-open');
+    if (reconnectOpen.roomId !== roomId || reconnectOpen.peerId !== guestPeerId) {
+      throw new Error('legitimate reconnect room or peer mismatch');
     }
 
     const offer = {
@@ -170,7 +308,7 @@ async function runRoom(password) {
       metadata: { liveSmoke: true },
       futureField: 'forward-compatible',
     };
-    guest.socket.send(JSON.stringify(offer));
+    reconnectedGuest.socket.send(JSON.stringify(offer));
     const relayedOffer = await host.waitFor(
       (message) => message?.type === 'signal-offer' && message?.from === guestPeerId,
       'relayed guest offer',
@@ -186,7 +324,7 @@ async function runRoom(password) {
       futureField: 'forward-compatible',
     };
     host.socket.send(JSON.stringify(answer));
-    const relayedAnswer = await guest.waitFor(
+    const relayedAnswer = await reconnectedGuest.waitFor(
       (message) => message?.type === 'signal-answer' && message?.from === hostPeerId,
       'relayed host answer',
     );
@@ -198,12 +336,16 @@ async function runRoom(password) {
       roomId,
       passwordProtected: Boolean(password),
       wrongPasswordRejected: password ? true : null,
+      missingReconnectSecretRejected: true,
+      wrongReconnectSecretRejected: true,
+      originalGuestSurvivedRejectedReplacements: true,
+      disconnectedBindingProtected: true,
+      legitimateReconnect: true,
       offer: true,
       answer: true,
     };
   } finally {
-    if (invalidPasswordGuest) await closeSocket(invalidPasswordGuest.socket);
-    if (guest) await closeSocket(guest.socket);
+    for (const inbox of guestSockets) await closeSocket(inbox.socket);
     await closeSocket(host.socket);
   }
 }

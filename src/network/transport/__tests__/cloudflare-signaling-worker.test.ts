@@ -202,8 +202,13 @@ function requestLike(url: string, headers: Record<string, string> = {}): Request
   } as Request;
 }
 
-function workerEnv(): { env: Record<string, unknown>; idFromName: ReturnType<typeof vi.fn> } {
-  const room = { fetch: vi.fn() };
+function workerEnv(): {
+  env: Record<string, unknown>;
+  idFromName: ReturnType<typeof vi.fn>;
+  roomFetch: ReturnType<typeof vi.fn>;
+} {
+  const roomFetch = vi.fn(async () => new Response(null, { status: 101 }));
+  const room = { fetch: roomFetch };
   const idFromName = vi.fn(() => 'room-object-id');
   return {
     env: {
@@ -213,6 +218,7 @@ function workerEnv(): { env: Record<string, unknown>; idFromName: ReturnType<typ
       },
     },
     idFromName,
+    roomFetch,
   };
 }
 
@@ -347,6 +353,89 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     expect(response.status).toBe(400);
     expect(idFromName).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['000000', 'host', 'secret-a'],
+    ['000000', 'guest', undefined],
+    ['000001', 'host', 'secret-a'],
+    ['000001', 'guest', undefined],
+  ] as const)(
+    'rejects reserved room %s %s claims before Durable Object lookup',
+    async (roomId, role, secret) => {
+      const { env, idFromName, roomFetch } = workerEnv();
+      const url = new URL(`https://signal.example.test/api/rooms/${roomId}/ws`);
+      url.searchParams.set('role', role);
+      url.searchParams.set('peerId', `${role}-peer`);
+      if (secret) url.searchParams.set('secret', secret);
+
+      const response = await workerModule.default.fetch(
+        requestLike(url.toString(), {
+          Origin: 'https://musixquare.com',
+          Upgrade: 'websocket',
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(403);
+      expect(idFromName).not.toHaveBeenCalled();
+      expect(roomFetch).not.toHaveBeenCalled();
+      expect(FakeWebSocketPair.pairs).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    ['100000', 'host', 'secret-a'],
+    ['100000', 'guest', undefined],
+    ['999999', 'host', 'secret-a'],
+    ['999999', 'guest', undefined],
+  ] as const)(
+    'keeps ordinary room %s %s routing to its Durable Object',
+    async (roomId, role, secret) => {
+      const { env, idFromName, roomFetch } = workerEnv();
+      const url = new URL(`https://signal.example.test/api/rooms/${roomId}/ws`);
+      url.searchParams.set('role', role);
+      url.searchParams.set('peerId', `${role}-${roomId}`);
+      if (secret) url.searchParams.set('secret', secret);
+      const response = await workerModule.default.fetch(
+        requestLike(url.toString(), {
+          Origin: 'https://musixquare.com',
+          Upgrade: 'websocket',
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(101);
+      expect(idFromName).toHaveBeenCalledWith(roomId);
+      expect(roomFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('honors additional configured reserved room codes', async () => {
+    const { env, idFromName } = workerEnv();
+    env.PRO_RESERVED_ROOM_CODES = '000000, 000001 234567';
+
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/234567/ws?role=guest&peerId=guest-peer', {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(idFromName).not.toHaveBeenCalled();
+  });
+
+  it('defends reserved codes inside the Durable Object before WebSocket acceptance', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state);
+
+    const response = await room.fetch(wsRequest('000000', 'host', 'host-1', 'secret-a'));
+
+    expect(response.status).toBe(403);
+    expect(state.sockets).toHaveLength(0);
+    expect(FakeWebSocketPair.pairs).toHaveLength(0);
   });
 
   it('accepts a host with hibernation attachment and room metadata', async () => {

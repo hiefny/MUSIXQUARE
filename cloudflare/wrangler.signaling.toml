@@ -15,6 +15,9 @@ head_sampling_rate = 0.1
 enabled = true
 head_sampling_rate = 0.01
 
+[vars]
+PRO_RESERVED_ROOM_CODES = "000000,000001"
+
 [[routes]]
 pattern = "signal.musixquare.com"
 custom_domain = true

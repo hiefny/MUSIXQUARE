@@ -1,4 +1,5 @@
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
+const DEFAULT_PRO_RESERVED_ROOM_CODES = ['000000', '000001'];
 const HOST_RECLAIM_GRACE_MS = 60_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
@@ -66,6 +67,22 @@ function isAllowedOrigin(origin, env = {}) {
 
 function isValidPeerId(peerId) {
   return typeof peerId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(peerId);
+}
+
+function getProReservedRoomCodes(env = {}) {
+  const configured = String(env.PRO_RESERVED_ROOM_CODES || '').trim();
+  const values = (configured || DEFAULT_PRO_RESERVED_ROOM_CODES.join(','))
+    .split(/[\s,]+/)
+    .map((value) => value.trim())
+    .filter((value) => /^\d{6}$/.test(value));
+
+  // A present-but-invalid or blank production variable must not silently
+  // reopen the default reserved codes to the public host-claim path.
+  return new Set(values.length > 0 ? values : DEFAULT_PRO_RESERVED_ROOM_CODES);
+}
+
+function isProReservedRoomCode(roomId, env = {}) {
+  return getProReservedRoomCodes(env).has(roomId);
 }
 
 function isValidGuestReconnectSecret(secret) {
@@ -664,6 +681,9 @@ export class MusixquareRoom {
     if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
       return json({ error: 'Bad request' }, 400);
     }
+    if (isProReservedRoomCode(roomId, this.env)) {
+      return json({ error: 'ROOM_RESERVED' }, 403);
+    }
     if (role === 'host' && !isValidPeerId(secret)) {
       return json({ error: 'Bad request' }, 400);
     }
@@ -1131,6 +1151,9 @@ export default {
     const roomId = match[1];
     if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
       return json({ error: 'Bad request' }, 400);
+    }
+    if (isProReservedRoomCode(roomId, env)) {
+      return json({ error: 'ROOM_RESERVED' }, 403);
     }
     if (role === 'host' && !isValidPeerId(secret)) {
       return json({ error: 'Bad request' }, 400);

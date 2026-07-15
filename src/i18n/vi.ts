@@ -230,7 +230,7 @@ const vi: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Trung tâm',
   'demo.step_nav_label': 'Các bước demo',
-  'demo.step_connect': '1. Kết nối thiết bị',
+  'demo.step_connect': '1. Kết nối',
   'demo.step_role': '2. Đặt vai trò',
   'demo.step_effects': '3. Hiệu ứng âm thanh',
   'demo.step_finish': '4. Kết thúc tour',

@@ -229,7 +229,7 @@ const pl: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Basy',
   'demo.role_center_short': 'Centrum',
   'demo.step_nav_label': 'Etapy przewodnika',
-  'demo.step_connect': '1. Podłącz urządzenia',
+  'demo.step_connect': '1. Połącz',
   'demo.step_role': '2. Ustaw rolę',
   'demo.step_effects': '3. Efekty dźwiękowe',
   'demo.step_finish': '4. Zakończ przewodnik',

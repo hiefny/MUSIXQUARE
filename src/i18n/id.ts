@@ -230,7 +230,7 @@ const id: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Tengah',
   'demo.step_nav_label': 'Langkah demo',
-  'demo.step_connect': '1. Hubungkan perangkat',
+  'demo.step_connect': '1. Hubungkan',
   'demo.step_role': '2. Atur peran',
   'demo.step_effects': '3. Efek audio',
   'demo.step_finish': '4. Akhiri tur',

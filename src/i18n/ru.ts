@@ -227,7 +227,7 @@ const ru: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Басы',
   'demo.role_center_short': 'Центр',
   'demo.step_nav_label': 'Шаги демонстрации',
-  'demo.step_connect': '1. Подключите устройства',
+  'demo.step_connect': '1. Подключить',
   'demo.step_role': '2. Установите роль',
   'demo.step_effects': '3. Аудиоэффекты',
   'demo.step_finish': '4. Завершить тур',

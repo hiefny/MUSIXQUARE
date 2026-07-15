@@ -227,7 +227,7 @@ const tr: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Merkez',
   'demo.step_nav_label': 'Tur Aşamaları',
-  'demo.step_connect': '1. Cihazları Bağlayın',
+  'demo.step_connect': '1. Bağlantı',
   'demo.step_role': '2. Rolü Belirleyin',
   'demo.step_effects': '3. Ses Efektleri',
   'demo.step_finish': '4. Turu Sonlandır',

@@ -231,7 +231,7 @@ const de: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Mitte',
   'demo.step_nav_label': 'Demo-Schritte',
-  'demo.step_connect': '1. Geräte verbinden',
+  'demo.step_connect': '1. Verbinden',
   'demo.step_role': '2. Rolle festlegen',
   'demo.step_effects': '3. Audioeffekte',
   'demo.step_finish': '4. Tour beenden',

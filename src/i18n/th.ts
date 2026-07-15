@@ -227,7 +227,7 @@ const th: Record<I18nKey, string> = {
   'demo.role_bass_short': 'เบส',
   'demo.role_center_short': 'กลาง',
   'demo.step_nav_label': 'ขั้นตอนการแนะนำ',
-  'demo.step_connect': '1. เชื่อมต่ออุปกรณ์',
+  'demo.step_connect': '1. เชื่อมต่อ',
   'demo.step_role': '2. ตั้งค่าบทบาท',
   'demo.step_effects': '3. เอฟเฟกต์เสียง',
   'demo.step_finish': '4. สิ้นสุดทัวร์แนะนำ',

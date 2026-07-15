@@ -231,7 +231,7 @@ const es: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Graves',
   'demo.role_center_short': 'Centro',
   'demo.step_nav_label': 'Pasos de la demo',
-  'demo.step_connect': '1. Conectar dispositivos',
+  'demo.step_connect': '1. Conectar',
   'demo.step_role': '2. Configurar rol',
   'demo.step_effects': '3. Efectos de audio',
   'demo.step_finish': '4. Salir de la demo',

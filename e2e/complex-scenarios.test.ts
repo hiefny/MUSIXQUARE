@@ -799,7 +799,7 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     }
   });
 
-  test('playlist removal selection is cancelled during a tab switch', async () => {
+  test('playlist removal selection survives a wide-layout tab switch', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -817,7 +817,8 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
       });
 
       await navigateToTab(pair.hostPage, 'play');
-      await expect(pair.hostPage.locator('.playlist-selection-pill')).not.toHaveClass(/is-visible/);
+      await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
+      await expect(removeBtn).toHaveAttribute('aria-pressed', 'true');
 
       const count = await pair.hostPage.evaluate(
         () => document.getElementById('playlist-ui')?.children.length ?? 0,

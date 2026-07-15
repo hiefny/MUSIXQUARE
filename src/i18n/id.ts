@@ -490,7 +490,7 @@ const id: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Keluar ruang',
   'dialog.return_home_msg': 'Kembali ke layar awal?',
   'dialog.return_home_detail': 'Anda akan terputus dari ruang saat ini.',
-  'dialog.leaving_session': 'Sedang keluar dari ruang...',
+  'dialog.refreshing_session': 'Memuat ulang sesi...',
   'dialog.background_resume_title': 'Aplikasi sempat masuk ke latar belakang',
   'dialog.background_resume_message':
     'Jika sinkronisasi meleset atau audio tidak berbunyi, tutup aplikasi sepenuhnya lalu buka lagi.',

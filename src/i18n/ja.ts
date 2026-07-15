@@ -488,7 +488,7 @@ const ja: Record<I18nKey, string> = {
   'dialog.return_home_title': 'ルームを退出',
   'dialog.return_home_msg': '開始画面に戻りますか？',
   'dialog.return_home_detail': '現在のルームから切断されます。',
-  'dialog.leaving_session': 'ルームを退出中...',
+  'dialog.refreshing_session': 'セッションを再読み込みしています...',
   'dialog.background_resume_title': 'アプリが一時的にバックグラウンドへ移動しました',
   'dialog.background_resume_message':
     '同期がずれたり音が出ない場合は、アプリを完全に閉じて開き直してください。',

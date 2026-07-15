@@ -472,7 +472,7 @@ const zhHant: Record<I18nKey, string> = {
   'dialog.return_home_title': '離開房間',
   'dialog.return_home_msg': '要返回開始畫面嗎？',
   'dialog.return_home_detail': '你將與目前房間中斷連線。',
-  'dialog.leaving_session': '正在離開房間...',
+  'dialog.refreshing_session': '正在重新整理工作階段...',
   'dialog.background_resume_title': '應用程式短暫進入背景',
   'dialog.background_resume_message': '如果同步不準或沒有聲音，請完全關閉應用程式後重新開啟。',
   'dialog.background_resume_sync_fallback_message':

@@ -549,7 +549,7 @@ const ko = {
   'dialog.return_home_title': '세션 나가기',
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',
-  'dialog.leaving_session': '세션 나가는 중...',
+  'dialog.refreshing_session': '세션을 새로고침하고 있어요...',
   'dialog.background_resume_title': '앱이 잠시 백그라운드로 넘어갔어요',
   'dialog.background_resume_message':
     '싱크가 맞지 않거나 소리가 나지 않으면 앱을 완전히 종료한 뒤 다시 열어주세요.',

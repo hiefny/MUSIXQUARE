@@ -2471,6 +2471,23 @@
       </div>
     </div>
 
+    <!-- Blocks every interaction as soon as an app-owned hard reset is scheduled. -->
+    <div
+      id="session-reset-overlay"
+      class="session-reset-overlay"
+      role="status"
+      aria-live="assertive"
+      aria-atomic="true"
+      aria-hidden="true"
+      tabindex="-1"
+      hidden
+    >
+      <div class="session-reset-status">
+        <span class="session-reset-spinner" aria-hidden="true"></span>
+        <p id="session-reset-message" class="session-reset-message"></p>
+      </div>
+    </div>
+
     <!-- App-owned dialog keeps session flows non-blocking. -->
     <div class="dialog-overlay" id="dialog-overlay" aria-hidden="true">
       <div

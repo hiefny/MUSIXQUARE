@@ -484,7 +484,7 @@ const vi: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Rời phòng',
   'dialog.return_home_msg': 'Quay lại màn hình bắt đầu?',
   'dialog.return_home_detail': 'Bạn sẽ ngắt kết nối khỏi phòng hiện tại.',
-  'dialog.leaving_session': 'Đang rời phòng...',
+  'dialog.refreshing_session': 'Đang làm mới phiên...',
   'dialog.background_resume_title': 'Ứng dụng vừa chuyển sang nền',
   'dialog.background_resume_message':
     'Nếu đồng bộ sai hoặc âm thanh không phát, hãy đóng hẳn ứng dụng rồi mở lại.',

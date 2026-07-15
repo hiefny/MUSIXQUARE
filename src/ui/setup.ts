@@ -32,7 +32,8 @@ import {
   clearPendingRoomPasswordJoin,
 } from './setup-guest.ts';
 import { animateTransition } from './dom.ts';
-import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { scheduleSessionReset } from '../core/session-reset.ts';
+import { cancelPendingSessionSetup } from '../network/peer.ts';
 import {
   BACK_SVG,
   syncDesktopLeftPanel,
@@ -155,6 +156,14 @@ function triggerAppEntrance(): void {
 function initSetupOverlay(): void {
   cancelCapabilityChallenge('Setup flow cancelled');
 
+  // The setup back action is a soft UI reset, but a provisional signaling
+  // identity may already exist. Mark the flow idle first so any in-flight
+  // network initialization self-cancels, then explicitly release resources
+  // that have already opened.
+  setState('network.appRole', 'idle');
+  cancelPendingSessionSetup();
+  setState('setup.sessionStarted', false);
+
   // Abort previous setup overlay listeners to prevent accumulation
   const prevAbort = getSetupOverlayAbort();
   if (prevAbort) prevAbort.abort();
@@ -178,12 +187,10 @@ function initSetupOverlay(): void {
   });
   setupSetGuestJoinBusy(false);
 
-  setState('network.appRole', 'idle');
   setState('network.sessionCode', '');
   setState('network.roomPasswordRequired', false);
   setState('network.roomPassword', '');
   setCurrentObSlide(0);
-  setState('setup.sessionStarted', false);
   setPendingGuestRoleMode(null);
 
   updateRoleBadge();
@@ -334,6 +341,11 @@ export function initSetup(): void {
   bus.on('setup:guest-join-success', () => {
     setState('network.isConnecting', false);
     clearPendingRoomPasswordJoin();
+    try {
+      sessionStorage.removeItem('mxqr_reconnect_target');
+    } catch {
+      /* noop */
+    }
 
     // Mark session as started so guests can see QR / invite link in Connect tab
     setState('setup.sessionStarted', true);
@@ -526,28 +538,14 @@ export function initSetup(): void {
               } catch {
                 /* noop */
               }
-              showLoader(true, t('setup.joining'));
-              setManagedTimer(
-                'reconnect-hard-reload',
-                () => {
-                  markIntentionalNav();
-                  window.location.href = '/' + lastCode;
-                },
-                300,
-              );
+              scheduleSessionReset(t('dialog.refreshing_session'), () => {
+                window.location.href = '/' + lastCode;
+              });
             } else {
               startGuestFlow();
             }
           } else {
-            showLoader(true, t('dialog.leaving_session'));
-            setManagedTimer(
-              'reconnect-dialog-reload',
-              () => {
-                markIntentionalNav();
-                window.location.reload();
-              },
-              300,
-            );
+            scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
           }
         })
         .catch((e) => log.warn('[Setup] Reconnect dialog error:', e));
@@ -573,15 +571,7 @@ export function initSetup(): void {
   // Kicked from session (guest removed from host device list)
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
-    showLoader(true, t('dialog.leaving_session'));
-    setManagedTimer(
-      'kicked-from-session-reload',
-      () => {
-        markIntentionalNav();
-        window.location.reload();
-      },
-      300,
-    );
+    scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
@@ -594,15 +584,7 @@ export function initSetup(): void {
     })
       .catch((e) => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {
-        showLoader(true, t('dialog.leaving_session'));
-        setManagedTimer(
-          'kicked-explicit-reload',
-          () => {
-            markIntentionalNav();
-            window.location.reload();
-          },
-          300,
-        );
+        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
       });
   });
 

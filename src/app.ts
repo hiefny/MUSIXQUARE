@@ -28,6 +28,7 @@ import {
 } from './core/page-lifecycle.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
+import { scheduleSessionReset } from './core/session-reset.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -331,42 +332,26 @@ function initBackButtonGuard(): void {
           defaultFocus: 'secondary',
         });
         if (result.action === 'ok') {
-          try {
-            leaveSession();
-          } catch (e) {
-            log.warn('[App] leaveSession failed:', e);
-          }
-          markIntentionalNav();
-          // The user explicitly chose "leave" — actually navigate them
-          // out. The history stack at this point is roughly:
-          //   [referrer] → [musixquare:session] → [guard entry]
-          //                                       ↑ current
-          // A naïve `location.replace('/')` would only swap the current
-          // entry, leaving the session entry behind:
-          //   [referrer] → [musixquare:session] → [musixquare:home]
-          // …so the user has to press back TWICE to actually leave the
-          // app (and a forward press could resurrect the ghost session).
-          //
-          // `history.go(-2)` pops both the guard and the session entry
-          // in one shot, landing on the referrer (the natural "before
-          // musixquare" page). For users who entered directly (no
-          // referrer, stack too shallow) `go(-2)` is a no-op — detect
-          // that and fall back to a hard replace to the home page.
-          const beforeUrl = location.href;
-          try {
-            history.go(-2);
-          } catch {
-            /* noop */
-          }
-          setManagedTimer(
-            'app:back-button-go-fallback',
-            () => {
-              if (location.href === beforeUrl) {
-                window.location.replace('/');
-              }
-            },
-            150,
-          );
+          scheduleSessionReset(t('dialog.refreshing_session'), () => {
+            try {
+              leaveSession();
+            } catch (e) {
+              log.warn('[App] leaveSession failed:', e);
+            }
+
+            // Pop both the guard and session entries. Direct-entry users have
+            // no usable history target, so they fall back to a hard replace.
+            const beforeUrl = location.href;
+            try {
+              history.go(-2);
+            } catch {
+              /* noop */
+            }
+            // Native timer by design: leaveSession() clears managed timers.
+            window.setTimeout(() => {
+              if (location.href === beforeUrl) window.location.replace('/');
+            }, 150);
+          });
         }
       } catch (e) {
         log.warn('[App] Back-button dialog failed:', e);
@@ -490,7 +475,8 @@ async function bootstrap(): Promise<void> {
     initPageLifecycleHandlers({
       getRole: () => getState('network.appRole'),
       leaveSession,
-      reload: () => window.location.reload(),
+      reload: () =>
+        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload()),
       log,
     }),
   );

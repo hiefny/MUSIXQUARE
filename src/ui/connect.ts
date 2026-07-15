@@ -20,10 +20,9 @@ import { getOtherDeviceLabels } from '../network/guards.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { containsProfanity } from '../chat/profanity.ts';
-import { showToast, showLoader } from './toast.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { showToast } from './toast.ts';
 import { copyTextToClipboard } from './dom.ts';
-import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { scheduleSessionReset } from '../core/session-reset.ts';
 
 let _langObserver: MutationObserver | null = null;
 let _lastDeviceList: Array<Record<string, unknown>> = [];
@@ -543,17 +542,7 @@ export function initConnect(): void {
       secondaryText: t('common.cancel'),
     }).then((res) => {
       if (res && res.action === 'ok') {
-        showLoader(true, t('dialog.leaving_session'));
-        // Flip the intentional-nav flag from inside the timer callback so
-        // a cancelled/cleared timer can't leave the flag stuck true.
-        setManagedTimer(
-          'leave-session-reload',
-          () => {
-            markIntentionalNav();
-            window.location.reload();
-          },
-          300,
-        );
+        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
       }
     });
   };

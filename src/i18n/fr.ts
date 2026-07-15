@@ -500,7 +500,7 @@ const fr: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Quitter la salle',
   'dialog.return_home_msg': 'Revenir à l’écran de départ ?',
   'dialog.return_home_detail': 'Vous serez déconnecté de la salle actuelle.',
-  'dialog.leaving_session': 'Sortie de la salle...',
+  'dialog.refreshing_session': 'Actualisation de la session...',
   'dialog.background_resume_title': 'L’app est brièvement passée en arrière-plan',
   'dialog.background_resume_message':
     'Si la synchronisation est décalée ou si le son ne joue pas, fermez complètement l’app puis rouvrez-la.',

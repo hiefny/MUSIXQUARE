@@ -11,7 +11,7 @@ import { getState } from './core/state.ts';
 import { showDialog } from './ui/dialog.ts';
 import { showToast } from './ui/toast.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { markIntentionalNav } from './core/page-lifecycle.ts';
+import { scheduleSessionReset } from './core/session-reset.ts';
 
 const SW_UPDATE_KEY = 'sw-updated-at';
 // Avoid a second update prompt when controller activation and reload overlap.
@@ -26,8 +26,7 @@ function reloadForServiceWorkerUpdate(): void {
   if (_swReloading) return;
   _swReloading = true;
   sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
-  markIntentionalNav();
-  window.location.reload();
+  scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
 }
 
 export function registerServiceWorker(): void {

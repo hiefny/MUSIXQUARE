@@ -22,12 +22,11 @@
  *      active, force a reload so cached UI cannot claim that dead runtime
  *      resources are connected.
  *
- * Any code path that programmatically navigates away during a session must call
- * `markIntentionalNav()` immediately before the navigation. Put the call
- * INSIDE any setTimeout/setManagedTimer callback wrapping the navigate,
- * never before it: a cancelled timer shouldn't leave the flag asserted
- * because that would suppress the native confirm on a later user-driven
- * close attempt.
+ * App-owned hard navigations should go through `core/session-reset.ts`, which
+ * blocks interaction, allows the overlay to paint, and calls
+ * `markIntentionalNav()` immediately before navigation. Keeping the flag at
+ * that final boundary prevents an abandoned reset from suppressing a later
+ * user-driven close confirmation.
  */
 
 let _intentionalNav = false;

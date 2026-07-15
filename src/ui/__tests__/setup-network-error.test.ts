@@ -19,6 +19,14 @@ vi.mock('../../core/page-lifecycle.ts', () => ({
   markIntentionalNav: vi.fn(),
 }));
 
+vi.mock('../../core/session-reset.ts', () => ({
+  scheduleSessionReset: vi.fn(),
+}));
+
+vi.mock('../../network/peer.ts', () => ({
+  cancelPendingSessionSetup: vi.fn(),
+}));
+
 vi.mock('../../player/ownership.ts', () => ({
   isPlaybackModeYouTube: vi.fn(() => false),
 }));
@@ -100,6 +108,7 @@ function startJoining(): void {
 beforeEach(() => {
   bus.clear();
   resetState();
+  sessionStorage.clear();
   document.body.innerHTML = '';
   window.history.replaceState({}, '', '/');
   Object.defineProperty(window, 'matchMedia', {
@@ -139,5 +148,15 @@ describe('setup network error messages', () => {
     expect(showToast).toHaveBeenCalledWith('error.host_unreachable');
     expect(showToast).not.toHaveBeenCalledWith('network.cant_join');
     expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('clears the reconnect marker after a successful guest join', () => {
+    sessionStorage.setItem('mxqr_reconnect_target', '123456');
+    setState('network.lastJoinCode', '123456');
+
+    bus.emit('setup:guest-join-success');
+
+    expect(sessionStorage.getItem('mxqr_reconnect_target')).toBeNull();
+    expect(getState('setup.sessionStarted')).toBe(true);
   });
 });

@@ -37,7 +37,7 @@ import {
   setupRenderActions,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
-import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { scheduleSessionReset } from '../core/session-reset.ts';
 import { showDialog } from './dialog.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
@@ -140,8 +140,9 @@ function _renderInviteLinkActions(): void {
         html: BACK_SVG,
         kind: 'icon-only',
         onClick: () => {
-          markIntentionalNav();
-          window.location.href = '/';
+          scheduleSessionReset(t('dialog.refreshing_session'), () => {
+            window.location.href = '/';
+          });
         },
       },
       {
@@ -188,8 +189,9 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
         html: BACK_SVG,
         kind: 'icon-only',
         onClick: () => {
-          markIntentionalNav();
-          window.location.href = '/';
+          scheduleSessionReset(t('dialog.refreshing_session'), () => {
+            window.location.href = '/';
+          });
         },
         disabled: true,
       },
@@ -333,8 +335,9 @@ function renderPasswordRetryBusy(inviteLink: boolean): void {
         kind: 'icon-only',
         onClick: inviteLink
           ? () => {
-              markIntentionalNav();
-              window.location.href = '/';
+              scheduleSessionReset(t('dialog.refreshing_session'), () => {
+                window.location.href = '/';
+              });
             }
           : () => _goBack(),
         disabled: true,

@@ -15,7 +15,6 @@ import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/tim
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
-import { showLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
 import {
   updateOverlayOpenClass,
@@ -36,7 +35,7 @@ import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
-import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { scheduleSessionReset } from '../core/session-reset.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import {
   isPlaybackModeFile,
@@ -619,16 +618,8 @@ async function handleLogoReturnToMain(): Promise<void> {
       if (res.action !== 'ok') return;
     }
 
-    // Hard reload — clears all in-memory blobs, audio buffers, and stale state
-    showLoader(true, t('dialog.leaving_session'));
-    setManagedTimer(
-      'logo-nav-reload',
-      () => {
-        markIntentionalNav();
-        window.location.reload();
-      },
-      300,
-    );
+    // Hard reload — clears all in-memory blobs, audio buffers, and stale state.
+    scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
   } finally {
     _logoNavBusy = false;
   }

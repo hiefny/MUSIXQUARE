@@ -473,7 +473,7 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.return_home_title': '离开房间',
   'dialog.return_home_msg': '返回初始界面吗？',
   'dialog.return_home_detail': '你将与当前房间断开连接。',
-  'dialog.leaving_session': '正在离开房间...',
+  'dialog.refreshing_session': '正在刷新会话...',
   'dialog.background_resume_title': '应用短暂进入了后台',
   'dialog.background_resume_message': '如果同步不准或没有声音，请完全关闭应用后重新打开。',
   'dialog.background_resume_sync_fallback_message':

@@ -11,7 +11,7 @@ import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/cap
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
-import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { scheduleSessionReset } from '../core/session-reset.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { DEFAULT_MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers, clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -497,7 +497,7 @@ function setupPeerEvents(): void {
     //      still has a working channel, the session is functional and
     //      the user shouldn't be bounced to a reload.
     const appRole = getState('network.appRole');
-    if (!appRole) return;
+    if (appRole !== 'host' && appRole !== 'guest') return;
 
     setManagedTimer(
       'peer-disconnect-grace',
@@ -509,6 +509,7 @@ function setupPeerEvents(): void {
         // is functional even without signaling (no new peers can join, but
         // sync/playback for existing peers continues normally).
         const role = getState('network.appRole');
+        if (role !== 'host' && role !== 'guest') return;
         if (role === 'host') {
           const peers = getState('network.connectedPeers') || [];
           const hasLive = peers.some((p) => (p.conn as DataConnection)?.open);
@@ -534,8 +535,7 @@ function setupPeerEvents(): void {
           buttonText: t('dialog.session_lost_btn'),
         }).then((res) => {
           if (res.action !== 'ok') return; // ESC / background dismiss
-          markIntentionalNav();
-          window.location.reload();
+          scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
         });
       },
       5000,
@@ -579,6 +579,82 @@ function setupPeerEvents(): void {
 }
 
 // ─── Leave / Cleanup ────────────────────────────────────────────────
+
+const PENDING_SETUP_TIMER_KEYS = [
+  'peer-open-timeout',
+  'peer-signaling-reconnect',
+  'peer-disconnect-grace',
+  'join-timeout',
+  'join-retry',
+  'guest-ice-fallback',
+] as const;
+
+/**
+ * Release a provisional host/guest identity when setup returns to onboarding.
+ * This intentionally leaves playlist, media, and user preferences untouched:
+ * setup cancellation is not an active-session hard reset.
+ */
+export function cancelPendingSessionSetup(): void {
+  if (getState('setup.sessionStarted')) return;
+
+  const hostConn = getState('network.hostConn');
+  const connectedPeers = getState('network.connectedPeers');
+  const peer = getPeer();
+  const hadOpenResources = !!peer || !!hostConn || connectedPeers.length > 0;
+
+  if (hadOpenResources) setState('network.isIntentionalDisconnect', true);
+  for (const timerKey of PENDING_SETUP_TIMER_KEYS) clearManagedTimer(timerKey);
+  _reconnectAttempts = 0;
+
+  try {
+    hostConn?.close();
+  } catch {
+    /* noop */
+  }
+  for (const connectedPeer of connectedPeers) {
+    try {
+      (connectedPeer.conn as DataConnection | null)?.close();
+    } catch {
+      /* noop */
+    }
+  }
+  try {
+    peer?.destroy();
+  } catch {
+    /* noop */
+  }
+  if (peer) setPeer(null);
+
+  batchSetState({
+    'network.myId': null,
+    'network.myJoinOrder': 0,
+    'network.sessionCode': '',
+    'network.lastJoinCode': '',
+    'network.hostConn': null,
+    'network.connectedPeers': [],
+    'network.isConnecting': false,
+    'network.connectionType': 'unknown',
+    'network.lastKnownDeviceList': null,
+    'network.peerLabels': {},
+    'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
+    'network.peerSlotByPeerId': new Map<string, number>(),
+    'network.activeHostConnByPeerId': new Map<string, DataConnection>(),
+  });
+
+  if (hadOpenResources) {
+    setManagedTimer(
+      'setup-cancel-intent-reset',
+      () => {
+        if (getState('network.appRole') === 'idle' && !getState('setup.sessionStarted')) {
+          setState('network.isIntentionalDisconnect', false);
+        }
+      },
+      500,
+    );
+  } else {
+    setState('network.isIntentionalDisconnect', false);
+  }
+}
 
 /**
  * Leave the current session and clean up all network state.
@@ -648,10 +724,13 @@ export function leaveSession(): void {
 
   // ── 6. Reset all state ──
   batchSetState({
+    // Setup
+    'setup.sessionStarted': false,
     // Network
     'network.appRole': 'idle',
     'network.myId': null,
     'network.myDeviceLabel': 'HOST',
+    'network.myJoinOrder': 0,
     'network.hostConn': null,
     'network.connectedPeers': [],
     'network.isOperator': false,
@@ -662,6 +741,9 @@ export function leaveSession(): void {
     // Note: isIntentionalDisconnect is NOT reset here — async close handlers
     // may read it after batchSetState. Reset via delayed timer below.
     'network.sessionCode': '',
+    'network.lastJoinCode': '',
+    'network.roomPasswordRequired': false,
+    'network.roomPassword': '',
     'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.maxGuestSlots': DEFAULT_MAX_GUEST_SLOTS,
     'network.mutedPeers': new Set<string>(),
@@ -679,6 +761,7 @@ export function leaveSession(): void {
     'transfer.localSessionId': 0,
     'transfer.currentSessionId': 0,
     'transfer.activeBroadcastSession': null,
+    'transfer.lastReceivedCountSnapshot': 0,
     // Reset stale-chunk burst detection counters so a reconnect doesn't
     // carry over a mid-burst window from the prior session and trip the
     // early-recovery heuristic prematurely on its first post-reconnect chunk.
@@ -690,6 +773,8 @@ export function leaveSession(): void {
     // Files
     'files.current': null,
     // Preload
+    'preload.isPreloading': false,
+    'preload.sessionId': 0,
     'preload.activeTarget': null,
     'preload.ready': null,
     'preload.nextQueueItemId': null,
@@ -703,11 +788,20 @@ export function leaveSession(): void {
     // Sync
     'sync.localOffset': 0,
     'sync.youtubeLocalOffset': 0,
+    'sync.lastLatencyMs': 0,
+    'sync.latencyHistory': [],
     // Player
+    'player.startedAt': 0,
     'player.currentTrackMeta': null,
     'player.pausedAt': 0,
+    'player.isSeeking': false,
+    'player.isFirstTrackLoad': true,
+    'player.decodeFailureCount': 0,
     // YouTube
+    'youtube.currentSubIndex': -1,
     'youtube.subItemsMap': {},
+    // System audio
+    'systemAudio.isReceiving': false,
   });
 
   // ── 8. Reset UI ──

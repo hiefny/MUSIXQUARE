@@ -476,8 +476,8 @@ function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnect
 function handleKickDeviceMsg(_data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop frames not arriving via hostConn. Without this, a malicious guest
   // can send {type:'kick-device'} to the host — the bus.emit below triggers
-  // setup.ts, which calls window.location.reload() in 300ms. Single raw
-  // frame from any session participant terminates the host's whole session.
+  // setup.ts, which schedules a blocking hard reset. A single raw frame from
+  // any session participant must never terminate the host's whole session.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   setState('network.isIntentionalDisconnect', true);

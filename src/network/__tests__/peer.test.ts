@@ -6,25 +6,28 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import { detectConnectionType } from '../peer-state.ts';
+import { detectConnectionType, getPeer, setPeer } from '../peer-state.ts';
 import {
+  cancelPendingSessionSetup,
   forceStereoSdp,
   isRemoteGuest,
   isTrustedSystemAudioMediaCall,
   leaveSession,
   safeSend,
 } from '../peer.ts';
-import type { AnyProtocolMsg, DataConnection } from '../../types/index.ts';
+import type { AnyProtocolMsg, DataConnection, PeerInstance } from '../../types/index.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
   clearAllManagedTimers();
   resetState();
+  setPeer(null);
   bus.clear();
 });
 
 afterEach(() => {
   clearAllManagedTimers();
+  setPeer(null);
 });
 
 function makeConnection(overrides: Partial<DataConnection>): DataConnection {
@@ -142,6 +145,69 @@ describe('leaveSession', () => {
     expect(getState('playlist.items')).toEqual([]);
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('resets session-scoped setup, transfer, sync, and identity state', () => {
+    setState('setup.sessionStarted', true);
+    setState('network.myJoinOrder', 3);
+    setState('network.lastJoinCode', '123456');
+    setState('network.roomPasswordRequired', true);
+    setState('network.roomPassword', '12345678');
+    setState('transfer.lastReceivedCountSnapshot', 42);
+    setState('preload.isPreloading', true);
+    setState('preload.sessionId', 7);
+    setState('sync.lastLatencyMs', 18);
+    setState('sync.latencyHistory', [12, 18]);
+    setState('player.isSeeking', true);
+    setState('player.decodeFailureCount', 2);
+    setState('youtube.currentSubIndex', 4);
+    setState('systemAudio.isReceiving', true);
+
+    leaveSession();
+
+    expect(getState('setup.sessionStarted')).toBe(false);
+    expect(getState('network.myJoinOrder')).toBe(0);
+    expect(getState('network.lastJoinCode')).toBe('');
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    expect(getState('network.roomPassword')).toBe('');
+    expect(getState('transfer.lastReceivedCountSnapshot')).toBe(0);
+    expect(getState('preload.isPreloading')).toBe(false);
+    expect(getState('preload.sessionId')).toBe(0);
+    expect(getState('sync.lastLatencyMs')).toBe(0);
+    expect(getState('sync.latencyHistory')).toEqual([]);
+    expect(getState('player.isSeeking')).toBe(false);
+    expect(getState('player.decodeFailureCount')).toBe(0);
+    expect(getState('youtube.currentSubIndex')).toBe(-1);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+  });
+});
+
+describe('cancelPendingSessionSetup', () => {
+  it('destroys a provisional peer without clearing the local playlist', () => {
+    const destroy = vi.fn();
+    setPeer({ destroy } as unknown as PeerInstance);
+    setState('network.appRole', 'idle');
+    setState('setup.sessionStarted', false);
+    setState('network.myId', 'provisional-host');
+    setState('network.sessionCode', '123456');
+    setState('playlist.items', [
+      {
+        queueItemId: 'queue-1',
+        type: 'file',
+        name: 'keep-me.wav',
+        title: 'Keep me',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+
+    cancelPendingSessionSetup();
+
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(getPeer()).toBeNull();
+    expect(getState('network.myId')).toBeNull();
+    expect(getState('network.sessionCode')).toBe('');
+    expect(getState('playlist.items')).toHaveLength(1);
   });
 });
 

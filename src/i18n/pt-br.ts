@@ -496,7 +496,7 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Sair da sala',
   'dialog.return_home_msg': 'Voltar para a tela inicial?',
   'dialog.return_home_detail': 'Você será desconectado da sala atual.',
-  'dialog.leaving_session': 'Saindo da sala...',
+  'dialog.refreshing_session': 'Atualizando a sessão...',
   'dialog.background_resume_title': 'O app foi brevemente para segundo plano',
   'dialog.background_resume_message':
     'Se a sincronização falhar ou o áudio não tocar, feche o app completamente e abra de novo.',

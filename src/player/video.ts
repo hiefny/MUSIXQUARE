@@ -17,52 +17,6 @@ import {
   setPlaybackYouTubePlaying,
 } from './ownership.ts';
 
-// ─── Upload-time guard: reject video files ────────────────────────
-
-const VIDEO_EXTENSIONS = [
-  'mp4',
-  'm4v',
-  'mkv',
-  'webm',
-  'mov',
-  'qt',
-  'avi',
-  'wmv',
-  'asf',
-  '3gp',
-  '3g2',
-  'flv',
-  'f4v',
-  'mpeg',
-  'mpg',
-  'mpe',
-  'mp2',
-  'ts',
-  'm2ts',
-  'mts',
-  'ogv',
-  'vob',
-  'dv',
-  'mxf',
-];
-
-export function isMediaVideo(
-  blob: Blob | File | null,
-  metadata?: Record<string, unknown> | null,
-): boolean {
-  if (!blob) return false;
-
-  if (blob.type && blob.type.startsWith('video/')) return true;
-  if (metadata) {
-    if (typeof metadata.mime === 'string' && metadata.mime.startsWith('video/')) return true;
-    if (typeof metadata.type === 'string' && metadata.type.startsWith('video/')) return true;
-  }
-
-  const fileName = (metadata?.name as string) || (blob as File).name || '';
-  const ext = fileName.split('.').pop()?.toLowerCase() || '';
-  return VIDEO_EXTENSIONS.includes(ext);
-}
-
 // ─── Engine mode switch (audio ↔ YouTube) ─────────────────────────
 
 export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {

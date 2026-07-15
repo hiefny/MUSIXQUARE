@@ -38,6 +38,7 @@ import type {
   ResidentFile,
 } from '../../types/index.ts';
 import { findQueueItemIndex } from '../queue-model.ts';
+import { t } from '../../i18n/index.ts';
 
 const decodeMocks = vi.hoisted(() => ({
   loadPreloadedTrack: vi.fn<(queueItemId: QueueItemId, epoch?: number) => Promise<boolean>>(),
@@ -86,6 +87,11 @@ function makeConnectedPeer(id: string, isOp: boolean): ConnectedPeer {
     connectionType: 'unknown',
     lastHeartbeat: 0,
   };
+}
+
+function mountToastMessage(): HTMLElement {
+  document.body.innerHTML = '<div id="toast"><span id="toast-msg"></span></div>';
+  return document.getElementById('toast-msg') as HTMLElement;
 }
 
 let nextQueueItemIdValue = 1;
@@ -180,6 +186,48 @@ describe('setShuffle', () => {
   it('disables shuffle', () => {
     setShuffle(false, false);
     expect(getState('playlist.isShuffle')).toBe(false);
+  });
+});
+
+describe('local file admission', () => {
+  it('rejects unsupported files that bypass the native picker hint', async () => {
+    initPlaylist();
+    const toastMessage = mountToastMessage();
+
+    bus.emit('app:files-selected', [
+      new File(['p'], 'document.pdf', { type: 'application/pdf' }),
+      new File(['i'], 'cover.png', { type: 'image/png' }),
+    ]);
+
+    await vi.waitFor(() => expect(getState('playlist.items')).toHaveLength(0));
+    expect(toastMessage.innerText).toBe(t('toast.no_supported_audio_files'));
+  });
+
+  it('adds only audio candidates from a mixed selection', async () => {
+    initPlaylist();
+    const toastMessage = mountToastMessage();
+    const declaredAudio = new File(['a'], 'track.unknown', { type: 'audio/opus' });
+    const extensionFallback = new File(['b'], 'archive.caf', {
+      type: 'application/octet-stream',
+    });
+
+    bus.emit('app:files-selected', [
+      declaredAudio,
+      new File(['p'], 'document.pdf', { type: 'application/pdf' }),
+      extensionFallback,
+    ]);
+
+    await vi.waitFor(() => {
+      expect(getState('playlist.items').map((item) => item.file)).toEqual([
+        declaredAudio,
+        extensionFallback,
+      ]);
+    });
+    expect(toastMessage.innerText).toBe(
+      `${t('toast.added_tracks', { count: 2 })}\n${t('toast.unsupported_files_excluded', {
+        count: 1,
+      })}`,
+    );
   });
 });
 

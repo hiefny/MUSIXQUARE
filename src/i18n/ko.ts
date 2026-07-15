@@ -432,8 +432,8 @@ const ko = {
   'toast.invite_code_settings': '연결 탭에서 초대 링크를 공유할 수 있어요',
   'toast.click_copy_invite': '클릭하여 초대코드 복사',
   'toast.cant_select_file': '파일을 선택할 수 없어요',
-  'toast.video_excluded': '영상 파일은 제외하고 추가됐어요.',
-  'toast.video_only_rejected': '영상 파일은 추가할 수 없어요.',
+  'toast.unsupported_files_excluded': '지원하지 않는 파일 {{count}}개는 제외돼요.',
+  'toast.no_supported_audio_files': '추가할 수 있는 오디오 파일이 없어요.',
   'dialog.large_room_file.title': '대규모 모임에서 파일 공유',
   'dialog.large_room_file.message':
     '로컬 파일 공유는 로컬 네트워크에서 최대 8명 정도까지 안정적이에요.\n\n계속 진행할까요?',
@@ -545,6 +545,7 @@ const ko = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': '로컬파일 추가',
   'dialog.file_drop.message': '{{count}}곡을 추가할까요?',
+  'dialog.file_drop.unsupported_notice': '지원하지 않는 파일 {{count}}개는 제외돼요.',
   'dialog.return_home_title': '세션 나가기',
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',

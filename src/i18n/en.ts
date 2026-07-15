@@ -434,8 +434,8 @@ const en: Record<I18nKey, string> = {
   'toast.invite_code_settings': 'Share the invite link from the Connect tab.',
   'toast.click_copy_invite': 'Click to copy invite code',
   'toast.cant_select_file': "Can't select a file",
-  'toast.video_excluded': 'Video files were skipped.',
-  'toast.video_only_rejected': "Can't add video files.",
+  'toast.unsupported_files_excluded': 'Unsupported files skipped: {{count}}',
+  'toast.no_supported_audio_files': 'No supported audio files to add.',
   'dialog.large_room_file.title': 'File sharing in a large room',
   'dialog.large_room_file.message':
     'Local file sharing is stable with up to ~8 participants on a local network.\n\nContinue?',
@@ -548,6 +548,7 @@ const en: Record<I18nKey, string> = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Add local files',
   'dialog.file_drop.message': 'Add {{count}} tracks?',
+  'dialog.file_drop.unsupported_notice': "{{count}} unsupported files won't be added.",
   'dialog.return_home_title': 'Leave Session',
   'dialog.return_home_msg': 'Return to the start screen?',
   'dialog.return_home_detail': 'You will be disconnected from the current session.',

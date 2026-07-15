@@ -29,6 +29,7 @@ import { getTrackPosition, isFilePipelineBusyForPlay, togglePlay } from '../play
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
+import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
@@ -680,7 +681,8 @@ export function initPlayerControls(): void {
     };
     const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
     const videoWrapper = document.querySelector('.video-wrapper') as
-      (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;
+      | (HTMLElement & { webkitRequestFullscreen?: () => void })
+      | null;
     const target = videoWrapper || el;
 
     const enterFake = () => {
@@ -943,6 +945,7 @@ export function initPlayerControls(): void {
   // File input handler
   const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
   if (fileInput) {
+    fileInput.accept = AUDIO_FILE_ACCEPT;
     fileInput.addEventListener('change', (e) => {
       closeMediaSourcePopup();
       bus.emit('app:files-selected', (e.target as HTMLInputElement).files);

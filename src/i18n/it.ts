@@ -446,8 +446,8 @@ const it: Record<I18nKey, string> = {
   'toast.invite_code_settings': "Puoi condividere il link d'invito dalla scheda Connessione.",
   'toast.click_copy_invite': "Clicca per copiare il codice d'invito",
   'toast.cant_select_file': 'Impossibile selezionare il file',
-  'toast.video_excluded': 'I file video sono stati esclusi.',
-  'toast.video_only_rejected': 'Non è consentito aggiungere file video.',
+  'toast.unsupported_files_excluded': 'File non supportati esclusi: {{count}}',
+  'toast.no_supported_audio_files': 'Nessun file audio supportato da aggiungere.',
   'dialog.large_room_file.title': 'Condividi file in una stanza grande',
   'dialog.large_room_file.message':
     'La condivisione locale di file è ottimale con al massimo 8 ospiti sulla stessa rete locale.\n\nVuoi continuare comunque?',
@@ -567,6 +567,7 @@ const it: Record<I18nKey, string> = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Aggiungi file locali',
   'dialog.file_drop.message': 'Aggiungere {{count}} brani?',
+  'dialog.file_drop.unsupported_notice': '{{count}} file non supportati non verranno aggiunti.',
   'dialog.return_home_title': 'Esci dalla stanza',
   'dialog.return_home_msg': 'Vuoi tornare alla schermata iniziale?',
   'dialog.return_home_detail': 'La connessione con la stanza corrente verrà interrotta.',

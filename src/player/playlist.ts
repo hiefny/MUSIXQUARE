@@ -26,7 +26,7 @@ import {
   getCurrentAudioBuffer,
   setCurrentAudioBuffer,
 } from './_state.ts';
-import { isMediaVideo } from './video.ts';
+import { partitionAudioFileCandidates } from '../media/audio-file.ts';
 import { transition } from './lifecycle.ts';
 
 import {
@@ -1247,25 +1247,15 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
   }
 
   // MUSIXQUARE is music-only — videos are served through the YouTube path.
-  // Screens the file picker's accept filter can miss (both drag-and-drop and
-  // the native dialog's "All files" override reach this shared guard).
-  const accepted: File[] = [];
-  const rejected: string[] = [];
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    if (!file) continue;
-    if (isMediaVideo(file)) {
-      rejected.push(file.name);
-    } else {
-      accepted.push(file);
-    }
-  }
+  // The picker `accept` attribute is only a hint. This shared consumer is the
+  // authoritative guard for picker overrides, drops, and future entry points.
+  // Native decode still decides whether a candidate is actually playable.
+  const { accepted, rejected } = partitionAudioFileCandidates(files);
 
-  if (rejected.length > 0) {
-    showToast(accepted.length === 0 ? t('toast.video_only_rejected') : t('toast.video_excluded'));
+  if (accepted.length === 0) {
+    if (rejected.length > 0) showToast(t('toast.no_supported_audio_files'));
+    return;
   }
-
-  if (accepted.length === 0) return;
 
   // Large-room soft warning: only when the host has explicitly bumped the
   // slot cap into "big party" territory, and only once per session.
@@ -1316,7 +1306,12 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
   broadcastPlaylistSnapshot();
   bus.emit('playlist:items-added', addedQueueItemIds);
 
-  showToast(t('toast.added_tracks', { count: addedQueueItemIds.length }));
+  const addedMessage = t('toast.added_tracks', { count: addedQueueItemIds.length });
+  showToast(
+    rejected.length > 0
+      ? `${addedMessage}\n${t('toast.unsupported_files_excluded', { count: rejected.length })}`
+      : addedMessage,
+  );
 
   // Auto-play the first added occurrence only when no occurrence is already
   // selected. Selection happens synchronously before async decode, preventing

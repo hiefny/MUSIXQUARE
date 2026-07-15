@@ -10,7 +10,7 @@
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
-import { isMediaVideo } from '../player/video.ts';
+import { partitionAudioFileCandidates } from '../media/audio-file.ts';
 import { showDialog } from './dialog.ts';
 import { isAnyOverlayShown } from './dom.ts';
 
@@ -176,11 +176,17 @@ function handleFileDragLeave(event: DragEvent): void {
   if (event.relatedTarget === null) deactivateFileDragShield();
 }
 
-async function confirmDroppedFiles(files: readonly File[], acceptedCount: number): Promise<void> {
+async function confirmDroppedFiles(files: readonly File[], rejectedCount: number): Promise<void> {
   try {
+    const message = [
+      t('dialog.file_drop.message', { count: files.length }),
+      rejectedCount > 0 ? t('dialog.file_drop.unsupported_notice', { count: rejectedCount }) : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
     const result = await showDialog({
       title: t('dialog.file_drop.title'),
-      message: t('dialog.file_drop.message', { count: acceptedCount }),
+      message,
       buttonText: t('common.ok'),
       secondaryText: t('common.cancel'),
       defaultFocus: 'secondary',
@@ -210,18 +216,18 @@ function handleFileDrop(event: DragEvent): void {
   const files = snapshotDroppedFiles(event.dataTransfer);
   if (files.length === 0) return;
 
-  const acceptedCount = files.reduce((count, file) => count + (isMediaVideo(file) ? 0 : 1), 0);
+  const { accepted, rejected } = partitionAudioFileCandidates(files);
 
-  // Preserve the existing video-only rejection toast instead of asking the
-  // nonsensical question "Add 0 tracks?". Mixed drops still pass all files to
-  // the shared pipeline so its "videos excluded" feedback remains intact.
-  if (acceptedCount === 0) {
+  // Keep the playlist handler as the final authority for picker overrides and
+  // future emitters. Routing the all-rejected case through it also centralizes
+  // the user-facing rejection toast without opening a meaningless dialog.
+  if (accepted.length === 0) {
     bus.emit('app:files-selected', files);
     return;
   }
 
   _dropConfirmationInFlight = true;
-  void confirmDroppedFiles(files, acceptedCount);
+  void confirmDroppedFiles(accepted, rejected.length);
 }
 
 export function initGlobalFileDrop(): void {

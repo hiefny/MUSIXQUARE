@@ -436,8 +436,8 @@ const th: Record<I18nKey, string> = {
   'toast.invite_code_settings': 'แชร์ลิงก์เชิญได้จากแท็บ "เชื่อมต่อ"',
   'toast.click_copy_invite': 'คลิกเพื่อคัดลอกรหัสเชิญ',
   'toast.cant_select_file': 'เลือกไฟล์ไม่ได้',
-  'toast.video_excluded': 'ข้ามไฟล์วิดีโอแล้ว',
-  'toast.video_only_rejected': 'เพิ่มไฟล์วิดีโอไม่ได้',
+  'toast.unsupported_files_excluded': 'จะข้ามไฟล์ที่ไม่รองรับ {{count}} ไฟล์',
+  'toast.no_supported_audio_files': 'ไม่มีไฟล์เสียงที่เพิ่มได้',
   'dialog.large_room_file.title': 'แชร์ไฟล์ในห้องขนาดใหญ่',
   'dialog.large_room_file.message':
     'การแชร์ไฟล์ในเครื่องจะเสถียรเมื่อมีผู้เข้าร่วมไม่เกินประมาณ 8 คนบนเครือข่ายท้องถิ่น\n\nดำเนินการต่อ?',
@@ -547,6 +547,7 @@ const th: Record<I18nKey, string> = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'เพิ่มไฟล์ในเครื่อง',
   'dialog.file_drop.message': 'เพิ่มเพลง {{count}} เพลงไหม?',
+  'dialog.file_drop.unsupported_notice': 'ไฟล์ที่ไม่รองรับ {{count}} ไฟล์จะไม่ถูกเพิ่ม',
   'dialog.return_home_title': 'ออกจากห้อง',
   'dialog.return_home_msg': 'กลับไปหน้าจอเริ่มต้น?',
   'dialog.return_home_detail': 'คุณจะถูกตัดการเชื่อมต่อจากห้องปัจจุบัน',

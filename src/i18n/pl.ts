@@ -443,8 +443,8 @@ const pl: Record<I18nKey, string> = {
   'toast.invite_code_settings': 'Możesz udostępnić link zaproszenia z zakładki Połączenie.',
   'toast.click_copy_invite': 'Kliknij, aby skopiować kod zaproszenia',
   'toast.cant_select_file': 'Nie można wybrać pliku',
-  'toast.video_excluded': 'Pliki wideo zostały wykluczone.',
-  'toast.video_only_rejected': 'Dodawanie plików wideo jest niedozwolone.',
+  'toast.unsupported_files_excluded': 'Pominięte nieobsługiwane pliki: {{count}}',
+  'toast.no_supported_audio_files': 'Brak obsługiwanych plików audio do dodania.',
   'dialog.large_room_file.title': 'Udostępnianie plików w dużym pokoju',
   'dialog.large_room_file.message':
     'Lokalne udostępnianie plików działa stabilnie przy maksymalnie 8 gościach w tej samej sieci lokalnej.\n\nCzy chcesz kontynuować mimo to?',
@@ -565,6 +565,7 @@ const pl: Record<I18nKey, string> = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Dodaj pliki lokalne',
   'dialog.file_drop.message': 'Dodać wybrane utwory ({{count}})?',
+  'dialog.file_drop.unsupported_notice': 'Nieobsługiwane pliki nie zostaną dodane: {{count}}.',
   'dialog.return_home_title': 'Wyjdź z pokoju',
   'dialog.return_home_msg': 'Czy chcesz powrócić do ekranu startowego?',
   'dialog.return_home_detail': 'Połączenie z obecnym pokojem zostanie przerwane.',

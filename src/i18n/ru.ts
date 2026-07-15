@@ -443,8 +443,8 @@ const ru: Record<I18nKey, string> = {
     'Вы можете поделиться ссылкой для приглашения на вкладке «Подключение».',
   'toast.click_copy_invite': 'Нажмите для копирования кода приглашения',
   'toast.cant_select_file': 'Не удается выбрать файл',
-  'toast.video_excluded': 'Видеофайлы были исключены.',
-  'toast.video_only_rejected': 'Добавление видеофайлов не допускается.',
+  'toast.unsupported_files_excluded': 'Пропущено неподдерживаемых файлов: {{count}}',
+  'toast.no_supported_audio_files': 'Нет поддерживаемых аудиофайлов для добавления.',
   'dialog.large_room_file.title': 'Обмен файлами в большой комнате',
   'dialog.large_room_file.message':
     'Локальный обмен файлами стабильно работает в локальной сети примерно до 8 гостей.\n\nПродолжить?',
@@ -565,6 +565,7 @@ const ru: Record<I18nKey, string> = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Добавить локальные файлы',
   'dialog.file_drop.message': 'Добавить выбранные треки ({{count}})?',
+  'dialog.file_drop.unsupported_notice': 'Неподдерживаемые файлы не будут добавлены: {{count}}.',
   'dialog.return_home_title': 'Выйти из комнаты',
   'dialog.return_home_msg': 'Вернуться на стартовый экран?',
   'dialog.return_home_detail': 'Соединение с текущей комнатой будет разорвано.',

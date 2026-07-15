@@ -29,10 +29,10 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(8);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(10);
   });
 
-  it('uses natural English singular and plural copy for all eight messages', async () => {
+  it('uses natural English singular and plural copy for all ten messages', async () => {
     const t = await loadTranslator('en-US');
 
     const cases = [
@@ -66,8 +66,12 @@ describe('count-sensitive translations', () => {
       ['chat.cmd_slowmode_wait', { sec: 2 }, 'Wait 2 seconds before sending'],
       ['toast.added_tracks', { count: 1 }, '1 track added'],
       ['toast.added_tracks', { count: 2 }, '2 tracks added'],
+      ['toast.unsupported_files_excluded', { count: 1 }, 'Unsupported file skipped: 1'],
+      ['toast.unsupported_files_excluded', { count: 2 }, 'Unsupported files skipped: 2'],
       ['dialog.file_drop.message', { count: 1 }, 'Add 1 track?'],
       ['dialog.file_drop.message', { count: 2 }, 'Add 2 tracks?'],
+      ['dialog.file_drop.unsupported_notice', { count: 1 }, "1 unsupported file won't be added."],
+      ['dialog.file_drop.unsupported_notice', { count: 2 }, "2 unsupported files won't be added."],
     ] as const;
 
     for (const [key, params, expected] of cases) {

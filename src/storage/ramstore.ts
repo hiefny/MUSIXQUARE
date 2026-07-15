@@ -14,6 +14,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { meaningfulDeclaredMime, resolveAudioMime } from '../media/audio-file.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -38,34 +39,6 @@ interface RamSlot {
    * Chunks are dropped after this is set so we don't double-account.
    */
   finalizedBlob: Blob | null;
-}
-
-const AUDIO_MIME_BY_EXTENSION: Readonly<Record<string, string>> = Object.freeze({
-  mp3: 'audio/mpeg',
-  wav: 'audio/wav',
-  flac: 'audio/flac',
-  m4a: 'audio/mp4',
-  aac: 'audio/aac',
-  ogg: 'audio/ogg',
-  aiff: 'audio/aiff',
-  aif: 'audio/aiff',
-  caf: 'audio/x-caf',
-});
-
-function declaredMime(mime?: string): string {
-  const value = typeof mime === 'string' ? mime.trim() : '';
-  const essence = value.split(';', 1)[0]?.trim().toLowerCase();
-  if (essence === 'application/octet-stream' || essence === 'binary/octet-stream') return '';
-  return value;
-}
-
-function inferAudioMimeFromFilename(filename: string): string {
-  const match = /\.([^.\\/]+)$/.exec(filename.trim().toLowerCase());
-  return match ? (AUDIO_MIME_BY_EXTENSION[match[1] ?? ''] ?? '') : '';
-}
-
-function resolveStoredMime(filename: string, mime?: string): string {
-  return declaredMime(mime) || inferAudioMimeFromFilename(filename);
 }
 
 // ─── State ──────────────────────────────────────────────────────
@@ -107,7 +80,7 @@ function makeSlot(
     filename,
     isPreload,
     sessionId,
-    mime: resolveStoredMime(filename, mime),
+    mime: resolveAudioMime(filename, mime),
     chunks: new Map(),
     chunkSize,
     totalSize: null,
@@ -143,7 +116,7 @@ export function ramStart(
       mainSlot.filename === filename &&
       sessionId === mainSlot.sessionId
     ) {
-      const resumedMime = declaredMime(mime);
+      const resumedMime = meaningfulDeclaredMime(mime);
       if (resumedMime) mainSlot.mime = resumedMime;
       return { ok: true };
     }
@@ -159,7 +132,7 @@ export function ramStart(
     existing.filename === filename &&
     keepExisting
   ) {
-    const resumedMime = declaredMime(mime);
+    const resumedMime = meaningfulDeclaredMime(mime);
     if (resumedMime) existing.mime = resumedMime;
     return { ok: true };
   }

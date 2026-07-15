@@ -165,19 +165,22 @@ describe('global local-file drop', () => {
     expect(selected.mock.calls[0]?.[0]).not.toBe(files);
   });
 
-  it('counts only audio candidates in a mixed drop but preserves the full validation payload', async () => {
+  it('reports excluded files in a mixed drop and emits only audio candidates', async () => {
     const audio = new File(['a'], 'one.flac', { type: 'audio/flac' });
     const video = new File(['v'], 'clip.mp4', { type: 'video/mp4' });
+    const documentFile = new File(['d'], 'notes.pdf', { type: 'application/pdf' });
     mockedShowDialog.mockResolvedValue({ action: 'ok' });
     const selected = vi.fn();
     bus.on('app:files-selected', selected);
 
-    dispatchDrag('drop', makeTransfer([audio, video]));
+    dispatchDrag('drop', makeTransfer([audio, video, documentFile]));
 
     expect(mockedShowDialog).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'dialog.file_drop.message:1' }),
+      expect.objectContaining({
+        message: 'dialog.file_drop.message:1\ndialog.file_drop.unsupported_notice:2',
+      }),
     );
-    await vi.waitFor(() => expect(selected).toHaveBeenCalledWith([audio, video]));
+    await vi.waitFor(() => expect(selected).toHaveBeenCalledWith([audio]));
   });
 
   it('recovers FileList entries when DataTransferItem.getAsFile returns null', async () => {
@@ -317,15 +320,16 @@ describe('global local-file drop', () => {
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledTimes(2));
   });
 
-  it('routes video-only drops straight to the existing rejection path', () => {
+  it('routes all-unsupported drops straight to the shared rejection path', () => {
     const selected = vi.fn();
     bus.on('app:files-selected', selected);
     const video = new File(['v'], 'clip.mp4', { type: 'video/mp4' });
+    const image = new File(['i'], 'cover.png', { type: 'image/png' });
 
-    dispatchDrag('drop', makeTransfer([video]));
+    dispatchDrag('drop', makeTransfer([video, image]));
 
     expect(mockedShowDialog).not.toHaveBeenCalled();
-    expect(selected).toHaveBeenCalledWith([video]);
+    expect(selected).toHaveBeenCalledWith([video, image]);
   });
 
   it('ignores non-file drags and drops directory entries', () => {

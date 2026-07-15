@@ -199,6 +199,18 @@ describe('updateRoleBadge', () => {
   });
 });
 
+describe('local file picker hint', () => {
+  it('lists every extension supported by the MIME fallback contract', () => {
+    document.body.innerHTML = '<input id="file-input" type="file" />';
+
+    initPlayerControls();
+
+    expect((document.getElementById('file-input') as HTMLInputElement).accept).toBe(
+      '.mp3,.wav,.flac,.m4a,.aac,.ogg,.aif,.aiff,.caf,audio/*',
+    );
+  });
+});
+
 describe('initPlayerControls playback mode rendering', () => {
   function renderPlaybackControls(): void {
     document.body.innerHTML = `

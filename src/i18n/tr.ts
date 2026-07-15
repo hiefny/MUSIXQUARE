@@ -440,8 +440,8 @@ const tr: Record<I18nKey, string> = {
   'toast.invite_code_settings': 'Davet linkini Bağlantı sekmesinden paylaşabilirsiniz.',
   'toast.click_copy_invite': 'Davet kodunu kopyalamak için tıklayın',
   'toast.cant_select_file': 'Dosya seçilemiyor',
-  'toast.video_excluded': 'Video dosyaları hariç tutuldu.',
-  'toast.video_only_rejected': 'Video dosyaları eklenemez.',
+  'toast.unsupported_files_excluded': 'Desteklenmeyen {{count}} dosya atlanacak.',
+  'toast.no_supported_audio_files': 'Eklenebilecek ses dosyası yok.',
   'dialog.large_room_file.title': 'Geniş Odada Dosya Paylaşımı',
   'dialog.large_room_file.message':
     'Yerel dosya paylaşımı, yerel ağda en fazla 8 kişiyle stabildir.\n\nDevam etmek istiyor musunuz?',
@@ -561,6 +561,7 @@ const tr: Record<I18nKey, string> = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Yerel dosyalar ekle',
   'dialog.file_drop.message': '{{count}} parça eklensin mi?',
+  'dialog.file_drop.unsupported_notice': 'Desteklenmeyen {{count}} dosya eklenmeyecek.',
   'dialog.return_home_title': 'Odadan Ayrıl',
   'dialog.return_home_msg': 'Başlangıç ekranına dönmek istiyor musunuz?',
   'dialog.return_home_detail': 'Bağlantınız kesilecektir.',

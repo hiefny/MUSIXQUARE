@@ -116,6 +116,7 @@ class FakeStorage {
 class FakeDurableObjectState {
   storage = new FakeStorage();
   sockets: FakeSocket[] = [];
+  waitUntilTasks: Promise<unknown>[] = [];
 
   acceptWebSocket(ws: FakeSocket, tags: string[] = []): void {
     ws.accepted = true;
@@ -125,6 +126,17 @@ class FakeDurableObjectState {
 
   getWebSockets(): FakeSocket[] {
     return this.sockets.filter((ws) => !ws.closed);
+  }
+
+  waitUntil(task: Promise<unknown>): void {
+    this.waitUntilTasks.push(Promise.resolve(task));
+  }
+
+  async flushWaitUntil(): Promise<void> {
+    while (this.waitUntilTasks.length > 0) {
+      const tasks = this.waitUntilTasks.splice(0);
+      await Promise.all(tasks);
+    }
   }
 }
 
@@ -361,11 +373,41 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
     await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    await state.flushWaitUntil();
 
     expect(metrics.events).toEqual([
       { bucketMinute: Math.floor(Date.now() / 60000), event: 'room_opened' },
       { bucketMinute: Math.floor(Date.now() / 60000), event: 'guest_joined' },
     ]);
+  });
+
+  it('does not delay peer-open while a D1 metric write is pending', async () => {
+    let finishMetric!: () => void;
+    const pendingMetric = new Promise<void>((resolve) => {
+      finishMetric = resolve;
+    });
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MUSIXQUARE_ADMIN_DB: {
+        prepare: vi.fn(() => ({
+          bind: vi.fn(() => ({
+            run: vi.fn(() => pendingMetric),
+          })),
+        })),
+      },
+    });
+
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
+    const host = lastServer();
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const guest = lastServer();
+
+    expect(sent(host)[0]).toEqual({ type: 'peer-open', peerId: '123456', roomId: '123456' });
+    expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
+    expect(state.waitUntilTasks.length).toBeGreaterThan(0);
+
+    finishMetric();
+    await state.flushWaitUntil();
   });
 
   it('preserves guest-to-host and host-to-guest signaling wire shapes', async () => {
@@ -850,6 +892,75 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       hostPeerId: 'host-3',
       hostReleaseAt: 0,
     });
+  });
+
+  it('clears host-only room secrets with an alarm after reconnect grace', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
+    const { room, state, host } = await createPasswordRoom();
+
+    await room.webSocketClose(host);
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+
+    vi.advanceTimersByTime(60_000);
+    await room.alarm();
+
+    expect(await state.storage.get('roomMeta')).toEqual({
+      v: 1,
+      roomSecret: null,
+      roomPassword: '',
+      hostPeerId: null,
+      hostReleaseAt: 0,
+    });
+    expect(state.storage.alarmTime).toBeNull();
+  });
+
+  it('closes prior-epoch guests when host reconnect grace expires', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
+    const { room, state, host } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const guest = lastServer();
+
+    await room.webSocketClose(host);
+    vi.advanceTimersByTime(60_000);
+    await room.alarm();
+
+    expect(guest.closed).toBe(true);
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'ROOM_EXPIRED' });
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: null,
+      hostReleaseAt: 0,
+    });
+  });
+
+  it('shares one alarm between pending auth timeout and host metadata cleanup', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
+    const startedAt = Date.now();
+    const { room, state, host } = await createPasswordRoom();
+
+    await room.fetch(wsRequest('123456', 'guest', 'silent-guest'));
+    const guest = lastServer();
+    await state.flushWaitUntil();
+    expect(state.storage.alarmTime).toBe(startedAt + 11_000);
+
+    await room.webSocketClose(host);
+    expect(state.storage.alarmTime).toBe(startedAt + 11_000);
+
+    vi.setSystemTime(startedAt + 12_000);
+    await room.alarm();
+    expect(guest.closed).toBe(true);
+    expect(state.storage.alarmTime).toBe(startedAt + 60_000);
+
+    vi.setSystemTime(startedAt + 60_000);
+    await room.alarm();
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: null,
+      roomPassword: '',
+      hostReleaseAt: 0,
+    });
+    expect(state.storage.alarmTime).toBeNull();
   });
 
   it('does not use non-hibernatable WebSocket or timer APIs', async () => {

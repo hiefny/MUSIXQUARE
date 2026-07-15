@@ -59,6 +59,9 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_auth_pending', label: 'Password prompts' },
   { key: 'guest_auth_failed', label: 'Password failures' },
   { key: 'guest_auth_timeout', label: 'Password timeouts' },
+  { key: 'guest_room_full', label: 'Room-full rejections' },
+  { key: 'ws_message_oversized', label: 'Oversized signaling messages' },
+  { key: 'ws_message_rate_limited', label: 'Rate-limited signaling messages' },
 ];
 
 let soroBackgroundRefreshPromise = null;
@@ -73,7 +76,7 @@ const SECURITY_HEADERS = {
   'Permissions-Policy':
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com https://*.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com https://app.trysoro.com https://*.trysoro.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
+    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com https://*.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
 };
 
 function json(body, status = 200, headers = {}) {
@@ -1936,6 +1939,15 @@ function esc(value) {
     .replace(/>/g, '&gt;');
 }
 
+function serializeJsonForHtmlScript(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 function replaceMetaProperty(html, property, content) {
   return html.replace(
     new RegExp(`<meta\\b(?=[^>]*\\bproperty=["']${property}["'])[^>]*>`, 'i'),
@@ -2719,7 +2731,7 @@ function renderSoroArticleInBlogShell(templateHtml, article, requestUrl, source)
   );
   return html.replace(
     '</head>',
-    `  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>\n</head>`,
+    `  <script type="application/ld+json">${serializeJsonForHtmlScript(jsonLd)}</script>\n</head>`,
   );
 }
 
@@ -2800,7 +2812,7 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
       .soro-article-content h2 { font-size: 26px; }
     }
   </style>
-  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
+  <script type="application/ld+json">${serializeJsonForHtmlScript(jsonLd)}</script>
 </head>
 <body class="editorial-page editorial-blog" data-soro-source="${esc(source)}" data-soro-view="article">
 <header class="lp-header">

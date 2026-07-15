@@ -294,6 +294,11 @@ async function capabilityIpHash(secret, request) {
   return hmacSha256(secret, `ip:${getClientIp(request)}`);
 }
 
+async function rateLimitIpKey(secret, request) {
+  const digest = await hmacSha256(secret, `rate-limit-ip:${getClientIp(request)}`);
+  return `session-ip:${digest}`;
+}
+
 function readCapabilityToken(request) {
   const headerToken =
     request.headers.get('x-mxqr-capability') || request.headers.get('X-MXQR-Capability') || '';
@@ -550,7 +555,6 @@ async function handleSession(request, env) {
     return json(request, env, { error: 'invalid upload session request' }, 400);
   }
 
-  const ip = getClientIp(request);
   const rateWindowSeconds = parseLimit(
     env.RATE_LIMIT_WINDOW_SECONDS,
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
@@ -561,7 +565,12 @@ async function handleSession(request, env) {
     DEFAULT_ROOM_UPLOADS_PER_WINDOW,
   );
 
-  const ipAllowed = await consumeLimit(env, `session-ip:${ip}`, ipUploadLimit, rateWindowSeconds);
+  const ipAllowed = await consumeLimit(
+    env,
+    await rateLimitIpKey(secret, request),
+    ipUploadLimit,
+    rateWindowSeconds,
+  );
   if (!ipAllowed) return rateLimited(request, env, 'rate limited', rateWindowSeconds);
 
   if (roomUploadLimit > 0) {

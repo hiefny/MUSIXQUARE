@@ -352,7 +352,25 @@ export class MusixquareRoom {
     this.hostPeerId = null;
     this.guests = new Map();
     this.pendingGuests = new Map();
+    this.alarmSync = Promise.resolve();
     this.rehydrateSockets();
+  }
+
+  defer(task) {
+    try {
+      if (typeof this.state.waitUntil === 'function') {
+        this.state.waitUntil(task);
+        return;
+      }
+    } catch {
+      // The task is already running and owns its error handling. This fallback
+      // keeps local/test runtimes without DurableObjectState.waitUntil working.
+    }
+    void task;
+  }
+
+  recordMetric(event, now = Date.now()) {
+    this.defer(recordMetric(this.env, event, now));
   }
 
   admittedGuestIds() {
@@ -453,7 +471,60 @@ export class MusixquareRoom {
   async clearExpiredHostRelease() {
     const meta = this.roomMeta || defaultRoomMeta();
     if (this.host || !meta.hostReleaseAt || meta.hostReleaseAt > Date.now()) return meta;
+
+    // A room epoch ends when the host reclaim grace expires. Any hibernated
+    // guest sockets from that epoch must not survive into a new host that later
+    // claims the same six-digit room ID.
+    for (const socket of new Set([...this.guests.values(), ...this.pendingGuests.values()])) {
+      closeSocket(socket, 1012, 'ROOM_EXPIRED');
+    }
+    this.guests.clear();
+    this.pendingGuests.clear();
     return this.clearRoomMeta();
+  }
+
+  nextMaintenanceAlarmAt() {
+    let earliest = null;
+    for (const sock of this.pendingGuests.values()) {
+      const attachment = readAttachment(sock);
+      if (typeof attachment?.authDeadline !== 'number') continue;
+      // Fire just after the deadline so the strict `now > authDeadline`
+      // timeout check has definitely elapsed on wake.
+      const authSweepAt = attachment.authDeadline + 1000;
+      if (earliest === null || authSweepAt < earliest) earliest = authSweepAt;
+    }
+
+    const hostReleaseAt = !this.host ? this.roomMeta?.hostReleaseAt : 0;
+    if (hostReleaseAt && (earliest === null || hostReleaseAt < earliest)) {
+      earliest = hostReleaseAt;
+    }
+    return earliest;
+  }
+
+  async syncMaintenanceAlarm() {
+    try {
+      const nextAlarmAt = this.nextMaintenanceAlarmAt();
+      const currentAlarm = await this.state.storage.getAlarm();
+      if (nextAlarmAt === null) {
+        if (currentAlarm !== null) await this.state.storage.deleteAlarm();
+        return;
+      }
+      if (currentAlarm !== nextAlarmAt) await this.state.storage.setAlarm(nextAlarmAt);
+    } catch (error) {
+      console.warn('[Room] Failed to synchronize maintenance alarm', error);
+    }
+  }
+
+  scheduleMaintenanceAlarm() {
+    // Alarm updates may be requested by overlapping WebSocket callbacks. Keep
+    // them ordered and recompute from the latest in-memory state at execution
+    // time so an older request cannot overwrite a newer deadline.
+    this.alarmSync = this.alarmSync.then(
+      () => this.syncMaintenanceAlarm(),
+      () => this.syncMaintenanceAlarm(),
+    );
+    this.defer(this.alarmSync);
+    return this.alarmSync;
   }
 
   acceptSocket(ws, attachment, tags) {
@@ -529,7 +600,8 @@ export class MusixquareRoom {
       hostPeerId: peerId,
       hostReleaseAt: 0,
     });
-    await recordMetric(this.env, isNewRoom ? 'room_opened' : 'host_reconnected');
+    this.scheduleMaintenanceAlarm();
+    this.recordMetric(isNewRoom ? 'room_opened' : 'host_reconnected');
     send(ws, { type: 'peer-open', peerId: roomId, roomId });
   }
 
@@ -537,7 +609,7 @@ export class MusixquareRoom {
     const meta = await this.loadRoomMeta();
     if (!this.host) {
       this.acceptSocket(ws, null, ['role:guest']);
-      await recordMetric(this.env, 'guest_host_unavailable');
+      this.recordMetric('guest_host_unavailable');
       closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
       return;
     }
@@ -546,14 +618,14 @@ export class MusixquareRoom {
     if (!admitted.has(peerId) && admitted.size >= MAX_ROOM_GUESTS) {
       this.acceptSocket(ws, null, ['role:guest', 'rejected:room-full']);
       closeWithError(ws, 'room-full', 'ROOM_GUEST_LIMIT_REACHED', 1008);
-      await recordMetric(this.env, 'guest_room_full');
+      this.recordMetric('guest_room_full');
       return;
     }
 
     if (meta.roomPassword) {
       // Reserve the slot before metrics I/O can yield to another request.
       this.acceptPendingGuest(ws, roomId, peerId);
-      await recordMetric(this.env, 'guest_auth_pending');
+      this.recordMetric('guest_auth_pending');
       return;
     }
 
@@ -593,22 +665,10 @@ export class MusixquareRoom {
   // sockets, but a guest that connects and then stays silent triggers neither —
   // its socket would linger until something else wakes the DO. Schedule a DO
   // alarm at the earliest pending authDeadline so the slot is reclaimed even with
-  // no further traffic. (setAlarm overwrites; we re-arm after each sweep.)
+  // no further traffic. The shared scheduler also preserves the host-release
+  // deadline because Durable Objects expose one alarm per object.
   scheduleAuthSweep() {
-    let earliest = null;
-    for (const sock of this.pendingGuests.values()) {
-      const att = readAttachment(sock);
-      if (
-        typeof att?.authDeadline === 'number' &&
-        (earliest === null || att.authDeadline < earliest)
-      ) {
-        earliest = att.authDeadline;
-      }
-    }
-    if (earliest !== null) {
-      // Fire just after the deadline so it has definitely elapsed on wake.
-      Promise.resolve(this.state.storage.setAlarm(earliest + 1000)).catch(() => {});
-    }
+    this.scheduleMaintenanceAlarm();
   }
 
   async alarm() {
@@ -617,7 +677,7 @@ export class MusixquareRoom {
       const att = readAttachment(sock);
       if (typeof att?.authDeadline === 'number' && now > att.authDeadline) {
         this.pendingGuests.delete(peerId);
-        await recordMetric(this.env, 'guest_auth_timeout');
+        this.recordMetric('guest_auth_timeout', now);
         try {
           sock.close(1011, 'auth timeout (sweep)');
         } catch {
@@ -625,8 +685,9 @@ export class MusixquareRoom {
         }
       }
     }
-    // Re-arm for any guests still inside their auth window.
-    this.scheduleAuthSweep();
+    // The same alarm also expires host metadata after reconnect grace.
+    await this.loadRoomMeta();
+    await this.scheduleMaintenanceAlarm();
   }
 
   async completeGuestAccept(ws, roomId, peerId, alreadyAccepted) {
@@ -663,7 +724,8 @@ export class MusixquareRoom {
 
     this.pendingGuests.delete(peerId);
     this.guests.set(peerId, ws);
-    await recordMetric(this.env, 'guest_joined');
+    this.scheduleMaintenanceAlarm();
+    this.recordMetric('guest_joined');
     send(ws, { type: 'peer-open', peerId, roomId });
   }
 
@@ -675,14 +737,14 @@ export class MusixquareRoom {
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
       await this.webSocketClose(ws);
-      await recordMetric(this.env, 'ws_message_oversized');
+      this.recordMetric('ws_message_oversized');
       return;
     }
 
     if (attachment.role === 'guest' && !this.consumeGuestMessageToken(ws)) {
       closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
       await this.webSocketClose(ws);
-      await recordMetric(this.env, 'ws_message_rate_limited');
+      this.recordMetric('ws_message_rate_limited');
       return;
     }
 
@@ -694,7 +756,7 @@ export class MusixquareRoom {
     if (validation === 'oversized') {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
       await this.webSocketClose(ws);
-      await recordMetric(this.env, 'ws_message_oversized');
+      this.recordMetric('ws_message_oversized');
       return;
     }
     if (validation !== 'valid') return;
@@ -725,7 +787,8 @@ export class MusixquareRoom {
     }
     if (Date.now() > attachment.authDeadline) {
       this.pendingGuests.delete(attachment.peerId);
-      await recordMetric(this.env, 'guest_auth_timeout');
+      this.scheduleMaintenanceAlarm();
+      this.recordMetric('guest_auth_timeout');
       closeWithError(ws, 'room-password-auth-timeout', 'ROOM_PASSWORD_AUTH_TIMEOUT');
       return;
     }
@@ -734,13 +797,15 @@ export class MusixquareRoom {
     const password = typeof message.password === 'string' ? message.password : '';
     if (!password) {
       this.pendingGuests.delete(attachment.peerId);
-      await recordMetric(this.env, 'guest_auth_failed');
+      this.scheduleMaintenanceAlarm();
+      this.recordMetric('guest_auth_failed');
       closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
       return;
     }
     if (password !== meta.roomPassword) {
       this.pendingGuests.delete(attachment.peerId);
-      await recordMetric(this.env, 'guest_auth_failed');
+      this.scheduleMaintenanceAlarm();
+      this.recordMetric('guest_auth_failed');
       closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
       return;
     }
@@ -784,6 +849,7 @@ export class MusixquareRoom {
       if (this.pendingGuests.get(attachment.peerId) === ws) {
         this.pendingGuests.delete(attachment.peerId);
       }
+      await this.scheduleMaintenanceAlarm();
       return;
     }
 
@@ -806,6 +872,7 @@ export class MusixquareRoom {
       hostPeerId: null,
       hostReleaseAt: Date.now() + HOST_RECLAIM_GRACE_MS,
     });
+    await this.scheduleMaintenanceAlarm();
   }
 
   async removeGuest(peerId, ws) {
@@ -817,6 +884,7 @@ export class MusixquareRoom {
     }
     if (this.guests.size === 0) {
       await this.clearRoomMeta();
+      await this.scheduleMaintenanceAlarm();
     }
   }
 

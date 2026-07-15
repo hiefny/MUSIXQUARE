@@ -862,6 +862,21 @@ describe('Cloudflare app worker admin dashboard', () => {
 </rss>`;
   }
 
+  function createSoroRssWithScriptBoundaryCharacters() {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title><![CDATA[Boundary </script><script src="https://app.trysoro.com/pwn.js"></script> <tag> & \u2028 \u2029]]></title>
+      <link>https://musixquare.com/blog?post=boundary-article</link>
+      <description><![CDATA[Description </script> <tag> & \u2028 \u2029]]></description>
+      <pubDate>Thu, 18 Jun 2026 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>Boundary body</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>`;
+  }
+
   it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
@@ -875,6 +890,9 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 5, event: 'room_opened', count: 3 },
         { bucket_minute: nowMinute - 4, event: 'guest_joined', count: 7 },
         { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
+        { bucket_minute: nowMinute - 2, event: 'guest_room_full', count: 2 },
+        { bucket_minute: nowMinute - 1, event: 'ws_message_oversized', count: 3 },
+        { bucket_minute: nowMinute, event: 'ws_message_rate_limited', count: 4 },
       ]),
     };
 
@@ -918,6 +936,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(metrics.status).toBe(200);
     expect(payload.summary?.last24?.room_opened).toBe(3);
     expect(payload.summary?.last24?.guest_joined).toBe(7);
+    expect(payload.summary?.last24?.guest_room_full).toBe(2);
+    expect(payload.summary?.last24?.ws_message_oversized).toBe(3);
+    expect(payload.summary?.last24?.ws_message_rate_limited).toBe(4);
     expect(payload.summary?.daily).toHaveLength(7);
     expect(payload.summary?.daily30).toHaveLength(30);
     expect(payload.summary?.daily30?.[0]?.events.guest_joined).toBe(4);
@@ -1075,6 +1096,69 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(env.SORO_IMAGE_BUCKET.head).not.toHaveBeenCalled();
     expect(waitUntil).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    {
+      renderer: 'blog shell template',
+      contentType: 'text/html',
+      shell: '<html><head></head><body><div id="soro-blog"></div></body></html>',
+    },
+    {
+      renderer: 'standalone fallback',
+      contentType: 'application/octet-stream',
+      shell: '',
+    },
+  ])(
+    'escapes JSON-LD script boundaries in the $renderer renderer',
+    async ({ contentType, shell }) => {
+      const env = {
+        SORO_RSS_BACKUP: createKvStore(),
+        ASSETS: {
+          fetch: vi.fn(
+            async () =>
+              new Response(shell, {
+                headers: { 'Content-Type': contentType },
+              }),
+          ),
+        },
+      };
+      await env.SORO_RSS_BACKUP.put(
+        'soro-rss-latest-good.xml',
+        createSoroRssWithScriptBoundaryCharacters(),
+      );
+
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/blog/boundary-article'),
+        env,
+      );
+      const html = await response.text();
+      const jsonLdMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+
+      expect(response.status).toBe(200);
+      const cspDirectives = (response.headers.get('Content-Security-Policy') || '')
+        .split(';')
+        .map((directive) => directive.trim());
+      expect(cspDirectives.find((directive) => directive.startsWith('script-src'))).not.toContain(
+        'trysoro.com',
+      );
+      expect(cspDirectives.find((directive) => directive.startsWith('frame-src'))).not.toContain(
+        'trysoro.com',
+      );
+      expect(jsonLdMatch).not.toBeNull();
+      const serializedJsonLd = jsonLdMatch?.[1] || '';
+      expect(serializedJsonLd).not.toMatch(/[<>&\u2028\u2029]/u);
+      expect(serializedJsonLd).toContain('\\u003c/script\\u003e');
+      expect(serializedJsonLd).toContain('\\u003ctag\\u003e');
+      expect(serializedJsonLd).toContain('\\u0026');
+      expect(serializedJsonLd).toContain('\\u2028');
+      expect(serializedJsonLd).toContain('\\u2029');
+      expect(JSON.parse(serializedJsonLd)).toMatchObject({
+        headline:
+          'Boundary </script><script src="https://app.trysoro.com/pwn.js"></script> <tag> & \u2028 \u2029',
+        description: 'Description </script> <tag> & \u2028 \u2029',
+      });
+    },
+  );
 
   it('lets admins publish a session announcement for active clients', async () => {
     const env = {

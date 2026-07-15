@@ -339,6 +339,40 @@ describe('remote-share Worker capability gate', () => {
     }
   });
 
+  it('stores an HMAC pseudonym instead of a plaintext IP in rate-limit KV keys', async () => {
+    const token = await createCapabilityToken();
+    const values = new Map<string, string>();
+    const rateLimitStore = {
+      get: vi.fn(async (key: string) => values.get(key) || null),
+      put: vi.fn(async (key: string, value: string) => {
+        values.set(key, value);
+      }),
+    };
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      directUploadEnv({ REMOTE_SHARE_RATE_LIMIT: rateLimitStore }),
+    );
+
+    const expectedKey = `session-ip:${await hmacSha256(
+      SIGNING_SECRET,
+      `rate-limit-ip:${CLIENT_IP}`,
+    )}`;
+    expect(response.status).toBe(200);
+    expect(rateLimitStore.get).toHaveBeenCalledWith(expectedKey);
+    expect(rateLimitStore.put).toHaveBeenCalledWith(expectedKey, '1', {
+      expirationTtl: 3600,
+    });
+    expect([...values.keys()].join(' ')).not.toContain(CLIENT_IP);
+  });
+
   it('enforces positive plaintext and exact AES-GCM ciphertext sizes at /session', async () => {
     const token = await createCapabilityToken();
     for (const body of [

@@ -1,7 +1,8 @@
 # Production Hotfix And Rollback Procedure
 
 Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the three
-Wrangler configs, and the live-smoke scripts on 2026-07-11. Read the current
+Wrangler configs, the production release workflow, and the live-smoke scripts
+on 2026-07-15. Read the current
 `CACHE_VERSION` from the service-worker source rather than copying a number
 from this procedure.
 
@@ -28,31 +29,48 @@ git commit -m "fix(domain): describe the fix"
 git push origin main
 ```
 
-The repository's GitHub Actions workflows run CI/E2E; they do not constitute a
-production deployment. Do not treat a successful push as proof that Cloudflare
-is current. For an app-only hotfix, deploy the already verified build explicitly:
+Pushing `main` does not deploy production. Wait for CI, then run the
+`Production Release` workflow from the Actions tab for the exact `main` commit.
+Select only the Worker scope changed by the hotfix, enable the optional serial
+E2E gate when the change affects playback, networking, or PWA lifecycle, and
+approve the `production` environment after candidate validation succeeds.
+
+The workflow rebuilds once, records every `dist` file hash together with the
+commit and tool versions, and deploys that same artifact. Its Cloudflare
+deployment message contains the Git SHA and Actions run ID, and the resulting
+deployment status JSON is retained with the run.
+
+Cloudflare's separate Git-triggered app deployment is intentionally disabled;
+do not enable it while the GitHub release workflow is authoritative. Keeping
+both paths enabled creates an unapproved duplicate deployment.
+
+For a local emergency app-only deployment, use the repository-pinned Wrangler
+command, which always rebuilds and verifies `dist` first:
 
 ```bash
-npx wrangler deploy --config cloudflare/wrangler.app.toml --message "Hotfix: <summary>"
+npm run deploy:app -- --message "Emergency hotfix: <summary> git:<sha>"
 npm run smoke:live:app-session
 ```
 
 After the deploy is live, verify the production URL in a fresh browser session
 and confirm the active version with
-`npx wrangler deployments status --config cloudflare/wrangler.app.toml`.
+`npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
+
+The `production` environment uses an account-owned Cloudflare deployment token
+that expires on 2027-07-16. Rotate it before expiry and update only the
+environment secret named `CLOUDFLARE_API_TOKEN`; never copy a local Wrangler
+OAuth credential into GitHub.
 
 ### Worker scope and order
 
-Deploy only the Workers changed by the hotfix. For a backward-compatible change
-that touches all three, use this order so the existing browser remains usable
-while backends roll forward:
+The release workflow deploys only the selected scope. For a backward-compatible
+change that touches all three, it uses this order so the existing browser
+remains usable while backends roll forward:
 
-1. `cloudflare/wrangler.remote-share.toml`, then
-   `npm run smoke:live:remote-share`;
-2. `cloudflare/wrangler.signaling.toml`, then
-   `npm run smoke:live:signaling`;
-3. rebuild with `npm run build:checked`, deploy
-   `cloudflare/wrangler.app.toml`, then run `npm run smoke:live` and browser QA.
+1. `cloudflare/wrangler.remote-share.toml`, then its live smoke;
+2. `cloudflare/wrangler.signaling.toml`, then its live smoke;
+3. `cloudflare/wrangler.app.toml` with the verified artifact, then its live smoke
+   and browser QA.
 
 That Worker-first order applies only to backward-compatible protocol changes.
 For an intentional hard cut such as the `queueItemId` remote-share migration,
@@ -60,8 +78,8 @@ follow the coordinated deployment contract in
 [`design/queue-item-identity-and-reorder.md`](design/queue-item-identity-and-reorder.md); a mixed
 old/new app and Worker pair is unsupported and must not be rolled out as an ordinary hotfix.
 
-Before each deploy, save the version reported by
-`npx wrangler deployments status --config <config> --json`. Confirm that the
+Before an emergency local deploy, save the version reported by
+`npm run wrangler -- deployments status --config <config> --json`. Confirm that the
 saved version is compatible with every migration already applied before using
 it as the immediate rollback target.
 
@@ -99,7 +117,7 @@ npm run build:checked
 ```
 
 4. Commit and push to `main`.
-5. Deploy the affected Worker explicitly as described above.
+5. Run and approve the `Production Release` workflow for the affected scope.
 6. After Cloudflare deploys, verify:
    - fresh production load
    - an already-open production tab
@@ -124,8 +142,9 @@ npm run build:checked
 git push origin main
 ```
 
-3. Explicitly deploy the reverted Worker scope and rerun its live smoke; a
-   revert push alone does not update Cloudflare.
+3. Run and approve the `Production Release` workflow for the reverted Worker
+   scope, then rerun its live smoke; a revert push alone does not update
+   Cloudflare.
 4. If the rollback changes app-shell behavior or users may be pinned to stale cached assets, include a `CACHE_VERSION` bump in the rollback commit.
 
 Avoid `git reset --hard` plus force push on `main` unless there is no reasonable alternative.
@@ -133,7 +152,7 @@ Avoid `git reset --hard` plus force push on `main` unless there is no reasonable
 For a CLI rollback, deploy the saved known-good version at 100%:
 
 ```bash
-npx wrangler versions deploy <known-good-version-id>@100% --config <worker-config> --yes --message "Rollback: <reason>"
+npm run wrangler -- versions deploy <known-good-version-id>@100% --config <worker-config> --yes --message "Rollback: <reason>"
 ```
 
 Cloudflare migration history is append-only. In particular, the removed

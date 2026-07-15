@@ -21,6 +21,37 @@ type DirectoryAwareItem = DataTransferItem & {
 let _initialized = false;
 let _dropConfirmationInFlight = false;
 let _fileDragShieldTimer: number | null = null;
+let _fileDropFeedback: HTMLDivElement | null = null;
+
+function ensureFileDropFeedback(): HTMLDivElement | null {
+  if (_fileDropFeedback?.isConnected) return _fileDropFeedback;
+  if (!document.body) return null;
+
+  const existing = document.getElementById('file-drop-feedback');
+  if (existing instanceof HTMLDivElement) {
+    _fileDropFeedback = existing;
+    return existing;
+  }
+
+  const feedback = document.createElement('div');
+  feedback.id = 'file-drop-feedback';
+  feedback.className = 'file-drop-feedback';
+  feedback.setAttribute('aria-hidden', 'true');
+
+  const icon = document.createElement('span');
+  icon.className = 'file-drop-feedback-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  feedback.appendChild(icon);
+  document.body.appendChild(feedback);
+  _fileDropFeedback = feedback;
+  return feedback;
+}
+
+function setFileDropFeedbackVisible(visible: boolean): void {
+  const feedback = visible ? ensureFileDropFeedback() : _fileDropFeedback;
+  if (!feedback) return;
+  feedback.classList.toggle('is-visible', visible);
+}
 
 function transferItems(dataTransfer: DataTransfer): DataTransferItem[] {
   try {
@@ -115,6 +146,7 @@ function deactivateFileDragShield(): void {
     _fileDragShieldTimer = null;
   }
   document.documentElement.classList.remove('file-drop-drag-active');
+  setFileDropFeedbackVisible(false);
 }
 
 function activateFileDragShield(): void {
@@ -133,7 +165,15 @@ function handleFileDrag(event: DragEvent): void {
   // session by opening the local file in the current tab.
   event.preventDefault();
   activateFileDragShield();
-  setDropEffect(event.dataTransfer, canAcceptDroppedFiles() ? 'copy' : 'none');
+  const canAccept = !_dropConfirmationInFlight && canAcceptDroppedFiles();
+  setFileDropFeedbackVisible(canAccept);
+  setDropEffect(event.dataTransfer, canAccept ? 'copy' : 'none');
+}
+
+function handleFileDragLeave(event: DragEvent): void {
+  // Capture listeners also see child-to-child transitions. Only a null
+  // relatedTarget means the drag actually left the document surface.
+  if (event.relatedTarget === null) deactivateFileDragShield();
 }
 
 async function confirmDroppedFiles(files: readonly File[], acceptedCount: number): Promise<void> {
@@ -187,8 +227,10 @@ function handleFileDrop(event: DragEvent): void {
 export function initGlobalFileDrop(): void {
   if (_initialized) return;
   _initialized = true;
+  ensureFileDropFeedback();
   document.addEventListener('dragenter', handleFileDrag, true);
   document.addEventListener('dragover', handleFileDrag, true);
+  document.addEventListener('dragleave', handleFileDragLeave, true);
   document.addEventListener('drop', handleFileDrop, true);
   document.addEventListener('dragend', deactivateFileDragShield, true);
 }
@@ -198,10 +240,13 @@ export function __resetGlobalFileDropForTests(): void {
   if (_initialized) {
     document.removeEventListener('dragenter', handleFileDrag, true);
     document.removeEventListener('dragover', handleFileDrag, true);
+    document.removeEventListener('dragleave', handleFileDragLeave, true);
     document.removeEventListener('drop', handleFileDrop, true);
     document.removeEventListener('dragend', deactivateFileDragShield, true);
   }
   deactivateFileDragShield();
+  _fileDropFeedback?.remove();
+  _fileDropFeedback = null;
   _initialized = false;
   _dropConfirmationInFlight = false;
 }

@@ -114,6 +114,60 @@
     pointer-events: none !important;
   }
 
+  .file-drop-feedback {
+    position: fixed;
+    inset: 0;
+    z-index: 5900;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    background: rgba(var(--primary-rgb), 0.16);
+    transition:
+      opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s linear 180ms;
+  }
+
+  .file-drop-feedback.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .file-drop-feedback-icon {
+    position: relative;
+    width: 88px;
+    height: 88px;
+    opacity: 0;
+    transform: scale(0.88);
+    transition:
+      opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .file-drop-feedback.is-visible .file-drop-feedback-icon {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .file-drop-feedback-icon::before,
+  .file-drop-feedback-icon::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 72px;
+    height: 6px;
+    border-radius: 999px;
+    background: #fff;
+    transform: translate(-50%, -50%);
+  }
+
+  .file-drop-feedback-icon::after {
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
@@ -7057,6 +7111,15 @@
 
   /* ─── Accessibility: Reduced Motion ─────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
+    .file-drop-feedback,
+    .file-drop-feedback-icon {
+      transition: none !important;
+    }
+
+    .file-drop-feedback-icon {
+      transform: none !important;
+    }
+
     .chat-enter {
       animation: none !important;
     }

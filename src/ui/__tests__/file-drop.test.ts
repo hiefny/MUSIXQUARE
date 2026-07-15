@@ -80,19 +80,64 @@ afterEach(() => {
 describe('global local-file drop', () => {
   it('accepts dragover only for an eligible host and shields cross-origin iframes', () => {
     const transfer = makeTransfer([new File(['a'], 'one.flac', { type: 'audio/flac' })]);
+    const feedback = document.getElementById('file-drop-feedback');
+
+    expect(feedback).not.toBeNull();
+    expect(feedback?.getAttribute('aria-hidden')).toBe('true');
     const eligibleEvent = dispatchDrag('dragover', transfer);
 
     expect(eligibleEvent.defaultPrevented).toBe(true);
     expect(transfer.dropEffect).toBe('copy');
     expect(document.documentElement.classList.contains('file-drop-drag-active')).toBe(true);
+    expect(feedback?.classList.contains('is-visible')).toBe(true);
+    expect(feedback?.getAttribute('aria-hidden')).toBe('true');
 
     setState('network.appRole', 'guest');
     const blockedEvent = dispatchDrag('dragover', transfer);
     expect(blockedEvent.defaultPrevented).toBe(true);
     expect(transfer.dropEffect).toBe('none');
+    expect(feedback?.classList.contains('is-visible')).toBe(false);
+    expect(feedback?.getAttribute('aria-hidden')).toBe('true');
 
     dispatchDrag('drop', transfer);
     expect(document.documentElement.classList.contains('file-drop-drag-active')).toBe(false);
+    expect(feedback?.classList.contains('is-visible')).toBe(false);
+  });
+
+  it('clears the visual feedback when an external drag is cancelled without a drop event', () => {
+    vi.useFakeTimers();
+    try {
+      const transfer = makeTransfer([new File(['a'], 'one.flac', { type: 'audio/flac' })]);
+      dispatchDrag('dragover', transfer);
+
+      const feedback = document.getElementById('file-drop-feedback');
+      expect(feedback?.classList.contains('is-visible')).toBe(true);
+
+      vi.advanceTimersByTime(1500);
+
+      expect(document.documentElement.classList.contains('file-drop-drag-active')).toBe(false);
+      expect(feedback?.classList.contains('is-visible')).toBe(false);
+      expect(feedback?.getAttribute('aria-hidden')).toBe('true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the visual feedback immediately when the drag leaves the document', () => {
+    const transfer = makeTransfer([new File(['a'], 'one.flac', { type: 'audio/flac' })]);
+    dispatchDrag('dragover', transfer);
+    expect(document.getElementById('file-drop-feedback')?.classList.contains('is-visible')).toBe(
+      true,
+    );
+
+    const leaveEvent = new Event('dragleave', { bubbles: true, cancelable: true });
+    Object.defineProperty(leaveEvent, 'relatedTarget', { value: null });
+    document.dispatchEvent(leaveEvent);
+
+    expect(document.documentElement.classList.contains('file-drop-drag-active')).toBe(false);
+    expect(document.getElementById('file-drop-feedback')?.classList.contains('is-visible')).toBe(
+      false,
+    );
   });
 
   it('confirms the accepted track count, then reuses the existing file-selection event', async () => {

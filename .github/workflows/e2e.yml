@@ -1,12 +1,10 @@
 name: Full E2E
 
 # The complete Playwright suite is intentionally separate from the production
-# release gate. It runs serially because the tests share a signaling server.
+# release gate and runs only when manually requested. It runs serially because
+# the tests share a signaling server.
 
 on:
-  schedule:
-    # 03:00 KST every day.
-    - cron: '0 18 * * *'
   workflow_dispatch:
 
 permissions:

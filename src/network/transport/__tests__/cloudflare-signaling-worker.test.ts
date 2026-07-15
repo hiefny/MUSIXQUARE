@@ -228,6 +228,7 @@ function sent(ws: FakeSocket): unknown[] {
 
 const DEFAULT_RECONNECT_SECRET = 's'.repeat(43);
 const OTHER_RECONNECT_SECRET = 'x'.repeat(43);
+const RECENT_RECONNECT_SECRET = 'r'.repeat(43);
 
 function createMetricsEnv() {
   const events: Array<{ bucketMinute: number; event: string }> = [];
@@ -789,19 +790,210 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(replacement.closed).toBe(false);
   });
 
-  it('keeps rolling-deploy legacy guests compatible without creating a binding', async () => {
+  it('retains the room epoch and guest ownership when its last guest leaves during host grace', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
+    const { room, state, host } = await createHostRoom();
+    const originalGuest = await joinGuest(room, 'guest-1');
+
+    await room.webSocketClose(host);
+    originalGuest.close();
+    await room.webSocketClose(originalGuest);
+
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: 'secret-a',
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 60_000,
+    });
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'guest-1' }],
+    });
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+
+    await room.fetch(wsRequest('123456', 'host', 'host-2', 'secret-b'));
+    expect(lastServer().closeEvents.at(-1)?.reason).toBe('ROOM_ALREADY_ACTIVE');
+
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
+    expect(sent(lastServer()).at(-1)).toMatchObject({ type: 'peer-open', roomId: '123456' });
+
+    const attacker = await joinGuest(room, 'guest-1', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(attacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+
+    const recoveredGuest = await joinGuest(room, 'guest-1');
+    expect(recoveredGuest.closed).toBe(false);
+    expect(sent(recoveredGuest)[0]).toMatchObject({ type: 'peer-open' });
+  });
+
+  it('does not clear room ownership when the host reconnects during last-guest cleanup', async () => {
+    const { room, state, host } = await createHostRoom();
+    const guest = await joinGuest(room, 'guest-1');
+    await room.webSocketClose(host);
+
+    const internals = room as unknown as {
+      loadRoomMeta(): Promise<RoomMeta>;
+    };
+    const originalLoadRoomMeta = internals.loadRoomMeta.bind(room);
+    let releaseCleanup!: () => void;
+    let markCleanupEntered!: () => void;
+    const cleanupEntered = new Promise<void>((resolve) => {
+      markCleanupEntered = resolve;
+    });
+    const cleanupGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    let blockNextLoad = true;
+    internals.loadRoomMeta = async () => {
+      const meta = await originalLoadRoomMeta();
+      if (blockNextLoad) {
+        blockNextLoad = false;
+        markCleanupEntered();
+        await cleanupGate;
+      }
+      return meta;
+    };
+
+    guest.close();
+    const cleanup = room.webSocketClose(guest);
+    await cleanupEntered;
+
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
+    const reconnectedHost = lastServer();
+    expect(sent(reconnectedHost).at(-1)).toMatchObject({ type: 'peer-open' });
+
+    releaseCleanup();
+    await cleanup;
+
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: 'secret-a',
+      hostPeerId: 'host-1',
+      hostReleaseAt: 0,
+    });
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'guest-1' }],
+    });
+    expect(sent(reconnectedHost).at(-1)).toEqual({ type: 'peer-left', peerId: 'guest-1' });
+  });
+
+  it('protects a disconnected binding for five minutes, then releases its inactive identity', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
+    const { room, state } = await createHostRoom();
+    const original = await joinGuest(room, 'guest-1');
+    // The reconnect window begins when a guest actually disconnects, not when
+    // it first joined what may be a many-hour listening session.
+    vi.advanceTimersByTime(60 * 60_000);
+    original.close();
+    await room.webSocketClose(original);
+
+    vi.advanceTimersByTime(5 * 60_000 - 1);
+    const rehydratedRoom = new workerModule.MusixquareRoom(state);
+    const attacker = await joinGuest(rehydratedRoom, 'guest-1', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(attacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+
+    const recovered = await joinGuest(rehydratedRoom, 'guest-1');
+    expect(recovered.closed).toBe(false);
+    recovered.close();
+    await rehydratedRoom.webSocketClose(recovered);
+
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+    const reclaimed = await joinGuest(rehydratedRoom, 'guest-1', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(reclaimed.closed).toBe(false);
+  });
+
+  it('returns a retryable conflict while a rolling-deploy legacy guest owns the live ID', async () => {
     const { room } = await createHostRoom();
     const legacy = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
     const liveReplacement = await joinGuest(room, 'legacy-guest');
 
-    expect(liveReplacement.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+    expect(sent(liveReplacement).at(-1)).toEqual({
+      type: 'error',
+      errorType: 'guest-reconnect-conflict',
+      message: 'GUEST_RECONNECT_CONFLICT',
+    });
+    expect(liveReplacement.closeEvents.at(-1)).toEqual({
+      code: 1013,
+      reason: 'GUEST_RECONNECT_CONFLICT',
+    });
     expect(legacy.closed).toBe(false);
 
     legacy.close();
     await room.webSocketClose(legacy);
-    const replacement = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
+    const replacement = await joinGuest(room, 'legacy-guest');
 
     expect(replacement.closed).toBe(false);
+  });
+
+  it('keeps legacy-to-legacy reconnect compatible after the old socket is gone', async () => {
+    const { room } = await createHostRoom();
+    const legacy = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
+    legacy.close();
+    await room.webSocketClose(legacy);
+
+    const replacement = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
+    expect(replacement.closed).toBe(false);
+  });
+
+  it('fails closed at identity capacity, then admits new guests after inactive bindings expire', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
+    const { room, state } = await createHostRoom();
+    const active = await joinGuest(room, 'active-guest');
+
+    // Make the live binding older than the reconnect TTL. Hibernation recovery
+    // must still identify it from the accepted WebSocket attachment and keep it.
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+    const recent = await joinGuest(room, 'recent-guest', {
+      reconnectSecret: RECENT_RECONNECT_SECRET,
+    });
+    recent.close();
+    await room.webSocketClose(recent);
+
+    // Fill the bounded store with unexpired ownership. A new identity must be
+    // rejected rather than evicting a guest that is still inside its promise.
+    for (let index = 0; index < 254; index++) {
+      const churnGuest = await joinGuest(room, `departed-${index}`);
+      churnGuest.close();
+      await room.webSocketClose(churnGuest);
+      vi.advanceTimersByTime(1);
+    }
+
+    const rehydratedRoom = new workerModule.MusixquareRoom(state);
+    const capacityBlocked = await joinGuest(rehydratedRoom, 'capacity-blocked');
+    expect(capacityBlocked.closeEvents.at(-1)?.reason).toBe('ROOM_IDENTITY_LIMIT_REACHED');
+
+    const activeAttacker = await joinGuest(rehydratedRoom, 'active-guest', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(activeAttacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+    expect(active.closed).toBe(false);
+
+    const recentAttacker = await joinGuest(rehydratedRoom, 'recent-guest', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(recentAttacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+
+    const recentReconnect = await joinGuest(rehydratedRoom, 'recent-guest', {
+      reconnectSecret: RECENT_RECONNECT_SECRET,
+    });
+    expect(recentReconnect.closed).toBe(false);
+    recentReconnect.close();
+    await rehydratedRoom.webSocketClose(recentReconnect);
+
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+    const legitimateNewGuest = await joinGuest(rehydratedRoom, 'legitimate-new-guest');
+    expect(legitimateNewGuest.closed).toBe(false);
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({ peerId: 'active-guest' }),
+        expect.objectContaining({ peerId: 'legitimate-new-guest' }),
+      ]),
+    });
   });
 
   it('treats __proto__ as an ordinary peerId without corrupting binding storage', async () => {

@@ -89,6 +89,10 @@ function createTransportError(type: string, message: string): Error & { type: st
   return err;
 }
 
+function isPermanentGuestAuthError(errorType: string | undefined): boolean {
+  return errorType?.startsWith('room-password-') === true || errorType === 'guest-reconnect-denied';
+}
+
 function toUint8Array(value: unknown): Uint8Array | null {
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
@@ -649,8 +653,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (this.destroyed) return;
       if (this.hostSocket === socket) {
         this.open = false;
+        const wasDisconnected = this.disconnected;
         this.disconnected = true;
-        this.emit('disconnected');
+        if (!wasDisconnected) this.emit('disconnected');
       }
     });
     socket.addEventListener('error', (event) =>
@@ -723,8 +728,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (this.roomSockets.get(roomId) === socket) {
         this.roomSockets.delete(roomId);
         if (conn.peerConnection) {
+          const wasDisconnected = this.disconnected;
           this.disconnected = true;
-          this.emit('disconnected');
+          if (!wasDisconnected) this.emit('disconnected');
         }
       }
     });
@@ -823,10 +829,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         // the established data channel. Emitting a connection error would tear
         // down a channel that may still work, so log and close only the socket;
         // its close event emits 'disconnected' for the outer reconnect backoff.
-        if (
-          message.errorType?.startsWith('room-password-') ||
-          message.errorType === 'guest-reconnect-denied'
-        ) {
+        if (isPermanentGuestAuthError(message.errorType)) {
           const record = this.guestRooms.get(roomId);
           if (record?.conn === conn) record.authFailed = true;
         }

@@ -697,6 +697,20 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  it('emits one disconnected transition across repeated failed reconnect sockets', async () => {
+    const { peer, socket } = await establishGuest();
+    const onDisconnected = vi.fn();
+    peer.on('disconnected', onDisconnected);
+
+    socket.close();
+    peer.reconnect();
+    const retry = FakeWebSocket.instances[1];
+    retry.close();
+
+    expect(peer.disconnected).toBe(true);
+    expect(onDisconnected).toHaveBeenCalledTimes(1);
+  });
+
   it('retains the RAM-only reconnect secret after conn close without putting it in the URL', async () => {
     installFakeWebSocket();
     installFakeRTCPeerConnection();
@@ -781,6 +795,51 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(onDisconnected).toHaveBeenCalledTimes(1);
 
     peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('retries a rolling-deploy guest identity conflict after the legacy socket closes', async () => {
+    const { peer, conn, socket } = await establishGuest();
+    const onError = vi.fn();
+    conn.on('error', onError);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        errorType: 'guest-reconnect-conflict',
+        message: 'GUEST_RECONNECT_CONFLICT',
+      }),
+    );
+    await flushAsync();
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+    expect(privateMaps(peer).guestRooms.get('123456')?.authFailed).toBe(false);
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+
+    peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('does not retry a true reconnect-secret mismatch until an explicit re-join', async () => {
+    const { peer, socket } = await establishGuest();
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        errorType: 'guest-reconnect-denied',
+        message: 'GUEST_RECONNECT_DENIED',
+      }),
+    );
+    await flushAsync();
+
+    expect(privateMaps(peer).guestRooms.get('123456')?.authFailed).toBe(true);
+    peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    peer.connect('123456');
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 

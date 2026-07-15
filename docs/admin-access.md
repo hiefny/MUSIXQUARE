@@ -27,7 +27,8 @@ are the security boundary.
 
 Create one `Allow` policy with both of the following conditions:
 
-- Include: email equals `hevc@kakao.com`.
+- Include: email equals the administrator address recorded in the private
+  operations record (`<ADMIN_EMAIL>` in examples).
 - Require: login method is `One-time PIN`.
 
 Both conditions are required. A policy that only requires `One-time PIN` would
@@ -52,7 +53,7 @@ Verify in a private browser session before considering the change complete:
 
 1. `/admin` and `/api/admin/session` are blocked or redirected to Cloudflare
    Access while signed out.
-2. Signing in as `hevc@kakao.com` with One-time PIN reaches the existing
+2. Signing in as the recorded administrator address with One-time PIN reaches the existing
    MUSIXQUARE password screen, rather than an authenticated admin dashboard.
 3. Before entering the MUSIXQUARE password, protected admin data such as
    `/api/admin/metrics` still returns the app's unauthorized response.

@@ -60,6 +60,7 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_auth_failed', label: 'Password failures' },
   { key: 'guest_auth_timeout', label: 'Password timeouts' },
   { key: 'guest_reconnect_denied', label: 'Guest reconnect denials' },
+  { key: 'guest_reconnect_conflict', label: 'Guest reconnect conflicts' },
   { key: 'guest_room_full', label: 'Room-full rejections' },
   { key: 'guest_pending_capacity', label: 'Pending guest limit rejections' },
   { key: 'guest_identity_capacity', label: 'Guest identity limit rejections' },

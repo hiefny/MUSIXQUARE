@@ -914,6 +914,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
         { bucket_minute: nowMinute - 2, event: 'guest_room_full', count: 2 },
         { bucket_minute: nowMinute - 2, event: 'guest_reconnect_denied', count: 5 },
+        { bucket_minute: nowMinute - 2, event: 'guest_reconnect_conflict', count: 8 },
         { bucket_minute: nowMinute - 2, event: 'guest_pending_capacity', count: 6 },
         { bucket_minute: nowMinute - 2, event: 'guest_identity_capacity', count: 7 },
         { bucket_minute: nowMinute - 1, event: 'ws_message_oversized', count: 3 },
@@ -963,6 +964,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(payload.summary?.last24?.guest_joined).toBe(7);
     expect(payload.summary?.last24?.guest_room_full).toBe(2);
     expect(payload.summary?.last24?.guest_reconnect_denied).toBe(5);
+    expect(payload.summary?.last24?.guest_reconnect_conflict).toBe(8);
     expect(payload.summary?.last24?.guest_pending_capacity).toBe(6);
     expect(payload.summary?.last24?.guest_identity_capacity).toBe(7);
     expect(payload.summary?.last24?.ws_message_oversized).toBe(3);

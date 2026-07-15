@@ -95,6 +95,7 @@ function fixtures() {
   const transport = {
     connect: vi.fn(async () => undefined),
     reconfigure: vi.fn(async () => undefined),
+    refreshCredentials: vi.fn(async () => true),
     disconnect: vi.fn(async () => undefined),
   } satisfies ProRoomTransportBridge;
   const observer = {
@@ -168,6 +169,35 @@ describe('PRO room session controller', () => {
 
     await controller.heartbeat();
     expect(transport.reconfigure).toHaveBeenCalledWith(changed, signaling('member', 2), undefined);
+  });
+
+  it('rotates a signaling ticket in place while authority is unchanged', async () => {
+    const { api, transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.refreshCredentials.mockClear();
+
+    await controller.refreshSignaling();
+
+    expect(transport.refreshCredentials).toHaveBeenCalledWith(
+      snapshot(),
+      signaling('coordinator'),
+      undefined,
+    );
+    expect(transport.reconfigure).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds transport when an in-place credential refresh is unavailable', async () => {
+    const { transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.refreshCredentials.mockResolvedValue(false);
+
+    await controller.refreshSignaling();
+
+    expect(transport.reconfigure).toHaveBeenCalledWith(
+      snapshot(),
+      signaling('coordinator'),
+      undefined,
+    );
   });
 
   it('always clears local authority even when closing the cookie session fails', async () => {

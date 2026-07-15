@@ -22,6 +22,7 @@ import type { DataConnection, DeviceInfo } from '../types/index.ts';
 import { getPeer, detectConnectionType } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
@@ -396,11 +397,11 @@ function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): vo
   if (data.label) {
     setState('network.myDeviceLabel', String(data.label));
   }
-  // WELCOME is authoritative and starts every guest with isOp=false. Always
-  // clear a stale local flag; the host re-grants through OPERATOR_GRANT.
-  if (getState('network.isOperator')) {
-    setState('network.isOperator', false);
-  }
+  // Standard WELCOME starts a guest with isOp=false; a PRO controller's
+  // authority came from the authenticated room snapshot and must not be
+  // downgraded by this legacy compatibility frame.
+  if (getRoomContext().kind === 'pro') setState('network.isOperator', true);
+  else if (getState('network.isOperator')) setState('network.isOperator', false);
   // Sync chat moderation state from host (always set, even when false/0)
   setState('network.chatFrozen', !!data.chatFrozen);
   setState(

@@ -22,10 +22,19 @@ vi.mock('../transport/index.ts', async (importOriginal) => {
   return { ...actual, createTransportPeer: mocks.createTransportPeer };
 });
 
+vi.mock('../transport/config.ts', () => ({
+  getRuntimeTransportConfig: () => ({
+    provider: 'cloudflare' as const,
+    signalingUrl: 'https://signal.example.test/api/rooms',
+  }),
+}));
+
 import { getPeer, setPeer } from '../peer-state.ts';
 import {
   cancelPendingSessionSetup,
+  connectProRoomTransport,
   createHostSessionWithShortCode,
+  disconnectProRoomTransport,
   joinSession,
   leaveSession,
 } from '../peer.ts';
@@ -113,6 +122,30 @@ afterEach(() => {
 });
 
 describe('network initialization ownership', () => {
+  it('opens an authenticated PRO coordinator without entering the standard room flow', async () => {
+    const peer = makePeer('000001', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const access = {
+      roomCode: '000001',
+      ticket: `${'a'.repeat(32)}.${'b'.repeat(43)}`,
+      role: 'coordinator' as const,
+      coordinatorEpoch: 4,
+    };
+
+    await connectProRoomTransport(access);
+
+    expect(mocks.createTransportPeer).toHaveBeenCalledWith(
+      '000001',
+      expect.objectContaining({ proSignaling: access, provider: 'cloudflare' }),
+    );
+    expect(getState('network.appRole')).toBe('host');
+    expect(getState('network.sessionCode')).toBe('000001');
+    expect(getState('network.maxGuestSlots')).toBe(32);
+
+    disconnectProRoomTransport();
+    expect(peer.destroy).toHaveBeenCalled();
+  });
+
   it('surfaces a guest peer initialization error exactly once', async () => {
     const pendingPeer = makePeer('GUEST-INIT', false);
     const errors = vi.fn();

@@ -29,6 +29,11 @@ export interface ProRoomTransportBridge {
     access: ProRoomSignalingAccess,
     signal?: AbortSignal,
   ): Promise<void>;
+  refreshCredentials?(
+    snapshot: ProRoomSnapshot,
+    access: ProRoomSignalingAccess,
+    signal?: AbortSignal,
+  ): boolean | Promise<boolean>;
   disconnect(): void | Promise<void>;
 }
 
@@ -85,6 +90,23 @@ export class ProRoomSessionController {
     const roomCode = this.#requireRoomCode();
     const incoming = await this.api.heartbeat(roomCode, signal);
     return this.#accept(incoming, true, signal);
+  }
+
+  /**
+   * Rotate the short-lived signaling credential without changing room
+   * authority. If the active facade can no longer accept an in-place refresh,
+   * rebuild it from the same authoritative snapshot.
+   */
+  async refreshSignaling(signal?: AbortSignal): Promise<void> {
+    const roomCode = this.#requireRoomCode();
+    const snapshot = this.#snapshot;
+    if (!snapshot) throw new Error('PRO_ROOM_SESSION_INACTIVE');
+    const access = await this.api.createSignalingTicket(roomCode, signal);
+    this.#assertAccessMatches(snapshot, access);
+    const refreshed = this.transport.refreshCredentials
+      ? await this.transport.refreshCredentials(snapshot, access, signal)
+      : false;
+    if (!refreshed) await this.transport.reconfigure(snapshot, access, signal);
   }
 
   async leave(signal?: AbortSignal): Promise<void> {

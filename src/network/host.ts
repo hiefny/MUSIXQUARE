@@ -27,11 +27,14 @@ import {
   broadcastDeviceList,
 } from './peer-state.ts';
 import { showToast } from '../ui/toast.ts';
+import { getRoomContext } from '../rooms/authority.ts';
+import { capabilitiesForProRoomRole } from '../pro-room/contracts.ts';
 
 // ─── Host: Incoming Connection ──────────────────────────────────────
 
 export function handleHostIncomingConnection(conn: DataConnection): void {
   const peerId = conn.peer;
+  const isProRoom = getRoomContext().kind === 'pro';
   const connectedPeers = getState('network.connectedPeers');
   const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
 
@@ -146,12 +149,13 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     label: deviceName,
     status: 'connecting' as string,
     conn,
-    isOp: false,
+    isOp: isProRoom,
     isDataTarget: false,
     joinOrder: slot,
     lastHeartbeat: Date.now(),
     preloadedQueueItemIds: new Set(),
     connectionType: 'unknown',
+    ...(isProRoom ? { roomCapabilities: [...capabilitiesForProRoomRole('controller')] } : {}),
   };
 
   // Re-check max guests before adding (guards against TOCTOU race with concurrent connections)

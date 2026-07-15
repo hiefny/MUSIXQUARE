@@ -13,12 +13,21 @@ import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { showDialog } from '../ui/dialog.ts';
-import { DEFAULT_MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import {
+  DEFAULT_MAX_GUEST_SLOTS,
+  MAX_GUEST_SLOTS_LIMIT,
+  TRANSFER_STATE,
+  PLAYBACK_STATE,
+} from '../core/constants.ts';
 import { clearAllManagedTimers, clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg, PeerInstance } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
-import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
+import {
+  createTransportPeer,
+  type ProSignalingOptions,
+  type TransportPeerOptions,
+} from './transport/index.ts';
 import { setPlaybackIdle } from '../player/ownership.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
@@ -26,7 +35,12 @@ import { setPlaybackIdle } from '../player/ownership.ts';
 import { getPeer, setPeer, generateSessionCode, broadcast, broadcastExcept } from './peer-state.ts';
 
 import { handleHostIncomingConnection } from './host.ts';
-import { setInitNetwork, initGuestProtocolHandlers, invalidateGuestJoinAttempt } from './guest.ts';
+import {
+  setInitNetwork,
+  initGuestProtocolHandlers,
+  invalidateGuestJoinAttempt,
+  joinSession,
+} from './guest.ts';
 
 // ─── Re-exports (preserves external import surface) ─────────────────
 
@@ -304,7 +318,10 @@ function waitForPeerOpen(peer: PeerInstance, owner: NetworkInitOwner): Promise<s
  * Initialize the configured WebRTC transport with optional requested ID.
  * Returns the assigned peer ID.
  */
-async function initNetwork(requestedId: string | null = null): Promise<string> {
+async function initNetwork(
+  requestedId: string | null = null,
+  proSignaling?: ProSignalingOptions,
+): Promise<string> {
   const owner = beginNetworkInit(requestedId);
   let ownedPeer: PeerInstance | null = null;
 
@@ -372,11 +389,15 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     }
 
     const transportConfig = getRuntimeTransportConfig();
+    if (proSignaling && transportConfig.provider !== 'cloudflare') {
+      throw new Error('PRO_ROOM_REQUIRES_CLOUDFLARE_SIGNALING');
+    }
     const peerOpts: TransportPeerOptions = {
       debug: 2,
       provider: transportConfig.provider,
       signalingUrl: transportConfig.signalingUrl,
       peerJsServer: transportConfig.peerJsServer,
+      ...(proSignaling ? { proSignaling } : {}),
       config: {
         iceServers,
         bundlePolicy: 'max-bundle',
@@ -412,6 +433,125 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
   } finally {
     if (_activeNetworkInit === owner) _activeNetworkInit = null;
   }
+}
+
+function closeCurrentTransportResources(): void {
+  const hostConn = getState('network.hostConn');
+  const connectedPeers = getState('network.connectedPeers');
+  const peer = getPeer();
+
+  try {
+    hostConn?.close();
+  } catch {
+    /* noop */
+  }
+  for (const connectedPeer of connectedPeers) {
+    try {
+      connectedPeer.conn?.close();
+    } catch {
+      /* noop */
+    }
+  }
+  if (peer) setPeer(null);
+  try {
+    peer?.destroy();
+  } catch {
+    /* noop */
+  }
+
+  batchSetState({
+    'network.myId': null,
+    'network.hostConn': null,
+    'network.connectedPeers': [],
+    'network.lastKnownDeviceList': null,
+    'network.peerLabels': {},
+    'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
+    'network.peerSlotByPeerId': new Map<string, number>(),
+    'network.activeHostConnByPeerId': new Map<string, DataConnection>(),
+    'network.connectionType': 'unknown',
+  });
+}
+
+function waitForProGuestConnection(roomCode: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      offSuccess();
+      offFailure();
+      clearManagedTimer('pro-room-guest-connect-timeout');
+    };
+    const settle = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const offSuccess = bus.on('setup:guest-join-success', () => settle());
+    const offFailure = bus.on('setup:guest-join-failure', (error) =>
+      settle(error instanceof Error ? error : new Error('PRO_ROOM_CONNECT_FAILED')),
+    );
+    setManagedTimer(
+      'pro-room-guest-connect-timeout',
+      () => settle(new Error('PRO_ROOM_CONNECT_TIMEOUT')),
+      15_000,
+    );
+
+    setState('network.isConnecting', false);
+    joinSession(roomCode);
+  });
+}
+
+/**
+ * Open the legacy host/guest topology through an authenticated PRO signaling
+ * ticket. Authority is server-owned; `appRole` is only the compatibility role
+ * required by the existing media engine.
+ */
+export async function connectProRoomTransport(access: ProSignalingOptions): Promise<void> {
+  invalidateGuestJoinAttempt();
+  invalidateNetworkInit();
+  setState('network.isIntentionalDisconnect', true);
+  closeCurrentTransportResources();
+
+  const coordinator = access.role === 'coordinator';
+  batchSetState({
+    'network.appRole': coordinator ? 'host' : 'guest',
+    'network.sessionCode': access.roomCode,
+    'network.lastJoinCode': access.roomCode,
+    'network.isOperator': !coordinator,
+    'network.isConnecting': true,
+    'network.isIntentionalDisconnect': false,
+    'network.maxGuestSlots': coordinator ? MAX_GUEST_SLOTS_LIMIT : DEFAULT_MAX_GUEST_SLOTS,
+  });
+
+  try {
+    await initNetwork(coordinator ? access.roomCode : null, access);
+    if (coordinator) {
+      setState('network.isConnecting', false);
+      return;
+    }
+    await waitForProGuestConnection(access.roomCode);
+    setState('network.isOperator', true);
+  } catch (error) {
+    setState('network.isConnecting', false);
+    closeCurrentTransportResources();
+    throw error;
+  }
+}
+
+/** Destroy only the current WebRTC facade. The PRO controller owns API logout. */
+export function disconnectProRoomTransport(): void {
+  invalidateGuestJoinAttempt();
+  invalidateNetworkInit();
+  setState('network.isIntentionalDisconnect', true);
+  clearManagedTimer('pro-room-guest-connect-timeout');
+  closeCurrentTransportResources();
+  setState('network.isConnecting', false);
+}
+
+/** Refresh the credential used by the next signaling reconnect. */
+export function refreshProRoomSignalingAccess(access: ProSignalingOptions): boolean {
+  return getPeer()?.setProSignalingAccess?.(access) === true;
 }
 
 // Inject initNetwork into guest.ts (late binding to avoid circular dep)

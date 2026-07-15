@@ -514,6 +514,28 @@ const id: Record<I18nKey, string> = {
     'Aplikasi tertidur atau kehilangan koneksi, jadi perangkat lain sudah terputus. Mulai ulang untuk membuat ruang baru.',
   'dialog.session_lost_btn': 'Mulai ulang',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Aktifkan ruang PRO',
+  'pro.activation_message': 'Buat kata sandi angka 8 digit baru untuk ruang ini.',
+  'pro.activation_pin_same': 'Pilih kata sandi yang berbeda dari kata sandi sementara.',
+  'pro.not_ready_title': 'Ruang PRO ini belum siap',
+  'pro.not_ready_message': 'Pemilik ruang harus mengaktifkannya terlebih dahulu.',
+  'pro.suspended_title': 'Ruang PRO ini sedang tidak tersedia',
+  'pro.suspended_message': 'Hubungi pemilik ruang.',
+  'pro.loading': 'Memuat ruang PRO...',
+  'pro.resume_tap': 'Ketuk untuk melanjutkan pemutaran',
+  'pro.pin_title': 'Kata sandi ruang',
+  'pro.pin_message': 'Masukkan kata sandi 8 digit untuk ruang PRO ini.',
+  'pro.pin_retry_message': 'Kata sandi salah. Coba lagi.',
+  'pro.pin_change_title': 'Ubah kata sandi ruang',
+  'pro.pin_change_message': 'Buat kata sandi 8 digit baru. Semua orang harus bergabung kembali.',
+  'pro.pin_changed': 'Kata sandi ruang telah diubah.',
+  'pro.owner_only': 'Hanya pemilik ruang yang dapat melakukannya.',
+  'pro.connect_failed': 'Tidak dapat terhubung ke ruang PRO.',
+  'pro.uploading': 'Menyimpan ke ruang PRO...',
+  'pro.downloading': 'Memuat dari ruang PRO...',
+  'pro.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB.',
+
   // Chat
   'chat.title': 'Chat',
   'chat.close': 'Tutup chat',

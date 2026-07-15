@@ -508,6 +508,28 @@ const vi: Record<I18nKey, string> = {
     'Ứng dụng đã ngủ hoặc mất kết nối, nên các thiết bị khác đã rời. Hãy khởi động lại để tạo phòng mới.',
   'dialog.session_lost_btn': 'Khởi động lại',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Kích hoạt phòng PRO',
+  'pro.activation_message': 'Đặt mật khẩu số mới gồm 8 chữ số cho phòng này.',
+  'pro.activation_pin_same': 'Chọn mật khẩu khác với mật khẩu tạm thời.',
+  'pro.not_ready_title': 'Phòng PRO này chưa sẵn sàng',
+  'pro.not_ready_message': 'Chủ phòng cần kích hoạt phòng trước.',
+  'pro.suspended_title': 'Phòng PRO này hiện không khả dụng',
+  'pro.suspended_message': 'Hãy liên hệ với chủ phòng.',
+  'pro.loading': 'Đang tải phòng PRO...',
+  'pro.resume_tap': 'Chạm để tiếp tục phát',
+  'pro.pin_title': 'Mật khẩu phòng',
+  'pro.pin_message': 'Nhập mật khẩu 8 chữ số của phòng PRO này.',
+  'pro.pin_retry_message': 'Mật khẩu không đúng. Hãy thử lại.',
+  'pro.pin_change_title': 'Đổi mật khẩu phòng',
+  'pro.pin_change_message': 'Đặt mật khẩu mới gồm 8 chữ số. Mọi người sẽ phải vào lại phòng.',
+  'pro.pin_changed': 'Đã đổi mật khẩu phòng.',
+  'pro.owner_only': 'Chỉ chủ phòng mới có thể thực hiện.',
+  'pro.connect_failed': 'Không thể kết nối với phòng PRO.',
+  'pro.uploading': 'Đang lưu vào phòng PRO...',
+  'pro.downloading': 'Đang tải từ phòng PRO...',
+  'pro.quota_exceeded': 'Phòng PRO này đã dùng hết giới hạn lưu trữ 1 GB.',
+
   // Chat
   'chat.title': 'Chat',
   'chat.close': 'Đóng chat',

@@ -592,6 +592,28 @@ const pl: Record<I18nKey, string> = {
     'Aplikacja przeszła w tryb oszczędzania energii lub straciła połączenie, co przerwało łączność z pozostałymi urządzeniami. Zrestartuj, aby uruchomić nową sesję.',
   'dialog.session_lost_btn': 'Uruchom ponownie',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Aktywuj pokój PRO',
+  'pro.activation_message': 'Ustaw nowe 8-cyfrowe hasło numeryczne dla tego pokoju.',
+  'pro.activation_pin_same': 'Wybierz hasło inne niż tymczasowe.',
+  'pro.not_ready_title': 'Ten pokój PRO nie jest jeszcze gotowy',
+  'pro.not_ready_message': 'Właściciel musi go najpierw aktywować.',
+  'pro.suspended_title': 'Ten pokój PRO jest obecnie niedostępny',
+  'pro.suspended_message': 'Skontaktuj się z właścicielem.',
+  'pro.loading': 'Ładowanie pokoju PRO...',
+  'pro.resume_tap': 'Dotknij, aby wznowić odtwarzanie',
+  'pro.pin_title': 'Hasło pokoju',
+  'pro.pin_message': 'Wpisz 8-cyfrowe hasło do tego pokoju PRO.',
+  'pro.pin_retry_message': 'Hasło jest nieprawidłowe. Spróbuj ponownie.',
+  'pro.pin_change_title': 'Zmień hasło pokoju',
+  'pro.pin_change_message': 'Ustaw nowe 8-cyfrowe hasło. Wszyscy będą musieli dołączyć ponownie.',
+  'pro.pin_changed': 'Hasło pokoju zostało zmienione.',
+  'pro.owner_only': 'Tylko właściciel może to zrobić.',
+  'pro.connect_failed': 'Nie udało się połączyć z pokojem PRO.',
+  'pro.uploading': 'Zapisywanie w pokoju PRO...',
+  'pro.downloading': 'Ładowanie z pokoju PRO...',
+  'pro.quota_exceeded': 'Ten pokój PRO wykorzystał limit 1 GB.',
+
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
     'Lubisz MUSIXQUARE? Można go zainstalować jako aplikację.<ul class="help-list"><li><strong>iOS:</strong> Udostępnij → Dodaj do ekranu głównego</li><li><strong>Android:</strong> Menu → Zainstaluj aplikację</li><li><strong>Windows:</strong> Ikona instalacji w pasku adresu</li><li><strong>macOS:</strong> Udostępnij → Dodaj do Docka</li></ul>',

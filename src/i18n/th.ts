@@ -574,6 +574,28 @@ const th: Record<I18nKey, string> = {
     'แอปเข้าสู่โหมดพักหรือการเชื่อมต่อหลุด อุปกรณ์อื่นจึงหลุดไปแล้ว รีสตาร์ตเพื่อเริ่มห้องใหม่',
   'dialog.session_lost_btn': 'รีสตาร์ต',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'เปิดใช้งานห้อง PRO',
+  'pro.activation_message': 'ตั้งรหัสผ่านตัวเลขใหม่ 8 หลักสำหรับห้องนี้',
+  'pro.activation_pin_same': 'เลือกรหัสผ่านที่ต่างจากรหัสผ่านชั่วคราว',
+  'pro.not_ready_title': 'ห้อง PRO นี้ยังไม่พร้อม',
+  'pro.not_ready_message': 'เจ้าของห้องต้องเปิดใช้งานก่อน',
+  'pro.suspended_title': 'ห้อง PRO นี้ไม่พร้อมใช้งาน',
+  'pro.suspended_message': 'โปรดติดต่อเจ้าของห้อง',
+  'pro.loading': 'กำลังโหลดห้อง PRO...',
+  'pro.resume_tap': 'แตะเพื่อเล่นต่อ',
+  'pro.pin_title': 'รหัสผ่านห้อง',
+  'pro.pin_message': 'ป้อนรหัสผ่าน 8 หลักของห้อง PRO นี้',
+  'pro.pin_retry_message': 'รหัสผ่านไม่ถูกต้อง ลองอีกครั้ง',
+  'pro.pin_change_title': 'เปลี่ยนรหัสผ่านห้อง',
+  'pro.pin_change_message': 'ตั้งรหัสผ่านใหม่ 8 หลัก ทุกคนจะต้องเข้าร่วมห้องอีกครั้ง',
+  'pro.pin_changed': 'เปลี่ยนรหัสผ่านห้องแล้ว',
+  'pro.owner_only': 'เฉพาะเจ้าของห้องเท่านั้นที่ทำได้',
+  'pro.connect_failed': 'เชื่อมต่อห้อง PRO ไม่สำเร็จ',
+  'pro.uploading': 'กำลังบันทึกไปยังห้อง PRO...',
+  'pro.downloading': 'กำลังโหลดจากห้อง PRO...',
+  'pro.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
+
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
     'ชอบ MUSIXQUARE ใช่ไหม? คุณสามารถติดตั้งเป็นแอปได้<ul class="help-list"><li><strong>iOS:</strong> แชร์ → เพิ่มไปยังหน้าจอโฮม</li><li><strong>Android:</strong> เมนู → ติดตั้งแอป</li><li><strong>Windows:</strong> ไอคอนติดตั้งในแถบที่อยู่</li><li><strong>macOS:</strong> แชร์ → เพิ่มไปยัง Dock</li></ul>',

@@ -596,6 +596,29 @@ const it: Record<I18nKey, string> = {
     "L'app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per avviare una nuova sessione.",
   'dialog.session_lost_btn': 'Riavvia',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Attiva stanza PRO',
+  'pro.activation_message': 'Imposta una nuova password numerica di 8 cifre per questa stanza.',
+  'pro.activation_pin_same': 'Scegli una password diversa da quella temporanea.',
+  'pro.not_ready_title': 'Questa stanza PRO non è ancora pronta',
+  'pro.not_ready_message': 'Il proprietario deve prima attivarla.',
+  'pro.suspended_title': 'Questa stanza PRO non è disponibile',
+  'pro.suspended_message': 'Chiedi aiuto al proprietario.',
+  'pro.loading': 'Caricamento stanza PRO...',
+  'pro.resume_tap': 'Tocca per riprendere la riproduzione',
+  'pro.pin_title': 'Password della stanza',
+  'pro.pin_message': 'Inserisci la password di 8 cifre di questa stanza PRO.',
+  'pro.pin_retry_message': 'La password non è corretta. Riprova.',
+  'pro.pin_change_title': 'Cambia password',
+  'pro.pin_change_message':
+    'Imposta una nuova password di 8 cifre. Tutti dovranno accedere di nuovo.',
+  'pro.pin_changed': 'Password della stanza modificata.',
+  'pro.owner_only': 'Solo il proprietario può farlo.',
+  'pro.connect_failed': 'Impossibile connettersi alla stanza PRO.',
+  'pro.uploading': 'Salvataggio nella stanza PRO...',
+  'pro.downloading': 'Caricamento dalla stanza PRO...',
+  'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di 1 GB.',
+
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
     'Ti piace MUSIXQUARE? Puoi installarlo come app.<ul class="help-list"><li><strong>iOS:</strong> Condividi → Aggiungi alla schermata principale</li><li><strong>Android:</strong> Menu → Installa app</li><li><strong>Windows:</strong> Icona Installa nella barra degli indirizzi</li><li><strong>macOS:</strong> Condividi → Aggiungi al Dock</li></ul>',

@@ -584,6 +584,29 @@ const nl: Record<I18nKey, string> = {
     'De app ging slapen of verloor verbinding, dus andere apparaten zijn al losgekoppeld. Start opnieuw om een nieuwe sessie te beginnen.',
   'dialog.session_lost_btn': 'Opnieuw starten',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'PRO-ruimte activeren',
+  'pro.activation_message': 'Stel een nieuw numeriek wachtwoord van 8 cijfers in voor deze ruimte.',
+  'pro.activation_pin_same': 'Kies een ander wachtwoord dan het tijdelijke.',
+  'pro.not_ready_title': 'Deze PRO-ruimte is nog niet klaar',
+  'pro.not_ready_message': 'De eigenaar moet de ruimte eerst activeren.',
+  'pro.suspended_title': 'Deze PRO-ruimte is niet beschikbaar',
+  'pro.suspended_message': 'Neem contact op met de eigenaar.',
+  'pro.loading': 'PRO-ruimte laden...',
+  'pro.resume_tap': 'Tik om het afspelen te hervatten',
+  'pro.pin_title': 'Wachtwoord van ruimte',
+  'pro.pin_message': 'Voer het 8-cijferige wachtwoord van deze PRO-ruimte in.',
+  'pro.pin_retry_message': 'Het wachtwoord klopt niet. Probeer het opnieuw.',
+  'pro.pin_change_title': 'Wachtwoord wijzigen',
+  'pro.pin_change_message':
+    'Stel een nieuw wachtwoord van 8 cijfers in. Iedereen moet opnieuw deelnemen.',
+  'pro.pin_changed': 'Wachtwoord van ruimte gewijzigd.',
+  'pro.owner_only': 'Alleen de eigenaar kan dit doen.',
+  'pro.connect_failed': 'Kan geen verbinding maken met de PRO-ruimte.',
+  'pro.uploading': 'Opslaan in PRO-ruimte...',
+  'pro.downloading': 'Laden uit PRO-ruimte...',
+  'pro.quota_exceeded': 'Deze PRO-ruimte heeft de opslaglimiet van 1 GB bereikt.',
+
   // HTML help blocks
   'help.install_app_html':
     'Vind je MUSIXQUARE handig? Je kunt het als app installeren.<ul class="help-list"><li><strong>iOS:</strong> Delen -&gt; Zet op beginscherm</li><li><strong>Android:</strong> Menu -&gt; App installeren</li><li><strong>Windows:</strong> Installatie-icoon in de adresbalk</li><li><strong>macOS:</strong> Delen -&gt; Voeg toe aan Dock</li></ul>',

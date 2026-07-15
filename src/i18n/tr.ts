@@ -588,6 +588,29 @@ const tr: Record<I18nKey, string> = {
     'Uygulama arka planda uyku moduna geçtiği veya bağlantısı koptuğu için diğer cihazlarla bağlantı kesildi. Yeniden başlatarak yeni oda kurabilirsiniz.',
   'dialog.session_lost_btn': 'Yeniden Başlat',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'PRO odasını etkinleştir',
+  'pro.activation_message': 'Bu oda için 8 haneli yeni bir sayısal parola belirleyin.',
+  'pro.activation_pin_same': 'Geçici paroladan farklı bir parola seçin.',
+  'pro.not_ready_title': 'Bu PRO odası henüz hazır değil',
+  'pro.not_ready_message': 'Önce oda sahibinin etkinleştirmesi gerekiyor.',
+  'pro.suspended_title': 'Bu PRO odası şu anda kullanılamıyor',
+  'pro.suspended_message': 'Oda sahibinden yardım isteyin.',
+  'pro.loading': 'PRO odası yükleniyor...',
+  'pro.resume_tap': 'Oynatmayı sürdürmek için dokunun',
+  'pro.pin_title': 'Oda parolası',
+  'pro.pin_message': 'Bu PRO odasının 8 haneli parolasını girin.',
+  'pro.pin_retry_message': 'Parola yanlış. Tekrar deneyin.',
+  'pro.pin_change_title': 'Oda parolasını değiştir',
+  'pro.pin_change_message':
+    '8 haneli yeni bir parola belirleyin. Herkesin yeniden katılması gerekecek.',
+  'pro.pin_changed': 'Oda parolası değiştirildi.',
+  'pro.owner_only': 'Bunu yalnızca oda sahibi yapabilir.',
+  'pro.connect_failed': 'PRO odasına bağlanılamadı.',
+  'pro.uploading': 'PRO odasına kaydediliyor...',
+  'pro.downloading': 'PRO odasından yükleniyor...',
+  'pro.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu.',
+
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
     'MUSIXQUARE\'i beğendiniz mi? Uygulama olarak yükleyebilirsiniz.<ul class="help-list"><li><strong>iOS:</strong> Paylaş → Ana Ekrana Ekle</li><li><strong>Android:</strong> Menü → Uygulamayı Yükle</li><li><strong>Windows:</strong> Adres çubuğundaki simgeden yükle</li><li><strong>macOS:</strong> Paylaş → Dock\'a Ekle</li></ul>',

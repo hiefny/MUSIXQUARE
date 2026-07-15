@@ -573,6 +573,28 @@ const ko = {
     '앱이 잠시 꺼지거나 절전 상태로 들어가서 다른 기기들과 연결이 끊어졌어요. 다시 시작하면 새 세션을 열 수 있어요.',
   'dialog.session_lost_btn': '다시 시작',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'PRO 방 활성화',
+  'pro.activation_message': '이 방에서 사용할 새 8자리 암호를 설정해 주세요.',
+  'pro.activation_pin_same': '임시 암호와 다른 암호를 설정해 주세요.',
+  'pro.not_ready_title': '아직 준비 중인 PRO 방이에요',
+  'pro.not_ready_message': '방 소유자가 먼저 활성화해야 해요.',
+  'pro.suspended_title': '현재 이용할 수 없는 PRO 방이에요',
+  'pro.suspended_message': '방 소유자에게 문의해 주세요.',
+  'pro.loading': 'PRO 방을 불러오는 중...',
+  'pro.resume_tap': '재생을 계속하려면 눌러 주세요',
+  'pro.pin_title': '방 암호 입력',
+  'pro.pin_message': '이 PRO 방의 8자리 암호를 입력해 주세요.',
+  'pro.pin_retry_message': '암호가 올바르지 않아요. 다시 입력해 주세요.',
+  'pro.pin_change_title': '방 암호 변경',
+  'pro.pin_change_message': '새 8자리 암호를 설정해 주세요. 모든 참여자가 다시 입장해야 해요.',
+  'pro.pin_changed': '방 암호를 변경했어요.',
+  'pro.owner_only': '방 소유자만 할 수 있어요.',
+  'pro.connect_failed': 'PRO 방에 연결하지 못했어요.',
+  'pro.uploading': 'PRO 방에 저장하는 중...',
+  'pro.downloading': 'PRO 방에서 불러오는 중...',
+  'pro.quota_exceeded': 'PRO 방의 1GB 저장 공간을 모두 사용했어요.',
+
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
     '뮤직스퀘어가 마음에 든다면 앱처럼 설치할 수 있어요.<ul class="help-list"><li><strong>iOS:</strong> 공유 → 홈 화면에 추가</li><li><strong>Android:</strong> 메뉴 → 앱 설치</li><li><strong>Windows:</strong> 주소창 설치 아이콘</li><li><strong>macOS:</strong> 공유 → Dock에 추가</li></ul>',

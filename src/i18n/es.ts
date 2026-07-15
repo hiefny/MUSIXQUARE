@@ -521,6 +521,29 @@ const es: Record<I18nKey, string> = {
     'La app se suspendió o perdió conexión, así que los demás dispositivos ya se desconectaron. Reinicia para crear una sala nueva.',
   'dialog.session_lost_btn': 'Reiniciar',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Activar sala PRO',
+  'pro.activation_message': 'Define una nueva contraseña numérica de 8 dígitos para esta sala.',
+  'pro.activation_pin_same': 'Elige una contraseña distinta de la temporal.',
+  'pro.not_ready_title': 'Esta sala PRO aún no está lista',
+  'pro.not_ready_message': 'El propietario debe activarla primero.',
+  'pro.suspended_title': 'Esta sala PRO no está disponible',
+  'pro.suspended_message': 'Pide ayuda al propietario.',
+  'pro.loading': 'Cargando sala PRO...',
+  'pro.resume_tap': 'Toca para reanudar la reproducción',
+  'pro.pin_title': 'Contraseña de la sala',
+  'pro.pin_message': 'Introduce la contraseña de 8 dígitos de esta sala PRO.',
+  'pro.pin_retry_message': 'La contraseña no es correcta. Inténtalo de nuevo.',
+  'pro.pin_change_title': 'Cambiar contraseña',
+  'pro.pin_change_message':
+    'Define una nueva contraseña de 8 dígitos. Todos tendrán que volver a entrar.',
+  'pro.pin_changed': 'Contraseña de la sala actualizada.',
+  'pro.owner_only': 'Solo el propietario puede hacer eso.',
+  'pro.connect_failed': 'No se pudo conectar con la sala PRO.',
+  'pro.uploading': 'Guardando en la sala PRO...',
+  'pro.downloading': 'Cargando desde la sala PRO...',
+  'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de 1 GB.',
+
   // Chat
   'chat.title': 'Chat',
   'chat.close': 'Cerrar chat',

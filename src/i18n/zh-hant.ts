@@ -495,6 +495,28 @@ const zhHant: Record<I18nKey, string> = {
     '應用程式進入睡眠或失去連線，與其他裝置的連線已中斷。請重新啟動以建立新房間。',
   'dialog.session_lost_btn': '重新啟動',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': '啟用 PRO 房間',
+  'pro.activation_message': '請為此房間設定新的 8 位數字密碼。',
+  'pro.activation_pin_same': '請選擇與臨時密碼不同的密碼。',
+  'pro.not_ready_title': '此 PRO 房間尚未準備好',
+  'pro.not_ready_message': '房主需要先啟用房間。',
+  'pro.suspended_title': '此 PRO 房間目前無法使用',
+  'pro.suspended_message': '請聯絡房主。',
+  'pro.loading': '正在載入 PRO 房間...',
+  'pro.resume_tap': '點按以繼續播放',
+  'pro.pin_title': '輸入房間密碼',
+  'pro.pin_message': '請輸入此 PRO 房間的 8 位數字密碼。',
+  'pro.pin_retry_message': '密碼不正確，請再試一次。',
+  'pro.pin_change_title': '變更房間密碼',
+  'pro.pin_change_message': '請設定新的 8 位數字密碼。所有參與者都需要重新進入。',
+  'pro.pin_changed': '房間密碼已變更。',
+  'pro.owner_only': '只有房主可以執行此操作。',
+  'pro.connect_failed': '無法連線至 PRO 房間。',
+  'pro.uploading': '正在儲存至 PRO 房間...',
+  'pro.downloading': '正在從 PRO 房間載入...',
+  'pro.quota_exceeded': '此 PRO 房間的 1 GB 儲存空間已用完。',
+
   // Chat
   'chat.title': '聊天',
   'chat.close': '關閉聊天',

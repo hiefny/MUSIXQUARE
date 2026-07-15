@@ -495,6 +495,28 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.session_lost_msg': '应用进入休眠或失去连接，其他设备已经断开。请重启以创建新房间。',
   'dialog.session_lost_btn': '重启',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': '激活 PRO 房间',
+  'pro.activation_message': '请为此房间设置新的 8 位数字密码。',
+  'pro.activation_pin_same': '请选择与临时密码不同的密码。',
+  'pro.not_ready_title': '此 PRO 房间尚未准备好',
+  'pro.not_ready_message': '房主需要先激活房间。',
+  'pro.suspended_title': '此 PRO 房间当前不可用',
+  'pro.suspended_message': '请联系房主。',
+  'pro.loading': '正在加载 PRO 房间...',
+  'pro.resume_tap': '点按以继续播放',
+  'pro.pin_title': '输入房间密码',
+  'pro.pin_message': '请输入此 PRO 房间的 8 位数字密码。',
+  'pro.pin_retry_message': '密码不正确，请重试。',
+  'pro.pin_change_title': '修改房间密码',
+  'pro.pin_change_message': '请设置新的 8 位数字密码。所有参与者都需要重新进入。',
+  'pro.pin_changed': '房间密码已修改。',
+  'pro.owner_only': '只有房主可以执行此操作。',
+  'pro.connect_failed': '无法连接到 PRO 房间。',
+  'pro.uploading': '正在保存到 PRO 房间...',
+  'pro.downloading': '正在从 PRO 房间加载...',
+  'pro.quota_exceeded': '此 PRO 房间的 1 GB 存储空间已用完。',
+
   // Chat
   'chat.title': '聊天',
   'chat.close': '关闭聊天',

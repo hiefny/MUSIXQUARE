@@ -525,6 +525,30 @@ const fr: Record<I18nKey, string> = {
     'L’app est passée en veille ou a perdu la connexion, les autres appareils sont donc déjà déconnectés. Redémarrez pour créer une nouvelle salle.',
   'dialog.session_lost_btn': 'Redémarrer',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Activer la salle PRO',
+  'pro.activation_message':
+    'Définissez un nouveau mot de passe numérique à 8 chiffres pour cette salle.',
+  'pro.activation_pin_same': 'Choisissez un mot de passe différent du temporaire.',
+  'pro.not_ready_title': 'Cette salle PRO n’est pas encore prête',
+  'pro.not_ready_message': 'Le propriétaire doit d’abord l’activer.',
+  'pro.suspended_title': 'Cette salle PRO est indisponible',
+  'pro.suspended_message': 'Contactez le propriétaire.',
+  'pro.loading': 'Chargement de la salle PRO...',
+  'pro.resume_tap': 'Touchez pour reprendre la lecture',
+  'pro.pin_title': 'Mot de passe de la salle',
+  'pro.pin_message': 'Saisissez le mot de passe à 8 chiffres de cette salle PRO.',
+  'pro.pin_retry_message': 'Mot de passe incorrect. Réessayez.',
+  'pro.pin_change_title': 'Modifier le mot de passe',
+  'pro.pin_change_message':
+    'Définissez un nouveau mot de passe à 8 chiffres. Tout le monde devra se reconnecter.',
+  'pro.pin_changed': 'Mot de passe de la salle modifié.',
+  'pro.owner_only': 'Seul le propriétaire peut le faire.',
+  'pro.connect_failed': 'Connexion à la salle PRO impossible.',
+  'pro.uploading': 'Enregistrement dans la salle PRO...',
+  'pro.downloading': 'Chargement depuis la salle PRO...',
+  'pro.quota_exceeded': 'Cette salle PRO a atteint sa limite de stockage de 1 Go.',
+
   // Chat
   'chat.title': 'Chat',
   'chat.close': 'Fermer le chat',

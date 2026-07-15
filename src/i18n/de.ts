@@ -517,6 +517,29 @@ const de: Record<I18nKey, string> = {
     'Die App ist eingeschlafen oder hat die Verbindung verloren, daher sind andere Geräte bereits getrennt. Starte neu, um einen neuen Raum zu beginnen.',
   'dialog.session_lost_btn': 'Neu starten',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'PRO-Raum aktivieren',
+  'pro.activation_message': 'Lege ein neues 8-stelliges numerisches Passwort für diesen Raum fest.',
+  'pro.activation_pin_same': 'Wähle ein anderes Passwort als das vorläufige.',
+  'pro.not_ready_title': 'Dieser PRO-Raum ist noch nicht bereit',
+  'pro.not_ready_message': 'Der Raumbesitzer muss ihn zuerst aktivieren.',
+  'pro.suspended_title': 'Dieser PRO-Raum ist derzeit nicht verfügbar',
+  'pro.suspended_message': 'Bitte wende dich an den Raumbesitzer.',
+  'pro.loading': 'PRO-Raum wird geladen...',
+  'pro.resume_tap': 'Tippe, um die Wiedergabe fortzusetzen',
+  'pro.pin_title': 'Raumpasswort eingeben',
+  'pro.pin_message': 'Gib das 8-stellige Passwort für diesen PRO-Raum ein.',
+  'pro.pin_retry_message': 'Das Passwort ist falsch. Versuche es erneut.',
+  'pro.pin_change_title': 'Raumpasswort ändern',
+  'pro.pin_change_message':
+    'Lege ein neues 8-stelliges Passwort fest. Alle müssen dem Raum erneut beitreten.',
+  'pro.pin_changed': 'Raumpasswort wurde geändert.',
+  'pro.owner_only': 'Das kann nur der Raumbesitzer.',
+  'pro.connect_failed': 'Verbindung zum PRO-Raum fehlgeschlagen.',
+  'pro.uploading': 'Im PRO-Raum speichern...',
+  'pro.downloading': 'Aus dem PRO-Raum laden...',
+  'pro.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',
+
   // Chat
   'chat.title': 'Chat',
   'chat.close': 'Chat schließen',

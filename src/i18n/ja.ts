@@ -513,6 +513,29 @@ const ja: Record<I18nKey, string> = {
     'アプリがスリープしたか接続を失ったため、他のデバイスはすでに切断されています。新しいルームを始めるには再起動してください。',
   'dialog.session_lost_btn': '再起動',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'PROルームを有効化',
+  'pro.activation_message': 'このルームで使う新しい8桁のパスワードを設定してください。',
+  'pro.activation_pin_same': '仮パスワードとは異なるパスワードを設定してください。',
+  'pro.not_ready_title': 'まだ準備中のPROルームです',
+  'pro.not_ready_message': 'ルームのオーナーが先に有効化する必要があります。',
+  'pro.suspended_title': 'このPROルームは現在利用できません',
+  'pro.suspended_message': 'ルームのオーナーにお問い合わせください。',
+  'pro.loading': 'PROルームを読み込み中...',
+  'pro.resume_tap': 'タップして再生を続ける',
+  'pro.pin_title': 'ルームのパスワード',
+  'pro.pin_message': 'このPROルームの8桁のパスワードを入力してください。',
+  'pro.pin_retry_message': 'パスワードが正しくありません。もう一度お試しください。',
+  'pro.pin_change_title': 'ルームのパスワードを変更',
+  'pro.pin_change_message':
+    '新しい8桁のパスワードを設定してください。全員が再入室する必要があります。',
+  'pro.pin_changed': 'ルームのパスワードを変更しました。',
+  'pro.owner_only': 'この操作はルームのオーナーのみ行えます。',
+  'pro.connect_failed': 'PROルームに接続できませんでした。',
+  'pro.uploading': 'PROルームに保存中...',
+  'pro.downloading': 'PROルームから読み込み中...',
+  'pro.quota_exceeded': 'このPROルームは1GBの保存上限に達しました。',
+
   // Chat
   'chat.title': 'チャット',
   'chat.close': 'チャットを閉じる',

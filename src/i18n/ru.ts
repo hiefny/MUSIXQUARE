@@ -592,6 +592,28 @@ const ru: Record<I18nKey, string> = {
     'Приложение перешло в энергосберегающий режим или потеряло сеть, прервав связь с остальными устройствами. Перезапустите, чтобы начать новую сессию.',
   'dialog.session_lost_btn': 'Перезапустить',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Активировать PRO-комнату',
+  'pro.activation_message': 'Задайте новый 8-значный цифровой пароль для этой комнаты.',
+  'pro.activation_pin_same': 'Выберите пароль, отличный от временного.',
+  'pro.not_ready_title': 'Эта PRO-комната ещё не готова',
+  'pro.not_ready_message': 'Владелец должен сначала активировать её.',
+  'pro.suspended_title': 'Эта PRO-комната сейчас недоступна',
+  'pro.suspended_message': 'Обратитесь к владельцу комнаты.',
+  'pro.loading': 'Загрузка PRO-комнаты...',
+  'pro.resume_tap': 'Коснитесь, чтобы продолжить воспроизведение',
+  'pro.pin_title': 'Пароль комнаты',
+  'pro.pin_message': 'Введите 8-значный пароль этой PRO-комнаты.',
+  'pro.pin_retry_message': 'Неверный пароль. Попробуйте ещё раз.',
+  'pro.pin_change_title': 'Изменить пароль комнаты',
+  'pro.pin_change_message': 'Задайте новый 8-значный пароль. Всем потребуется войти снова.',
+  'pro.pin_changed': 'Пароль комнаты изменён.',
+  'pro.owner_only': 'Это может сделать только владелец.',
+  'pro.connect_failed': 'Не удалось подключиться к PRO-комнате.',
+  'pro.uploading': 'Сохранение в PRO-комнате...',
+  'pro.downloading': 'Загрузка из PRO-комнаты...',
+  'pro.quota_exceeded': 'В PRO-комнате исчерпан лимит хранилища 1 ГБ.',
+
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
     'Нравится MUSIXQUARE? Вы можете установить его как приложение.<ul class="help-list"><li><strong>iOS:</strong> Поделиться → Добавить на экран «Домой»</li><li><strong>Android:</strong> Меню → Установить приложение</li><li><strong>Windows:</strong> Значок установки в адресной строке</li><li><strong>macOS:</strong> Поделиться → Добавить в Dock</li></ul>',

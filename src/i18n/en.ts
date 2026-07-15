@@ -577,6 +577,28 @@ const en: Record<I18nKey, string> = {
     'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',
   'dialog.session_lost_btn': 'Restart',
 
+  // ─── PRO Rooms ──────────────────────────────────────────────
+  'pro.activation_title': 'Activate PRO room',
+  'pro.activation_message': 'Set a new 8-digit password for this room.',
+  'pro.activation_pin_same': 'Choose a password different from the temporary one.',
+  'pro.not_ready_title': 'This PRO room is not ready yet',
+  'pro.not_ready_message': 'The room owner needs to activate it first.',
+  'pro.suspended_title': 'This PRO room is unavailable',
+  'pro.suspended_message': 'Ask the room owner for help.',
+  'pro.loading': 'Loading PRO room...',
+  'pro.resume_tap': 'Tap to resume playback',
+  'pro.pin_title': 'Enter room password',
+  'pro.pin_message': 'Enter the 8-digit password for this PRO room.',
+  'pro.pin_retry_message': 'That password is not correct. Try again.',
+  'pro.pin_change_title': 'Change room password',
+  'pro.pin_change_message': 'Set a new 8-digit password. Everyone will need to join again.',
+  'pro.pin_changed': 'Room password changed.',
+  'pro.owner_only': 'Only the room owner can do that.',
+  'pro.connect_failed': 'Could not connect to the PRO room.',
+  'pro.uploading': 'Saving to PRO room...',
+  'pro.downloading': 'Loading from PRO room...',
+  'pro.quota_exceeded': 'This PRO room has reached its 1 GB storage limit.',
+
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
     'Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul>',

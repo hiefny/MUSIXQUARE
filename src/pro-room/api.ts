@@ -7,7 +7,12 @@ import {
   type ProRoomR2Source,
   type ProRoomSnapshot,
 } from './contracts.ts';
-import { isProRoomPin, parseProRoomClaimToken } from './credentials.ts';
+import {
+  isProRoomPin,
+  parseProRoomClaimToken,
+  parseProRoomSignalingTicket,
+  type ProRoomSignalingTicket,
+} from './credentials.ts';
 import { isProRoomCode } from './room-code.ts';
 import { isProRoomQueueItemId, parseProRoomSnapshot } from './snapshot.ts';
 
@@ -62,6 +67,13 @@ export interface ProRoomMediaDownload {
   asset: ProRoomR2Source;
   url: string;
   expiresAtMs: number;
+}
+
+export interface ProRoomSignalingAccess {
+  ticket: ProRoomSignalingTicket;
+  expiresAtMs: number;
+  role: 'coordinator' | 'member';
+  coordinatorEpoch: number;
 }
 
 export interface ActivateProRoomInput {
@@ -591,6 +603,47 @@ export class ProRoomApiClient {
       method: 'POST',
       signal,
       parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+  }
+
+  leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const path = roomPath(code);
+    return this.#request(`${path}/presence/current`, {
+      method: 'DELETE',
+      signal,
+      parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+  }
+
+  createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess> {
+    const path = roomPath(code);
+    return this.#request(`${path}/signaling-tickets`, {
+      method: 'POST',
+      signal,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: (value) => {
+        if (
+          !isRecord(value) ||
+          !hasExactKeys(value, ['ticket', 'expiresAtMs', 'role', 'coordinatorEpoch'])
+        ) {
+          return null;
+        }
+        const ticket = parseProRoomSignalingTicket(value.ticket);
+        if (
+          !ticket ||
+          !isSafeNonNegativeInteger(value.expiresAtMs) ||
+          (value.role !== 'coordinator' && value.role !== 'member') ||
+          !isSafeNonNegativeInteger(value.coordinatorEpoch)
+        ) {
+          return null;
+        }
+        return {
+          ticket,
+          expiresAtMs: value.expiresAtMs,
+          role: value.role,
+          coordinatorEpoch: value.coordinatorEpoch,
+        };
+      },
     });
   }
 

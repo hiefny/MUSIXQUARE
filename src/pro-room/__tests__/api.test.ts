@@ -270,6 +270,36 @@ describe('PRO room cookie session API', () => {
     ]);
   });
 
+  it('leaves presence explicitly and obtains a short-lived signaling ticket', async () => {
+    const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ticket,
+          expiresAtMs: 1_900_000_000_000,
+          role: 'coordinator',
+          coordinatorEpoch: 4,
+        }),
+      );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.leavePresence(ROOM_CODE)).resolves.toEqual(activeSnapshot());
+    await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual({
+      ticket,
+      expiresAtMs: 1_900_000_000_000,
+      role: 'coordinator',
+      coordinatorEpoch: 4,
+    });
+
+    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
+      '/v1/rooms/000001/presence/current',
+      '/v1/rooms/000001/signaling-tickets',
+    ]);
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['DELETE', 'POST']);
+  });
+
   it('rejects malformed or cross-room snapshots instead of admitting them to state', async () => {
     const malformed = activeSnapshot() as unknown as Record<string, unknown>;
     malformed.internalObjectKey = 'rooms/000001/private.flac';

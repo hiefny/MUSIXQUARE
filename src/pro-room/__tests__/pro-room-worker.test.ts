@@ -49,12 +49,14 @@ class FakeState {
 class FakeR2Bucket {
   readonly objects = new Map<string, unknown>();
   readonly deleted: string[] = [];
+  deleteError: Error | null = null;
 
   async head(key: string): Promise<unknown> {
     return structuredClone(this.objects.get(key)) ?? null;
   }
 
   async delete(key: string): Promise<void> {
+    if (this.deleteError) throw this.deleteError;
     this.deleted.push(key);
     this.objects.delete(key);
   }
@@ -478,6 +480,107 @@ describe('persistent PRO room private media accounting', () => {
     }
     expect(results.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 409]);
     expect(await responseJson(results[5]!)).toEqual({ error: 'ROOM_QUOTA_EXCEEDED' });
+  });
+
+  it('cancels a staged reservation only after its R2 object is safely deleted', async () => {
+    const { worker, state, bucket, ownerCookie } = await activatedRoom();
+    const reservation = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 4096, name: 'cancelled.wav', mime: 'audio/wav' },
+          ownerCookie,
+          IDEMPOTENCY_KEY,
+        ),
+      ),
+    );
+    const assetId = reservation.reservation.assetId as string;
+    const asset = (state.storage.data.get('pro-room:v1') as StoredRoom).assets[assetId]!;
+    bucket.objects.set(asset.objectKey, { staged: true });
+
+    const remove = await worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-cancel` } },
+        ownerCookie,
+      ),
+    );
+    expect(remove.status).toBe(200);
+    const removeEnvelope = await responseJson(remove);
+    expect(removeEnvelope).toMatchObject({
+      ok: true,
+      assetId,
+      quota: { usedBytes: 0, reservedBytes: 0 },
+    });
+    expect(bucket.deleted).toContain(asset.objectKey);
+    expect(bucket.objects.has(asset.objectKey)).toBe(false);
+    const stored = state.storage.data.get('pro-room:v1') as StoredRoom & {
+      quota: { usedBytes: number; reservedBytes: number };
+    };
+    expect(stored.assets[assetId]).toBeUndefined();
+    expect(stored.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+
+    const replay = await worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-cancel` } },
+        ownerCookie,
+      ),
+    );
+    expect(await responseJson(replay)).toEqual(removeEnvelope);
+    expect(bucket.deleted.filter((key) => key === asset.objectKey)).toHaveLength(1);
+  });
+
+  it('keeps staged quota reserved when R2 deletion fails so cleanup can be retried', async () => {
+    const { worker, state, bucket, ownerCookie } = await activatedRoom();
+    const reservation = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 8192, name: 'retry.wav', mime: 'audio/wav' },
+          ownerCookie,
+          IDEMPOTENCY_KEY,
+        ),
+      ),
+    );
+    const assetId = reservation.reservation.assetId as string;
+    const asset = (state.storage.data.get('pro-room:v1') as StoredRoom).assets[assetId]!;
+    bucket.objects.set(asset.objectKey, { staged: true });
+    bucket.deleteError = new Error('temporary R2 failure');
+
+    const failed = await worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-retry` } },
+        ownerCookie,
+      ),
+    );
+    expect(failed.status).toBe(503);
+    expect(await responseJson(failed)).toEqual({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
+    let stored = state.storage.data.get('pro-room:v1') as StoredRoom & {
+      quota: { usedBytes: number; reservedBytes: number };
+    };
+    expect(stored.assets[assetId]).toBeDefined();
+    expect(stored.quota).toMatchObject({ usedBytes: 0, reservedBytes: 8192 });
+
+    const internal = worker as unknown as {
+      room: {
+        assets: Record<string, { expiresAtMs: number; objectKey: string }>;
+        quota: { reservedBytes: number };
+      };
+      alarm(): Promise<void>;
+    };
+    internal.room.assets[assetId]!.expiresAtMs = Date.now() - 1;
+    bucket.deleteError = null;
+    await internal.alarm();
+    stored = state.storage.data.get('pro-room:v1') as StoredRoom & {
+      quota: { usedBytes: number; reservedBytes: number };
+    };
+    expect(stored.assets[assetId]).toBeUndefined();
+    expect(stored.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+    expect(bucket.deleted).toContain(asset.objectKey);
   });
 
   it('scopes idempotency replay records to one authenticated member', async () => {

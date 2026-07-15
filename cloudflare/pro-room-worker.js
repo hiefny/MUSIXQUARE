@@ -1555,7 +1555,9 @@ export class MusixquareProRoom {
     const replay = this.replayIdempotency(scope, key, fingerprint);
     if (replay) return replay;
     const asset = this.room.assets[assetId];
-    if (!asset || asset.status !== 'ready') return errorResponse('ASSET_NOT_FOUND', 404);
+    if (!asset || (asset.status !== 'reserved' && asset.status !== 'ready')) {
+      return errorResponse('ASSET_NOT_FOUND', 404);
+    }
     if (
       this.room.playlist.some(
         (item) => item.source.kind === 'pro-r2' && item.source.assetId === assetId,
@@ -1569,7 +1571,8 @@ export class MusixquareProRoom {
     } catch {
       return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
-    this.room.quota.usedBytes -= asset.byteLength;
+    if (asset.status === 'reserved') this.room.quota.reservedBytes -= asset.byteLength;
+    else this.room.quota.usedBytes -= asset.byteLength;
     delete this.room.assets[assetId];
     this.room.revision += 1;
     const responseBody = { ok: true, assetId, quota: { ...this.room.quota } };

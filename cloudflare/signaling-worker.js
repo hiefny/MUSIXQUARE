@@ -8,8 +8,11 @@ const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 const SDP_MAX_BYTES = 48 * 1024;
 const ICE_CANDIDATE_MAX_BYTES = 4 * 1024;
 const MAX_ROOM_GUESTS = 32;
+const MAX_PENDING_GUEST_SOCKETS = 64;
 const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
+const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
+const MAX_GUEST_BINDINGS = 256;
 const METRICS_TABLE = 'mxqr_metric_buckets';
 const SECURITY_HEADERS = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
@@ -56,6 +59,56 @@ function isAllowedOrigin(origin, env = {}) {
 
 function isValidPeerId(peerId) {
   return typeof peerId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(peerId);
+}
+
+function isValidGuestReconnectSecret(secret) {
+  return typeof secret === 'string' && /^[A-Za-z0-9_-]{43}$/.test(secret);
+}
+
+function bytesToBase64Url(bytes) {
+  let raw = '';
+  for (const byte of bytes) raw += String.fromCharCode(byte);
+  return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function hashGuestReconnectSecret(secret) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
+function constantTimeStringEqual(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string' || left.length !== right.length) {
+    return false;
+  }
+  let mismatch = 0;
+  for (let index = 0; index < right.length; index++) {
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return mismatch === 0;
+}
+
+function defaultGuestBindings() {
+  return { v: 1, entries: [] };
+}
+
+function normalizeGuestBindings(value) {
+  const normalized = defaultGuestBindings();
+  if (!isRecord(value) || !Array.isArray(value.entries)) return normalized;
+  const seen = new Set();
+  for (const entry of value.entries) {
+    if (normalized.entries.length >= MAX_GUEST_BINDINGS) break;
+    if (!isRecord(entry) || !isValidPeerId(entry.peerId) || seen.has(entry.peerId)) continue;
+    if (typeof entry.secretHash !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(entry.secretHash)) {
+      continue;
+    }
+    seen.add(entry.peerId);
+    normalized.entries.push({
+      peerId: entry.peerId,
+      secretHash: entry.secretHash,
+      updatedAt: Number.isFinite(entry.updatedAt) ? Math.max(0, entry.updatedAt) : 0,
+    });
+  }
+  return normalized;
 }
 
 function isRecord(value) {
@@ -130,7 +183,14 @@ function validateIncomingMessage(message, role) {
 
   if (role === 'pending') {
     if (message.type !== 'guest-auth') return 'ignore';
-    return typeof message.password === 'string' ? 'valid' : 'ignore';
+    if (typeof message.password !== 'string') return 'ignore';
+    if (
+      message.reconnectSecret !== undefined &&
+      !isValidGuestReconnectSecret(message.reconnectSecret)
+    ) {
+      return 'ignore';
+    }
+    return 'valid';
   }
 
   if (role === 'guest') {
@@ -300,7 +360,6 @@ function normalizeAttachment(value) {
           guestMessageUpdatedAt: Math.max(0, value.guestMessageUpdatedAt),
         }
       : {};
-
   if (value.auth === 'ok') {
     return {
       v: ATTACHMENT_VERSION,
@@ -351,7 +410,9 @@ export class MusixquareRoom {
     this.host = null;
     this.hostPeerId = null;
     this.guests = new Map();
-    this.pendingGuests = new Map();
+    this.pendingGuests = new Set();
+    this.guestBindings = null;
+    this.guestAdmissionSync = Promise.resolve();
     this.alarmSync = Promise.resolve();
     this.rehydrateSockets();
   }
@@ -374,7 +435,12 @@ export class MusixquareRoom {
   }
 
   admittedGuestIds() {
-    return new Set([...this.guests.keys(), ...this.pendingGuests.keys()]);
+    const admitted = new Set(this.guests.keys());
+    for (const socket of this.pendingGuests) {
+      const attachment = readAttachment(socket);
+      if (attachment?.role === 'guest') admitted.add(attachment.peerId);
+    }
+    return admitted;
   }
 
   consumeGuestMessageToken(ws, now = Date.now()) {
@@ -434,6 +500,11 @@ export class MusixquareRoom {
       return;
     }
     if (attachment.auth === 'pending') {
+      if (this.pendingGuests.size >= MAX_PENDING_GUEST_SOCKETS) {
+        closeWithError(ws, 'room-full', 'ROOM_PENDING_LIMIT_REACHED', 1008);
+        this.recordMetric('guest_pending_capacity');
+        return;
+      }
       // If the DO slept past the pending guest's authDeadline, don't leak
       // the slot — close immediately on hibernation wake so a real guest
       // can take its place.
@@ -445,7 +516,7 @@ export class MusixquareRoom {
         }
         return;
       }
-      this.pendingGuests.set(attachment.peerId, ws);
+      this.pendingGuests.add(ws);
     }
   }
 
@@ -468,6 +539,31 @@ export class MusixquareRoom {
     return this.saveRoomMeta(defaultRoomMeta());
   }
 
+  async loadGuestBindings() {
+    if (!this.guestBindings) {
+      const stored = await this.state.storage.get(GUEST_BINDINGS_KEY);
+      this.guestBindings = normalizeGuestBindings(stored);
+    }
+    return this.guestBindings;
+  }
+
+  async saveGuestBindings(bindings) {
+    const normalized = normalizeGuestBindings(bindings);
+    await this.state.storage.put(GUEST_BINDINGS_KEY, normalized);
+    this.guestBindings = normalized;
+    return normalized;
+  }
+
+  async clearGuestBindings() {
+    return this.saveGuestBindings(defaultGuestBindings());
+  }
+
+  enqueueGuestAdmission(task) {
+    const run = this.guestAdmissionSync.then(task, task);
+    this.guestAdmissionSync = run.catch(() => {});
+    return run;
+  }
+
   async clearExpiredHostRelease() {
     const meta = this.roomMeta || defaultRoomMeta();
     if (this.host || !meta.hostReleaseAt || meta.hostReleaseAt > Date.now()) return meta;
@@ -475,17 +571,18 @@ export class MusixquareRoom {
     // A room epoch ends when the host reclaim grace expires. Any hibernated
     // guest sockets from that epoch must not survive into a new host that later
     // claims the same six-digit room ID.
-    for (const socket of new Set([...this.guests.values(), ...this.pendingGuests.values()])) {
+    for (const socket of new Set([...this.guests.values(), ...this.pendingGuests])) {
       closeSocket(socket, 1012, 'ROOM_EXPIRED');
     }
     this.guests.clear();
     this.pendingGuests.clear();
+    await this.clearGuestBindings();
     return this.clearRoomMeta();
   }
 
   nextMaintenanceAlarmAt() {
     let earliest = null;
-    for (const sock of this.pendingGuests.values()) {
+    for (const sock of this.pendingGuests) {
       const attachment = readAttachment(sock);
       if (typeof attachment?.authDeadline !== 'number') continue;
       // Fire just after the deadline so the strict `now > authDeadline`
@@ -579,6 +676,7 @@ export class MusixquareRoom {
     }
 
     const isNewRoom = !meta.roomSecret;
+    if (isNewRoom) await this.clearGuestBindings();
     if (this.host && this.host !== ws) {
       closeSocket(this.host, 1012, 'HOST_REPLACED');
     }
@@ -621,25 +719,21 @@ export class MusixquareRoom {
       this.recordMetric('guest_room_full');
       return;
     }
-
-    if (meta.roomPassword) {
-      // Reserve the slot before metrics I/O can yield to another request.
-      this.acceptPendingGuest(ws, roomId, peerId);
-      this.recordMetric('guest_auth_pending');
+    if (this.pendingGuests.size >= MAX_PENDING_GUEST_SOCKETS) {
+      this.acceptSocket(ws, null, ['role:guest', 'rejected:pending-capacity']);
+      closeWithError(ws, 'room-full', 'ROOM_PENDING_LIMIT_REACHED', 1008);
+      this.recordMetric('guest_pending_capacity');
       return;
     }
 
-    await this.completeGuestAccept(ws, roomId, peerId, false);
+    // Every guest authenticates its reconnect secret over the WebSocket frame,
+    // never in the URL. Current and previous clients already send guest-auth
+    // for passwordless rooms, so this adds no user-visible round trip.
+    this.acceptPendingGuest(ws, roomId, peerId);
+    if (meta.roomPassword) this.recordMetric('guest_auth_pending');
   }
 
   acceptPendingGuest(ws, roomId, peerId) {
-    const previousPending = this.pendingGuests.get(peerId);
-    const previousAccepted = this.guests.get(peerId);
-    const previousAttachment = readAttachment(previousPending || previousAccepted);
-    if (previousPending && previousPending !== ws) {
-      closeSocket(previousPending, 1012, 'GUEST_REPLACED');
-    }
-
     const attachment = {
       v: ATTACHMENT_VERSION,
       role: 'guest',
@@ -647,16 +741,9 @@ export class MusixquareRoom {
       peerId,
       auth: 'pending',
       authDeadline: Date.now() + GUEST_AUTH_TIMEOUT_MS,
-      ...(Number.isFinite(previousAttachment?.guestMessageTokens) &&
-      Number.isFinite(previousAttachment?.guestMessageUpdatedAt)
-        ? {
-            guestMessageTokens: previousAttachment.guestMessageTokens,
-            guestMessageUpdatedAt: previousAttachment.guestMessageUpdatedAt,
-          }
-        : {}),
     };
     this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`, 'auth:pending']);
-    this.pendingGuests.set(peerId, ws);
+    this.pendingGuests.add(ws);
     this.scheduleAuthSweep();
   }
 
@@ -673,10 +760,10 @@ export class MusixquareRoom {
 
   async alarm() {
     const now = Date.now();
-    for (const [peerId, sock] of [...this.pendingGuests]) {
+    for (const sock of [...this.pendingGuests]) {
       const att = readAttachment(sock);
       if (typeof att?.authDeadline === 'number' && now > att.authDeadline) {
-        this.pendingGuests.delete(peerId);
+        this.pendingGuests.delete(sock);
         this.recordMetric('guest_auth_timeout', now);
         try {
           sock.close(1011, 'auth timeout (sweep)');
@@ -690,19 +777,22 @@ export class MusixquareRoom {
     await this.scheduleMaintenanceAlarm();
   }
 
-  async completeGuestAccept(ws, roomId, peerId, alreadyAccepted) {
+  async completeGuestAccept(ws, roomId, peerId) {
     const previous = this.guests.get(peerId);
     const currentAttachment = readAttachment(ws);
     const previousAttachment = readAttachment(previous);
-    const bucketAttachment = Number.isFinite(currentAttachment?.guestMessageTokens)
-      ? currentAttachment
-      : previousAttachment;
+    const bucketAttachment = Number.isFinite(previousAttachment?.guestMessageTokens)
+      ? previousAttachment
+      : currentAttachment;
     if (previous && previous !== ws) {
       closeSocket(previous, 1012, 'GUEST_REPLACED');
     }
-    const previousPending = this.pendingGuests.get(peerId);
-    if (previousPending && previousPending !== ws) {
-      closeSocket(previousPending, 1012, 'GUEST_REPLACED');
+    for (const pending of [...this.pendingGuests]) {
+      if (pending === ws) continue;
+      const pendingAttachment = readAttachment(pending);
+      if (pendingAttachment?.peerId !== peerId) continue;
+      this.pendingGuests.delete(pending);
+      closeSocket(pending, 1012, 'GUEST_REPLACED');
     }
 
     const attachment = {
@@ -719,10 +809,9 @@ export class MusixquareRoom {
           }
         : {}),
     };
-    if (alreadyAccepted) ws.serializeAttachment(attachment);
-    else this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`]);
+    ws.serializeAttachment(attachment);
 
-    this.pendingGuests.delete(peerId);
+    this.pendingGuests.delete(ws);
     this.guests.set(peerId, ws);
     this.scheduleMaintenanceAlarm();
     this.recordMetric('guest_joined');
@@ -770,7 +859,7 @@ export class MusixquareRoom {
     }
 
     if (attachment.auth === 'pending') {
-      if (this.pendingGuests.get(attachment.peerId) !== ws) return;
+      if (!this.pendingGuests.has(ws)) return;
       await this.handleGuestAuth(ws, message, attachment);
       return;
     }
@@ -780,13 +869,18 @@ export class MusixquareRoom {
   }
 
   async handleGuestAuth(ws, message, attachment) {
+    return this.enqueueGuestAdmission(() => this.finishGuestAuth(ws, message, attachment));
+  }
+
+  async finishGuestAuth(ws, message, attachment) {
+    if (!this.pendingGuests.has(ws)) return;
     if (!this.host) {
-      this.pendingGuests.delete(attachment.peerId);
+      this.pendingGuests.delete(ws);
       closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
       return;
     }
     if (Date.now() > attachment.authDeadline) {
-      this.pendingGuests.delete(attachment.peerId);
+      this.pendingGuests.delete(ws);
       this.scheduleMaintenanceAlarm();
       this.recordMetric('guest_auth_timeout');
       closeWithError(ws, 'room-password-auth-timeout', 'ROOM_PASSWORD_AUTH_TIMEOUT');
@@ -795,22 +889,77 @@ export class MusixquareRoom {
 
     const meta = await this.loadRoomMeta();
     const password = typeof message.password === 'string' ? message.password : '';
-    if (!password) {
-      this.pendingGuests.delete(attachment.peerId);
+    if (meta.roomPassword && !password) {
+      this.pendingGuests.delete(ws);
       this.scheduleMaintenanceAlarm();
       this.recordMetric('guest_auth_failed');
       closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
       return;
     }
-    if (password !== meta.roomPassword) {
-      this.pendingGuests.delete(attachment.peerId);
+    if (meta.roomPassword && password !== meta.roomPassword) {
+      this.pendingGuests.delete(ws);
       this.scheduleMaintenanceAlarm();
       this.recordMetric('guest_auth_failed');
       closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
       return;
     }
 
-    await this.completeGuestAccept(ws, attachment.roomId, attachment.peerId, true);
+    const bindings = await this.loadGuestBindings();
+    const existingBinding = bindings.entries.find((entry) => entry.peerId === attachment.peerId);
+    const reconnectSecret = isValidGuestReconnectSecret(message.reconnectSecret)
+      ? message.reconnectSecret
+      : '';
+    if (existingBinding) {
+      const presentedHash = reconnectSecret ? await hashGuestReconnectSecret(reconnectSecret) : '';
+      if (!constantTimeStringEqual(presentedHash, existingBinding.secretHash)) {
+        this.pendingGuests.delete(ws);
+        this.scheduleMaintenanceAlarm();
+        this.recordMetric('guest_reconnect_denied');
+        closeWithError(ws, 'guest-reconnect-denied', 'GUEST_RECONNECT_DENIED', 1008);
+        return;
+      }
+      await this.saveGuestBindings({
+        ...bindings,
+        entries: bindings.entries.map((entry) =>
+          entry.peerId === attachment.peerId ? { ...entry, updatedAt: Date.now() } : entry,
+        ),
+      });
+    } else if (reconnectSecret) {
+      if (this.guests.has(attachment.peerId)) {
+        // A rolling-deploy legacy guest has no persisted binding. Do not let a
+        // secret-capable candidate retroactively claim and evict that live ID.
+        this.pendingGuests.delete(ws);
+        this.scheduleMaintenanceAlarm();
+        this.recordMetric('guest_reconnect_denied');
+        closeWithError(ws, 'guest-reconnect-denied', 'GUEST_RECONNECT_DENIED', 1008);
+        return;
+      }
+      if (bindings.entries.length >= MAX_GUEST_BINDINGS) {
+        this.pendingGuests.delete(ws);
+        this.scheduleMaintenanceAlarm();
+        this.recordMetric('guest_identity_capacity');
+        closeWithError(ws, 'room-full', 'ROOM_IDENTITY_LIMIT_REACHED', 1008);
+        return;
+      }
+      const secretHash = await hashGuestReconnectSecret(reconnectSecret);
+      await this.saveGuestBindings({
+        ...bindings,
+        entries: [
+          ...bindings.entries,
+          { peerId: attachment.peerId, secretHash, updatedAt: Date.now() },
+        ],
+      });
+    } else if (this.guests.has(attachment.peerId)) {
+      // Legacy-to-legacy replacement remains compatible only after the old
+      // signaling socket has actually gone away; a live socket keeps priority.
+      this.pendingGuests.delete(ws);
+      this.scheduleMaintenanceAlarm();
+      this.recordMetric('guest_reconnect_denied');
+      closeWithError(ws, 'guest-reconnect-denied', 'GUEST_RECONNECT_DENIED', 1008);
+      return;
+    }
+
+    await this.completeGuestAccept(ws, attachment.roomId, attachment.peerId);
   }
 
   handleGuestMessage(peerId, message) {
@@ -846,9 +995,7 @@ export class MusixquareRoom {
     }
 
     if (attachment.auth === 'pending') {
-      if (this.pendingGuests.get(attachment.peerId) === ws) {
-        this.pendingGuests.delete(attachment.peerId);
-      }
+      this.pendingGuests.delete(ws);
       await this.scheduleMaintenanceAlarm();
       return;
     }
@@ -883,6 +1030,7 @@ export class MusixquareRoom {
       return;
     }
     if (this.guests.size === 0) {
+      await this.clearGuestBindings();
       await this.clearRoomMeta();
       await this.scheduleMaintenanceAlarm();
     }
@@ -929,7 +1077,6 @@ export default {
     if (role === 'host' && !isValidPeerId(secret)) {
       return json({ error: 'Bad request' }, 400);
     }
-
     if (!(await checkRateLimit(request, 'ws-open'))) {
       return json({ error: 'Too Many Requests' }, 429);
     }

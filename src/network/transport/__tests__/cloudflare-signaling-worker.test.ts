@@ -226,6 +226,9 @@ function sent(ws: FakeSocket): unknown[] {
   return ws.sent.map((item) => JSON.parse(item));
 }
 
+const DEFAULT_RECONNECT_SECRET = 's'.repeat(43);
+const OTHER_RECONNECT_SECRET = 'x'.repeat(43);
+
 function createMetricsEnv() {
   const events: Array<{ bucketMinute: number; event: string }> = [];
   return {
@@ -266,6 +269,26 @@ async function createPasswordRoom(): Promise<{
     JSON.stringify({ type: 'room-password-set', password: '12345678' }),
   );
   return setup;
+}
+
+async function joinGuest(
+  room: InstanceType<WorkerModule['MusixquareRoom']>,
+  peerId: string,
+  options: { password?: string; reconnectSecret?: string | null } = {},
+): Promise<FakeSocket> {
+  await room.fetch(wsRequest('123456', 'guest', peerId));
+  const guest = lastServer();
+  const reconnectSecret =
+    options.reconnectSecret === undefined ? DEFAULT_RECONNECT_SECRET : options.reconnectSecret;
+  await room.webSocketMessage(
+    guest,
+    JSON.stringify({
+      type: 'guest-auth',
+      password: options.password ?? '',
+      ...(reconnectSecret ? { reconnectSecret } : {}),
+    }),
+  );
+  return guest;
 }
 
 beforeAll(async () => {
@@ -349,19 +372,32 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
   });
 
   it('accepts a guest with an active host', async () => {
-    const { room } = await createHostRoom();
+    const { room, state } = await createHostRoom();
 
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
-    const guest = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
 
-    expect(guest.deserializeAttachment()).toEqual({
+    expect(guest.deserializeAttachment()).toMatchObject({
       v: 1,
       role: 'guest',
       roomId: '123456',
       peerId: 'guest-1',
       auth: 'ok',
+      guestMessageTokens: 119,
+      guestMessageUpdatedAt: expect.any(Number),
     });
     expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
+    const bindings = await state.storage.get('guestReconnectBindings');
+    expect(bindings).toMatchObject({
+      v: 1,
+      entries: [
+        {
+          peerId: 'guest-1',
+          secretHash: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+          updatedAt: expect.any(Number),
+        },
+      ],
+    });
+    expect(JSON.stringify(bindings)).not.toContain(DEFAULT_RECONNECT_SECRET);
   });
 
   it('records aggregate room and guest metrics when a D1 binding exists', async () => {
@@ -372,7 +408,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, metrics.env);
 
     await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    await joinGuest(room, 'guest-1');
     await state.flushWaitUntil();
 
     expect(metrics.events).toEqual([
@@ -399,8 +435,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
     const host = lastServer();
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
-    const guest = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
 
     expect(sent(host)[0]).toEqual({ type: 'peer-open', peerId: '123456', roomId: '123456' });
     expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
@@ -412,8 +447,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
   it('preserves guest-to-host and host-to-guest signaling wire shapes', async () => {
     const { room, host } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
-    const guest = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
 
     await room.webSocketMessage(
       guest,
@@ -465,8 +499,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
   it('allows forward-compatible extra fields and ignores one unknown or malformed message', async () => {
     const { room, host } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
-    const guest = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
     const hostMessagesBefore = host.sent.length;
 
     await room.webSocketMessage(
@@ -528,8 +561,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
   it('closes an oversized UTF-8 WebSocket frame with an explicit policy code', async () => {
     const { room } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
-    const guest = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
 
     await room.webSocketMessage(
       guest,
@@ -575,8 +607,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     },
   ])('closes an oversized $label payload instead of relaying it', async ({ message }) => {
     const { room, host } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
-    const guest = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
 
     await room.webSocketMessage(guest, JSON.stringify(message));
 
@@ -596,12 +627,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
     const { room, host } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
-    const noisy = lastServer();
-    await room.fetch(wsRequest('123456', 'guest', 'healthy'));
-    const healthy = lastServer();
+    const noisy = await joinGuest(room, 'noisy');
+    const healthy = await joinGuest(room, 'healthy');
 
-    for (let index = 0; index < 120; index++) {
+    for (let index = 0; index < 119; index++) {
       await room.webSocketMessage(
         noisy,
         JSON.stringify({
@@ -657,11 +686,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
     const { room, state } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
-    const noisy = lastServer();
+    const noisy = await joinGuest(room, 'noisy');
     const ignoredFrame = JSON.stringify({ type: 'future-client-hint', to: 'host' });
 
-    for (let index = 0; index < 120; index++) {
+    for (let index = 0; index < 119; index++) {
       await room.webSocketMessage(noisy, ignoredFrame);
     }
 
@@ -678,15 +706,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
     const { room } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
-    const firstSocket = lastServer();
+    const firstSocket = await joinGuest(room, 'noisy');
     const ignoredFrame = JSON.stringify({ type: 'future-client-hint', to: 'host' });
 
-    for (let index = 0; index < 120; index++) {
+    for (let index = 0; index < 119; index++) {
       await room.webSocketMessage(firstSocket, ignoredFrame);
     }
-    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
-    const replacement = lastServer();
+    const replacement = await joinGuest(room, 'noisy');
     await room.webSocketMessage(replacement, ignoredFrame);
 
     expect(firstSocket.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
@@ -694,6 +720,235 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       code: 1008,
       reason: 'SIGNALING_RATE_LIMITED',
     });
+  });
+
+  it('rejects a same-peer replacement without its guest reconnect secret', async () => {
+    const { room, host } = await createHostRoom();
+    const original = await joinGuest(room, 'guest-1');
+    const attacker = await joinGuest(room, 'guest-1', { reconnectSecret: null });
+
+    expect(original.closed).toBe(false);
+    expect(sent(attacker).at(-1)).toEqual({
+      type: 'error',
+      errorType: 'guest-reconnect-denied',
+      message: 'GUEST_RECONNECT_DENIED',
+    });
+    expect(attacker.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'GUEST_RECONNECT_DENIED',
+    });
+
+    await room.webSocketMessage(
+      original,
+      JSON.stringify({
+        type: 'signal-candidate',
+        to: 'host',
+        candidate: { candidate: 'original-still-live' },
+      }),
+    );
+    expect(sent(host).at(-1)).toMatchObject({
+      type: 'signal-candidate',
+      from: 'guest-1',
+      candidate: { candidate: 'original-still-live' },
+    });
+  });
+
+  it('allows a same-peer replacement only with the matching reconnect secret', async () => {
+    const { room } = await createHostRoom();
+    const original = await joinGuest(room, 'guest-1');
+    const wrongSecret = await joinGuest(room, 'guest-1', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(wrongSecret.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+    expect(original.closed).toBe(false);
+
+    const replacement = await joinGuest(room, 'guest-1');
+
+    expect(original.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(replacement.closed).toBe(false);
+  });
+
+  it('preserves reconnect-secret ownership across socket close and DO hibernation', async () => {
+    const { room, state } = await createHostRoom();
+    const original = await joinGuest(room, 'guest-1');
+    original.close();
+    await room.webSocketClose(original);
+
+    const rehydratedRoom = new workerModule.MusixquareRoom(state);
+    const attacker = await joinGuest(rehydratedRoom, 'guest-1', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(attacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+    const legacyDowngrade = await joinGuest(rehydratedRoom, 'guest-1', {
+      reconnectSecret: null,
+    });
+    expect(legacyDowngrade.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+
+    const replacement = await joinGuest(rehydratedRoom, 'guest-1');
+
+    expect(replacement.closed).toBe(false);
+  });
+
+  it('keeps rolling-deploy legacy guests compatible without creating a binding', async () => {
+    const { room } = await createHostRoom();
+    const legacy = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
+    const liveReplacement = await joinGuest(room, 'legacy-guest');
+
+    expect(liveReplacement.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+    expect(legacy.closed).toBe(false);
+
+    legacy.close();
+    await room.webSocketClose(legacy);
+    const replacement = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
+
+    expect(replacement.closed).toBe(false);
+  });
+
+  it('treats __proto__ as an ordinary peerId without corrupting binding storage', async () => {
+    const { room, state } = await createHostRoom();
+    const original = await joinGuest(room, '__proto__');
+    const attacker = await joinGuest(room, '__proto__', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+
+    expect(original.closed).toBe(false);
+    expect(attacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: '__proto__', secretHash: expect.any(String) }],
+    });
+  });
+
+  it('caps duplicate pending sockets even when they reuse one peerId', async () => {
+    const { room, host } = await createHostRoom();
+    for (let index = 0; index < 64; index++) {
+      await room.fetch(wsRequest('123456', 'guest', 'same-peer'));
+      expect(lastServer().closed).toBe(false);
+    }
+
+    await room.fetch(wsRequest('123456', 'guest', 'same-peer'));
+    const rejected = lastServer();
+
+    expect(sent(rejected).at(-1)).toEqual({
+      type: 'error',
+      errorType: 'room-full',
+      message: 'ROOM_PENDING_LIMIT_REACHED',
+    });
+    expect(rejected.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'ROOM_PENDING_LIMIT_REACHED',
+    });
+    expect(host.closed).toBe(false);
+  });
+
+  it('allows a bound guest to reconnect while all 32 unique room slots are occupied', async () => {
+    const { room } = await createHostRoom();
+    const guests: FakeSocket[] = [];
+    for (let index = 0; index < 32; index++) {
+      guests.push(await joinGuest(room, `guest-${index}`));
+    }
+
+    const replacement = await joinGuest(room, 'guest-0');
+
+    expect(guests[0].closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(replacement.closed).toBe(false);
+
+    await room.fetch(wsRequest('123456', 'guest', 'guest-over-limit'));
+    const rejected = lastServer();
+    expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_GUEST_LIMIT_REACHED');
+  });
+
+  it('does not let an unauthenticated pending candidate displace a valid reconnect', async () => {
+    const { room } = await createHostRoom();
+    const original = await joinGuest(room, 'guest-1');
+
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const attacker = lastServer();
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const reconnect = lastServer();
+    await room.webSocketMessage(
+      reconnect,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
+    );
+
+    expect(attacker.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(original.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(reconnect.closed).toBe(false);
+    expect(sent(reconnect)[0]).toMatchObject({ type: 'peer-open' });
+  });
+
+  it('serializes simultaneous first claims so exactly one secret owns the peerId', async () => {
+    const { room } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'racing-peer'));
+    const first = lastServer();
+    await room.fetch(wsRequest('123456', 'guest', 'racing-peer'));
+    const second = lastServer();
+
+    await Promise.all([
+      room.webSocketMessage(
+        first,
+        JSON.stringify({
+          type: 'guest-auth',
+          password: '',
+          reconnectSecret: DEFAULT_RECONNECT_SECRET,
+        }),
+      ),
+      room.webSocketMessage(
+        second,
+        JSON.stringify({
+          type: 'guest-auth',
+          password: '',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ]);
+
+    expect(
+      [first, second].filter((socket) =>
+        sent(socket).some((item) => (item as { type?: string }).type === 'peer-open'),
+      ),
+    ).toHaveLength(1);
+    expect([first, second].filter((socket) => socket.closed)).toHaveLength(1);
+  });
+
+  it('fails closed when the reconnect binding cannot be persisted', async () => {
+    const { room, state } = await createHostRoom();
+    const originalPut = state.storage.put.bind(state.storage);
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (key === 'guestReconnectBindings') throw new Error('storage unavailable');
+      await originalPut(key, value);
+    });
+
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const guest = lastServer();
+    await expect(
+      room.webSocketMessage(
+        guest,
+        JSON.stringify({
+          type: 'guest-auth',
+          password: '',
+          reconnectSecret: DEFAULT_RECONNECT_SECRET,
+        }),
+      ),
+    ).rejects.toThrow('storage unavailable');
+
+    expect(sent(guest)).toEqual([]);
+    expect(guest.deserializeAttachment()).toMatchObject({ auth: 'pending' });
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+
+    state.storage.put = originalPut;
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: OTHER_RECONNECT_SECRET,
+      }),
+    );
+    expect(sent(guest)[0]).toMatchObject({ type: 'peer-open' });
   });
 
   it('admits at most 32 unique accepted or password-pending guests', async () => {
@@ -744,7 +999,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.webSocketMessage(
       guest,
-      JSON.stringify({ type: 'guest-auth', password: '12345678' }),
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '12345678',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
     );
 
     expect(guest.deserializeAttachment()).toMatchObject({
@@ -757,6 +1016,25 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       guestMessageUpdatedAt: expect.any(Number),
     });
     expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
+  });
+
+  it('does not evict an accepted password-room guest before replacement auth succeeds', async () => {
+    const { room } = await createPasswordRoom();
+    const original = await joinGuest(room, 'guest-1', { password: '12345678' });
+
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const replacement = lastServer();
+    await room.webSocketMessage(
+      replacement,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: 'wrong-password',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
+    );
+
+    expect(replacement.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
+    expect(original.closed).toBe(false);
   });
 
   it('returns existing password auth errors for missing, invalid, and expired auth', async () => {
@@ -919,10 +1197,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
     const { room, state, host } = await createHostRoom();
-    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
-    const guest = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
 
     await room.webSocketClose(host);
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'guest-1' }],
+    });
     vi.advanceTimersByTime(60_000);
     await room.alarm();
 
@@ -932,6 +1212,14 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomSecret: null,
       hostReleaseAt: 0,
     });
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+
+    await room.fetch(wsRequest('123456', 'host', 'host-2', 'secret-b'));
+    const newEpochGuest = await joinGuest(room, 'guest-1', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(newEpochGuest.closed).toBe(false);
+    expect(sent(newEpochGuest)[0]).toMatchObject({ type: 'peer-open' });
   });
 
   it('shares one alarm between pending auth timeout and host metadata cleanup', async () => {

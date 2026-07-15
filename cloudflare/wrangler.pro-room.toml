@@ -1,0 +1,53 @@
+name = "musixquare-pro-room"
+main = "pro-room-worker.js"
+compatibility_date = "2026-07-16"
+workers_dev = false
+preview_urls = false
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.01
+
+[[routes]]
+pattern = "pro.musixquare.com"
+custom_domain = true
+
+[vars]
+R2_BUCKET_NAME = "musixquare-pro-media"
+ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+PRO_ROOM_CODES = "000000,000001"
+SESSION_TTL_SECONDS = "2592000"
+PRESENCE_TTL_SECONDS = "45"
+RESERVATION_TTL_SECONDS = "900"
+PRESIGN_TTL_SECONDS = "600"
+
+[[durable_objects.bindings]]
+name = "PRO_ROOMS"
+class_name = "MusixquareProRoom"
+
+[[r2_buckets]]
+binding = "PRO_MEDIA_BUCKET"
+bucket_name = "musixquare-pro-media"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MusixquareProRoom"]
+
+# Required secrets (never commit their values):
+# npm run wrangler -- secret put PRO_ROOM_ACTIVATION_SECRET --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put PRO_ROOM_PIN_PEPPER --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put PRO_ROOM_SESSION_SECRET --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put PRO_ROOM_RATE_LIMIT_SECRET --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put R2_ACCOUNT_ID --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.pro-room.toml
+# Apply the private bucket's explicit browser CORS policy before deployment:
+# npm run wrangler -- r2 bucket cors set musixquare-pro-media --file cloudflare/r2-cors.pro-media.json --config cloudflare/wrangler.pro-room.toml

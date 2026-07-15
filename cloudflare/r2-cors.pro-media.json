@@ -1,0 +1,28 @@
+{
+  "rules": [
+    {
+      "id": "pro-room-private-media",
+      "allowed": {
+        "origins": [
+          "https://musixquare.com",
+          "https://www.musixquare.com",
+          "http://localhost:3000",
+          "http://127.0.0.1:3000",
+          "http://localhost:5173",
+          "http://127.0.0.1:5173"
+        ],
+        "methods": ["GET", "HEAD", "PUT"],
+        "headers": [
+          "content-type",
+          "x-amz-meta-mxqr-asset",
+          "x-amz-meta-mxqr-bytes",
+          "x-amz-meta-mxqr-room",
+          "x-amz-meta-mxqr-sha256",
+          "x-amz-meta-mxqr-version"
+        ]
+      },
+      "exposeHeaders": ["content-length", "content-type", "etag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

@@ -45,6 +45,7 @@ const MAX_DELIVERY_TIMEOUT_MS = 60_000;
 const MAX_TERMINAL_EGRESS_CREDITS = 256;
 const MAX_TERMINAL_EGRESS_REFILL_MS = 60_000;
 const DEFAULT_DELIVERY_TIMEOUT_MS = 5_000;
+const DELIVERY_BACKPRESSURE_RETRY_MS = 25;
 const DEFAULT_TERMINAL_EGRESS_CREDITS = 128;
 const DEFAULT_TERMINAL_EGRESS_REFILL_MS = 5;
 
@@ -374,6 +375,18 @@ class BoundedDeliveryTracker<TFrame> {
       this.#onFatal(error);
       return Promise.reject(error);
     }
+    return this.#attemptDelivery(frame, physicalTask, monotonicNow());
+  }
+
+  #attemptDelivery(
+    frame: TFrame,
+    physicalTask: PhysicalDeliveryTask,
+    startedAt: number,
+  ): Promise<void> {
+    if (this.#quarantined) {
+      this.#releasePhysicalTask(physicalTask);
+      return Promise.reject(this.#quarantinedReason);
+    }
     let permitted: boolean;
     try {
       permitted = this.#canSend(frame) === true;
@@ -392,12 +405,27 @@ class BoundedDeliveryTracker<TFrame> {
       return Promise.reject(this.#quarantinedReason);
     }
     if (!permitted) {
-      this.#releasePhysicalTask(physicalTask);
-      const error = new PeerRangeConnectionFatalError(
-        'Peer range channel cannot accept bounded delivery',
+      // A healthy RTCDataChannel routinely crosses its bounded bufferedAmount
+      // watermark while a decoder asks for several adjacent ranges. That is
+      // flow control, not proof that the authenticated connection is invalid.
+      // Keep this exact delivery reserved and retry within its existing hard
+      // deadline; only a sustained stall is allowed to quarantine the lane.
+      const remainingMs = this.#remainingDeliveryMs(startedAt);
+      if (remainingMs <= 0) {
+        this.#releasePhysicalTask(physicalTask);
+        const error = new PeerRangeDeliveryTimeoutError();
+        this.#onFatal(error);
+        return Promise.reject(error);
+      }
+      return this.#waitForBackpressureRetry(
+        Math.max(1, Math.min(DELIVERY_BACKPRESSURE_RETRY_MS, Math.ceil(remainingMs))),
+      ).then(
+        () => this.#attemptDelivery(frame, physicalTask, startedAt),
+        (error: unknown) => {
+          this.#releasePhysicalTask(physicalTask);
+          throw error;
+        },
       );
-      this.#onFatal(error);
-      return Promise.reject(error);
     }
 
     let outcome: MaybePromise<void>;
@@ -452,16 +480,19 @@ class BoundedDeliveryTracker<TFrame> {
       try {
         waiter.timerLease = acquireFilePlaybackUniversalLifecycleLease('timers');
         waiter.timerArming = true;
-        const timer = globalThis.setTimeout(() => {
-          if (waiter.settled) return;
-          waiter.settled = true;
-          waiter.timerFired = true;
-          if (!waiter.timerArming) this.#cancelWaiterTimer(waiter);
-          this.#waiters.delete(waiter);
-          const error = new PeerRangeDeliveryTimeoutError();
-          reject(error);
-          this.#onFatal(error);
-        }, this.#timeoutMs);
+        const timer = globalThis.setTimeout(
+          () => {
+            if (waiter.settled) return;
+            waiter.settled = true;
+            waiter.timerFired = true;
+            if (!waiter.timerArming) this.#cancelWaiterTimer(waiter);
+            this.#waiters.delete(waiter);
+            const error = new PeerRangeDeliveryTimeoutError();
+            reject(error);
+            this.#onFatal(error);
+          },
+          Math.max(1, Math.ceil(this.#remainingDeliveryMs(startedAt))),
+        );
         waiter.timerArming = false;
         if (waiter.timerFired) {
           this.#cancelWaiterTimer(waiter);
@@ -522,6 +553,60 @@ class BoundedDeliveryTracker<TFrame> {
           this.#onFatal(fatal);
         },
       );
+    });
+  }
+
+  #remainingDeliveryMs(startedAt: number): number {
+    return this.#timeoutMs - Math.max(0, monotonicNow() - startedAt);
+  }
+
+  #waitForBackpressureRetry(delayMs: number): Promise<void> {
+    if (this.#quarantined) return Promise.reject(this.#quarantinedReason);
+    return new Promise<void>((resolve, reject) => {
+      const waiter: DeliveryWaiter = {
+        reject,
+        timer: null,
+        timerLease: null,
+        timerArming: false,
+        timerFired: false,
+        timerRetireRequested: false,
+        settled: false,
+      };
+      this.#waiters.add(waiter);
+      try {
+        waiter.timerLease = acquireFilePlaybackUniversalLifecycleLease('timers');
+        waiter.timerArming = true;
+        const timer = globalThis.setTimeout(() => {
+          if (waiter.settled) return;
+          waiter.settled = true;
+          waiter.timerFired = true;
+          if (!waiter.timerArming) this.#cancelWaiterTimer(waiter);
+          this.#waiters.delete(waiter);
+          resolve();
+        }, delayMs);
+        waiter.timerArming = false;
+        if (waiter.timerFired) {
+          this.#cancelWaiterTimer(waiter);
+        } else {
+          waiter.timer = timer;
+          if (waiter.timerRetireRequested || waiter.settled || this.#quarantined) {
+            this.#cancelWaiterTimer(waiter);
+          }
+        }
+      } catch (cause) {
+        waiter.timerArming = false;
+        waiter.settled = true;
+        this.#waiters.delete(waiter);
+        const timerLease = waiter.timerLease;
+        waiter.timerLease = null;
+        timerLease?.forceUnconfirmed();
+        const fatal = new PeerRangeConnectionFatalError(
+          'Peer range backpressure retry could not be armed',
+          cause,
+        );
+        reject(fatal);
+        this.#onFatal(fatal);
+      }
     });
   }
 

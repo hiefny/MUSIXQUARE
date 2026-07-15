@@ -456,11 +456,17 @@ describe('FramedPeerRangeClientTransport', () => {
     ).toThrow(/bound locally/);
   });
 
-  it('quarantines before a false exact-channel backpressure gate can invoke void send', async () => {
-    const sendControl = vi.fn(() => undefined);
-    const canSend = vi.fn(() => false);
+  it('waits through transient exact-channel backpressure without quarantining the connection', async () => {
+    let writable = false;
+    let client!: FramedPeerRangeClientTransport;
+    const sendControl = vi.fn((frame: PeerRangeControlFrame) => {
+      if (frame.type !== 'read') return;
+      const response = createPeerRangeChunkFrames(frame, Uint8Array.of(17));
+      for (const chunk of response) client.acceptBulk(CONNECTION_TOKEN, chunk);
+    });
+    const canSend = vi.fn(() => writable);
     const fatalConnection = vi.fn();
-    const client = new FramedPeerRangeClientTransport({
+    client = new FramedPeerRangeClientTransport({
       connection: CONNECTION,
       onFatalConnection: fatalConnection,
       canSend,
@@ -468,11 +474,32 @@ describe('FramedPeerRangeClientTransport', () => {
     });
 
     const result = client.read(request({ requestId: 'request:backpressured' }));
-    await expect(result).rejects.toBeInstanceOf(PeerRangeConnectionFatalError);
+    expect(sendControl).not.toHaveBeenCalled();
+    writable = true;
+
+    await expect(result).resolves.toEqual(Uint8Array.of(17));
     expect(canSend).toHaveBeenCalledWith(
       CONNECTION,
       expect.objectContaining({ type: 'read', requestId: 'request:backpressured' }),
     );
+    expect(canSend.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(sendControl).toHaveBeenCalledOnce();
+    expect(fatalConnection).not.toHaveBeenCalled();
+  });
+
+  it('quarantines only after exact-channel backpressure remains stalled to the deadline', async () => {
+    const sendControl = vi.fn(() => undefined);
+    const fatalConnection = vi.fn();
+    const client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: () => false,
+      sendControl,
+      deliveryTimeoutMs: 10,
+    });
+
+    const result = client.read(request({ requestId: 'request:backpressure-timeout' }));
+    await expect(result).rejects.toBeInstanceOf(PeerRangeConnectionFatalError);
     expect(sendControl).not.toHaveBeenCalled();
     expect(fatalConnection).toHaveBeenCalledOnce();
   });
@@ -749,6 +776,44 @@ describe('PeerRangeHostResponder', () => {
       }
     }
     expect(assembled).toEqual(whole.slice(70_000, 70_000 + PEER_RANGE_MAX_READ_BYTES));
+  });
+
+  it('pauses bulk delivery at backpressure and resumes the same request without disconnecting', async () => {
+    let writable = false;
+    const frames: PeerRangeBulkFrame[] = [];
+    const fatalConnection = vi.fn();
+    const canSend = vi.fn(() => writable);
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend,
+      sources: { resolve: () => new Blob([bytes(PEER_RANGE_MAX_READ_BYTES)]) },
+      sendBulk: (frame) => frames.push(frame),
+    });
+    const read = createPeerRangeReadFrame(
+      descriptor({
+        requestId: 'request:transient-bulk-backpressure',
+        totalLength: PEER_RANGE_MAX_READ_BYTES,
+      }),
+    );
+
+    expect(host.acceptControl(CONNECTION_TOKEN, read)).toBe('accepted');
+    await vi.waitFor(() => expect(canSend).toHaveBeenCalled());
+    expect(frames).toHaveLength(0);
+    expect(host.activeRequestCount).toBe(1);
+
+    writable = true;
+    await vi.waitFor(() => expect(host.activeRequestCount).toBe(0));
+
+    expect(frames).toHaveLength(4);
+    expect(
+      frames.every(
+        (frame) =>
+          frame.type === 'chunk' && frame.requestId === 'request:transient-bulk-backpressure',
+      ),
+    ).toBe(true);
+    expect(canSend.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(fatalConnection).not.toHaveBeenCalled();
   });
 
   it('reports bounded PII-free physical read counters and returns pending to zero', async () => {

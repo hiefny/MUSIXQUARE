@@ -245,11 +245,23 @@ describe('ramEnd', () => {
     expect(ramEnd(filename, false, 1).blob?.type).toBe(mime);
   });
 
+  it.each([
+    'application/octet-stream',
+    'binary/octet-stream',
+    ' Application/Octet-Stream; charset=binary ',
+  ])('treats generic binary MIME %s as missing and falls back to the extension', (mime) => {
+    ramStart('track.flac', false, 1, 4, false, mime);
+    ramWrite('track.flac', false, 1, 0, u8(1));
+
+    expect(ramEnd('track.flac', false, 1).blob?.type).toBe('audio/flac');
+  });
+
   it('prefers a declared MIME and lets a non-empty exact resume refine it', () => {
     ramStart('track.mp3', false, 1, 4, false, 'audio/original');
     ramWrite('track.mp3', false, 1, 0, u8(1));
 
     ramStart('track.mp3', false, 1, 4, true, 'audio/authoritative');
+    ramStart('track.mp3', false, 1, 4, true, 'application/octet-stream');
     ramStart('track.mp3', false, 1, 4, true, '   ');
 
     expect(ramEnd('track.mp3', false, 1).blob?.type).toBe('audio/authoritative');

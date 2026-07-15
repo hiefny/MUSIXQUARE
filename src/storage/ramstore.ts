@@ -53,7 +53,10 @@ const AUDIO_MIME_BY_EXTENSION: Readonly<Record<string, string>> = Object.freeze(
 });
 
 function declaredMime(mime?: string): string {
-  return typeof mime === 'string' ? mime.trim() : '';
+  const value = typeof mime === 'string' ? mime.trim() : '';
+  const essence = value.split(';', 1)[0]?.trim().toLowerCase();
+  if (essence === 'application/octet-stream' || essence === 'binary/octet-stream') return '';
+  return value;
 }
 
 function inferAudioMimeFromFilename(filename: string): string {

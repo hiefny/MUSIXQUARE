@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v136';
+const CACHE_VERSION = 'v137';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
@@ -214,7 +214,23 @@ function isCacheableRequest(request) {
 
   const ext = path.split('.').pop().toLowerCase();
   // Exclude common audio/video containers to prevent storage bloat.
-  if (['mp4', 'webm', 'mkv', 'mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'].includes(ext))
+  if (
+    [
+      'mp4',
+      'webm',
+      'mkv',
+      'mp3',
+      'wav',
+      'ogg',
+      'm4a',
+      'aac',
+      'flac',
+      'opus',
+      'aif',
+      'aiff',
+      'caf',
+    ].includes(ext)
+  )
     return false;
 
   return true;

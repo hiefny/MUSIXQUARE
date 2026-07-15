@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v136';
-const RETIRED_CACHE_VERSION = 'v135';
+const ACTIVE_CACHE_VERSION = 'v137';
+const RETIRED_CACHE_VERSION = 'v136';
 
 type FetchListener = (event: {
   request: Request;
@@ -94,6 +94,12 @@ describe('service worker cache policy', () => {
     return await responsePromise!;
   }
 
+  function expectIgnored(request: Request): void {
+    const respondWith = vi.fn();
+    fetchListener({ request, respondWith, waitUntil: vi.fn() });
+    expect(respondWith).not.toHaveBeenCalled();
+  }
+
   async function dispatchExtendable(listener: ExtendableListener): Promise<void> {
     const work: Array<Promise<unknown>> = [];
     listener({ waitUntil: (promise) => work.push(promise) });
@@ -139,6 +145,15 @@ describe('service worker cache policy', () => {
     expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
   });
+
+  it.each(['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg', 'aif', 'aiff', 'caf'])(
+    'does not intercept local .%s media files for CacheStorage',
+    (extension) => {
+      expectIgnored(new Request(`https://musixquare.com/uploads/track.${extension}`));
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(cacheOpen).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps retired caches while any live tab has not approved the new controller', async () => {
     const oldTab = { id: 'old-tab', postMessage: vi.fn() };

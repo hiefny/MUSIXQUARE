@@ -10,10 +10,13 @@ as a second, independent authentication layer.
 Create one self-hosted Access application named `MUSIXQUARE Admin` with a
 12-hour application session. Protect exactly these paths on both hostnames:
 
-| Host                 | Paths                                |
-| -------------------- | ------------------------------------ |
-| `musixquare.com`     | `/admin`, `/admin/*`, `/api/admin/*` |
-| `www.musixquare.com` | `/admin`, `/admin/*`, `/api/admin/*` |
+| Host                 | Parent paths           |
+| -------------------- | ---------------------- |
+| `musixquare.com`     | `/admin`, `/api/admin` |
+| `www.musixquare.com` | `/admin`, `/api/admin` |
+
+Access path inheritance protects each parent path and all descendants, so
+separate `/*` destinations are unnecessary.
 
 Do not replace these path entries with a site-wide wildcard. In particular,
 the public app shell, static assets, blog, `/api/announcement/current`,
@@ -22,6 +25,10 @@ the remote-share `/session` endpoint must remain outside this Access
 application. The public `admin.js` and `admin.css` assets do not contain
 credentials and do not need a separate Access path; the protected page and API
 are the security boundary.
+
+Keep the Access `Cookie Path` attribute disabled so one host-scoped
+`CF_Authorization` cookie is sent to both `/admin` and `/api/admin`. Enable the
+`HttpOnly` cookie attribute, and leave `SameSite` at the Cloudflare default.
 
 ## Policy
 

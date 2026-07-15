@@ -13,11 +13,6 @@ on:
           - signaling
           - remote-share
           - all
-      run_e2e:
-        description: Run the serial Playwright suite before approval
-        required: true
-        default: true
-        type: boolean
 
 permissions:
   contents: read
@@ -28,12 +23,14 @@ concurrency:
 
 env:
   WRANGLER_VERSION: 4.111.0
+  RELEASE_VALIDATION_PROFILE: core-smoke
 
 jobs:
   validate:
     name: Validate release candidate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout exact release commit
@@ -61,12 +58,10 @@ jobs:
         run: npm test
 
       - name: Install Playwright browser
-        if: inputs.run_e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Release-candidate E2E
-        if: inputs.run_e2e
-        run: npm run test:e2e
+      - name: Release-candidate core smoke
+        run: npm run test:e2e:release
 
       - name: Build and verify production bundle
         run: npm run build:checked
@@ -226,4 +221,5 @@ jobs:
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly/manual)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"

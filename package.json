@@ -44,6 +44,8 @@
     "test:coverage": "vitest run --coverage",
     "pretest:e2e": "npm run build:e2e",
     "test:e2e": "playwright test",
+    "pretest:e2e:release": "npm run build:e2e",
+    "test:e2e:release": "playwright test e2e/release-smoke.test.ts --project=chromium --reporter=line",
     "pretest:e2e:report": "npm run build:e2e",
     "test:e2e:report": "playwright test --reporter=./e2e/live-reporter.ts,line",
     "pretest:e2e:runtime": "npm run build:e2e",

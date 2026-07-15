@@ -75,6 +75,7 @@ function createManifest() {
     runId: process.env.GITHUB_RUN_ID || null,
     runAttempt: process.env.GITHUB_RUN_ATTEMPT || null,
     target: process.env.RELEASE_TARGET || null,
+    validationProfile: process.env.RELEASE_VALIDATION_PROFILE || null,
     createdAt: new Date().toISOString(),
     tools: {
       node: process.version,
@@ -119,6 +120,14 @@ function verifyManifest() {
   if (process.env.RELEASE_TARGET && manifest.target !== process.env.RELEASE_TARGET) {
     throw new Error(
       `Release manifest target ${manifest.target} does not match ${process.env.RELEASE_TARGET}.`,
+    );
+  }
+  if (
+    process.env.RELEASE_VALIDATION_PROFILE &&
+    manifest.validationProfile !== process.env.RELEASE_VALIDATION_PROFILE
+  ) {
+    throw new Error(
+      `Release manifest validation profile ${manifest.validationProfile} does not match ${process.env.RELEASE_VALIDATION_PROFILE}.`,
     );
   }
   if (process.env.WRANGLER_VERSION && manifest.tools?.wrangler !== process.env.WRANGLER_VERSION) {

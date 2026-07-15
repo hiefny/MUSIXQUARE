@@ -154,7 +154,7 @@ const th: Record<I18nKey, string> = {
   'settings.bass_title': 'เบสเสมือน',
   'settings.exciter_title': 'แหลมเสมือน',
   'settings.subwoofer_adjust': 'จุดตัดซับวูฟเฟอร์',
-  'settings.subwoofer_cutoff': 'ความถี่ครอสโอเวอร์',
+  'settings.subwoofer_cutoff': 'ความถี่ตัด',
   'settings.default_0pct': 'ค่าเริ่มต้น: 0%',
   'settings.default_01s': 'ค่าเริ่มต้น: 0.1 วิ',
   'settings.default_20khz': 'ค่าเริ่มต้น: 20.0 kHz',
@@ -286,12 +286,12 @@ const th: Record<I18nKey, string> = {
   'chat.start': 'ส่งข้อความทักทายเพื่อเริ่มการพูดคุยกันเลย!',
 
   // ─── Chat Commands ──────────────────────────────────────────────
-  'chat.muted_placeholder': 'คุณถูกปิดเสียง',
+  'chat.muted_placeholder': 'คุณถูกระงับแชต',
   'chat.cmd_frozen': 'แชทถูกแช่แข็งแล้ว',
   'chat.cmd_unfrozen': 'ปลดแช่แข็งแชทแล้ว',
   'chat.cmd_frozen_blocked': 'ขณะนี้แชทถูกแช่แข็ง',
-  'chat.cmd_muted': '{{name}} ถูกปิดเสียงแล้ว',
-  'chat.cmd_unmuted': '{{name}} ถูกยกเลิกการปิดเสียงแล้ว',
+  'chat.cmd_muted': 'ระงับแชตของ {{name}} แล้ว',
+  'chat.cmd_unmuted': 'ยกเลิกการระงับแชตของ {{name}} แล้ว',
   'chat.cmd_clear': 'ล้างแชทแล้ว',
   'chat.cmd_filter_on': 'เปิดตัวกรองคำหยาบแล้ว',
   'chat.cmd_filter_off': 'ปิดตัวกรองคำหยาบแล้ว',
@@ -353,8 +353,8 @@ const th: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'นำอุปกรณ์ออก',
   'chat.cmd_d_op': 'ให้สิทธิ์ผู้ดูแล',
   'chat.cmd_d_deop': 'ถอนสิทธิ์ผู้ดูแล',
-  'chat.cmd_d_mute': 'ปิดเสียงอุปกรณ์',
-  'chat.cmd_d_unmute': 'ยกเลิกปิดเสียง',
+  'chat.cmd_d_mute': 'ระงับแชตของอุปกรณ์',
+  'chat.cmd_d_unmute': 'ยกเลิกการระงับแชต',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'ข้อมูลดีบักระบบ',
   'chat.debug_copied': 'คัดลอกข้อมูลดีบักแล้ว\nส่งให้ผู้พัฒนาหากพบข้อผิดพลาด',
@@ -583,7 +583,7 @@ const th: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'ผู้เข้าร่วมแต่ละคนเลือก <strong>บทบาท (ช่องสัญญาณเอาต์พุต)</strong><ul class="help-list"><li><strong>กลาง:</strong> เอาต์พุตสเตอริโอ (ค่าเริ่มต้น)</li><li><strong>ซ้าย:</strong> เอาต์พุตช่อง L</li><li><strong>ขวา:</strong> เอาต์พุตช่อง R</li><li><strong>ซับวูฟเฟอร์:</strong> เอาต์พุตผสมย่านความถี่ต่ำ</li></ul>เปลี่ยนบทบาทได้ทุกเมื่อใน <strong>การตั้งค่า</strong>',
   'player.play_media_action_html':
-    'โฮสต์มี 3 ตัวเลือก<ul class="help-list"><li><strong>โหลดไฟล์ในเครื่อง:</strong> เลือกเพลงจากอุปกรณ์ของคุณ รองรับการซิงค์ที่แม่นยำ</li><li><strong>YouTube ด้วยกัน:</strong> รองรับวิดีโอและเพลย์ลิสต์ ไม่มีการแยกช่องสัญญาณหรือเอฟเฟกต์เสียง</li><li><strong>แชร์เสียงระบบ:</strong> ใช้ได้เมื่อโฮสต์ใช้เบราว์เซอร์เดสก์ท็อปตระกูล Chrome</li></ul>',
+    'โฮสต์มี 3 ตัวเลือก<ul class="help-list"><li><strong>โหลดไฟล์ในเครื่อง:</strong> เลือกเพลงจากอุปกรณ์ของคุณ รองรับการซิงค์ที่แม่นยำ</li><li><strong>YouTube ด้วยกัน:</strong> รองรับวิดีโอและเพลย์ลิสต์ ไม่มีการแยกช่องสัญญาณหรือเอฟเฟกต์เสียง</li><li><strong>แชร์เสียงระบบ:</strong> ใช้ได้เมื่อโฮสต์ใช้เบราว์เซอร์ Chromium บนคอมพิวเตอร์ (เช่น Chrome, Edge)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>ใส่รหัสแล้วแต่เชื่อมต่อไม่ได้:</strong> ตรวจสอบรหัสแล้วลองอีกครั้งในอีกสักครู่ เครือข่ายบริษัท โรงเรียน หรือ VPN อาจจำกัดการเชื่อมต่อ</li><li><strong>การเชื่อมต่อไม่เสถียร:</strong> ผู้เข้าร่วมในเครือข่ายเดียวกันควรอยู่ใกล้เราเตอร์มากขึ้น และผู้เข้าร่วมระยะไกลควรใช้การเชื่อมต่ออินเทอร์เน็ตที่เสถียร</li><li><strong>ปัญหาอื่น ๆ:</strong> ตรวจสอบสถานะเครือข่ายและรีสตาร์ตแอปบนทุกอุปกรณ์ หากมีคำถาม โปรดดู <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> หรือติดต่อเราผ่านอีเมลด้านล่างสุด</li></ul>',
   'chat.peer_connected': '{{name}} เข้าร่วมแล้ว',
@@ -615,7 +615,8 @@ const th: Record<I18nKey, string> = {
     'เสียงระบบเหมาะกับผู้เข้าร่วมสูงสุดประมาณ 4 คน\nอุปกรณ์มากขึ้นอาจเพิ่มความหน่วงหรือสะดุด',
   'system_audio.host_channel_locked': 'เปลี่ยนบทบาทไม่ได้ระหว่างแชร์เสียงระบบ',
   'system_audio.effects_guest_only': 'กำลังแชร์เสียงระบบ\nเอฟเฟกต์ใช้กับผู้เข้าร่วมเท่านั้น',
-  'system_audio.desktop_only': 'ใช้ได้เฉพาะในเบราว์เซอร์เดสก์ท็อปตระกูล Chrome (เช่น Chrome, Edge)',
+  'system_audio.desktop_only':
+    'ใช้ได้เฉพาะบนคอมพิวเตอร์ที่ใช้เบราว์เซอร์ Chromium (เช่น Chrome, Edge)',
   'system_audio.receive_failed': 'รับเสียงระบบไม่ได้\nขอให้โฮสต์เริ่มแชร์อีกครั้ง',
   'system_audio.remote_receive_limit':
     'การรับเสียงระบบระยะไกลหยุดหลังจาก 2 ชั่วโมง\nเข้าร่วมห้องอีกครั้งเพื่อฟังต่อ',
@@ -623,7 +624,7 @@ const th: Record<I18nKey, string> = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'หมายเหตุการใช้บริการ',
   'legal.content_html':
-    '<strong>นโยบายความเป็นส่วนตัว</strong><br>เมื่ออยู่บนเครือข่ายเดียวกัน ข้อมูลเซสชันจะส่งตรงระหว่างอุปกรณ์ มีเพียง IP และรายละเอียดการเชื่อมต่อเท่านั้นที่ผ่านระบบ signaling การแชร์ไฟล์ระยะไกลและการแชร์เสียงระบบจะส่งข้อมูลผ่าน Cloudflare ไฟล์ระยะไกลจะถูกเข้ารหัส เก็บไว้สูงสุด 24 ชั่วโมง และจัดเก็บโดยไม่มีคีย์ถอดรหัส MUSIXQUARE ไม่ดู วิเคราะห์ หรือจัดเก็บข้อมูลเกินกว่าที่จำเป็นต่อการให้บริการฟีเจอร์ <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ประกาศลิขสิทธิ์</strong><br>เนื้อหาที่แชร์ผ่าน MUSIXQUARE เป็นของผู้ถือสิทธิ์ที่เกี่ยวข้อง การแชร์เสียงระบบและการแชร์ไฟล์มีไว้สำหรับการใช้งานส่วนตัว ผู้ใช้ต้องรับผิดชอบต่อการเผยแพร่โดยไม่ได้รับอนุญาตหรือการส่งต่อสาธารณะของเนื้อหาที่มีลิขสิทธิ์ การแชร์ YouTube ใช้โครงสร้างการเล่นอย่างเป็นทางการ และยอดรับชมกับการจัดการสิทธิ์เป็นไปตามนโยบายของบริการนั้นและการตั้งค่าของผู้ถือสิทธิ์ <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ข้อจำกัดความรับผิด</strong><br>MUSIXQUARE ให้บริการฟรี ฟีเจอร์บางอย่างพึ่งพาบริการภายนอก เช่น YouTube หรือ Cloudflare จึงอาจมีข้อจำกัดชั่วคราวหากบริการเหล่านั้นเปลี่ยนแปลงหรือออฟไลน์ การซิงค์เสียงแบบเรียลไทม์และคุณภาพการแชร์ระยะไกลอาจแตกต่างมากตามเครือข่าย นโยบายเบราว์เซอร์ และประสิทธิภาพของอุปกรณ์ อาจมีค่าบริการข้อมูลมือถือเมื่อไม่ได้ใช้ Wi-Fi <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">เกี่ยวกับ</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ประวัติ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ระบบดีไซน์</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>นโยบายความเป็นส่วนตัว</strong><br>เมื่ออยู่บนเครือข่ายเดียวกัน ข้อมูลเซสชันจะส่งตรงระหว่างอุปกรณ์ มีเพียง IP และรายละเอียดการเชื่อมต่อเท่านั้นที่ผ่านระบบ signaling การแชร์ไฟล์ระยะไกลและการแชร์เสียงระบบจะส่งข้อมูลผ่าน Cloudflare ไฟล์ระยะไกลจะถูกเข้ารหัส เก็บไว้สูงสุด 24 ชั่วโมง และจัดเก็บโดยไม่มีคีย์ถอดรหัส MUSIXQUARE ไม่ดู วิเคราะห์ หรือจัดเก็บข้อมูลเกินกว่าที่จำเป็นต่อการให้บริการฟีเจอร์ <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ประกาศลิขสิทธิ์</strong><br>เนื้อหาที่แชร์ผ่าน MUSIXQUARE เป็นของผู้ถือสิทธิ์ที่เกี่ยวข้อง การแชร์เสียงระบบและการแชร์ไฟล์มีไว้สำหรับการใช้งานส่วนตัว ผู้ใช้ต้องรับผิดชอบต่อการเผยแพร่โดยไม่ได้รับอนุญาตหรือการส่งต่อสาธารณะของเนื้อหาที่มีลิขสิทธิ์ การแชร์ YouTube ใช้วิธีการเล่นอย่างเป็นทางการ และยอดรับชมกับการจัดการสิทธิ์เป็นไปตามนโยบายของบริการนั้นและการตั้งค่าของผู้ถือสิทธิ์ <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ข้อจำกัดความรับผิด</strong><br>MUSIXQUARE ให้บริการฟรี ฟีเจอร์บางอย่างพึ่งพาบริการภายนอก เช่น YouTube หรือ Cloudflare จึงอาจมีข้อจำกัดชั่วคราวหากบริการเหล่านั้นเปลี่ยนแปลงหรือออฟไลน์ การซิงค์เสียงแบบเรียลไทม์และคุณภาพการแชร์ระยะไกลอาจแตกต่างมากตามเครือข่าย นโยบายเบราว์เซอร์ และประสิทธิภาพของอุปกรณ์ อาจมีค่าบริการข้อมูลมือถือเมื่อไม่ได้ใช้ Wi-Fi <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">เกี่ยวกับ</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ประวัติ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ระบบดีไซน์</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default th;

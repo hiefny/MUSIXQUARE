@@ -34,6 +34,7 @@
     },
     { code: 'fr', htmlLang: 'fr', nativeName: 'Français', englishName: 'French', locale: 'fr_FR' },
     { code: 'de', htmlLang: 'de', nativeName: 'Deutsch', englishName: 'German', locale: 'de_DE' },
+    { code: 'nl', htmlLang: 'nl', nativeName: 'Nederlands', englishName: 'Dutch', locale: 'nl_NL' },
     { code: 'it', htmlLang: 'it', nativeName: 'Italiano', englishName: 'Italian', locale: 'it_IT' },
     { code: 'pl', htmlLang: 'pl', nativeName: 'Polski', englishName: 'Polish', locale: 'pl_PL' },
     { code: 'ru', htmlLang: 'ru', nativeName: 'Русский', englishName: 'Russian', locale: 'ru_RU' },

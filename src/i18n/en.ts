@@ -155,7 +155,7 @@ const en: Record<I18nKey, string> = {
   'settings.bass_title': 'Virtual Bass',
   'settings.exciter_title': 'Virtual Treble',
   'settings.subwoofer_adjust': 'Subwoofer Cutoff',
-  'settings.subwoofer_cutoff': 'Crossover Frequency',
+  'settings.subwoofer_cutoff': 'Subwoofer Cutoff Frequency',
   'settings.default_0pct': 'Default 0%',
   'settings.default_01s': 'Default 0.1s',
   'settings.default_20khz': 'Default 20.0kHz',
@@ -284,12 +284,12 @@ const en: Record<I18nKey, string> = {
   'chat.start': 'Send a message to start!',
 
   // ─── Chat Commands ──────────────────────────────────────────────
-  'chat.muted_placeholder': 'You are muted',
+  'chat.muted_placeholder': 'Your chat is restricted',
   'chat.cmd_frozen': 'Chat has been frozen',
   'chat.cmd_unfrozen': 'Chat has been unfrozen',
   'chat.cmd_frozen_blocked': 'Chat is currently frozen',
-  'chat.cmd_muted': '{{name}} has been muted',
-  'chat.cmd_unmuted': '{{name}} has been unmuted',
+  'chat.cmd_muted': '{{name}} can no longer send chat messages',
+  'chat.cmd_unmuted': '{{name}} can send chat messages again',
   'chat.cmd_clear': 'Chat has been cleared',
   'chat.cmd_filter_on': 'Profanity filter enabled',
   'chat.cmd_filter_off': 'Profanity filter disabled',
@@ -351,8 +351,8 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'Kick device',
   'chat.cmd_d_op': 'Grant admin',
   'chat.cmd_d_deop': 'Revoke admin',
-  'chat.cmd_d_mute': 'Mute device',
-  'chat.cmd_d_unmute': 'Unmute device',
+  'chat.cmd_d_mute': 'Restrict device chat',
+  'chat.cmd_d_unmute': 'Restore device chat',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'System debug info',
   'chat.debug_copied': 'Debug info copied.\nSend it to the developer if you found a bug.',
@@ -586,7 +586,7 @@ const en: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':
-    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host is using a Chrome-based desktop browser</li></ul>',
+    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul>',
   'chat.peer_connected': '{{name}} joined',
@@ -621,16 +621,16 @@ const en: Record<I18nKey, string> = {
   'system_audio.effects_guest_only':
     'System audio active.\nSound effects apply to guest devices only.',
   'system_audio.desktop_only':
-    'Only available in Chrome-based desktop browsers (Chrome, Edge, etc.).',
+    'Only available on computers using a Chromium-based browser (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
     'Could not receive system audio.\nAsk the host to start sharing again.',
   'system_audio.remote_receive_limit':
-    'Remote system audio paused after 2 hours.\nRejoin the room to continue listening.',
+    'Remote system audio reception ended after 2 hours.\nRejoin the room to continue listening.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Service notes',
   'legal.content_html':
-    '<strong>Privacy Policy</strong><br>On the same network, session data goes directly between devices; only IP and connection details pass through signaling. Remote file and system audio sharing route data through Cloudflare; remote files are encrypted, kept for up to 24 hours, and stored without the decryption key. MUSIXQUARE does not view, analyze, or store data beyond providing its features. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback structure, and views and rights handling follow that service\'s policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Privacy Policy</strong><br>On the same network, session data goes directly between devices; only IP and connection details pass through signaling. Remote file and system audio sharing route data through Cloudflare; remote files are encrypted, kept for up to 24 hours, and stored without the decryption key. MUSIXQUARE does not view, analyze, or store data beyond providing its features. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service\'s policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default en;

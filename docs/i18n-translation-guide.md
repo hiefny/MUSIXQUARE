@@ -1,6 +1,6 @@
 # MUSIXQUARE — Translation Guide
 
-Last reviewed against the locale loader and translation tests on 2026-07-11.
+Last reviewed against the locale loader and translation tests on 2026-07-15.
 
 A reference for translating `src/i18n/<lang>.ts` locale files — whether by AI, a
 contributor, or a native reviewer. Born from a real failure: machine translations
@@ -87,6 +87,20 @@ is missing** — so a complete file must define every key.
   it consistently across every key (`common.grant`, `chat.cmd_d_op`,
   `toast.operator_required`, `network.op_granted`, …). Don't alternate
   admin/operator/manager.
+- **Computer, not desktop hardware:** system-audio hosting requires a
+  Chromium-based browser running on a computer. This includes laptops. Translate
+  “computer” as the general device class and never as a desktop tower/form factor.
+- **Chat mute is not audio mute:** every `chat.*mute*` string restricts a device
+  from sending chat messages. Translate it as chat restriction/moderation, never
+  as muting the device speaker, microphone, or playback audio.
+- **GLOBAL / LOCAL are fixed badges:** outside the Korean source locale,
+  `settings.host_ctrl` and `settings.self_ctrl` intentionally use the compact
+  uppercase tokens `GLOBAL` and `LOCAL`. Do not expand, translate, or replace
+  them with the obsolete `HOST-CTRL` / `SELF-CTRL` labels.
+- **Subwoofer cutoff is not a full crossover:** `settings.subwoofer_adjust` and
+  `settings.subwoofer_cutoff` control a low-pass cutoff on the subwoofer path.
+  Translate “cutoff frequency”; do not claim a complementary crossover that the
+  audio graph does not implement.
 - **Decimals:** follow your locale's separator in prose, but keep unit tokens
   intact (`0.1s`, `20.0kHz`, `20Hz`).
 
@@ -117,7 +131,7 @@ the first machine pass).
 | `settings.eq_warm` / `settings.eq_bright` | Warm / Bright | **audio tonality** | temperature / intelligence |
 | `nav.home`, `nav.go_home` | Home | **home screen** | "house / residence" |
 | `common.woofer`, `role.subwoofer` | Woofer / Subwoofer | audio term — use the standard **loanword/transliteration** | literal "barker" |
-| `settings.host_ctrl` / `settings.self_ctrl` | Host Control / Local Control | who controls the effect: the **host** vs **locally/yourself** | "self-control" (restraint!); leaving it English |
+| `settings.host_ctrl` / `settings.self_ctrl` | GLOBAL / LOCAL | fixed compact badges: the effect is controlled **globally** vs on **this device** | translating or expanding the badges; "self-control" (restraint) |
 | `connect.rename_message` "Choose a display name" | Choose | **enter / decide on** a name (it's a text field) | a "select-from-a-list" verb — esp. zh `选择`/`選擇`; you type the name, not pick it |
 
 ---
@@ -139,7 +153,7 @@ Output rules:
 - Output ONLY lines of the form  'key': 'translation',  — same keys, same order.
 - Preserve every {{placeholder}} token exactly (don't translate/space/reorder it).
 - Preserve \n newlines and leading/trailing spaces.
-- Never translate: MUSIXQUARE, YouTube, Cloudflare, QR, API, HOST-CTRL, SELF-CTRL,
+- Never translate: MUSIXQUARE, YouTube, Cloudflare, QR, API, GLOBAL, LOCAL,
   or units (Hz, kHz, dB, ms, %).
 - Use ... (three periods) for ellipsis, never the … character.
 - Escape an apostrophe inside the value as \' (or use the language's curly quote).

@@ -48,7 +48,7 @@ const nl: Record<I18nKey, string> = {
   'common.woofer': 'Woofer',
   'common.connected': 'Verbonden',
   'common.disconnected': 'Verbroken',
-  'common.revoke': 'Beheerder intrekken',
+  'common.revoke': 'Beheerdersrechten intrekken',
   'common.grant': 'Beheerder maken',
   'common.system': 'Systeem',
   'common.unknown': 'Onbekend',
@@ -71,7 +71,7 @@ const nl: Record<I18nKey, string> = {
   'player.seek': 'Spoelen',
   'player.volume': 'Volume aanpassen',
   'player.toggle_mute': 'Dempen aan/uit',
-  'player.fullscreen': 'Volledig scherm aan/uit',
+  'player.fullscreen': 'Volledig scherm in-/uitschakelen',
   'player.prev_track': 'Vorig nummer',
   'player.next_track': 'Volgend nummer',
   'player.repeat_mode': 'Herhaalmodus wijzigen',
@@ -158,7 +158,7 @@ const nl: Record<I18nKey, string> = {
   'settings.bass_title': 'Virtuele bas',
   'settings.exciter_title': 'Virtuele treble',
   'settings.subwoofer_adjust': 'Subwoofer-cutoff',
-  'settings.subwoofer_cutoff': 'Crossoverfrequentie',
+  'settings.subwoofer_cutoff': 'Afsnijfrequentie',
   'settings.default_0pct': 'Standaard 0%',
   'settings.default_01s': 'Standaard 0,1 s',
   'settings.default_20khz': 'Standaard 20,0 kHz',
@@ -195,7 +195,7 @@ const nl: Record<I18nKey, string> = {
   'connect.kick_no': 'Nee',
   'connect.kicked_title': 'Verwijderd',
   'connect.kicked_message': 'Je bent door de host uit de sessie verwijderd.',
-  'connect.copy_invite_link': 'Uitnodigingslink kopieren',
+  'connect.copy_invite_link': 'Uitnodigingslink kopiëren',
   'connect.link_copied': 'Uitnodigingslink gekopieerd',
   'connect.room_password_title': 'Wachtwoord vereisen',
   'connect.room_password_set': 'Instellen',
@@ -211,7 +211,7 @@ const nl: Record<I18nKey, string> = {
 
   // Setup and demo
   'setup.host_button': 'Sessie hosten',
-  'setup.guest_button': 'Sessie joinen',
+  'setup.guest_button': 'Deelnemen aan sessie',
   'setup.demo_button': 'Probeer demo',
   'demo.prompt_title': 'Ervaar MUSIXQUARE',
   'demo.prompt_message': 'Welkom! Klaar voor een korte rondleiding?',
@@ -252,7 +252,7 @@ const nl: Record<I18nKey, string> = {
   'setup.what_sound': 'Wat moet dit apparaat afspelen?',
   'setup.change_later': 'Je kunt dit later altijd aanpassen in Instellingen.',
   'setup.welcome_title': 'Welkom',
-  'setup.join_session_subtitle': 'Je gaat sessie {{code}} joinen.',
+  'setup.join_session_subtitle': 'Je gaat deelnemen aan sessie {{code}}.',
   'setup.select_role': 'Kies een rol',
   'setup.select_role_alt': 'Kies een rol',
   'setup.hello_select_role': 'Hoi! Kies je rol.',
@@ -262,7 +262,7 @@ const nl: Record<I18nKey, string> = {
   'setup.connect_devices': 'Verbind je andere apparaten om te beginnen.',
   'setup.enter_code_connect': 'Voer deze code in op gastapparaten',
   'setup.last_step': 'Laten we beginnen!',
-  'setup.joining': 'Joinen...',
+  'setup.joining': 'Deelnemen...',
   'setup.six_digit_enter': 'Voer de 6-cijferige verbindingscode in',
 
   // Help
@@ -275,7 +275,8 @@ const nl: Record<I18nKey, string> = {
   'help.youtube_compat': 'YouTube (compatibiliteitsmodus)',
   'help.youtube_no_effects':
     'In YouTube-modus zijn rolinstellingen en audio-effecten niet beschikbaar.',
-  'help.media_synced_detail': 'De gekozen media speelt tegelijk af op alle verbonden apparaten.',
+  'help.media_synced_detail':
+    'Het gekozen medium wordt tegelijk afgespeeld op alle verbonden apparaten.',
   'help.wifi_hotspot': 'Een hotspot kan iedereen ook op hetzelfde netwerk zetten',
 
   // Chat
@@ -286,12 +287,12 @@ const nl: Record<I18nKey, string> = {
   'chat.input_label': 'Chatbericht invoeren',
   'chat.send': 'Bericht sturen',
   'chat.start': 'Stuur het eerste bericht!',
-  'chat.muted_placeholder': 'Je bent gedempt',
+  'chat.muted_placeholder': 'Je kunt geen berichten in deze chat sturen',
   'chat.cmd_frozen': 'Chat is bevroren',
   'chat.cmd_unfrozen': 'Chat is weer vrijgegeven',
   'chat.cmd_frozen_blocked': 'Chat is momenteel bevroren',
-  'chat.cmd_muted': '{{name}} is gedempt',
-  'chat.cmd_unmuted': '{{name}} is niet meer gedempt',
+  'chat.cmd_muted': '{{name}} kan geen chatberichten meer sturen',
+  'chat.cmd_unmuted': '{{name}} kan weer chatberichten sturen',
   'chat.cmd_clear': 'Chat is gewist',
   'chat.cmd_filter_on': 'Scheldwoordenfilter aan',
   'chat.cmd_filter_off': 'Scheldwoordenfilter uit',
@@ -351,14 +352,14 @@ const nl: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'Apparaat verwijderen',
   'chat.cmd_d_op': 'Beheerder maken',
   'chat.cmd_d_deop': 'Beheerder intrekken',
-  'chat.cmd_d_mute': 'Apparaat dempen',
-  'chat.cmd_d_unmute': 'Dempen opheffen',
+  'chat.cmd_d_mute': 'Chatberichten van apparaat blokkeren',
+  'chat.cmd_d_unmute': 'Chatberichten van apparaat toestaan',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Systeemdebug-info',
   'chat.debug_copied':
     'Debug-info gekopieerd.\nStuur dit naar de ontwikkelaar als je een bug vond.',
   'chat.seek_to': 'Spoel naar {{time}}',
-  'chat.peer_connected': '{{name}} is gejoined',
+  'chat.peer_connected': '{{name}} neemt nu deel',
   'chat.peer_disconnected': '{{name}} is vertrokken',
   'chat.empty_html': 'Nog geen berichten.<br>Stuur het eerste bericht!',
   'chat.msg_truncated': 'Bericht ingekort tot {{max}} tekens',
@@ -388,9 +389,9 @@ const nl: Record<I18nKey, string> = {
   'youtube.loading_large_playlist': 'Grote playlist laden...',
   'youtube.indexing_playlist': 'Playlist-items analyseren...',
   'youtube.search_button': 'Zoeken',
-  'youtube.search_prompt': 'Druk op Enter of Zoeken om videos te vinden',
+  'youtube.search_prompt': "Druk op Enter of Zoeken om video's te vinden",
   'youtube.searching': 'YouTube zoeken...',
-  'youtube.search_no_results': 'Geen videos gevonden',
+  'youtube.search_no_results': "Geen video's gevonden",
   'youtube.search_failed': 'YouTube zoeken is niet beschikbaar',
   'youtube.search_selected': 'Gekozen video klaar om toe te voegen',
   'youtube.search_results': 'YouTube-zoekresultaten',
@@ -423,9 +424,9 @@ const nl: Record<I18nKey, string> = {
   'toast.preparing_next_pct': 'Volgend nummer voorbereiden... {{pct}}%',
   'toast.op_status': '{{label}} toestemming {{status}}',
   'toast.file_read_error': 'Bestand lezen mislukt: {{name}}',
-  'toast.host_ended_connection': 'De host heeft de verbinding beeindigd',
+  'toast.host_ended_connection': 'De host heeft de verbinding beëindigd',
   'toast.announcement_available': 'Nieuwe aankondiging.\nBekijk het chatvenster.',
-  'toast.copy_failed': 'Kopieren mislukt',
+  'toast.copy_failed': 'Kopiëren mislukt',
   'toast.email_copied': 'E-mailadres gekopieerd!',
   'toast.host_only': 'Alleen de host kan dit doen.',
   'toast.host_only_media': 'Alleen de host kan media toevoegen.',
@@ -436,7 +437,7 @@ const nl: Record<I18nKey, string> = {
   'toast.no_tracks': 'Geen nummers om af te spelen',
   'toast.no_invite_code': 'Nog geen uitnodigingscode',
   'toast.invite_code_settings': 'Deel de uitnodigingslink via de tab Verbinden.',
-  'toast.click_copy_invite': 'Klik om de uitnodigingscode te kopieren',
+  'toast.click_copy_invite': 'Klik om de uitnodigingscode te kopiëren',
   'toast.cant_select_file': 'Kan geen bestand kiezen',
   'toast.unsupported_files_excluded': 'Niet-ondersteunde bestanden overgeslagen: {{count}}',
   'toast.no_supported_audio_files': 'Geen ondersteunde audiobestanden gevonden.',
@@ -452,7 +453,7 @@ const nl: Record<I18nKey, string> = {
   'toast.sync_not_in_system_audio': 'Sync is niet beschikbaar bij systeem-audio delen',
   'toast.sync_not_ready': 'Nog niet klaar.\nProbeer het zo opnieuw',
   'toast.sync_no_media':
-    'Er is geen media om te synchroniseren.\nSelecteer eerst media om af te spelen',
+    'Er is geen medium om te synchroniseren.\nSelecteer eerst iets om af te spelen',
   'toast.host_ad': 'De host lijkt een advertentie te bekijken',
   'toast.yt_sync_start': 'Synchroniseren...',
   'toast.yt_sync_done': 'Sync voltooid',
@@ -464,7 +465,7 @@ const nl: Record<I18nKey, string> = {
   'toast.yt_host_sync_sent': 'Auto-syncsignaal naar deelnemers gestuurd',
   'toast.yt_manual_sync_prompt':
     'Automatische sync is net geprobeerd.\nAls het nog vertraagd voelt, pas de waarde nu aan',
-  'toast.playlist_ended': 'Laatste media is afgelopen',
+  'toast.playlist_ended': 'Het laatste medium is afgelopen',
   'toast.operator_required': 'Alleen beheerders kunnen globale instellingen wijzigen',
   'toast.connection_closing': 'Verbinding verloren, instelling niet gesynchroniseerd',
   'toast.host_changed_setting': 'Instellingen zijn gewijzigd',
@@ -497,7 +498,7 @@ const nl: Record<I18nKey, string> = {
     'Autorisatie voor extern delen mislukt.\nControleer de Worker-instellingen',
   'share.remote.expired': 'Link naar extern bestand is verlopen.\nDeel het opnieuw.',
   'share.remote.unavailable': 'Extern delen mislukt.\nProbeer het zo opnieuw.',
-  'transfer.preload_fail': 'Vooraf afspelen mislukt, opnieuw laden',
+  'transfer.preload_fail': 'Afspelen van het vooraf geladen bestand mislukt; opnieuw laden',
   'transfer.download_finishing': 'Download afronden...',
   'transfer.preparation_delayed': 'Voorbereiding vertraagd...\nHerstel aanvragen bij host',
   'transfer.receiving_0pct': 'Ontvangen... 0%',
@@ -574,7 +575,7 @@ const nl: Record<I18nKey, string> = {
   'dialog.reconnect': 'Opnieuw verbinden',
   'dialog.go_back': 'Terug',
   'dialog.room_password_title': 'Sessiewachtwoord invoeren',
-  'dialog.room_password_msg': 'Je hebt een wachtwoord nodig om deze sessie te joinen.',
+  'dialog.room_password_msg': 'Je hebt een wachtwoord nodig om aan deze sessie deel te nemen.',
   'dialog.room_password_retry_msg': 'Dat wachtwoord klopt niet. Probeer opnieuw.',
   'dialog.room_password_timeout_msg': 'Verbinding duurde te lang. Voer het wachtwoord opnieuw in.',
   'dialog.room_password_placeholder': '8-cijferig wachtwoord',
@@ -588,11 +589,11 @@ const nl: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Audio delen is het stabielst op hetzelfde netwerk.<ul class="help-list"><li>Externe deelnemers kunnen dezelfde functies gebruiken.</li><li>Externe deelnemers gebruiken Cloudflare-routes, waardoor vertraging kan toenemen of ontvangst kan mislukken afhankelijk van het netwerk.</li><li>Een VPN of beperkt netwerk kan de verbinding instabiel maken.</li></ul>',
   'setup.how_to_connect_html':
-    'Voer de <strong>6-cijferige code</strong> van de host in om te verbinden.<ul class="help-list"><li><strong>Host:</strong> Sessie hosten -&gt; code bekijken</li><li><strong>Deelnemer:</strong> Sessie joinen -&gt; code invoeren</li><li>Het aantal apparaten kan worden ingesteld in de <strong>tab Verbinden</strong>.</li></ul>',
+    'Voer de <strong>6-cijferige code</strong> van de host in om te verbinden.<ul class="help-list"><li><strong>Host:</strong> Sessie hosten -&gt; code bekijken</li><li><strong>Deelnemer:</strong> Deelnemen aan sessie -&gt; code invoeren</li><li>Het aantal apparaten kan worden ingesteld in de <strong>tab Verbinden</strong>.</li></ul>',
   'player.play_speakers_html':
     'Elke deelnemer kiest een <strong>rol (uitvoerkanaal)</strong>.<ul class="help-list"><li><strong>Center:</strong> stereo-uitvoer (standaard)</li><li><strong>Links:</strong> uitvoer van het L-kanaal</li><li><strong>Rechts:</strong> uitvoer van het R-kanaal</li><li><strong>Subwoofer:</strong> lagefrequentiemix</li></ul>Je kunt rollen altijd wijzigen in <strong>Instellingen</strong>.',
   'player.play_media_action_html':
-    'De host heeft 3 opties.<ul class="help-list"><li><strong>Lokaal bestand laden:</strong> kies muziek vanaf je apparaat. Precieze sync wordt ondersteund</li><li><strong>Samen YouTube:</strong> videos en playlists ondersteund. Geen kanaalsplitsing of audio-effecten</li><li><strong>Systeem-audio delen:</strong> beschikbaar wanneer de host een Chrome-gebaseerde desktopbrowser gebruikt</li></ul>',
+    'De host heeft 3 opties.<ul class="help-list"><li><strong>Lokaal bestand laden:</strong> kies muziek vanaf je apparaat. Precieze sync wordt ondersteund</li><li><strong>Samen YouTube:</strong> video’s en playlists worden ondersteund. Geen kanaalsplitsing of audio-effecten</li><li><strong>Systeem-audio delen:</strong> beschikbaar wanneer de host een computer met een Chromium-browser gebruikt (Chrome, Edge enz.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Code ingevoerd maar geen verbinding:</strong> controleer de code en probeer het zo opnieuw. Bedrijfs-, school- of VPN-netwerken kunnen de verbinding beperken.</li><li><strong>Instabiele verbinding:</strong> lokale deelnemers blijven het best dicht bij de router; externe deelnemers gebruiken het best een stabiele internetverbinding.</li><li><strong>Andere problemen:</strong> controleer de netwerkstatus en herstart de app op alle apparaten. Lees de <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> of neem contact op via het e-mailadres onderaan.</li></ul>',
   'setup.brand_tagline_html': 'Luister samen, overal<br>De perfecte geluidservaring',
@@ -604,7 +605,7 @@ const nl: Record<I18nKey, string> = {
     'Stel de rol van elk apparaat in.<br>Speel linker- en rechteraudio apart af<br>en voel diepe bas via de woofer.',
   'setup.advanced_audio_desc_html':
     'Stem de instellingen van de host af<br>met reverb, EQ, virtuele effecten<br>en meer in het hele systeem.',
-  'youtube.enter_link_desc_html': 'Alleen openbare videos of playlists kunnen worden afgespeeld.',
+  'youtube.enter_link_desc_html': "Alleen openbare video's of playlists kunnen worden afgespeeld.",
 
   // System audio sharing
   'system_audio.button': 'Systeem-audio',
@@ -622,16 +623,16 @@ const nl: Record<I18nKey, string> = {
   'system_audio.effects_guest_only':
     'Systeem-audio is actief.\nGeluidseffecten gelden alleen voor gastapparaten.',
   'system_audio.desktop_only':
-    'Alleen beschikbaar in Chrome-gebaseerde desktopbrowsers (Chrome, Edge, enz.).',
+    'Alleen beschikbaar op computers met een Chromium-browser (Chrome, Edge enz.).',
   'system_audio.receive_failed':
     'Systeem-audio kon niet worden ontvangen.\nVraag de host om opnieuw te delen.',
   'system_audio.remote_receive_limit':
-    'Externe systeem-audio is na 2 uur gepauzeerd.\nJoin de sessie opnieuw om verder te luisteren.',
+    'De ontvangst van externe systeem-audio is na 2 uur beëindigd.\nNeem opnieuw deel aan de sessie om verder te luisteren.',
 
   // Legal
   'legal.title': 'Servicenotities',
   'legal.content_html':
-    '<strong>Privacybeleid</strong><br>Op hetzelfde netwerk gaat sessiedata rechtstreeks tussen apparaten; alleen IP- en verbindingsgegevens lopen via signaling. Extern bestanden delen en systeem-audio delen sturen data via Cloudflare; externe bestanden worden versleuteld, maximaal 24 uur bewaard en opgeslagen zonder decryptiesleutel. MUSIXQUARE bekijkt, analyseert of bewaart geen data buiten wat nodig is om de functies te leveren. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Auteursrecht</strong><br>Content die via MUSIXQUARE wordt gedeeld, blijft eigendom van de betreffende rechthebbenden. Systeem-audio delen en bestanden delen zijn bedoeld voor persoonlijk gebruik. Gebruikers zijn verantwoordelijk voor ongeautoriseerde verspreiding of openbare doorgifte van auteursrechtelijk beschermde content. YouTube-delen gebruikt de officiele afspeelstructuur; weergaven en rechtenafhandeling volgen het beleid van die dienst en de instellingen van rechthebbenden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE wordt gratis aangeboden. Sommige functies zijn afhankelijk van externe diensten zoals YouTube of Cloudflare, dus tijdelijke beperkingen kunnen optreden als die diensten wijzigen of offline gaan. Realtime audiosync en de kwaliteit van extern delen kunnen sterk verschillen per netwerk, browserbeleid en apparaatprestaties. Buiten Wi-Fi kunnen kosten voor mobiele data gelden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>&copy; 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Over ons</a> &middot; <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Geschiedenis</a> &middot; <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Designsysteem</a> &middot; <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> &middot; <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Privacybeleid</strong><br>Op hetzelfde netwerk gaat sessiedata rechtstreeks tussen apparaten; alleen IP- en verbindingsgegevens lopen via signaling. Extern bestanden delen en systeem-audio delen sturen data via Cloudflare; externe bestanden worden versleuteld, maximaal 24 uur bewaard en opgeslagen zonder decryptiesleutel. MUSIXQUARE bekijkt, analyseert of bewaart geen data buiten wat nodig is om de functies te leveren. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Auteursrecht</strong><br>Content die via MUSIXQUARE wordt gedeeld, blijft eigendom van de betreffende rechthebbenden. Systeem-audio delen en bestanden delen zijn bedoeld voor persoonlijk gebruik. Gebruikers zijn verantwoordelijk voor ongeautoriseerde verspreiding of openbare doorgifte van auteursrechtelijk beschermde content. YouTube-delen gebruikt de officiële afspeelmethode; weergaven en rechtenafhandeling volgen het beleid van die dienst en de instellingen van rechthebbenden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE wordt gratis aangeboden. Sommige functies zijn afhankelijk van externe diensten zoals YouTube of Cloudflare, dus tijdelijke beperkingen kunnen optreden als die diensten wijzigen of offline gaan. Realtime audiosync en de kwaliteit van extern delen kunnen sterk verschillen per netwerk, browserbeleid en apparaatprestaties. Buiten Wi-Fi kunnen kosten voor mobiele data gelden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>&copy; 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Over ons</a> &middot; <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Geschiedenis</a> &middot; <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Designsysteem</a> &middot; <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> &middot; <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default nl;

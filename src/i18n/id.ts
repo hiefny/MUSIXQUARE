@@ -111,7 +111,7 @@ const id: Record<I18nKey, string> = {
   'settings.bass_title': 'Bass virtual',
   'settings.exciter_title': 'Treble virtual',
   'settings.subwoofer_adjust': 'Cutoff subwoofer',
-  'settings.subwoofer_cutoff': 'Frekuensi crossover',
+  'settings.subwoofer_cutoff': 'Frekuensi cutoff',
   'settings.default_0pct': 'Default 0%',
   'settings.default_01s': 'Default 0,1 dtk',
   'settings.default_20khz': 'Default 20,0 kHz',
@@ -143,7 +143,7 @@ const id: Record<I18nKey, string> = {
   'player.seek': 'Geser posisi',
   'player.volume': 'Atur volume',
   'player.toggle_mute': 'Alihkan bisu',
-  'player.fullscreen': 'Alihkan layar penuh',
+  'player.fullscreen': 'Aktifkan/nonaktifkan layar penuh',
   'player.prev_track': 'Track sebelumnya',
   'player.next_track': 'Track berikutnya',
   'player.repeat_mode': 'Ubah mode ulangi',
@@ -212,7 +212,7 @@ const id: Record<I18nKey, string> = {
   'setup.host_button': 'Buat ruang',
   'setup.guest_button': 'Gabung ke ruang',
   'setup.demo_button': 'Coba (Demo)',
-  'demo.prompt_title': 'Pengalaman MUSIXQUARE',
+  'demo.prompt_title': 'Jelajahi MUSIXQUARE',
   'demo.prompt_message': 'Selamat datang! Siap untuk tur singkat fitur kami?',
   'demo.prompt_cta': 'Mulai tur',
   'demo.prompt_later': 'Nanti',
@@ -238,7 +238,7 @@ const id: Record<I18nKey, string> = {
   'demo.session_body_connected':
     '{{count}} perangkat sedang tersambung.\nAtur peran untuk setiap perangkat.',
   'demo.session_body_alone':
-    'Saat ini hanya perangkat ini yang memutar.\nUndang perangkat lain sekarang.',
+    'Saat ini hanya perangkat ini yang memutar audio.\nUndang perangkat lain sekarang.',
   'demo.effects_step_title': 'Buat pengalaman suara premium Anda sendiri.',
   'demo.effects_step_subtitle': 'Anda bisa menyetel semuanya nanti di Pengaturan.',
   'demo.finish_step_title': 'Semua siap!',
@@ -287,7 +287,7 @@ const id: Record<I18nKey, string> = {
   'youtube.ready': 'YouTube siap!\nTekan Putar.',
   'youtube.thumbnail': 'Thumbnail pratinjau YouTube',
   'youtube.load_fail': 'Gagal memuat API YouTube.\nPeriksa koneksi Anda!',
-  'youtube.video_unavailable': 'Video tidak tersedia, melewati ke track berikutnya',
+  'youtube.video_unavailable': 'Video tidak tersedia, beralih ke track berikutnya',
   'youtube.load_timeout': 'Memuat YouTube terlalu lama.\nCoba lagi.',
   'youtube.invalid_link': 'Tautan YouTube tidak valid',
   'youtube.effects_disabled': 'Tonton YouTube bersama.\nEfek audio lanjutan dinonaktifkan.',
@@ -304,7 +304,7 @@ const id: Record<I18nKey, string> = {
   'youtube.search_button': 'Cari',
   'youtube.search_prompt': 'Tekan Enter atau Cari untuk menemukan video',
   'youtube.searching': 'Mencari di YouTube...',
-  'youtube.search_no_results': 'Tidak ada video ditemukan',
+  'youtube.search_no_results': 'Tidak ada video yang ditemukan',
   'youtube.search_failed': 'Pencarian YouTube tidak tersedia',
   'youtube.search_selected': 'Video terpilih siap ditambahkan',
   'youtube.search_results': 'Hasil pencarian YouTube',
@@ -368,13 +368,13 @@ const id: Record<I18nKey, string> = {
     'Audio sistem paling baik untuk hingga 4 peserta.\nLebih banyak perangkat dapat menambah latensi atau putus-putus.',
   'system_audio.host_channel_locked': 'Tidak dapat mengubah peran saat berbagi audio sistem.',
   'system_audio.effects_guest_only':
-    'Sedang berbagi audio sistem.\nEfek hanya berlaku untuk peserta.',
+    'Sedang berbagi audio sistem.\nEfek audio hanya berlaku pada perangkat peserta.',
   'system_audio.desktop_only':
-    'Hanya tersedia di browser desktop berbasis Chrome (Chrome, Edge, dll.).',
+    'Hanya tersedia di komputer dengan browser berbasis Chromium (Chrome, Edge, dll.).',
   'system_audio.receive_failed':
     'Tidak dapat menerima audio sistem.\nMinta host memulai berbagi lagi.',
   'system_audio.remote_receive_limit':
-    'Audio sistem jarak jauh dijeda setelah 2 jam.\nMasuk kembali ke ruang untuk lanjut mendengar.',
+    'Penerimaan audio sistem jarak jauh dihentikan setelah 2 jam.\nMasuk kembali ke ruang untuk lanjut mendengar.',
 
   // Toast
   'toast.device_connected': '{{name}} tersambung',
@@ -490,7 +490,7 @@ const id: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Keluar ruang',
   'dialog.return_home_msg': 'Kembali ke layar awal?',
   'dialog.return_home_detail': 'Anda akan terputus dari ruang saat ini.',
-  'dialog.leaving_session': 'Keluar ruang...',
+  'dialog.leaving_session': 'Sedang keluar dari ruang...',
   'dialog.background_resume_title': 'Aplikasi sempat masuk ke latar belakang',
   'dialog.background_resume_message':
     'Jika sinkronisasi meleset atau audio tidak berbunyi, tutup aplikasi sepenuhnya lalu buka lagi.',
@@ -521,12 +521,12 @@ const id: Record<I18nKey, string> = {
   'chat.input_label': 'Ketik pesan chat',
   'chat.send': 'Kirim pesan',
   'chat.start': 'Ketik sesuatu untuk memulai!',
-  'chat.muted_placeholder': 'Anda dibisukan',
+  'chat.muted_placeholder': 'Anda tidak dapat mengirim pesan',
   'chat.cmd_frozen': 'Chat telah dibekukan',
   'chat.cmd_unfrozen': 'Chat telah dibuka kembali',
   'chat.cmd_frozen_blocked': 'Chat sedang dibekukan',
-  'chat.cmd_muted': '{{name}} telah dibisukan',
-  'chat.cmd_unmuted': '{{name}} tidak lagi dibisukan',
+  'chat.cmd_muted': '{{name}} tidak dapat mengirim pesan',
+  'chat.cmd_unmuted': '{{name}} dapat mengirim pesan lagi',
   'chat.cmd_clear': 'Chat telah dibersihkan',
   'chat.cmd_filter_on': 'Filter kata kasar diaktifkan',
   'chat.cmd_filter_off': 'Filter kata kasar dinonaktifkan',
@@ -534,9 +534,9 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Mode lambat dinonaktifkan',
   'chat.cmd_slowmode_wait': 'Tunggu {{sec}} dtk sebelum mengirim',
   'chat.cmd_notice_prefix': 'Pemberitahuan',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': 'SISTEM',
   'chat.decode_skip_system_message':
-    'Beberapa perangkat tidak dapat memutar track ini, melewati ke berikutnya',
+    'Beberapa perangkat tidak dapat memutar track ini. Beralih ke track berikutnya.',
   'chat.system_audio_started_system_message':
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
   'chat.system_audio_stopped_system_message':
@@ -548,7 +548,7 @@ const id: Record<I18nKey, string> = {
   'chat.pinned_close': 'Tutup pemberitahuan',
   'chat.cmd_whisper_from': 'Bisikan dari {{name}}',
   'chat.cmd_whisper_to': 'Bisikan ke {{name}}',
-  'chat.cmd_target_not_found': 'Target tidak ditemukan: {{target}}',
+  'chat.cmd_target_not_found': 'Perangkat tidak ditemukan: {{target}}',
   'chat.cmd_no_permission': 'Anda tidak memiliki izin',
   'chat.cmd_nick_changed': 'Nama diubah menjadi {{name}}',
   'chat.cmd_nick_too_long': 'Nama panggilan maksimal 20 karakter',
@@ -587,8 +587,8 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'Keluarkan perangkat',
   'chat.cmd_d_op': 'Beri admin',
   'chat.cmd_d_deop': 'Cabut admin',
-  'chat.cmd_d_mute': 'Bisukan perangkat',
-  'chat.cmd_d_unmute': 'Bunyikan perangkat',
+  'chat.cmd_d_mute': 'Blokir chat perangkat',
+  'chat.cmd_d_unmute': 'Buka blokir chat perangkat',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Info debug sistem',
   'chat.debug_copied': 'Info debug disalin.\nKirimkan ke developer jika Anda menemukan bug.',
@@ -611,7 +611,7 @@ const id: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Setiap peserta memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (default)</li><li><strong>Kiri:</strong> Keluaran kanal L</li><li><strong>Kanan:</strong> Keluaran kanal R</li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
   'player.play_media_action_html':
-    'Host memiliki 3 opsi.<ul class="help-list"><li><strong>Muat file lokal:</strong> Pilih musik dari perangkat Anda. Sinkronisasi presisi didukung</li><li><strong>YouTube Bersama:</strong> Video dan playlist didukung. Tidak ada pemisahan kanal atau efek audio</li><li><strong>Berbagi Audio Sistem:</strong> Tersedia saat host memakai browser desktop berbasis Chrome</li></ul>',
+    'Host memiliki 3 opsi.<ul class="help-list"><li><strong>Muat file lokal:</strong> Pilih musik dari perangkat Anda. Sinkronisasi presisi didukung</li><li><strong>YouTube Bersama:</strong> Video dan playlist didukung. Tidak ada pemisahan kanal atau efek audio</li><li><strong>Berbagi Audio Sistem:</strong> Tersedia saat host menggunakan browser berbasis Chromium di komputer</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Kode sudah dimasukkan tetapi tidak bisa terhubung:</strong> Periksa kode lalu coba lagi sebentar lagi. Jaringan perusahaan, sekolah, atau VPN dapat membatasi koneksi.</li><li><strong>Koneksi tidak stabil:</strong> Peserta lokal sebaiknya lebih dekat ke router, dan peserta jarak jauh sebaiknya memakai koneksi internet yang stabil.</li><li><strong>Masalah lain:</strong> Periksa status jaringan dan mulai ulang aplikasi di semua perangkat. Jika ada pertanyaan, lihat <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> atau hubungi kami lewat email di bagian paling bawah.</li></ul>',
   'setup.brand_tagline_html': 'Dengarkan bersama, di mana saja<br>Pengalaman suara yang sempurna',
@@ -626,7 +626,7 @@ const id: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Hanya video atau playlist publik yang dapat diputar.',
   'legal.title': 'Catatan layanan',
   'legal.content_html':
-    '<strong>Kebijakan Privasi</strong><br>Di jaringan yang sama, data sesi berjalan langsung antarperangkat; hanya IP dan detail koneksi yang melewati signaling. Berbagi file jarak jauh dan audio sistem merutekan data melalui Cloudflare; file jarak jauh dienkripsi, disimpan hingga 24 jam, dan disimpan tanpa kunci dekripsi. MUSIXQUARE tidak melihat, menganalisis, atau menyimpan data di luar yang diperlukan untuk menyediakan fiturnya. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Pemberitahuan Hak Cipta</strong><br>Konten yang dibagikan melalui MUSIXQUARE adalah milik pemegang hak masing-masing. Berbagi audio sistem dan berbagi file ditujukan untuk penggunaan pribadi. Pengguna bertanggung jawab atas distribusi tanpa izin atau transmisi publik atas konten berhak cipta. Berbagi YouTube menggunakan struktur pemutaran resmi, dan penayangan serta penanganan hak mengikuti kebijakan layanan tersebut dan pengaturan pemegang hak. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Sanggahan</strong><br>MUSIXQUARE disediakan secara gratis. Beberapa fitur bergantung pada layanan eksternal seperti YouTube atau Cloudflare, sehingga pembatasan sementara dapat terjadi jika layanan tersebut berubah atau offline. Sinkronisasi audio real-time dan kualitas berbagi jarak jauh dapat sangat bervariasi tergantung jaringan, kebijakan browser, dan performa perangkat. Biaya data seluler dapat berlaku saat tidak memakai Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tentang</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Riwayat</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sistem Desain</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Kebijakan Privasi</strong><br>Di jaringan yang sama, data sesi berjalan langsung antarperangkat; hanya IP dan detail koneksi yang melewati signaling. Berbagi file jarak jauh dan audio sistem merutekan data melalui Cloudflare; file jarak jauh dienkripsi dan disimpan sementara hingga 24 jam, sedangkan kunci dekripsinya tidak disimpan. MUSIXQUARE tidak melihat, menganalisis, atau menyimpan data di luar yang diperlukan untuk menyediakan fiturnya. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Pemberitahuan Hak Cipta</strong><br>Konten yang dibagikan melalui MUSIXQUARE adalah milik pemegang hak masing-masing. Berbagi audio sistem dan berbagi file ditujukan untuk penggunaan pribadi. Pengguna bertanggung jawab atas distribusi tanpa izin atau transmisi publik atas konten berhak cipta. Berbagi YouTube menggunakan metode pemutaran resmi, dan penayangan serta penanganan hak mengikuti kebijakan layanan tersebut dan pengaturan pemegang hak. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Sanggahan</strong><br>MUSIXQUARE disediakan secara gratis. Beberapa fitur bergantung pada layanan eksternal seperti YouTube atau Cloudflare, sehingga pembatasan sementara dapat terjadi jika layanan tersebut berubah atau offline. Sinkronisasi audio real-time dan kualitas berbagi jarak jauh dapat sangat bervariasi tergantung jaringan, kebijakan browser, dan performa perangkat. Biaya data seluler dapat berlaku saat tidak memakai Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tentang</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Riwayat</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sistem Desain</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default id;

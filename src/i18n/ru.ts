@@ -56,7 +56,7 @@ const ru: Record<I18nKey, string> = {
   'nav.playlist': 'Плейлист',
   'nav.settings': 'Настройки',
   'nav.help': 'Помощь',
-  'nav.connect': 'Связь',
+  'nav.connect': 'Подключение',
   'nav.go_home': 'Перейти на главную страницу',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ const ru: Record<I18nKey, string> = {
   'player.seek': 'Перемотка',
   'player.volume': 'Регулировка громкости',
   'player.toggle_mute': 'Вкл/Выкл звук',
-  'player.fullscreen': 'Полноэкранный режим',
+  'player.fullscreen': 'Переключить полноэкранный режим',
   'player.prev_track': 'Предыдущий трек',
   'player.next_track': 'Следующий трек',
   'player.repeat_mode': 'Изменить режим повтора',
@@ -79,8 +79,8 @@ const ru: Record<I18nKey, string> = {
   'player.select_media': 'Выберите трек для воспроизведения',
   'player.play_together': 'Синхронное воспроизведение',
   'player.play_speakers': 'Использовать как динамик',
-  'player.auto_sync_label': 'Автосинхронизация (мс)',
-  'player.manual_sync_label': 'Ручная синхронизация (мс)',
+  'player.auto_sync_label': 'Автосинхронизация (ms)',
+  'player.manual_sync_label': 'Ручная синхронизация (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Показать/скрыть плейлист',
@@ -127,7 +127,7 @@ const ru: Record<I18nKey, string> = {
   'settings.language_dialog_title': 'Выберите язык',
   'settings.language_select_aria': 'Открыть меню выбора языка',
   'settings.language_system_aria': 'Использовать системный язык',
-  'settings.advanced_audio': 'Улучшенный звук',
+  'settings.advanced_audio': 'Расширенные настройки звука',
   'settings.spatial_audio': 'Пространственный звук',
   'settings.reverb_title': 'Реверберация',
   'settings.host_ctrl': 'GLOBAL',
@@ -153,12 +153,12 @@ const ru: Record<I18nKey, string> = {
   'settings.surround_title': 'Виртуальный объемный звук',
   'settings.bass_title': 'Виртуальный бас',
   'settings.exciter_title': 'Виртуальные высокие частоты',
-  'settings.subwoofer_adjust': 'Кроссовер сабвуфера',
-  'settings.subwoofer_cutoff': 'Частота кроссовера',
+  'settings.subwoofer_adjust': 'Срез сабвуфера',
+  'settings.subwoofer_cutoff': 'Частота среза',
   'settings.default_0pct': 'По умолчанию: 0%',
   'settings.default_01s': 'По умолчанию: 0,1 с',
-  'settings.default_20khz': 'По умолчанию: 20,0 кГц',
-  'settings.default_20hz': 'По умолчанию: 20 Гц',
+  'settings.default_20khz': 'По умолчанию: 20,0 kHz',
+  'settings.default_20hz': 'По умолчанию: 20 Hz',
   'settings.default_5s': 'По умолчанию: 5,0 с',
   'settings.invite_code': 'Код приглашения',
   'settings.leave_session': 'Выйти из комнаты',
@@ -175,7 +175,7 @@ const ru: Record<I18nKey, string> = {
   'settings.invite_share': 'Приглашения и общий доступ',
   'settings.subtab.general': 'Общие',
   'settings.subtab.audio': 'Аудио',
-  'settings.subtab.connect': 'Связь',
+  'settings.subtab.connect': 'Подключение',
   'settings.subtab.help': 'Помощь',
 
   // ─── Connect ───────────────────────────────────────────────────
@@ -267,14 +267,13 @@ const ru: Record<I18nKey, string> = {
   'help.install_app': 'Установить веб-приложение',
   'help.local_recommended': 'Рекомендуется локальная сеть',
   'help.connect_all_wifi':
-    'Соединение наиболее стабильно, когда все устройства находятся в одной сети Wi-Fi',
+    'Соединение наиболее стабильно, когда все устройства находятся в одной локальной сети',
   'help.local_file': 'Выбрать локальный файл',
   'help.load_local': 'Загрузить локальный файл',
   'help.youtube_compat': 'YouTube (Режим совместимости)',
-  'help.youtube_no_effects':
-    'В режиме совместного просмотра YouTube расширенные звуковые эффекты и управление ролями недоступны.',
+  'help.youtube_no_effects': 'В режиме YouTube настройки ролей и звуковые эффекты недоступны.',
   'help.media_synced_detail':
-    'Выбранные треки воспроизводятся в идеальной синхронизации на всех подключенных устройствах.',
+    'Выбранные медиафайлы одновременно воспроизводятся на всех подключенных устройствах.',
   'help.wifi_hotspot':
     'Вы также можете использовать мобильную точку доступа (Hotspot) для подключения всех устройств к одной сети',
 
@@ -292,8 +291,8 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'Чат заморожен',
   'chat.cmd_unfrozen': 'Заморозка чата отменена',
   'chat.cmd_frozen_blocked': 'Чат в данный момент заморожен',
-  'chat.cmd_muted': 'Заглушение для {{name}} включено',
-  'chat.cmd_unmuted': 'Заглушение для {{name}} снято',
+  'chat.cmd_muted': 'Пользователю {{name}} запрещено писать в чат',
+  'chat.cmd_unmuted': 'Пользователь {{name}} снова может писать в чат',
   'chat.cmd_clear': 'История чата была очищена',
   'chat.cmd_filter_on': 'Фильтр ненормативной лексики включен',
   'chat.cmd_filter_off': 'Фильтр ненормативной лексики отключен',
@@ -302,7 +301,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Медленный режим отключен',
   'chat.cmd_slowmode_wait': 'Подождите {{sec}} сек. перед отправкой следующего сообщения',
   'chat.cmd_notice_prefix': 'Объявление',
-  'chat.system_sender': 'Система',
+  'chat.system_sender': 'СИСТЕМА',
   'chat.decode_skip_system_message':
     'Некоторые устройства не смогли декодировать трек. Переход к следующему треку...',
   'chat.system_audio_started_system_message':
@@ -316,7 +315,7 @@ const ru: Record<I18nKey, string> = {
   'chat.pinned_close': 'Закрыть объявление',
   'chat.cmd_whisper_from': 'Личное сообщение от {{name}}',
   'chat.cmd_whisper_to': 'Личное сообщение для {{name}}',
-  'chat.cmd_target_not_found': 'Получатель не найден: {{target}}',
+  'chat.cmd_target_not_found': 'Устройство не найдено: {{target}}',
   'chat.cmd_no_permission': 'У вас нет прав для использования этой команды',
   'chat.cmd_nick_changed': 'Никнейм изменен на {{name}}',
   'chat.cmd_nick_too_long': 'Никнейм может содержать не более 20 символов',
@@ -354,7 +353,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_d_w': 'Отправляет личное сообщение на указанное устройство',
   'chat.cmd_d_notice': 'Отправляет общее объявление для всех',
   'chat.cmd_d_nick': 'Изменяет никнейм вашего устройства',
-  'chat.cmd_d_kick': 'Отключает указанное устройство из комнаты',
+  'chat.cmd_d_kick': 'Исключает указанное устройство из комнаты',
   'chat.cmd_d_op': 'Назначает администратором указанное устройство',
   'chat.cmd_d_deop': 'Снимает полномочия администратора с указанного устройства',
   'chat.cmd_d_mute': 'Блокирует возможность отправки сообщений на указанном устройстве',
@@ -385,7 +384,7 @@ const ru: Record<I18nKey, string> = {
   'youtube.fetch_failed': 'Не удалось загрузить информацию о видео',
   'youtube.enter_link_toast': 'Вставьте ссылку на YouTube',
   'youtube.open_link': 'Открыть ссылку на YouTube',
-  'youtube.tap_to_play': 'Нажмите, чтобы воспроизвести',
+  'youtube.tap_to_play': 'НАЖМИТЕ, ЧТОБЫ ВОСПРОИЗВЕСТИ',
   'youtube.added_to_playlist': 'Добавлено в плейлист',
   'youtube.loading_large_playlist': 'Загрузка большого плейлиста...',
   'youtube.indexing_playlist': 'Анализ плейлиста...',
@@ -596,13 +595,13 @@ const ru: Record<I18nKey, string> = {
   'help.install_app_html':
     'Нравится MUSIXQUARE? Вы можете установить его как приложение.<ul class="help-list"><li><strong>iOS:</strong> Поделиться → Добавить на экран «Домой»</li><li><strong>Android:</strong> Меню → Установить приложение</li><li><strong>Windows:</strong> Значок установки в адресной строке</li><li><strong>macOS:</strong> Поделиться → Добавить в Dock</li></ul>',
   'help.local_recommended_html':
-    'Совместное использование аудио наиболее стабильно в одной сети.<ul class="help-list"><li>Удаленные гости также могут использовать все функции без ограничений.</li><li>Удаленные гости работают через Cloudflare, поэтому задержка может возрастать или прием может прерываться в зависимости от сети.</li><li>VPN или закрытые корпоративные сети могут сделать соединение нестабильным.</li></ul>',
+    'Совместное использование аудио наиболее стабильно в одной сети.<ul class="help-list"><li>Удаленные гости также могут использовать те же функции.</li><li>Удаленные гости работают через Cloudflare, поэтому задержка может возрастать или прием может прерываться в зависимости от сети.</li><li>VPN или закрытые корпоративные сети могут сделать соединение нестабильным.</li></ul>',
   'setup.how_to_connect_html':
     'Введите <strong>6-значный код</strong> от хоста для подключения.<ul class="help-list"><li><strong>Хост (Организатор):</strong> «Создать комнату» → Получить код</li><li><strong>Гость (Участник):</strong> «Войти в комнату» → Ввести код</li><li>Лимит подключаемых устройств можно изменить на <strong>вкладке «Подключение»</strong>.</li></ul>',
   'player.play_speakers_html':
     'Каждый гость выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центральный динамик:</strong> стереовыход (по умолчанию)</li><li><strong>Левый динамик:</strong> выход левого канала (L)</li><li><strong>Правый динамик:</strong> выход правого канала (R)</li><li><strong>Сабвуфер:</strong> низкочастотный микс-выход</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
   'player.play_media_action_html':
-    'У хоста есть 3 варианта воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> Выберите музыку с вашего устройства. Поддерживается точная синхронизация</li><li><strong>YouTube вместе:</strong> Поддержка видео и плейлистов. Разделение каналов и эффекты недоступны</li><li><strong>Общий системный звук:</strong> Доступно, когда хост использует настольный браузер на базе Chrome</li></ul>',
+    'У хоста есть 3 варианта воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> Выберите музыку с вашего устройства. Поддерживается точная синхронизация</li><li><strong>YouTube вместе:</strong> Поддержка видео и плейлистов. Разделение каналов и эффекты недоступны</li><li><strong>Общий системный звук:</strong> Доступно, когда хост использует на компьютере браузер на базе Chromium</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Код введен, но подключиться не удается:</strong> Проверьте код и попробуйте еще раз через минуту. Корпоративные, школьные или VPN сети могут блокировать соединение.</li><li><strong>Нестабильное соединение:</strong> Рекомендуется, чтобы локальные гости находились ближе к Wi-Fi роутеру, а удаленные гости использовали стабильный интернет.</li><li><strong>Другие проблемы:</strong> Проверьте состояние сети и перезапустите приложение на всех устройствах. По остальным вопросам обратитесь к разделу <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Часто задаваемых вопросов (FAQ)</a> или свяжитесь с нами по электронной почте внизу страницы.</li></ul>',
   'chat.peer_connected': '{{name}} вошел в комнату',
@@ -635,13 +634,13 @@ const ru: Record<I18nKey, string> = {
   'system_audio.stopped':
     'Трансляция системного звука завершена.\nВоспроизведение плейлиста возобновлено.',
   'system_audio.many_devices_warning':
-    'Трансляция системного звука стабильно работает максимум с 4 гостями.\nБольшее количество может вызвать задержки или прерывания.',
+    'Для трансляции системного звука рекомендуется не более 4 гостей.\nПри большем числе устройств возможны задержки или прерывания.',
   'system_audio.host_channel_locked':
     'Невозможно изменить роли динамиков во время трансляции системного звука.',
   'system_audio.effects_guest_only':
     'Трансляция системного звука активна.\nЗвуковые эффекты применяются исключительно к устройствам гостей.',
   'system_audio.desktop_only':
-    'Доступно только в настольных браузерах на базе Chrome (Chrome, Edge и др.).',
+    'Доступно только на компьютере в браузере на базе Chromium (Chrome, Edge и др.).',
   'system_audio.receive_failed':
     'Не удалось принять системный звук.\nПопросите хоста перезапустить трансляцию.',
   'system_audio.remote_receive_limit':
@@ -650,7 +649,7 @@ const ru: Record<I18nKey, string> = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Информация о сервисе',
   'legal.content_html':
-    '<strong>Политика конфиденциальности</strong><br>Внутри одной локальной сети данные сессии передаются напрямую между устройствами; через сигнальный сервер проходят только IP-адрес и служебные параметры соединения. Удаленный общий доступ к файлам и системному звуку безопасно маршрутизирует данные через сеть Cloudflare; удаленные файлы шифруются, хранятся на наших серверах не более 24 часов и записываются без ключа дешифрования. MUSIXQUARE не просматривает, не анализирует и не хранит ваши данные за рамками того, что строго необходимо для обеспечения работы функций. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Предупреждение об авторских правах</strong><br>Контент, распространяемый через MUSIXQUARE, принадлежит его законным правообладателям. Функции совместного использования системного звука и файлов предназначены исключительно для личного и частного использования. Пользователи несут полную ответственность за любое несанкционированное распространение или публичную передачу контента, защищенного авторским правом. Совместный просмотр YouTube использует официальный плеер API YouTube; просмотры и управление правами строго подчиняются политике платформы и настройкам авторов. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Ограничение ответственности</strong><br>MUSIXQUARE предоставляется бесплатно. Некоторые функции зависят от внешних сторонних сервисов (таких как YouTube или Cloudflare), в связи с чем могут возникать временные ограничения в работе в случае изменений или сбоев в этих сервисах. Синхронизация звука в реальном времени и качество удаленного стриминга во многом зависят от стабильности сети, настроек браузера и производительности конкретного устройства. При отсутствии Wi-Fi-соединения может взиматься плата за мобильный интернет-трафик в соответствии с тарифами вашего оператора. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">О нас</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">История</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Дизайн-система</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Политика конфиденциальности</strong><br>Внутри одной локальной сети данные сессии передаются напрямую между устройствами; через сигнальный сервер проходят только IP-адрес и служебные параметры соединения. При удаленном общем доступе к файлам и системному звуку данные передаются через Cloudflare; удаленные файлы шифруются и временно хранятся до 24 часов, а ключ расшифрования в хранилище не сохраняется. MUSIXQUARE не просматривает, не анализирует и не хранит данные за рамками предоставления функций. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Предупреждение об авторских правах</strong><br>Контент, распространяемый через MUSIXQUARE, принадлежит его законным правообладателям. Функции совместного использования системного звука и файлов предназначены для личного использования. Пользователи несут ответственность за несанкционированное распространение или публичную передачу контента, защищенного авторским правом. Совместный просмотр YouTube использует официальный способ воспроизведения; учет просмотров и обработка прав осуществляются в соответствии с политикой сервиса и настройками правообладателей. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Ограничение ответственности</strong><br>MUSIXQUARE предоставляется бесплатно. Некоторые функции зависят от внешних сторонних сервисов (таких как YouTube или Cloudflare), в связи с чем могут возникать временные ограничения в работе в случае изменений или сбоев в этих сервисах. Синхронизация звука в реальном времени и качество удаленного общего доступа во многом зависят от стабильности сети, настроек браузера и производительности конкретного устройства. При отсутствии Wi-Fi-соединения может взиматься плата за мобильный интернет-трафик в соответствии с тарифами вашего оператора. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">О нас</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">История</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Дизайн-система</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default ru;

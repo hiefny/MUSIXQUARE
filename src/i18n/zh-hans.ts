@@ -29,7 +29,7 @@ const zhHans: Record<I18nKey, string> = {
   'common.message': '消息',
   'common.mix': '混合',
   'common.wait': '请稍候...',
-  'common.guest': '嘉宾',
+  'common.guest': '参与者',
   'common.help': '帮助',
   'common.increase': '增加',
   'common.decrease': '减少',
@@ -41,7 +41,7 @@ const zhHans: Record<I18nKey, string> = {
   'common.next_desc': '下一个',
   'common.volume_percent': '音量：{{val}}%',
   'common.muted': '已静音',
-  'common.original': '原始',
+  'common.original': '原声',
   'common.left': '左',
   'common.right': '右',
   'common.woofer': '低音单元',
@@ -93,7 +93,7 @@ const zhHans: Record<I18nKey, string> = {
   'settings.rvb_arena': '场馆',
   'settings.rvb_advanced': '高级',
   'settings.rvb_off': '关闭',
-  'settings.reverb_mix': '混响混合',
+  'settings.reverb_mix': '混响比例',
   'settings.reverb_decay': '混响衰减',
   'settings.reverb_predelay': '混响预延迟',
   'settings.reverb_lowcut': '混响低切',
@@ -111,7 +111,7 @@ const zhHans: Record<I18nKey, string> = {
   'settings.bass_title': '虚拟低音',
   'settings.exciter_title': '虚拟高音',
   'settings.subwoofer_adjust': '低音炮截止',
-  'settings.subwoofer_cutoff': '分频点',
+  'settings.subwoofer_cutoff': '截止频率',
   'settings.default_0pct': '默认 0%',
   'settings.default_01s': '默认 0.1秒',
   'settings.default_20khz': '默认 20.0kHz',
@@ -257,7 +257,7 @@ const zhHans: Record<I18nKey, string> = {
   'setup.enter_host_code': '输入主持人提供的 6 位代码',
   'setup.enter_host_code_alt': '请输入主持人代码。',
   'setup.connect_devices': '立即连接你的其他设备以开始。',
-  'setup.enter_code_connect': '在嘉宾设备上输入此代码',
+  'setup.enter_code_connect': '在参与者设备上输入此代码',
   'setup.last_step': '让我们开始吧！',
   'setup.joining': '正在加入...',
   'setup.six_digit_enter': '请输入 6 位连接代码',
@@ -360,11 +360,11 @@ const zhHans: Record<I18nKey, string> = {
   'system_audio.many_devices_warning':
     '系统音频建议最多约 4 位参与者。\n更多设备可能增加延迟或卡顿。',
   'system_audio.host_channel_locked': '系统音频共享期间无法更改角色。',
-  'system_audio.effects_guest_only': '系统音频已启用。\n音效仅应用于嘉宾设备。',
-  'system_audio.desktop_only': '仅可在桌面版 Chrome 内核浏览器（Chrome、Edge 等）中使用。',
+  'system_audio.effects_guest_only': '系统音频已启用。\n音效仅应用于参与者设备。',
+  'system_audio.desktop_only': '仅可在电脑上的 Chromium 内核浏览器（Chrome、Edge 等）中使用。',
   'system_audio.receive_failed': '无法接收系统音频。\n请让主持人重新开始共享。',
   'system_audio.remote_receive_limit':
-    '远程系统音频在接收 2 小时后已自动暂停。\n请重新加入房间继续收听。',
+    '远程系统音频接收已在 2 小时后自动停止。\n请重新加入房间继续收听。',
 
   // Toast
   'toast.device_connected': '{{name}} 已连接',
@@ -406,8 +406,8 @@ const zhHans: Record<I18nKey, string> = {
   'toast.playing_in_3s': '将在 3 秒后开始播放...',
   'toast.hprecision_sync': '高精度同步：正在准备音频...',
   'toast.file_ready': '文件已准备好！\n请按播放。',
-  'toast.host_sync_not_recommended': '请在嘉宾设备上调整同步',
-  'toast.host_sync_requested': '已请求精确同步。\n请在嘉宾设备上调整手动同步。',
+  'toast.host_sync_not_recommended': '请在参与者设备上调整同步',
+  'toast.host_sync_requested': '已请求精确同步。\n请在参与者设备上调整手动同步。',
   'toast.sync_not_in_system_audio': '系统音频共享模式下无法使用同步',
   'toast.sync_not_ready': '尚未准备好。\n请稍后再试',
   'toast.sync_no_media': '没有可同步的媒体。\n请先选择要播放的媒体',
@@ -421,7 +421,7 @@ const zhHans: Record<I18nKey, string> = {
   'toast.yt_rendezvous_timeout': '同步失败，请稍后再试',
   'toast.yt_host_sync_sent': '自动同步信号已发送给参与者',
   'toast.yt_manual_sync_prompt': '刚刚尝试了自动同步。\n如果仍然有延迟，请现在调整数值',
-  'toast.playlist_ended': '最后一个媒体已结束',
+  'toast.playlist_ended': '最后一项媒体已播放完毕',
   'toast.operator_required': '只有管理员可以更改全局设置',
   'toast.connection_closing': '连接已断开，设置未同步',
   'toast.host_changed_setting': '设置已更改',
@@ -515,10 +515,10 @@ const zhHans: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': '慢速模式已禁用',
   'chat.cmd_slowmode_wait': '请等待 {{sec}} 秒后再发送',
   'chat.cmd_notice_prefix': '公告',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': '系统',
   'chat.decode_skip_system_message': '跳过此曲目：部分设备不支持该格式。',
   'chat.system_audio_started_system_message':
-    '系统音频共享已启动。主持人和嘉宾设备之间有轻微延迟是正常现象。为避免回音，建议尽量降低源设备音量。',
+    '系统音频共享已启动。主持人和参与者设备之间有轻微延迟是正常现象。为避免回音，建议尽量降低源设备音量。',
   'chat.system_audio_stopped_system_message':
     '系统音频共享已结束。主持人可以恢复设备音量，继续作为音箱播放。',
   'chat.remote_upload_limited_system_message': '文件上传已达到限制。\n远程参与者请稍后再试。',
@@ -591,7 +591,7 @@ const zhHans: Record<I18nKey, string> = {
   'player.play_speakers_html':
     '每位参与者选择一个<strong>角色（输出声道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立体声（默认）输出</li><li><strong>左：</strong>L 声道输出</li><li><strong>右：</strong>R 声道输出</li><li><strong>低音炮：</strong>低频混合输出</li></ul>你可以随时在<strong>设置</strong>中更改角色。',
   'player.play_media_action_html':
-    '主持人有 3 个选项。<ul class="help-list"><li><strong>加载本地文件：</strong>从设备中选择音乐。支持精确同步</li><li><strong>一起看 YouTube：</strong>支持视频和播放列表。不支持声道分离和音频效果</li><li><strong>系统音频共享：</strong>主持人使用桌面版 Chrome 内核浏览器时可用</li></ul>',
+    '主持人有 3 个选项。<ul class="help-list"><li><strong>加载本地文件：</strong>从设备中选择音乐。支持精确同步</li><li><strong>一起看 YouTube：</strong>支持视频和播放列表。不支持声道分离和音频效果</li><li><strong>系统音频共享：</strong>主持人使用电脑上的 Chromium 内核浏览器（Chrome、Edge 等）时可用</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>输入代码但无法连接：</strong>请检查代码，稍后重试。公司、学校或 VPN 网络可能限制连接。</li><li><strong>连接不稳定：</strong>本地参与者请靠近路由器，远程参与者请使用稳定的网络连接。</li><li><strong>其他问题：</strong>请检查网络状态，并在所有设备上重启应用。如有疑问，请查看 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>，或通过页面底部的邮箱联系我们。</li></ul>',
   'setup.brand_tagline_html': '随时随地一起聆听<br>完美的声音体验',
@@ -606,7 +606,7 @@ const zhHans: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': '只能播放公开视频或播放列表。',
   'legal.title': '服务说明',
   'legal.content_html':
-    '<strong>隐私政策</strong><br>在同一网络上，会话数据会直接在设备之间传输；只有 IP 和连接信息会经过信令服务。远程文件和系统音频共享会通过 Cloudflare 传输数据；远程文件会被加密，最多保留 24 小时，并且不会保存解密密钥。除提供功能外，MUSIXQUARE 不会查看、分析或保存数据。 <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>版权提示</strong><br>通过 MUSIXQUARE 共享的内容归相应权利人所有。系统音频共享和文件共享旨在供个人使用。用户需对受版权保护内容的未经授权分发或公开传播负责。YouTube 共享使用官方播放结构，播放量和权利处理遵循该服务的政策和权利人设置。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免责声明</strong><br>MUSIXQUARE 免费提供。部分功能依赖 YouTube 或 Cloudflare 等外部服务，因此这些服务变更或中断时可能出现临时限制。实时音频同步和远程共享质量会因网络、浏览器政策和设备性能而有很大差异。非 Wi-Fi 环境下使用可能产生移动数据费用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>隐私政策</strong><br>在同一网络上，会话数据会直接在设备之间传输；只有 IP 和连接信息会经过信令服务。远程文件和系统音频共享会通过 Cloudflare 传输数据；远程文件会被加密，最多保留 24 小时，并且不会保存解密密钥。除提供功能外，MUSIXQUARE 不会查看、分析或保存数据。 <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>版权提示</strong><br>通过 MUSIXQUARE 共享的内容归相应权利人所有。系统音频共享和文件共享旨在供个人使用。用户需对受版权保护内容的未经授权分发或公开传播负责。YouTube 共享使用官方播放方式，播放量和权利处理遵循该服务的政策和权利人设置。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免责声明</strong><br>MUSIXQUARE 免费提供。部分功能依赖 YouTube 或 Cloudflare 等外部服务，因此这些服务变更或中断时可能出现临时限制。实时音频同步和远程共享质量会因网络、浏览器政策和设备性能而有很大差异。非 Wi-Fi 环境下使用可能产生移动数据费用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default zhHans;

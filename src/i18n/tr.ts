@@ -67,7 +67,7 @@ const tr: Record<I18nKey, string> = {
   'player.seek': 'Oynatma Konumunu Ayarla',
   'player.volume': 'Ses Ayarı',
   'player.toggle_mute': 'Sesi Aç/Kapat',
-  'player.fullscreen': 'Tam Ekran',
+  'player.fullscreen': 'Tam ekranı aç/kapat',
   'player.prev_track': 'Önceki Şarkı',
   'player.next_track': 'Sonraki Şarkı',
   'player.repeat_mode': 'Tekrar Modunu Değiştir',
@@ -153,8 +153,8 @@ const tr: Record<I18nKey, string> = {
   'settings.surround_title': 'Sanal Surround',
   'settings.bass_title': 'Sanal Bas',
   'settings.exciter_title': 'Sanal Tiz',
-  'settings.subwoofer_adjust': 'Subwoofer Crossover',
-  'settings.subwoofer_cutoff': 'Crossover Frekansı',
+  'settings.subwoofer_adjust': 'Subwoofer Kesimi',
+  'settings.subwoofer_cutoff': 'Kesim Frekansı',
   'settings.default_0pct': 'Varsayılan: %0',
   'settings.default_01s': 'Varsayılan: 0,1 s',
   'settings.default_20khz': 'Varsayılan: 20,0 kHz',
@@ -226,7 +226,7 @@ const tr: Record<I18nKey, string> = {
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Merkez',
   'demo.step_nav_label': 'Tur Aşamaları',
-  'demo.step_connect': '1. Bağlantı',
+  'demo.step_connect': '1. Cihazları Bağlayın',
   'demo.step_role': '2. Rolü Belirleyin',
   'demo.step_effects': '3. Ses Efektleri',
   'demo.step_finish': '4. Turu Sonlandır',
@@ -234,7 +234,8 @@ const tr: Record<I18nKey, string> = {
   'demo.session_subtitle': 'İstediğiniz zaman yeni bir cihaz davet edebilirsiniz',
   'demo.session_body_connected':
     'Şu anda {{count}} cihaz bağlı.\nHer bir cihaz için bir ses kanalı rolü belirleyin.',
-  'demo.session_body_alone': 'Şu anda tek başınıza çalıyorsunuz.\nŞimdi yeni cihazlar davet edin.',
+  'demo.session_body_alone':
+    'Şu anda yalnızca bu cihazdan ses çalıyor.\nŞimdi yeni bir cihaz davet edin.',
   'demo.effects_step_title': 'Kendi premium ses deneyiminizi yaratın.',
   'demo.effects_step_subtitle':
     'Daha detaylı ayarları dilediğiniz zaman Ayarlar sekmesinden yapabilirsiniz.',
@@ -266,14 +267,12 @@ const tr: Record<I18nKey, string> = {
   'help.need_help': 'Yardım mı lazım?',
   'help.install_app': 'Web Uygulamasını Yükle',
   'help.local_recommended': 'Yerel Ağ Önerilir',
-  'help.connect_all_wifi': 'Tüm cihazlar aynı Wi-Fi ağına bağlıyken bağlantı en kararlıdır',
+  'help.connect_all_wifi': 'Tüm cihazlar aynı yerel ağdayken bağlantı en kararlıdır',
   'help.local_file': 'Yerel Dosya Seç',
   'help.load_local': 'Yerel Dosyayı Yükle',
   'help.youtube_compat': 'YouTube (Uyumlu Mod)',
-  'help.youtube_no_effects':
-    'YouTube birlikte izleme modunda, gelişmiş ses efektleri ve rol ayarları kullanılamaz.',
-  'help.media_synced_detail':
-    'Seçilen müzik, bağlı olan tüm cihazlarda tam olarak senkronize şekilde oynatılır.',
+  'help.youtube_no_effects': 'YouTube modunda rol ayarları ve ses efektleri kullanılamaz.',
+  'help.media_synced_detail': 'Seçilen medya tüm bağlı cihazlarda aynı anda oynatılır.',
   'help.wifi_hotspot':
     'Cihazları aynı ağa bağlamak için mobil erişim noktasını (Hotspot) da kullanabilirsiniz',
 
@@ -291,8 +290,8 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'Sohbet donduruldu',
   'chat.cmd_unfrozen': 'Sohbetin dondurulması kaldırıldı',
   'chat.cmd_frozen_blocked': 'Sohbet şu anda dondurulmuş durumda',
-  'chat.cmd_muted': '{{name}} susturuldu',
-  'chat.cmd_unmuted': '{{name}} üzerindeki susturma kaldırıldı',
+  'chat.cmd_muted': '{{name}} için sohbet engellendi',
+  'chat.cmd_unmuted': '{{name}} için sohbet engeli kaldırıldı',
   'chat.cmd_clear': 'Sohbet temizlendi',
   'chat.cmd_filter_on': 'Uygunsuz kelime filtresi aktif',
   'chat.cmd_filter_off': 'Uygunsuz kelime filtresi devre dışı',
@@ -300,7 +299,7 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Yavaş mod devre dışı bırakıldı',
   'chat.cmd_slowmode_wait': 'Yeni bir mesaj göndermek için lütfen {{sec}} saniye bekleyin',
   'chat.cmd_notice_prefix': 'Duyuru',
-  'chat.system_sender': 'Sistem',
+  'chat.system_sender': 'SİSTEM',
   'chat.decode_skip_system_message':
     'Bazı cihazlar şarkının kodunu çözemediğinden sonraki şarkıya geçiliyor',
   'chat.system_audio_started_system_message':
@@ -314,7 +313,7 @@ const tr: Record<I18nKey, string> = {
   'chat.pinned_close': 'Bildirimi Kapat',
   'chat.cmd_whisper_from': '{{name}} kullanıcısından özel mesaj',
   'chat.cmd_whisper_to': '{{name}} kullanıcısına özel mesaj',
-  'chat.cmd_target_not_found': 'Alıcı bulunamadı: {{target}}',
+  'chat.cmd_target_not_found': 'Cihaz bulunamadı: {{target}}',
   'chat.cmd_no_permission': 'Bu komutu kullanmak için gerekli izinlere sahip değilsiniz',
   'chat.cmd_nick_changed': 'Takma adınız {{name}} olarak değiştirildi',
   'chat.cmd_nick_too_long': 'Takma ad en fazla 20 karakter olabilir',
@@ -347,7 +346,7 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Bağlı kullanıcıların listesini gösterir',
   'chat.cmd_d_clear': 'Sohbet geçmişini temizler',
   'chat.cmd_d_filter': 'Uygunsuz kelime filtresini açar/kapatır',
-  'chat.cmd_d_freeze': 'Sohbet odasını dondurur/açar',
+  'chat.cmd_d_freeze': 'Sohbeti dondurur/çözer',
   'chat.cmd_d_slowmode': 'Mesaj gönderme gecikmesini (yavaş mod) ayarlar',
   'chat.cmd_d_w': 'Belirli bir cihaza özel mesaj gönderir',
   'chat.cmd_d_notice': 'Sohbet odasında genel bir duyuru paylaşır',
@@ -383,7 +382,7 @@ const tr: Record<I18nKey, string> = {
   'youtube.fetch_failed': 'Video bilgisi alınamadı',
   'youtube.enter_link_toast': 'Lütfen bir YouTube linki girin',
   'youtube.open_link': 'YouTube Linkini Aç',
-  'youtube.tap_to_play': 'Oynatmak için Dokunun',
+  'youtube.tap_to_play': 'OYNATMAK İÇİN DOKUNUN',
   'youtube.added_to_playlist': 'Çalma listesine eklendi',
   'youtube.loading_large_playlist': 'Büyük çalma listesi yükleniyor...',
   'youtube.indexing_playlist': 'Çalma listesi analiz ediliyor...',
@@ -398,7 +397,7 @@ const tr: Record<I18nKey, string> = {
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Bağlantı koptu',
-  'network.cant_join': 'Oda bulunamadı.\nLütfen internet bağlantınızı kontrol edin.',
+  'network.cant_join': 'Oda bulunamadı.\nLütfen ağ bağlantınızı kontrol edin.',
   'network.session_full': 'Oda Dolu',
   'network.session_full_detail':
     'Bu oda cihaz sınırına ulaştı.\nOda sahibinden sınırı "Bağlantı" sekmesinden artırmasını isteyin.',
@@ -444,7 +443,7 @@ const tr: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Eklenebilecek ses dosyası yok.',
   'dialog.large_room_file.title': 'Geniş Odada Dosya Paylaşımı',
   'dialog.large_room_file.message':
-    'Yerel dosya paylaşımı, yerel ağda en fazla 8 kişiyle stabildir.\n\nDevam etmek istiyor musunuz?',
+    'Yerel dosya paylaşımı, yerel ağda yaklaşık 8 kişiye kadar kararlı çalışır.\n\nDevam etmek istiyor musunuz?',
   'dialog.large_room_sysaudio.title': 'Geniş Odada Sistem Sesi Paylaşımı',
   'dialog.large_room_sysaudio.message':
     'Sistem sesi paylaşımı hem yerel hem uzaktaki misafirleri destekler ancak oda sahibinin yükü ve gecikmeleri önlemek için en fazla 4 misafir önerilir.\n\nDevam etmek istiyor musunuz?',
@@ -456,7 +455,7 @@ const tr: Record<I18nKey, string> = {
   'toast.sync_reset': 'Senkronizasyon ofseti sıfırlandı',
   'toast.stop_sent': 'Durdurma isteği gönderildi',
   'toast.auto_play_canceled': 'Otomatik oynatma iptal edildi',
-  'toast.playing_in_3s': 'Oynatma 3 saniye içinde başlayacak...',
+  'toast.playing_in_3s': 'Oynatma 3 saniye sonra başlayacak...',
   'toast.hprecision_sync': 'Yüksek hassasiyetli senkronizasyon: ses hazırlanıyor...',
   'toast.file_ready': 'Dosyanız hazır!\nOynat butonuna basın.',
   'toast.host_sync_not_recommended':
@@ -508,7 +507,7 @@ const tr: Record<I18nKey, string> = {
   'share.remote.rate_limited':
     'Çok fazla uzaktan paylaşım isteği var.\nLütfen birazdan tekrar deneyin',
   'share.remote.auth_failed':
-    'Uzaktan paylaşım kimlik doğrulaması başarısız oldu.\nLütfen Worker ayarlarını kontrol edin',
+    'Uzaktan paylaşım yetkilendirmesi başarısız oldu.\nLütfen Worker ayarlarını kontrol edin',
   'share.remote.expired': 'Uzak dosya linkinin süresi doldu.\nLütfen tekrar paylaşın.',
   'share.remote.unavailable':
     'Uzaktan paylaşım şu anda kullanılamıyor.\nLütfen kısa süre sonra tekrar deneyin.',
@@ -592,13 +591,13 @@ const tr: Record<I18nKey, string> = {
   'help.install_app_html':
     'MUSIXQUARE\'i beğendiniz mi? Uygulama olarak yükleyebilirsiniz.<ul class="help-list"><li><strong>iOS:</strong> Paylaş → Ana Ekrana Ekle</li><li><strong>Android:</strong> Menü → Uygulamayı Yükle</li><li><strong>Windows:</strong> Adres çubuğundaki simgeden yükle</li><li><strong>macOS:</strong> Paylaş → Dock\'a Ekle</li></ul>',
   'help.local_recommended_html':
-    'Ses paylaşımı aynı ağ üzerinde en kararlı şekilde çalışır.<ul class="help-list"><li>Uzaktaki misafirler de tüm özellikleri aynı şekilde kullanabilir.</li><li>Uzaktaki misafirler Cloudflare altyapısını kullanır, bu nedenle ağ koşullarına bağlı olarak gecikme artabilir veya bağlantı kopabilir.</li><li>VPN veya kısıtlı şirket ağları bağlantıyı istikrarsız hale getirebilir.</li></ul>',
+    'Ses paylaşımı aynı ağ üzerinde en kararlı şekilde çalışır.<ul class="help-list"><li>Uzaktaki misafirler de aynı özellikleri kullanabilir.</li><li>Uzaktaki misafirler Cloudflare altyapısını kullanır, bu nedenle ağ koşullarına bağlı olarak gecikme artabilir veya bağlantı kopabilir.</li><li>VPN veya kısıtlı şirket ağları bağlantıyı istikrarsız hale getirebilir.</li></ul>',
   'setup.how_to_connect_html':
     'Bağlanmak için oda sahibinden aldığınız <strong>6 haneli kodu</strong> girin.<ul class="help-list"><li><strong>Oda Sahibi:</strong> “Oda Oluştur” → Kodu Al</li><li><strong>Katılımcı (Misafir):</strong> “Odaya Katıl” → Kodu Gir</li><li>Bağlanabilecek cihaz sınırını <strong>"Bağlantı" sekmesinden</strong> değiştirebilirsiniz.</li></ul>',
   'player.play_speakers_html':
     'Her katılımcı bir <strong>rol (çıkış kanalı)</strong> seçer.<ul class="help-list"><li><strong>Merkez Hoparlör:</strong> Stereo çıkış (varsayılan)</li><li><strong>Sol Hoparlör:</strong> L kanalı çıkışı</li><li><strong>Sağ Hoparlör:</strong> R kanalı çıkışı</li><li><strong>Subwoofer:</strong> Düşük frekans mix çıkışı</li></ul>Rolleri dilediğiniz zaman <strong>Ayarlar</strong> bölümünden değiştirebilirsiniz.',
   'player.play_media_action_html':
-    'Oda sahibinin 3 oynatma seçeneği vardır.<ul class="help-list"><li><strong>Yerel Dosyayı Yükle:</strong> Cihazınızdan müzik seçin. Hassas senkronizasyon desteklenir</li><li><strong>YouTube Birlikte:</strong> Video ve çalma listesi desteği. Ses kanalı ayırma ve efektler kullanılamaz</li><li><strong>Sistem Sesi Paylaşımı:</strong> Oda sahibi Chrome tabanlı bir masaüstü tarayıcısı kullandığında aktiftir</li></ul>',
+    'Oda sahibinin 3 oynatma seçeneği vardır.<ul class="help-list"><li><strong>Yerel Dosyayı Yükle:</strong> Cihazınızdan müzik seçin. Hassas senkronizasyon desteklenir</li><li><strong>YouTube Birlikte:</strong> Video ve çalma listesi desteği. Ses kanalı ayırma ve efektler kullanılamaz</li><li><strong>Sistem Sesi Paylaşımı:</strong> Oda sahibi bilgisayarda Chromium tabanlı bir tarayıcı kullandığında kullanılabilir</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Kodu girdim ama bağlanamıyorum:</strong> Kodu doğrulayın ve kısa süre sonra tekrar deneyin. Şirket, okul veya VPN ağları bağlantıyı engelliyor olabilir.</li><li><strong>Kararsız bağlantı:</strong> Yerel misafirlerin Wi-Fi yönlendiricisine yakın durması, uzaktaki misafirlerin ise istikrarlı bir internet kullanması önerilir.</li><li><strong>Diğer sorunlar:</strong> Ağ durumunu kontrol edin ve tüm cihazlarda uygulamayı yeniden başlatın. Diğer sorularınız için <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sıkça Sorulan Sorular (FAQ)</a> sayfasına bakabilir veya en alttaki e-posta adresi üzerinden bizimle iletişime geçebilirsiniz.</li></ul>',
   'chat.peer_connected': '{{name}} odaya katıldı',
@@ -629,21 +628,21 @@ const tr: Record<I18nKey, string> = {
     'Sistem sesinde hafif gecikme yaşanabilir.\nMümkünse kaynak sesini azaltın.',
   'system_audio.stopped': 'Sistem sesi paylaşımı sona erdi.\nÇalma listesinden devam ediliyor.',
   'system_audio.many_devices_warning':
-    'Sistem sesi en fazla 4 misafirle stabildir.\nDaha fazla cihaz gecikmeye veya takılmaya yol açabilir.',
+    'Sistem sesi paylaşımını yaklaşık 4 misafire kadar kullanmanız önerilir.\nDaha fazla cihaz gecikmeye veya takılmaya yol açabilir.',
   'system_audio.host_channel_locked': 'Sistem sesi paylaşımı sırasında roller değiştirilemez.',
   'system_audio.effects_guest_only':
     'Sistem sesi paylaşımı aktif.\nSes efektleri yalnızca misafirlere uygulanır.',
   'system_audio.desktop_only':
-    'Yalnızca Chrome tabanlı masaüstü tarayıcılarında kullanılabilir (Chrome, Edge vb.).',
+    'Yalnızca Chromium tabanlı bir tarayıcı kullanan bilgisayarlarda kullanılabilir (Chrome, Edge vb.).',
   'system_audio.receive_failed':
     'Sistem sesi alınamadı.\nOda sahibinden paylaşıma yeniden başlamasını isteyin.',
   'system_audio.remote_receive_limit':
-    'Uzaktan sistem sesi alımı 2 saat sonra otomatik olarak duraklatıldı.\nDinlemeye devam etmek için odaya yeniden girin.',
+    'Uzaktan sistem sesi alımı 2 saat sonra otomatik olarak sonlandırıldı.\nDinlemeye devam etmek için odaya yeniden girin.',
 
   // ─── Legal ────────────────────────────────────────────────────────
-  'legal.title': 'Hizmet Şartları ve Kullanıcı Notları',
+  'legal.title': 'Hizmet notları',
   'legal.content_html':
-    '<strong>Gizlilik Politikası</strong><br>Aynı yerel ağ üzerinde oturum verileri doğrudan cihazlar arasında aktarılır; sinyalleşme sunucusundan yalnızca IP adresi ve bağlantı detayları geçer. Uzaktan dosya ve sistem sesi paylaşımında veriler Cloudflare üzerinden güvenli bir şekilde yönlendirilir. Uzaktan paylaşılan dosyalar şifrelenir, en fazla 24 saat saklanır ve şifre çözme anahtarı sunucularımızda tutulmadan barındırılır. MUSIXQUARE, özellikleri sağlamanın ötesinde kişisel verileri görüntülemez, analiz etmez veya saklamaz. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Telif Hakkı Uyarısı</strong><br>MUSIXQUARE üzerinden paylaşılan içeriklerin telif hakları ilgili hak sahiplerine aittir. Sistem sesi ve dosya paylaşım özellikleri yalnızca kişisel ve özel kullanım içindir. Telif hakkıyla korunan içeriklerin yetkisiz dağıtımından ve kamuya açık iletiminden tamamen kullanıcı sorumludur. YouTube birlikte izleme özelliği YouTube\'un resmi API oynatıcısını kullanır; izlenme sayıları ve telif işlemleri doğrudan YouTube\'un politikalarına ve hak sahiplerinin tercihlerine göre yürütülür. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Sorumluluk Reddi</strong><br>MUSIXQUARE ücretsiz bir hizmettir. Bazı özellikler YouTube veya Cloudflare gibi harici üçüncü taraf servislerine dayandığından, bu servislerdeki değişiklikler veya kesintiler geçici işlevsel sınırlamalara yol açabilir. Gerçek zamanlı ses senkronizasyonu ve uzaktan paylaşım kalitesi; ağ koşullarına, tarayıcı politikalarına ve cihaz performansına bağlı olarak büyük ölçüde değişiklik gösterebilir. Wi-Fi ağına bağlı olunmadığında mobil veri kullanım ücretleri geçerli olabilir. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hakkında</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tarihçe</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tasarım Sistemi</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Gizlilik Politikası</strong><br>Aynı yerel ağ üzerinde oturum verileri doğrudan cihazlar arasında aktarılır; sinyalleşme sunucusundan yalnızca IP adresi ve bağlantı detayları geçer. Uzaktan dosya ve sistem sesi paylaşımında veriler Cloudflare üzerinden yönlendirilir. Uzaktan paylaşılan dosyalar şifrelenir ve en fazla 24 saat geçici olarak saklanır; şifre çözme anahtarı depoda tutulmaz. MUSIXQUARE, özellikleri sağlamanın ötesinde verileri görüntülemez, analiz etmez veya saklamaz. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Telif Hakkı Uyarısı</strong><br>MUSIXQUARE üzerinden paylaşılan içeriklerin telif hakları ilgili hak sahiplerine aittir. Sistem sesi ve dosya paylaşımı özellikleri kişisel kullanım içindir. Telif hakkıyla korunan içeriklerin yetkisiz dağıtımından ve kamuya açık iletiminden kullanıcı sorumludur. YouTube birlikte izleme özelliği resmî oynatma yöntemini kullanır; izlenmeler ve hak işlemleri hizmetin politikalarına ve hak sahiplerinin ayarlarına göre yürütülür. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Sorumluluk Reddi</strong><br>MUSIXQUARE ücretsiz bir hizmettir. Bazı özellikler YouTube veya Cloudflare gibi harici üçüncü taraf servislerine dayandığından, bu servislerdeki değişiklikler veya kesintiler geçici işlevsel sınırlamalara yol açabilir. Gerçek zamanlı ses senkronizasyonu ve uzaktan paylaşım kalitesi; ağ koşullarına, tarayıcı politikalarına ve cihaz performansına bağlı olarak büyük ölçüde değişiklik gösterebilir. Wi-Fi ağına bağlı olunmadığında mobil veri kullanım ücretleri geçerli olabilir. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hakkında</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tarihçe</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tasarım Sistemi</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default tr;

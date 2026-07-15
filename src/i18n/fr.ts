@@ -101,7 +101,7 @@ const fr: Record<I18nKey, string> = {
   'settings.decay_time': 'Temps de décroissance',
   'settings.predelay': 'Pré-délai',
   'settings.eq_title': 'Égaliseur',
-  'settings.eq_bright': 'Clair',
+  'settings.eq_bright': 'Brillant',
   'settings.eq_warm': 'Chaud',
   'settings.eq_advanced': 'Avancé',
   'settings.eq_off': 'Désactivé',
@@ -111,7 +111,7 @@ const fr: Record<I18nKey, string> = {
   'settings.bass_title': 'Basses virtuelles',
   'settings.exciter_title': 'Aigus virtuels',
   'settings.subwoofer_adjust': 'Coupure du subwoofer',
-  'settings.subwoofer_cutoff': 'Fréquence de croisement',
+  'settings.subwoofer_cutoff': 'Fréquence de coupure',
   'settings.default_0pct': 'Défaut 0%',
   'settings.default_01s': 'Défaut 0,1 s',
   'settings.default_20khz': 'Défaut 20,0 kHz',
@@ -311,7 +311,7 @@ const fr: Record<I18nKey, string> = {
   'youtube.searching': 'Recherche sur YouTube...',
   'youtube.search_no_results': 'Aucune vidéo trouvée',
   'youtube.search_failed': 'La recherche YouTube est indisponible',
-  'youtube.search_selected': 'Vidéo sélectionnée prête à ajouter',
+  'youtube.search_selected': 'La vidéo sélectionnée est prête à être ajoutée',
   'youtube.search_results': 'Résultats de recherche YouTube',
   'youtube.live_sync_warning': 'Les directs sont difficiles à synchroniser précisément.',
 
@@ -375,9 +375,9 @@ const fr: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Impossible de changer de rôle pendant le partage audio système.',
   'system_audio.effects_guest_only':
-    'Audio système actif.\nLes effets s’appliquent uniquement aux invités.',
+    'Audio système actif.\nLes effets s’appliquent uniquement aux appareils des invités.',
   'system_audio.desktop_only':
-    'Disponible uniquement dans les navigateurs de bureau basés sur Chrome (Chrome, Edge, etc.).',
+    'Disponible uniquement sur ordinateur avec un navigateur basé sur Chromium (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
     'Impossible de recevoir l’audio système.\nDemandez à l’hôte de relancer le partage.',
   'system_audio.remote_receive_limit':
@@ -443,7 +443,7 @@ const fr: Record<I18nKey, string> = {
   'toast.yt_host_sync_sent': 'Signal de synchronisation automatique envoyé aux participants',
   'toast.yt_manual_sync_prompt':
     'La synchronisation automatique vient d’être tentée.\nSi le décalage persiste, ajustez la valeur maintenant',
-  'toast.playlist_ended': 'Le dernier média est terminé',
+  'toast.playlist_ended': 'La lecture du dernier média est terminée',
   'toast.operator_required': 'Seuls les administrateurs peuvent modifier les réglages globaux',
   'toast.connection_closing': 'Connexion perdue, réglage non synchronisé',
   'toast.host_changed_setting': 'Les réglages ont changé',
@@ -532,12 +532,12 @@ const fr: Record<I18nKey, string> = {
   'chat.input_label': 'Message',
   'chat.send': 'Envoyer le message',
   'chat.start': 'Écrivez quelque chose pour commencer !',
-  'chat.muted_placeholder': 'Vous êtes muet',
+  'chat.muted_placeholder': 'Vous ne pouvez pas envoyer de messages dans ce chat',
   'chat.cmd_frozen': 'Le chat a été gelé',
   'chat.cmd_unfrozen': 'Le chat a été dégelé',
   'chat.cmd_frozen_blocked': 'Le chat est actuellement gelé',
-  'chat.cmd_muted': '{{name}} a été rendu muet',
-  'chat.cmd_unmuted': '{{name}} n’est plus muet',
+  'chat.cmd_muted': '{{name}} ne peut plus envoyer de messages',
+  'chat.cmd_unmuted': '{{name}} peut de nouveau envoyer des messages',
   'chat.cmd_clear': 'Le chat a été effacé',
   'chat.cmd_filter_on': 'Filtre de grossièretés activé',
   'chat.cmd_filter_off': 'Filtre de grossièretés désactivé',
@@ -598,14 +598,14 @@ const fr: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'Expulser l’appareil',
   'chat.cmd_d_op': 'Accorder administrateur',
   'chat.cmd_d_deop': 'Révoquer administrateur',
-  'chat.cmd_d_mute': 'Rendre l’appareil muet',
-  'chat.cmd_d_unmute': 'Rendre la parole à l’appareil',
+  'chat.cmd_d_mute': 'Restreindre le chat de l’appareil',
+  'chat.cmd_d_unmute': 'Rétablir le chat de l’appareil',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Informations de débogage système',
   'chat.debug_copied':
     'Informations de débogage copiées.\nEnvoyez-les au développeur si vous avez trouvé un bug.',
   'chat.seek_to': 'Aller à {{time}}',
-  'chat.peer_connected': '{{name}} a rejoint',
+  'chat.peer_connected': '{{name}} a rejoint la salle',
   'chat.peer_disconnected': '{{name}} est parti',
   'chat.empty_html': 'Aucun message pour l’instant.<br>Envoyez le premier !',
   'chat.msg_truncated': 'Message tronqué à {{max}} caractères',
@@ -613,7 +613,7 @@ const fr: Record<I18nKey, string> = {
   'connect.slot_guide.aria': 'Ouvrir le guide du nombre de participants recommandé',
   'connect.slot_guide.title': 'Nombre de participants',
   'connect.slot_guide.body':
-    'Plus il y a de participants connectés, moins le système est stable.\n\n• YouTube ensemble : jusqu’à 32\n• Partage de fichier local : jusqu’à 8\n• Partage audio système : jusqu’à 4 recommandé',
+    'Plus il y a de participants connectés, moins le système est stable.\n\n• YouTube ensemble : jusqu’à 32\n• Partage de fichier local : jusqu’à 8\n• Partage audio système : jusqu’à 4 participants recommandés',
   'help.install_app_html':
     'Vous aimez MUSIXQUARE ? Vous pouvez l’installer comme une app.<ul class="help-list"><li><strong>iOS :</strong> Partager → Ajouter à l’écran d’accueil</li><li><strong>Android :</strong> Menu → Installer l’application</li><li><strong>Windows :</strong> Icône d’installation dans la barre d’adresse</li><li><strong>macOS :</strong> Partager → Ajouter au Dock</li></ul>',
   'help.local_recommended_html':
@@ -623,7 +623,7 @@ const fr: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Chaque participant sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie canal G</li><li><strong>Droite :</strong> sortie canal D</li><li><strong>Subwoofer :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Réglages</strong>.',
   'player.play_media_action_html':
-    'L’hôte a 3 options.<ul class="help-list"><li><strong>Charger un fichier local :</strong> Choisissez de la musique sur votre appareil. Synchronisation précise prise en charge</li><li><strong>YouTube ensemble :</strong> Vidéos et playlists prises en charge. Pas de séparation de canaux ni d’effets audio</li><li><strong>Partage audio système :</strong> Disponible lorsque l’hôte utilise un navigateur de bureau basé sur Chrome</li></ul>',
+    'L’hôte dispose de 3 options.<ul class="help-list"><li><strong>Charger un fichier local :</strong> choisissez de la musique sur votre appareil. Synchronisation précise prise en charge</li><li><strong>YouTube ensemble :</strong> vidéos et playlists prises en charge. Pas de séparation des canaux ni d’effets audio</li><li><strong>Partage audio système :</strong> disponible lorsque l’hôte utilise un ordinateur avec un navigateur basé sur Chromium (Chrome, Edge, etc.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Code saisi mais connexion impossible :</strong> Vérifiez le code puis réessayez dans un instant. Les réseaux d’entreprise, d’école ou les VPN peuvent limiter la connexion.</li><li><strong>Connexion instable :</strong> Les participants locaux devraient rester plus près du routeur, et les participants distants utiliser une connexion Internet stable.</li><li><strong>Autres problèmes :</strong> Vérifiez l’état du réseau et redémarrez l’application sur tous les appareils. Pour toute question, consultez la <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> ou contactez-nous via l’e-mail tout en bas.</li></ul>',
   'setup.brand_tagline_html': 'Écouter ensemble, partout<br>L’expérience sonore parfaite',
@@ -638,7 +638,7 @@ const fr: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Seules les vidéos ou playlists publiques peuvent être lues.',
   'legal.title': 'Mentions légales',
   'legal.content_html':
-    '<strong>Politique de confidentialité</strong><br>Sur le même réseau, les données de session passent directement entre les appareils ; seuls l’IP et les détails de connexion passent par la signalisation. Le partage de fichiers distants et d’audio système route les données via Cloudflare ; les fichiers distants sont chiffrés, conservés jusqu’à 24 heures et stockés sans clé de déchiffrement. MUSIXQUARE ne consulte, n’analyse ni ne stocke les données au-delà de ce qui est nécessaire à ses fonctions. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Avis de droit d’auteur</strong><br>Le contenu partagé via MUSIXQUARE appartient à ses ayants droit respectifs. Le partage audio système et le partage de fichiers sont destinés à un usage personnel. Les utilisateurs sont responsables de toute distribution non autorisée ou transmission publique de contenu protégé. Le partage YouTube utilise sa structure officielle de lecture, et les vues et droits suivent les politiques de ce service et les paramètres des ayants droit. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Clause de non-responsabilité</strong><br>MUSIXQUARE est fourni gratuitement. Certaines fonctions dépendent de services externes comme YouTube ou Cloudflare ; des limitations temporaires peuvent donc survenir si ces services changent ou deviennent indisponibles. La synchronisation audio en temps réel et la qualité du partage distant peuvent varier fortement selon le réseau, les règles du navigateur et les performances de l’appareil. Des frais de données mobiles peuvent s’appliquer hors Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">À propos</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Historique</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Système de design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Politique de confidentialité</strong><br>Sur le même réseau, les données de session passent directement entre les appareils ; seuls l’adresse IP et les détails de connexion passent par la signalisation. Le partage de fichiers distants et d’audio système route les données via Cloudflare ; les fichiers distants sont chiffrés, conservés jusqu’à 24 heures et stockés sans clé de déchiffrement. MUSIXQUARE ne consulte, n’analyse ni ne stocke les données au-delà de ce qui est nécessaire à ses fonctions. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Avis de droit d’auteur</strong><br>Le contenu partagé via MUSIXQUARE appartient à ses ayants droit respectifs. Le partage audio système et le partage de fichiers sont destinés à un usage personnel. Les utilisateurs sont responsables de toute distribution non autorisée ou transmission publique de contenu protégé. Le partage YouTube utilise la méthode de lecture officielle, et les vues et la gestion des droits suivent les politiques de ce service et les paramètres des ayants droit. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Clause de non-responsabilité</strong><br>MUSIXQUARE est fourni gratuitement. Certaines fonctions dépendent de services externes comme YouTube ou Cloudflare ; des limitations temporaires peuvent donc survenir si ces services changent ou deviennent indisponibles. La synchronisation audio en temps réel et la qualité du partage distant peuvent varier fortement selon le réseau, les règles du navigateur et les performances de l’appareil. Des frais de données mobiles peuvent s’appliquer hors Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">À propos</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Histoire</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Système de design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default fr;

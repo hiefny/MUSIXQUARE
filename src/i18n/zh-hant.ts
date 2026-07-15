@@ -41,7 +41,7 @@ const zhHant: Record<I18nKey, string> = {
   'common.next_desc': '下一個',
   'common.volume_percent': '音量：{{val}}%',
   'common.muted': '已靜音',
-  'common.original': '原始',
+  'common.original': '原音',
   'common.left': '左',
   'common.right': '右',
   'common.woofer': '低音單體',
@@ -93,7 +93,7 @@ const zhHant: Record<I18nKey, string> = {
   'settings.rvb_arena': '場館',
   'settings.rvb_advanced': '進階',
   'settings.rvb_off': '關閉',
-  'settings.reverb_mix': '殘響混合',
+  'settings.reverb_mix': '殘響比例',
   'settings.reverb_decay': '殘響衰減',
   'settings.reverb_predelay': '殘響預延遲',
   'settings.reverb_lowcut': '殘響低切',
@@ -111,7 +111,7 @@ const zhHant: Record<I18nKey, string> = {
   'settings.bass_title': '虛擬低音',
   'settings.exciter_title': '虛擬高音',
   'settings.subwoofer_adjust': '重低音截止',
-  'settings.subwoofer_cutoff': '分頻點',
+  'settings.subwoofer_cutoff': '截止頻率',
   'settings.default_0pct': '預設 0%',
   'settings.default_01s': '預設 0.1秒',
   'settings.default_20khz': '預設 20.0kHz',
@@ -361,10 +361,10 @@ const zhHant: Record<I18nKey, string> = {
     '系統音訊建議最多約 4 位參與者。\n更多裝置可能增加延遲或卡頓。',
   'system_audio.host_channel_locked': '系統音訊分享期間無法變更角色。',
   'system_audio.effects_guest_only': '系統音訊已啟用。\n音效僅套用於參與者裝置。',
-  'system_audio.desktop_only': '僅可在桌面版 Chrome 系列瀏覽器（Chrome、Edge 等）中使用。',
+  'system_audio.desktop_only': '僅可在電腦上的 Chromium 核心瀏覽器（Chrome、Edge 等）中使用。',
   'system_audio.receive_failed': '無法接收系統音訊。\n請讓主持人重新開始分享。',
   'system_audio.remote_receive_limit':
-    '遠端系統音訊接收已在 2 小時後暫停。\n請重新加入房間繼續收聽。',
+    '遠端系統音訊接收已在 2 小時後自動停止。\n請重新加入房間繼續收聽。',
 
   // Toast
   'toast.device_connected': '{{name}} 已連線',
@@ -421,7 +421,7 @@ const zhHant: Record<I18nKey, string> = {
   'toast.yt_rendezvous_timeout': '同步失敗，請稍後再試',
   'toast.yt_host_sync_sent': '自動同步訊號已送給參與者',
   'toast.yt_manual_sync_prompt': '剛剛已嘗試自動同步。\n如果仍覺得延遲，請現在調整數值',
-  'toast.playlist_ended': '最後一個媒體已結束',
+  'toast.playlist_ended': '最後一項媒體已播放完畢',
   'toast.operator_required': '只有管理員可以變更全域設定',
   'toast.connection_closing': '連線中斷，設定未同步',
   'toast.host_changed_setting': '設定已變更',
@@ -515,7 +515,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': '慢速模式已停用',
   'chat.cmd_slowmode_wait': '請等待 {{sec}} 秒後再傳送',
   'chat.cmd_notice_prefix': '公告',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': '系統',
   'chat.decode_skip_system_message': '跳過此曲目：部分裝置不支援該格式。',
   'chat.system_audio_started_system_message':
     '系統音訊分享已啟動。主持人與參與者裝置之間有些微延遲是正常現象。為避免回音，建議儘量降低來源裝置音量。',
@@ -591,7 +591,7 @@ const zhHant: Record<I18nKey, string> = {
   'player.play_speakers_html':
     '每位參與者選擇一個<strong>角色（輸出聲道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立體聲（預設）輸出</li><li><strong>左：</strong>L 聲道輸出</li><li><strong>右：</strong>R 聲道輸出</li><li><strong>重低音：</strong>低頻混合輸出</li></ul>你可以隨時在<strong>設定</strong>中變更角色。',
   'player.play_media_action_html':
-    '主持人有 3 個選項。<ul class="help-list"><li><strong>載入本機檔案：</strong>從裝置中選擇音樂。支援精確同步</li><li><strong>一起看 YouTube：</strong>支援影片和播放清單。不支援聲道分離和音訊效果</li><li><strong>系統音訊分享：</strong>主持人使用桌面版 Chrome 系列瀏覽器時可用</li></ul>',
+    '主持人有 3 個選項。<ul class="help-list"><li><strong>載入本機檔案：</strong>從裝置中選擇音樂。支援精確同步</li><li><strong>一起看 YouTube：</strong>支援影片和播放清單。不支援聲道分離和音訊效果</li><li><strong>系統音訊分享：</strong>主持人使用電腦上的 Chromium 核心瀏覽器（Chrome、Edge 等）時可用</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>輸入代碼但無法連線：</strong>請檢查代碼，稍後再試。公司、學校或 VPN 網路可能限制連線。</li><li><strong>連線不穩定：</strong>本機參與者請靠近路由器，遠端參與者請使用穩定的網路連線。</li><li><strong>其他問題：</strong>請檢查網路狀態，並在所有裝置上重新啟動應用程式。如有疑問，請查看 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>，或透過頁面底部的電子郵件聯絡我們。</li></ul>',
   'setup.brand_tagline_html': '隨時隨地一起聆聽<br>完美的聲音體驗',
@@ -606,7 +606,7 @@ const zhHant: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': '只能播放公開影片或播放清單。',
   'legal.title': '服務說明',
   'legal.content_html':
-    '<strong>隱私權政策</strong><br>在同一網路上，工作階段資料會直接在裝置之間傳輸；只有 IP 和連線資訊會經過訊號服務。遠端檔案和系統音訊分享會透過 Cloudflare 傳輸資料；遠端檔案會被加密，最多保留 24 小時，且不會儲存解密金鑰。除提供功能外，MUSIXQUARE 不會查看、分析或儲存資料。 <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>著作權提示</strong><br>透過 MUSIXQUARE 分享的內容歸相應權利人所有。系統音訊分享和檔案分享僅供個人使用。使用者需對受著作權保護內容的未經授權散布或公開傳輸負責。YouTube 分享使用官方播放結構，觀看次數和權利處理遵循該服務的政策和權利人設定。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免責聲明</strong><br>MUSIXQUARE 免費提供。部分功能依賴 YouTube 或 Cloudflare 等外部服務，因此這些服務變更或中斷時可能出現臨時限制。即時音訊同步和遠端分享品質會因網路、瀏覽器政策和裝置效能而有很大差異。非 Wi-Fi 環境下使用可能產生行動數據費用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>隱私權政策</strong><br>在同一網路上，工作階段資料會直接在裝置之間傳輸；只有 IP 和連線資訊會經過訊號服務。遠端檔案和系統音訊分享會透過 Cloudflare 傳輸資料；遠端檔案會被加密，最多保留 24 小時，且不會儲存解密金鑰。除提供功能外，MUSIXQUARE 不會查看、分析或儲存資料。 <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>著作權提示</strong><br>透過 MUSIXQUARE 分享的內容歸相應權利人所有。系統音訊分享和檔案分享僅供個人使用。使用者需對受著作權保護內容的未經授權散布或公開傳輸負責。YouTube 分享使用官方播放方式，觀看次數和權利處理遵循該服務的政策和權利人設定。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免責聲明</strong><br>MUSIXQUARE 免費提供。部分功能依賴 YouTube 或 Cloudflare 等外部服務，因此這些服務變更或中斷時可能出現臨時限制。即時音訊同步和遠端分享品質會因網路、瀏覽器政策和裝置效能而有很大差異。非 Wi-Fi 環境下使用可能產生行動數據費用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default zhHant;

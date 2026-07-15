@@ -57,7 +57,7 @@ const de: Record<I18nKey, string> = {
   // Navigation
   'nav.home': 'Start',
   'nav.playlist': 'Playlist',
-  'nav.settings': 'Optionen',
+  'nav.settings': 'Einstellungen',
   'nav.help': 'Hilfe',
   'nav.connect': 'Verbinden',
   'nav.go_home': 'Zur Startseite',
@@ -101,7 +101,7 @@ const de: Record<I18nKey, string> = {
   'settings.decay_time': 'Abklingzeit',
   'settings.predelay': 'Pre-Delay',
   'settings.eq_title': 'Equalizer',
-  'settings.eq_bright': 'Hell',
+  'settings.eq_bright': 'Brillant',
   'settings.eq_warm': 'Warm',
   'settings.eq_advanced': 'Erweitert',
   'settings.eq_off': 'Aus',
@@ -111,7 +111,7 @@ const de: Record<I18nKey, string> = {
   'settings.bass_title': 'Virtueller Bass',
   'settings.exciter_title': 'Virtuelle Höhen',
   'settings.subwoofer_adjust': 'Subwoofer-Cutoff',
-  'settings.subwoofer_cutoff': 'Übergangsfrequenz',
+  'settings.subwoofer_cutoff': 'Grenzfrequenz',
   'settings.default_0pct': 'Standard 0%',
   'settings.default_01s': 'Standard 0,1 s',
   'settings.default_20khz': 'Standard 20,0 kHz',
@@ -168,7 +168,7 @@ const de: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Zufallswiedergabe aktiviert',
   'playlist.shuffle_off': 'Zufallswiedergabe deaktiviert',
   'playlist.empty_hint': 'Bitte Medien hinzufügen.',
-  'playlist.empty_hint_guest': 'Warten, bis der Host Medien hinzufügt.',
+  'playlist.empty_hint_guest': 'Sie erscheint, sobald der Host Medien hinzufügt.',
   'playlist.loading_info': 'Titelinformationen werden geladen...',
   'playlist.sub_load_failed': 'Videoinformationen konnten nicht geladen werden',
   'playlist.remove_title': 'Aus der Playlist entfernen',
@@ -370,18 +370,18 @@ const de: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Rollen können während der Systemaudio-Freigabe nicht geändert werden.',
   'system_audio.effects_guest_only':
-    'Systemaudio wird geteilt.\nEffekte werden nur auf Gäste angewendet.',
+    'Systemaudio wird geteilt.\nEffekte werden nur auf Gastgeräten angewendet.',
   'system_audio.desktop_only':
-    'Nur in Chrome-basierten Desktop-Browsern verfügbar (Chrome, Edge usw.).',
+    'Nur auf Computern mit Chromium-basiertem Browser verfügbar (Chrome, Edge usw.).',
   'system_audio.receive_failed':
     'Systemaudio konnte nicht empfangen werden.\nBitte den Host, die Freigabe neu zu starten.',
   'system_audio.remote_receive_limit':
-    'Remote-Systemaudio wurde nach 2 Stunden pausiert.\nTritt dem Raum erneut bei, um weiterzuhören.',
+    'Der Empfang von Remote-Systemaudio wurde nach 2 Stunden beendet.\nTritt dem Raum erneut bei, um weiterzuhören.',
 
   // Toast
   'toast.device_connected': '{{name}} verbunden',
   'toast.device_disconnected': '{{name}} getrennt',
-  'toast.device_conn_error': '{{name}} Verbindungsfehler',
+  'toast.device_conn_error': 'Verbindungsfehler bei {{name}}',
   'toast.device_kicked': '{{name}} wurde entfernt',
   'toast.remote_decode_device_wait':
     'Ein Gerät konnte diesen Titel nicht dekodieren. Die Wiedergabe läuft für die anderen weiter.',
@@ -394,7 +394,7 @@ const de: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Audio wird dekodiert...',
   'toast.preparing_next': 'Nächster Titel wird vorbereitet... ({{name}})',
   'toast.preparing_next_pct': 'Nächster Titel wird vorbereitet... {{pct}}%',
-  'toast.op_status': '{{label}} Berechtigung {{status}}',
+  'toast.op_status': 'Berechtigung für {{label}} {{status}}',
   'toast.file_read_error': 'Dateilesefehler: {{name}}',
   'toast.host_ended_connection': 'Der Host hat die Verbindung beendet',
   'toast.announcement_available': 'Neue Ankündigung.\nBitte Chatfenster prüfen.',
@@ -437,7 +437,7 @@ const de: Record<I18nKey, string> = {
   'toast.yt_host_sync_sent': 'Auto-Sync-Signal an Teilnehmer gesendet',
   'toast.yt_manual_sync_prompt':
     'Automatische Synchronisierung wurde gerade versucht.\nWenn es noch verzögert wirkt, passe den Wert jetzt an',
-  'toast.playlist_ended': 'Letztes Medium ist beendet',
+  'toast.playlist_ended': 'Das letzte Medium ist zu Ende',
   'toast.operator_required': 'Nur Administratoren können globale Einstellungen ändern',
   'toast.connection_closing': 'Verbindung verloren, Einstellung nicht synchronisiert',
   'toast.host_changed_setting': 'Einstellungen wurden geändert',
@@ -503,7 +503,7 @@ const de: Record<I18nKey, string> = {
   'dialog.continue_using': 'Weiter verwenden',
   'dialog.leave_session': 'Raum verlassen',
   'dialog.sw_update_title': 'Update',
-  'dialog.sw_update_msg': 'Eine neue Version ist bereit. Aktualisiere, um sie anzuwenden.',
+  'dialog.sw_update_msg': 'Eine neue Version ist bereit. Lade die Seite neu, um sie anzuwenden.',
   'dialog.reconnect_ask': 'Möchtest du dich erneut verbinden?',
   'dialog.reconnect': 'Erneut verbinden',
   'dialog.go_back': 'Zurück',
@@ -524,12 +524,12 @@ const de: Record<I18nKey, string> = {
   'chat.input_label': 'Chatnachricht eingeben',
   'chat.send': 'Nachricht senden',
   'chat.start': 'Schreibe etwas, um anzufangen!',
-  'chat.muted_placeholder': 'Du bist stummgeschaltet',
+  'chat.muted_placeholder': 'Du kannst in diesem Chat keine Nachrichten senden',
   'chat.cmd_frozen': 'Chat wurde eingefroren',
   'chat.cmd_unfrozen': 'Chat wurde freigegeben',
   'chat.cmd_frozen_blocked': 'Chat ist derzeit eingefroren',
-  'chat.cmd_muted': '{{name}} wurde stummgeschaltet',
-  'chat.cmd_unmuted': '{{name}} ist nicht mehr stummgeschaltet',
+  'chat.cmd_muted': '{{name}} kann keine Chatnachrichten mehr senden',
+  'chat.cmd_unmuted': '{{name}} kann wieder Chatnachrichten senden',
   'chat.cmd_clear': 'Chat wurde gelöscht',
   'chat.cmd_filter_on': 'Schimpfwortfilter aktiviert',
   'chat.cmd_filter_off': 'Schimpfwortfilter deaktiviert',
@@ -539,7 +539,7 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_notice_prefix': 'Hinweis',
   'chat.system_sender': 'SYSTEM',
   'chat.decode_skip_system_message':
-    'Einige Geräte konnten diesen Titel nicht abspielen, springe zum nächsten',
+    'Titel wird übersprungen: Das Format wird auf einigen Geräten nicht unterstützt.',
   'chat.system_audio_started_system_message':
     'Systemaudio-Freigabe gestartet. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
   'chat.system_audio_stopped_system_message':
@@ -590,8 +590,8 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'Gerät entfernen',
   'chat.cmd_d_op': 'Administrator-Rechte erteilen',
   'chat.cmd_d_deop': 'Administrator-Rechte entziehen',
-  'chat.cmd_d_mute': 'Gerät stummschalten',
-  'chat.cmd_d_unmute': 'Stummschaltung aufheben',
+  'chat.cmd_d_mute': 'Chat des Geräts sperren',
+  'chat.cmd_d_unmute': 'Chat des Geräts freigeben',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'System-Debug-Info',
   'chat.debug_copied':
@@ -615,7 +615,7 @@ const de: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Jeder Teilnehmer wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des L-Kanals</li><li><strong>Rechts:</strong> Ausgabe des R-Kanals</li><li><strong>Subwoofer:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
   'player.play_media_action_html':
-    'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> Verfügbar, wenn der Host einen Chrome-basierten Desktop-Browser verwendet</li></ul>',
+    'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> verfügbar, wenn der Host einen Computer mit einem Chromium-basierten Browser verwendet (Chrome, Edge usw.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Code eingegeben, aber keine Verbindung:</strong> Prüfe den Code und versuche es gleich erneut. Firmen-, Schul- oder VPN-Netzwerke können die Verbindung einschränken.</li><li><strong>Instabile Verbindung:</strong> Lokale Teilnehmer sollten näher am Router bleiben, Remote-Teilnehmer eine stabile Internetverbindung nutzen.</li><li><strong>Andere Probleme:</strong> Prüfe den Netzwerkstatus und starte die App auf allen Geräten neu. Bei Fragen lies die <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> oder kontaktiere uns über die E-Mail ganz unten.</li></ul>',
   'setup.brand_tagline_html': 'Gemeinsam hören, überall<br>Das perfekte Klangerlebnis',
@@ -630,7 +630,7 @@ const de: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Nur öffentliche Videos oder Playlists können abgespielt werden.',
   'legal.title': 'Servicehinweise',
   'legal.content_html':
-    '<strong>Datenschutzrichtlinie</strong><br>Im selben Netzwerk werden Sitzungsdaten direkt zwischen Geräten übertragen; nur IP- und Verbindungsdetails laufen über das Signaling. Remote-Datei- und Systemaudio-Freigabe leiten Daten über Cloudflare; Remote-Dateien werden verschlüsselt, bis zu 24 Stunden aufbewahrt und ohne Entschlüsselungsschlüssel gespeichert. MUSIXQUARE sieht, analysiert oder speichert keine Daten über das hinaus, was zur Bereitstellung der Funktionen nötig ist. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>Urheberrechtshinweis</strong><br>Über MUSIXQUARE geteilte Inhalte gehören den jeweiligen Rechteinhabern. Systemaudio-Freigabe und Dateifreigabe sind für die persönliche Nutzung vorgesehen. Nutzer sind für unautorisierte Verbreitung oder öffentliche Übertragung urheberrechtlich geschützter Inhalte verantwortlich. YouTube-Sharing nutzt die offizielle Wiedergabestruktur; Aufrufe und Rechtebehandlung folgen den Richtlinien dieses Dienstes und den Einstellungen der Rechteinhaber. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>Haftungsausschluss</strong><br>MUSIXQUARE wird kostenlos bereitgestellt. Einige Funktionen hängen von externen Diensten wie YouTube oder Cloudflare ab; daher können vorübergehende Einschränkungen auftreten, wenn sich diese Dienste ändern oder offline gehen. Echtzeit-Audiosynchronisierung und Qualität der Remote-Freigabe können je nach Netzwerk, Browser-Richtlinien und Geräteleistung stark variieren. Außerhalb von Wi-Fi können Gebühren für mobile Daten anfallen. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Über uns</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Verlauf</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Designsystem</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Datenschutzrichtlinie</strong><br>Im selben Netzwerk werden Sitzungsdaten direkt zwischen Geräten übertragen; nur IP- und Verbindungsdetails laufen über das Signaling. Remote-Datei- und Systemaudio-Freigabe leiten Daten über Cloudflare; Remote-Dateien werden verschlüsselt, bis zu 24 Stunden aufbewahrt und ohne Entschlüsselungsschlüssel gespeichert. MUSIXQUARE sieht, analysiert oder speichert keine Daten über das hinaus, was zur Bereitstellung der Funktionen nötig ist. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>Urheberrechtshinweis</strong><br>Über MUSIXQUARE geteilte Inhalte gehören den jeweiligen Rechteinhabern. Systemaudio-Freigabe und Dateifreigabe sind für die persönliche Nutzung vorgesehen. Nutzer sind für unautorisierte Verbreitung oder öffentliche Übertragung urheberrechtlich geschützter Inhalte verantwortlich. YouTube-Sharing nutzt die offizielle Wiedergabemethode; Aufrufe und die Rechteverwaltung richten sich nach den Richtlinien dieses Dienstes und den Einstellungen der Rechteinhaber. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>Haftungsausschluss</strong><br>MUSIXQUARE wird kostenlos bereitgestellt. Einige Funktionen hängen von externen Diensten wie YouTube oder Cloudflare ab; daher können vorübergehende Einschränkungen auftreten, wenn sich diese Dienste ändern oder offline gehen. Echtzeit-Audiosynchronisierung und Qualität der Remote-Freigabe können je nach Netzwerk, Browser-Richtlinien und Geräteleistung stark variieren. Außerhalb von Wi-Fi können Gebühren für mobile Daten anfallen. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Über uns</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Geschichte</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Designsystem</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default de;

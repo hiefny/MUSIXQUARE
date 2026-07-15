@@ -582,7 +582,7 @@ const ko = {
   'player.play_speakers_html':
     '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':
-    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장 환경이 데스크톱 Chrome 계열 브라우저인 경우 이용 가능</li></ul>',
+    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장이 컴퓨터에서 Chrome 계열 브라우저를 사용하는 경우 이용 가능</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 다시 시도해주세요. 회사/학교망이나 VPN에서는 연결이 제한될 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬 참여자는 공유기 가까이에서, 원격 참여자는 안정적인 인터넷 환경에서 시도해주세요.</li><li><strong>기타 문제:</strong> 네트워크 상태를 확인하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>를 참고해주시거나 맨 하단의 이메일로 연락해주세요.</li></ul>',
   'chat.peer_connected': '{{name}} 님이 입장했어요',
@@ -616,7 +616,7 @@ const ko = {
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
   'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 참여자에게만 적용돼요',
   'system_audio.desktop_only':
-    '데스크톱의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
+    '컴퓨터의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
   'system_audio.receive_failed': '시스템 오디오를 수신하지 못했어요.\n공유를 다시 시작해 주세요.',
   'system_audio.remote_receive_limit':
     '원격 시스템 오디오 수신이 2시간 후 자동 종료되었어요.\n계속 들으려면 방에 다시 입장해주세요.',

@@ -67,7 +67,7 @@ const pl: Record<I18nKey, string> = {
   'player.seek': 'Regulacja pozycji odtwarzania',
   'player.volume': 'Regulacja głośności',
   'player.toggle_mute': 'Wycisz / Wyłącz wyciszenie',
-  'player.fullscreen': 'Tryb pełnoekranowy',
+  'player.fullscreen': 'Przełącz tryb pełnoekranowy',
   'player.prev_track': 'Poprzedni utwór',
   'player.next_track': 'Następny utwór',
   'player.repeat_mode': 'Zmień tryb powtarzania',
@@ -153,9 +153,9 @@ const pl: Record<I18nKey, string> = {
   'settings.highpass': 'Filtr górnoprzepustowy',
   'settings.surround_title': 'Wirtualny surround',
   'settings.bass_title': 'Wirtualny bas',
-  'settings.exciter_title': 'Wirtualne soprany',
-  'settings.subwoofer_adjust': 'Crossover subwoofera',
-  'settings.subwoofer_cutoff': 'Częstotliwość crossovera',
+  'settings.exciter_title': 'Wirtualne wysokie tony',
+  'settings.subwoofer_adjust': 'Odcięcie subwoofera',
+  'settings.subwoofer_cutoff': 'Częstotliwość odcięcia',
   'settings.default_0pct': 'Domyślnie: 0%',
   'settings.default_01s': 'Domyślnie: 0,1 s',
   'settings.default_20khz': 'Domyślnie: 20,0 kHz',
@@ -187,7 +187,7 @@ const pl: Record<I18nKey, string> = {
   'connect.generating_qr': 'Generowanie kodu QR...',
   'connect.cannot_reduce':
     'Nie można zmniejszyć pojemności poniżej liczby połączonych urządzeń ({{count}})',
-  'connect.kick_title': 'Odłącz urządzenie',
+  'connect.kick_title': 'Usuń urządzenie',
   'connect.kick_message': 'Czy chcesz usunąć to urządzenie z pokoju?',
   'connect.kick_yes': 'Usuń',
   'connect.kick_no': 'Nie',
@@ -269,14 +269,13 @@ const pl: Record<I18nKey, string> = {
   'help.install_app': 'Zainstaluj aplikację webową',
   'help.local_recommended': 'Zalecana sieć lokalna',
   'help.connect_all_wifi':
-    'Połączenie jest najbardziej stabilne, gdy wszystkie urządzenia korzystają z tej samej sieci Wi-Fi',
+    'Połączenie jest najbardziej stabilne, gdy wszystkie urządzenia korzystają z tej samej sieci lokalnej',
   'help.local_file': 'Wybierz plik lokalny',
   'help.load_local': 'Załaduj plik lokalny',
   'help.youtube_compat': 'YouTube (Tryb zgodności)',
-  'help.youtube_no_effects':
-    'W trybie YouTube zaawansowane efekty dźwiękowe i zarządzanie rolami głośników są niedostępne.',
+  'help.youtube_no_effects': 'W trybie YouTube ustawienia ról i efekty dźwiękowe są niedostępne.',
   'help.media_synced_detail':
-    'Wybrane utwory odtwarzają się w idealnej synchronizacji na wszystkich połączonych urządzeniach.',
+    'Wybrane multimedia są odtwarzane jednocześnie na wszystkich połączonych urządzeniach.',
   'help.wifi_hotspot':
     'Możesz również użyć mobilnego punktu dostępowego (Hotspot), aby połączyć wszystkie urządzenia do jednej sieci',
 
@@ -294,8 +293,8 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'Czat został zamrożony',
   'chat.cmd_unfrozen': 'Zamrożenie czatu zostało cofnięte',
   'chat.cmd_frozen_blocked': 'Czat jest obecnie zamrożony',
-  'chat.cmd_muted': '{{name}} został wyciszony',
-  'chat.cmd_unmuted': 'Wyciszenie {{name}} zostało cofnięte',
+  'chat.cmd_muted': 'Użytkownik {{name}} nie może pisać na czacie',
+  'chat.cmd_unmuted': 'Użytkownik {{name}} może znów pisać na czacie',
   'chat.cmd_clear': 'Historia czatu została wyczyszczona',
   'chat.cmd_filter_on': 'Filtr słów niecenzuralnych włączony',
   'chat.cmd_filter_off': 'Filtr słów niecenzuralnych wyłączony',
@@ -303,7 +302,7 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Slow mode wyłączony',
   'chat.cmd_slowmode_wait': 'Poczekaj {{sec}} s przed wysłaniem kolejnej wiadomości',
   'chat.cmd_notice_prefix': 'Ogłoszenie',
-  'chat.system_sender': 'System',
+  'chat.system_sender': 'SYSTEM',
   'chat.decode_skip_system_message':
     'Niektóre urządzenia nie mogły odtworzyć tego utworu. Przejście do kolejnego utworu...',
   'chat.system_audio_started_system_message':
@@ -317,7 +316,7 @@ const pl: Record<I18nKey, string> = {
   'chat.pinned_close': 'Zamknij ogłoszenie',
   'chat.cmd_whisper_from': 'Wiadomość prywatna od {{name}}',
   'chat.cmd_whisper_to': 'Wiadomość prywatna do {{name}}',
-  'chat.cmd_target_not_found': 'Odbiorca nie znaleziony: {{target}}',
+  'chat.cmd_target_not_found': 'Nie znaleziono urządzenia: {{target}}',
   'chat.cmd_no_permission': 'Nie masz uprawnień do korzystania z tego polecenia',
   'chat.cmd_nick_changed': 'Pseudonim został zmieniony na {{name}}',
   'chat.cmd_nick_too_long': 'Pseudonim może mieć maksymalnie 20 znaków',
@@ -386,7 +385,7 @@ const pl: Record<I18nKey, string> = {
   'youtube.fetch_failed': 'Nie udało się pobrać informacji o wideo',
   'youtube.enter_link_toast': 'Wklej link z YouTube',
   'youtube.open_link': 'Otwórz link z YouTube',
-  'youtube.tap_to_play': 'Dotknij, aby odtworzyć',
+  'youtube.tap_to_play': 'DOTKNIJ, ABY ODTWORZYĆ',
   'youtube.added_to_playlist': 'Dodano do playlisty',
   'youtube.loading_large_playlist': 'Wczytywanie dużej playlisty...',
   'youtube.indexing_playlist': 'Analiza playlisty w toku...',
@@ -447,7 +446,7 @@ const pl: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Brak obsługiwanych plików audio do dodania.',
   'dialog.large_room_file.title': 'Udostępnianie plików w dużym pokoju',
   'dialog.large_room_file.message':
-    'Lokalne udostępnianie plików działa stabilnie przy maksymalnie 8 gościach w tej samej sieci lokalnej.\n\nCzy chcesz kontynuować mimo to?',
+    'Lokalne udostępnianie plików działa stabilnie w tej samej sieci lokalnej dla około 8 gości lub mniej.\n\nCzy chcesz kontynuować mimo to?',
   'dialog.large_room_sysaudio.title': 'Udostępnianie dźwięku systemowego w dużym pokoju',
   'dialog.large_room_sysaudio.message':
     'Udostępnianie dźwięku systemowego obsługuje zarówno gości lokalnych, jak i zdalnych. Zalecamy maksymalnie 4 gości, aby uniknąć przeciążeń lub opóźnień.\n\nCzy chcesz kontynuować mimo to?',
@@ -465,7 +464,7 @@ const pl: Record<I18nKey, string> = {
   'toast.host_sync_not_recommended':
     'Zalecamy regulację synchronizacji bezpośrednio na urządzeniu gościa',
   'toast.host_sync_requested':
-    'Zażądano precyzyjnej synchronizacji. Skonfiguruj ręczną synchronizację na urządzeniu gościa.',
+    'Zażądano precyzyjnej synchronizacji.\nSkonfiguruj ręczną synchronizację na urządzeniu gościa.',
   'toast.sync_not_in_system_audio':
     'Synchronizacja nie jest obsługiwana w trybie udostępniania dźwięku systemowego',
   'toast.sync_not_ready': 'Jeszcze nie gotowe.\nSpróbuj ponownie za chwilę',
@@ -596,13 +595,13 @@ const pl: Record<I18nKey, string> = {
   'help.install_app_html':
     'Lubisz MUSIXQUARE? Można go zainstalować jako aplikację.<ul class="help-list"><li><strong>iOS:</strong> Udostępnij → Dodaj do ekranu głównego</li><li><strong>Android:</strong> Menu → Zainstaluj aplikację</li><li><strong>Windows:</strong> Ikona instalacji w pasku adresu</li><li><strong>macOS:</strong> Udostępnij → Dodaj do Docka</li></ul>',
   'help.local_recommended_html':
-    'Udostępnianie dźwięku jest najbardziej stabilne w tej samej sieci.<ul class="help-list"><li>Goście zdalni również mogą korzystać ze wszystkich funkcji.</li><li>Goście zdalni korzystają z węzłów Cloudflare, co może zwiększyć opóźnienie lub przerwać przesył w zależności od sieci.</li><li>Używanie VPN lub zabezpieczonych sieci firmowych może destabilizować połączenie.</li></ul>',
+    'Udostępnianie dźwięku jest najbardziej stabilne w tej samej sieci.<ul class="help-list"><li>Goście zdalni również mogą korzystać z tych samych funkcji.</li><li>Goście zdalni korzystają z węzłów Cloudflare, co może zwiększyć opóźnienie lub przerwać przesył w zależności od sieci.</li><li>Używanie VPN lub zabezpieczonych sieci firmowych może destabilizować połączenie.</li></ul>',
   'setup.how_to_connect_html':
     'Wprowadź <strong>6-cyfrowy kod</strong> od hosta, aby się połączyć.<ul class="help-list"><li><strong>Host (Gospodarz):</strong> „Utwórz pokój” → Sprawdź kod</li><li><strong>Gość (Uczestnik):</strong> „Dołącz do pokoju” → Wpisz kod</li><li>Limit połączonych urządzeń można zmienić w <strong>zakładce „Połączenie”</strong>.</li></ul>',
   'player.play_speakers_html':
     'Każdy gość wybiera <strong>rolę (kanał wyjściowy)</strong>.<ul class="help-list"><li><strong>Głośnik centralny:</strong> wyjście stereo (domyślne)</li><li><strong>Głośnik lewy:</strong> wyjście kanału L</li><li><strong>Głośnik prawy:</strong> wyjście kanału R</li><li><strong>Subwoofer:</strong> wyjście miksu niskich częstotliwości</li></ul>Role możesz zmienić w dowolnym momencie w <strong>Ustawieniach</strong>.',
   'player.play_media_action_html':
-    'Host ma 3 opcje odtwarzania.<ul class="help-list"><li><strong>Załaduj plik lokalny:</strong> Wybierz utwory ze swojego urządzenia. Wspiera synchronizację o wysokiej precyzji</li><li><strong>YouTube razem:</strong> Wspiera wideo i playlisty. Brak rozdziału kanałów i efektów zaawansowanych</li><li><strong>Udostępnianie dźwięku systemowego:</strong> Dostępne, gdy host korzysta z desktopowej przeglądarki opartej na Chrome</li></ul>',
+    'Host ma 3 opcje odtwarzania.<ul class="help-list"><li><strong>Załaduj plik lokalny:</strong> Wybierz utwory ze swojego urządzenia. Wspiera synchronizację o wysokiej precyzji</li><li><strong>YouTube razem:</strong> Wspiera wideo i playlisty. Brak rozdziału kanałów i efektów dźwiękowych</li><li><strong>Udostępnianie dźwięku systemowego:</strong> Dostępne, gdy host korzysta na komputerze z przeglądarki opartej na Chromium</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Nie mogę się połączyć po wpisaniu kodu:</strong> Sprawdź kod i spróbuj ponownie za chwilę. Sieci korporacyjne, szkolne lub VPN mogą blokować połączenie.</li><li><strong>Niestabilne połączenie:</strong> Zaleca się, aby goście lokalni znajdowali się blisko routera Wi-Fi, a goście zdalni korzystali ze stabilnej sieci.</li><li><strong>Inne problemy:</strong> Sprawdź stan sieci i zrestartuj aplikację na wszystkich urządzeniach. W przypadku innych pytań, zapoznaj się z sekcją <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Najczęściej zadawanych pytań (FAQ)</a> lub skontaktuj się z nami poprzez adres e-mail na dole strony.</li></ul>',
   'chat.peer_connected': '{{name}} wszedł do pokoju',
@@ -638,18 +637,18 @@ const pl: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Nie można zmienić ról głośników podczas udostępniania dźwięku systemowego.',
   'system_audio.effects_guest_only':
-    'Udostępnianie dźwięku systemowego aktywne.\nZaawansowane efekty dźwiękowe mają zastosowanie wyłącznie do urządzeń gości.',
+    'Udostępnianie dźwięku systemowego aktywne.\nEfekty dźwiękowe są stosowane wyłącznie na urządzeniach gości.',
   'system_audio.desktop_only':
-    'Dostępne wyłącznie w przeglądarkach desktopowych opartych na Chrome (Chrome, Edge itp.).',
+    'Dostępne tylko na komputerze w przeglądarce opartej na Chromium (Chrome, Edge itp.).',
   'system_audio.receive_failed':
     'Nie udało się odebrać dźwięku systemowego.\nPoproś hosta o ponowne uruchomienie udostępniania.',
   'system_audio.remote_receive_limit':
-    'Odbiór zdalnego dźwięku systemowego został wstrzymany po 2 godzinach.\nWejdź ponownie do pokoju, aby kontynuować słuchanie.',
+    'Odbiór zdalnego dźwięku systemowego został automatycznie zakończony po 2 godzinach.\nWejdź ponownie do pokoju, aby kontynuować słuchanie.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Informacje o usłudze',
   'legal.content_html':
-    '<strong>Polityka prywatności</strong><br>W tej samej sieci lokalnej dane sesji przesyłane są bezpośrednio między urządzeniami; tylko szczegóły adresu IP i parametry połączenia przechodzą przez serwer sygnalizacyjny. Zdalne udostępnianie plików oraz dźwięku systemowego przesyła dane bezpiecznie przez sieć Cloudflare; pliki zdalne są szyfrowane, przechowywane przez maksymalnie 24 godziny i zapisywane bez klucza deszyfrującego na naszych serwerach. MUSIXQUARE nie przegląda, nie analizuje ani nie przechowuje Twoich danych poza zakresem ściśle niezbędnym do świadczenia swoich funkcji. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Ostrzeżenie o prawach autorskich</strong><br>Treści udostępniane za pośrednictwem MUSIXQUARE należą do ich odpowiednich właścicieli praw. Funkcje udostępniania dźwięku systemowego oraz plików są przeznaczone wyłącznie do użytku osobistego i prywatnego. Użytkownicy ponoszą pełną odpowiedzialność za nieuprawnione rozpowszechnianie lub publiczne przesyłanie treści chronionych prawem autorskim. Udostępnianie z YouTube wykorzystuje oficjalną strukturę odtwarzacza API YouTube; wyświetlenia oraz zarządzanie prawami podlegają ściśle polityce platformy i preferencjom ustawionym przez twórców. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Wyłączenie odpowiedzialności</strong><br>MUSIXQUARE jest świadczony bezpłatnie. Niektóre funkcje opierają się na zewnętrznych usługach stron trzecich (takich jak YouTube lub Cloudflare), w związku z czym mogą wystąpić tymczasowe ograniczenia funkcjonalne w przypadku zmian lub przerw w tych usługach. Synchronizacja dźwięku w czasie rzeczywistym oraz jakość strumieniowania zdalnego zależą w dużej mierze od stabilności sieci, polityki używanej przeglądarki oraz wydajności poszczególnych urządzeń. W przypadku braku połączenia z siecią Wi-Fi mogą obowiązywać opłaty za transmisję danych w sieci komórkowej zgodnie z taryfą operatora. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">O nas</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Historia</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Polityka prywatności</strong><br>W tej samej sieci lokalnej dane sesji przesyłane są bezpośrednio między urządzeniami; tylko szczegóły adresu IP i parametry połączenia przechodzą przez serwer sygnalizacyjny. Zdalne udostępnianie plików i dźwięku systemowego przesyła dane przez Cloudflare; zdalne pliki są szyfrowane i tymczasowo przechowywane przez maksymalnie 24 godziny, a klucz deszyfrujący nie jest przechowywany w magazynie. MUSIXQUARE nie przegląda, nie analizuje ani nie przechowuje danych poza zakresem niezbędnym do świadczenia swoich funkcji. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Ostrzeżenie o prawach autorskich</strong><br>Treści udostępniane za pośrednictwem MUSIXQUARE należą do ich odpowiednich właścicieli praw. Funkcje udostępniania dźwięku systemowego i plików są przeznaczone do użytku osobistego. Użytkownicy ponoszą odpowiedzialność za nieuprawnione rozpowszechnianie lub publiczne przesyłanie treści chronionych prawem autorskim. Udostępnianie z YouTube korzysta z oficjalnego sposobu odtwarzania, a wyświetlenia i obsługa praw podlegają zasadom usługi oraz ustawieniom właścicieli praw. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Wyłączenie odpowiedzialności</strong><br>MUSIXQUARE jest świadczony bezpłatnie. Niektóre funkcje opierają się na zewnętrznych usługach stron trzecich (takich jak YouTube lub Cloudflare), w związku z czym mogą wystąpić tymczasowe ograniczenia funkcjonalne w przypadku zmian lub przerw w tych usługach. Synchronizacja dźwięku w czasie rzeczywistym oraz jakość zdalnego udostępniania zależą w dużej mierze od stabilności sieci, polityki używanej przeglądarki oraz wydajności poszczególnych urządzeń. W przypadku braku połączenia z siecią Wi-Fi mogą obowiązywać opłaty za transmisję danych w sieci komórkowej zgodnie z taryfą operatora. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">O nas</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Historia</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default pl;

@@ -33,6 +33,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Worker syntax check
+        run: npm run check:workers
+
       - name: Test
         run: npm test
 

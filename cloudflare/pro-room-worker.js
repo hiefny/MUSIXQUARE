@@ -28,6 +28,11 @@ const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const PRESENCE_TTL_SECONDS = 45;
 const RESERVATION_TTL_SECONDS = 15 * 60;
+// A completed upload is deliberately retained long enough for the client to
+// append it to the authoritative playlist. If that never happens, the asset is
+// an orphan and the Durable Object reclaims it after this grace period.
+const ASSET_GC_GRACE_SECONDS = 15 * 60;
+const ASSET_GC_RETRY_SECONDS = 60;
 const PRESIGN_TTL_SECONDS = 10 * 60;
 const SIGNALING_TICKET_TTL_SECONDS = 90;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -807,6 +812,9 @@ export class MusixquareProRoom {
     }
     for (const asset of Object.values(this.room.assets)) {
       if (asset.status === 'reserved') candidates.push(asset.expiresAtMs);
+      if (asset.status === 'ready' && Number.isSafeInteger(asset.gcAfterMs)) {
+        candidates.push(asset.gcAfterMs);
+      }
     }
     const next = candidates
       .filter((value) => Number.isSafeInteger(value) && value > Date.now())
@@ -830,6 +838,39 @@ export class MusixquareProRoom {
 
   reservationTtlSeconds() {
     return configuredNumber(this.env.RESERVATION_TTL_SECONDS, RESERVATION_TTL_SECONDS, 60, 3600);
+  }
+
+  assetGcGraceMs() {
+    return (
+      configuredNumber(this.env.ASSET_GC_GRACE_SECONDS, ASSET_GC_GRACE_SECONDS, 60, 24 * 60 * 60) *
+      1000
+    );
+  }
+
+  referencedAssetIds() {
+    return new Set(
+      this.room.playlist
+        .filter((item) => item.source.kind === 'pro-r2')
+        .map((item) => item.source.assetId),
+    );
+  }
+
+  reconcileAssetGarbageCollection(nowMs) {
+    const referenced = this.referencedAssetIds();
+    let changed = false;
+    for (const asset of Object.values(this.room.assets)) {
+      if (asset.status !== 'ready') continue;
+      if (referenced.has(asset.assetId)) {
+        if (asset.gcAfterMs !== undefined) {
+          delete asset.gcAfterMs;
+          changed = true;
+        }
+      } else if (!Number.isSafeInteger(asset.gcAfterMs)) {
+        asset.gcAfterMs = nowMs + this.assetGcGraceMs();
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   async fetch(request) {
@@ -1355,6 +1396,7 @@ export class MusixquareProRoom {
     this.room.playlist = playlist;
     this.room.currentQueueItemId = body.currentQueueItemId;
     this.room.playback = playback;
+    this.reconcileAssetGarbageCollection(Date.now());
     if (playlistChanged) this.room.playlistRevision += 1;
     this.room.revision += 1;
     const responseBody = { snapshot: publicSnapshot(this.room, auth.session) };
@@ -1508,11 +1550,16 @@ export class MusixquareProRoom {
       await this.persist();
       return errorResponse('UPLOAD_MISMATCH', 409);
     }
+    const completedAtMs = Date.now();
     asset.status = 'ready';
     delete asset.expiresAtMs;
-    asset.completedAtMs = Date.now();
+    asset.completedAtMs = completedAtMs;
     this.room.quota.reservedBytes -= asset.byteLength;
     this.room.quota.usedBytes += asset.byteLength;
+    // Completion and playlist insertion are separate idempotent operations.
+    // Start a conservative orphan deadline now; a later accepted snapshot that
+    // references this asset clears the marker.
+    this.reconcileAssetGarbageCollection(completedAtMs);
     this.room.revision += 1;
     const responseBody = { asset: publicAsset(asset), quota: { ...this.room.quota } };
     this.storeIdempotency(scope, key, fingerprint, responseBody);
@@ -1582,7 +1629,9 @@ export class MusixquareProRoom {
   }
 
   async prune(nowMs) {
-    let changed = false;
+    // This also migrates ready assets written before gcAfterMs existed and
+    // repairs stale markers on assets that are referenced by the playlist.
+    let changed = this.reconcileAssetGarbageCollection(nowMs);
     for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
       if (session.expiresAtMs <= nowMs || session.authEpoch !== this.room.authEpoch) {
         changed = this.removePresence(session.participantId, nowMs) || changed;
@@ -1601,6 +1650,7 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
+    const referencedAssets = this.referencedAssetIds();
     for (const [assetId, asset] of Object.entries(this.room.assets)) {
       if (asset.status === 'reserved' && asset.expiresAtMs <= nowMs) {
         if (!this.env.PRO_MEDIA_BUCKET) {
@@ -1617,6 +1667,38 @@ export class MusixquareProRoom {
         }
         this.room.quota.reservedBytes -= asset.byteLength;
         delete this.room.assets[assetId];
+        changed = true;
+        continue;
+      }
+      if (
+        asset.status === 'ready' &&
+        Number.isSafeInteger(asset.gcAfterMs) &&
+        asset.gcAfterMs <= nowMs
+      ) {
+        // Never trust the marker alone: a later snapshot may have restored one
+        // or several references since it was created.
+        if (referencedAssets.has(assetId)) {
+          delete asset.gcAfterMs;
+          changed = true;
+          continue;
+        }
+        if (!this.env.PRO_MEDIA_BUCKET) {
+          asset.gcAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+          changed = true;
+          continue;
+        }
+        try {
+          await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
+        } catch {
+          // R2 is authoritative for byte deletion. Keep both the asset ledger
+          // and used-byte charge intact until deletion succeeds.
+          asset.gcAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+          changed = true;
+          continue;
+        }
+        this.room.quota.usedBytes -= asset.byteLength;
+        delete this.room.assets[assetId];
+        this.room.revision += 1;
         changed = true;
       }
     }

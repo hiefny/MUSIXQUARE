@@ -18,7 +18,26 @@ const IDEMPOTENCY_KEY = '018f977e-5df5-7c8f-bb80-55d847ddec0f';
 type StoredRoom = {
   revision: number;
   playlist: unknown[];
-  assets: Record<string, { objectKey: string; byteLength: number; mime: string }>;
+  quota: {
+    limitBytes: number;
+    perAssetLimitBytes: number;
+    usedBytes: number;
+    reservedBytes: number;
+  };
+  assets: Record<
+    string,
+    {
+      status: 'reserved' | 'ready';
+      assetId: string;
+      objectKey: string;
+      version: number;
+      byteLength: number;
+      mime: string;
+      sha256?: string;
+      expiresAtMs?: number;
+      gcAfterMs?: number;
+    }
+  >;
 };
 
 class FakeStorage {
@@ -139,6 +158,96 @@ async function activatedRoom() {
     ownerCookie,
     ownerRecoveryCookie: ownerRecoveryCookie!,
     activationEnvelope,
+  };
+}
+
+async function completeReadyAsset(
+  context: Awaited<ReturnType<typeof activatedRoom>>,
+  suffix: string,
+  byteLength = 4096,
+) {
+  const reservationResponse = await context.worker.fetch(
+    jsonRequest(
+      '/media/reservations',
+      'POST',
+      { byteLength, name: `${suffix}.flac`, mime: 'audio/flac' },
+      context.ownerCookie,
+      `${IDEMPOTENCY_KEY}-${suffix}-reserve`,
+    ),
+  );
+  expect(reservationResponse.status).toBe(200);
+  const reservationEnvelope = await responseJson(reservationResponse);
+  const assetId = reservationEnvelope.reservation.assetId as string;
+  const internal = context.worker as unknown as { room: StoredRoom };
+  const asset = internal.room.assets[assetId]!;
+  context.bucket.objects.set(asset.objectKey, {
+    size: asset.byteLength,
+    httpMetadata: { contentType: asset.mime },
+    customMetadata: {
+      'mxqr-room': ROOM_CODE,
+      'mxqr-asset': asset.assetId,
+      'mxqr-version': String(asset.version),
+      'mxqr-bytes': String(asset.byteLength),
+    },
+  });
+  const completeResponse = await context.worker.fetch(
+    request(
+      `/media/${assetId}/complete`,
+      { method: 'POST', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-${suffix}-complete` } },
+      context.ownerCookie,
+    ),
+  );
+  expect(completeResponse.status).toBe(200);
+  const completeEnvelope = await responseJson(completeResponse);
+  return { assetId, asset, completeEnvelope };
+}
+
+async function replacePlaylist(
+  context: Awaited<ReturnType<typeof activatedRoom>>,
+  playlist: unknown[],
+  suffix: string,
+) {
+  const current = await responseJson(
+    await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+  );
+  return context.worker.fetch(
+    jsonRequest(
+      '/snapshot',
+      'PUT',
+      {
+        baseRevision: current.snapshot.revision,
+        playlist,
+        currentQueueItemId: null,
+        playback: {
+          coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+          revision: current.snapshot.playback.revision + 1,
+          state: 'idle',
+          queueItemId: null,
+          positionSeconds: 0,
+          updatedAtMs: Date.now(),
+        },
+      },
+      context.ownerCookie,
+      `${IDEMPOTENCY_KEY}-${suffix}-snapshot`,
+    ),
+  );
+}
+
+function playlistItem(
+  queueItemId: string,
+  asset: StoredRoom['assets'][string],
+): Record<string, unknown> {
+  return {
+    queueItemId,
+    name: 'Shared asset',
+    source: {
+      kind: 'pro-r2',
+      assetId: asset.assetId,
+      version: asset.version,
+      byteLength: asset.byteLength,
+      mime: asset.mime,
+      ...(asset.sha256 ? { sha256: asset.sha256 } : {}),
+    },
   };
 }
 
@@ -633,5 +742,120 @@ describe('persistent PRO room private media accounting', () => {
     expect(bucket.deleted).toContain(objectKey);
     expect(internal.room.assets[reservation.reservation.assetId]).toBeUndefined();
     expect(internal.room.quota.reservedBytes).toBe(0);
+  });
+});
+
+describe('persistent PRO room orphan asset garbage collection', () => {
+  it('marks a completed orphan without sliding its grace deadline and schedules it', async () => {
+    const context = await activatedRoom();
+    const beforeCompleteMs = Date.now();
+    const { asset } = await completeReadyAsset(context, 'gc-orphan');
+
+    expect(asset.status).toBe('ready');
+    expect(asset.gcAfterMs).toBeGreaterThanOrEqual(beforeCompleteMs + 15 * 60 * 1000);
+    const originalDeadline = asset.gcAfterMs;
+
+    const accepted = await replacePlaylist(context, [], 'gc-orphan-empty');
+    expect(accepted.status).toBe(200);
+    expect(asset.gcAfterMs).toBe(originalDeadline);
+
+    await context.worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+    );
+    expect(context.state.storage.alarm).toBe(originalDeadline);
+  });
+
+  it('cancels orphan collection when an accepted snapshot references the asset', async () => {
+    const context = await activatedRoom();
+    const { asset } = await completeReadyAsset(context, 'gc-reference');
+    expect(asset.gcAfterMs).toEqual(expect.any(Number));
+
+    const response = await replacePlaylist(
+      context,
+      [playlistItem('11111111-1111-4111-8111-111111111111', asset)],
+      'gc-reference-add',
+    );
+    expect(response.status).toBe(200);
+    expect(asset.gcAfterMs).toBeUndefined();
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(true);
+  });
+
+  it('deletes an expired unreferenced asset before releasing used quota', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'gc-success', 8192);
+    const internal = context.worker as unknown as {
+      room: StoredRoom;
+      alarm(): Promise<void>;
+    };
+    const revisionBeforeGc = internal.room.revision;
+    asset.gcAfterMs = Date.now() - 1;
+
+    await internal.alarm();
+
+    expect(context.bucket.deleted).toContain(asset.objectKey);
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
+    expect(internal.room.assets[assetId]).toBeUndefined();
+    expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+    expect(internal.room.revision).toBe(revisionBeforeGc + 1);
+  });
+
+  it('postpones failed R2 collection without releasing quota, then retries safely', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'gc-retry', 16_384);
+    const internal = context.worker as unknown as {
+      room: StoredRoom;
+      alarm(): Promise<void>;
+    };
+    await context.worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+    );
+    const revisionBeforeFailure = internal.room.revision;
+    asset.gcAfterMs = Date.now() - 1;
+    context.bucket.deleteError = new Error('temporary R2 outage');
+
+    await internal.alarm();
+
+    expect(internal.room.assets[assetId]).toBe(asset);
+    expect(internal.room.quota).toMatchObject({ usedBytes: 16_384, reservedBytes: 0 });
+    expect(internal.room.quota.usedBytes + internal.room.quota.reservedBytes).toBeLessThanOrEqual(
+      internal.room.quota.limitBytes,
+    );
+    expect(internal.room.revision).toBe(revisionBeforeFailure);
+    expect(asset.gcAfterMs).toBeGreaterThan(Date.now());
+    expect(context.state.storage.alarm).toBe(asset.gcAfterMs);
+
+    context.bucket.deleteError = null;
+    asset.gcAfterMs = Date.now() - 1;
+    await internal.alarm();
+    expect(internal.room.assets[assetId]).toBeUndefined();
+    expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });
+    expect(context.bucket.deleted).toContain(asset.objectKey);
+  });
+
+  it('keeps a shared asset until the final playlist reference is removed', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'gc-shared');
+    const first = playlistItem('22222222-2222-4222-8222-222222222222', asset);
+    const second = playlistItem('33333333-3333-4333-8333-333333333333', asset);
+    expect((await replacePlaylist(context, [first, second], 'gc-shared-two')).status).toBe(200);
+    expect(asset.gcAfterMs).toBeUndefined();
+
+    expect((await replacePlaylist(context, [second], 'gc-shared-one')).status).toBe(200);
+    expect(asset.gcAfterMs).toBeUndefined();
+
+    // Even a stale/corrupt marker is rechecked against every remaining
+    // reference at collection time.
+    asset.gcAfterMs = Date.now() - 1;
+    const internal = context.worker as unknown as {
+      room: StoredRoom;
+      alarm(): Promise<void>;
+    };
+    await internal.alarm();
+    expect(internal.room.assets[assetId]).toBe(asset);
+    expect(asset.gcAfterMs).toBeUndefined();
+    expect(context.bucket.deleted).not.toContain(asset.objectKey);
+
+    expect((await replacePlaylist(context, [], 'gc-shared-none')).status).toBe(200);
+    expect(asset.gcAfterMs).toEqual(expect.any(Number));
   });
 });

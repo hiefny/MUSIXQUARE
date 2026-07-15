@@ -568,6 +568,7 @@ const pl: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Wyjdź z pokoju',
   'dialog.return_home_msg': 'Czy chcesz powrócić do ekranu startowego?',
   'dialog.return_home_detail': 'Połączenie z obecnym pokojem zostanie przerwane.',
+  'dialog.leaving_session': 'Opuszczanie pokoju...',
   'dialog.refreshing_session': 'Odświeżanie sesji...',
   'dialog.background_resume_title': 'Aplikacja na chwilę przeszła w tło',
   'dialog.background_resume_message':

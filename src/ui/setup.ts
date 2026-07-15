@@ -154,6 +154,14 @@ function triggerAppEntrance(): void {
 // ─── Init Setup Overlay ──────────────────────────────────────────
 
 function initSetupOverlay(): void {
+  // This callback is wired only to pre-session setup controls. Refuse to
+  // downgrade a live room to `idle` if a future caller invokes it by mistake;
+  // active sessions must leave through the explicit hard-reset flow instead.
+  if (getState('setup.sessionStarted')) {
+    log.warn('[Setup] Ignored onboarding reset while a session is active');
+    return;
+  }
+
   cancelCapabilityChallenge('Setup flow cancelled');
 
   // The setup back action is a soft UI reset, but a provisional signaling
@@ -545,7 +553,7 @@ export function initSetup(): void {
               startGuestFlow();
             }
           } else {
-            scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+            scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
           }
         })
         .catch((e) => log.warn('[Setup] Reconnect dialog error:', e));
@@ -571,7 +579,7 @@ export function initSetup(): void {
   // Kicked from session (guest removed from host device list)
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
-    scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+    scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
@@ -584,7 +592,7 @@ export function initSetup(): void {
     })
       .catch((e) => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {
-        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+        scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
       });
   });
 

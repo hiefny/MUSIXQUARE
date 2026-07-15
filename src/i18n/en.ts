@@ -552,6 +552,7 @@ const en: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Leave Session',
   'dialog.return_home_msg': 'Return to the start screen?',
   'dialog.return_home_detail': 'You will be disconnected from the current session.',
+  'dialog.leaving_session': 'Leaving session...',
   'dialog.refreshing_session': 'Refreshing session...',
   'dialog.background_resume_title': 'The app briefly moved to the background',
   'dialog.background_resume_message':

@@ -542,7 +542,7 @@ export function initConnect(): void {
       secondaryText: t('common.cancel'),
     }).then((res) => {
       if (res && res.action === 'ok') {
-        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+        scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
       }
     });
   };

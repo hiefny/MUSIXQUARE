@@ -619,7 +619,7 @@ async function handleLogoReturnToMain(): Promise<void> {
     }
 
     // Hard reload — clears all in-memory blobs, audio buffers, and stale state.
-    scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+    scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
   } finally {
     _logoNavBusy = false;
   }

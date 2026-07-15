@@ -209,6 +209,20 @@ describe('cancelPendingSessionSetup', () => {
     expect(getState('network.sessionCode')).toBe('');
     expect(getState('playlist.items')).toHaveLength(1);
   });
+
+  it('does not tear down an already-started session', () => {
+    const destroy = vi.fn();
+    setPeer({ destroy } as unknown as PeerInstance);
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('network.myId', 'active-host');
+
+    cancelPendingSessionSetup();
+
+    expect(destroy).not.toHaveBeenCalled();
+    expect(getPeer()).not.toBeNull();
+    expect(getState('network.myId')).toBe('active-host');
+  });
 });
 
 describe('detectConnectionType', () => {

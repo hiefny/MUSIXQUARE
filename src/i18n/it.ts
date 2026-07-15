@@ -571,6 +571,7 @@ const it: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Esci dalla stanza',
   'dialog.return_home_msg': 'Vuoi tornare alla schermata iniziale?',
   'dialog.return_home_detail': 'La connessione con la stanza corrente verrà interrotta.',
+  'dialog.leaving_session': 'Uscita in corso...',
   'dialog.refreshing_session': 'Aggiornamento della sessione...',
   'dialog.background_resume_title': "L'applicazione è passata in background",
   'dialog.background_resume_message':

@@ -16,7 +16,7 @@ import { showDialog } from '../ui/dialog.ts';
 import { DEFAULT_MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers, clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
-import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
+import type { DataConnection, AnyProtocolMsg, PeerInstance } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
 import { setPlaybackIdle } from '../player/ownership.ts';
@@ -26,7 +26,7 @@ import { setPlaybackIdle } from '../player/ownership.ts';
 import { getPeer, setPeer, generateSessionCode, broadcast, broadcastExcept } from './peer-state.ts';
 
 import { handleHostIncomingConnection } from './host.ts';
-import { setInitNetwork, initGuestProtocolHandlers } from './guest.ts';
+import { setInitNetwork, initGuestProtocolHandlers, invalidateGuestJoinAttempt } from './guest.ts';
 
 // ─── Re-exports (preserves external import surface) ─────────────────
 
@@ -187,16 +187,115 @@ function getProviderLabel(payload: TurnConfigResponse): string {
   return typeof payload.provider === 'string' && payload.provider ? payload.provider : 'remote';
 }
 
-function isNetworkInitStillActive(requestedId: string | null): boolean {
+interface NetworkInitOwner {
+  epoch: number;
+  requestedId: string | null;
+  controller: AbortController;
+  peer: PeerInstance | null;
+  peerOpenSettled: boolean;
+}
+
+let _networkInitEpoch = 0;
+let _activeNetworkInit: NetworkInitOwner | null = null;
+
+function createNetworkInitCancelledError(cause?: unknown): Error {
+  return cause === undefined
+    ? new Error('NETWORK_INIT_CANCELLED')
+    : new Error('NETWORK_INIT_CANCELLED', { cause });
+}
+
+function beginNetworkInit(requestedId: string | null): NetworkInitOwner {
+  // A second setup attempt owns the singleton transport from this point on.
+  // Abort is synchronous, so an older peer-open waiter settles before the new
+  // attempt installs its own page-global timeout.
+  _activeNetworkInit?.controller.abort();
+
+  const owner: NetworkInitOwner = {
+    epoch: ++_networkInitEpoch,
+    requestedId,
+    controller: new AbortController(),
+    peer: null,
+    peerOpenSettled: false,
+  };
+  _activeNetworkInit = owner;
+  return owner;
+}
+
+function invalidateNetworkInit(): void {
+  _networkInitEpoch++;
+  _activeNetworkInit?.controller.abort();
+  _activeNetworkInit = null;
+}
+
+function isNetworkInitStillActive(owner: NetworkInitOwner): boolean {
+  if (
+    owner.controller.signal.aborted ||
+    owner.epoch !== _networkInitEpoch ||
+    _activeNetworkInit !== owner
+  ) {
+    return false;
+  }
+
   const appRole = getState('network.appRole');
-  if (requestedId) return appRole === 'host';
+  if (owner.requestedId) return appRole === 'host';
   return appRole === 'guest' && getState('network.isConnecting');
 }
 
-function assertNetworkInitStillActive(requestedId: string | null): void {
-  if (!isNetworkInitStillActive(requestedId)) {
-    throw new Error('NETWORK_INIT_CANCELLED');
+function assertNetworkInitStillActive(owner: NetworkInitOwner): void {
+  if (!isNetworkInitStillActive(owner)) {
+    throw createNetworkInitCancelledError();
   }
+}
+
+function waitForPeerOpen(peer: PeerInstance, owner: NetworkInitOwner): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearManagedTimer('peer-open-timeout');
+      owner.controller.signal.removeEventListener('abort', onAbort);
+      peer.off('open', onOpen);
+      peer.off('error', onError);
+    };
+    const settleError = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+    const onOpen = (id: string) => {
+      if (settled) return;
+      if (!isNetworkInitStillActive(owner) || getPeer() !== peer) {
+        settleError(createNetworkInitCancelledError());
+        return;
+      }
+      // From this exact event onward, setupPeerEvents owns subsequent peer
+      // errors. Before it, the init promise is the single error owner.
+      owner.peerOpenSettled = true;
+      settled = true;
+      cleanup();
+      resolve(id);
+    };
+    const onError = (err: unknown) => settleError(err);
+    const onAbort = () => settleError(createNetworkInitCancelledError());
+
+    peer.on('open', onOpen);
+    peer.on('error', onError);
+    owner.controller.signal.addEventListener('abort', onAbort, { once: true });
+
+    // A transport may be locally ready before initNetwork attaches this
+    // waiter. The facade must tolerate either timing so setup never waits
+    // forever.
+    if (peer.open && peer.id) {
+      onOpen(peer.id);
+      return;
+    }
+    if (!isNetworkInitStillActive(owner)) {
+      onAbort();
+      return;
+    }
+
+    setManagedTimer('peer-open-timeout', () => onError(new Error('PEER_OPEN_TIMEOUT')), 15000);
+  });
 }
 
 // ─── Network Initialization ─────────────────────────────────────────
@@ -206,140 +305,113 @@ function assertNetworkInitStillActive(requestedId: string | null): void {
  * Returns the assigned peer ID.
  */
 async function initNetwork(requestedId: string | null = null): Promise<string> {
+  const owner = beginNetworkInit(requestedId);
+  let ownedPeer: PeerInstance | null = null;
+
   // Clean up existing peer instance
   const oldPeer = getPeer();
   if (oldPeer) {
+    // Revoke singleton ownership before destroy(), since some adapters emit
+    // error/disconnected synchronously while being torn down.
+    setPeer(null);
     try {
       oldPeer.destroy();
     } catch {
       /* noop */
     }
-    setPeer(null);
   }
 
-  // ICE servers: STUN always, TURN via the Cloudflare app Worker.
-  const iceServers: RTCIceServer[] = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-  ];
+  try {
+    // ICE servers: STUN always, TURN via the Cloudflare app Worker.
+    const iceServers: RTCIceServer[] = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+    ];
 
-  // Direct URLs only (avoid cross-host redirects, which break CORS in some WebViews)
-  const turnEndpoints = [
-    '/api/get-turn-config', // same-origin (works for musixquare.com)
-    'https://musixquare.com/api/get-turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
-  ];
+    // Direct URLs only (avoid cross-host redirects, which break CORS in some WebViews)
+    const turnEndpoints = [
+      '/api/get-turn-config', // same-origin (works for musixquare.com)
+      'https://musixquare.com/api/get-turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
+    ];
 
-  for (const url of turnEndpoints) {
-    try {
-      assertNetworkInitStillActive(requestedId);
-      const resp = await fetchWithCapability(url, 'turn');
-      assertNetworkInitStillActive(requestedId);
-      if (!resp.ok) {
-        log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
-        continue;
-      }
-      const payload = (await resp.json()) as TurnConfigResponse;
-      const remoteIceServers = normalizeRemoteIceServers(payload.iceServers);
-      if (remoteIceServers.some(hasTurnServer)) {
-        iceServers.push(...remoteIceServers);
-        log.info(`[Network] TURN ICE servers loaded (${getProviderLabel(payload)}) via ${url}`);
-        break;
-      }
+    for (const url of turnEndpoints) {
+      try {
+        assertNetworkInitStillActive(owner);
+        const resp = await fetchWithCapability(url, 'turn', {
+          signal: owner.controller.signal,
+        });
+        assertNetworkInitStillActive(owner);
+        if (!resp.ok) {
+          log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
+          continue;
+        }
+        const payload = (await resp.json()) as TurnConfigResponse;
+        assertNetworkInitStillActive(owner);
+        const remoteIceServers = normalizeRemoteIceServers(payload.iceServers);
+        if (remoteIceServers.some(hasTurnServer)) {
+          iceServers.push(...remoteIceServers);
+          log.info(`[Network] TURN ICE servers loaded (${getProviderLabel(payload)}) via ${url}`);
+          break;
+        }
 
-      log.warn(`[Network] TURN fetch returned no usable ICE servers: ${url}`);
-    } catch (e) {
-      if (isCapabilityChallengeCancelled(e)) throw e;
-      if (!isNetworkInitStillActive(requestedId)) {
-        throw new Error('NETWORK_INIT_CANCELLED', { cause: e });
+        log.warn(`[Network] TURN fetch returned no usable ICE servers: ${url}`);
+      } catch (e) {
+        if (isCapabilityChallengeCancelled(e)) throw e;
+        if (!isNetworkInitStillActive(owner)) {
+          throw createNetworkInitCancelledError(e);
+        }
+        log.warn(
+          `[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
+    }
+    if (!iceServers.some(hasTurnServer)) {
       log.warn(
-        `[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`,
+        '[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)',
       );
     }
-  }
-  if (!iceServers.some(hasTurnServer)) {
-    log.warn(
-      '[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)',
-    );
-  }
 
-  const transportConfig = getRuntimeTransportConfig();
-  const peerOpts: TransportPeerOptions = {
-    debug: 2,
-    provider: transportConfig.provider,
-    signalingUrl: transportConfig.signalingUrl,
-    peerJsServer: transportConfig.peerJsServer,
-    config: {
-      iceServers,
-      bundlePolicy: 'max-bundle',
-    },
-  };
+    const transportConfig = getRuntimeTransportConfig();
+    const peerOpts: TransportPeerOptions = {
+      debug: 2,
+      provider: transportConfig.provider,
+      signalingUrl: transportConfig.signalingUrl,
+      peerJsServer: transportConfig.peerJsServer,
+      config: {
+        iceServers,
+        bundlePolicy: 'max-bundle',
+      },
+    };
 
-  assertNetworkInitStillActive(requestedId);
-  log.info(`[Network] Initializing ${transportConfig.provider} transport`);
-  const newPeer = await createTransportPeer(requestedId, peerOpts);
-  try {
-    assertNetworkInitStillActive(requestedId);
+    assertNetworkInitStillActive(owner);
+    log.info(`[Network] Initializing ${transportConfig.provider} transport`);
+    const newPeer = await createTransportPeer(requestedId, peerOpts);
+    ownedPeer = newPeer;
+    assertNetworkInitStillActive(owner);
+    owner.peer = newPeer;
+    setPeer(newPeer);
+    setupPeerEvents(newPeer);
+
+    // Cancellation owns an explicit rejection path: destroy() is not required
+    // to emit an error, and setup cancellation also clears the timeout.
+    const id = await waitForPeerOpen(newPeer, owner);
+
+    assertNetworkInitStillActive(owner);
+    setState('network.myId', id);
+    log.info('[Network] Peer opened:', id);
+    bus.emit('network:peer-ready', id);
+    return id;
   } catch (error) {
+    if (ownedPeer && getPeer() === ownedPeer) setPeer(null);
     try {
-      newPeer.destroy();
+      ownedPeer?.destroy();
     } catch {
       /* noop */
     }
     throw error;
+  } finally {
+    if (_activeNetworkInit === owner) _activeNetworkInit = null;
   }
-  setPeer(newPeer);
-  setupPeerEvents();
-
-  // Wait for open (or fail fast on error)
-  const id = await new Promise<string>((resolve, reject) => {
-    let settled = false;
-    const cleanup = () => {
-      clearManagedTimer('peer-open-timeout');
-      newPeer.off('open', onOpen);
-      newPeer.off('error', onError);
-    };
-    const onOpen = (id: string) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(id);
-    };
-    const onError = (err: unknown) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(err);
-    };
-    newPeer.on('open', onOpen);
-    newPeer.on('error', onError);
-
-    // A transport may be locally ready before initNetwork attaches this
-    // waiter. The facade must tolerate either timing so setup never waits
-    // forever.
-    if (newPeer.open && newPeer.id) {
-      onOpen(newPeer.id);
-      return;
-    }
-
-    setManagedTimer('peer-open-timeout', () => onError(new Error('PEER_OPEN_TIMEOUT')), 15000);
-  });
-
-  try {
-    assertNetworkInitStillActive(requestedId);
-  } catch (error) {
-    try {
-      newPeer.destroy();
-    } catch {
-      /* noop */
-    }
-    setPeer(null);
-    throw error;
-  }
-  setState('network.myId', id);
-  log.info('[Network] Peer opened:', id);
-  bus.emit('network:peer-ready', id);
-  return id;
 }
 
 // Inject initNetwork into guest.ts (late binding to avoid circular dep)
@@ -443,17 +515,22 @@ function attemptPeerReconnect(): void {
   );
 }
 
-function setupPeerEvents(): void {
-  const peer = getPeer();
-  if (!peer) return;
-
+function setupPeerEvents(peer: PeerInstance): void {
   peer.on('error', (err: unknown) => {
+    if (getPeer() !== peer) return;
+    // waitForPeerOpen rejects the owning setup promise with this same error.
+    // Do not also emit network:error here: guest/host setup will translate the
+    // rejected init once, producing one user-facing failure.
+    if (_activeNetworkInit?.peer === peer && !_activeNetworkInit.peerOpenSettled) {
+      log.debug('[Transport] Peer initialization error delegated to init owner');
+      return;
+    }
     log.error('[Transport] Error:', err);
     const appRole = getState('network.appRole');
     const hostConn = getState('network.hostConn');
 
-    // During initialization (no role set yet), errors are handled by the
-    // initNetwork promise chain — don't emit duplicate error events.
+    // Defensive compatibility for callers that initialize before selecting a
+    // role. Normal setup has already selected host/guest at this point.
     if (!appRole) return;
 
     if (appRole === 'host' && !hostConn) {
@@ -469,6 +546,7 @@ function setupPeerEvents(): void {
   });
 
   peer.on('disconnected', () => {
+    if (getPeer() !== peer) return;
     log.warn('[Transport] Disconnected from signaling server');
 
     // Auto-reconnect: the active transport may not reconnect to its signaling server on
@@ -544,6 +622,10 @@ function setupPeerEvents(): void {
 
   // System Audio: handle incoming media calls (WebRTC audio stream)
   peer.on('call', (mediaConn: unknown) => {
+    if (getPeer() !== peer) {
+      closeIncomingMediaCall(mediaConn as IncomingMediaConnection);
+      return;
+    }
     const mc = mediaConn as IncomingMediaConnection;
     const type = mc.metadata?.type;
     if (isSystemAudioCallType(type)) {
@@ -565,6 +647,14 @@ function setupPeerEvents(): void {
   });
 
   peer.on('connection', (conn: DataConnection) => {
+    if (getPeer() !== peer) {
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
+      return;
+    }
     const appRole = getState('network.appRole');
     if (appRole !== 'host') {
       try {
@@ -596,6 +686,8 @@ const PENDING_SETUP_TIMER_KEYS = [
  */
 export function cancelPendingSessionSetup(): void {
   if (getState('setup.sessionStarted')) return;
+  invalidateGuestJoinAttempt();
+  invalidateNetworkInit();
 
   const hostConn = getState('network.hostConn');
   const connectedPeers = getState('network.connectedPeers');
@@ -618,12 +710,12 @@ export function cancelPendingSessionSetup(): void {
       /* noop */
     }
   }
+  if (peer) setPeer(null);
   try {
     peer?.destroy();
   } catch {
     /* noop */
   }
-  if (peer) setPeer(null);
 
   batchSetState({
     'network.myId': null,
@@ -660,6 +752,8 @@ export function cancelPendingSessionSetup(): void {
  * Leave the current session and clean up all network state.
  */
 export function leaveSession(): void {
+  invalidateGuestJoinAttempt();
+  invalidateNetworkInit();
   log.debug('[Network] Leaving session — full cleanup...');
 
   setState('network.isIntentionalDisconnect', true);
@@ -703,12 +797,12 @@ export function leaveSession(): void {
   // Destroy peer AFTER all connections are closed
   const peer = getPeer();
   if (peer) {
+    setPeer(null);
     try {
       peer.destroy();
     } catch {
       /* noop */
     }
-    setPeer(null);
   }
 
   // ── 4. Clear peer slots and maps ──

@@ -140,7 +140,7 @@ function _renderInviteLinkActions(): void {
         html: BACK_SVG,
         kind: 'icon-only',
         onClick: () => {
-          scheduleSessionReset(t('dialog.refreshing_session'), () => {
+          scheduleSessionReset(t('dialog.leaving_session'), () => {
             window.location.href = '/';
           });
         },
@@ -189,7 +189,7 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
         html: BACK_SVG,
         kind: 'icon-only',
         onClick: () => {
-          scheduleSessionReset(t('dialog.refreshing_session'), () => {
+          scheduleSessionReset(t('dialog.leaving_session'), () => {
             window.location.href = '/';
           });
         },
@@ -335,7 +335,7 @@ function renderPasswordRetryBusy(inviteLink: boolean): void {
         kind: 'icon-only',
         onClick: inviteLink
           ? () => {
-              scheduleSessionReset(t('dialog.refreshing_session'), () => {
+              scheduleSessionReset(t('dialog.leaving_session'), () => {
                 window.location.href = '/';
               });
             }

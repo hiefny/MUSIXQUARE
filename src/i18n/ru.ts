@@ -568,6 +568,7 @@ const ru: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Выйти из комнаты',
   'dialog.return_home_msg': 'Вернуться на стартовый экран?',
   'dialog.return_home_detail': 'Соединение с текущей комнатой будет разорвано.',
+  'dialog.leaving_session': 'Выход из комнаты...',
   'dialog.refreshing_session': 'Обновление сеанса...',
   'dialog.background_resume_title': 'Приложение перешло в фоновый режим',
   'dialog.background_resume_message':

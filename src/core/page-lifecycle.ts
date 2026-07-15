@@ -18,9 +18,8 @@
  *      injected dependencies so the lifecycle contract remains testable.
  *
  *   3. Bfcache restore fallback (pageshow, persisted=true) — if the page
- *      ever returns from the back-forward cache with a session role still
- *      active, force a reload so cached UI cannot claim that dead runtime
- *      resources are connected.
+ *      returns with an active session or a pending hard reset, force a reload
+ *      so cached UI cannot claim dead resources are connected or stay inert.
  *
  * App-owned hard navigations should go through `core/session-reset.ts`, which
  * blocks interaction, allows the overlay to paint, and calls
@@ -40,6 +39,15 @@ export function markIntentionalNav(): void {
   _intentionalNav = true;
 }
 
+/**
+ * Clear an intentional navigation that never committed. Reset coordinators
+ * call this when their navigation action throws or produces no unload, so a
+ * later user-driven close still receives the normal confirmation.
+ */
+export function clearIntentionalNav(): void {
+  _intentionalNav = false;
+}
+
 /** @internal Read by the `beforeunload` handler. */
 export function isIntentionalNav(): boolean {
   return _intentionalNav;
@@ -51,7 +59,7 @@ export function isIntentionalNav(): boolean {
  * to be one-shot for the lifetime of the page.
  */
 export function __resetIntentionalNavForTests(): void {
-  _intentionalNav = false;
+  clearIntentionalNav();
 }
 
 // ─── Handler Initialisation ─────────────────────────────────────────
@@ -63,6 +71,10 @@ interface PageLifecycleDeps {
   leaveSession: () => void;
   /** Force a fresh page load — used by the bfcache-restore fallback. */
   reload: () => void;
+  /** Whether a hard reset was in flight when this document entered bfcache. */
+  hasPendingReset?: () => boolean;
+  /** Remove reset UI/interaction locks before retrying a bfcache reload. */
+  restorePendingReset?: () => void;
   /** Optional logger for bfcache-restore telemetry. */
   log?: { info: (msg: string, ...args: unknown[]) => void };
 }
@@ -128,19 +140,39 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
 
   // ── pageshow ──
   // Fires on both fresh loads (persisted=false) and bfcache restores
-  // (persisted=true). Only the restore case needs handling: if an
-  // active-session page is restored from bfcache, every runtime
-  // resource is dead (transport data connections, RTCPeerConnection, the
-  // AudioContext, managed timers) but the cached DOM would still show
-  // "connected". Force a reload for fresh state.
+  // (persisted=true). Only the restore case needs handling: an active-session
+  // page may have stale runtime resources, while a confirmed Back flow may
+  // return with role=idle but its cached reset overlay and inert DOM intact.
+  // Both cases force a fresh load; the pending-reset case first restores
+  // interaction so a rejected reload cannot strand the document.
   window.addEventListener(
     'pageshow',
     (e) => {
       if (!e.persisted) return;
-      if (deps.getRole() === 'idle') return;
-      deps.log?.info('[PageLifecycle] Restored from bfcache with active session — reloading');
-      _intentionalNav = true; // avoid double-prompting on the reload itself
-      deps.reload();
+      const role = deps.getRole();
+      const resetPending = deps.hasPendingReset?.() === true;
+      if (role === 'idle' && !resetPending) return;
+
+      if (resetPending) {
+        // A confirmed Back flow calls leaveSession() before navigating, so its
+        // cached document legitimately has role=idle. Remove the cached inert
+        // UI first: even if reload is rejected, the restored page remains
+        // interactive instead of being trapped behind the reset overlay.
+        deps.restorePendingReset?.();
+      }
+
+      deps.log?.info(
+        resetPending
+          ? '[PageLifecycle] Restored a pending session reset from bfcache — reloading'
+          : '[PageLifecycle] Restored from bfcache with active session — reloading',
+      );
+      if (role !== 'idle') markIntentionalNav(); // avoid prompting on the reload itself
+      try {
+        deps.reload();
+      } catch {
+        // A failed reload must not suppress a later user-driven unload.
+        clearIntentionalNav();
+      }
     },
     opts,
   );

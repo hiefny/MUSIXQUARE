@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetState, getState } from '../../core/state.ts';
+import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
@@ -41,7 +41,7 @@ vi.mock('../sync-worker.ts', async (importOriginal) => {
   };
 });
 
-import { joinSession, setInitNetwork } from '../guest.ts';
+import { invalidateGuestJoinAttempt, joinSession, setInitNetwork } from '../guest.ts';
 
 type FiringConn = DataConnection & {
   fire: (event: string, ...args: unknown[]) => void;
@@ -213,7 +213,9 @@ describe('joinSession reconnect racing', () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
     const errors = vi.fn();
+    const successes = vi.fn();
     bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
 
     joinSession('HOST01');
     const conn = conns[0];
@@ -227,6 +229,37 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.isConnecting')).toBe(false);
     expect(errors).toHaveBeenCalledTimes(1);
     expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_UNREACHABLE');
+
+    // A transport may already have queued an open callback when close() wins.
+    // That stale event must not resurrect the failed join.
+    conn.fire('open');
+    expect(getState('network.hostConn')).toBeNull();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(successes).not.toHaveBeenCalled();
+  });
+
+  it('does not revive a join when open arrives after a pre-open error', async () => {
+    vi.useFakeTimers();
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    const successes = vi.fn();
+    bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('error', new Error('pre-open failed'));
+
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(errors).toHaveBeenCalledTimes(1);
+
+    conn.fire('open');
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(getState('network.hostConn')).toBeNull();
+    expect(errors).toHaveBeenCalledTimes(1);
+    expect(successes).not.toHaveBeenCalled();
   });
 });
 
@@ -247,6 +280,51 @@ describe('joinSession capability-challenge cancel (F-2401)', () => {
     // Cancellation restores the join UI without surfacing a connection error.
     expect(errors).not.toHaveBeenCalled();
     expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('does not let guest A cancellation overwrite a newly started guest B join', async () => {
+    let rejectGuestA!: (reason?: unknown) => void;
+    const guestAInit = new Promise<string>((_resolve, reject) => {
+      rejectGuestA = reject;
+    });
+    let resolveGuestB!: (id: string) => void;
+    const guestBInit = new Promise<string>((resolve) => {
+      resolveGuestB = resolve;
+    });
+    const cancelled = vi.fn();
+    const errors = vi.fn();
+    bus.on('setup:guest-join-cancelled', cancelled);
+    bus.on('network:error', errors);
+
+    mocks.getPeer.mockReturnValue(null);
+    setInitNetwork(() => guestAInit);
+    joinSession('HOST01');
+    expect(getState('network.isConnecting')).toBe(true);
+
+    // Mirrors the generation invalidation performed by setup cancellation,
+    // followed immediately by a second join attempt.
+    invalidateGuestJoinAttempt();
+    setState('network.isConnecting', false);
+    setInitNetwork(() => guestBInit);
+    joinSession('HOST02');
+    expect(getState('network.isConnecting')).toBe(true);
+
+    rejectGuestA(new Error('NETWORK_INIT_CANCELLED'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getState('network.isConnecting')).toBe(true);
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    resolveGuestB('GUEST-B');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(conns).toHaveLength(1);
+
+    conns[0].fire('open');
+    expect(getState('network.hostConn')).toBe(conns[0]);
     expect(getState('network.isConnecting')).toBe(false);
   });
 });

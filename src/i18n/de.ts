@@ -493,6 +493,7 @@ const de: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Raum verlassen',
   'dialog.return_home_msg': 'Zum Startbildschirm zurückkehren?',
   'dialog.return_home_detail': 'Du wirst vom aktuellen Raum getrennt.',
+  'dialog.leaving_session': 'Raum wird verlassen...',
   'dialog.refreshing_session': 'Sitzung wird aktualisiert...',
   'dialog.background_resume_title': 'Die App war kurz im Hintergrund',
   'dialog.background_resume_message':

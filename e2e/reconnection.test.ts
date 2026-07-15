@@ -8,14 +8,13 @@
  * - Guest context close simulates network drop
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
-import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
-  isVisible,
-  readState,
-  waitForDeviceCount,
-  waitForPlaylistCount,
-} from './helpers/wait.ts';
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
+import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { isVisible, readState, waitForDeviceCount, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -111,7 +110,7 @@ test.describe('Reconnection & Disconnect', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    const code = await readState(pair.hostPage, 'network.sessionCode') as string;
+    const code = (await readState(pair.hostPage, 'network.sessionCode')) as string;
 
     await pair.guestContext.close();
     (pair as any)._guestClosed = true;
@@ -141,7 +140,9 @@ test.describe('Reconnection & Disconnect', () => {
       // A replaced connection can remain briefly in connectedPeers, so assert
       // successful admission rather than an exact transient count.
       const deviceRows = await pair.hostPage.evaluate(() => {
-        const list = document.getElementById('connect-device-list') || document.getElementById('desktop-device-list');
+        const list =
+          document.getElementById('connect-device-list') ||
+          document.getElementById('desktop-device-list');
         return list?.querySelectorAll('.device-row').length ?? 0;
       });
       expect(deviceRows).toBeGreaterThanOrEqual(2);
@@ -150,20 +151,33 @@ test.describe('Reconnection & Disconnect', () => {
     }
   });
 
-  test('guest leave button triggers intentional disconnect', async () => {
+  test('guest leave button confirms, resets, and returns to onboarding', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // The leave action reloads the guest page.
-    const leaveBtn = pair.guestPage.locator('#btn-leave-session, #desktop-btn-leave-session');
-    if (await leaveBtn.first().isVisible()) {
-      await pair.guestPage.evaluate(() => {
-        const setState = (window as any).__MUSIXQUARE_SET_STATE__;
-        if (setState) setState('network.isIntentionalDisconnect', true);
-      });
-
-      const isIntentional = await readState(pair.guestPage, 'network.isIntentionalDisconnect');
-      expect(isIntentional).toBe(true);
+    const leaveBtn = pair.guestPage
+      .locator('#desktop-btn-leave-session:visible, #btn-leave-session:visible')
+      .first();
+    if (!(await leaveBtn.isVisible())) {
+      const desktopConnectTab = pair.guestPage.locator(
+        '.settings-subtab-nav .subtab-pill[data-subtab="connect"]',
+      );
+      if (await desktopConnectTab.isVisible()) {
+        await desktopConnectTab.click();
+      } else {
+        await pair.guestPage.locator('.nav-item[data-tab="connect"]:visible').click();
+      }
     }
+
+    await expect(leaveBtn).toBeVisible();
+    await leaveBtn.click();
+    await expect(pair.guestPage.locator('#dialog-overlay.show')).toBeVisible();
+
+    const reloaded = pair.guestPage.waitForNavigation({ waitUntil: 'domcontentloaded' });
+    await pair.guestPage.locator('#btn-dialog-ok').click();
+    await reloaded;
+
+    await expect(pair.guestPage.locator('#setup-overlay.active')).toBeVisible();
+    expect(await readState(pair.guestPage, 'network.appRole')).toBe('idle');
   });
 });

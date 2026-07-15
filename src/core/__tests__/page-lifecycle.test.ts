@@ -5,11 +5,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   markIntentionalNav,
+  clearIntentionalNav,
   isIntentionalNav,
   initPageLifecycleHandlers,
   __resetIntentionalNavForTests,
   type PageLifecycleHandle,
 } from '../page-lifecycle.ts';
+import {
+  isSessionResetPending,
+  restoreSessionReset,
+  scheduleSessionReset,
+} from '../session-reset.ts';
 
 // jsdom's Event doesn't carry the `persisted` property that real
 // PageTransitionEvent does, and setting it via the constructor only
@@ -40,6 +46,12 @@ describe('page-lifecycle flag', () => {
     markIntentionalNav();
     markIntentionalNav();
     expect(isIntentionalNav()).toBe(true);
+  });
+
+  it('can clear an intentional navigation that did not commit', () => {
+    markIntentionalNav();
+    clearIntentionalNav();
+    expect(isIntentionalNav()).toBe(false);
   });
 });
 
@@ -168,6 +180,28 @@ describe('initPageLifecycleHandlers — pageshow', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it('reloads an idle bfcache document that still owns a pending reset', () => {
+    handle.dispose();
+    role = 'idle';
+    const restorePendingReset = vi.fn();
+    handle = initPageLifecycleHandlers({
+      getRole: () => role,
+      leaveSession: vi.fn(),
+      reload,
+      hasPendingReset: () => true,
+      restorePendingReset,
+    });
+
+    window.dispatchEvent(pageTransition('pageshow', true));
+
+    expect(restorePendingReset).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledOnce();
+    expect(restorePendingReset.mock.invocationCallOrder[0]).toBeLessThan(
+      reload.mock.invocationCallOrder[0],
+    );
+    expect(isIntentionalNav()).toBe(false);
+  });
+
   it('reloads on bfcache restore when role is non-idle', () => {
     window.dispatchEvent(pageTransition('pageshow', true));
     expect(reload).toHaveBeenCalledTimes(1);
@@ -176,6 +210,20 @@ describe('initPageLifecycleHandlers — pageshow', () => {
   it('flips the intentional-nav flag before reloading (avoids double-prompt)', () => {
     window.dispatchEvent(pageTransition('pageshow', true));
     expect(isIntentionalNav()).toBe(true);
+  });
+
+  it('clears the intentional-nav flag if a bfcache reload throws', () => {
+    handle.dispose();
+    handle = initPageLifecycleHandlers({
+      getRole: () => 'host',
+      leaveSession: vi.fn(),
+      reload: () => {
+        throw new Error('reload rejected');
+      },
+    });
+
+    expect(() => window.dispatchEvent(pageTransition('pageshow', true))).not.toThrow();
+    expect(isIntentionalNav()).toBe(false);
   });
 
   it('passes the log message through when a logger is provided', () => {
@@ -215,5 +263,51 @@ describe('initPageLifecycleHandlers — dispose', () => {
 
     window.dispatchEvent(pageTransition('pageshow', true));
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('page lifecycle + session reset integration', () => {
+  it('re-arms a fresh reload after an idle pending reset returns from bfcache', () => {
+    const originalRaf = window.requestAnimationFrame;
+    vi.useFakeTimers();
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+    document.body.innerHTML = '<main id="app">Session</main>';
+    let role = 'host';
+    const reloadAction = vi.fn();
+    const handle = initPageLifecycleHandlers({
+      getRole: () => role,
+      leaveSession: vi.fn(),
+      reload: () => scheduleSessionReset('Reloading', reloadAction),
+      hasPendingReset: isSessionResetPending,
+      restorePendingReset: restoreSessionReset,
+    });
+
+    try {
+      scheduleSessionReset('Leaving', () => {
+        role = 'idle';
+      });
+      vi.advanceTimersByTime(120);
+      window.dispatchEvent(pageTransition('pagehide', true));
+
+      window.dispatchEvent(pageTransition('pageshow', true));
+
+      expect(isSessionResetPending()).toBe(true);
+      expect(document.getElementById('session-reset-message')?.textContent).toBe('Reloading');
+      vi.advanceTimersByTime(120);
+      expect(reloadAction).toHaveBeenCalledOnce();
+    } finally {
+      handle.dispose();
+      restoreSessionReset();
+      vi.useRealTimers();
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalRaf,
+      });
+    }
   });
 });

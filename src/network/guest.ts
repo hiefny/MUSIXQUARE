@@ -26,6 +26,7 @@ import { showToast } from '../ui/toast.ts';
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
 let _initNetwork: ((requestedId: string | null) => Promise<string>) | null = null;
+let _guestJoinEpoch = 0;
 type ConnectionType = 'local' | 'remote' | 'unknown';
 let _hostReportedConnectionType: ConnectionType | null = null;
 const _handledConnectionErrors = new WeakSet<DataConnection>();
@@ -72,12 +73,34 @@ export function setInitNetwork(fn: (requestedId: string | null) => Promise<strin
   _initNetwork = fn;
 }
 
+/** Invalidate every callback/timer owned by the current provisional join. */
+export function invalidateGuestJoinAttempt(): void {
+  _guestJoinEpoch++;
+}
+
+function isCurrentGuestJoin(epoch: number): boolean {
+  return epoch === _guestJoinEpoch;
+}
+
+function terminateGuestJoin(epoch: number): boolean {
+  if (!isCurrentGuestJoin(epoch)) return false;
+  _guestJoinEpoch++;
+  clearManagedTimer('join-timeout');
+  clearManagedTimer('join-retry');
+  return true;
+}
+
 // ─── Guest: Join Session ────────────────────────────────────────────
 
 /**
  * Connect to a host session as a guest.
  */
-export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0): void {
+export function joinSession(
+  hostId: string,
+  roomPassword = '',
+  retryAttempt = 0,
+  ownerEpoch?: number,
+): void {
   // Guard against duplicate calls (e.g. rapid double-click)
   // Only check on initial call — retries (retryAttempt > 0) must pass through
   // because isConnecting is already true from the initial call.
@@ -110,6 +133,9 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     return;
   }
 
+  const joinEpoch = retryAttempt === 0 ? ++_guestJoinEpoch : (ownerEpoch ?? _guestJoinEpoch);
+  if (!isCurrentGuestJoin(joinEpoch)) return;
+
   setState('network.lastJoinCode', hostId);
 
   // Set connecting state on initial call (callers must NOT pre-set this)
@@ -136,8 +162,12 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       return;
     }
     _initNetwork(null)
-      .then(() => joinSession(hostId, roomPassword, retryAttempt + 1))
+      .then(() => {
+        if (!isCurrentGuestJoin(joinEpoch)) return;
+        joinSession(hostId, roomPassword, retryAttempt + 1, joinEpoch);
+      })
       .catch((e) => {
+        if (!isCurrentGuestJoin(joinEpoch)) return;
         // A user-cancelled capability/Turnstile challenge (peer.ts
         // rethrows it directly) or a back-out that makes network init no longer
         // active (NETWORK_INIT_CANCELLED) is intentional — it must NOT surface as
@@ -152,14 +182,26 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         }
         log.error('[Join] Failed to init peer', e);
         setState('network.isConnecting', false);
-        bus.emit('network:error', new Error('NETWORK_INIT_FAILED'));
+        const typedTransportError =
+          e && typeof e === 'object' && typeof (e as Record<string, unknown>).type === 'string';
+        bus.emit(
+          'network:error',
+          typedTransportError ? e : new Error('NETWORK_INIT_FAILED', { cause: e }),
+        );
       });
     return;
   }
 
   if (!peer.open) {
     if (retryAttempt < 10) {
-      setManagedTimer('join-retry', () => joinSession(hostId, roomPassword, retryAttempt + 1), 300);
+      setManagedTimer(
+        'join-retry',
+        () => {
+          if (!isCurrentGuestJoin(joinEpoch)) return;
+          joinSession(hostId, roomPassword, retryAttempt + 1, joinEpoch);
+        },
+        300,
+      );
     } else {
       setState('network.isConnecting', false);
       bus.emit('network:error', new Error('PEER_NOT_READY'));
@@ -187,8 +229,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   let dataChannelOpened = false;
 
   const handlePreOpenError = (err: unknown) => {
-    if (dataChannelOpened) return;
-    clearManagedTimer('join-timeout');
+    if (dataChannelOpened || !terminateGuestJoin(joinEpoch)) return;
     log.warn('[Join] Host connection error before open', err);
     try {
       conn.close();
@@ -202,6 +243,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   // Register data handler BEFORE 'open' to avoid missing early messages
   // (e.g. WELCOME sent by host in its own 'open' handler).
   conn.on('data', (data: unknown) => {
+    if (!isCurrentGuestJoin(joinEpoch)) return;
     bus.emit('network:data', data, conn);
   });
   conn.on('error', handlePreOpenError);
@@ -211,7 +253,10 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   setManagedTimer(
     'join-timeout',
     () => {
-      if (dataChannelOpened || getState('network.hostConn')) return;
+      if (!isCurrentGuestJoin(joinEpoch) || dataChannelOpened || getState('network.hostConn')) {
+        return;
+      }
+      if (!terminateGuestJoin(joinEpoch)) return;
       log.warn('[Join] Connection timeout — data channel did not open in 10s');
       try {
         conn.close();
@@ -225,6 +270,14 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   );
 
   conn.on('open', () => {
+    if (!isCurrentGuestJoin(joinEpoch)) {
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
+      return;
+    }
     dataChannelOpened = true;
     clearManagedTimer('join-timeout');
     conn.off?.('error', handlePreOpenError);

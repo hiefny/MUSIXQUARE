@@ -28,7 +28,11 @@ import {
 } from './core/page-lifecycle.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
-import { scheduleSessionReset } from './core/session-reset.ts';
+import {
+  isSessionResetPending,
+  restoreSessionReset,
+  scheduleSessionReset,
+} from './core/session-reset.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -332,7 +336,7 @@ function initBackButtonGuard(): void {
           defaultFocus: 'secondary',
         });
         if (result.action === 'ok') {
-          scheduleSessionReset(t('dialog.refreshing_session'), () => {
+          scheduleSessionReset(t('dialog.leaving_session'), () => {
             try {
               leaveSession();
             } catch (e) {
@@ -475,8 +479,12 @@ async function bootstrap(): Promise<void> {
     initPageLifecycleHandlers({
       getRole: () => getState('network.appRole'),
       leaveSession,
+      // A pending bfcache reset is restored immediately before this callback,
+      // so the coordinator can paint a fresh overlay and own reload recovery.
       reload: () =>
         scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload()),
+      hasPendingReset: isSessionResetPending,
+      restorePendingReset: restoreSessionReset,
       log,
     }),
   );

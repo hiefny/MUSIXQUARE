@@ -564,6 +564,7 @@ const tr: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Odadan Ayrıl',
   'dialog.return_home_msg': 'Başlangıç ekranına dönmek istiyor musunuz?',
   'dialog.return_home_detail': 'Bağlantınız kesilecektir.',
+  'dialog.leaving_session': 'Çıkış yapılıyor...',
   'dialog.refreshing_session': 'Oturum yenileniyor...',
   'dialog.background_resume_title': 'Uygulama arka plana alındı',
   'dialog.background_resume_message':

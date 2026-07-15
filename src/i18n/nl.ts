@@ -560,6 +560,7 @@ const nl: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Sessie verlaten',
   'dialog.return_home_msg': 'Terug naar het startscherm?',
   'dialog.return_home_detail': 'Je wordt losgekoppeld van de huidige sessie.',
+  'dialog.leaving_session': 'Sessie verlaten...',
   'dialog.refreshing_session': 'Sessie wordt vernieuwd...',
   'dialog.background_resume_title': 'De app ging kort naar de achtergrond',
   'dialog.background_resume_message':

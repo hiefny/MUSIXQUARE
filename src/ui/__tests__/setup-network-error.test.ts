@@ -96,7 +96,9 @@ vi.mock('../setup-shared.ts', () => ({
 
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
+import { cancelPendingSessionSetup } from '../../network/peer.ts';
 import { initSetup } from '../setup.ts';
+import { setHostGoBack } from '../setup-host.ts';
 import { showToast } from '../toast.ts';
 
 function startJoining(): void {
@@ -157,6 +159,20 @@ describe('setup network error messages', () => {
     bus.emit('setup:guest-join-success');
 
     expect(sessionStorage.getItem('mxqr_reconnect_target')).toBeNull();
+    expect(getState('setup.sessionStarted')).toBe(true);
+  });
+
+  it('refuses to downgrade an active session through a setup back callback', () => {
+    const goBack = vi.mocked(setHostGoBack).mock.calls.at(-1)?.[0];
+    expect(goBack).toBeTypeOf('function');
+    vi.mocked(cancelPendingSessionSetup).mockClear();
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+
+    goBack?.();
+
+    expect(cancelPendingSessionSetup).not.toHaveBeenCalled();
+    expect(getState('network.appRole')).toBe('host');
     expect(getState('setup.sessionStarted')).toBe(true);
   });
 });

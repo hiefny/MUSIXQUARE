@@ -551,6 +551,7 @@ const th: Record<I18nKey, string> = {
   'dialog.return_home_title': 'ออกจากห้อง',
   'dialog.return_home_msg': 'กลับไปหน้าจอเริ่มต้น?',
   'dialog.return_home_detail': 'คุณจะถูกตัดการเชื่อมต่อจากห้องปัจจุบัน',
+  'dialog.leaving_session': 'กำลังออก...',
   'dialog.refreshing_session': 'กำลังรีเฟรชเซสชัน...',
   'dialog.background_resume_title': 'แอปเพิ่งไปอยู่เบื้องหลังชั่วครู่',
   'dialog.background_resume_message': 'ถ้าซิงค์ไม่ตรงหรือเสียงไม่เล่น ให้ปิดแอปให้สนิทแล้วเปิดใหม่',

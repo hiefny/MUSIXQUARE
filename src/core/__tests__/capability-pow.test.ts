@@ -130,4 +130,50 @@ describe('capability proof-of-work client', () => {
     expect(digest).toHaveBeenCalledTimes(64);
     expect(tokenRequests).toBe(0);
   });
+
+  it('settles an aborting caller without cancelling a shared Turnstile execution', async () => {
+    const controller = new AbortController();
+    let rejectTurnstile!: () => void;
+    const turnstile = {
+      render: vi.fn(
+        (_container: HTMLElement, options: { 'error-callback': () => void }): string => {
+          rejectTurnstile = () => options['error-callback']();
+          return 'widget-1';
+        },
+      ),
+      execute: vi.fn(),
+      reset: vi.fn(),
+      remove: vi.fn(),
+    };
+    vi.stubGlobal('turnstile', turnstile);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/api/security-config')) {
+          return Response.json({
+            capabilityRequired: true,
+            turnstileSiteKey: 'test-site-key',
+            turnstileRequired: true,
+            proofOfWorkRequired: false,
+            proofOfWorkDifficulty: 0,
+            proofOfWorkTtl: 0,
+            ttl: 600,
+          });
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { getCapabilityHeaders } = await import('../capability.ts');
+    const pending = getCapabilityHeaders('/api/capability-token', ['turn'], controller.signal);
+    await vi.waitFor(() => expect(turnstile.execute).toHaveBeenCalledOnce());
+
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(turnstile.remove).not.toHaveBeenCalled();
+
+    // Finish the shared widget promise so the test leaves no live timeout.
+    rejectTurnstile();
+    await Promise.resolve();
+  });
 });

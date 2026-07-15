@@ -496,6 +496,7 @@ const es: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Salir de la sala',
   'dialog.return_home_msg': '¿Volver a la pantalla inicial?',
   'dialog.return_home_detail': 'Te desconectarás de la sala actual.',
+  'dialog.leaving_session': 'Saliendo de la sala...',
   'dialog.refreshing_session': 'Actualizando la sesión...',
   'dialog.background_resume_title': 'La app pasó brevemente a segundo plano',
   'dialog.background_resume_message':

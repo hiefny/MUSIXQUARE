@@ -99,6 +99,30 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw createAbortError(signal);
 }
 
+/** Let one caller abandon shared UI work without cancelling another caller's challenge. */
+function settleWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(createAbortError(signal)));
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+    // Covers an abort between the caller's initial guard and listener setup.
+    if (signal.aborted) onAbort();
+  });
+}
+
 export function isCapabilityChallengeCancelled(error: unknown): boolean {
   return error instanceof Error && error.name === CAPABILITY_CHALLENGE_CANCELLED;
 }
@@ -525,7 +549,7 @@ async function requestCapabilityToken(
   let turnstileToken = '';
   if (config.turnstileSiteKey) {
     try {
-      turnstileToken = await getTurnstileToken(config.turnstileSiteKey);
+      turnstileToken = await settleWithAbort(getTurnstileToken(config.turnstileSiteKey), signal);
       throwIfAborted(signal);
     } catch (error) {
       if (isCapabilityChallengeCancelled(error)) throw error;

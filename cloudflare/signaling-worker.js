@@ -13,6 +13,13 @@ const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
 const MAX_GUEST_BINDINGS = 256;
+// The client exhausts its automatic signaling reconnect backoff in about 30s,
+// and a host can reclaim its room for 60s. Five minutes leaves a conservative
+// margin for mobile radio/foreground recovery without retaining every departed
+// identity for the lifetime of a long-running room. Unexpired ownership is
+// never evicted to make room for a new identity; capacity therefore fails
+// closed until an inactive binding expires.
+const GUEST_BINDING_RECONNECT_TTL_MS = 5 * 60_000;
 const METRICS_TABLE = 'mxqr_metric_buckets';
 const SECURITY_HEADERS = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
@@ -558,6 +565,15 @@ export class MusixquareRoom {
     return this.saveGuestBindings(defaultGuestBindings());
   }
 
+  pruneGuestBindings(bindings, now = Date.now()) {
+    const activePeerIds = new Set(this.guests.keys());
+    const entries = bindings.entries.filter(
+      (entry) =>
+        activePeerIds.has(entry.peerId) || now - entry.updatedAt <= GUEST_BINDING_RECONNECT_TTL_MS,
+    );
+    return { v: 1, entries };
+  }
+
   enqueueGuestAdmission(task) {
     const run = this.guestAdmissionSync.then(task, task);
     this.guestAdmissionSync = run.catch(() => {});
@@ -904,7 +920,8 @@ export class MusixquareRoom {
       return;
     }
 
-    const bindings = await this.loadGuestBindings();
+    const storedBindings = await this.loadGuestBindings();
+    let bindings = this.pruneGuestBindings(storedBindings);
     const existingBinding = bindings.entries.find((entry) => entry.peerId === attachment.peerId);
     const reconnectSecret = isValidGuestReconnectSecret(message.reconnectSecret)
       ? message.reconnectSecret
@@ -924,16 +941,17 @@ export class MusixquareRoom {
           entry.peerId === attachment.peerId ? { ...entry, updatedAt: Date.now() } : entry,
         ),
       });
+    } else if (this.guests.has(attachment.peerId)) {
+      // A rolling-deploy legacy guest has no persisted binding. Do not let a
+      // candidate retroactively claim and evict that live ID. Unlike a real
+      // secret mismatch, this is transient: the established client should retry
+      // after the legacy signaling socket has gone away.
+      this.pendingGuests.delete(ws);
+      this.scheduleMaintenanceAlarm();
+      this.recordMetric('guest_reconnect_conflict');
+      closeWithError(ws, 'guest-reconnect-conflict', 'GUEST_RECONNECT_CONFLICT', 1013);
+      return;
     } else if (reconnectSecret) {
-      if (this.guests.has(attachment.peerId)) {
-        // A rolling-deploy legacy guest has no persisted binding. Do not let a
-        // secret-capable candidate retroactively claim and evict that live ID.
-        this.pendingGuests.delete(ws);
-        this.scheduleMaintenanceAlarm();
-        this.recordMetric('guest_reconnect_denied');
-        closeWithError(ws, 'guest-reconnect-denied', 'GUEST_RECONNECT_DENIED', 1008);
-        return;
-      }
       if (bindings.entries.length >= MAX_GUEST_BINDINGS) {
         this.pendingGuests.delete(ws);
         this.scheduleMaintenanceAlarm();
@@ -949,14 +967,8 @@ export class MusixquareRoom {
           { peerId: attachment.peerId, secretHash, updatedAt: Date.now() },
         ],
       });
-    } else if (this.guests.has(attachment.peerId)) {
-      // Legacy-to-legacy replacement remains compatible only after the old
-      // signaling socket has actually gone away; a live socket keeps priority.
-      this.pendingGuests.delete(ws);
-      this.scheduleMaintenanceAlarm();
-      this.recordMetric('guest_reconnect_denied');
-      closeWithError(ws, 'guest-reconnect-denied', 'GUEST_RECONNECT_DENIED', 1008);
-      return;
+    } else if (bindings.entries.length !== storedBindings.entries.length) {
+      await this.saveGuestBindings(bindings);
     }
 
     await this.completeGuestAccept(ws, attachment.roomId, attachment.peerId);
@@ -1022,15 +1034,46 @@ export class MusixquareRoom {
     await this.scheduleMaintenanceAlarm();
   }
 
-  async removeGuest(peerId, ws) {
+  removeGuest(peerId, ws) {
+    // Serialize close-time binding refreshes with reconnect admissions. A late
+    // close from a replaced socket must not overwrite the replacement's newer
+    // ownership timestamp or remove its live guest index.
+    return this.enqueueGuestAdmission(() => this.finishRemoveGuest(peerId, ws));
+  }
+
+  async finishRemoveGuest(peerId, ws) {
     if (this.guests.get(peerId) !== ws) return;
+    const bindings = await this.loadGuestBindings();
+    if (bindings.entries.some((entry) => entry.peerId === peerId)) {
+      await this.saveGuestBindings({
+        ...bindings,
+        entries: bindings.entries.map((entry) =>
+          entry.peerId === peerId ? { ...entry, updatedAt: Date.now() } : entry,
+        ),
+      });
+    }
     this.guests.delete(peerId);
     if (this.host) {
       send(this.host, { type: 'peer-left', peerId });
       return;
     }
     if (this.guests.size === 0) {
+      const meta = await this.loadRoomMeta();
+      if (this.host) {
+        // A host may have reclaimed the room while the metadata read yielded.
+        // Treat the departure exactly like a normal hosted guest close instead
+        // of clearing the newly reconnected room epoch.
+        send(this.host, { type: 'peer-left', peerId });
+        return;
+      }
+      if (meta.hostReleaseAt > Date.now()) {
+        // The room epoch still belongs to the disconnected host. Keep both the
+        // host secret and guest reconnect ownership until its grace alarm ends.
+        await this.scheduleMaintenanceAlarm();
+        return;
+      }
       await this.clearGuestBindings();
+      if (this.host) return;
       await this.clearRoomMeta();
       await this.scheduleMaintenanceAlarm();
     }

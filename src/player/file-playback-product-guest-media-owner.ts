@@ -457,6 +457,7 @@ interface GuestPreparedRun {
   participant: GuestRendezvousParticipantPort | null;
   readyPublished: boolean;
   attempt: GuestAttempt | null;
+  rendererDegraded: boolean;
   status: 'preparing' | 'ready' | 'current' | 'retired';
 }
 
@@ -506,7 +507,9 @@ interface GuestAttempt {
   readonly attemptLease: FilePlaybackWireAttemptLease;
   readonly admittedAttempt: Readonly<FilePlaybackConnectionMediaPreparedRunAttempt> | null;
   readonly stateOperation: Readonly<FilePlaybackConnectionMediaStateOperation> | null;
-  readonly participant: GuestRendezvousParticipantPort;
+  participant: GuestRendezvousParticipantPort | null;
+  phase: 'reserved' | 'participant-bound' | 'prestage-rejected';
+  readonly controller: AbortController;
   readonly identity: Readonly<PlaybackAttemptIdentity>;
   readonly armIntent: Readonly<RendezvousArmIntent>;
   armReceipt: Readonly<RendezvousArmReceipt> | null;
@@ -1026,6 +1029,18 @@ function canonicalStartEvidence(value: unknown): Readonly<FilePlaybackStartEvide
   return typeof targetFrame === 'number' ? readFilePlaybackStartEvidence(value, targetFrame) : null;
 }
 
+function isStartEvidenceTimeout(value: unknown): boolean {
+  try {
+    if (!(value instanceof Error)) return false;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const code = descriptors.code?.value;
+    const message = descriptors.message?.value;
+    return code === 'start-evidence-timeout' || message === 'start-evidence-timeout';
+  } catch {
+    return false;
+  }
+}
+
 function canonicalAudioGraph(value: unknown): Readonly<FilePlaybackProductGuestAudioGraph> | null {
   const graph = snapshotExactRecord(value, AUDIO_GRAPH_KEYS);
   if (
@@ -1088,6 +1103,13 @@ class GuestRendezvousAttemptCancelledError extends Error {
   }
 }
 
+class GuestMediaNotReadyError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'GuestMediaNotReadyError';
+  }
+}
+
 class GuestMediaOwner {
   readonly #lifecycleLease: FilePlaybackUniversalLifecycleLease;
   readonly #context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
@@ -1112,6 +1134,8 @@ class GuestMediaOwner {
   readonly #peerTransport: GuestPeerTransportPort;
   readonly #r2Acquirer: GuestR2AcquirerPort;
   readonly #tasks = new Set<Promise<void>>();
+  readonly #physicalCleanupTasks = new Set<Promise<void>>();
+  readonly #physicalCleanupFailures: unknown[] = [];
   readonly #warmTasks = new Set<Promise<void>>();
   #room: GuestRoomState | null = null;
   #offerWarm: GuestOfferWarmOperation | null = null;
@@ -1123,6 +1147,7 @@ class GuestMediaOwner {
   #fatalPublished = false;
   #timelineCallbackActive = false;
   #audioGraphPromise: Promise<Readonly<FilePlaybackProductGuestAudioGraph>> | null = null;
+  #pendingStateSuccessorIngress = 0;
   #rendererHealthHeartbeatGeneration = 0;
   #rendererHealthHeartbeat: GuestRendererHealthHeartbeat | null = null;
 
@@ -1385,53 +1410,20 @@ class GuestMediaOwner {
         revision: binding.playbackRevision,
       });
       if (!state) throw new Error('Guest run binding has no exact playback state');
-      const baselineState = stateFromTimeline(room.timeline);
-      const kind =
-        room.current === null && baselineState && sameState(baselineState, state)
-          ? ('baseline' as const)
-          : ('successor' as const);
-      if (kind === 'successor') {
-        if (!isExactNextState(room.timeline, state)) {
-          throw new Error('Guest run binding is not the exact next timeline state');
-        }
-        if (baselineState && baselineState.runId === state.runId) {
-          throw new Error('Same-run successor must not restage a source binding');
-        }
-      }
-      const operation = this.#mediaSession.stageRunBinding(event!.frame, state, kind);
-      if (this.#pendingOfferWarm?.offer === operation.offer) {
-        this.#pendingOfferWarm = null;
-      }
-      const existing = kind === 'baseline' ? room.current : room.candidate;
-      if (existing) {
-        if (existing.operation !== operation) {
-          throw new Error('Guest run operation conflicted with an active preparation');
-        }
+      const frame = event!.frame;
+      if (this.#pendingStateSuccessorIngress > 0) {
         acknowledge();
+        this.#enqueue('run binding admission', async () => {
+          const prepared = this.#admitRunBinding(room, frame, state);
+          if (prepared) await this.#prepareRun(room, prepared);
+        });
         return;
       }
-      const prepared: GuestPreparedRun = {
-        kind,
-        state,
-        operation,
-        statePreparation: null,
-        stateOperation: null,
-        rendezvousTarget: null,
-        primedPositionSeconds: null,
-        recoveryTargetAllowed: false,
-        assetLease: null,
-        manifestAdmission: null,
-        audioGraph: null,
-        staged: null,
-        participant: null,
-        readyPublished: false,
-        attempt: null,
-        status: 'preparing',
-      };
-      if (kind === 'baseline') room.current = prepared;
-      else room.candidate = prepared;
+      const prepared = this.#admitRunBinding(room, frame, state);
       acknowledge();
-      this.#enqueue('source preparation', async () => this.#prepareRun(room, prepared));
+      if (prepared) {
+        this.#enqueue('source preparation', async () => this.#prepareRun(room, prepared));
+      }
     } catch (error) {
       throw this.#fatal('Guest auxiliary media adoption failed', error);
     }
@@ -1518,6 +1510,7 @@ class GuestMediaOwner {
           participant: null,
           readyPublished: false,
           attempt: null,
+          rendererDegraded: false,
           status: 'preparing',
         };
         room.candidate = candidate;
@@ -1557,17 +1550,49 @@ class GuestMediaOwner {
             participant: null,
             readyPublished: false,
             attempt: null,
+            rendererDegraded: false,
             status: 'preparing',
           };
           room.candidate = recovery;
           const attemptLease = event!.attemptLease as FilePlaybackWireAttemptLease;
+          const attempt = this.#createAttempt(recovery, message, attemptLease, null, null);
+          recovery.attempt = attempt;
           acknowledge();
           this.#enqueue('same-state recovery arm', async () => {
-            await this.#prepareSameSourceCandidate(room, recovery);
-            const attempt = this.#createAttempt(recovery, message, attemptLease, null, null);
-            recovery.attempt = attempt;
-            attempt.armTask = this.#executeArm(room, recovery, attempt);
-            await attempt.armTask;
+            try {
+              const graph = recovery.audioGraph;
+              this.#assertAudioGraphIdentity(graph);
+              const graphState = this.#audioGraphState(graph);
+              if (graphState === 'transient') {
+                attempt.phase = 'prestage-rejected';
+                attempt.armTask = this.#executePrestageRejectedArm(room, recovery, attempt);
+                await attempt.armTask;
+                return;
+              }
+              if (graphState === 'terminal') {
+                throw new Error('Guest same-state recovery AudioContext is unavailable');
+              }
+              await this.#prepareSameSourceCandidate(room, recovery, attempt.controller.signal);
+              this.#assertAttempt(room, recovery, attempt);
+              const participant = recovery.participant;
+              if (!participant) throw new Error('Guest same-state recovery has no participant');
+              attempt.participant = participant;
+              attempt.phase = 'participant-bound';
+              attempt.armTask = this.#executeArm(room, recovery, attempt);
+              await attempt.armTask;
+            } catch (error) {
+              if (attempt.cancelled) {
+                throw new GuestRendezvousAttemptCancelledError();
+              }
+              if (!this.#preparedCurrent(room, recovery)) {
+                this.#assertLive();
+                throw new GuestMediaNotReadyError(
+                  'Guest same-state recovery lost preparation authority',
+                  { cause: error },
+                );
+              }
+              throw error;
+            }
           });
           return;
         }
@@ -1702,10 +1727,6 @@ class GuestMediaOwner {
         acknowledge();
         return;
       }
-      const current = room.current;
-      if (!current || !messageMatchesCurrentSuccessor(message, this.#context, current)) {
-        throw new Error('Guest successor wire does not match the exact current run');
-      }
       if (
         message.kind !== 'file-playback-pause' &&
         message.kind !== 'file-playback-seek' &&
@@ -1714,38 +1735,102 @@ class GuestMediaOwner {
       ) {
         throw new Error(`Guest wire kind is unsupported: ${message.kind}`);
       }
-      const expected = stateFromTimeline(room.timeline);
-      const successor = readPlaybackStateIdentity({
-        queueItemId: message.queueItemId,
-        runId: message.runId,
-        revision: message.revision,
-      });
+      const preparingCandidate = room.candidate;
       if (
-        !expected ||
-        !successor ||
-        message.expectedQueueItemId !== expected.queueItemId ||
-        message.expectedRunId !== expected.runId ||
-        message.expectedRevision !== expected.revision ||
-        !sameState(current.state, expected) ||
-        !isExactNextState(room.timeline, successor)
+        preparingCandidate?.kind === 'successor' &&
+        preparingCandidate.status === 'preparing' &&
+        preparingCandidate.attempt === null &&
+        (message.kind === 'file-playback-stop' || message.kind === 'file-playback-ended')
       ) {
-        throw new Error('Guest state wire is not the exact current successor');
+        this.#retirePreparingRunCandidate(room, preparingCandidate);
       }
-      // The host retires the current rendezvous lease before publishing this
-      // successor. Fence the old heartbeat before acknowledgement can re-enter
-      // or the scheduled native transition can yield back to the event loop.
-      this.#stopRendererHealthHeartbeat(current);
-      acknowledge();
-      this.#enqueue(message.kind, async () =>
-        this.#applyStateSuccessor(
+      const stateLease = event!.stateLease as FilePlaybackWireStateLease;
+      const currentAtIngress = room.current;
+      if (
+        currentAtIngress?.status === 'preparing' &&
+        currentAtIngress.staged === null &&
+        currentAtIngress.participant === null &&
+        !currentAtIngress.readyPublished &&
+        (message.kind === 'file-playback-stop' || message.kind === 'file-playback-ended')
+      ) {
+        const expected = stateFromTimeline(room.timeline);
+        const successor = readPlaybackStateIdentity({
+          queueItemId: message.queueItemId,
+          runId: message.runId,
+          revision: message.revision,
+        });
+        if (
+          !expected ||
+          !successor ||
+          !messageMatchesCurrentSuccessor(message, this.#context, currentAtIngress) ||
+          message.expectedQueueItemId !== expected.queueItemId ||
+          message.expectedRunId !== expected.runId ||
+          message.expectedRevision !== expected.revision ||
+          !sameState(currentAtIngress.state, expected) ||
+          !isExactNextState(room.timeline, successor)
+        ) {
+          throw new Error('Guest unprepared STOP is not the exact current successor');
+        }
+        this.#stopRendererHealthHeartbeat(currentAtIngress);
+        this.#commitUnpreparedStop(
           room,
-          current,
+          currentAtIngress,
           expected,
           successor,
-          message,
-          event!.stateLease as FilePlaybackWireStateLease,
-        ),
-      );
+          stateLease,
+        );
+        acknowledge();
+        return;
+      }
+      if (currentAtIngress) this.#stopRendererHealthHeartbeat(currentAtIngress);
+      this.#pendingStateSuccessorIngress += 1;
+      acknowledge();
+      this.#enqueue(message.kind, async () => {
+        const current = room.current;
+        try {
+          if (!current || !messageMatchesCurrentSuccessor(message, this.#context, current)) {
+            throw new Error('Guest successor wire does not match the exact current run');
+          }
+          const expected = stateFromTimeline(room.timeline);
+          const successor = readPlaybackStateIdentity({
+            queueItemId: message.queueItemId,
+            runId: message.runId,
+            revision: message.revision,
+          });
+          if (
+            !expected ||
+            !successor ||
+            message.expectedQueueItemId !== expected.queueItemId ||
+            message.expectedRunId !== expected.runId ||
+            message.expectedRevision !== expected.revision ||
+            !sameState(current.state, expected) ||
+            !isExactNextState(room.timeline, successor)
+          ) {
+            throw new Error('Guest state wire is not the exact current successor');
+          }
+          // The host retires the current rendezvous lease before publishing
+          // this successor. Fence the old heartbeat at the ordered adoption
+          // boundary before the native transition can yield.
+          this.#stopRendererHealthHeartbeat(current);
+          await this.#applyStateSuccessor(
+            room,
+            current,
+            expected,
+            successor,
+            message,
+            stateLease,
+          );
+        } catch (error) {
+          if (!current || !this.#preparedCurrent(room, current) || this.#abort.signal.aborted) {
+            throw new GuestMediaNotReadyError('Guest state successor lost media authority', {
+              cause: error,
+            });
+          }
+          throw error;
+        } finally {
+          this.#pendingStateSuccessorIngress -= 1;
+        }
+      });
     } catch (error) {
       throw this.#fatal('Guest playback wire adoption failed', error);
     }
@@ -1758,12 +1843,96 @@ class GuestMediaOwner {
     void this.#beginClose();
   }
 
+  #retirePreparingRunCandidate(room: GuestRoomState, prepared: GuestPreparedRun): void {
+    if (
+      room.candidate !== prepared ||
+      prepared.kind !== 'successor' ||
+      prepared.status !== 'preparing' ||
+      prepared.attempt !== null ||
+      prepared.participant !== null
+    ) {
+      throw new Error('Guest preparing run candidate retirement lost exact authority');
+    }
+    this.#mediaSession.retire(prepared.operation);
+    const staged = prepared.staged;
+    if (staged) {
+      const retirement = this.#runtime
+        .retireCandidate(this.#manager, staged.cutoverPort)
+        .then((retired) => {
+          if (retired !== true) {
+            throw new Error('Guest preparing run candidate lost its exact staged port');
+          }
+        });
+      this.#trackPhysicalCleanup('preparing run candidate retirement', retirement);
+      prepared.staged = null;
+    }
+    prepared.status = 'retired';
+    room.candidate = null;
+  }
+
+  #admitRunBinding(
+    room: GuestRoomState,
+    frame: unknown,
+    state: Readonly<PlaybackStateIdentity>,
+  ): GuestPreparedRun | null {
+    const baselineState = room.physical
+      ? room.physical.phase === 'stopped'
+        ? null
+        : room.physical.state
+      : stateFromTimeline(room.timeline);
+    const projectedRevision = room.physical?.state.revision ?? room.timeline.revision;
+    const kind =
+      room.physical === null && room.current === null && baselineState && sameState(baselineState, state)
+        ? ('baseline' as const)
+        : ('successor' as const);
+    if (kind === 'successor') {
+      if (state.revision !== projectedRevision + 1) {
+        throw new Error('Guest run binding is not the exact next timeline state');
+      }
+      if (baselineState && baselineState.runId === state.runId) {
+        throw new Error('Same-run successor must not restage a source binding');
+      }
+    }
+    const operation = this.#mediaSession.stageRunBinding(frame, state, kind);
+    if (this.#pendingOfferWarm?.offer === operation.offer) {
+      this.#pendingOfferWarm = null;
+    }
+    const existing = kind === 'baseline' ? room.current : room.candidate;
+    if (existing) {
+      if (existing.operation !== operation) {
+        throw new Error('Guest run operation conflicted with an active preparation');
+      }
+      return null;
+    }
+    const prepared: GuestPreparedRun = {
+      kind,
+      state,
+      operation,
+      statePreparation: null,
+      stateOperation: null,
+      rendezvousTarget: null,
+      primedPositionSeconds: null,
+      recoveryTargetAllowed: false,
+      assetLease: null,
+      manifestAdmission: null,
+      audioGraph: null,
+      staged: null,
+      participant: null,
+      readyPublished: false,
+      attempt: null,
+      rendererDegraded: false,
+      status: 'preparing',
+    };
+    if (kind === 'baseline') room.current = prepared;
+    else room.candidate = prepared;
+    return prepared;
+  }
+
   async #prepareRun(room: GuestRoomState, prepared: GuestPreparedRun): Promise<void> {
     try {
       this.#assertPrepared(room, prepared);
       const operation = prepared.operation;
       const graph = await this.#resolveAudioGraph(room, prepared);
-      this.#assertRunningAudioGraph(graph);
       this.#assertPrepared(room, prepared);
       prepared.audioGraph = graph;
       const warmClaim =
@@ -1774,6 +1943,7 @@ class GuestMediaOwner {
       let assetLease = warmClaim?.assetLease ?? null;
       let staged = warmClaim?.staged ?? null;
       if (!assetLease) {
+        await this.#awaitPreparedAudioGraphRunning(room, prepared, graph);
         if (operation.offer.transport === 'peer-range-manifest') {
           const acquired = await this.#acquireManifestAsset(operation);
           this.#assertPrepared(room, prepared);
@@ -1787,9 +1957,15 @@ class GuestMediaOwner {
       }
       prepared.assetLease = assetLease;
       if (!staged) {
-        const clockBindings = await this.#awaitClockBindings(room, prepared, graph.audioContext);
+        const clockBindings = await this.#awaitClockBindings(room, prepared, graph);
         this.#assertPrepared(room, prepared);
         staged = await this.#stagePreparedAsset(room, prepared, graph, clockBindings);
+        if (!this.#preparedCurrent(room, prepared)) {
+          await this.#runtime.retireCandidate(this.#manager, staged.cutoverPort);
+          throw new GuestMediaNotReadyError(
+            'Guest prepared source lost authority after stage',
+          );
+        }
         // A resolved stage has already transferred a candidate port into the
         // manager. Retain it before any fallible authority or binding check so
         // late revocation can still retire that exact port during close.
@@ -1803,6 +1979,7 @@ class GuestMediaOwner {
       ) {
         throw new Error('Guest staged source does not match its baseline operation');
       }
+      await this.#awaitPreparedAudioGraphRunning(room, prepared, graph);
       const quality = Reflect.apply(channelQuality, this.#context.channel, []);
       this.#assertPrepared(room, prepared);
       const participant = this.#runtime.createParticipant({
@@ -1817,7 +1994,7 @@ class GuestMediaOwner {
       }
       prepared.participant = participant;
       this.#assertPrepared(room, prepared);
-      this.#assertRunningAudioGraph(graph);
+      await this.#awaitPreparedAudioGraphRunning(room, prepared, graph);
       if (prepared.kind === 'baseline') {
         this.#mediaSession.commitPreparedPausedBaseline(operation, prepared.state, () =>
           this.#preparedCurrent(room, prepared),
@@ -1848,13 +2025,21 @@ class GuestMediaOwner {
         this.#publishActiveBaselineTimeline(room, prepared, 'paused');
       }
     } catch (error) {
-      if (!this.#closed) throw error;
+      if (
+        this.#closed ||
+        error instanceof GuestMediaNotReadyError ||
+        (this.#preparedSignal(prepared).aborted && !this.#preparedCurrent(room, prepared))
+      ) {
+        return;
+      }
+      throw error;
     }
   }
 
   async #prepareSameSourceCandidate(
     room: GuestRoomState,
     prepared: GuestPreparedRun,
+    attemptSignal?: AbortSignal,
   ): Promise<void> {
     if (
       !prepared.assetLease ||
@@ -1864,11 +2049,17 @@ class GuestMediaOwner {
       throw new Error('Guest same-source candidate is incomplete');
     }
     this.#assertPrepared(room, prepared);
-    this.#assertRunningAudioGraph(prepared.audioGraph);
+    await this.#awaitPreparedAudioGraphRunning(
+      room,
+      prepared,
+      prepared.audioGraph,
+      attemptSignal,
+    );
     const clockBindings = await this.#awaitClockBindings(
       room,
       prepared,
-      prepared.audioGraph.audioContext,
+      prepared.audioGraph,
+      attemptSignal,
     );
     this.#assertPrepared(room, prepared);
     const staged = await this.#stagePreparedAsset(
@@ -1877,6 +2068,10 @@ class GuestMediaOwner {
       prepared.audioGraph,
       clockBindings,
     );
+    if (!this.#preparedCurrent(room, prepared)) {
+      await this.#runtime.retireCandidate(this.#manager, staged.cutoverPort);
+      throw new GuestMediaNotReadyError('Guest same-source candidate lost authority after stage');
+    }
     // Recovery handoff has the same ownership boundary as initial staging:
     // close must see the manager-owned port even if authority flips now.
     prepared.staged = staged;
@@ -1888,6 +2083,12 @@ class GuestMediaOwner {
     ) {
       throw new Error('Guest same-source candidate changed its bound asset');
     }
+    await this.#awaitPreparedAudioGraphRunning(
+      room,
+      prepared,
+      prepared.audioGraph,
+      attemptSignal,
+    );
     if (prepared.kind === 'state-successor' && !prepared.recoveryTargetAllowed) {
       const target = prepared.rendezvousTarget;
       if (!target) throw new Error('Guest same-run candidate has no exact target to prime');
@@ -1945,6 +2146,9 @@ class GuestMediaOwner {
 
   async #publishSameSourceReady(room: GuestRoomState, prepared: GuestPreparedRun): Promise<void> {
     this.#assertPrepared(room, prepared);
+    const graph = prepared.audioGraph;
+    if (!graph) throw new Error('Guest same-source readiness has no audio graph');
+    await this.#awaitPreparedAudioGraphRunning(room, prepared, graph);
     const preparation = prepared.statePreparation;
     const staged = prepared.staged;
     if (
@@ -2148,8 +2352,9 @@ class GuestMediaOwner {
     }
     this.#assertOfferWarm(operation);
     const graph = await this.#resolveOfferWarmAudioGraph(operation);
-    const clockBindings = await this.#awaitOfferWarmClockBindings(operation, graph.audioContext);
+    const clockBindings = await this.#awaitOfferWarmClockBindings(operation, graph);
     this.#assertOfferWarm(operation);
+    await this.#awaitOfferWarmAudioGraphRunning(operation, graph);
 
     const offer = operation.preparation.offer;
     if (offer.transport !== 'peer-range') {
@@ -2177,6 +2382,7 @@ class GuestMediaOwner {
     }
     this.#assertOfferWarm(operation);
 
+    await this.#awaitOfferWarmAudioGraphRunning(operation, graph);
     const authority = await this.#runtime.prepareWarmSource({
       registry: this.#registry,
       roomToken: this.#roomToken,
@@ -2216,7 +2422,7 @@ class GuestMediaOwner {
 
     let outcome: GuestOfferWarmOutcome;
     try {
-      outcome = await this.#awaitOwnerTask(warm.task);
+      outcome = await this.#awaitOwnerTask(warm.task, this.#preparedSignal(prepared));
     } catch (error) {
       this.#assertPrepared(room, prepared);
       if (error instanceof GuestOfferWarmCleanupError) throw error;
@@ -2225,13 +2431,14 @@ class GuestMediaOwner {
     this.#assertPrepared(room, prepared);
     if (warm.retiring || warm.retirementPromise) {
       if (!warm.retirementPromise) return null;
-      await this.#awaitOwnerTask(warm.retirementPromise);
+      await this.#awaitOwnerTask(warm.retirementPromise, this.#preparedSignal(prepared));
       this.#assertPrepared(room, prepared);
       return null;
     }
     if (this.#offerWarm !== warm || warm.preparation.offer !== prepared.operation.offer) {
       return null;
     }
+    await this.#awaitPreparedAudioGraphRunning(room, prepared, graph);
     const provisionalLease = warm.provisionalLease;
     if (!provisionalLease) {
       await this.#retireOfferWarm(
@@ -2288,22 +2495,52 @@ class GuestMediaOwner {
     return freezeCanonical({ assetLease: promotedLease, staged: null });
   }
 
-  async #awaitOwnerTask<T>(task: Promise<T>): Promise<T> {
-    const signal = this.#abort.signal;
-    if (signal.aborted) throw signal.reason ?? new Error('Guest media owner was revoked');
+  async #awaitOwnerTask<T>(
+    task: Promise<T>,
+    authority: AbortSignal | readonly AbortSignal[],
+  ): Promise<T> {
+    const authoritySignals = Array.isArray(authority)
+      ? (authority as readonly AbortSignal[])
+      : [authority as AbortSignal];
+    const signals = [...new Set([...authoritySignals, this.#abort.signal])];
+    const alreadyAborted = signals.find((signal) => signal.aborted);
+    if (alreadyAborted) {
+      void task.catch(() => undefined);
+      throw (
+        alreadyAborted.reason ?? new DOMException('Guest media authority expired', 'AbortError')
+      );
+    }
     let rejectForAbort!: (reason?: unknown) => void;
     const aborted = new Promise<never>((_resolve, reject) => {
       rejectForAbort = reject;
     });
-    const onAbort = (): void => {
-      rejectForAbort(signal.reason ?? new Error('Guest media owner was revoked'));
+    const onAbort = (event: Event): void => {
+      const signal = event.currentTarget as AbortSignal;
+      rejectForAbort(
+        signal.reason ?? new DOMException('Guest media authority expired', 'AbortError'),
+      );
     };
-    signal.addEventListener('abort', onAbort, { once: true });
-    if (signal.aborted) onAbort();
+    const listening: AbortSignal[] = [];
+    try {
+      for (const signal of signals) {
+        signal.addEventListener('abort', onAbort, { once: true });
+        listening.push(signal);
+      }
+    } catch (error) {
+      for (const signal of listening) signal.removeEventListener('abort', onAbort);
+      void task.catch(() => undefined);
+      throw error;
+    }
+    const racedAbort = signals.find((signal) => signal.aborted);
+    if (racedAbort) {
+      rejectForAbort(
+        racedAbort.reason ?? new DOMException('Guest media authority expired', 'AbortError'),
+      );
+    }
     try {
       return await Promise.race([task, aborted]);
     } finally {
-      signal.removeEventListener('abort', onAbort);
+      for (const signal of listening) signal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -2454,22 +2691,25 @@ class GuestMediaOwner {
     this.#assertOfferWarm(operation);
     const graph = await this.#resolveSharedAudioGraph();
     this.#assertOfferWarm(operation);
-    this.#assertRunningAudioGraph(graph);
+    await this.#awaitOfferWarmAudioGraphRunning(operation, graph);
     return graph;
   }
 
   async #awaitOfferWarmClockBindings(
     operation: GuestOfferWarmOperation,
-    audioContext: AudioContext,
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
   ): Promise<Readonly<FilePlaybackClockBindings>> {
     for (;;) {
       this.#assertOfferWarm(operation);
+      await this.#awaitOfferWarmAudioGraphRunning(operation, graph);
       if (Reflect.apply(channelClockReady, this.#context.channel, [])) {
-        const bindings = Reflect.apply(channelClockBindings, this.#context.channel, [audioContext]);
+        const bindings = Reflect.apply(channelClockBindings, this.#context.channel, [
+          graph.audioContext,
+        ]);
         this.#assertOfferWarm(operation);
         return bindings;
       }
-      await this.#runtime.waitForClockPoll(operation.controller.signal);
+      await this.#awaitAudioContextPoll(operation.controller.signal);
     }
   }
 
@@ -2543,17 +2783,33 @@ class GuestMediaOwner {
   async #awaitClockBindings(
     room: GuestRoomState,
     prepared: GuestPreparedRun,
-    audioContext: AudioContext,
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
+    attemptSignal?: AbortSignal,
   ): Promise<Readonly<FilePlaybackClockBindings>> {
     for (;;) {
       this.#assertPrepared(room, prepared);
+      await this.#awaitPreparedAudioGraphRunning(room, prepared, graph, attemptSignal);
       if (Reflect.apply(channelClockReady, this.#context.channel, [])) {
-        const bindings = Reflect.apply(channelClockBindings, this.#context.channel, [audioContext]);
+        const bindings = Reflect.apply(channelClockBindings, this.#context.channel, [
+          graph.audioContext,
+        ]);
         this.#assertPrepared(room, prepared);
         return bindings;
       }
-      await this.#runtime.waitForClockPoll(this.#preparedSignal(prepared));
-      this.#assertPrepared(room, prepared);
+      const signal = this.#preparedSignal(prepared);
+      await this.#awaitAudioContextPoll(
+        attemptSignal ? [signal, attemptSignal] : signal,
+      );
+      try {
+        this.#assertPrepared(room, prepared);
+      } catch (error) {
+        if (signal.aborted || this.#abort.signal.aborted) {
+          throw new GuestMediaNotReadyError('Guest clock wait lost media authority', {
+            cause: error,
+          });
+        }
+        throw error;
+      }
     }
   }
 
@@ -2564,8 +2820,98 @@ class GuestMediaOwner {
     this.#assertPrepared(room, prepared);
     const graph = await this.#resolveSharedAudioGraph();
     this.#assertPrepared(room, prepared);
-    this.#assertRunningAudioGraph(graph);
+    await this.#awaitPreparedAudioGraphRunning(room, prepared, graph);
     return graph;
+  }
+
+  async #awaitPreparedAudioGraphRunning(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
+    attemptSignal?: AbortSignal,
+  ): Promise<void> {
+    const signal = this.#preparedSignal(prepared);
+    await this.#awaitAudioGraphRunning(
+      graph,
+      attemptSignal ? [signal, attemptSignal] : signal,
+      () => this.#assertPrepared(room, prepared),
+      'Guest prepared media',
+    );
+  }
+
+  async #awaitOfferWarmAudioGraphRunning(
+    operation: GuestOfferWarmOperation,
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
+  ): Promise<void> {
+    await this.#awaitAudioGraphRunning(
+      graph,
+      operation.controller.signal,
+      () => this.#assertOfferWarm(operation),
+      'Guest source-offer warm',
+    );
+  }
+
+  async #awaitAudioGraphRunning(
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
+    authority: AbortSignal | readonly AbortSignal[],
+    assertAuthority: () => void,
+    label: string,
+  ): Promise<void> {
+    const authoritySignals = Array.isArray(authority)
+      ? (authority as readonly AbortSignal[])
+      : [authority as AbortSignal];
+    const authorityAborted = (): boolean =>
+      authoritySignals.some((signal) => signal.aborted) || this.#abort.signal.aborted;
+    this.#assertAudioGraphIdentity(graph);
+    for (;;) {
+      try {
+        assertAuthority();
+      } catch (error) {
+        if (authorityAborted()) {
+          throw new GuestMediaNotReadyError(`${label} wait lost authority`, { cause: error });
+        }
+        throw error;
+      }
+      const state = this.#audioGraphState(graph);
+      try {
+        assertAuthority();
+      } catch (error) {
+        if (authorityAborted()) {
+          throw new GuestMediaNotReadyError(`${label} wait lost authority`, { cause: error });
+        }
+        throw error;
+      }
+      if (state === 'running') return;
+      if (state === 'terminal') throw new Error(`${label} AudioContext is permanently unavailable`);
+      await this.#awaitAudioContextPoll(authoritySignals);
+    }
+  }
+
+  async #awaitAudioContextPoll(authority: AbortSignal | readonly AbortSignal[]): Promise<void> {
+    const authoritySignals = Array.isArray(authority)
+      ? (authority as readonly AbortSignal[])
+      : [authority as AbortSignal];
+    const pollSignal = authoritySignals[0];
+    if (!pollSignal) throw new Error('Guest AudioContext poll has no authority signal');
+    let poll: Promise<void>;
+    try {
+      poll = this.#runtime.waitForClockPoll(pollSignal);
+    } catch (error) {
+      throw error;
+    }
+    if (!(poll instanceof Promise)) {
+      throw new TypeError('Guest AudioContext poll must return a native Promise');
+    }
+    try {
+      await this.#awaitOwnerTask(poll, authoritySignals);
+    } catch (error) {
+      if (authoritySignals.some((signal) => signal.aborted) || this.#abort.signal.aborted) {
+        throw new GuestMediaNotReadyError('Guest AudioContext wait lost authority', {
+          cause: error,
+        });
+      }
+      throw error;
+    }
   }
 
   #resolveSharedAudioGraph(): Promise<Readonly<FilePlaybackProductGuestAudioGraph>> {
@@ -2592,20 +2938,97 @@ class GuestMediaOwner {
     return this.#audioGraphPromise;
   }
 
+  async #executePrestageRejectedArm(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    attempt: GuestAttempt,
+  ): Promise<void> {
+    this.#assertAttempt(room, prepared, attempt);
+    if (attempt.phase !== 'prestage-rejected' || attempt.participant !== null) {
+      throw new Error('Guest pre-stage rejection has invalid attempt state');
+    }
+    const receipt = readRendezvousArmReceipt(
+      freezeCanonical({
+        protocolVersion: 2 as const,
+        kind: 'rendezvous-armed' as const,
+        ...attempt.identity,
+        participantId: this.#context.guestParticipantId,
+        status: 'rejected' as const,
+        observedAtRoomTimeMs: this.#nowRoomTimeMs(),
+        bufferedAheadSeconds: 0,
+        reasonCode: 'audio-context-not-running',
+      }),
+    );
+    if (!receipt) throw new Error('Guest pre-stage ARM rejection was invalid');
+    attempt.armReceipt = receipt;
+    await this.#sendRequired(
+      this.#createAttemptWire(attempt.attemptLease, {
+        kind: 'rendezvous-armed',
+        rendezvousId: receipt.rendezvousId,
+        status: receipt.status,
+        observedAtRoomTimeMs: receipt.observedAtRoomTimeMs,
+        bufferedAheadSeconds: receipt.bufferedAheadSeconds,
+        reasonCode: receipt.reasonCode,
+      }),
+    );
+    this.#assertAttempt(room, prepared, attempt);
+  }
+
+  async #executePrestageRejectedFinalize(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    attempt: GuestAttempt,
+  ): Promise<void> {
+    this.#assertAttempt(room, prepared, attempt);
+    if (
+      attempt.phase !== 'prestage-rejected' ||
+      attempt.participant !== null ||
+      attempt.armReceipt?.status !== 'rejected'
+    ) {
+      throw new Error('Guest pre-stage FINALIZE rejection has invalid attempt state');
+    }
+    const receipt = readRendezvousFinalizeReceipt(
+      freezeCanonical({
+        protocolVersion: 2 as const,
+        kind: 'rendezvous-finalized' as const,
+        ...attempt.identity,
+        participantId: this.#context.guestParticipantId,
+        status: 'rejected' as const,
+        observedAtRoomTimeMs: this.#nowRoomTimeMs(),
+        reasonCode: 'audio-context-not-running',
+      }),
+    );
+    if (!receipt) throw new Error('Guest pre-stage FINALIZE rejection was invalid');
+    await this.#sendRequired(
+      this.#createAttemptWire(attempt.attemptLease, {
+        kind: 'rendezvous-finalized',
+        rendezvousId: receipt.rendezvousId,
+        status: receipt.status,
+        observedAtRoomTimeMs: receipt.observedAtRoomTimeMs,
+        reasonCode: receipt.reasonCode,
+      }),
+    );
+    this.#assertAttempt(room, prepared, attempt);
+  }
+
   async #executeArm(
     room: GuestRoomState,
     prepared: GuestPreparedRun,
     attempt: GuestAttempt,
   ): Promise<void> {
     this.#assertAttempt(room, prepared, attempt);
-    this.#assertRunningAudioGraph(prepared.audioGraph);
+    this.#assertAudioGraphIdentity(prepared.audioGraph);
+    const participant = attempt.participant;
+    if (!participant || attempt.phase !== 'participant-bound') {
+      throw new Error('Guest rendezvous ARM has no bound participant');
+    }
     if (
       prepared.primedPositionSeconds !== null &&
       prepared.primedPositionSeconds !== attempt.armIntent.positionSeconds
     ) {
       throw new Error('Guest rendezvous ARM changed an already primed target');
     }
-    const receipt = await attempt.participant.arm(attempt.armIntent);
+    const receipt = await participant.arm(attempt.armIntent);
     this.#assertAttempt(room, prepared, attempt);
     const canonical = readRendezvousArmReceipt(receipt);
     if (
@@ -2644,11 +3067,16 @@ class GuestMediaOwner {
   ): Promise<void> {
     await attempt.armTask;
     this.#assertAttempt(room, prepared, attempt);
-    this.#assertRunningAudioGraph(prepared.audioGraph);
-    if (attempt.armReceipt?.status !== 'armed') {
-      throw new Error('Guest rendezvous finalize followed a rejected arm');
+    this.#assertAudioGraphIdentity(prepared.audioGraph);
+    if (attempt.phase === 'prestage-rejected') {
+      await this.#executePrestageRejectedFinalize(room, prepared, attempt);
+      return;
     }
-    const receipt = await attempt.participant.finalize(intent);
+    const participant = attempt.participant;
+    if (!participant || attempt.phase !== 'participant-bound') {
+      throw new Error('Guest rendezvous FINALIZE has no bound participant');
+    }
+    const receipt = await participant.finalize(intent);
     this.#assertAttempt(room, prepared, attempt);
     const canonical = readRendezvousFinalizeReceipt(receipt);
     if (
@@ -2677,7 +3105,33 @@ class GuestMediaOwner {
     this.#assertAttempt(room, prepared, attempt);
     if (canonical.status !== 'accepted') return;
 
-    const evidenceValue = await attempt.participant.started(attempt.identity);
+    let evidenceValue: FilePlaybackStartEvidence;
+    try {
+      evidenceValue = await participant.started(attempt.identity);
+    } catch (error) {
+      this.#assertAttempt(room, prepared, attempt);
+      if (isStartEvidenceTimeout(error)) {
+        const observedAtRoomTimeMs = this.#nowRoomTimeMs();
+        await this.#sendRequired(
+          this.#createAttemptWire(attempt.attemptLease, {
+            kind: 'renderer-health',
+            rendezvousId: attempt.rendezvousId,
+            value: 'unhealthy',
+            observedAtRoomTimeMs,
+            leaseUntilRoomTimeMs: observedAtRoomTimeMs,
+            renderedFrame: 0,
+            underrunCount: 0,
+            reasonCode: 'start-evidence-timeout',
+          }),
+        );
+        this.#assertAttempt(room, prepared, attempt);
+        throw new GuestMediaNotReadyError(
+          'Guest renderer did not produce start evidence before its deadline',
+          { cause: error },
+        );
+      }
+      throw error;
+    }
     this.#assertAttempt(room, prepared, attempt);
     const evidence = canonicalStartEvidence(evidenceValue);
     if (!evidence) throw new Error('Guest physical start evidence was invalid');
@@ -2707,7 +3161,7 @@ class GuestMediaOwner {
       throw new Error('Guest successor has no canonical rendezvous target');
     }
     this.#assertAttempt(room, prepared, attempt);
-    if (!attempt.participant.commitAttempt(attempt.identity)) {
+    if (!participant.commitAttempt(attempt.identity)) {
       throw new Error('Guest cutover participant rejected physical commit');
     }
     const afterCommit = this.#runtime.currentSnapshot(this.#manager, staged.cutoverPort);
@@ -2733,6 +3187,7 @@ class GuestMediaOwner {
       Reflect.apply(channelCommitAttempt, this.#context.channel, [attempt.attemptLease]);
     }
     attempt.committed = true;
+    prepared.rendererDegraded = false;
     prepared.status = 'current';
     if (prepared.kind === 'successor' || prepared.kind === 'state-successor') {
       const previous = room.current;
@@ -2750,6 +3205,9 @@ class GuestMediaOwner {
       room.current = prepared;
       room.candidate = null;
     }
+    if (prepared.kind === 'baseline') {
+      this.#publishActiveBaselineTimeline(room, prepared, 'playing');
+    }
     const observedAtRoomTimeMs = this.#nowRoomTimeMs();
     const renderedFrame =
       evidence.kind === 'worklet-observed' ? evidence.actualStartFrame : evidence.targetFrame;
@@ -2766,9 +3224,6 @@ class GuestMediaOwner {
     const healthWire = this.#createRendererHealthWire(attempt, healthPayload);
     await this.#sendRequired(healthWire);
     this.#assertAttempt(room, prepared, attempt);
-    if (prepared.kind === 'baseline') {
-      this.#publishActiveBaselineTimeline(room, prepared, 'playing');
-    }
     if (attempt.stateOperation && prepared.stateOperation === attempt.stateOperation) {
       // The media session retains committed state authority for wire replay.
       // The prepared renderer must stop gating later pause/seek/stop work on
@@ -2783,12 +3238,12 @@ class GuestMediaOwner {
     payload: Readonly<{
       kind: 'renderer-health';
       rendezvousId: string;
-      value: 'healthy';
+      value: 'healthy' | 'unhealthy';
       observedAtRoomTimeMs: number;
       leaseUntilRoomTimeMs: number;
       renderedFrame: number;
       underrunCount: number;
-      reasonCode: null;
+      reasonCode: string | null;
     }>,
   ): FilePlaybackWireMessage {
     return attempt.stateOperation
@@ -3053,7 +3508,9 @@ class GuestMediaOwner {
       attemptLease,
       admittedAttempt,
       stateOperation,
-      participant: prepared.participant!,
+      participant: prepared.participant,
+      phase: prepared.participant ? 'participant-bound' : 'reserved',
+      controller: new AbortController(),
       identity,
       armIntent: intent,
       armReceipt: null,
@@ -3113,9 +3570,38 @@ class GuestMediaOwner {
     intent: Readonly<FilePlaybackCancelIntent>,
     disposition: 'retry' | 'terminal',
   ): void {
+    attempt.controller.abort(new GuestRendezvousAttemptCancelledError());
     const retiringStaged = prepared.staged;
-    if (!retiringStaged) {
-      throw new Error('Guest rendezvous cancellation lost its exact staged source');
+    const participant = attempt.participant;
+    if (!retiringStaged || !participant) {
+      if (
+        participant !== null ||
+        attempt.phase === 'participant-bound' ||
+        prepared.kind !== 'recovery' ||
+        room.candidate !== prepared ||
+        attempt.admittedAttempt !== null ||
+        attempt.stateOperation !== null
+      ) {
+        throw new Error('Guest rendezvous cancellation has a partial pre-stage attempt');
+      }
+      if (retiringStaged) {
+        const retirement = this.#runtime
+          .retireCandidate(this.#manager, retiringStaged.cutoverPort)
+          .then((retired) => {
+            if (retired !== true) {
+              throw new Error('Guest pre-stage cancellation lost its exact candidate port');
+            }
+          });
+        this.#trackPhysicalCleanup('pre-stage candidate cancellation', retirement);
+        prepared.staged = null;
+      }
+      Reflect.apply(channelRetireAttempt, this.#context.channel, [attempt.attemptLease]);
+      if (prepared.attempt === attempt) prepared.attempt = null;
+      prepared.readyPublished = false;
+      prepared.participant = null;
+      prepared.status = 'retired';
+      room.candidate = null;
+      return;
     }
     const terminalCurrent = disposition === 'terminal' ? room.current : null;
     const terminalSurvivor = terminalCurrent?.staged?.cutoverPort ?? null;
@@ -3129,7 +3615,7 @@ class GuestMediaOwner {
     ) {
       throw new Error('Guest terminal recovery cancellation has no exact current survivor');
     }
-    const participantCancellation = invokePhysicalCleanup(() => attempt.participant.cancel(intent));
+    const participantCancellation = invokePhysicalCleanup(() => participant.cancel(intent));
     // The cancellation can reject before the ordered media lane reaches it.
     // Attach a rejection observer now, while the lane still awaits and
     // rethrows the original Promise for fail-close handling below.
@@ -3210,13 +3696,42 @@ class GuestMediaOwner {
     stateLease: FilePlaybackWireStateLease,
   ): Promise<void> {
     this.#assertPrepared(room, prepared);
-    if (message.kind === 'file-playback-ended') {
-      this.#assertAudioGraphIdentity(prepared.audioGraph);
-    } else {
-      this.#assertRunningAudioGraph(prepared.audioGraph);
+    const graph = prepared.audioGraph;
+    this.#assertAudioGraphIdentity(graph);
+    const graphState = this.#audioGraphState(graph);
+    if (graphState === 'terminal') {
+      throw new Error('Guest state successor AudioContext is permanently unavailable');
     }
     const port = prepared.staged?.cutoverPort;
-    if (!port || this.#runtime.currentPort(this.#manager) !== port) {
+    const managerPort = this.#runtime.currentPort(this.#manager);
+    const rendererUnavailable =
+      prepared.rendererDegraded ||
+      port === undefined ||
+      managerPort !== port ||
+      this.#runtime.recoveryRequired(this.#manager);
+    if (
+      (message.kind === 'file-playback-ended' && rendererUnavailable) ||
+      (message.kind !== 'file-playback-ended' &&
+        (graphState === 'transient' || rendererUnavailable))
+    ) {
+      if (
+        graphState === 'running' &&
+        !prepared.rendererDegraded &&
+        !this.#runtime.recoveryRequired(this.#manager)
+      ) {
+        throw new Error('Guest state successor unexpectedly lost its current renderer');
+      }
+      this.#commitDegradedStateSuccessor(
+        room,
+        prepared,
+        expected,
+        successor,
+        message,
+        stateLease,
+      );
+      return;
+    }
+    if (!port || managerPort !== port) {
       throw new Error('Guest state successor has no exact current renderer');
     }
     if (message.kind === 'file-playback-ended') {
@@ -3248,7 +3763,6 @@ class GuestMediaOwner {
       return;
     }
     if (message.kind === 'file-playback-stop') {
-      const graph = prepared.audioGraph!;
       const bindings = Reflect.apply(channelClockBindings, this.#context.channel, [
         graph.audioContext,
       ]);
@@ -3265,10 +3779,30 @@ class GuestMediaOwner {
           targetFrame,
         }),
       });
-      const result = await this.#runtime.stopCurrent(this.#manager, port, intent);
+      let result: Awaited<ReturnType<RuntimeSnapshot['stopCurrent']>>;
+      try {
+        result = await this.#runtime.stopCurrent(this.#manager, port, intent);
+        if (result.status !== 'scheduled') throw new Error('Guest native stop was not scheduled');
+        await result.applied;
+      } catch (error) {
+        if (
+          this.#audioGraphState(graph) === 'transient' &&
+          (this.#runtime.currentPort(this.#manager) !== port ||
+            this.#runtime.recoveryRequired(this.#manager))
+        ) {
+          this.#commitDegradedStateSuccessor(
+            room,
+            prepared,
+            expected,
+            successor,
+            message,
+            stateLease,
+          );
+          return;
+        }
+        throw error;
+      }
       this.#assertPrepared(room, prepared);
-      if (result.status !== 'scheduled') throw new Error('Guest native stop was not scheduled');
-      await result.applied;
       this.#assertLive();
       this.#mediaSession.commitAdmittedStop(
         prepared.operation,
@@ -3302,16 +3836,162 @@ class GuestMediaOwner {
             positionSeconds: message.positionSeconds,
             atRoomTimeMs: message.atRoomTimeMs,
           });
-    const result =
-      intent.kind === 'file-playback-pause-transition'
-        ? await this.#runtime.pauseCurrent(this.#manager, port, intent)
-        : await this.#runtime.seekCurrent(this.#manager, port, intent);
-    this.#assertPrepared(room, prepared);
-    if (result.status !== 'scheduled') {
-      throw new Error(`Guest native ${message.kind} was rejected: ${result.reason}`);
+    let result: Awaited<ReturnType<RuntimeSnapshot['pauseCurrent']>>;
+    try {
+      result =
+        intent.kind === 'file-playback-pause-transition'
+          ? await this.#runtime.pauseCurrent(this.#manager, port, intent)
+          : await this.#runtime.seekCurrent(this.#manager, port, intent);
+      if (result.status !== 'scheduled') {
+        if (
+          result.reason === 'audio-context-not-running' &&
+          this.#audioGraphState(graph) === 'transient'
+        ) {
+          this.#commitDegradedStateSuccessor(
+            room,
+            prepared,
+            expected,
+            successor,
+            message,
+            stateLease,
+          );
+          return;
+        }
+        throw new Error(`Guest native ${message.kind} was rejected: ${result.reason}`);
+      }
+      await result.applied;
+    } catch (error) {
+      if (
+        this.#audioGraphState(graph) === 'transient' &&
+        (this.#runtime.currentPort(this.#manager) !== port ||
+          this.#runtime.recoveryRequired(this.#manager))
+      ) {
+        this.#commitDegradedStateSuccessor(
+          room,
+          prepared,
+          expected,
+          successor,
+          message,
+          stateLease,
+        );
+        return;
+      }
+      throw error;
     }
-    await result.applied;
     this.#assertPrepared(room, prepared);
+    this.#assertPrepared(room, prepared);
+    this.#mediaSession.commitAdmittedStateSuccessor(
+      prepared.operation,
+      expected,
+      successor,
+      stateLease,
+      () => this.#preparedCurrent(room, prepared),
+    );
+    prepared.state = successor;
+    room.physical = freezeCanonical({
+      state: successor,
+      phase: 'paused' as const,
+      positionSeconds: message.kind === 'file-playback-seek' ? message.positionSeconds : null,
+    });
+  }
+
+  #commitUnpreparedStop(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    expected: Readonly<PlaybackStateIdentity>,
+    stopped: Readonly<PlaybackStateIdentity>,
+    stateLease: FilePlaybackWireStateLease,
+  ): void {
+    this.#assertPrepared(room, prepared);
+    if (
+      prepared.status !== 'preparing' ||
+      prepared.staged !== null ||
+      prepared.participant !== null ||
+      prepared.readyPublished
+    ) {
+      throw new Error('Guest unprepared STOP lost its exact preparation state');
+    }
+    this.#mediaSession.commitAdmittedStop(
+      prepared.operation,
+      expected,
+      stopped,
+      stateLease,
+      () => this.#preparedCurrent(room, prepared),
+    );
+    prepared.rendererDegraded = true;
+    prepared.status = 'retired';
+    room.current = null;
+    room.physical = freezeCanonical({
+      state: stopped,
+      phase: 'stopped' as const,
+      positionSeconds: 0,
+    });
+  }
+
+  #commitDegradedStateSuccessor(
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
+    expected: Readonly<PlaybackStateIdentity>,
+    successor: Readonly<PlaybackStateIdentity>,
+    message: Extract<
+      FilePlaybackWireMessage,
+      {
+        readonly kind:
+          | 'file-playback-pause'
+          | 'file-playback-seek'
+          | 'file-playback-stop'
+          | 'file-playback-ended';
+      }
+    >,
+    stateLease: FilePlaybackWireStateLease,
+  ): void {
+    this.#assertPrepared(room, prepared);
+    const staged = prepared.staged;
+    const currentPort = this.#runtime.currentPort(this.#manager);
+    let retirementClaimed = false;
+    if (staged && currentPort === staged.cutoverPort) {
+      retirementClaimed = true;
+      const retirement = this.#runtime
+        .retireCurrent(this.#manager, staged.cutoverPort)
+        .then((retired) => {
+        if (retired !== true) {
+          throw new Error('Guest degraded renderer retirement lost its exact current port');
+        }
+      });
+      this.#trackPhysicalCleanup('degraded renderer retirement', retirement);
+    }
+    if (
+      !retirementClaimed &&
+      !prepared.rendererDegraded &&
+      !this.#runtime.recoveryRequired(this.#manager)
+    ) {
+      throw new Error('Guest degraded state successor has no fail-silent renderer evidence');
+    }
+
+    this.#stopRendererHealthHeartbeat(prepared);
+    prepared.staged = null;
+    prepared.participant = null;
+    prepared.readyPublished = false;
+    prepared.rendererDegraded = true;
+
+    if (message.kind === 'file-playback-stop' || message.kind === 'file-playback-ended') {
+      this.#mediaSession.commitAdmittedStop(
+        prepared.operation,
+        expected,
+        successor,
+        stateLease,
+        () => this.#preparedCurrent(room, prepared),
+      );
+      prepared.status = 'retired';
+      room.current = null;
+      room.physical = freezeCanonical({
+        state: successor,
+        phase: 'stopped' as const,
+        positionSeconds: 0,
+      });
+      return;
+    }
+
     this.#mediaSession.commitAdmittedStateSuccessor(
       prepared.operation,
       expected,
@@ -3577,15 +4257,6 @@ class GuestMediaOwner {
     if (prepared.attempt !== attempt) throw new Error('Guest rendezvous attempt is stale');
   }
 
-  #assertRunningAudioGraph(
-    graph: Readonly<FilePlaybackProductGuestAudioGraph> | null,
-  ): asserts graph is Readonly<FilePlaybackProductGuestAudioGraph> {
-    this.#assertAudioGraphIdentity(graph);
-    if (graph.audioContext.state !== 'running') {
-      throw new Error('Guest file playback AudioContext is not running');
-    }
-  }
-
   #assertAudioGraphIdentity(
     graph: Readonly<FilePlaybackProductGuestAudioGraph> | null,
   ): asserts graph is Readonly<FilePlaybackProductGuestAudioGraph> {
@@ -3599,6 +4270,16 @@ class GuestMediaOwner {
     if (destinationContext !== graph.audioContext) {
       throw new Error('Guest file playback audio graph became stale');
     }
+  }
+
+  #audioGraphState(
+    graph: Readonly<FilePlaybackProductGuestAudioGraph>,
+  ): 'running' | 'transient' | 'terminal' {
+    this.#assertAudioGraphIdentity(graph);
+    const state = graph.audioContext.state as string;
+    if (state === 'running') return 'running';
+    if (state === 'suspended' || state === 'interrupted') return 'transient';
+    return 'terminal';
   }
 
   #assertLive(): void {
@@ -3642,7 +4323,12 @@ class GuestMediaOwner {
       this.#assertLive();
     });
     const tracked = task.catch((error: unknown) => {
-      if (error instanceof GuestRendezvousAttemptCancelledError) return;
+      if (
+        error instanceof GuestRendezvousAttemptCancelledError ||
+        error instanceof GuestMediaNotReadyError
+      ) {
+        return;
+      }
       if (!this.#closed) this.#fatal(`Guest media owner ${label} failed`, error);
     });
     this.#lane = tracked;
@@ -3650,13 +4336,43 @@ class GuestMediaOwner {
     void tracked.then(() => this.#tasks.delete(tracked));
   }
 
+  #trackPhysicalCleanup(label: string, cleanup: Promise<void>): void {
+    const tracked = cleanup.catch((error: unknown) => {
+      this.#physicalCleanupFailures.push(error);
+      if (!this.#closed) this.#fatal(`Guest media owner ${label} failed`, error);
+      throw error;
+    });
+    this.#physicalCleanupTasks.add(tracked);
+    void tracked.then(
+      () => this.#physicalCleanupTasks.delete(tracked),
+      () => this.#physicalCleanupTasks.delete(tracked),
+    );
+    void tracked.catch(() => undefined);
+  }
+
+  async #drainPhysicalCleanupTasks(): Promise<void> {
+    for (;;) {
+      const tasks = [...this.#physicalCleanupTasks];
+      if (tasks.length === 0) break;
+      await Promise.allSettled(tasks);
+    }
+    if (this.#physicalCleanupFailures.length > 0) {
+      throw new AggregateError(
+        [...this.#physicalCleanupFailures],
+        'Guest physical cleanup failed',
+      );
+    }
+  }
+
   #enqueuePhysicalCleanup(label: string, operation: () => Promise<void>): void {
     // Unlike ordinary media work, physical cleanup must run and settle even
     // after an acknowledgement synchronously revokes this owner. Register its
     // exact identity before ACK so close snapshots cannot miss the barrier.
     const task = this.#lane.then(operation);
+    this.#trackPhysicalCleanup(label, task);
     const tracked = task.catch((error: unknown) => {
-      if (!this.#closed) this.#fatal(`Guest media owner ${label} failed`, error);
+      if (error instanceof GuestMediaNotReadyError) return;
+      // #trackPhysicalCleanup owns fatal publication and close-barrier failure.
     });
     this.#lane = tracked;
     this.#tasks.add(tracked);
@@ -3717,9 +4433,12 @@ class GuestMediaOwner {
         };
         const initialRetirement = retirePreparedPorts();
         const operationDrain = Promise.allSettled(tasks).then(() => undefined);
-        const finalPreparedRetirement = operationDrain.then(() => retirePreparedPorts());
+        const physicalCleanupDrain = operationDrain.then(() =>
+          this.#drainPhysicalCleanupTasks(),
+        );
+        const finalPreparedRetirement = physicalCleanupDrain.then(() => retirePreparedPorts());
         const preparedRetirement = settlePhysicalCleanupStrictly(
-          [initialRetirement, finalPreparedRetirement],
+          [initialRetirement, physicalCleanupDrain, finalPreparedRetirement],
           'Multiple guest playback port retirement barriers failed',
         );
         return settlePhysicalCleanupStrictly(

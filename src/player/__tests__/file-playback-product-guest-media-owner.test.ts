@@ -448,6 +448,27 @@ function r2Offer(context: Readonly<FilePlaybackProductSessionRouterConnectionCon
   });
 }
 
+function r2Offer2(context: Readonly<FilePlaybackProductSessionRouterConnectionContext>) {
+  return createR2WholeBlobFileMediaSourceOfferV2({
+    sessionId: context.sessionId,
+    connectionId: context.connectionId,
+    prepareId: PREPARE_ID_2,
+    prepareRevision: 2,
+    queueItemId: QUEUE_ID_2,
+    sourceIdentity: SOURCE_ID_2,
+    transferSessionId: TRANSFER_ID_2,
+    storageRoomId: 'room_1',
+    objectId: '97000000-0000-4000-8000-000000000013',
+    encodedSize: 4,
+    encryptedSize: 20,
+    keyB64: btoa(String.fromCharCode(...new Uint8Array(32).fill(5))),
+    ivB64: btoa(String.fromCharCode(...new Uint8Array(12).fill(6))),
+    name: 'next-ordinary.wav',
+    mime: 'audio/wav',
+    expiresAtRoomTimeMs: 10_000,
+  });
+}
+
 function runBinding(offer: Readonly<FileMediaSourceOfferV2>, runId = RUN_ID, playbackRevision = 1) {
   return createFilePlaybackRunBindingV2({
     sessionId: offer.sessionId,
@@ -996,7 +1017,7 @@ function runtimeHarness(
 function setup(
   overrides: Pick<
     Partial<FilePlaybackProductGuestMediaOwnerOptions>,
-    'getAudioGraph' | 'boundedRoutePolicy'
+    'getAudioGraph' | 'boundedRoutePolicy' | 'runtimeForTests'
   > = {},
 ) {
   const pair = channelPair();
@@ -1026,7 +1047,7 @@ function setup(
     canSendPeerControl: vi.fn(() => true),
     onTimelineRendered: rendered,
     onFatalConnection: fatal,
-    runtimeForTests: runtime.runtime,
+    runtimeForTests: { ...runtime.runtime, ...overrides.runtimeForTests },
   };
   const owner = createFilePlaybackProductGuestMediaOwner(options);
   return { ...pair, registry, manager, state, runtime, fatal, rendered, graph, options, owner };
@@ -1355,6 +1376,39 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     );
     expect(h.runtime.handoffWarmSource).not.toHaveBeenCalled();
     expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('keeps suspended OFFER warming cold and aborts its exact wait on OFFER revoke', async () => {
+    const graph = audioGraph();
+    (graph.audioContext as unknown as { state: string }).state = 'suspended';
+    const never = deferred<void>();
+    let observedSignal: AbortSignal | null = null;
+    const waitForClockPoll = vi.fn(async (signal: AbortSignal) => {
+      observedSignal = signal;
+      await never.promise;
+    });
+    const h = setup({
+      getAudioGraph: vi.fn(async () => graph),
+      runtimeForTests: { waitForClockPoll },
+    });
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    const offer = peerOffer(h.context);
+    const offerAck = vi.fn();
+
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), offerAck);
+    expect(offerAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(waitForClockPoll).toHaveBeenCalledOnce());
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+
+    const revokeAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, revokeFor(offer)), revokeAck);
+    expect(revokeAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true));
+    expect(h.runtime.prepareWarmSource).not.toHaveBeenCalled();
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
   });
 
@@ -2500,8 +2554,8 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(h.runtime.commitAttempt.mock.invocationCallOrder[0]).toBeLessThan(
       h.rendered.mock.invocationCallOrder[0]!,
     );
-    expect(h.runtime.sendRequired.mock.invocationCallOrder[healthCallIndex]).toBeLessThan(
-      h.rendered.mock.invocationCallOrder[0]!,
+    expect(h.rendered.mock.invocationCallOrder[0]).toBeLessThan(
+      h.runtime.sendRequired.mock.invocationCallOrder[healthCallIndex]!,
     );
     h.owner.onTimelineAdopted(timelineEvent(h.context));
     await Promise.resolve();
@@ -2512,6 +2566,61 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
     expect(h.runtime.peerClose).toHaveBeenCalledOnce();
     expect(h.runtime.retireCurrent).toHaveBeenCalledOnce();
+  });
+
+  it('projects a committed late-join baseline before a failing renderer-health send', async () => {
+    const h = setup();
+    await prepare(h);
+    const attempt = stageHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID,
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.arm).toHaveBeenCalledOnce());
+    h.runtime.setCurrentState(h.state);
+    const send = h.runtime.sendRequired.getMockImplementation();
+    if (!send) throw new Error('Missing sendRequired fixture implementation');
+    h.runtime.sendRequired.mockImplementation(async (context, frame) => {
+      const accepted = await send(context, frame);
+      if ((frame as { kind?: string }).kind === 'renderer-health') {
+        throw new Error('renderer-health transport failed');
+      }
+      return accepted;
+    });
+
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: RENDEZVOUS_ID,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledOnce());
+    expect(h.rendered).toHaveBeenCalledWith(timelineEvent(h.context).timeline);
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.runtime.commitAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+      h.rendered.mock.invocationCallOrder[0]!,
+    );
+    expect(h.rendered.mock.invocationCallOrder[0]).toBeLessThan(
+      h.fatal.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('renews renderer health from one exact current playing attempt with a self-rescheduling timeout', async () => {
@@ -2594,6 +2703,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       candidateAsset,
     );
     const pendingStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    const stageCount = h.runtime.stageAssetSource.mock.calls.length;
     h.runtime.stageAssetSource.mockImplementationOnce(() => pendingStage.promise);
 
     h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
@@ -2818,28 +2928,595 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(h.runtime.peerClose).toHaveBeenCalledOnce();
   });
 
-  it('does not acquire or publish media when the primed AudioContext is interrupted', async () => {
+  it('waits for an interrupted AudioContext before acquiring or publishing media', async () => {
     const interruptedContext = fakeAudioContext();
     Object.defineProperty(interruptedContext, 'state', {
       value: 'suspended',
       configurable: true,
+      writable: true,
     });
     const interrupted = freezeCanonical({
       audioContext: interruptedContext,
       destination: { context: interruptedContext } as unknown as AudioNode,
     });
-    const h = setup({ getAudioGraph: vi.fn(async () => interrupted) });
+    const poll = deferred<void>();
+    const waitForClockPoll = vi.fn(async (signal: AbortSignal) => {
+      signal.throwIfAborted();
+      await poll.promise;
+      signal.throwIfAborted();
+    });
+    const h = setup({
+      getAudioGraph: vi.fn(async () => interrupted),
+      runtimeForTests: { waitForClockPoll },
+    });
     const offer = r2Offer(h.context);
     h.owner.onTimelineAdopted(timelineEvent(h.context));
     h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
     h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
 
-    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(waitForClockPoll).toHaveBeenCalledOnce());
     expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
     expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
     expect(
       h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
     ).toBe(false);
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    (interruptedContext as unknown as { state: string }).state = 'running';
+    poll.resolve();
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+      ).toBe(true),
+    );
+    expect(h.runtime.r2Acquire).toHaveBeenCalledOnce();
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce();
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('aborts an AudioContext wait immediately on revoke without acquiring media', async () => {
+    const interruptedContext = fakeAudioContext();
+    (interruptedContext as unknown as { state: string }).state = 'interrupted';
+    const interrupted = freezeCanonical({
+      audioContext: interruptedContext,
+      destination: { context: interruptedContext } as unknown as AudioNode,
+    });
+    const never = deferred<void>();
+    let observedSignal: AbortSignal | null = null;
+    const waitForClockPoll = vi.fn(async (signal: AbortSignal) => {
+      observedSignal = signal;
+      await never.promise;
+    });
+    const h = setup({
+      getAudioGraph: vi.fn(async () => interrupted),
+      runtimeForTests: { waitForClockPoll },
+    });
+    const offer = r2Offer(h.context);
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+    await vi.waitFor(() => expect(waitForClockPoll).toHaveBeenCalledOnce());
+
+    h.owner.revoke(h.context);
+    await vi.waitFor(() => expect(h.runtime.peerClose).toHaveBeenCalledOnce());
+    expect(observedSignal?.aborted).toBe(true);
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('retires an exact staged port when revoke wins its interrupted readiness wait', async () => {
+    const never = deferred<void>();
+    let observedSignal: AbortSignal | null = null;
+    const waitForClockPoll = vi.fn(async (signal: AbortSignal) => {
+      observedSignal = signal;
+      await never.promise;
+    });
+    const h = setup({ runtimeForTests: { waitForClockPoll } });
+    const lateCandidatePort = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackCutoverCandidatePort;
+    h.runtime.stageAssetSource.mockImplementationOnce(async (options) => {
+      (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+      return stagedAssetSource(h.registry, options, lateCandidatePort);
+    });
+    const offer = r2Offer(h.context);
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+    await vi.waitFor(() => expect(waitForClockPoll).toHaveBeenCalledOnce());
+
+    h.owner.revoke(h.context);
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, lateCandidatePort),
+    );
+    expect(observedSignal?.aborted).toBe(true);
+    expect(
+      h.runtime.sent.some((frame) => (frame as { kind?: string }).kind === 'source-ready'),
+    ).toBe(false);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a terminal AudioContext instead of memoizing a preparing wedge', async () => {
+    const closedContext = fakeAudioContext();
+    (closedContext as unknown as { state: string }).state = 'closed';
+    const graph = freezeCanonical({
+      audioContext: closedContext,
+      destination: { context: closedContext } as unknown as AudioNode,
+    });
+    const waitForClockPoll = vi.fn(async () => undefined);
+    const getAudioGraph = vi.fn(async () => graph);
+    const h = setup({
+      getAudioGraph,
+      runtimeForTests: { waitForClockPoll },
+    });
+    const offer = r2Offer(h.context);
+    h.owner.onTimelineAdopted(timelineEvent(h.context));
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, runBinding(offer)), vi.fn());
+    await vi.waitFor(() => expect(getAudioGraph).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(waitForClockPoll).not.toHaveBeenCalled();
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    expect(h.runtime.stageAssetSource).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.peerClose).toHaveBeenCalledOnce());
+  });
+
+  it('rejects an interrupted same-state recovery before staging and retires it by exact CANCEL', async () => {
+    const h = setup();
+    await prepare(h);
+    const initial = await runHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+    const stageCount = h.runtime.stageAssetSource.mock.calls.length;
+    const recoveryId = 'guest-owner-prestage-rejected';
+    const recoveryAttempt = h.host.stageAttempt(initial.stateLease, recoveryId);
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: recoveryId,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string; status?: string }).kind ===
+              'rendezvous-armed' &&
+            (frame as { rendezvousId?: string }).rendezvousId === recoveryId &&
+            (frame as { status?: string }).status === 'rejected',
+        ),
+      ).toHaveLength(1),
+    );
+    expect(
+      h.runtime.sent.find(
+        (frame) =>
+          (frame as { kind?: string; rendezvousId?: string }).kind === 'rendezvous-armed' &&
+          (frame as { rendezvousId?: string }).rendezvousId === recoveryId,
+      ),
+    ).toMatchObject({ reasonCode: 'audio-context-not-running', bufferedAheadSeconds: 0 });
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCount);
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: recoveryId,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; rendezvousId?: string; status?: string }).kind ===
+              'rendezvous-finalized' &&
+            (frame as { rendezvousId?: string }).rendezvousId === recoveryId &&
+            (frame as { status?: string }).status === 'rejected',
+        ),
+      ).toHaveLength(1),
+    );
+
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'file-playback-cancel',
+        rendezvousId: recoveryId,
+        reasonCode: 'remote-recovery-failed',
+      }),
+    );
+    h.host.retireAttempt(recoveryAttempt);
+    expect(h.runtime.cancel).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    (h.graph.audioContext as unknown as { state: string }).state = 'running';
+    const retryId = 'guest-owner-prestage-retry';
+    const retryAttempt = h.host.stageAttempt(initial.stateLease, retryId);
+    receiveHostWire(
+      h,
+      h.host.createWire(retryAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: retryId,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.arm).toHaveBeenCalledTimes(2));
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCount + 1);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.host.retireAttempt(retryAttempt);
+    h.owner.revoke(h.context);
+  });
+
+  it('retires a reserved staged recovery when CANCEL interrupts its running-state fence', async () => {
+    const never = deferred<void>();
+    const waitForClockPoll = vi.fn(async () => never.promise);
+    const h = setup({ runtimeForTests: { waitForClockPoll } });
+    await prepare(h);
+    const initial = await runHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    const stagedPort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+    h.runtime.stageAssetSource.mockImplementationOnce(async (options) => {
+      (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+      return stagedAssetSource(h.registry, options, stagedPort);
+    });
+    const recoveryId = 'guest-owner-reserved-stage';
+    const recoveryAttempt = h.host.stageAttempt(initial.stateLease, recoveryId);
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: recoveryId,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(waitForClockPoll).toHaveBeenCalledOnce());
+
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'file-playback-cancel',
+        rendezvousId: recoveryId,
+        reasonCode: 'remote-recovery-failed',
+      }),
+    );
+    h.host.retireAttempt(recoveryAttempt);
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, stagedPort),
+    );
+    expect(h.runtime.cancel).not.toHaveBeenCalled();
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('awaits exact retirement when CANCEL wins a still-pending same-source stage', async () => {
+    const h = setup();
+    await prepare(h);
+    const initial = await runHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    const pendingStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    h.runtime.stageAssetSource.mockImplementationOnce(() => pendingStage.promise);
+    const recoveryId = 'guest-owner-pending-stage-cancel';
+    const recoveryAttempt = h.host.stageAttempt(initial.stateLease, recoveryId);
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: recoveryId,
+        positionSeconds: 2,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCount + 1),
+    );
+    const stageOptions = h.runtime.stageAssetSource.mock.calls.at(-1)?.[0];
+    if (!stageOptions) throw new Error('Missing pending recovery stage options');
+
+    receiveHostWire(
+      h,
+      h.host.createWire(recoveryAttempt, {
+        kind: 'file-playback-cancel',
+        rendezvousId: recoveryId,
+        reasonCode: 'remote-recovery-failed',
+      }),
+    );
+    h.host.retireAttempt(recoveryAttempt);
+    const latePort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+    pendingStage.resolve(stagedAssetSource(h.registry, stageOptions, latePort));
+    await vi.waitFor(() =>
+      expect(h.runtime.retireCandidate).toHaveBeenCalledWith(h.manager, latePort),
+    );
+    expect(h.runtime.cancel).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('publishes exact unhealthy health and preserves CANCEL after interrupted start evidence', async () => {
+    const h = setup();
+    await prepare(h);
+    const attempt = stageHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID,
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.arm).toHaveBeenCalledOnce());
+    h.runtime.setCurrentState(h.state);
+    h.runtime.started.mockImplementationOnce(async () => {
+      (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+      throw new Error('start-evidence-timeout');
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: RENDEZVOUS_ID,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; value?: string }).kind === 'renderer-health' &&
+            (frame as { value?: string }).value === 'unhealthy',
+        ),
+      ).toHaveLength(1),
+    );
+    expect(
+      h.runtime.sent.find(
+        (frame) =>
+          (frame as { kind?: string; value?: string }).kind === 'renderer-health' &&
+          (frame as { value?: string }).value === 'unhealthy',
+      ),
+    ).toMatchObject({
+      rendezvousId: RENDEZVOUS_ID,
+      leaseUntilRoomTimeMs: expect.any(Number),
+      renderedFrame: 0,
+      underrunCount: 0,
+      reasonCode: 'start-evidence-timeout',
+    });
+    expect(h.runtime.commitAttempt).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'file-playback-cancel',
+        rendezvousId: RENDEZVOUS_ID,
+        reasonCode: 'remote-renderer-unhealthy',
+      }),
+    );
+    h.host.retireAttempt(attempt.attemptLease);
+    expect(h.runtime.cancel).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('publishes pre-commit unhealthy health for a successor attempt without current-only helpers', async () => {
+    const h = setup();
+    const armed = await stageCancelablePreparedKind(h, 'successor');
+    h.runtime.setCurrentState(armed.state);
+    h.runtime.started.mockImplementationOnce(async () => {
+      (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+      throw new Error('start-evidence-timeout');
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(armed.attemptLease, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: armed.rendezvousId,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; value?: string; queueItemId?: QueueItemId }).kind ===
+              'renderer-health' &&
+            (frame as { value?: string }).value === 'unhealthy' &&
+            (frame as { queueItemId?: QueueItemId }).queueItemId === armed.state.queueItemId,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.runtime.commitAttempt).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    receiveHostWire(
+      h,
+      h.host.createWire(armed.attemptLease, {
+        kind: 'file-playback-cancel',
+        rendezvousId: armed.rendezvousId,
+        reasonCode: 'remote-renderer-unhealthy',
+      }),
+    );
+    h.host.retireAttempt(armed.attemptLease);
+    expect(h.runtime.cancel).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('publishes a canonical rejected ARM instead of closing an interrupted connection', async () => {
+    const h = setup();
+    await prepare(h);
+    const attempt = stageHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    (h.graph.audioContext as unknown as { state: string }).state = 'suspended';
+    h.runtime.arm.mockImplementationOnce(async (intent) =>
+      freezeCanonical({
+        protocolVersion: 2 as const,
+        kind: 'rendezvous-armed' as const,
+        queueItemId: intent.queueItemId,
+        runId: intent.runId,
+        revision: intent.revision,
+        rendezvousId: intent.rendezvousId,
+        participantId: intent.recipientId,
+        status: 'rejected' as const,
+        observedAtRoomTimeMs: 150,
+        bufferedAheadSeconds: 0,
+        reasonCode: 'audio-context-not-running',
+      }),
+    );
+
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID,
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; status?: string }).kind === 'rendezvous-armed' &&
+            (frame as { status?: string }).status === 'rejected',
+        ),
+      ).toHaveLength(1),
+    );
+
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+    expect(h.runtime.commitAttempt).not.toHaveBeenCalled();
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('publishes a canonical rejected FINALIZE when interruption follows an accepted ARM', async () => {
+    const h = setup();
+    await prepare(h);
+    const attempt = stageHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'rendezvous-arm',
+        rendezvousId: RENDEZVOUS_ID,
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 1_000,
+        finalizeByRoomTimeMs: 900,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) => (frame as { kind?: string }).kind === 'rendezvous-armed',
+        ),
+      ).toHaveLength(1),
+    );
+    (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+    h.runtime.finalize.mockImplementationOnce(async (intent) =>
+      freezeCanonical({
+        protocolVersion: 2 as const,
+        kind: 'rendezvous-finalized' as const,
+        queueItemId: intent.queueItemId,
+        runId: intent.runId,
+        revision: intent.revision,
+        rendezvousId: intent.rendezvousId,
+        participantId: intent.recipientId,
+        status: 'rejected' as const,
+        observedAtRoomTimeMs: 170,
+        reasonCode: 'audio-context-not-running',
+      }),
+    );
+
+    receiveHostWire(
+      h,
+      h.host.createWire(attempt.attemptLease, {
+        kind: 'rendezvous-finalize',
+        rendezvousId: RENDEZVOUS_ID,
+        startAtRoomTimeMs: 1_000,
+        finalizedAtRoomTimeMs: 155,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; status?: string }).kind === 'rendezvous-finalized' &&
+            (frame as { status?: string }).status === 'rejected',
+        ),
+      ).toHaveLength(1),
+    );
+
+    expect(h.runtime.finalize).toHaveBeenCalledOnce();
+    expect(h.runtime.commitAttempt).not.toHaveBeenCalled();
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
   });
 
   it('retires an initial candidate when channel authority closes immediately after staging resolves', async () => {
@@ -4378,11 +5055,95 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     h.owner.revoke(h.context);
   });
 
-  it('serializes pause, paused seek, and stop evidence before exact metadata commits', async () => {
-    const h = setup();
+  it('serializes interrupted pause, seek, and stop as logical degradation without lane starvation', async () => {
+    const waitForClockPoll = vi.fn(async () => undefined);
+    const h = setup({ runtimeForTests: { waitForClockPoll } });
     await prepare(h);
     await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
 
+    const paused = freezeCanonical({ ...h.state, revision: 2 });
+    const pauseLease = h.host.stageMedia({
+      run: paused,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    (h.graph.audioContext as unknown as { state: string }).state = 'suspended';
+    receiveHostWire(
+      h,
+      h.host.createWire(pauseLease, {
+        kind: 'file-playback-pause',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: 1,
+        atRoomTimeMs: 300,
+      }),
+    );
+    h.host.commitMedia(pauseLease);
+    await vi.waitFor(() => expect(h.runtime.retireCurrent).toHaveBeenCalledOnce());
+    const pausedTimeline = activeTimeline(paused, 'paused', 0, 300);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, pausedTimeline));
+
+    const sought = freezeCanonical({ ...h.state, revision: 3 });
+    const seekLease = h.host.stageMedia({
+      run: sought,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+    receiveHostWire(
+      h,
+      h.host.createWire(seekLease, {
+        kind: 'file-playback-seek',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: 2,
+        positionSeconds: 24,
+        atRoomTimeMs: 400,
+      }),
+    );
+    h.host.commitMedia(seekLease);
+    const soughtTimeline = activeTimeline(sought, 'paused', 24, 400);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, soughtTimeline));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(soughtTimeline));
+
+    const stopped = freezeCanonical({ ...h.state, revision: 4 });
+    const stopLease = h.host.stageMedia({
+      run: stopped,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    (h.graph.audioContext as unknown as { state: string }).state = 'suspended';
+    receiveHostWire(
+      h,
+      h.host.createWire(stopLease, {
+        kind: 'file-playback-stop',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: 3,
+        atRoomTimeMs: 500,
+      }),
+    );
+    h.host.commitStop(stopLease, sought);
+    const stoppedProjection = stoppedTimeline(4, 500);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
+
+    expect(waitForClockPoll).not.toHaveBeenCalled();
+    expect(h.runtime.pauseCurrent).not.toHaveBeenCalled();
+    expect(h.runtime.seekCurrent).not.toHaveBeenCalled();
+    expect(h.runtime.stopCurrent).not.toHaveBeenCalled();
+    expect(h.runtime.retireCurrent).toHaveBeenCalledOnce();
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
+    expect(h.rendered).toHaveBeenCalledTimes(4);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('re-stages a degraded paused renderer through the next exact same-run PREPARE', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
     const paused = freezeCanonical({ ...h.state, revision: 2 });
     const pauseLease = h.host.stageMedia({
       run: paused,
@@ -4399,36 +5160,59 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
         atRoomTimeMs: 300,
       }),
     );
-    await vi.waitFor(() => expect(h.runtime.pauseCurrent).toHaveBeenCalledOnce());
     h.host.commitMedia(pauseLease);
     const pausedTimeline = activeTimeline(paused, 'paused', 0, 300);
     h.owner.onTimelineUpdated(timelineUpdated(h.context, pausedTimeline));
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(pausedTimeline));
+    expect(h.runtime.retireCurrent).toHaveBeenCalledOnce();
+    const stageCountBeforeResume = h.runtime.stageAssetSource.mock.calls.length;
 
-    const sought = freezeCanonical({ ...h.state, revision: 3 });
-    const seekLease = h.host.stageMedia({
-      run: sought,
+    (h.graph.audioContext as unknown as { state: string }).state = 'running';
+    const resumed = freezeCanonical({ ...h.state, revision: 3 });
+    const resumeLease = h.host.stageMedia({
+      run: resumed,
       sourceIdentity: SOURCE_ID,
       transferSessionId: TRANSFER_ID,
     });
     receiveHostWire(
       h,
-      h.host.createWire(seekLease, {
-        kind: 'file-playback-seek',
+      h.host.createWire(resumeLease, {
+        kind: 'file-playback-prepare',
         expectedQueueItemId: QUEUE_ID,
         expectedRunId: RUN_ID,
         expectedRevision: 2,
-        positionSeconds: 24,
-        atRoomTimeMs: 400,
+        positionSeconds: 12,
+        playbackRate: 1,
       }),
     );
-    await vi.waitFor(() => expect(h.runtime.seekCurrent).toHaveBeenCalledOnce());
-    h.host.commitMedia(seekLease);
-    const soughtTimeline = activeTimeline(sought, 'paused', 24, 400);
-    h.owner.onTimelineUpdated(timelineUpdated(h.context, soughtTimeline));
-    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(soughtTimeline));
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === resumed.revision,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(stageCountBeforeResume + 1);
+    expect(h.runtime.primeCandidate).toHaveBeenCalledWith(
+      h.manager,
+      CUTOVER_PORT,
+      12,
+      expect.any(AbortSignal),
+    );
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
 
-    const stopped = freezeCanonical({ ...h.state, revision: 4 });
+  it('orders interrupted STOP metadata before the next run binding admission', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const heavyPreparationCountBeforeNext =
+      h.runtime.stageAssetSource.mock.calls.length + h.runtime.prepareWarmSource.mock.calls.length;
+    (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+    const stopped = freezeCanonical({ ...h.state, revision: 2 });
     const stopLease = h.host.stageMedia({
       run: stopped,
       sourceIdentity: SOURCE_ID,
@@ -4440,25 +5224,188 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
         kind: 'file-playback-stop',
         expectedQueueItemId: QUEUE_ID,
         expectedRunId: RUN_ID,
-        expectedRevision: 3,
-        atRoomTimeMs: 500,
+        expectedRevision: 1,
+        atRoomTimeMs: 300,
       }),
     );
-    await vi.waitFor(() => expect(h.runtime.stopCurrent).toHaveBeenCalledOnce());
-    h.host.commitStop(stopLease, sought);
-    const stoppedProjection = stoppedTimeline(4, 500);
+    h.host.commitStop(stopLease, h.state);
+    const stoppedProjection = stoppedTimeline(2, 300);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
+
+    const nextOffer = peerOffer2(h.context);
+    const offerAck = vi.fn();
+    const bindingAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, nextOffer), offerAck);
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, runBinding(nextOffer, RUN_ID_2, 3)),
+      bindingAck,
+    );
+    expect(offerAck).toHaveBeenCalledOnce();
+    expect(bindingAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
+    expect(
+      h.runtime.stageAssetSource.mock.calls.length + h.runtime.prepareWarmSource.mock.calls.length,
+    ).toBe(heavyPreparationCountBeforeNext);
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    (h.graph.audioContext as unknown as { state: string }).state = 'running';
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === 3,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(
+      h.runtime.stageAssetSource.mock.calls.length + h.runtime.prepareWarmSource.mock.calls.length,
+    ).toBe(heavyPreparationCountBeforeNext + 1);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('lets STOP revoke a suspended baseline preparation before admitting the next run', async () => {
+    const graph = audioGraph();
+    (graph.audioContext as unknown as { state: string }).state = 'suspended';
+    const polls: Array<ReturnType<typeof deferred<void>>> = [];
+    const signals: AbortSignal[] = [];
+    const waitForClockPoll = vi.fn(async (signal: AbortSignal) => {
+      signals.push(signal);
+      const poll = deferred<void>();
+      polls.push(poll);
+      await poll.promise;
+      signal.throwIfAborted();
+    });
+    const h = setup({
+      getAudioGraph: vi.fn(async () => graph),
+      runtimeForTests: { waitForClockPoll },
+    });
+    const initialOffer = r2Offer(h.context);
+    startPreparation(h, initialOffer);
+    await vi.waitFor(() => expect(waitForClockPoll).toHaveBeenCalledOnce());
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+
+    h.host.bootstrapCurrentMedia({
+      run: h.state,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    const stopped = freezeCanonical({ ...h.state, revision: 2 });
+    const stopLease = h.host.stageMedia({
+      run: stopped,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(stopLease, {
+        kind: 'file-playback-stop',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: 1,
+        atRoomTimeMs: 300,
+      }),
+    );
+    expect(signals[0]?.aborted).toBe(true);
+    h.host.commitStop(stopLease, h.state);
+    const stoppedProjection = stoppedTimeline(2, 300);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
+
+    const nextOffer = r2Offer2(h.context);
+    const offerAck = vi.fn();
+    const bindingAck = vi.fn();
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, nextOffer), offerAck);
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, runBinding(nextOffer, RUN_ID_2, 3)),
+      bindingAck,
+    );
+    expect(offerAck).toHaveBeenCalledOnce();
+    expect(bindingAck).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
+    await vi.waitFor(() => expect(waitForClockPoll).toHaveBeenCalledTimes(2));
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+
+    (graph.audioContext as unknown as { state: string }).state = 'running';
+    polls[1]!.resolve();
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+            (frame as { revision?: number }).revision === 3,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.runtime.r2Acquire).toHaveBeenCalledOnce();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('logically stops an ended run after its renderer has already failed silent', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    h.runtime.setHasCurrentPort(false);
+    h.runtime.setPhysicalRecoveryRequired(true);
+    const stopped = freezeCanonical({ ...h.state, revision: 2 });
+    const stopLease = h.host.stageMedia({
+      run: stopped,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(stopLease, {
+        kind: 'file-playback-ended',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: 1,
+        hostObservedAtRoomTimeMs: 300,
+      }),
+    );
+    h.host.commitStop(stopLease, h.state);
+    const stoppedProjection = stoppedTimeline(2, 300);
     h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
+    expect(h.runtime.remoteEndCurrent).not.toHaveBeenCalled();
+    expect(h.runtime.retireCurrent).not.toHaveBeenCalled();
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
 
-    h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
-    await Promise.resolve();
-    expect(h.rendered).toHaveBeenCalledTimes(4);
-    expect(h.runtime.pauseCurrent.mock.invocationCallOrder[0]).toBeLessThan(
-      h.runtime.seekCurrent.mock.invocationCallOrder[0]!,
+  it('falls back logically when a running pause races an interrupted fail-silent backend', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    h.runtime.pauseCurrent.mockImplementationOnce(async () => {
+      (h.graph.audioContext as unknown as { state: string }).state = 'interrupted';
+      h.runtime.setHasCurrentPort(false);
+      h.runtime.setPhysicalRecoveryRequired(true);
+      throw new Error('backend interrupted during pause');
+    });
+    const paused = freezeCanonical({ ...h.state, revision: 2 });
+    const pauseLease = h.host.stageMedia({
+      run: paused,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(pauseLease, {
+        kind: 'file-playback-pause',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: 1,
+        atRoomTimeMs: 300,
+      }),
     );
-    expect(h.runtime.seekCurrent.mock.invocationCallOrder[0]).toBeLessThan(
-      h.runtime.stopCurrent.mock.invocationCallOrder[0]!,
-    );
+    h.host.commitMedia(pauseLease);
+    const pausedTimeline = activeTimeline(paused, 'paused', 0, 300);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, pausedTimeline));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(pausedTimeline));
+    expect(h.runtime.pauseCurrent).toHaveBeenCalledOnce();
+    expect(h.runtime.retireCurrent).not.toHaveBeenCalled();
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
   });

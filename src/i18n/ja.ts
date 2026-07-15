@@ -13,8 +13,6 @@ const ja: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'キャンセル',
-  'common.yes': 'はい',
-  'common.no': 'いいえ',
   'common.close': '閉じる',
   'common.reset': 'リセット',
   'common.refresh': '更新',

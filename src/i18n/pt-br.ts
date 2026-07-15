@@ -13,8 +13,6 @@ const ptBr: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Cancelar',
-  'common.yes': 'Sim',
-  'common.no': 'Não',
   'common.close': 'Fechar',
   'common.reset': 'Redefinir',
   'common.refresh': 'Atualizar',

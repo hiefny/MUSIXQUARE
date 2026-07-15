@@ -10,8 +10,6 @@ const th: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ตกลง',
   'common.cancel': 'ยกเลิก',
-  'common.yes': 'ใช่',
-  'common.no': 'ไม่',
   'common.close': 'ปิด',
   'common.reset': 'รีเซ็ต',
   'common.refresh': 'รีเฟรช',

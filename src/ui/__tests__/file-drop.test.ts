@@ -156,8 +156,8 @@ describe('global local-file drop', () => {
     expect(mockedShowDialog).toHaveBeenCalledWith({
       title: 'dialog.file_drop.title',
       message: 'dialog.file_drop.message:2',
-      buttonText: 'common.yes',
-      secondaryText: 'common.no',
+      buttonText: 'common.ok',
+      secondaryText: 'common.cancel',
       defaultFocus: 'secondary',
     });
     await vi.waitFor(() => expect(selected).toHaveBeenCalledTimes(1));

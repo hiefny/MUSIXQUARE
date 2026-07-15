@@ -10,8 +10,6 @@ const it: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Annulla',
-  'common.yes': 'Sì',
-  'common.no': 'No',
   'common.close': 'Chiudi',
   'common.reset': 'Ripristina',
   'common.refresh': 'Aggiorna',

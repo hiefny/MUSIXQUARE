@@ -181,8 +181,8 @@ async function confirmDroppedFiles(files: readonly File[], acceptedCount: number
     const result = await showDialog({
       title: t('dialog.file_drop.title'),
       message: t('dialog.file_drop.message', { count: acceptedCount }),
-      buttonText: t('common.yes'),
-      secondaryText: t('common.no'),
+      buttonText: t('common.ok'),
+      secondaryText: t('common.cancel'),
       defaultFocus: 'secondary',
     });
 

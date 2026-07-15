@@ -13,8 +13,6 @@ const id: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Batal',
-  'common.yes': 'Ya',
-  'common.no': 'Tidak',
   'common.close': 'Tutup',
   'common.reset': 'Atur ulang',
   'common.refresh': 'Muat ulang',

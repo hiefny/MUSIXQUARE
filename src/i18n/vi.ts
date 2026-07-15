@@ -13,8 +13,6 @@ const vi: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Hủy',
-  'common.yes': 'Có',
-  'common.no': 'Không',
   'common.close': 'Đóng',
   'common.reset': 'Đặt lại',
   'common.refresh': 'Làm mới',

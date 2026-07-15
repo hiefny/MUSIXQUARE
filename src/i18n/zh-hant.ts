@@ -13,8 +13,6 @@ const zhHant: Record<I18nKey, string> = {
   // Common
   'common.ok': '確定',
   'common.cancel': '取消',
-  'common.yes': '是',
-  'common.no': '否',
   'common.close': '關閉',
   'common.reset': '重設',
   'common.refresh': '重新整理',

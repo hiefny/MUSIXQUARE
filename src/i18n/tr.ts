@@ -10,8 +10,6 @@ const tr: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'Tamam',
   'common.cancel': 'İptal',
-  'common.yes': 'Evet',
-  'common.no': 'Hayır',
   'common.close': 'Kapat',
   'common.reset': 'Sıfırla',
   'common.refresh': 'Yenile',

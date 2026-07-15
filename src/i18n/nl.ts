@@ -14,8 +14,6 @@ const nl: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Annuleren',
-  'common.yes': 'Ja',
-  'common.no': 'Nee',
   'common.close': 'Sluiten',
   'common.reset': 'Resetten',
   'common.refresh': 'Vernieuwen',

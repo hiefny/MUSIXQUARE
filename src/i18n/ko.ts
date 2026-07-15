@@ -9,8 +9,6 @@ const ko = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': '확인',
   'common.cancel': '취소',
-  'common.yes': '네',
-  'common.no': '아니요',
   'common.close': '닫기',
   'common.reset': '초기화',
   'common.refresh': '새로고침',

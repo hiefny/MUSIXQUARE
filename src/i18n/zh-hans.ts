@@ -13,8 +13,6 @@ const zhHans: Record<I18nKey, string> = {
   // Common
   'common.ok': '确定',
   'common.cancel': '取消',
-  'common.yes': '是',
-  'common.no': '否',
   'common.close': '关闭',
   'common.reset': '重置',
   'common.refresh': '刷新',

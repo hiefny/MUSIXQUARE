@@ -11,8 +11,6 @@ const en: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
-  'common.yes': 'Yes',
-  'common.no': 'No',
   'common.close': 'Close',
   'common.reset': 'Reset',
   'common.refresh': 'Refresh',

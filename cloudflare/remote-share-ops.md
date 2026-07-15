@@ -13,8 +13,7 @@ cost or upgrade decision.
 - Start on Cloudflare Workers Free.
 - Keep the existing KV-backed per-IP upload-session rate limit.
 - Upgrade to Workers Paid only when real usage starts hitting Free-plan limits.
-- Add Cloudflare WAF Rate Limiting for `/session` only if abuse or burst traffic
-  becomes visible.
+- Keep the active Cloudflare WAF burst guard on `POST /session`.
 
 WAF Rate Limiting is not expected to reduce normal KV writes. It blocks abusive
 or bursty `/session` requests before they reach the Worker. Normal successful
@@ -43,10 +42,10 @@ Downloads do not write to KV.
   last confirmed the enabled one-day `room/` expiry rule on 2026-07-11.
 - Max plaintext wire/storage size: fixed at 200 MiB across the descriptor,
   Worker session, and stored-object checks. AES-GCM ciphertext is exactly 16
-  bytes larger. This is a protocol ceiling, not a browser admission guarantee:
-  before host encryption and guest download/decryption, each endpoint applies a
-  device-tier transport working-set budget, followed by a separate PCM/decode
-  budget, so its effective file limit can be lower.
+  bytes larger. The current app does not apply a predictive device-tier or PCM
+  admission ceiling before attempting the operation. Browser allocation,
+  encryption/decryption, and `decodeAudioData` can still fail below 200 MiB,
+  especially when a compressed file expands into a large PCM buffer.
 - KV rate limit:
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.
   - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
@@ -77,28 +76,24 @@ References: [Workers limits](https://developers.cloudflare.com/workers/platform/
 [Workers KV pricing](https://developers.cloudflare.com/kv/platform/pricing/),
 and [WAF rate-limiting availability](https://developers.cloudflare.com/waf/rate-limiting-rules/).
 
-## WAF Rate Limiting Plan
+## Active WAF Rate Limit
 
-Use WAF Rate Limiting for `/session` when there is evidence of automated or
-bursty upload-session creation.
-
-Suggested starting rule on a Free zone:
-
-- Match path: `/session`
-- Characteristic: IP
-- Threshold: 10 to 20 requests
-- Period: 10 seconds
-- Action: Block or rate limit
-- Duration: 10 seconds
-
-On higher Cloudflare zone plans, prefer a more ergonomic window:
+The production zone currently has the `Remote share session burst guard` rule
+enabled:
 
 - Match host: `share.musixquare.com`
 - Match path: `/session`
-- Match method: `POST` if the plan supports method matching.
+- Match method: `POST`
 - Characteristic: IP
-- Threshold: around 30 requests per minute to start.
-- Duration: 10 minutes to 1 hour.
+- Threshold: 20 requests
+- Period: 10 seconds
+- Action: block for 10 seconds after the threshold is exceeded
+
+This outer guard stops automated session-creation bursts before they consume a
+Worker request or KV operation. The short window and short block keep normal
+multi-file use below the threshold and minimize user-visible impact. Revisit
+the threshold only with production 429 evidence; on higher Cloudflare plans, a
+longer, more ergonomic per-minute window can replace it.
 
 ## Notes
 

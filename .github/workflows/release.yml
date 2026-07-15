@@ -34,10 +34,10 @@ jobs:
 
     steps:
       - name: Checkout exact release commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
@@ -73,7 +73,7 @@ jobs:
         run: npm run release:manifest
 
       - name: Upload immutable production candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -94,16 +94,17 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       RELEASE_MESSAGE: git:${{ github.sha }} run:${{ github.run_id }} target:${{ inputs.target }}
+      RELEASE_ROLLBACK_MESSAGE: rollback:${{ github.sha }} run:${{ github.run_id }} attempt:${{ github.run_attempt }}
       RELEASE_TARGET: ${{ inputs.target }}
 
     steps:
       - name: Checkout exact release commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.sha }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
@@ -116,7 +117,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Download approved production candidate
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .
@@ -132,24 +133,37 @@ jobs:
 
       - name: Record current remote-share deployment
         if: inputs.target == 'all' || inputs.target == 'remote-share'
-        run: >-
-          npm run --silent wrangler -- deployments status
-          --config cloudflare/wrangler.remote-share.toml --json
-          > release-artifacts/deployments/remote-share-before.json
+        shell: bash
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.remote-share.toml --json \
+            > release-artifacts/deployments/remote-share-before.json
+          node scripts/release-deployment-state.mjs prepare remote-share
 
-      - name: Deploy remote-share Worker
+      - name: Deploy and record remote-share Worker
         if: inputs.target == 'all' || inputs.target == 'remote-share'
-        run: >-
-          npm run --silent wrangler -- deploy
-          --config cloudflare/wrangler.remote-share.toml
-          --message "$RELEASE_MESSAGE"
-
-      - name: Record remote-share deployment
-        if: inputs.target == 'all' || inputs.target == 'remote-share'
-        run: >-
-          npm run --silent wrangler -- deployments status
-          --config cloudflare/wrangler.remote-share.toml --json
-          > release-artifacts/deployments/remote-share.json
+        shell: bash
+        run: |
+          node scripts/release-deployment-state.mjs preflight remote-share
+          node scripts/release-deployment-state.mjs attempt remote-share
+          set +e
+          npm run --silent wrangler -- deploy \
+            --config cloudflare/wrangler.remote-share.toml \
+            --message "$RELEASE_MESSAGE"
+          deploy_exit=$?
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.remote-share.toml --json \
+            > release-artifacts/deployments/remote-share.json
+          status_exit=$?
+          record_exit=0
+          if (( status_exit == 0 )); then
+            node scripts/release-deployment-state.mjs record remote-share
+            record_exit=$?
+          fi
+          set -e
+          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
+          if (( status_exit != 0 )); then exit "$status_exit"; fi
+          exit "$record_exit"
 
       - name: Smoke remote-share Worker
         if: inputs.target == 'all' || inputs.target == 'remote-share'
@@ -157,27 +171,39 @@ jobs:
 
       - name: Record current signaling deployment
         if: inputs.target == 'all' || inputs.target == 'signaling'
-        run: >-
-          npm run --silent wrangler -- deployments status
-          --config cloudflare/wrangler.signaling.toml --json
-          > release-artifacts/deployments/signaling-before.json
-
-      - name: Deploy signaling Worker
-        if: inputs.target == 'all' || inputs.target == 'signaling'
-        run: >-
-          npm run --silent wrangler -- deploy
-          --config cloudflare/wrangler.signaling.toml
-          --message "$RELEASE_MESSAGE"
-
-      - name: Record signaling deployment
-        id: signaling_deployment
-        if: inputs.target == 'all' || inputs.target == 'signaling'
         shell: bash
         run: |
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.signaling.toml --json \
+            > release-artifacts/deployments/signaling-before.json
+          node scripts/release-deployment-state.mjs prepare signaling
+
+      - name: Deploy and record signaling Worker
+        id: signaling_deployment
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        shell: bash
+        run: |
+          node scripts/release-deployment-state.mjs preflight signaling
+          node scripts/release-deployment-state.mjs attempt signaling
+          set +e
+          npm run --silent wrangler -- deploy \
+            --config cloudflare/wrangler.signaling.toml \
+            --message "$RELEASE_MESSAGE"
+          deploy_exit=$?
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.signaling.toml --json \
             > release-artifacts/deployments/signaling.json
-          version_id="$(node -e "const fs = require('node:fs'); const deployment = JSON.parse(fs.readFileSync('release-artifacts/deployments/signaling.json', 'utf8')); const version = deployment.versions?.find((item) => item.percentage === 100)?.version_id; if (!version) process.exit(1); process.stdout.write(version);")"
+          status_exit=$?
+          record_exit=0
+          if (( status_exit == 0 )); then
+            node scripts/release-deployment-state.mjs record signaling
+            record_exit=$?
+          fi
+          set -e
+          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
+          if (( status_exit != 0 )); then exit "$status_exit"; fi
+          if (( record_exit != 0 )); then exit "$record_exit"; fi
+          version_id="$(node scripts/release-deployment-state.mjs version signaling)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke signaling Worker
@@ -188,32 +214,51 @@ jobs:
 
       - name: Record current app deployment
         if: inputs.target == 'all' || inputs.target == 'app'
-        run: >-
-          npm run --silent wrangler -- deployments status
-          --config cloudflare/wrangler.app.toml --json
-          > release-artifacts/deployments/app-before.json
+        shell: bash
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.app.toml --json \
+            > release-artifacts/deployments/app-before.json
+          node scripts/release-deployment-state.mjs prepare app
 
-      - name: Deploy app Worker and immutable dist
+      - name: Deploy and record app Worker with immutable dist
         if: inputs.target == 'all' || inputs.target == 'app'
-        run: >-
-          npm run --silent wrangler -- deploy
-          --config cloudflare/wrangler.app.toml
-          --message "$RELEASE_MESSAGE"
-
-      - name: Record app deployment
-        if: inputs.target == 'all' || inputs.target == 'app'
-        run: >-
-          npm run --silent wrangler -- deployments status
-          --config cloudflare/wrangler.app.toml --json
-          > release-artifacts/deployments/app.json
+        shell: bash
+        run: |
+          node scripts/release-deployment-state.mjs preflight app
+          node scripts/release-deployment-state.mjs attempt app
+          set +e
+          npm run --silent wrangler -- deploy \
+            --config cloudflare/wrangler.app.toml \
+            --message "$RELEASE_MESSAGE"
+          deploy_exit=$?
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.app.toml --json \
+            > release-artifacts/deployments/app.json
+          status_exit=$?
+          record_exit=0
+          if (( status_exit == 0 )); then
+            node scripts/release-deployment-state.mjs record app
+            record_exit=$?
+          fi
+          set -e
+          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
+          if (( status_exit != 0 )); then exit "$status_exit"; fi
+          exit "$record_exit"
 
       - name: Smoke app session endpoint
         if: inputs.target == 'all' || inputs.target == 'app'
         run: npm run smoke:live:app-session
 
+      - name: Restore deployments after a failed release
+        id: rollback
+        if: failure() || cancelled()
+        continue-on-error: true
+        run: node scripts/release-deployment-state.mjs rollback
+
       - name: Upload deployment records
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: production-deployments-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-artifacts/deployments/
@@ -229,3 +274,4 @@ jobs:
           echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly/manual)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"
+          node scripts/release-deployment-state.mjs summary

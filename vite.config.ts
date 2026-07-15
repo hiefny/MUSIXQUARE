@@ -1,6 +1,12 @@
 import { defineConfig, type Plugin } from 'vite';
 import { resolve } from 'path';
 
+// Keep DNS rebinding protection enabled for local development. Vite always
+// accepts IP literals, so LAN/device testing through --host still works. A
+// one-off trusted tunnel can be added without weakening the global policy by
+// setting __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS to its exact hostname.
+const DEV_ALLOWED_HOSTS = ['localhost', '.localhost', '.musixquare.com'];
+
 // Emits static workshop pages at dist root (instead of dist/.workshop/**/)
 // so the static host can serve them without exposing dotfolder paths.
 const flattenWorkshopHtml = (): Plugin => ({
@@ -124,7 +130,7 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
-    allowedHosts: true,
+    allowedHosts: DEV_ALLOWED_HOSTS,
     proxy: {
       '/api/security-config': {
         target: 'https://musixquare.com',

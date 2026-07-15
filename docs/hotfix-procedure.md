@@ -2,7 +2,7 @@
 
 Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the three
 Wrangler configs, the production release workflow, and the live-smoke scripts
-on 2026-07-15. Read the current
+on 2026-07-16. Read the current
 `CACHE_VERSION` from the service-worker source rather than copying a number
 from this procedure.
 
@@ -45,6 +45,24 @@ The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its Cloudflare
 deployment message contains the Git SHA and Actions run ID, and the resulting
 deployment status JSON is retained with the run.
+
+Immediately before each Worker deploy, the workflow verifies that both the
+production deployment ID and its 100% version still match the state captured
+during preparation. If a manual or external deploy changed either value, the
+release stops before overwriting it. If a later deploy or smoke fails, Workers
+already attempted by this run are restored in reverse order. Current-state
+queries, rollback commands, and rollback verification use bounded backoff for
+transient Cloudflare errors and propagation delay. A newer deployment not owned
+by the release is never overwritten. Every rollback retry rechecks ownership;
+if a prior command succeeded despite a lost response, seeing the previous
+version already restored ends the retry without issuing a duplicate command.
+Retry attempts remain in the Actions log, and the final rollback/conflict report
+is retained in the deployment artifact and Actions summary.
+
+If the rollback report records a conflict or exhausted retry, inspect the live
+version before taking manual action. A failure that occurs only after this
+recovery step, while uploading artifacts or writing the Actions summary, does
+not roll back an otherwise healthy release.
 
 Cloudflare's separate Git-triggered app deployment is intentionally disabled;
 do not enable it while the GitHub release workflow is authoritative. Keeping

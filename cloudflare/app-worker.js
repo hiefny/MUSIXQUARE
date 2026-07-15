@@ -51,6 +51,8 @@ const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
 const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ADMIN_METRICS_TABLE = 'mxqr_metric_buckets';
+const ADMIN_METRICS_RETENTION_DAYS = 90;
+const MINUTES_PER_DAY = 24 * 60;
 const ADMIN_METRIC_EVENTS = [
   { key: 'room_opened', label: 'Rooms opened' },
   { key: 'guest_joined', label: 'Guest joins' },
@@ -909,6 +911,25 @@ function buildAdminMetricBuckets(rows, nowMs) {
 function metricDelta(current, previous) {
   if (!previous) return current ? 100 : 0;
   return Math.round(((current - previous) / previous) * 100);
+}
+
+async function cleanupExpiredAdminMetrics(env, nowMs = Date.now()) {
+  const db = getAdminDb(env);
+  if (!db?.prepare) return 'unconfigured';
+
+  const cutoffMinute = Math.floor(nowMs / 60000) - ADMIN_METRICS_RETENTION_DAYS * MINUTES_PER_DAY;
+  try {
+    await db
+      .prepare(`DELETE FROM ${ADMIN_METRICS_TABLE} WHERE bucket_minute < ?1`)
+      .bind(cutoffMinute)
+      .run();
+    return 'cleaned';
+  } catch (error) {
+    // Retention is maintenance, not a prerequisite for serving the dashboard
+    // or refreshing Soro. Keep the scheduled task best-effort and observable.
+    console.warn('[AdminMetrics] retention cleanup failed:', error?.message || error);
+    return 'failed';
+  }
 }
 
 async function readAdminMetrics(env) {
@@ -2315,18 +2336,344 @@ function firstImageFromHtml(html) {
   return match ? sanitizeUrl(decodeXmlText(match[2])) : '';
 }
 
+const SORO_ARTICLE_ALLOWED_TAGS = new Set([
+  'a',
+  'b',
+  'blockquote',
+  'br',
+  'code',
+  'dd',
+  'del',
+  'div',
+  'dl',
+  'dt',
+  'em',
+  'figcaption',
+  'figure',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hr',
+  'i',
+  'img',
+  'li',
+  'mark',
+  'ol',
+  'p',
+  'pre',
+  's',
+  'small',
+  'span',
+  'strong',
+  'sub',
+  'sup',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'tr',
+  'u',
+  'ul',
+]);
+const SORO_ARTICLE_VOID_TAGS = new Set(['br', 'hr', 'img']);
+const SORO_ARTICLE_MAX_NESTING = 128;
+const SORO_ARTICLE_MAX_ATTRIBUTES = 64;
+const SORO_ARTICLE_DROP_CONTENT_TAGS = new Set([
+  'applet',
+  'button',
+  'canvas',
+  'form',
+  'iframe',
+  'math',
+  'noembed',
+  'noframes',
+  'noscript',
+  'object',
+  'script',
+  'select',
+  'style',
+  'svg',
+  'template',
+  'textarea',
+  'title',
+  'xmp',
+]);
+const SORO_ARTICLE_DROP_TAGS = new Set(['base', 'embed', 'input', 'link', 'meta']);
+const SORO_ARTICLE_GLOBAL_ATTRIBUTES = new Set(['class', 'dir', 'lang', 'title']);
+const SORO_ARTICLE_TAG_ATTRIBUTES = {
+  a: new Set(['href', 'target']),
+  img: new Set(['alt', 'decoding', 'height', 'loading', 'src', 'width']),
+  li: new Set(['value']),
+  ol: new Set(['reversed', 'start', 'type']),
+  td: new Set(['colspan', 'rowspan']),
+  th: new Set(['colspan', 'rowspan', 'scope']),
+};
+
+function decodeSoroHtmlAttribute(value) {
+  return String(value ?? '')
+    .replace(/&#(\d+);?/g, (match, code) => {
+      const point = Number(code);
+      return Number.isInteger(point) && point >= 0 && point <= 0x10ffff
+        ? String.fromCodePoint(point)
+        : match;
+    })
+    .replace(/&#x([0-9a-f]+);?/gi, (match, code) => {
+      const point = Number.parseInt(code, 16);
+      return Number.isInteger(point) && point >= 0 && point <= 0x10ffff
+        ? String.fromCodePoint(point)
+        : match;
+    })
+    .replace(/&colon;/gi, ':')
+    .replace(/&tab;/gi, '\t')
+    .replace(/&newline;/gi, '\n')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
+function sanitizeSoroArticleUrl(value, kind) {
+  const raw = String(value ?? '');
+  if (raw.length > 4096) return '';
+  const decoded = decodeSoroHtmlAttribute(raw).trim();
+  if (!decoded || decoded.length > 4096) return '';
+  // Unknown entities can be interpreted differently by an HTML parser. Drop
+  // the URL instead of trying to maintain a partial HTML entity table here.
+  if (/&(?:#x?[0-9a-f]+|[a-z][a-z0-9]+);/i.test(decoded)) return '';
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(decoded)) return '';
+
+  try {
+    const url = new URL(decoded, 'https://musixquare.com/');
+    if (url.protocol === 'http:' || url.protocol === 'https:') return decoded;
+    if (kind === 'href' && (url.protocol === 'mailto:' || url.protocol === 'tel:')) {
+      return decoded;
+    }
+  } catch {
+    /* invalid URL */
+  }
+  return kind === 'href' && decoded.startsWith('#') ? decoded : '';
+}
+
+function findSoroHtmlTagEnd(html, start) {
+  let quote = '';
+  for (let index = start; index < html.length; index += 1) {
+    const char = html[index];
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '>') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function parseSoroHtmlAttributes(source) {
+  const attributes = [];
+  let index = 0;
+  while (index < source.length && attributes.length < SORO_ARTICLE_MAX_ATTRIBUTES) {
+    while (/\s/.test(source[index] || '')) index += 1;
+    if (index >= source.length || source[index] === '/') break;
+
+    const nameMatch = source.slice(index).match(/^([a-z_:][a-z0-9:._-]*)/i);
+    if (!nameMatch) {
+      index += 1;
+      continue;
+    }
+    const name = nameMatch[1].toLowerCase();
+    index += nameMatch[0].length;
+    while (/\s/.test(source[index] || '')) index += 1;
+
+    let value = '';
+    if (source[index] === '=') {
+      index += 1;
+      while (/\s/.test(source[index] || '')) index += 1;
+      const quote = source[index];
+      if (quote === '"' || quote === "'") {
+        index += 1;
+        const end = source.indexOf(quote, index);
+        value = end < 0 ? source.slice(index) : source.slice(index, end);
+        index = end < 0 ? source.length : end + 1;
+      } else {
+        const valueMatch = source.slice(index).match(/^[^\s>]+/);
+        value = valueMatch?.[0] || '';
+        index += value.length;
+      }
+    }
+    attributes.push({ name, value });
+  }
+  return attributes;
+}
+
+function sanitizeSoroArticleClass(value) {
+  return decodeSoroHtmlAttribute(String(value ?? '').slice(0, 2048))
+    .split(/\s+/)
+    .filter((token) => /^[-_a-z0-9]{1,64}$/i.test(token))
+    .slice(0, 16)
+    .join(' ');
+}
+
+function sanitizeSoroArticleAttribute(tagName, attribute) {
+  const { name, value } = attribute;
+  const tagAttributes = SORO_ARTICLE_TAG_ATTRIBUTES[tagName];
+  if (!SORO_ARTICLE_GLOBAL_ATTRIBUTES.has(name) && !tagAttributes?.has(name)) return '';
+  if (value.length > 4096) return '';
+
+  if (name === 'class') {
+    const safeClass = sanitizeSoroArticleClass(value);
+    return safeClass ? ` class="${esc(safeClass)}"` : '';
+  }
+  if (name === 'dir') {
+    const safeDir = decodeSoroHtmlAttribute(value).toLowerCase();
+    return ['auto', 'ltr', 'rtl'].includes(safeDir) ? ` dir="${safeDir}"` : '';
+  }
+  if (name === 'lang') {
+    const safeLang = decodeSoroHtmlAttribute(value);
+    return /^[a-z]{1,8}(?:-[a-z0-9]{1,8})*$/i.test(safeLang) ? ` lang="${safeLang}"` : '';
+  }
+  if (name === 'href' || name === 'src') {
+    const safeUrl = sanitizeSoroArticleUrl(value, name);
+    return safeUrl ? ` ${name}="${esc(safeUrl)}"` : '';
+  }
+  if (name === 'target') {
+    const target = decodeSoroHtmlAttribute(value).toLowerCase();
+    return target === '_blank' || target === '_self' ? ` target="${target}"` : '';
+  }
+  if (name === 'loading') {
+    const loading = decodeSoroHtmlAttribute(value).toLowerCase();
+    return loading === 'lazy' || loading === 'eager' ? ` loading="${loading}"` : '';
+  }
+  if (name === 'decoding') {
+    const decoding = decodeSoroHtmlAttribute(value).toLowerCase();
+    return ['async', 'auto', 'sync'].includes(decoding) ? ` decoding="${decoding}"` : '';
+  }
+  if (['height', 'width', 'colspan', 'rowspan', 'start', 'value'].includes(name)) {
+    const number = decodeSoroHtmlAttribute(value);
+    return /^-?\d{1,6}$/.test(number) ? ` ${name}="${number}"` : '';
+  }
+  if (name === 'scope') {
+    const scope = decodeSoroHtmlAttribute(value).toLowerCase();
+    return ['col', 'colgroup', 'row', 'rowgroup'].includes(scope) ? ` scope="${scope}"` : '';
+  }
+  if (name === 'type' && tagName === 'ol') {
+    const type = decodeSoroHtmlAttribute(value);
+    return ['1', 'a', 'A', 'i', 'I'].includes(type) ? ` type="${type}"` : '';
+  }
+  if (name === 'reversed') return ' reversed';
+
+  const safeText = decodeSoroHtmlAttribute(value.slice(0, 2048));
+  return safeText ? ` ${name}="${esc(safeText)}"` : '';
+}
+
 function sanitizeSoroArticleHtml(html) {
-  return String(html)
-    .replace(
-      /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
-      '',
-    )
-    .replace(
-      /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[^>]*\/?>/gi,
-      '',
-    )
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s+(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, ' $1="#"');
+  const input = String(html ?? '');
+  const output = [];
+  const openTags = [];
+  let index = 0;
+
+  while (index < input.length) {
+    const tagStart = input.indexOf('<', index);
+    if (tagStart < 0) {
+      output.push(input.slice(index));
+      break;
+    }
+    output.push(input.slice(index, tagStart));
+
+    if (input.startsWith('<!--', tagStart)) {
+      const commentEnd = input.indexOf('-->', tagStart + 4);
+      index = commentEnd < 0 ? input.length : commentEnd + 3;
+      continue;
+    }
+
+    const tagEnd = findSoroHtmlTagEnd(input, tagStart + 1);
+    if (tagEnd < 0) {
+      const fallbackEnd = input.indexOf('>', tagStart + 1);
+      if (fallbackEnd >= 0 && /^<\s*\/?[a-z]/i.test(input.slice(tagStart, fallbackEnd + 1))) {
+        // A quote that never closes makes the token ambiguous. Discard that
+        // token through its next delimiter rather than letting attribute-like
+        // text or a browser repair heuristic reinterpret it.
+        index = fallbackEnd + 1;
+        continue;
+      }
+      output.push('&lt;');
+      index = tagStart + 1;
+      continue;
+    }
+
+    const rawTag = input.slice(tagStart + 1, tagEnd);
+    const closingMatch = rawTag.match(/^\s*\/\s*([a-z0-9:-]+)/i);
+    if (closingMatch) {
+      const tagName = closingMatch[1].toLowerCase();
+      const openIndex = openTags.lastIndexOf(tagName);
+      if (SORO_ARTICLE_ALLOWED_TAGS.has(tagName) && openIndex >= 0) {
+        while (openTags.length > openIndex) output.push(`</${openTags.pop()}>`);
+      }
+      index = tagEnd + 1;
+      continue;
+    }
+
+    const openingMatch = rawTag.match(/^\s*([a-z0-9:-]+)/i);
+    if (!openingMatch) {
+      index = tagEnd + 1;
+      continue;
+    }
+    const tagName = openingMatch[1].toLowerCase();
+    if (SORO_ARTICLE_DROP_CONTENT_TAGS.has(tagName)) {
+      const closePattern = new RegExp(`<\\s*\\/\\s*${escapeRegExp(tagName)}\\b[^>]*>`, 'gi');
+      closePattern.lastIndex = tagEnd + 1;
+      const closeMatch = closePattern.exec(input);
+      index = closeMatch ? closePattern.lastIndex : input.length;
+      continue;
+    }
+    if (SORO_ARTICLE_DROP_TAGS.has(tagName)) {
+      index = tagEnd + 1;
+      continue;
+    }
+    if (!SORO_ARTICLE_ALLOWED_TAGS.has(tagName)) {
+      index = tagEnd + 1;
+      continue;
+    }
+
+    const attributesSource = rawTag.slice(openingMatch[0].length);
+    const seenAttributes = new Set();
+    let safeAttributes = '';
+    let targetBlank = false;
+    for (const attribute of parseSoroHtmlAttributes(attributesSource)) {
+      if (seenAttributes.has(attribute.name)) continue;
+      seenAttributes.add(attribute.name);
+      const safeAttribute = sanitizeSoroArticleAttribute(tagName, attribute);
+      if (!safeAttribute) continue;
+      safeAttributes += safeAttribute;
+      if (attribute.name === 'target' && safeAttribute.includes('_blank')) targetBlank = true;
+    }
+    if (tagName === 'a' && targetBlank) safeAttributes += ' rel="noopener noreferrer"';
+
+    const isVoid = SORO_ARTICLE_VOID_TAGS.has(tagName);
+    if (!isVoid && openTags.length >= SORO_ARTICLE_MAX_NESTING) {
+      index = tagEnd + 1;
+      continue;
+    }
+    output.push(`<${tagName}${safeAttributes}>`);
+    if (!isVoid) openTags.push(tagName);
+    index = tagEnd + 1;
+  }
+
+  while (openTags.length) output.push(`</${openTags.pop()}>`);
+  return output.join('');
+}
+
+export function sanitizeSoroArticleHtmlForTests(html) {
+  return sanitizeSoroArticleHtml(html);
 }
 
 function replaceHtmlTag(html, pattern, replacement) {
@@ -3178,6 +3525,7 @@ async function serveStatic(request, env, ctx) {
 export default {
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
+    ctx.waitUntil(cleanupExpiredAdminMetrics(env));
   },
 
   async fetch(request, env, ctx) {

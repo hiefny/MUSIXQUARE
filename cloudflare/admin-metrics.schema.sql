@@ -1,3 +1,7 @@
+-- Retire the pre-aggregate API limiter table. Runtime rate limiting no longer
+-- reads or writes this table, so keeping it only creates schema drift.
+DROP TABLE IF EXISTS mxqr_api_rate_limits;
+
 CREATE TABLE IF NOT EXISTS mxqr_metric_buckets (
   bucket_minute INTEGER NOT NULL,
   event TEXT NOT NULL,

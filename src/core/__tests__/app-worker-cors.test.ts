@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import appWorker from '../../../cloudflare/app-worker.js';
+import appWorker, { sanitizeSoroArticleHtmlForTests } from '../../../cloudflare/app-worker.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -79,6 +79,170 @@ async function mintWithProofOfWork(
     env,
   );
 }
+
+describe('Soro article HTML sanitizer', () => {
+  it('preserves ordinary article structure and a narrow set of safe attributes', () => {
+    const html = sanitizeSoroArticleHtmlForTests(`
+      <h2 class="section-title">Listening together</h2>
+      <p lang="en"><strong>Lossless</strong> audio with <em>friends</em>.</p>
+      <a href="https://example.com/listen?a=1&amp;b=2" target="_blank" title="Read more">Link</a>
+      <figure><img src="https://app.trysoro.com/image.webp" alt="Waveform" width="1200" height="675" loading="lazy"><figcaption>Caption</figcaption></figure>
+      <ul><li>One</li><li>Two</li></ul>
+      <table><tbody><tr><th scope="col">Format</th><td colspan="2">FLAC</td></tr></tbody></table>
+    `);
+
+    expect(html).toContain('<h2 class="section-title">Listening together</h2>');
+    expect(html).toContain(
+      '<p lang="en"><strong>Lossless</strong> audio with <em>friends</em>.</p>',
+    );
+    expect(html).toContain(
+      '<a href="https://example.com/listen?a=1&amp;b=2" target="_blank" title="Read more" rel="noopener noreferrer">Link</a>',
+    );
+    expect(html).toContain(
+      '<img src="https://app.trysoro.com/image.webp" alt="Waveform" width="1200" height="675" loading="lazy">',
+    );
+    expect(html).toContain('<figcaption>Caption</figcaption>');
+    expect(html).toContain('<th scope="col">Format</th><td colspan="2">FLAC</td>');
+  });
+
+  it('drops executable elements, event handlers, inline styles, and unsafe URLs', () => {
+    const html = sanitizeSoroArticleHtmlForTests(`
+      <script><img src=x onerror=alert(1)></script>
+      <style>@import 'https://evil.example/x.css';</style>
+      <iframe srcdoc="<script>alert(1)</script>"></iframe>
+      <svg><a href="javascript:alert(1)">SVG link</a></svg>
+      <input type="text" value="ignored"><p>Content after a blocked void tag</p>
+      <p style="background:url(javascript:alert(1))" onclick="alert(1)">Safe paragraph</p>
+      <a href="java&#x73;cript:alert(1)" onmouseover=alert(1)>Numeric entity</a>
+      <a href="jav&colon;ascript:alert(1)">Named entity</a>
+      <a href="jav&#9;ascript:alert(1)">Control entity</a>
+      <a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;:alert(1)">Encoded protocol</a>
+      <a href="data:text/html,<script>alert(1)</script>">Data URL</a>
+      <img src="data:image/svg+xml,<svg onload=alert(1)></svg>" onerror="alert(1)" alt="Unsafe image">
+    `);
+
+    expect(html).not.toMatch(/<(?:script|style|iframe|svg)\b/i);
+    expect(html).not.toContain('<input');
+    expect(html).not.toMatch(/\bon[a-z]+\s*=/i);
+    expect(html).not.toMatch(/\sstyle\s*=/i);
+    expect(html).not.toMatch(/(?:javascript|data):/i);
+    expect(html).toContain('<p>Safe paragraph</p>');
+    expect(html).toContain('<p>Content after a blocked void tag</p>');
+    expect(html).toContain('<a>Numeric entity</a>');
+    expect(html).toContain('<a>Named entity</a>');
+    expect(html).toContain('<a>Control entity</a>');
+    expect(html).toContain('<a>Encoded protocol</a>');
+    expect(html).toContain('<a>Data URL</a>');
+    expect(html).toContain('<img alt="Unsafe image">');
+  });
+
+  it('fails closed for comments and malformed raw-text or quoted markup', () => {
+    const unclosedScript = sanitizeSoroArticleHtmlForTests(
+      '<p>Before</p><!-- hidden --><script><img src="https://evil.example/pixel">',
+    );
+    const unclosedAttribute = sanitizeSoroArticleHtmlForTests(
+      '<p>Before</p><img src="https://evil.example/pixel onerror=alert(1)><p>After</p>',
+    );
+
+    expect(unclosedScript).toBe('<p>Before</p>');
+    expect(unclosedAttribute).not.toContain('<img');
+    expect(unclosedAttribute).not.toMatch(/\bonerror\s*=/i);
+    expect(unclosedAttribute).not.toContain('&lt;img');
+    expect(unclosedAttribute).toContain('<p>After</p>');
+  });
+
+  it('keeps script-boundary and line-separator characters as article text only', () => {
+    const html = sanitizeSoroArticleHtmlForTests(
+      '<p>Before</p></script><p>Boundary \u2028 \u2029 text</p><p>After</p>',
+    );
+
+    expect(html).toBe('<p>Before</p><p>Boundary \u2028 \u2029 text</p><p>After</p>');
+  });
+});
+
+describe('Cloudflare app worker scheduled maintenance', () => {
+  const rss = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><item>
+  <title>Scheduled article</title>
+  <link>https://musixquare.com/blog?post=scheduled-article</link>
+  <description>Scheduled description</description>
+  <pubDate>Thu, 18 Jun 2026 12:00:00 GMT</pubDate>
+  <content:encoded><![CDATA[<p>Scheduled body</p>]]></content:encoded>
+</item></channel></rss>`;
+
+  function createScheduledEnv(run: () => Promise<unknown>) {
+    const store = new Map<string, string>();
+    const backup = {
+      get: vi.fn(async (key: string) => store.get(key) || null),
+      put: vi.fn(async (key: string, value: string) => {
+        store.set(key, value);
+      }),
+    };
+    const bind = vi.fn((_cutoffMinute: number) => ({ run }));
+    const prepare = vi.fn((_query: string) => ({ bind }));
+    return {
+      env: {
+        SORO_RSS_BACKUP: backup,
+        MUSIXQUARE_ADMIN_DB: { prepare },
+      },
+      backup,
+      bind,
+      prepare,
+    };
+  }
+
+  async function runScheduled(env: Record<string, unknown>) {
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: vi.fn((promise: Promise<unknown>) => pending.push(Promise.resolve(promise))),
+    };
+    await appWorker.scheduled({}, env, ctx);
+    return { ctx, pending };
+  }
+
+  it('deletes metric buckets older than 90 days in an independent scheduled task', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T00:00:00.000Z'));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(rss, { headers: { 'Content-Type': 'application/rss+xml' } })),
+    );
+    const run = vi.fn(async () => ({ success: true }));
+    const { env, backup, bind, prepare } = createScheduledEnv(run);
+
+    const { ctx, pending } = await runScheduled(env);
+
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
+    await Promise.all(pending);
+    expect(prepare).toHaveBeenCalledWith(
+      'DELETE FROM mxqr_metric_buckets WHERE bucket_minute < ?1',
+    );
+    expect(bind).toHaveBeenCalledWith(Math.floor(Date.now() / 60000) - 90 * 24 * 60);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(backup.put).toHaveBeenCalledWith('soro-rss-latest-good.xml', rss);
+  });
+
+  it('does not reject or block the Soro refresh when metric retention cleanup fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(rss, { headers: { 'Content-Type': 'application/rss+xml' } })),
+    );
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const run = vi.fn(async () => {
+      throw new Error('D1 temporarily unavailable');
+    });
+    const { env, backup } = createScheduledEnv(run);
+
+    const { pending } = await runScheduled(env);
+
+    await expect(Promise.all(pending)).resolves.toHaveLength(2);
+    expect(backup.put).toHaveBeenCalledWith('soro-rss-latest-good.xml', rss);
+    expect(warning).toHaveBeenCalledWith(
+      '[AdminMetrics] retention cleanup failed:',
+      'D1 temporarily unavailable',
+    );
+  });
+});
 
 describe('Cloudflare app worker CORS gate', () => {
   it('rejects broad Cloudflare preview origins by default', async () => {
@@ -877,6 +1041,27 @@ describe('Cloudflare app worker admin dashboard', () => {
 </rss>`;
   }
 
+  function createSoroRssWithUnsafeArticleHtml() {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Sanitized Article</title>
+      <link>https://musixquare.com/blog?post=sanitized-article</link>
+      <description>Sanitized description</description>
+      <pubDate>Thu, 18 Jun 2026 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[
+        <h2>Safe heading</h2>
+        <p onclick="alert(1)" style="display:none">Safe body</p>
+        <script>alert('rss')</script>
+        <a href="javascript:alert(1)">Unsafe link</a>
+        <a href="https://example.com/read?a=1&amp;b=2" target="_blank">Safe link</a>
+      ]]></content:encoded>
+    </item>
+  </channel>
+</rss>`;
+  }
+
   it('does not treat the legacy unsalted SHA-256 fallback as an admin credential', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD_SHA256: 'sha256:legacy-digest',
@@ -1125,6 +1310,40 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(html).toContain('/soro-images/featured/fast-article.webp');
     expect(env.SORO_IMAGE_BUCKET.head).not.toHaveBeenCalled();
     expect(waitUntil).toHaveBeenCalledTimes(1);
+  });
+
+  it('sanitizes untrusted RSS article HTML before inserting it into the blog shell', async () => {
+    const env = {
+      SORO_RSS_BACKUP: createKvStore(),
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response('<html><head></head><body><div id="soro-blog"></div></body></html>', {
+              headers: { 'Content-Type': 'text/html' },
+            }),
+        ),
+      },
+    };
+    await env.SORO_RSS_BACKUP.put('soro-rss-latest-good.xml', createSoroRssWithUnsafeArticleHtml());
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/blog/sanitized-article'),
+      env,
+      { waitUntil: vi.fn() } as any,
+    );
+    const html = await response.text();
+    const articleContent =
+      html.match(/<div class="soro-blog-article-content">([\s\S]*?)<\/div>/)?.[1] || '';
+
+    expect(response.status).toBe(200);
+    expect(articleContent).toContain('<h2>Safe heading</h2>');
+    expect(articleContent).toContain('<p>Safe body</p>');
+    expect(articleContent).toContain('<a>Unsafe link</a>');
+    expect(articleContent).toContain(
+      '<a href="https://example.com/read?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">Safe link</a>',
+    );
+    expect(articleContent).not.toMatch(/<(?:script|style|iframe|object|svg|math)\b/i);
+    expect(articleContent).not.toMatch(/\bon[a-z]+\s*=|\sstyle\s*=|javascript:/i);
   });
 
   it.each([

@@ -2,10 +2,10 @@
 
 The `/admin` dashboard is served by `musixquare-app` and reads aggregate room
 metrics from a shared D1 database. The signaling Worker writes minute-level
-counters when rooms and guests connect.
+counters for successful session transitions and rejected signaling traffic.
 
-The production database identity, region, and schema presence were last
-verified with Wrangler on 2026-07-11.
+The production database identity, APAC region, schema, and event inventory were
+last reconciled with Wrangler and both Workers on 2026-07-16.
 
 ## Data Model
 
@@ -14,13 +14,26 @@ agents are not stored.
 
 Events:
 
-- `room_opened`: a host created a fresh room.
-- `host_reconnected`: a host reclaimed or refreshed an existing room.
-- `guest_joined`: a guest successfully joined.
-- `guest_host_unavailable`: a guest tried to join a missing room.
-- `guest_auth_pending`: a password-protected guest reached the password prompt.
-- `guest_auth_failed`: a guest submitted a missing or invalid room password.
-- `guest_auth_timeout`: a guest password prompt timed out.
+| Event                      | Meaning                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `room_opened`              | A host created a fresh room.                                                             |
+| `host_reconnected`         | A host reclaimed or refreshed an existing room.                                          |
+| `guest_joined`             | A guest successfully joined.                                                             |
+| `guest_host_unavailable`   | A guest tried to join a missing room.                                                    |
+| `guest_auth_pending`       | A password-protected guest reached the password prompt.                                  |
+| `guest_auth_failed`        | A guest submitted a missing or invalid room password.                                    |
+| `guest_auth_timeout`       | A guest password prompt timed out.                                                       |
+| `guest_reconnect_denied`   | A same-identity reconnect used the wrong or missing reconnect secret.                    |
+| `guest_reconnect_conflict` | A reconnect collided with another pending or live owner of that identity.                |
+| `guest_room_full`          | A new guest was rejected because the room reached its active-guest limit.                |
+| `guest_pending_capacity`   | An unauthenticated connection was rejected because the pending-socket limit was reached. |
+| `guest_identity_capacity`  | A new identity was rejected because the reconnect-binding limit was reached.             |
+| `ws_message_oversized`     | A WebSocket frame or validated signaling payload exceeded its size limit.                |
+| `ws_message_rate_limited`  | A guest exceeded the per-connection signaling message rate.                              |
+
+Metric writes are deferred with the Worker execution context, so D1 latency is
+not part of the room admission path. They are operational counters rather than
+an authentication or billing source of truth.
 
 ## Cloudflare Setup
 
@@ -79,3 +92,35 @@ https://musixquare.com/admin
 - Before the schema is applied, metrics return `ADMIN_METRICS_SCHEMA_MISSING`.
 - The dashboard starts showing useful data only after the signaling Worker has
   been redeployed with the D1 binding.
+- The dashboard reads the most recent 30 days. The app Worker's six-hour
+  scheduled task retains 90 days of aggregate history and removes older rows
+  independently from the Soro refresh, so a D1 cleanup failure cannot block
+  blog maintenance or user traffic.
+- Historical event names that are no longer in the 14-event inventory are
+  ignored by current dashboard summaries. Keep them only while their audit
+  value is useful.
+
+## D1 Drift and Retention Check
+
+Inspect table names and aggregate row ages without exposing user data:
+
+```powershell
+npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --command "SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name; SELECT MIN(bucket_minute) AS oldest_minute, MAX(bucket_minute) AS newest_minute, COUNT(*) AS rows FROM mxqr_metric_buckets;"
+```
+
+The tracked application table is `mxqr_metric_buckets`; `_cf_KV` is managed by
+Cloudflare. Applying `admin-metrics.schema.sql` also removes the retired
+`mxqr_api_rate_limits` table, which has no current Worker reader or writer. The
+2026-07-16 production reconciliation applied that cleanup without removing any
+metric rows. For any other unexpected table, first search the deployed Worker
+source, take a D1 export or confirm Time Travel coverage, and record the
+maintenance decision.
+
+The runtime retention cutoff is 90 days. To audit what the next scheduled
+cleanup would remove, preview the affected row count with:
+
+```sql
+SELECT COUNT(*)
+FROM mxqr_metric_buckets
+WHERE bucket_minute < CAST(strftime('%s', 'now', '-90 days') AS INTEGER) / 60;
+```

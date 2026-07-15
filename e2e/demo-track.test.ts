@@ -104,7 +104,9 @@ test.describe('Linelight demo mode', () => {
     expect(playButtonThemeStyles.color).toBe(playButtonThemeStyles.bg);
     expect(playButtonThemeStyles.background).not.toBe('rgb(0, 122, 255)');
     await expect(page.locator('#demo-mini-seek')).toHaveCount(0);
-    await expect(page.locator('[data-demo-step="1"]')).toContainText('1. Connect devices');
+    await expect(
+      page.locator('[data-demo-step="1"] [data-i18n="demo.step_connect"]'),
+    ).toHaveText('1. Connect');
     await expect(page.locator('[data-demo-step="4"]')).toHaveCount(0);
     await expect(page.locator('[data-demo-next] svg')).toBeVisible();
     const portraitNavLayout = await page.evaluate(() => {

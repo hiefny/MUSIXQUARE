@@ -718,6 +718,15 @@ export function cancelPendingSessionSetup(): void {
   }
 
   batchSetState({
+    'room.context': {
+      kind: 'standard',
+      roomId: null,
+      role: 'idle',
+      coordinatorId: null,
+      epoch: 0,
+      snapshotRevision: 0,
+      capabilities: [],
+    },
     'network.myId': null,
     'network.myJoinOrder': 0,
     'network.sessionCode': '',
@@ -820,6 +829,16 @@ export function leaveSession(): void {
   batchSetState({
     // Setup
     'setup.sessionStarted': false,
+    // Provider-neutral room authority
+    'room.context': {
+      kind: 'standard',
+      roomId: null,
+      role: 'idle',
+      coordinatorId: null,
+      epoch: 0,
+      snapshotRevision: 0,
+      capabilities: [],
+    },
     // Network
     'network.appRole': 'idle',
     'network.myId': null,

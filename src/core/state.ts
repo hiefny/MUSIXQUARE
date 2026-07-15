@@ -56,6 +56,18 @@ function createInitialState(): StateTree {
       sessionStarted: false,
     },
 
+    room: {
+      context: {
+        kind: 'standard',
+        roomId: null,
+        role: 'idle',
+        coordinatorId: null,
+        epoch: 0,
+        snapshotRevision: 0,
+        capabilities: [],
+      },
+    },
+
     player: {
       startedAt: 0,
       pausedAt: 0,

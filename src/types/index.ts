@@ -221,6 +221,8 @@ export interface ConnectedPeer {
   joinOrder: number;
   connectionType: 'local' | 'remote' | 'unknown';
   lastHeartbeat: number;
+  /** Server-issued PRO capabilities. Undefined for standard-room peers. */
+  roomCapabilities?: RoomCapability[];
 }
 
 // ─── P2P Protocol Messages ────────────────────────────────────────
@@ -538,8 +540,35 @@ export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 
 // ─── State Tree ──────────────────────────────────────────────────────
 
+export type RoomKind = 'standard' | 'pro';
+export type RoomParticipantRole = 'coordinator' | 'member' | 'idle';
+export type RoomCapability =
+  | 'queue.mutate'
+  | 'playback.control'
+  | 'effects.control'
+  | 'asset.upload'
+  | 'members.manage'
+  | 'room.configure'
+  | 'coordinator.eligible';
+
+/**
+ * Provider-neutral room authority projected into the legacy application.
+ * `network.appRole`, `hostConn`, and `isOperator` remain transport-compatibility
+ * fields; new PRO code must authorize against this context instead.
+ */
+export interface RoomContext {
+  kind: RoomKind;
+  roomId: string | null;
+  role: RoomParticipantRole;
+  coordinatorId: string | null;
+  epoch: number;
+  snapshotRevision: number;
+  capabilities: RoomCapability[];
+}
+
 export interface StateTree {
   setup: { sessionStarted: boolean };
+  room: { context: RoomContext };
   player: {
     startedAt: number;
     pausedAt: number;

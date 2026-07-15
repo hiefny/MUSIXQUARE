@@ -189,6 +189,21 @@ describe('setShuffle', () => {
   });
 });
 
+describe('playlist navigation context', () => {
+  it('does not force a Play-tab switch when advancing to the next track', () => {
+    const first = fileItem('first.mp3');
+    const second = fileItem('second.mp3');
+    setState('playlist.items', [first, second]);
+    setState('playlist.currentQueueItemId', first.queueItemId);
+    const switchTab = vi.fn();
+    bus.on('ui:switch-tab', switchTab);
+
+    playNextTrack();
+
+    expect(switchTab).not.toHaveBeenCalled();
+  });
+});
+
 describe('local file admission', () => {
   it('rejects unsupported files that bypass the native picker hint', async () => {
     initPlaylist();

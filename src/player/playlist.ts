@@ -77,6 +77,10 @@ import {
 
 const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 
+interface PlayTrackOptions {
+  navigateToPlay?: boolean;
+}
+
 function getLocalFileHostPlayAt(): number {
   return getHostNow() + LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS;
 }
@@ -392,7 +396,11 @@ export function clearPreloadState(force = false): void {
 
 // ─── Play Track ────────────────────────────────────────────────────
 
-export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Promise<void> {
+export async function playTrack(
+  queueItemId: QueueItemId,
+  subIndex?: number,
+  options: PlayTrackOptions = {},
+): Promise<void> {
   const playlist = getState('playlist.items') || [];
   const indexHint = findQueueItemIndex(queueItemId, playlist);
   const item = indexHint >= 0 ? playlist[indexHint] : null;
@@ -481,8 +489,10 @@ export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Pr
   // the preload cache since the next track is unchanged)
   setState('preload.isPreloading', false);
 
-  // Auto-switch to Play tab (Host only)
-  if (!hostConn) bus.emit('ui:switch-tab', 'play');
+  // Direct track choices still reveal the player. Sequential playback can opt
+  // out so a Next/Ended transition never interrupts another visible task such
+  // as playlist deletion selection.
+  if (!hostConn && options.navigateToPlay !== false) bus.emit('ui:switch-tab', 'play');
 
   const myLoadEpoch = newLoadEpoch();
 
@@ -818,7 +828,7 @@ export function playNextTrack(): void {
   }
 
   if (nextQueueItemId) {
-    playTrack(nextQueueItemId);
+    playTrack(nextQueueItemId, undefined, { navigateToPlay: false });
   }
 }
 

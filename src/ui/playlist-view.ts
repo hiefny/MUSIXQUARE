@@ -495,11 +495,10 @@ export function initPlaylistView(): void {
   _busScope.on('ui:tab-changed', (tabId) => {
     if (tabId !== 'playlist') {
       _reorderController?.notifyPlaylistHidden();
-      if (playlistIsVisible()) {
-        // The wide desktop dashboard keeps this panel visible even when a
-        // different logical tab is selected.
-        _removalController?.cancel();
-      } else {
+      if (!playlistIsVisible()) {
+        // Narrow layouts genuinely park the playlist off-screen. The wide
+        // desktop dashboard keeps it visible, so a playback-driven logical
+        // tab change must not discard an in-progress deletion selection.
         const destination = Array.from(
           document.querySelectorAll<HTMLElement>('.nav-item[data-tab]'),
         ).find((item) => item.dataset.tab === tabId);

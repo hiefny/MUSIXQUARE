@@ -315,6 +315,67 @@ describe('playlist queue identity rendering and actions', () => {
     );
   });
 
+  it('preserves desktop deletion selection across track advance and prunes only removed rows', async () => {
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true })),
+    });
+
+    try {
+      const items = sampleItems();
+      setState('playlist.items', items);
+      setState('playlist.currentQueueItemId', FILE_A);
+      initPlaylistView();
+
+      for (const queueItemId of [FILE_A, YT_B]) {
+        document
+          .querySelector<HTMLButtonElement>(
+            `.btn-playlist-remove[data-queue-item-id="${queueItemId}"]`,
+          )!
+          .click();
+      }
+
+      // playTrack() emits this logical switch while the wide dashboard keeps
+      // the playlist physically visible. Advancing the active row must not
+      // cancel the user's independent deletion task.
+      bus.emit('ui:tab-changed', 'play');
+      setState('playlist.currentQueueItemId', YT_B);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      expect(document.querySelector('.playlist-selection-count')?.textContent).toBe('2');
+      expect(
+        document
+          .querySelector(`.btn-playlist-remove[data-queue-item-id="${FILE_A}"]`)
+          ?.getAttribute('aria-pressed'),
+      ).toBe('true');
+      expect(
+        document
+          .querySelector(`.btn-playlist-remove[data-queue-item-id="${YT_B}"]`)
+          ?.getAttribute('aria-pressed'),
+      ).toBe('true');
+
+      setState('playlist.items', [items[1]!]);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(document.querySelector('.playlist-selection-count')?.textContent).toBe('1');
+      expect(
+        document
+          .querySelector(`.btn-playlist-remove[data-queue-item-id="${YT_B}"]`)
+          ?.getAttribute('aria-pressed'),
+      ).toBe('true');
+      expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
+
+      setState('playlist.items', []);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
+        'is-visible',
+      );
+    } finally {
+      if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      else Reflect.deleteProperty(window, 'matchMedia');
+    }
+  });
+
   it('does not expose removal or reorder controls while system audio owns playback', () => {
     setState('playlist.items', sampleItems());
     setState('playback.mode', 'system-audio');

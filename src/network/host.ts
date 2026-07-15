@@ -297,50 +297,19 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     filterEnabled: getState('network.filterEnabled') || false,
   });
 
-  const sendLegacyQueueBootstrap = (): boolean => {
-    let acknowledgementCount = 0;
-    let succeeded = false;
-    let bootstrapIndex = 0;
-    let invalidBootstrap = false;
-    const expectedTypes = [MSG.PLAYLIST_UPDATE, MSG.REPEAT_MODE, MSG.SHUFFLE_MODE] as const;
+  const sendLegacyQueueBootstrap = (): void => {
+    // Legacy room entry is owned by RTC open, as it was before the V2
+    // application-session handshake existed. Queue bootstrap remains ordered
+    // and best-effort, but a transient/partial send failure must not be
+    // promoted into a physical DataConnection close. V2 keeps its strict
+    // acknowledgement contract inside FilePlaybackApplicationSessionManager.
     bus.emit(
       'network:peer-bootstrap',
       conn,
-      (frame) => {
-        if (!frame || typeof frame !== 'object' || Array.isArray(frame)) {
-          invalidBootstrap = true;
-          return false;
-        }
-        const message = frame as Record<string, unknown>;
-        if (
-          message.type !== expectedTypes[bootstrapIndex] ||
-          (bootstrapIndex === 0 && message.bootstrap !== true) ||
-          (bootstrapIndex > 0 && message._bootstrap !== true)
-        ) {
-          invalidBootstrap = true;
-          return false;
-        }
-        if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
-          invalidBootstrap = true;
-          return false;
-        }
-        if (!safeSend(conn, frame as AnyProtocolMsg)) {
-          invalidBootstrap = true;
-          return false;
-        }
-        bootstrapIndex += 1;
-        return true;
+      (frame) => safeSend(conn, frame as AnyProtocolMsg),
+      () => {
+        /* legacy bootstrap acknowledgement is intentionally non-fatal */
       },
-      (success) => {
-        acknowledgementCount += 1;
-        if (acknowledgementCount === 1) succeeded = success === true;
-      },
-    );
-    return (
-      !invalidBootstrap &&
-      acknowledgementCount === 1 &&
-      succeeded &&
-      bootstrapIndex === expectedTypes.length
     );
   };
 
@@ -449,14 +418,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       // Legacy remains an exact RTC-open protocol: WELCOME first, followed by
       // the existing ordered queue/repeat/shuffle bootstrap contract. It does
       // not create a V2 session, clock, offer, run, or range authority.
-      if (!safeSend(conn, welcomeFrame()) || !sendLegacyQueueBootstrap()) {
-        try {
-          conn.close();
-        } catch {
-          /* noop */
-        }
-        return;
-      }
+      safeSend(conn, welcomeFrame());
+      sendLegacyQueueBootstrap();
       completeApplicationSession();
     }
 

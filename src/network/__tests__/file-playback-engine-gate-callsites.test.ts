@@ -178,7 +178,7 @@ describe('fixed gate-off connection callsites', () => {
     expect(mocks.getProductRuntime).not.toHaveBeenCalled();
   });
 
-  it('fails legacy host setup closed when bootstrap acknowledges without all three frames', () => {
+  it('keeps the legacy connection open when bootstrap acknowledges without all three frames', () => {
     setState('network.myId', 'HOST01');
     const conn = makeConnection('guest-incomplete-bootstrap');
     const connected = vi.fn();
@@ -199,8 +199,47 @@ describe('fixed gate-off connection callsites', () => {
     handleHostIncomingConnection(conn);
     conn.fire('open');
 
-    expect(conn.close).toHaveBeenCalledOnce();
-    expect(connected).not.toHaveBeenCalled();
+    expect(conn.close).not.toHaveBeenCalled();
+    expect(connected).toHaveBeenCalledWith(conn);
+    expect(getState('network.connectedPeers').find((peer) => peer.id === conn.peer)?.status).toBe(
+      'connected',
+    );
+    expectNoV2Frames(conn);
+    expect(mocks.getApplicationSessions).not.toHaveBeenCalled();
+  });
+
+  it('keeps the legacy connection open when a bootstrap send fails transiently', () => {
+    setState('network.myId', 'HOST01');
+    const conn = makeConnection('guest-transient-bootstrap');
+    const connected = vi.fn();
+    bus.on('network:peer-connected', connected);
+    vi.mocked(conn.send).mockImplementation((frame) => {
+      if ((frame as { type?: string }).type === MSG.REPEAT_MODE) {
+        throw new Error('transient data-channel send failure');
+      }
+    });
+    bus.on('network:peer-bootstrap', (_current, send, acknowledge) => {
+      acknowledge(
+        send({
+          type: MSG.PLAYLIST_UPDATE,
+          list: [],
+          currentQueueItemId: null,
+          revision: 0,
+          bootstrap: true,
+        }) &&
+          send({ type: MSG.REPEAT_MODE, value: 0, _bootstrap: true }) &&
+          send({ type: MSG.SHUFFLE_MODE, value: false, _bootstrap: true }),
+      );
+    });
+
+    handleHostIncomingConnection(conn);
+    conn.fire('open');
+
+    expect(conn.close).not.toHaveBeenCalled();
+    expect(connected).toHaveBeenCalledWith(conn);
+    expect(getState('network.connectedPeers').find((peer) => peer.id === conn.peer)?.status).toBe(
+      'connected',
+    );
     expectNoV2Frames(conn);
     expect(mocks.getApplicationSessions).not.toHaveBeenCalled();
   });

@@ -10,7 +10,7 @@ import type {
 } from './types.ts';
 
 type SignalingMessage =
-  | { type: 'peer-open'; peerId: string; roomId: string }
+  | { type: 'peer-open'; peerId: string; roomId: string; workerVersionId?: string }
   | { type: 'error'; errorType?: string; message?: string }
   | {
       type: 'signal-offer';

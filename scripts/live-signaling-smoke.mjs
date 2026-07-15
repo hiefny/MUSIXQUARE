@@ -1,11 +1,35 @@
 #!/usr/bin/env node
 
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 
 const APP_ORIGIN = 'https://musixquare.com';
 const SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
 const MESSAGE_TIMEOUT_MS = 10_000;
+export const STALE_VERSION_RETRY_DELAYS_MS = Object.freeze([1_000, 2_000, 4_000, 8_000, 8_000]);
+
+export class StaleSignalingVersionError extends Error {
+  constructor(expectedVersion, actualVersion) {
+    super(
+      `signaling host served ${actualVersion || 'an unversioned deployment'}; expected ${expectedVersion}`,
+    );
+    this.name = 'StaleSignalingVersionError';
+    this.expectedVersion = expectedVersion;
+    this.actualVersion = actualVersion || null;
+  }
+}
+
+export function assertPeerOpenVersion(message, expectedVersion, label, retryIfStale = false) {
+  if (!expectedVersion) return;
+  const actualVersion =
+    typeof message?.workerVersionId === 'string' ? message.workerVersionId.trim() : '';
+  if (actualVersion === expectedVersion) return;
+  if (retryIfStale) throw new StaleSignalingVersionError(expectedVersion, actualVersion);
+  throw new Error(
+    `${label} signaling version mismatch: expected ${expectedVersion}, received ${actualVersion || '<missing>'}`,
+  );
+}
 
 function socketUrl(roomId, role, peerId, secret = '') {
   const url = new URL(`${SIGNALING_ORIGIN}/${roomId}/ws`);
@@ -99,6 +123,32 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+export async function withStaleVersionRetry(
+  operation,
+  {
+    retryDelaysMs = STALE_VERSION_RETRY_DELAYS_MS,
+    wait = delay,
+    onRetry = ({ error, attempt, delayMs }) => {
+      console.warn(
+        `[signaling smoke] ${error.message}; retrying with a fresh room in ${delayMs}ms ` +
+          `(attempt ${attempt + 1}/${retryDelaysMs.length + 1})`,
+      );
+    },
+  } = {},
+) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      if (!(error instanceof StaleSignalingVersionError)) throw error;
+      const delayMs = retryDelaysMs[attempt - 1];
+      if (delayMs === undefined) throw error;
+      onRetry?.({ error, attempt, delayMs });
+      await wait(delayMs);
+    }
+  }
+}
+
 function withTimeout(promise, description) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -154,7 +204,7 @@ async function closeSocket(socket) {
   });
 }
 
-async function runRoom(password) {
+async function runRoomAttempt(password, expectedVersion) {
   if (password && !/^\d{8}$/.test(password)) {
     throw new Error('protected-room smoke password must be exactly eight digits');
   }
@@ -181,6 +231,7 @@ async function runRoom(password) {
   try {
     await host.opened;
     const hostOpen = await waitForType(host, 'peer-open');
+    assertPeerOpenVersion(hostOpen, expectedVersion, 'host peer-open', true);
     if (hostOpen.roomId !== roomId) throw new Error('host room mismatch');
     host.socket.send(JSON.stringify({ type: 'room-password-set', password }));
     // room-password-set has no acknowledgement; let that frame settle before
@@ -208,6 +259,7 @@ async function runRoom(password) {
     // to the reconnect secret.
     originalGuest.socket.send(JSON.stringify({ type: 'guest-auth', password, reconnectSecret }));
     const guestOpen = await waitForType(originalGuest, 'peer-open');
+    assertPeerOpenVersion(guestOpen, expectedVersion, 'guest peer-open');
     if (guestOpen.roomId !== roomId || guestOpen.peerId !== guestPeerId) {
       throw new Error('guest room or peer mismatch');
     }
@@ -297,6 +349,7 @@ async function runRoom(password) {
     await reconnectedGuest.opened;
     reconnectedGuest.socket.send(JSON.stringify({ type: 'guest-auth', password, reconnectSecret }));
     const reconnectOpen = await waitForType(reconnectedGuest, 'peer-open');
+    assertPeerOpenVersion(reconnectOpen, expectedVersion, 'reconnected guest peer-open');
     if (reconnectOpen.roomId !== roomId || reconnectOpen.peerId !== guestPeerId) {
       throw new Error('legitimate reconnect room or peer mismatch');
     }
@@ -350,7 +403,19 @@ async function runRoom(password) {
   }
 }
 
-const rooms = [];
-rooms.push(await runRoom(''));
-rooms.push(await runRoom('24681357'));
-console.log(JSON.stringify({ ok: true, rooms }));
+async function runRoom(password, expectedVersion) {
+  return withStaleVersionRetry(() => runRoomAttempt(password, expectedVersion));
+}
+
+export async function main() {
+  const expectedVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
+  const rooms = [];
+  rooms.push(await runRoom('', expectedVersion));
+  rooms.push(await runRoom('24681357', expectedVersion));
+  console.log(JSON.stringify({ ok: true, expectedVersion: expectedVersion || null, rooms }));
+}
+
+const entryPath = process.argv[1];
+if (entryPath && import.meta.url === pathToFileURL(entryPath).href) {
+  await main();
+}

@@ -401,6 +401,38 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(JSON.stringify(bindings)).not.toContain(DEFAULT_RECONNECT_SECRET);
   });
 
+  it('includes the deployed Worker version in every peer-open when metadata is bound', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      CF_VERSION_METADATA: { id: 'worker-version-123' },
+    });
+
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
+    const host = lastServer();
+    const guest = await joinGuest(room, 'guest-1');
+
+    expect(sent(host)[0]).toEqual({
+      type: 'peer-open',
+      peerId: '123456',
+      roomId: '123456',
+      workerVersionId: 'worker-version-123',
+    });
+    expect(sent(guest)[0]).toEqual({
+      type: 'peer-open',
+      peerId: 'guest-1',
+      roomId: '123456',
+      workerVersionId: 'worker-version-123',
+    });
+  });
+
+  it('keeps peer-open compatible when Worker version metadata is unavailable', async () => {
+    const { room, host } = await createHostRoom();
+    const guest = await joinGuest(room, 'guest-1');
+
+    expect(sent(host)[0]).not.toHaveProperty('workerVersionId');
+    expect(sent(guest)[0]).not.toHaveProperty('workerVersionId');
+  });
+
   it('records aggregate room and guest metrics when a D1 binding exists', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));

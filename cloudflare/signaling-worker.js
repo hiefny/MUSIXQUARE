@@ -94,6 +94,11 @@ function constantTimeStringEqual(left, right) {
   return mismatch === 0;
 }
 
+function workerVersionFields(env) {
+  const workerVersionId = env?.CF_VERSION_METADATA?.id;
+  return typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {};
+}
+
 function defaultGuestBindings() {
   return { v: 1, entries: [] };
 }
@@ -716,7 +721,12 @@ export class MusixquareRoom {
     });
     this.scheduleMaintenanceAlarm();
     this.recordMetric(isNewRoom ? 'room_opened' : 'host_reconnected');
-    send(ws, { type: 'peer-open', peerId: roomId, roomId });
+    send(ws, {
+      type: 'peer-open',
+      peerId: roomId,
+      roomId,
+      ...workerVersionFields(this.env),
+    });
   }
 
   async acceptGuest(ws, roomId, peerId) {
@@ -831,7 +841,12 @@ export class MusixquareRoom {
     this.guests.set(peerId, ws);
     this.scheduleMaintenanceAlarm();
     this.recordMetric('guest_joined');
-    send(ws, { type: 'peer-open', peerId, roomId });
+    send(ws, {
+      type: 'peer-open',
+      peerId,
+      roomId,
+      ...workerVersionFields(this.env),
+    });
   }
 
   async webSocketMessage(ws, raw) {

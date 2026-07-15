@@ -102,6 +102,9 @@ class FakeXHR {
   resolveOk(): void {
     this.onload?.();
   }
+  failNetwork(): void {
+    this.onerror?.();
+  }
 }
 
 async function flush(ms = 1): Promise<void> {
@@ -199,6 +202,120 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
       indexHint: 0,
       sessionId: 7,
     });
+  });
+
+  it('initializes demo effect controls from the live audio settings', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('audio.reverbMix', 0.35);
+    setState('audio.virtualBass', 60);
+    setState('audio.exciter', true);
+    setState('audio.eqValues', [5, 3, 0, 4, 6]);
+    setState('audio.stereoWidth', 1.2);
+
+    bus.emit('demo:enter');
+
+    // Entry is synchronous up to the demo-track fetch. These flags must match
+    // before the user can paint a stale all-off controls frame.
+    expect(getState('demo.reverbOn')).toBe(true);
+    expect(getState('demo.bassBoostOn')).toBe(true);
+    expect(getState('demo.trebleBoostOn')).toBe(true);
+    expect(getState('demo.surroundOn')).toBe(true);
+
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(50);
+    bus.emit('demo:request-exit');
+    await flush(50);
+  });
+
+  it('maps combined bass and treble boosts to the advanced V-shaped EQ', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('audio.eqValues', [0, 0, 0, 0, 0]);
+    const eqUpdates: Array<[number, number]> = [];
+    bus.on('audio:set-eq', (band, value) => eqUpdates.push([band, value]));
+
+    bus.emit('demo:enter');
+    await flush();
+    bus.emit('demo:toggle-bass');
+    bus.emit('demo:toggle-treble');
+
+    expect(eqUpdates.slice(-5)).toEqual([
+      [0, 5],
+      [1, 3],
+      [2, 0],
+      [3, 4],
+      [4, 6],
+    ]);
+
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(50);
+    bus.emit('demo:request-exit');
+    await flush(50);
+  });
+
+  it('commits role and effect settings on a normal demo exit', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('audio.channelMode', 0);
+    setState('audio.reverbMix', 0);
+    setState('audio.eqValues', [0, 0, 0, 0, 0]);
+    setState('audio.stereoWidth', 1);
+    setState('audio.virtualBass', 0);
+    setState('audio.exciter', false);
+
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(50);
+
+    setState('audio.channelMode', 1);
+    setState('audio.reverbMix', 0.35);
+    setState('audio.eqValues', [5, 3, 0, 4, 6]);
+    setState('audio.stereoWidth', 1.2);
+    setState('audio.virtualBass', 60);
+    setState('audio.exciter', true);
+
+    bus.emit('demo:request-exit');
+    await flush(50);
+
+    expect(getState('audio.channelMode')).toBe(1);
+    expect(getState('audio.reverbMix')).toBe(0.35);
+    expect(getState('audio.eqValues')).toEqual([5, 3, 0, 4, 6]);
+    expect(getState('audio.stereoWidth')).toBe(1.2);
+    expect(getState('audio.virtualBass')).toBe(60);
+    expect(getState('audio.exciter')).toBe(true);
+  });
+
+  it('restores role and effect settings when demo entry fails', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('audio.channelMode', -1);
+    setState('audio.reverbMix', 0.1);
+    setState('audio.eqValues', [1, 2, 3, 2, 1]);
+    setState('audio.stereoWidth', 1.05);
+    setState('audio.virtualBass', 20);
+    setState('audio.exciter', false);
+
+    bus.emit('demo:enter');
+    await flush();
+    setState('audio.channelMode', 1);
+    setState('audio.reverbMix', 0.35);
+    setState('audio.eqValues', [5, 3, 0, 4, 6]);
+    setState('audio.stereoWidth', 1.2);
+    setState('audio.virtualBass', 60);
+    setState('audio.exciter', true);
+    FakeXHR.pending[0]?.failNetwork();
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('audio.channelMode')).toBe(-1);
+    expect(getState('audio.reverbMix')).toBe(0.1);
+    expect(getState('audio.eqValues')).toEqual([1, 2, 3, 2, 1]);
+    expect(getState('audio.stereoWidth')).toBe(1.05);
+    expect(getState('audio.virtualBass')).toBe(20);
+    expect(getState('audio.exciter')).toBe(false);
   });
 
   it('re-dispatches a host track advance that arrived during an in-flight guest load (DEMO-1)', async () => {

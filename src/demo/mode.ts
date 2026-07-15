@@ -64,7 +64,21 @@ type DemoSnapshot = {
 };
 
 type RestoreSnapshotOptions = {
+  audio?: boolean;
   media?: boolean;
+};
+
+type ExitDemoOptions = {
+  broadcastExit?: boolean;
+  restoreSnapshot?: boolean;
+  restoreAudioSettings?: boolean;
+};
+
+type DemoEffectState = {
+  reverbOn: boolean;
+  bassOn: boolean;
+  trebleOn: boolean;
+  surroundOn: boolean;
 };
 
 type PendingDemoPlay = {
@@ -166,20 +180,23 @@ function restoreSnapshot(
   options: RestoreSnapshotOptions = {},
 ): void {
   if (!snapshot) return;
+  const restoreAudio = options.audio ?? true;
   const restoreMedia = options.media ?? true;
 
-  setState('audio.channelMode', snapshot.channelMode);
-  setState('audio.reverbMix', snapshot.reverbMix);
-  setState('audio.reverbDecay', snapshot.reverbDecay);
-  setState('audio.reverbPreDelay', snapshot.reverbPreDelay);
-  setState('audio.reverbLowCut', snapshot.reverbLowCut);
-  setState('audio.reverbHighCut', snapshot.reverbHighCut);
-  setState('audio.eqValues', [...snapshot.eqValues]);
-  setState('audio.stereoWidth', snapshot.stereoWidth);
-  setState('audio.virtualBass', snapshot.virtualBass);
-  setState('audio.exciter', snapshot.exciter);
-  setState('audio.userPreampGain', snapshot.userPreampGain);
-  setState('audio.subFreq', snapshot.subFreq);
+  if (restoreAudio) {
+    setState('audio.channelMode', snapshot.channelMode);
+    setState('audio.reverbMix', snapshot.reverbMix);
+    setState('audio.reverbDecay', snapshot.reverbDecay);
+    setState('audio.reverbPreDelay', snapshot.reverbPreDelay);
+    setState('audio.reverbLowCut', snapshot.reverbLowCut);
+    setState('audio.reverbHighCut', snapshot.reverbHighCut);
+    setState('audio.eqValues', [...snapshot.eqValues]);
+    setState('audio.stereoWidth', snapshot.stereoWidth);
+    setState('audio.virtualBass', snapshot.virtualBass);
+    setState('audio.exciter', snapshot.exciter);
+    setState('audio.userPreampGain', snapshot.userPreampGain);
+    setState('audio.subFreq', snapshot.subFreq);
+  }
   if (restoreMedia) {
     setState('playlist.currentQueueItemId', snapshot.currentQueueItemId);
     setPlaybackTrackMeta(snapshot.currentTrackMeta);
@@ -835,27 +852,42 @@ function applyDemoToneState(
   applyDemoEqPreset(getDemoEqPreset(!!bassOn, !!trebleOn));
 }
 
-function syncDemoEffectStateFromAudio(): void {
-  if (!getState('demo.active')) return;
-  const reverbOn = (getState('audio.reverbMix') || 0) > 0.001;
-  const bassOn = (getState('audio.virtualBass') || 0) > 0.001;
-  const exciterOn = !!getState('audio.exciter');
+function readDemoEffectStateFromAudio(fallbackTreble = false): DemoEffectState {
   const eqValues = getState('audio.eqValues');
   const eqIsFlat = eqMatches(eqValues, FLAT_EQ);
   const eqIsWarm = eqMatches(eqValues, WARM_EQ);
   const eqIsBright = eqMatches(eqValues, BRIGHT_EQ);
   const eqIsVShape = eqMatches(eqValues, V_SHAPE_EQ);
+  const exciterOn = !!getState('audio.exciter');
   const trebleOn =
-    exciterOn || eqIsBright || eqIsVShape
-      ? true
-      : eqIsFlat || eqIsWarm
-        ? false
-        : !!getState('demo.trebleBoostOn');
-  const surroundOn = (getState('audio.stereoWidth') || 1) > 1.001;
-  if (getState('demo.reverbOn') !== reverbOn) setState('demo.reverbOn', reverbOn);
-  if (getState('demo.bassBoostOn') !== bassOn) setState('demo.bassBoostOn', bassOn);
-  if (getState('demo.trebleBoostOn') !== trebleOn) setState('demo.trebleBoostOn', trebleOn);
-  if (getState('demo.surroundOn') !== surroundOn) setState('demo.surroundOn', surroundOn);
+    exciterOn || eqIsBright || eqIsVShape ? true : eqIsFlat || eqIsWarm ? false : fallbackTreble;
+
+  return {
+    reverbOn: (getState('audio.reverbMix') || 0) > 0.001,
+    bassOn: (getState('audio.virtualBass') || 0) > 0.001,
+    trebleOn,
+    surroundOn: (getState('audio.stereoWidth') || 1) > 1.001,
+  };
+}
+
+function applyDemoEffectState(state: DemoEffectState): void {
+  if (getState('demo.reverbOn') !== state.reverbOn) {
+    setState('demo.reverbOn', state.reverbOn);
+  }
+  if (getState('demo.bassBoostOn') !== state.bassOn) {
+    setState('demo.bassBoostOn', state.bassOn);
+  }
+  if (getState('demo.trebleBoostOn') !== state.trebleOn) {
+    setState('demo.trebleBoostOn', state.trebleOn);
+  }
+  if (getState('demo.surroundOn') !== state.surroundOn) {
+    setState('demo.surroundOn', state.surroundOn);
+  }
+}
+
+function syncDemoEffectStateFromAudio(): void {
+  if (!getState('demo.active')) return;
+  applyDemoEffectState(readDemoEffectStateFromAudio(!!getState('demo.trebleBoostOn')));
   syncEffectButtons();
   broadcastDemoStateIfChanged();
 }
@@ -995,6 +1027,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   markAppUsed();
   finishPendingDemoExitRestore();
   _snapshot = captureSnapshot();
+  const initialEffectState = readDemoEffectStateFromAudio(false);
   stopPlaybackForDemoEntry(_snapshot.playback);
   setCurrentAudioBuffer(null);
   _demoStep = 1;
@@ -1004,10 +1037,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
 
   setState('demo.active', true);
   setState('demo.loading', true);
-  setState('demo.reverbOn', false);
-  setState('demo.bassBoostOn', false);
-  setState('demo.trebleBoostOn', false);
-  setState('demo.surroundOn', false);
+  applyDemoEffectState(initialEffectState);
   setState('demo.currentTrackIndex', _demoTrackIndex);
   setPlaybackTrackMeta(createDemoTrackMeta(getCurrentDemoTrack()));
   hideSetupOverlay();
@@ -1025,7 +1055,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
     if (!getState('demo.active') && !getState('demo.loading')) return;
     log.error('[Demo] Enter failed:', error);
     showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
-    exitDemoMode();
+    exitDemoMode({ restoreAudioSettings: true });
   } finally {
     setState('demo.loading', false);
     showLoader(false);
@@ -1036,7 +1066,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   drainQueuedDemoEnter();
 }
 
-function exitDemoMode(options: { broadcastExit?: boolean; restoreSnapshot?: boolean } = {}): void {
+function exitDemoMode(options: ExitDemoOptions = {}): void {
   if (!getState('demo.active') && !getState('demo.loading')) return;
   if (options.broadcastExit ?? true) broadcastDemoExit();
   _demoLoadToken++;
@@ -1065,7 +1095,13 @@ function exitDemoMode(options: { broadcastExit?: boolean; restoreSnapshot?: bool
       if (!restoreMedia) {
         log.info('[Demo] Skipping stale media snapshot restore; new playback started during exit');
       }
-      restoreSnapshot(snapshot, { media: restoreMedia });
+      // Completing the demo commits the role and effects the user just chose.
+      // Failed/interrupted entry paths opt back into restoring the audio
+      // snapshot, while media and visualizer restoration remain independent.
+      restoreSnapshot(snapshot, {
+        audio: options.restoreAudioSettings ?? false,
+        media: restoreMedia,
+      });
       if (restoreMedia) bus.emit('ui:seek-reset');
     },
   });
@@ -1409,7 +1445,7 @@ export function initDemoMode(): void {
   // listener only fires for guests on hostConn null transition.
   _busScope.on('state:network.hostConn', (hc) => {
     if (!hc && getState('demo.active')) {
-      exitDemoMode({ broadcastExit: false });
+      exitDemoMode({ broadcastExit: false, restoreAudioSettings: true });
     }
   });
   _busScope.on('state:network.appRole', (role) => {

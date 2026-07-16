@@ -5,17 +5,20 @@
  * playback flow is taking ownership, so only explicit stops may restore the
  * pre-share snapshot.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
+import { t } from '../../i18n/index.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import { initAudio } from '../engine.ts';
 import {
   isSystemAudioActive,
   registerSystemCaptureListeners,
   startSystemAudioCapture,
 } from '../system-capture.ts';
-import type { TrackMeta } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection, TrackMeta } from '../../types/index.ts';
 
 const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -75,7 +78,9 @@ let lastDisplayCapture: {
   dispatchEnded: () => void;
 } | null = null;
 
-function stubDisplayMedia(): void {
+function stubDisplayMedia(
+  implementation?: (stream: MediaStream) => Promise<MediaStream>,
+): ReturnType<typeof vi.fn> {
   const endedListeners = new Set<() => void>();
   const track = {
     id: 'cap-track-1',
@@ -96,9 +101,12 @@ function stubDisplayMedia(): void {
     getAudioTracks: () => [track],
     getTracks: () => [track],
   } as unknown as MediaStream;
+  const getDisplayMedia = vi.fn(() =>
+    implementation ? implementation(stream) : Promise.resolve(stream),
+  );
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
-    value: { getDisplayMedia: vi.fn(async () => stream) },
+    value: { getDisplayMedia },
   });
   lastDisplayCapture = {
     track,
@@ -106,6 +114,32 @@ function stubDisplayMedia(): void {
       for (const listener of [...endedListeners]) listener();
     },
   };
+  return getDisplayMedia;
+}
+
+function setConnectedGuests(count: number, status = 'connected'): ConnectedPeer[] {
+  const peers = Array.from({ length: count }, (_, index): ConnectedPeer => {
+    const slot = index + 1;
+    return {
+      id: `peer-${slot}`,
+      slot,
+      label: `Peer ${slot}`,
+      conn: {
+        open: true,
+        peer: `peer-${slot}`,
+        send: vi.fn(),
+      } as unknown as DataConnection,
+      isOp: false,
+      preloadedQueueItemIds: new Set(),
+      status,
+      isDataTarget: true,
+      joinOrder: slot,
+      connectionType: 'local',
+      lastHeartbeat: Date.now(),
+    };
+  });
+  setState('network.connectedPeers', peers);
+  return peers;
 }
 
 async function startShareWithPriorYouTube(): Promise<ReturnType<typeof vi.fn>> {
@@ -139,7 +173,13 @@ beforeEach(() => {
   clearAllManagedTimers();
   vi.clearAllMocks();
   lastDisplayCapture = null;
+  setState('network.appRole', 'host');
   registerSystemCaptureListeners();
+});
+
+afterEach(() => {
+  clearAllManagedTimers();
+  vi.useRealTimers();
 });
 
 describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
@@ -204,5 +244,209 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
     expect(capture!.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
     expect(restoreSpy).toHaveBeenCalledTimes(1);
     expect(isSystemAudioActive()).toBe(false);
+  });
+});
+
+describe('system audio operating-cost limits', () => {
+  it('allows sharing with four total devices, including the host', async () => {
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    const getDisplayMedia = stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(getDisplayMedia).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(true);
+    bus.emit('system-audio:stop');
+  });
+
+  it('blocks sharing before the native picker when five total devices are connected', async () => {
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+    const getDisplayMedia = stubDisplayMedia();
+    const toastSpy = vi.fn();
+    bus.on('ui:show-toast', toastSpy);
+
+    await startSystemAudioCapture();
+
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+    expect(toastSpy).toHaveBeenCalledWith(
+      t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }),
+    );
+  });
+
+  it('discards a capture when a fifth device connects while the native picker is open', async () => {
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    let resolvePicker!: (stream: MediaStream) => void;
+    const pickerResult = new Promise<MediaStream>((resolve) => {
+      resolvePicker = resolve;
+    });
+    let selectedStream: MediaStream | null = null;
+    stubDisplayMedia((stream) => {
+      selectedStream = stream;
+      return pickerResult;
+    });
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const startPromise = startSystemAudioCapture();
+    await Promise.resolve();
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+    resolvePicker(selectedStream!);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('allows only one native capture start attempt at a time', async () => {
+    let resolvePicker!: (stream: MediaStream) => void;
+    const pickerResult = new Promise<MediaStream>((resolve) => {
+      resolvePicker = resolve;
+    });
+    let selectedStream: MediaStream | null = null;
+    const getDisplayMedia = stubDisplayMedia((stream) => {
+      selectedStream = stream;
+      return pickerResult;
+    });
+
+    const firstStart = startSystemAudioCapture();
+    await Promise.resolve();
+    const duplicateStart = startSystemAudioCapture();
+
+    expect(getDisplayMedia).toHaveBeenCalledTimes(1);
+    resolvePicker(selectedStream!);
+    await Promise.all([firstStart, duplicateStart]);
+
+    expect(isSystemAudioActive()).toBe(true);
+    bus.emit('system-audio:stop');
+  });
+
+  it('discards a pending capture after PRO coordinator authority is lost', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    let resolvePicker!: (stream: MediaStream) => void;
+    const pickerResult = new Promise<MediaStream>((resolve) => {
+      resolvePicker = resolve;
+    });
+    let selectedStream: MediaStream | null = null;
+    stubDisplayMedia((stream) => {
+      selectedStream = stream;
+      return pickerResult;
+    });
+
+    const startPromise = startSystemAudioCapture();
+    await Promise.resolve();
+    setState('room.context', {
+      ...getState('room.context'),
+      role: 'member',
+      coordinatorId: 'peer-1',
+      epoch: 2,
+    });
+    resolvePicker(selectedStream!);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('force-stops an active share when the PRO coordinator becomes a member', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    const forceStopSpy = vi.fn();
+    bus.on('system-audio:force-stop', forceStopSpy);
+
+    setState('room.context', {
+      ...getState('room.context'),
+      role: 'member',
+      coordinatorId: 'peer-1',
+      epoch: 2,
+    });
+
+    expect(forceStopSpy).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('rechecks capacity after asynchronous audio initialization', async () => {
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    let resolveInit!: () => void;
+    vi.mocked(initAudio).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveInit = resolve;
+        }),
+    );
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(initAudio).toHaveBeenCalledTimes(1));
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+    resolveInit();
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('stops an active share once the fifth device connects', async () => {
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    const restoreSpy = await startShareWithPriorYouTube();
+    const toastSpy = vi.fn();
+    bus.on('ui:show-toast', toastSpy);
+    const peers = setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+
+    bus.emit('network:peer-connected', peers.at(-1)!.conn!);
+    bus.emit('network:peer-connected', peers.at(-1)!.conn!);
+
+    expect(isSystemAudioActive()).toBe(false);
+    expect(restoreSpy).toHaveBeenCalledTimes(1);
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(toastSpy).toHaveBeenCalledWith(
+      t('system_audio.device_limit_stopped', { count: MAX_SYSTEM_AUDIO_DEVICES }),
+    );
+  });
+
+  it('ends the whole host share after two hours', async () => {
+    vi.useFakeTimers();
+    stubDisplayMedia();
+    const toastSpy = vi.fn();
+    bus.on('ui:show-toast', toastSpy);
+    await startSystemAudioCapture();
+    toastSpy.mockClear();
+
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS);
+
+    expect(isSystemAudioActive()).toBe(false);
+    expect(toastSpy).toHaveBeenCalledWith(t('system_audio.duration_limit_stopped'));
+  });
+
+  it('clears the two-hour timer when sharing stops earlier', async () => {
+    vi.useFakeTimers();
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    const toastSpy = vi.fn();
+    bus.on('ui:show-toast', toastSpy);
+
+    bus.emit('system-audio:stop');
+    toastSpy.mockClear();
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS);
+
+    expect(toastSpy).not.toHaveBeenCalled();
   });
 });

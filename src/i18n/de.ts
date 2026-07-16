@@ -372,6 +372,11 @@ const de: Record<I18nKey, string> = {
     'Systemaudio konnte nicht empfangen werden.\nBitte den Host, die Freigabe neu zu starten.',
   'system_audio.remote_receive_limit':
     'Der Empfang von Systemaudio wurde nach 2 Stunden beendet.\nTritt dem Raum erneut bei, um weiterzuhören.',
+  'system_audio.device_limit':
+    'Systemaudio unterstützt bis zu {{count}} Geräte.\nDer Host zählt mit.',
+  'system_audio.device_limit_stopped':
+    'Systemaudio-Freigabe beendet.\nMehr als {{count}} Geräte sind verbunden.',
+  'system_audio.duration_limit_stopped': 'Systemaudio wurde nach 2 Stunden\nautomatisch beendet.',
 
   // Toast
   'toast.device_connected': '{{name}} verbunden',

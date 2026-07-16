@@ -377,6 +377,11 @@ const fr: Record<I18nKey, string> = {
     'Impossible de recevoir l’audio système.\nDemandez à l’hôte de relancer le partage.',
   'system_audio.remote_receive_limit':
     'La réception de l’audio système s’est arrêtée après 2 heures.\nRejoignez de nouveau la salle pour continuer.',
+  'system_audio.device_limit':
+    'L’audio système accepte jusqu’à {{count}} appareils.\nL’hôte est inclus.',
+  'system_audio.device_limit_stopped':
+    'Partage de l’audio système arrêté.\nPlus de {{count}} appareils sont connectés.',
+  'system_audio.duration_limit_stopped': 'Le partage a pris fin automatiquement\naprès 2 heures.',
 
   // Toast
   'toast.device_connected': '{{name}} connecté',

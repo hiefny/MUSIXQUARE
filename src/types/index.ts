@@ -835,6 +835,8 @@ type StateEvents = {
 // 3.0: EventMap = BaseEventMap & StateEvents (no escape hatch)
 export type EventMap = BaseEventMap & StateEvents;
 
+export type SystemAudioStopReason = 'device-limit' | 'duration-limit';
+
 interface BaseEventMap {
   // ── Audio ─────────────────────────────────────────────────────────
   'audio:ready': [];
@@ -1089,7 +1091,7 @@ interface BaseEventMap {
 
   // ── System Audio Sharing ────────────────────────────────────────
   'system-audio:start': [];
-  'system-audio:stop': [];
+  'system-audio:stop': [options?: { reason?: SystemAudioStopReason }];
   'system-audio:force-stop': [];
   'system-audio:streams-ready': [];
   'system-audio:incoming-call': [mediaConn: unknown, channel: string];

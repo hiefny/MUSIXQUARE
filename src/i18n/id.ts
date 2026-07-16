@@ -371,6 +371,11 @@ const id: Record<I18nKey, string> = {
     'Tidak dapat menerima audio sistem.\nMinta host memulai berbagi lagi.',
   'system_audio.remote_receive_limit':
     'Penerimaan audio sistem dihentikan setelah 2 jam.\nMasuk kembali ke ruang untuk lanjut mendengar.',
+  'system_audio.device_limit':
+    'Audio sistem mendukung hingga {{count}} perangkat.\nHost sudah termasuk.',
+  'system_audio.device_limit_stopped':
+    'Berbagi audio sistem dihentikan.\nLebih dari {{count}} perangkat tersambung.',
+  'system_audio.duration_limit_stopped': 'Berbagi audio sistem berakhir otomatis\nsetelah 2 jam.',
 
   // Toast
   'toast.device_connected': '{{name}} tersambung',

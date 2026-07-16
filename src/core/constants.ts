@@ -76,6 +76,11 @@ export const MANUAL_SYNC_OFFSET_LIMIT_SEC = 3;
 /** Absolute room capacity. The host occupies device 0; guests use slots 1–99. */
 const MAX_CONNECTED_DEVICES = 100;
 export const MAX_GUEST_SLOTS = MAX_CONNECTED_DEVICES - 1;
+/** System-audio sharing is intentionally limited to a small room because
+ * every listener adds a live audio-delivery cost. The host counts as one. */
+export const MAX_SYSTEM_AUDIO_DEVICES = 4;
+/** Hard ceiling for one host-side system-audio sharing session. */
+export const SYSTEM_AUDIO_SHARE_LIMIT_MS = 2 * 60 * 60 * 1000;
 /** Show the local-file warning only once the ninth connected guest requires
  *  the bounded R2 fanout path. The fixed room ceiling must never make the
  *  dialog appear in an otherwise direct-transfer room. */

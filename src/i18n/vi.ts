@@ -367,6 +367,11 @@ const vi: Record<I18nKey, string> = {
     'Không nhận được âm thanh hệ thống.\nHãy nhờ host bắt đầu chia sẻ lại.',
   'system_audio.remote_receive_limit':
     'Đã tự động dừng nhận âm thanh hệ thống sau 2 giờ.\nVào lại phòng để tiếp tục nghe.',
+  'system_audio.device_limit':
+    'Âm thanh hệ thống hỗ trợ tối đa {{count}} thiết bị.\nĐã tính cả host.',
+  'system_audio.device_limit_stopped':
+    'Đã dừng chia sẻ âm thanh hệ thống.\nCó hơn {{count}} thiết bị đang kết nối.',
+  'system_audio.duration_limit_stopped': 'Chia sẻ âm thanh hệ thống tự động kết thúc\nsau 2 giờ.',
 
   // Toast
   'toast.device_connected': '{{name}} đã kết nối',

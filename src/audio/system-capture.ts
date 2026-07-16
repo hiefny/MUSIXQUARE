@@ -9,7 +9,14 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, type PlaybackActivityValue, type PlaybackModeValue } from '../core/constants.ts';
+import {
+  MAX_SYSTEM_AUDIO_DEVICES,
+  MSG,
+  SYSTEM_AUDIO_SHARE_LIMIT_MS,
+  type PlaybackActivityValue,
+  type PlaybackModeValue,
+} from '../core/constants.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
@@ -25,7 +32,9 @@ import {
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
-import type { QueueItemId, TrackMeta } from '../types/index.ts';
+import { isCoordinator } from '../rooms/authority.ts';
+import { hasSystemAudioDeviceCapacity } from './system-audio-policy.ts';
+import type { QueueItemId, SystemAudioStopReason, TrackMeta } from '../types/index.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -58,6 +67,28 @@ interface PreSystemAudioState {
 }
 
 let _preSysAudioState: PreSystemAudioState | null = null;
+let _captureStartPromise: Promise<void> | null = null;
+const SYSTEM_AUDIO_SHARE_LIMIT_TIMER = 'system-audio-host-share-limit';
+
+function showSystemAudioDeviceLimit(): void {
+  bus.emit('ui:show-toast', t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }));
+}
+
+function discardPendingCapture(stream: MediaStream): void {
+  for (const track of stream.getTracks()) track.stop();
+}
+
+function startSystemAudioShareLimitTimer(): void {
+  setManagedTimer(
+    SYSTEM_AUDIO_SHARE_LIMIT_TIMER,
+    () => {
+      if (!_capturedStream) return;
+      log.info('[SystemAudio] Host share duration limit reached');
+      bus.emit('system-audio:stop', { reason: 'duration-limit' });
+    },
+    SYSTEM_AUDIO_SHARE_LIMIT_MS,
+  );
+}
 
 // ─── Public API ───────────────────────────────────────────────────
 
@@ -121,7 +152,32 @@ export async function startSystemAudioCapture(): Promise<void> {
     log.warn('[SystemAudio] Already capturing');
     return;
   }
+  if (_captureStartPromise) {
+    log.warn('[SystemAudio] Capture start already pending');
+    return;
+  }
+  if (!isCoordinator()) {
+    log.warn('[SystemAudio] Capture start ignored on a non-coordinator device');
+    return;
+  }
 
+  // The host counts as one device. Refuse before opening the native picker
+  // when four guests (five total devices) are already connected.
+  if (!hasSystemAudioDeviceCapacity()) {
+    showSystemAudioDeviceLimit();
+    return;
+  }
+
+  const attempt = performSystemAudioCaptureStart();
+  _captureStartPromise = attempt;
+  try {
+    await attempt;
+  } finally {
+    if (_captureStartPromise === attempt) _captureStartPromise = null;
+  }
+}
+
+async function performSystemAudioCaptureStart(): Promise<void> {
   // 1. Capture FIRST (user gesture must be synchronous call stack)
   let stream: MediaStream;
   try {
@@ -141,6 +197,14 @@ export async function startSystemAudioCapture(): Promise<void> {
     return;
   }
 
+  // A fifth device can connect while the browser's native picker is open.
+  // Discard the newly granted capture before touching current playback.
+  if (!isCoordinator() || !hasSystemAudioDeviceCapacity()) {
+    discardPendingCapture(stream);
+    if (!hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
+    return;
+  }
+
   // Discard video track
   for (const vt of stream.getVideoTracks()) vt.stop();
 
@@ -148,6 +212,22 @@ export async function startSystemAudioCapture(): Promise<void> {
   if (audioTracks.length === 0) {
     log.warn('[SystemAudio] No audio track');
     bus.emit('ui:show-toast', t('system_audio.no_audio_track'));
+    return;
+  }
+
+  // Initialize before snapshotting/stopping the current track. This leaves
+  // the existing playback untouched if audio setup fails or capacity changes
+  // during the asynchronous initialization step.
+  try {
+    await initAudio();
+  } catch (error) {
+    discardPendingCapture(stream);
+    throw error;
+  }
+
+  if (!isCoordinator() || !hasSystemAudioDeviceCapacity()) {
+    discardPendingCapture(stream);
+    if (!hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
     return;
   }
 
@@ -177,8 +257,7 @@ export async function startSystemAudioCapture(): Promise<void> {
     /* noop */
   }
 
-  // 4. Init audio
-  await initAudio();
+  // 4. Audio was initialized before changing the previous playback state.
   const ctx = getAudioContext();
   _capturedStream = stream;
   _debugLastCaptureStartedAt = Date.now();
@@ -233,6 +312,7 @@ export async function startSystemAudioCapture(): Promise<void> {
   claimPlaybackOwner('system-audio', {
     currentTrackMeta: createSystemAudioTrackMeta('sharing'),
   });
+  startSystemAudioShareLimitTimer();
 
   // 9. Broadcast start + call guests with L/R streams
   _debugLastStartBroadcastAt = Date.now();
@@ -275,7 +355,11 @@ export async function startSystemAudioCapture(): Promise<void> {
  * teardown callers pass `restore:false` because another playback flow already
  * owns the target state; restoring the snapshot would overwrite that flow.
  */
-function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
+function stopSystemAudioCapture(opts?: {
+  restore?: boolean;
+  reason?: SystemAudioStopReason;
+}): void {
+  clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
   if (!isSystemAudioActive() && !_capturedStream) return;
   const shouldRestore = opts?.restore ?? true;
 
@@ -305,7 +389,15 @@ function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
   // which is only (approximately) true on the restore path; on force-stop
   // transitions another flow's own UI takes over immediately and this toast
   // would stack a false claim on top of it.
-  if (shouldRestore) bus.emit('ui:show-toast', t('system_audio.stopped'));
+  if (shouldRestore) {
+    const message =
+      opts?.reason === 'device-limit'
+        ? t('system_audio.device_limit_stopped', { count: MAX_SYSTEM_AUDIO_DEVICES })
+        : opts?.reason === 'duration-limit'
+          ? t('system_audio.duration_limit_stopped')
+          : t('system_audio.stopped');
+    bus.emit('ui:show-toast', message);
+  }
   _debugLastCaptureStoppedAt = Date.now();
   log.info('[SystemAudio] Capture stopped');
 }
@@ -423,6 +515,12 @@ function cleanupCapture(): void {
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemCaptureListeners(): void {
+  const stopAfterCoordinatorAuthorityLoss = (): void => {
+    if (!_capturedStream || isCoordinator()) return;
+    log.info('[SystemAudio] Coordinator authority lost; force-stopping active share');
+    bus.emit('system-audio:force-stop');
+  };
+
   bus.on('system-audio:start', () => {
     startSystemAudioCapture().catch((e) => {
       log.error('[SystemAudio] Unhandled error in startSystemAudioCapture:', e);
@@ -432,12 +530,21 @@ export function registerSystemCaptureListeners(): void {
       bus.emit('system-audio:stop');
     });
   });
-  bus.on('system-audio:stop', () => {
-    stopSystemAudioCapture();
+  bus.on('system-audio:stop', (options) => {
+    stopSystemAudioCapture(options);
   });
   // force-stop is transition/teardown semantics: another flow is taking over,
   // so the pre-share snapshot must not be restored.
   bus.on('system-audio:force-stop', () => {
     stopSystemAudioCapture({ restore: false });
   });
+  bus.on('network:peer-connected', () => {
+    if (!isCoordinator()) return;
+    if (!_capturedStream || hasSystemAudioDeviceCapacity()) return;
+    log.info('[SystemAudio] Device limit exceeded; stopping active share');
+    bus.emit('system-audio:stop', { reason: 'device-limit' });
+  });
+  bus.on('state:room.context', stopAfterCoordinatorAuthorityLoss);
+  bus.on('state:network.appRole', stopAfterCoordinatorAuthorityLoss);
+  bus.on('state:network.hostConn', stopAfterCoordinatorAuthorityLoss);
 }

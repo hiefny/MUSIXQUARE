@@ -80,6 +80,7 @@ import {
   isQueueItemId,
   selectQueueItemById,
 } from './queue-model.ts';
+import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
@@ -1026,7 +1027,11 @@ export function initPlayback(): void {
 
       // System audio: send start message instead of PLAY/PAUSE (media call handled by system-audio-host)
       if (isSystemAudioPlaying) {
-        conn.send({ type: MSG.SYSTEM_AUDIO_START });
+        // The fifth device causes the active share to stop. Do not briefly
+        // bootstrap its placeholder before the capture listener sends STOP.
+        if (hasSystemAudioDeviceCapacity()) {
+          conn.send({ type: MSG.SYSTEM_AUDIO_START });
+        }
       } else if (
         isFilePlaying &&
         currentQueueItemId &&

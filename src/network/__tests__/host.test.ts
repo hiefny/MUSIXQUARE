@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MAX_GUEST_SLOTS, MSG } from '../../core/constants.ts';
+import { MAX_GUEST_SLOTS, MAX_SYSTEM_AUDIO_DEVICES, MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -193,6 +193,26 @@ describe('duplicate guest connection handoff', () => {
     expect(getState('network.connectedPeers')).toHaveLength(MAX_GUEST_SLOTS);
     expect(getState('network.activeHostConnByPeerId').has('guest-overflow')).toBe(false);
     expect(getState('network.peerLabels')['guest-overflow']).toBeUndefined();
+  });
+
+  it('suppresses the transient connection toast when the fifth device ends system audio', () => {
+    const ids = ['guest-1', 'guest-2', 'guest-3'];
+    const slots = [...getState('network.peerSlots')];
+    for (const [index, id] of ids.entries()) slots[index + 1] = id;
+    setState('network.peerSlots', slots);
+    setState('network.peerSlotByPeerId', new Map(ids.map((id, index) => [id, index + 1])));
+    setState(
+      'network.connectedPeers',
+      ids.map((id, index) => makeSlottedPeer(id, index + 1, vi.fn())),
+    );
+    setState('playback.mode', 'system-audio');
+
+    const fifthDevice = makeIncomingConn('guest-4');
+    handleHostIncomingConnection(fifthDevice);
+    fifthDevice.fire('open');
+
+    expect(getState('network.connectedPeers')).toHaveLength(MAX_SYSTEM_AUDIO_DEVICES);
+    expect(mocks.showToast).not.toHaveBeenCalled();
   });
 });
 

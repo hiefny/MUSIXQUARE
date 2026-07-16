@@ -361,6 +361,9 @@ const zhHans: Record<I18nKey, string> = {
   'system_audio.receive_failed': '无法接收系统音频。\n请让主持人重新开始共享。',
   'system_audio.remote_receive_limit':
     '系统音频接收已在 2 小时后自动停止。\n请重新加入房间继续收听。',
+  'system_audio.device_limit': '系统音频最多支持 {{count}} 台设备，\n包含主持人设备。',
+  'system_audio.device_limit_stopped': '已停止系统音频共享。\n连接设备已超过 {{count}} 台。',
+  'system_audio.duration_limit_stopped': '系统音频共享已在 2 小时后\n自动结束。',
 
   // Toast
   'toast.device_connected': '{{name}} 已连接',

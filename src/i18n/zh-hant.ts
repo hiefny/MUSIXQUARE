@@ -361,6 +361,9 @@ const zhHant: Record<I18nKey, string> = {
   'system_audio.receive_failed': '無法接收系統音訊。\n請讓主持人重新開始分享。',
   'system_audio.remote_receive_limit':
     '系統音訊接收已在 2 小時後自動停止。\n請重新加入房間繼續收聽。',
+  'system_audio.device_limit': '系統音訊最多支援 {{count}} 台裝置，\n包含主持人裝置。',
+  'system_audio.device_limit_stopped': '已停止系統音訊分享。\n連線裝置已超過 {{count}} 台。',
+  'system_audio.duration_limit_stopped': '系統音訊分享已在 2 小時後\n自動結束。',
 
   // Toast
   'toast.device_connected': '{{name}} 已連線',

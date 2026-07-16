@@ -644,6 +644,11 @@ const en: Record<I18nKey, string> = {
     'Could not receive system audio.\nAsk the host to start sharing again.',
   'system_audio.remote_receive_limit':
     'System audio reception ended after 2 hours.\nRejoin the room to continue listening.',
+  'system_audio.device_limit':
+    'System audio supports up to {{count}} devices.\nThis includes the host.',
+  'system_audio.device_limit_stopped':
+    'System audio sharing stopped.\nMore than {{count}} devices are connected.',
+  'system_audio.duration_limit_stopped': 'System audio sharing ended automatically\nafter 2 hours.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Service notes',

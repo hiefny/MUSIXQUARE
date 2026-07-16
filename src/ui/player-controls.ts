@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
+import { MAX_SYSTEM_AUDIO_DEVICES, MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
@@ -48,6 +48,7 @@ import {
   clearProRoomTrackChangeIntent,
   isProRoomTrackChangeIntentPending,
 } from '../player/track-change-intent.ts';
+import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -848,6 +849,10 @@ export function initPlayerControls(): void {
       return;
     }
     if (canCaptureSystemAudio()) {
+      if (!hasSystemAudioDeviceCapacity()) {
+        showToast(t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }));
+        return;
+      }
       closeMediaSourcePopup();
       bus.emit('system-audio:start');
     } else {

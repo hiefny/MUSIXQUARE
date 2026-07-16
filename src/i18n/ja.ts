@@ -368,6 +368,10 @@ const ja: Record<I18nKey, string> = {
     'システムオーディオを受信できませんでした。\nホストに共有を再開してもらってください。',
   'system_audio.remote_receive_limit':
     'システムオーディオ受信は2時間で停止しました。\n続けるにはルームに再参加してください。',
+  'system_audio.device_limit': 'システムオーディオはホストを含む最大{{count}}台で\n共有できます。',
+  'system_audio.device_limit_stopped':
+    '接続端末が{{count}}台を超えたため、\nシステムオーディオ共有を終了しました。',
+  'system_audio.duration_limit_stopped': 'システムオーディオ共有は2時間後に\n自動終了しました。',
 
   // Toast
   'toast.device_connected': '{{name}} が接続しました',

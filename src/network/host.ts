@@ -29,6 +29,7 @@ import {
 import { showToast } from '../ui/toast.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { capabilitiesForProRoomRole } from '../pro-room/contracts.ts';
+import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
 
 // ─── Host: Incoming Connection ──────────────────────────────────────
 
@@ -278,7 +279,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // until this phase completes.
     bus.emit('network:peer-bootstrap', conn);
 
-    showToast(t('toast.device_connected', { name: deviceName }));
+    const systemAudioDeviceLimitReached =
+      getState('playback.mode') === 'system-audio' && !hasSystemAudioDeviceCapacity();
+    if (!systemAudioDeviceLimitReached) {
+      showToast(t('toast.device_connected', { name: deviceName }));
+    }
     broadcastSystemMessage('chat.peer_connected', { name: deviceName });
 
     sendLatestPinnedNotice(conn);

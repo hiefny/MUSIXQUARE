@@ -637,6 +637,10 @@ const ko = {
   'system_audio.receive_failed': '시스템 오디오를 수신하지 못했어요.\n공유를 다시 시작해 주세요.',
   'system_audio.remote_receive_limit':
     '시스템 오디오 수신이 2시간 후 자동 종료되었어요.\n계속 들으려면 방에 다시 입장해주세요.',
+  'system_audio.device_limit': '시스템 오디오는 방장 포함 최대 {{count}}대까지\n공유할 수 있어요.',
+  'system_audio.device_limit_stopped':
+    '연결된 기기가 {{count}}대를 초과해\n시스템 오디오 공유를 종료했어요.',
+  'system_audio.duration_limit_stopped': '시스템 오디오 공유가 2시간 후\n자동 종료되었어요.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': '서비스 이용 안내',

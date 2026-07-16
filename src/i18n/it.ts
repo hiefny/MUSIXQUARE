@@ -664,6 +664,11 @@ const it: Record<I18nKey, string> = {
     "Impossibile ricevere l'audio di sistema.\nChiedi al gestore di riavviare la condivisione.",
   'system_audio.remote_receive_limit':
     "La ricezione dell'audio di sistema si è interrotta dopo 2 ore.\nRientra nella stanza per continuare l'ascolto.",
+  'system_audio.device_limit':
+    "L'audio di sistema supporta fino a {{count}} dispositivi.\nL'host è incluso.",
+  'system_audio.device_limit_stopped':
+    "Condivisione dell'audio di sistema interrotta.\nSono connessi più di {{count}} dispositivi.",
+  'system_audio.duration_limit_stopped': 'La condivisione è terminata automaticamente\ndopo 2 ore.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Note sul servizio',

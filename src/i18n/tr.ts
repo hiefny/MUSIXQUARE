@@ -656,6 +656,12 @@ const tr: Record<I18nKey, string> = {
     'Sistem sesi alınamadı.\nOda sahibinden paylaşıma yeniden başlamasını isteyin.',
   'system_audio.remote_receive_limit':
     'Sistem sesi alımı 2 saat sonra otomatik olarak sonlandırıldı.\nDinlemeye devam etmek için odaya yeniden girin.',
+  'system_audio.device_limit':
+    'Sistem sesi en fazla {{count}} cihazı destekler.\nOda sahibi dahildir.',
+  'system_audio.device_limit_stopped':
+    'Sistem sesi paylaşımı durduruldu.\n{{count}} cihazdan fazlası bağlı.',
+  'system_audio.duration_limit_stopped':
+    'Sistem sesi paylaşımı 2 saat sonra\notomatik olarak sona erdi.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Hizmet notları',

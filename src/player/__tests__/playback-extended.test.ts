@@ -4,7 +4,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import {
+  MAX_SYSTEM_AUDIO_DEVICES,
+  MSG,
+  PLAYBACK_STATE,
+  TRANSFER_STATE,
+} from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import {
   getCurrentAudioBuffer,
@@ -34,7 +39,7 @@ import {
 } from '../ownership.ts';
 import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
-import type { DataConnection, PlaylistItem } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 import {
   registerProRoomLegacyMediaHooks,
   type ProRoomLegacyMediaHooks,
@@ -45,6 +50,22 @@ const QID_NEW = '00000000-0000-4000-8000-000000000002';
 
 function playlistItem(queueItemId: string, name: string, title = name): PlaylistItem {
   return { queueItemId, type: 'file', name, title, videoId: null, playlistId: null };
+}
+
+function connectedPeer(slot: number): ConnectedPeer {
+  return {
+    id: `peer-${slot}`,
+    slot,
+    label: `Peer ${slot}`,
+    conn: null,
+    isOp: false,
+    preloadedQueueItemIds: new Set(),
+    status: 'connected',
+    isDataTarget: true,
+    joinOrder: slot,
+    connectionType: 'local',
+    lastHeartbeat: 0,
+  };
 }
 
 function setResidentFile(queueItemId: string, indexHint: number, name: string): void {
@@ -631,5 +652,18 @@ describe('late-join playback bootstrap', () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith({ type: MSG.SYSTEM_AUDIO_START });
+  });
+
+  it('does not bootstrap system audio to the fifth device', () => {
+    initPlayback();
+    setPlaybackSystemAudioPlaying();
+    setState(
+      'network.connectedPeers',
+      Array.from({ length: MAX_SYSTEM_AUDIO_DEVICES }, (_, index) => connectedPeer(index + 1)),
+    );
+
+    const send = emitPeerConnected();
+
+    expect(send).not.toHaveBeenCalled();
   });
 });

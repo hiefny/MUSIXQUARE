@@ -374,6 +374,12 @@ const es: Record<I18nKey, string> = {
     'No se pudo recibir el audio del sistema.\nPide al host que vuelva a compartir.',
   'system_audio.remote_receive_limit':
     'La recepción del audio del sistema terminó después de 2 horas.\nVuelve a entrar a la sala para seguir escuchando.',
+  'system_audio.device_limit':
+    'El audio del sistema admite hasta {{count}} dispositivos.\nSe incluye el host.',
+  'system_audio.device_limit_stopped':
+    'Se detuvo el audio del sistema.\nHay más de {{count}} dispositivos conectados.',
+  'system_audio.duration_limit_stopped':
+    'El audio del sistema terminó automáticamente\ndespués de 2 horas.',
 
   // Toast
   'toast.device_connected': '{{name}} se conectó',

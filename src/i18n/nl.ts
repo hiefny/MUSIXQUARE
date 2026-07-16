@@ -647,6 +647,11 @@ const nl: Record<I18nKey, string> = {
     'Systeem-audio kon niet worden ontvangen.\nVraag de host om opnieuw te delen.',
   'system_audio.remote_receive_limit':
     'De ontvangst van systeem-audio is na 2 uur beëindigd.\nNeem opnieuw deel aan de sessie om verder te luisteren.',
+  'system_audio.device_limit':
+    'Systeem-audio ondersteunt maximaal {{count}} apparaten.\nDe host telt mee.',
+  'system_audio.device_limit_stopped':
+    'Systeem-audio delen is gestopt.\nMeer dan {{count}} apparaten zijn verbonden.',
+  'system_audio.duration_limit_stopped': 'Systeem-audio delen stopte automatisch\nna 2 uur.',
 
   // Legal
   'legal.title': 'Servicenotities',

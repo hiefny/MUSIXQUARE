@@ -661,6 +661,11 @@ const pl: Record<I18nKey, string> = {
     'Nie udało się odebrać dźwięku systemowego.\nPoproś hosta o ponowne uruchomienie udostępniania.',
   'system_audio.remote_receive_limit':
     'Odbiór dźwięku systemowego został automatycznie zakończony po 2 godzinach.\nWejdź ponownie do pokoju, aby kontynuować słuchanie.',
+  'system_audio.device_limit':
+    'Dźwięk systemowy obsługuje do {{count}} urządzeń.\nHost jest wliczony.',
+  'system_audio.device_limit_stopped':
+    'Udostępnianie dźwięku zatrzymano.\nPołączono ponad {{count}} urządzenia.',
+  'system_audio.duration_limit_stopped': 'Udostępnianie zakończono automatycznie\npo 2 godzinach.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Informacje o usłudze',

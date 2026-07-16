@@ -373,6 +373,12 @@ const ptBr: Record<I18nKey, string> = {
     'Não foi possível receber o áudio do sistema.\nPeça ao host para compartilhar de novo.',
   'system_audio.remote_receive_limit':
     'A recepção do áudio do sistema terminou após 2 horas.\nEntre novamente na sala para continuar ouvindo.',
+  'system_audio.device_limit':
+    'O áudio do sistema aceita até {{count}} dispositivos.\nO host está incluído.',
+  'system_audio.device_limit_stopped':
+    'O compartilhamento foi encerrado.\nHá mais de {{count}} dispositivos conectados.',
+  'system_audio.duration_limit_stopped':
+    'O compartilhamento terminou automaticamente\napós 2 horas.',
 
   // Toast
   'toast.device_connected': '{{name}} conectado',

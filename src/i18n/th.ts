@@ -637,6 +637,10 @@ const th: Record<I18nKey, string> = {
   'system_audio.receive_failed': 'รับเสียงระบบไม่ได้\nขอให้โฮสต์เริ่มแชร์อีกครั้ง',
   'system_audio.remote_receive_limit':
     'การรับเสียงระบบหยุดหลังจาก 2 ชั่วโมง\nเข้าร่วมห้องอีกครั้งเพื่อฟังต่อ',
+  'system_audio.device_limit': 'เสียงระบบรองรับสูงสุด {{count}} อุปกรณ์\nรวมโฮสต์แล้ว',
+  'system_audio.device_limit_stopped':
+    'หยุดแชร์เสียงระบบแล้ว\nมีอุปกรณ์เชื่อมต่อเกิน {{count}} เครื่อง',
+  'system_audio.duration_limit_stopped': 'การแชร์เสียงระบบสิ้นสุดอัตโนมัติ\nหลังจาก 2 ชั่วโมง',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'หมายเหตุการใช้บริการ',

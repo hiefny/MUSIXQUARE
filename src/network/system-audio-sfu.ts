@@ -11,7 +11,7 @@ import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/cap
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { MSG } from '../core/constants.ts';
+import { MSG, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
@@ -42,7 +42,6 @@ import {
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
-const GUEST_SFU_RECEIVE_LIMIT_MS = 2 * 60 * 60 * 1000;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
 const HOST_SFU_RETRY_TIMER = 'system-audio-sfu-host-retry';
 const HOST_SFU_RETRY_DELAY_MS = 2500;
@@ -234,7 +233,7 @@ function startGuestLimitTimer(): void {
       bus.emit('ui:show-toast', t('system_audio.remote_receive_limit'));
       cleanupGuestSfu();
     },
-    GUEST_SFU_RECEIVE_LIMIT_MS,
+    SYSTEM_AUDIO_SHARE_LIMIT_MS,
   );
 }
 

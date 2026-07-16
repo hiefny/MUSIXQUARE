@@ -42,7 +42,14 @@ import {
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
-import { getPeer, setPeer, generateSessionCode, broadcast, broadcastExcept } from './peer-state.ts';
+import {
+  getPeer,
+  setPeer,
+  generateSessionCode,
+  broadcast,
+  broadcastExcept,
+  broadcastDeviceList,
+} from './peer-state.ts';
 
 import { handleHostIncomingConnection } from './host.ts';
 import {
@@ -551,6 +558,11 @@ export async function connectProRoomTransport(access: ProSignalingOptions): Prom
     await initNetwork(coordinator ? access.roomCode : null, access);
     if (coordinator) {
       setState('network.isConnecting', false);
+      // Ordinary hosts publish their self-inclusive device list when setup
+      // completes. PRO coordinators bypass that setup flow, so publish the
+      // same canonical list here instead of leaving the UI at its 0-device
+      // placeholder until the first guest connects.
+      broadcastDeviceList();
       markProRoomTransportRecovered();
       return;
     }

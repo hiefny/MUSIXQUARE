@@ -321,6 +321,8 @@ describe('network initialization ownership', () => {
     const peer = makePeer('000001', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
     setState('network.myDeviceLabel', 'Peer');
+    const deviceLists: unknown[][] = [];
+    bus.on('network:device-list', (list) => deviceLists.push(list));
     const access = {
       roomCode: '000001',
       ticket: `${'a'.repeat(32)}.${'b'.repeat(43)}`,
@@ -338,6 +340,18 @@ describe('network initialization ownership', () => {
     expect(getState('network.myDeviceLabel')).toBe('Peer 0');
     expect(getState('network.sessionCode')).toBe('000001');
     expect(getState('network.maxGuestSlots')).toBe(32);
+    expect(deviceLists).toEqual([
+      [
+        {
+          id: '000001',
+          label: 'Peer 0',
+          status: 'connected',
+          isHost: true,
+          isOp: true,
+          joinOrder: 0,
+        },
+      ],
+    ]);
 
     disconnectProRoomTransport();
     expect(peer.destroy).toHaveBeenCalled();

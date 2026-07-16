@@ -7,7 +7,15 @@
  * per-room Durable Object; private media bytes live in a dedicated R2 bucket.
  */
 
-const ROOM_CODES = new Set(['000000', '000001']);
+const PRO_ROOM_CODE_RE = /^0\d{5}$/;
+const INITIAL_PRO_ROOMS = Object.freeze([
+  Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
+  Object.freeze({ roomCode: '000001', label: 'Friends & Family' }),
+]);
+const INITIAL_PRO_ROOM_CODES = new Set(INITIAL_PRO_ROOMS.map((room) => room.roomCode));
+const ACTIVATION_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
+const PRO_ROOM_REGISTRY_MAX_ITEMS = 1000;
+const PRO_ROOM_REGISTRY_REFRESH_MS = 5_000;
 const PIN_RE = /^\d{8}$/;
 const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
@@ -66,10 +74,7 @@ const CONTROLLER_CAPABILITIES = [
   'coordinator.eligible',
   'members.manage',
 ];
-const OWNER_CAPABILITIES = [
-  ...CONTROLLER_CAPABILITIES,
-  'room.configure',
-];
+const OWNER_CAPABILITIES = [...CONTROLLER_CAPABILITIES, 'room.configure'];
 
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
@@ -98,12 +103,64 @@ function configuredNumber(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGE
   return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
-function configuredRoomCodes(env) {
-  const configured = String(env.PRO_ROOM_CODES || '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => ROOM_CODES.has(value));
-  return new Set(configured.length > 0 ? configured : ROOM_CODES);
+function isProRoomCode(value) {
+  return typeof value === 'string' && PRO_ROOM_CODE_RE.test(value);
+}
+
+const registryCacheByDb = new WeakMap();
+
+function registryCacheFor(db) {
+  let cache = registryCacheByDb.get(db);
+  if (!cache) {
+    cache = {
+      registered: new Set(INITIAL_PRO_ROOM_CODES),
+      refreshedAtMs: 0,
+      refreshPromise: null,
+    };
+    registryCacheByDb.set(db, cache);
+  }
+  return cache;
+}
+
+async function isFrontProvisionedRoom(roomCode, env, nowMs = Date.now()) {
+  if (INITIAL_PRO_ROOM_CODES.has(roomCode)) return true;
+  const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
+  if (!db?.prepare) return false;
+  const cache = registryCacheFor(db);
+  if (cache.registered.has(roomCode)) return true;
+  if (nowMs - cache.refreshedAtMs < PRO_ROOM_REGISTRY_REFRESH_MS) return false;
+  if (!cache.refreshPromise) {
+    cache.refreshPromise = (async () => {
+      const result = await db
+        .prepare(
+          `SELECT room_code FROM mxqr_pro_room_registry
+           WHERE status = 'registered'
+           ORDER BY room_code ASC LIMIT ?1`,
+        )
+        .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
+        .all();
+      const rows = Array.isArray(result?.results) ? result.results : [];
+      if (rows.length > PRO_ROOM_REGISTRY_MAX_ITEMS) {
+        throw new Error('PRO room registry exceeds its bounded cache capacity');
+      }
+      for (const row of rows) {
+        if (isProRoomCode(row?.room_code)) cache.registered.add(row.room_code);
+      }
+      cache.refreshedAtMs = Date.now();
+    })().finally(() => {
+      cache.refreshPromise = null;
+    });
+  }
+  try {
+    await cache.refreshPromise;
+  } catch (error) {
+    // Dynamic rooms fail closed while the registry is unavailable. The two
+    // launch rooms remain on the immutable fast path above.
+    console.warn('[PRO registry] front-door refresh failed', error);
+    cache.refreshedAtMs = Date.now();
+    return false;
+  }
+  return cache.registered.has(roomCode);
 }
 
 function configuredAllowedOrigins(env) {
@@ -275,17 +332,22 @@ async function verifyOpaqueCredential(token, secret) {
   return constantTimeEqual(await hmacBase64Url(secret, `${parts[0]}.${parts[1]}`), parts[2]);
 }
 
-/**
- * Offline owner-claim issuer. Call from an operator-only script/console; there
- * is deliberately no HTTP route that invokes this helper.
- */
+/** Owner-claim issuer used by the offline CLI and the Access-gated admin API. */
 export async function issueProRoomActivationClaim(roomCode, secret, options = {}) {
-  if (!ROOM_CODES.has(roomCode)) throw new Error('Unsupported PRO room code');
+  if (!isProRoomCode(roomCode)) throw new Error('Unsupported PRO room code');
   if (typeof secret !== 'string' || secret.length < 32)
     throw new Error('Activation secret too short');
   const nowMs = options.nowMs ?? Date.now();
-  const expiresAtMs = options.expiresAtMs ?? nowMs + 7 * 24 * 60 * 60 * 1000;
-  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= nowMs) throw new Error('Invalid expiry');
+  const expiresAtMs = options.expiresAtMs ?? nowMs + ACTIVATION_CLAIM_MAX_LIFETIME_MS;
+  if (
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= nowMs ||
+    expiresAtMs - nowMs > ACTIVATION_CLAIM_MAX_LIFETIME_MS
+  ) {
+    throw new Error('Invalid expiry');
+  }
+  const generation = options.generation ?? 0;
+  if (!Number.isSafeInteger(generation) || generation < 0) throw new Error('Invalid generation');
   const nonce = options.nonce ?? randomToken(18);
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
     throw new Error('Invalid nonce');
@@ -298,16 +360,16 @@ export async function issueProRoomActivationClaim(roomCode, secret, options = {}
       iat: nowMs,
       exp: expiresAtMs,
       nonce,
+      generation,
     },
     secret,
   );
 }
 
 async function verifyActivationClaim(token, roomCode, secret, nowMs) {
-  if (typeof secret !== 'string' || secret.length < 32) return false;
+  if (typeof secret !== 'string' || secret.length < 32) return null;
   const payload = await verifySignedToken(token, secret);
-  return !!(
-    payload &&
+  return payload &&
     payload.v === 1 &&
     payload.purpose === 'pro-room-activation' &&
     payload.roomCode === roomCode &&
@@ -315,13 +377,17 @@ async function verifyActivationClaim(token, roomCode, secret, nowMs) {
     payload.iat <= nowMs + 60_000 &&
     Number.isSafeInteger(payload.exp) &&
     payload.exp > nowMs &&
+    payload.exp - payload.iat <= ACTIVATION_CLAIM_MAX_LIFETIME_MS &&
     typeof payload.nonce === 'string' &&
-    payload.nonce.length >= 16
-  );
+    payload.nonce.length >= 16 &&
+    Number.isSafeInteger(payload.generation) &&
+    payload.generation >= 0
+    ? payload
+    : null;
 }
 
 export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options = {}) {
-  if (!ROOM_CODES.has(roomCode)) throw new Error('Unsupported PRO room code');
+  if (!isProRoomCode(roomCode)) throw new Error('Unsupported PRO room code');
   if (typeof secret !== 'string' || secret.length < 32)
     throw new Error('Activation secret too short');
   const nowMs = options.nowMs ?? Date.now();
@@ -481,10 +547,12 @@ function ownerCookie(roomCode, token) {
   return `${ownerCookieName(roomCode)}=${token}; Path=/; Max-Age=${OWNER_COOKIE_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Strict`;
 }
 
-function initialRoomState(roomCode) {
+function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roomCode)) {
   return {
     v: 1,
     roomCode,
+    provisioned,
+    activationClaimGeneration: 0,
     status: 'unactivated',
     runtime: 'sleeping',
     revision: 0,
@@ -554,8 +622,7 @@ function publicSnapshot(room, session = null) {
     ? {
         memberId: session.memberId,
         participantId: session.participantId,
-        presenceIncarnationId:
-          participant?.presenceIncarnationId || session.presenceIncarnationId,
+        presenceIncarnationId: participant?.presenceIncarnationId || session.presenceIncarnationId,
         displayName: session.displayName,
         role: session.role,
         capabilities:
@@ -899,7 +966,13 @@ export default {
       return withPublicHeaders(errorResponse('INVALID_REQUEST', 400), origin);
     }
     const match = url.pathname.match(/^\/v1\/rooms\/(\d{6})(?:\/|$)/);
-    if (!match || !configuredRoomCodes(env).has(match[1])) {
+    if (!match || !isProRoomCode(match[1])) {
+      return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
+    }
+    if (url.pathname.startsWith(`/v1/rooms/${match[1]}/internal/`)) {
+      return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
+    }
+    if (!(await isFrontProvisionedRoom(match[1], env))) {
       return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
     }
     if (!env.PRO_ROOMS || typeof env.PRO_ROOMS.idFromName !== 'function') {
@@ -945,8 +1018,16 @@ export class MusixquareProRoom {
       request.headers.get('x-mxqr-pro-room-code') ||
       new URL(request.url).pathname.split('/')[3] ||
       '';
-    if (!ROOM_CODES.has(roomCode)) return false;
+    if (!isProRoomCode(roomCode)) return false;
     if (!this.room) this.room = initialRoomState(roomCode);
+    if (!Object.prototype.hasOwnProperty.call(this.room, 'provisioned')) {
+      // v1 launch rooms predate the dynamic registry. No other room could have
+      // persisted state before this field existed.
+      this.room.provisioned = INITIAL_PRO_ROOM_CODES.has(roomCode);
+    }
+    if (!Number.isSafeInteger(this.room.activationClaimGeneration)) {
+      this.room.activationClaimGeneration = 0;
+    }
     if (!this.room.consumedRecoveryNonces) this.room.consumedRecoveryNonces = {};
     if (!this.room.stagingTombstones) this.room.stagingTombstones = {};
     if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
@@ -1090,8 +1171,34 @@ export class MusixquareProRoom {
   async fetch(request) {
     if (!(await this.ensureReady(request))) return errorResponse('ROOM_NOT_FOUND', 404);
     const url = new URL(request.url);
+    if (url.search || url.hash || request.url.length > 8192) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    if (url.pathname.startsWith('/internal/admin/')) {
+      if (request.method === 'GET' && url.pathname === '/internal/admin/status') {
+        return jsonResponse({
+          roomCode: this.room.roomCode,
+          provisioned: this.room.provisioned,
+          status: this.room.status,
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/provision') {
+        return this.withMutation(async () => {
+          if (!this.room.provisioned) {
+            this.room.provisioned = true;
+            await this.persist();
+          }
+          return jsonResponse({ ok: true, roomCode: this.room.roomCode, status: this.room.status });
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/activation-claim') {
+        return this.withMutation(() => this.handleInternalActivationClaim());
+      }
+      return errorResponse('NOT_FOUND', 404);
+    }
     const prefix = `/v1/rooms/${this.room.roomCode}`;
     if (!url.pathname.startsWith(`${prefix}/`)) return errorResponse('ROOM_NOT_FOUND', 404);
+    if (!this.room.provisioned) return errorResponse('ROOM_NOT_FOUND', 404);
     if (request.method === 'GET' && url.pathname === `${prefix}/bootstrap`) {
       return this.handleBootstrap();
     }
@@ -1151,6 +1258,55 @@ export class MusixquareProRoom {
           ? 'suspended'
           : 'pin_required';
     return jsonResponse({ roomCode: this.room.roomCode, status });
+  }
+
+  async handleInternalActivationClaim() {
+    if (!this.room.provisioned) return errorResponse('PRO_ROOM_NOT_FOUND', 404);
+    if (this.room.status !== 'unactivated') {
+      return jsonResponse(
+        { error: 'PRO_ROOM_ACTIVATION_UNAVAILABLE', status: this.room.status },
+        409,
+      );
+    }
+    const secret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    if (secret.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    if (this.room.activationClaimGeneration >= Number.MAX_SAFE_INTEGER) {
+      return errorResponse('ACTIVATION_CLAIM_CAPACITY_EXCEEDED', 409);
+    }
+    const nowMs = Date.now();
+    const expiresAt = nowMs + ACTIVATION_CLAIM_MAX_LIFETIME_MS;
+    this.room.activationClaimGeneration += 1;
+    // Persist the new generation before returning the credential. A lost
+    // response may require the operator to issue again, but can never leave a
+    // returned link valid without its generation being authoritative.
+    await this.persist();
+    const claim = await issueProRoomActivationClaim(this.room.roomCode, secret, {
+      nowMs,
+      expiresAtMs: expiresAt,
+      generation: this.room.activationClaimGeneration,
+    });
+    return jsonResponse({
+      roomCode: this.room.roomCode,
+      activationUrl: `https://musixquare.com/${this.room.roomCode}#pro-claim=${encodeURIComponent(claim)}`,
+      expiresAt,
+    });
+  }
+
+  markRegistryActivationActive() {
+    const db = this.env?.MUSIXQUARE_ADMIN_DB || this.env?.ADMIN_METRICS_DB || null;
+    if (!db?.prepare) return;
+    const update = db
+      .prepare(
+        `UPDATE mxqr_pro_room_registry
+         SET activation_state = 'active', updated_at = ?2
+         WHERE room_code = ?1 AND status = 'registered'`,
+      )
+      .bind(this.room.roomCode, Date.now())
+      .run()
+      .catch((error) => {
+        console.warn('[PRO registry] activation-state update failed', error);
+      });
+    if (typeof this.state.waitUntil === 'function') this.state.waitUntil(update);
   }
 
   async parseBody(request, maxBytes = SMALL_REQUEST_MAX_BYTES, allowSimpleText = false) {
@@ -1432,7 +1588,13 @@ export class MusixquareProRoom {
     const expectedTemporaryPin = this.room.roomCode.padStart(8, '0');
     const temporaryPinValid =
       PIN_RE.test(body.temporaryPin) && constantTimeEqual(body.temporaryPin, expectedTemporaryPin);
-    if (!claimValid || !temporaryPinValid) return errorResponse('ACTIVATION_INVALID', 401);
+    if (
+      !claimValid ||
+      claimValid.generation !== this.room.activationClaimGeneration ||
+      !temporaryPinValid
+    ) {
+      return errorResponse('ACTIVATION_INVALID', 401);
+    }
 
     const pin = await createPinRecord(body.newPin, pepper);
     this.room.status = 'active';
@@ -1445,6 +1607,7 @@ export class MusixquareProRoom {
     this.room.ownerCredentialHash = ownerCredential.hash;
     this.joinPresence(created.session, created.tokenHash, nowMs);
     await this.persist();
+    this.markRegistryActivationActive();
     const response = jsonResponse({ snapshot: publicSnapshot(this.room, created.session) }, 200, {
       'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
     });

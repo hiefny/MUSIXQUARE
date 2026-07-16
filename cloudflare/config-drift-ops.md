@@ -58,7 +58,9 @@ stored values: confirm a backup or accept re-issuance before running
 
 ## D1
 
-The tracked admin schema contains `mxqr_metric_buckets` and explicitly drops the
-retired `mxqr_api_rate_limits` table. Production was reconciled on 2026-07-16
-without deleting metric rows. Use the drift and retention procedure in
+The tracked admin schema contains `mxqr_metric_buckets`,
+`mxqr_pro_room_registry`, and `mxqr_pro_room_admin_audit`, and explicitly drops
+the retired `mxqr_api_rate_limits` table. Production metrics were reconciled on
+2026-07-16 without deleting metric rows; apply the current schema before the
+first PRO-room admin rollout. Use the drift and retention procedure in
 `admin-dashboard-ops.md` before changing any other table found in production.

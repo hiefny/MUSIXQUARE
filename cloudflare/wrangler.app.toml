@@ -43,6 +43,14 @@ binding = "MUSIXQUARE_ADMIN_DB"
 database_name = "musixquare-admin-metrics"
 database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
 
+# Cross-script Durable Object binding for Access + admin-session protected PRO
+# provisioning. The PRO Worker's public router cannot reach these root-level
+# internal endpoints, and activation claims are never persisted in D1.
+[[durable_objects.bindings]]
+name = "PRO_ROOM_ADMIN_ROOMS"
+class_name = "MusixquareProRoom"
+script_name = "musixquare-pro-room"
+
 [vars]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"

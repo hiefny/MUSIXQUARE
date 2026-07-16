@@ -3,8 +3,9 @@
 - **Status:** Accepted for staged rollout; production activation requires the
   real-device checklist below
 - **Decision date:** 2026-07-16
-- **Applies to:** room codes `000000` and `000001`, the PRO control plane,
-  dedicated PRO signaling, and persistent PRO media
+- **Applies to:** the reserved `0xxxxx` namespace, initially provisioned room
+  codes `000000` and `000001`, the PRO control plane, dedicated PRO signaling,
+  and persistent PRO media
 
 ## Context
 
@@ -13,17 +14,18 @@ for a cafe, routine listener, or invited group: its URL and QR code do not
 change, its authoritative playlist survives an empty room, and it resumes from
 the last persisted playback checkpoint.
 
-This checkpoint implements manually granted entitlement only. It does not add
-billing, checkout, subscription, or automatic code allocation.
+This checkpoint implements manually granted entitlement through the
+Access-protected MUSIXQUARE admin screen. It does not add billing, checkout,
+subscription, or automatic code allocation.
 
 ## Decision
 
 The first provisioned rooms are fixed:
 
-| Code     | Purpose                                                      | Temporary activation PIN |
-| -------- | ------------------------------------------------------------ | ------------------------ |
-| `000000` | Developer room and the first MUSIXQUARE PRO room             | `00000000`               |
-| `000001` | Friends-and-family pilot room                                 | `00000001`               |
+| Code     | Purpose                                          | Derived bootstrap value |
+| -------- | ------------------------------------------------ | ----------------------- |
+| `000000` | Developer room and the first MUSIXQUARE PRO room | `00000000`              |
+| `000001` | Friends-and-family pilot room                    | `00000001`              |
 
 Their natural invite URLs remain `https://musixquare.com/000000` and
 `https://musixquare.com/000001`. A room code is an identifier, not a secret or
@@ -37,23 +39,58 @@ an authorization credential.
 | Signaling Worker PRO path                | Accept only short-lived room/participant/epoch-scoped signaling tickets       |
 | Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                        |
 | Browser                                  | RAM-only transfer, decode, preload, and playback working set                  |
+| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state      |
+| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint    |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
-Durable Object lookup. Only `000000` and `000001` are provisioned initially;
-no leading-zero code may ever fall through to a normal first-come host room.
+Durable Object lookup. `000000` and `000001` are seeded in the admin registry;
+an operator may register another six-digit `0xxxxx` code. Registration writes
+an idempotent provision bit into that room's Durable Object through a
+cross-script binding. An unprovisioned room rejects bootstrap, activation, and
+all authenticated APIs. No leading-zero code may ever fall through to a normal
+first-come host room.
+
+The public PRO front door keeps the two launch rooms on an immutable fast path.
+For dynamic rooms it cold-loads a bounded set of `registered` D1 rows and then
+keeps positive entries in memory. Unknown-code probes share a short negative
+refresh window and are rejected before Durable Object lookup, preventing
+namespace scans from creating one object per guessed code. Heartbeats and
+mutations for a known room do not await D1. The registry is append-only in this
+release; a future suspend/delete operation must add explicit cache invalidation
+before changing that rule.
+
+Admin registration is an explicit two-phase reconciliation: D1 first records
+`provisioning`, the cross-script binding idempotently persists the room's
+provision bit, and only then may D1 expose `registered`. A failed call leaves a
+retryable provisioning row rather than a false success. Repeating the same
+registration self-heals that row. Registration and activation-link issuance
+also write a bounded audit event containing only a session-scoped pseudonymous
+actor, action/result, room code, and timestamp. PINs, claims, and activation
+URLs are forbidden in both the registry and audit table. If the issuance audit
+write fails, the admin endpoint discards the just-issued URL and returns an
+error; retrying rotates the claim generation again, so no unaudited link can
+later become the current credential.
 
 ### Authorization model
 
 - Public bootstrap returns only `activation_required`, `pin_required`, or
   `suspended`. It never issues or returns an activation claim.
-- An owner activation claim is created offline, scoped to one room, signed with
-  `PRO_ROOM_ACTIVATION_SECRET`, and delivered only in the URL fragment
-  `#pro-claim=...`.
+- An owner activation claim is issued from the Access-protected admin screen
+  (with a fixed-room offline CLI retained for recovery operations), scoped to
+  one room, signed with `PRO_ROOM_ACTIVATION_SECRET`, and delivered only in the
+  URL fragment `#pro-claim=...`. It expires within fifteen minutes. Issuance
+  atomically advances a room-local generation, so issuing again immediately
+  invalidates every older unredeemed activation link. Activation consumes the
+  generation by moving the room out of `unactivated` state.
 - A separate short-lived, one-time `#pro-recovery=...` claim restores ownership
   after browser data or the owner cookie is lost. Recovery revokes the previous
   owner credential without changing the room's controller sessions or data.
-- Activation requires the claim, the temporary PIN, and a new eight-digit PIN.
-  The first synchronous same-origin bootstrap scrubs the fragment before any
+- Activation requires the claim and a new eight-digit PIN. The client derives
+  the historical bootstrap value from the room code and supplies it
+  automatically; the user does not type it and operators must not describe it
+  as an independent second factor. The activation URL is the sensitive owner
+  bearer until it expires or is superseded. The first synchronous same-origin
+  bootstrap scrubs the fragment before any
   third-party analytics can run. It retains the value only in a non-enumerable,
   one-use in-memory closure; the eager app module consumes that closure before
   Cloudflare Analytics is loaded. Scrub or handoff failure is fail-closed.
@@ -67,7 +104,7 @@ no leading-zero code may ever fall through to a normal first-come host room.
   authenticate again with the room PIN. PIN rotation and room configuration
   remain owner-only.
 - Browser credentials are room-scoped, host-only, Secure, HttpOnly cookies, so
-  `000000` and `000001` can stay signed in at the same time. Short-lived
+  multiple PRO rooms can stay signed in at the same time. Short-lived
   signaling tickets are bound to room, participant, presence incarnation,
   role, coordinator epoch, and a per-session monotonic ticket sequence. They
   are consumed once, and the signaling Durable Object persists a bounded
@@ -171,23 +208,34 @@ pass that ADR's separate device, soak, reclamation, and rollback gates.
 Perform this section once, from an authenticated operator workstation. These
 commands mutate Cloudflare and are intentionally not part of automated tests.
 
-1. Create the dedicated private bucket if it does not already exist:
+1. Apply the shared admin D1 schema before any Worker can expose registration:
+
+   ```powershell
+   npm run wrangler -- d1 execute musixquare-admin-metrics --remote --file cloudflare/admin-metrics.schema.sql
+   ```
+
+2. Create the dedicated private bucket if it does not already exist:
 
    ```powershell
    npm run wrangler -- r2 bucket create musixquare-pro-media --config cloudflare/wrangler.pro-room.toml
    ```
 
-2. Apply the checked-in browser CORS rule:
+3. Apply the checked-in browser CORS rule:
 
    ```powershell
    npm run wrangler -- r2 bucket cors set musixquare-pro-media --file cloudflare/r2-cors.pro-media.json --config cloudflare/wrangler.pro-room.toml
    ```
 
-3. Confirm the bucket has no lifecycle rule copied from
+4. Confirm the bucket has no lifecycle rule copied from
    `musixquare-remote-share`.
 
-4. Provision the Durable Object and custom domain by deploying the PRO Worker
+5. Provision the Durable Object and custom domain by deploying the PRO Worker
    only after all secrets below are present.
+
+6. Confirm the App Worker has the cross-script Durable Object binding
+   `PRO_ROOM_ADMIN_ROOMS` targeting class `MusixquareProRoom` in script
+   `musixquare-pro-room`. It is the only admin-to-PRO path; do not add a public
+   internal endpoint or shared bearer secret.
 
 ## Secrets
 
@@ -236,8 +284,10 @@ npm run build:checked
 
 Also verify:
 
-- `cloudflare/wrangler.pro-room.toml` still provisions exactly `000000,000001`;
-- signaling reserves all `0xxxxx` codes and provisions exactly those same two;
+- the admin D1 registry seeds `000000` and `000001`, and registration accepts
+  only a textual room code matching `^0\d{5}$`;
+- signaling reserves all `0xxxxx` codes from ordinary rooms and accepts the PRO
+  path only with a valid PRO Worker-issued signed ticket;
 - the R2 bucket name is `musixquare-pro-media` in Wrangler, CORS, and the
   presigner configuration;
 - production CORS includes `https://musixquare.com` and
@@ -275,11 +325,22 @@ The health response must identify `musixquare-pro-room`. A never-activated room
 must return `activation_required` without any claim, PIN, object key, or signed
 URL.
 
-## Offline Activation Claim
+## Activation Claim
 
-The issuer accepts one room code on the command line and reads the signing
-secret only from `PRO_ROOM_ACTIVATION_SECRET`. It writes only a URL fragment to
-stdout. Its default claim lifetime is seven days.
+The normal operator flow is the Access-protected admin screen. Register the
+textual six-digit code, then issue its activation link. The claim is returned
+only in a `Cache-Control: no-store` response, is never written to D1 or a log,
+expires within fifteen minutes, and becomes stale immediately if an operator
+issues another link. Copy it directly to the intended owner.
+
+For the two initial fixed rooms, the offline issuer remains available only as a
+bootstrap compatibility tool before the admin has ever issued a link for that
+room. It always creates generation `0`; once the admin screen issues or
+reissues a link, the room advances its authoritative generation and any
+offline activation link is intentionally rejected. Use the admin screen for
+normal activation and every retry. The CLI accepts one fixed room code, reads
+the signing secret only from `PRO_ROOM_ACTIVATION_SECRET`, writes only a URL
+fragment to stdout, and gives that fragment a fifteen-minute lifetime.
 
 PowerShell example that avoids placing the secret in command history or argv:
 
@@ -311,9 +372,10 @@ https://musixquare.com/000000#pro-claim=<opaque-claim>
 The claim itself is sensitive. Deliver it out of band to the intended owner;
 do not paste it into a query string, analytics tool, chat transcript, issue, or
 support log. Confirm that opening the URL removes the fragment immediately.
-Then enter the matching temporary PIN and choose a different eight-digit owner
-PIN. Activate `000000` first, complete its short smoke check, and then activate
-the friends-and-family pilot room `000001` with its own owner browser.
+The client supplies the derived bootstrap value automatically; the owner only
+chooses a different eight-digit room PIN. Activate `000000` first, complete its
+short smoke check, and then activate the friends-and-family pilot room `000001`
+with its own owner browser.
 
 ## Owner Recovery After Browser Data Loss
 
@@ -361,6 +423,11 @@ host-claim path.
 5. Re-run health/bootstrap checks and open both fixed invite routes without an
    activation claim. Existing PRO data should remain dormant and recoverable.
 
+A PRO Worker rollback predating dynamic provisioning may temporarily make
+`000002+` unavailable. Keep those codes reserved, keep their Durable Object and
+R2 data intact, and never reinterpret them as ordinary rooms. The D1 registry
+is an operator index and should be retained for forward recovery.
+
 For a signaling-ticket incident, coordinate the PRO and signaling rollback so
 both verify the same `PRO_SIGNALING_SECRET`. For a secret incident, restore or
 rotate through the secret manager; PIN-pepper rotation needs a data migration
@@ -385,9 +452,10 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 
 ### Required scenarios
 
-1. Open `000000` without a claim and confirm it cannot be seized. Try an
-   invalid claim, wrong temporary PIN, and wrong room/claim pairing; all fail
-   without revealing which credential was wrong.
+1. Open `000000` without a claim and confirm it cannot be seized. At the API
+   regression layer, try an invalid claim, a wrong derived bootstrap value, and
+   a wrong room/claim pairing; all fail without revealing which credential was
+   wrong. The product UI must ask only for the new eight-digit room PIN.
 2. Activate with the fragment, confirm the fragment is immediately scrubbed,
    set a new PIN, then join from two additional physical devices through the
    same fixed link and QR code.

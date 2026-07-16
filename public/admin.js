@@ -11,6 +11,19 @@ const monthlyEl = document.querySelector('[data-monthly-chart]');
 const signalEl = document.querySelector('[data-signal-grid]');
 const adminTabs = [...document.querySelectorAll('[data-admin-tab]')];
 const adminViews = [...document.querySelectorAll('[data-admin-view]')];
+const proRoomForm = document.querySelector('[data-pro-room-form]');
+const proRoomCodeEl = document.querySelector('[data-pro-room-code]');
+const proRoomLabelEl = document.querySelector('[data-pro-room-label]');
+const proRoomRegisterBtn = document.querySelector('[data-pro-room-register]');
+const proRoomStatusEl = document.querySelector('[data-pro-room-status]');
+const proRoomListStatusEl = document.querySelector('[data-pro-room-list-status]');
+const proRoomListEl = document.querySelector('[data-pro-room-list]');
+const proRoomClaimEl = document.querySelector('[data-pro-room-claim]');
+const proRoomClaimTitleEl = document.querySelector('[data-pro-room-claim-title]');
+const proRoomClaimExpiryEl = document.querySelector('[data-pro-room-claim-expiry]');
+const proRoomClaimUrlEl = document.querySelector('[data-pro-room-claim-url]');
+const proRoomClaimCopyBtn = document.querySelector('[data-pro-room-claim-copy]');
+const proRoomClaimDismissBtn = document.querySelector('[data-pro-room-claim-dismiss]');
 const articleListEl = document.querySelector('[data-article-list]');
 const articleStatusEl = document.querySelector('[data-article-status]');
 const announcementForm = document.querySelector('[data-announcement-form]');
@@ -28,8 +41,10 @@ const logoutBtn = document.querySelector('[data-logout]');
 
 const formatter = new Intl.NumberFormat();
 let currentAdminTab = 'operations';
+let proRoomsLoaded = false;
 let articlesLoaded = false;
 let announcementLoaded = false;
+const issuedActivationLinks = new Set();
 
 function setStatus(message, isError = false) {
   if (!loginStatus) return;
@@ -48,6 +63,9 @@ async function fetchJson(url, options = {}) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && url !== '/api/admin/login') {
+      showLogin('Admin session expired.');
+    }
     const error = new Error(body.error || `Request failed: ${response.status}`);
     error.status = response.status;
     error.payload = body;
@@ -57,6 +75,10 @@ async function fetchJson(url, options = {}) {
 }
 
 function showLogin(message = '') {
+  clearProRoomClaimState();
+  proRoomsLoaded = false;
+  articlesLoaded = false;
+  announcementLoaded = false;
   root?.classList.add('is-login');
   root?.classList.remove('is-dashboard');
   loginPanel.hidden = false;
@@ -150,6 +172,21 @@ function adminErrorMessage(error, fallback) {
   if (message === 'EXPIRES_AT_IN_PAST') return 'Expires must be in the future.';
   if (message === 'INVALID_EXPIRES_AT') return 'Use YYYY-MM-DD HH:MM for Expires.';
   if (message === 'INVALID_PASSWORD') return 'Invalid password.';
+  if (message === 'INVALID_PRO_ROOM') return 'Use a six-digit room number beginning with 0.';
+  if (message === 'PRO_ROOM_NOT_FOUND') return 'This PRO room is not registered.';
+  if (message === 'PRO_ROOM_ACTIVATION_UNAVAILABLE') return 'This room is already active.';
+  if (message === 'PRO_ROOM_ADMIN_NOT_CONFIGURED')
+    return 'PRO room administration is not configured.';
+  if (message === 'PRO_ROOM_ADMIN_UNAVAILABLE') return 'The PRO room service is unavailable.';
+  if (message === 'PRO_ROOM_AUDIT_UNAVAILABLE') {
+    return 'The action was withheld because the audit log is unavailable.';
+  }
+  if (message === 'PRO_ROOM_PROVISIONING_INCOMPLETE') {
+    return 'Provisioning is incomplete. Retry from the room list.';
+  }
+  if (message === 'PRO_ROOM_REGISTRY_CAPACITY_REACHED') {
+    return 'The PRO room registry has reached its current capacity.';
+  }
   return message || fallback;
 }
 
@@ -161,9 +198,231 @@ function formatAnnouncementAction(action) {
 }
 
 function announcementTitle(tab) {
+  if (tab === 'pro-rooms') return 'PRO Rooms';
   if (tab === 'articles') return 'Articles';
   if (tab === 'announcements') return 'Announcements';
   return 'Operations';
+}
+
+function normalizeProRoomCode(value) {
+  const digits = String(value || '')
+    .replace(/\D/g, '')
+    .slice(0, 6);
+  return /^0\d{5}$/.test(digits) ? digits : null;
+}
+
+function setProRoomStatus(message, isError = false) {
+  if (!proRoomStatusEl) return;
+  proRoomStatusEl.textContent = message || '';
+  proRoomStatusEl.classList.toggle('is-error', isError);
+}
+
+function formatProRoomStatus(status) {
+  if (status === 'active') return 'Active';
+  if (status === 'suspended') return 'Suspended';
+  if (status === 'provisioning') return 'Provisioning incomplete';
+  if (status === 'unactivated') return 'Awaiting activation';
+  return 'Registered';
+}
+
+function dismissProRoomClaim() {
+  if (!proRoomClaimEl) return;
+  proRoomClaimEl.hidden = true;
+  if (proRoomClaimUrlEl) proRoomClaimUrlEl.value = '';
+  if (proRoomClaimExpiryEl) proRoomClaimExpiryEl.textContent = '';
+  if (proRoomClaimTitleEl) proRoomClaimTitleEl.textContent = 'Owner activation link';
+  if (proRoomClaimCopyBtn) proRoomClaimCopyBtn.textContent = 'Copy link';
+}
+
+function clearProRoomClaimState() {
+  dismissProRoomClaim();
+  issuedActivationLinks.clear();
+}
+
+function showProRoomClaim(payload) {
+  if (!proRoomClaimEl || !proRoomClaimUrlEl) return;
+  const roomCode = normalizeProRoomCode(payload.roomCode);
+  if (!roomCode || typeof payload.activationUrl !== 'string' || !payload.activationUrl) {
+    throw new Error('INVALID_ACTIVATION_LINK');
+  }
+  issuedActivationLinks.add(roomCode);
+  if (proRoomClaimTitleEl) {
+    proRoomClaimTitleEl.textContent = `${roomCode} owner activation link`;
+  }
+  if (proRoomClaimExpiryEl) {
+    const expiry = formatAdminDateTime(payload.expiresAt);
+    proRoomClaimExpiryEl.textContent = expiry ? `Expires ${expiry}` : 'Short-lived link';
+  }
+  proRoomClaimUrlEl.value = payload.activationUrl;
+  proRoomClaimEl.hidden = false;
+  proRoomClaimEl.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function copyProRoomClaim() {
+  const value = String(proRoomClaimUrlEl?.value || '');
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    proRoomClaimUrlEl?.focus();
+    proRoomClaimUrlEl?.select();
+    if (!document.execCommand?.('copy')) throw new Error('COPY_FAILED');
+  }
+  if (proRoomClaimCopyBtn) {
+    proRoomClaimCopyBtn.textContent = 'Copied';
+    window.setTimeout(() => {
+      if (proRoomClaimCopyBtn) proRoomClaimCopyBtn.textContent = 'Copy link';
+    }, 1600);
+  }
+}
+
+function renderProRoomRow(room) {
+  const roomCode = normalizeProRoomCode(room?.roomCode);
+  if (!roomCode) return null;
+
+  const item = document.createElement('article');
+  item.className = 'pro-room-item';
+
+  const identity = document.createElement('div');
+  identity.className = 'pro-room-identity';
+  const code = document.createElement('strong');
+  code.textContent = roomCode;
+  const label = document.createElement('span');
+  label.textContent = String(room.label || 'Unlabelled PRO room');
+  identity.append(code, label);
+
+  const details = document.createElement('div');
+  details.className = 'pro-room-details';
+  const status = document.createElement('span');
+  const registryStatus = String(room.status || 'registered');
+  const activationState = String(room.activationState || '');
+  const rawStatus =
+    registryStatus === 'provisioning'
+      ? 'provisioning'
+      : registryStatus === 'suspended'
+        ? 'suspended'
+        : activationState === 'active'
+          ? 'active'
+          : activationState === 'unactivated'
+            ? 'unactivated'
+            : 'registered';
+  status.className = `pro-room-state is-${rawStatus.replace(/[^a-z-]/g, '')}`;
+  status.textContent = formatProRoomStatus(rawStatus);
+  const created = document.createElement('small');
+  const createdAt = formatAdminDateTime(room.createdAt);
+  created.textContent = createdAt ? `Created ${createdAt}` : 'Creation time unavailable';
+  details.append(status, created);
+
+  const actions = document.createElement('div');
+  actions.className = 'pro-room-actions';
+  const open = document.createElement('a');
+  open.href = `/${roomCode}`;
+  open.target = '_blank';
+  open.rel = 'noopener noreferrer';
+  open.textContent = 'Open room';
+
+  const activation = document.createElement('button');
+  activation.type = 'button';
+  if (rawStatus === 'provisioning') {
+    activation.textContent = 'Retry provisioning';
+    activation.addEventListener('click', async () => {
+      activation.disabled = true;
+      activation.textContent = 'Retrying...';
+      setProRoomStatus('');
+      try {
+        await fetchJson('/api/admin/pro-rooms', {
+          method: 'POST',
+          body: JSON.stringify({ roomCode, label: room.label || undefined }),
+        });
+        setProRoomStatus(`${roomCode} provisioned.`);
+        await loadProRooms();
+      } catch (error) {
+        activation.disabled = false;
+        activation.textContent = 'Retry provisioning';
+        setProRoomStatus(adminErrorMessage(error, 'Provisioning retry failed.'), true);
+      }
+    });
+  } else {
+    activation.textContent = issuedActivationLinks.has(roomCode)
+      ? 'Reissue activation link'
+      : 'Issue activation link';
+    activation.disabled = rawStatus === 'active' || rawStatus === 'suspended';
+    if (rawStatus === 'active') activation.title = 'This room is already active.';
+    if (rawStatus === 'suspended') activation.title = 'Resume the room before issuing a link.';
+    activation.addEventListener('click', async () => {
+      activation.disabled = true;
+      activation.textContent = 'Issuing...';
+      setProRoomStatus('');
+      try {
+        const payload = await fetchJson(`/api/admin/pro-rooms/${roomCode}/activation-claim`, {
+          method: 'POST',
+          body: '{}',
+        });
+        showProRoomClaim(payload);
+        activation.textContent = 'Reissue activation link';
+        activation.disabled = false;
+      } catch (error) {
+        activation.disabled = false;
+        activation.textContent = 'Issue activation link';
+        setProRoomStatus(adminErrorMessage(error, 'Activation link failed.'), true);
+        loadProRooms({ updateTimestamp: false }).catch(() => {});
+      }
+    });
+  }
+
+  if (rawStatus !== 'provisioning') actions.append(open);
+  actions.append(activation);
+  item.append(identity, details, actions);
+  return item;
+}
+
+function renderProRooms(payload) {
+  const rooms = Array.isArray(payload?.rooms) ? payload.rooms : [];
+  if (proRoomListStatusEl) {
+    proRoomListStatusEl.textContent = `${formatter.format(rooms.length)} registered`;
+  }
+  if (!proRoomListEl) return;
+  const rows = rooms.map(renderProRoomRow).filter(Boolean);
+  if (rows.length) {
+    proRoomListEl.replaceChildren(...rows);
+    return;
+  }
+  const empty = document.createElement('p');
+  empty.className = 'pro-room-empty';
+  empty.textContent = 'No PRO rooms registered yet.';
+  proRoomListEl.replaceChildren(empty);
+}
+
+async function loadProRooms(options = {}) {
+  if (proRoomListStatusEl) proRoomListStatusEl.textContent = 'Refreshing...';
+  const payload = await fetchJson('/api/admin/pro-rooms');
+  renderProRooms(payload);
+  proRoomsLoaded = true;
+  if (options.updateTimestamp !== false) {
+    updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt || Date.now())}`;
+  }
+}
+
+async function registerProRoom() {
+  const roomCode = normalizeProRoomCode(proRoomCodeEl?.value);
+  const label = String(proRoomLabelEl?.value || '').trim();
+  if (!roomCode) throw new Error('Room number must be six digits beginning with 0.');
+  if (label.length > 64) throw new Error('Label must be 64 characters or fewer.');
+
+  if (proRoomRegisterBtn) proRoomRegisterBtn.disabled = true;
+  setProRoomStatus('Registering...');
+  try {
+    const payload = await fetchJson('/api/admin/pro-rooms', {
+      method: 'POST',
+      body: JSON.stringify({ roomCode, ...(label ? { label } : {}) }),
+    });
+    setProRoomStatus(`${roomCode} registered.`);
+    proRoomForm?.reset();
+    await loadProRooms();
+    return payload;
+  } finally {
+    if (proRoomRegisterBtn) proRoomRegisterBtn.disabled = false;
+  }
 }
 
 function setActiveTab(tab) {
@@ -540,6 +799,11 @@ async function refreshAllDashboardData() {
   updatedAtEl.textContent = 'Refreshing...';
   await Promise.all([
     loadMetrics({ updateTimestamp: false }),
+    loadProRooms({ updateTimestamp: false }).catch((error) => {
+      if (proRoomListStatusEl) {
+        proRoomListStatusEl.textContent = adminErrorMessage(error, 'PRO rooms refresh failed.');
+      }
+    }),
     loadArticles({ updateTimestamp: false }),
     loadAnnouncement({ updateTimestamp: false }),
   ]);
@@ -592,6 +856,13 @@ adminTabs.forEach((button) => {
   button.addEventListener('click', () => {
     const tab = button.dataset.adminTab || 'operations';
     setActiveTab(tab);
+    if (tab === 'pro-rooms' && !proRoomsLoaded) {
+      loadProRooms().catch((error) => {
+        if (proRoomListStatusEl) {
+          proRoomListStatusEl.textContent = adminErrorMessage(error, 'Refresh failed.');
+        }
+      });
+    }
     if (tab === 'articles' && !articlesLoaded) {
       loadArticles().catch((error) => {
         if (articleStatusEl) articleStatusEl.textContent = error.message || 'Refresh failed.';
@@ -605,6 +876,34 @@ adminTabs.forEach((button) => {
     }
   });
 });
+
+proRoomCodeEl?.addEventListener('input', () => {
+  const digits = String(proRoomCodeEl.value || '')
+    .replace(/\D/g, '')
+    .slice(0, 6);
+  if (proRoomCodeEl.value !== digits) proRoomCodeEl.value = digits;
+  proRoomCodeEl.setCustomValidity(
+    digits.length === 0 || /^0\d{5}$/.test(digits) ? '' : 'Use six digits beginning with 0.',
+  );
+});
+
+proRoomForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  registerProRoom().catch((error) => {
+    setProRoomStatus(adminErrorMessage(error, 'Registration failed.'), true);
+    loadProRooms({ updateTimestamp: false }).catch(() => {});
+  });
+});
+
+proRoomClaimCopyBtn?.addEventListener('click', () => {
+  copyProRoomClaim().catch(() => {
+    setProRoomStatus('Copy failed. Select and copy the link.', true);
+  });
+});
+
+proRoomClaimDismissBtn?.addEventListener('click', dismissProRoomClaim);
+window.addEventListener('pagehide', clearProRoomClaimState);
+window.addEventListener('beforeunload', clearProRoomClaimState);
 
 announcementForm?.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -622,6 +921,7 @@ announcementClearBtn?.addEventListener('click', () => {
 });
 
 logoutBtn?.addEventListener('click', async () => {
+  clearProRoomClaimState();
   await fetchJson('/api/admin/logout', { method: 'POST' }).catch(() => {});
   showLogin();
 });

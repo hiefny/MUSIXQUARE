@@ -22,7 +22,6 @@ custom_domain = true
 [vars]
 R2_BUCKET_NAME = "musixquare-pro-media"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
-PRO_ROOM_CODES = "000000,000001"
 SESSION_TTL_SECONDS = "2592000"
 PRESENCE_TTL_SECONDS = "45"
 RESERVATION_TTL_SECONDS = "900"
@@ -36,6 +35,13 @@ class_name = "MusixquareProRoom"
 [[r2_buckets]]
 binding = "PRO_MEDIA_BUCKET"
 bucket_name = "musixquare-pro-media"
+
+# Shared with the admin Worker only for a best-effort activation-state index
+# update. No public PRO request reads D1 on its critical path.
+[[d1_databases]]
+binding = "MUSIXQUARE_ADMIN_DB"
+database_name = "musixquare-admin-metrics"
+database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
 
 [[migrations]]
 tag = "v1"

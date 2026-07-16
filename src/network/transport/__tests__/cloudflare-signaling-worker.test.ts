@@ -497,7 +497,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(roomFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an unprovisioned future PRO room before ticket parsing or Durable Object lookup', async () => {
+  it('rejects a future PRO room without a signed provision ticket before Durable Object lookup', async () => {
     const { env, idFromName, roomFetch } = workerEnv();
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     const response = await workerModule.default.fetch(
@@ -508,7 +508,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       env,
     );
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(401);
     expect(idFromName).not.toHaveBeenCalled();
     expect(roomFetch).not.toHaveBeenCalled();
   });
@@ -543,6 +543,26 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     expect(response.status).toBe(101);
     expect(idFromName).toHaveBeenCalledWith('000001');
+    expect(roomFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a dynamically provisioned leading-zero room through its signed ticket proof', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = await proTicket({ roomCode: '000002', participantId: 'dynamic-member' });
+    const url = new URL('https://signal.example.test/api/pro-rooms/000002/ws');
+    url.searchParams.set('ticket', ticket);
+
+    const response = await workerModule.default.fetch(
+      requestLike(url.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(101);
+    expect(idFromName).toHaveBeenCalledWith('000002');
     expect(roomFetch).toHaveBeenCalledTimes(1);
   });
 

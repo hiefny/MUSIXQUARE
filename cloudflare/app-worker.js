@@ -53,8 +53,20 @@ const SORO_IMAGE_R2_PREFIX = 'featured/';
 const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
 const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
+const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activation-claim)?$/;
+const ADMIN_PRO_ROOM_CODE_RE = /^0\d{5}$/;
+const ADMIN_PRO_ROOM_REGISTRY_TABLE = 'mxqr_pro_room_registry';
+const ADMIN_PRO_ROOM_AUDIT_TABLE = 'mxqr_pro_room_admin_audit';
+const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
+const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
+const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
+const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
+  Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
+  Object.freeze({ roomCode: '000001', label: 'Friends & Family' }),
+]);
 const ADMIN_METRICS_TABLE = 'mxqr_metric_buckets';
 const ADMIN_METRICS_RETENTION_DAYS = 90;
+const ADMIN_PRO_ROOM_AUDIT_RETENTION_DAYS = 365;
 const MINUTES_PER_DAY = 24 * 60;
 const ADMIN_METRIC_EVENTS = [
   { key: 'room_opened', label: 'Rooms opened' },
@@ -818,6 +830,474 @@ async function handleAdminSession(request, env) {
   });
 }
 
+const adminProRoomRegistryReadyByDb = new WeakMap();
+
+function getProRoomAdminNamespace(env) {
+  const namespace = env.PRO_ROOM_ADMIN_ROOMS;
+  return namespace &&
+    typeof namespace.idFromName === 'function' &&
+    typeof namespace.get === 'function'
+    ? namespace
+    : null;
+}
+
+async function ensureAdminProRoomRegistry(db) {
+  if (!db?.prepare) return false;
+  const existing = adminProRoomRegistryReadyByDb.get(db);
+  if (existing) return existing;
+  const initialize = (async () => {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_REGISTRY_TABLE} (
+          room_code TEXT PRIMARY KEY NOT NULL,
+          label TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'registered',
+          activation_state TEXT NOT NULL DEFAULT 'unactivated',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_AUDIT_TABLE} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          actor_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          result TEXT NOT NULL,
+          room_code TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        )`,
+      )
+      .run();
+    const nowMs = Date.now();
+    for (const room of INITIAL_ADMIN_PRO_ROOMS) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+            (room_code, label, status, activation_state, created_at, updated_at)
+           VALUES (?1, ?2, 'registered', 'unactivated', ?3, ?3)`,
+        )
+        .bind(room.roomCode, room.label, nowMs)
+        .run();
+    }
+    return true;
+  })();
+  adminProRoomRegistryReadyByDb.set(db, initialize);
+  try {
+    return await initialize;
+  } catch (error) {
+    adminProRoomRegistryReadyByDb.delete(db);
+    throw error;
+  }
+}
+
+function normalizeAdminProRoomRow(row) {
+  if (!row || !ADMIN_PRO_ROOM_CODE_RE.test(row.room_code)) return null;
+  const label = String(row.label || '').trim();
+  if (!label || label.length > ADMIN_PRO_ROOM_LABEL_MAX_LENGTH) return null;
+  return {
+    roomCode: row.room_code,
+    label,
+    status:
+      row.status === 'suspended'
+        ? 'suspended'
+        : row.status === 'provisioning'
+          ? 'provisioning'
+          : 'registered',
+    // Display-only index. Every privileged decision is re-authorized against
+    // the cross-script Durable Object, which owns the canonical room status.
+    activationState: row.activation_state === 'active' ? 'active' : 'unactivated',
+    createdAt: Number.isSafeInteger(row.created_at) ? row.created_at : 0,
+    updatedAt: Number.isSafeInteger(row.updated_at) ? row.updated_at : 0,
+  };
+}
+
+async function readAdminProRoom(db, roomCode) {
+  await ensureAdminProRoomRegistry(db);
+  const statement = db
+    .prepare(
+      `SELECT room_code, label, status, activation_state, created_at, updated_at
+       FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       WHERE room_code = ?1 LIMIT 1`,
+    )
+    .bind(roomCode);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return normalizeAdminProRoomRow(row);
+}
+
+async function listAdminProRooms(db) {
+  await ensureAdminProRoomRegistry(db);
+  const result = await db
+    .prepare(
+      `SELECT room_code, label, status, activation_state, created_at, updated_at
+       FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       ORDER BY room_code ASC LIMIT ?1`,
+    )
+    .bind(ADMIN_PRO_ROOM_REGISTRY_LIMIT)
+    .all();
+  return (result?.results || []).map(normalizeAdminProRoomRow).filter(Boolean);
+}
+
+async function registerAdminProRoom(db, roomCode, label, nowMs = Date.now()) {
+  await ensureAdminProRoomRegistry(db);
+  const result = await db
+    .prepare(
+      `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+        (room_code, label, status, activation_state, created_at, updated_at)
+       SELECT ?1, ?2, 'provisioning', 'unactivated', ?3, ?3
+       WHERE (SELECT COUNT(*) FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}) < ?4`,
+    )
+    .bind(roomCode, label, nowMs, ADMIN_PRO_ROOM_REGISTRY_LIMIT)
+    .run();
+  const room = await readAdminProRoom(db, roomCode);
+  return {
+    created: Number(result?.meta?.changes || 0) > 0,
+    capacityExceeded: !room,
+    room,
+  };
+}
+
+async function markAdminProRoomRegistered(db, roomCode, activationState, nowMs = Date.now()) {
+  await ensureAdminProRoomRegistry(db);
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       SET status = 'registered', activation_state = ?2, updated_at = ?3
+       WHERE room_code = ?1 AND status != 'suspended'`,
+    )
+    .bind(roomCode, activationState === 'active' ? 'active' : 'unactivated', nowMs)
+    .run();
+}
+
+async function reconcileAdminProRoomStatus(env, db, roomCode) {
+  const statusResult = await callProRoomAdminObject(env, roomCode, '/internal/admin/status', 'GET');
+  const payload = statusResult.payload;
+  if (
+    !statusResult.response?.ok ||
+    !payload ||
+    payload.roomCode !== roomCode ||
+    payload.provisioned !== true ||
+    !['unactivated', 'active', 'suspended'].includes(payload.status)
+  ) {
+    return null;
+  }
+  if (payload.status === 'suspended') {
+    await ensureAdminProRoomRegistry(db);
+    await db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         SET status = 'suspended', activation_state = 'active', updated_at = ?2
+         WHERE room_code = ?1`,
+      )
+      .bind(roomCode, Date.now())
+      .run();
+  } else {
+    await markAdminProRoomRegistered(db, roomCode, payload.status);
+  }
+  return payload.status;
+}
+
+async function adminProRoomAuditActor(request, env) {
+  const sessionToken = readCookies(request).get(ADMIN_SESSION_COOKIE) || '';
+  const accessIdentity =
+    request.headers.get('cf-access-authenticated-user-email') ||
+    request.headers.get('cf-access-jwt-assertion') ||
+    '';
+  return `admin_${(
+    await hmacSha256(
+      getAdminSessionSecret(env),
+      `pro-room-audit\u0000${sessionToken}\u0000${accessIdentity}`,
+    )
+  ).slice(0, 32)}`;
+}
+
+async function appendAdminProRoomAudit(db, request, env, action, result, roomCode) {
+  await ensureAdminProRoomRegistry(db);
+  const actorId = await adminProRoomAuditActor(request, env);
+  await db
+    .prepare(
+      `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+        (actor_id, action, result, room_code, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)`,
+    )
+    .bind(actorId, action, result, roomCode, Date.now())
+    .run();
+}
+
+async function writeAdminProRoomAuditOrFail(db, request, env, action, result, roomCode) {
+  try {
+    await appendAdminProRoomAudit(db, request, env, action, result, roomCode);
+    return null;
+  } catch {
+    return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+  }
+}
+
+async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST') {
+  const namespace = getProRoomAdminNamespace(env);
+  if (!namespace) return { response: null, payload: null };
+  const stub = namespace.get(namespace.idFromName(roomCode));
+  let response;
+  try {
+    response = await stub.fetch(
+      new Request(`https://pro-room.internal${pathname}`, {
+        method,
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      }),
+    );
+  } catch {
+    return { response: null, payload: null };
+  }
+  const payload = await response
+    .clone()
+    .json()
+    .catch(() => null);
+  return { response, payload };
+}
+
+function proRoomObjectError(result) {
+  if (!result.response) return json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502);
+  if (!result.payload || typeof result.payload !== 'object' || Array.isArray(result.payload)) {
+    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+  return json(result.payload, result.response.status);
+}
+
+function isValidAdminActivationLink(payload, roomCode) {
+  const nowMs = Date.now();
+  if (
+    !payload ||
+    payload.roomCode !== roomCode ||
+    typeof payload.activationUrl !== 'string' ||
+    !Number.isSafeInteger(payload.expiresAt) ||
+    payload.expiresAt <= nowMs ||
+    payload.expiresAt > nowMs + ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS + 5_000
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(payload.activationUrl);
+    return (
+      url.protocol === 'https:' &&
+      url.hostname === 'musixquare.com' &&
+      url.port === '' &&
+      url.pathname === `/${roomCode}` &&
+      url.search === '' &&
+      url.hash.startsWith('#pro-claim=') &&
+      url.hash.length > '#pro-claim='.length
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function handleAdminProRooms(request, env, pathname) {
+  const route = pathname.match(ADMIN_PRO_ROOM_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const activationClaimRoomCode = route[1] || '';
+  const allowedMethods = activationClaimRoomCode ? ['POST'] : ['GET', 'HEAD', 'POST'];
+  const methodError = adminApiMethodAllowed(request, allowedMethods);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const db = getAdminDb(env);
+  if (!db?.prepare || !getProRoomAdminNamespace(env)) {
+    return json({ error: 'PRO_ROOM_ADMIN_NOT_CONFIGURED' }, 503);
+  }
+
+  if (!activationClaimRoomCode && (request.method === 'GET' || request.method === 'HEAD')) {
+    try {
+      const rooms = await listAdminProRooms(db);
+      if (request.method === 'HEAD') {
+        return withSecurityHeaders(new Response(null, { status: 200 }), {
+          'Cache-Control': 'no-store, max-age=0',
+        });
+      }
+      return json({ generatedAt: new Date().toISOString(), rooms });
+    } catch {
+      return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+    }
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+
+  if (!activationClaimRoomCode) {
+    const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      Array.isArray(body) ||
+      !keys.includes('roomCode') ||
+      keys.some((key) => key !== 'roomCode' && key !== 'label')
+    ) {
+      return json({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const roomCode = body.roomCode;
+    const rawLabel = body.label === undefined ? `PRO Room ${roomCode}` : body.label;
+    const label = typeof rawLabel === 'string' ? rawLabel.trim() : '';
+    if (
+      !ADMIN_PRO_ROOM_CODE_RE.test(roomCode) ||
+      !label ||
+      label.length > ADMIN_PRO_ROOM_LABEL_MAX_LENGTH
+    ) {
+      return json({ error: 'INVALID_PRO_ROOM' }, 400);
+    }
+
+    try {
+      const registered = await registerAdminProRoom(db, roomCode, label);
+      if (registered.capacityExceeded) {
+        const auditError = await writeAdminProRoomAuditOrFail(
+          db,
+          request,
+          env,
+          'room.register',
+          'registry_capacity_reached',
+          roomCode,
+        );
+        if (auditError) return auditError;
+        return json({ error: 'PRO_ROOM_REGISTRY_CAPACITY_REACHED' }, 409);
+      }
+      const previousStatus = registered.room?.status || 'provisioning';
+      const provisioned = await callProRoomAdminObject(env, roomCode, '/internal/admin/provision');
+      if (!provisioned.response?.ok || !provisioned.payload?.ok) {
+        const auditError = await writeAdminProRoomAuditOrFail(
+          db,
+          request,
+          env,
+          'room.register',
+          'provision_failed',
+          roomCode,
+        );
+        if (auditError) return auditError;
+        return proRoomObjectError(provisioned);
+      }
+      await markAdminProRoomRegistered(db, roomCode, provisioned.payload.status);
+      const room = (await readAdminProRoom(db, roomCode)) || registered.room;
+      const auditError = await writeAdminProRoomAuditOrFail(
+        db,
+        request,
+        env,
+        'room.register',
+        registered.created
+          ? 'created'
+          : previousStatus === 'provisioning'
+            ? 'provisioning_recovered'
+            : 'already_registered',
+        roomCode,
+      );
+      if (auditError) return auditError;
+      return json({ room }, registered.created ? 201 : 200);
+    } catch {
+      return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+    }
+  }
+
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 0) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'activation_claim.issue',
+      'invalid_request',
+      activationClaimRoomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+  let room;
+  try {
+    room = await readAdminProRoom(db, activationClaimRoomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'activation_claim.issue',
+      'room_not_found',
+      activationClaimRoomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.status === 'provisioning') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'activation_claim.issue',
+      'provisioning_incomplete',
+      activationClaimRoomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' }, 409);
+  }
+  if (room.status !== 'registered') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'activation_claim.issue',
+      'room_suspended',
+      activationClaimRoomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+
+  const issued = await callProRoomAdminObject(
+    env,
+    activationClaimRoomCode,
+    '/internal/admin/activation-claim',
+  );
+  if (!issued.response?.ok) {
+    await reconcileAdminProRoomStatus(env, db, activationClaimRoomCode).catch(() => {});
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'activation_claim.issue',
+      issued.response ? 'service_rejected' : 'service_unavailable',
+      activationClaimRoomCode,
+    );
+    if (auditError) return auditError;
+    return proRoomObjectError(issued);
+  }
+  if (!isValidAdminActivationLink(issued.payload, activationClaimRoomCode)) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'activation_claim.issue',
+      'invalid_service_response',
+      activationClaimRoomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+  const auditError = await writeAdminProRoomAuditOrFail(
+    db,
+    request,
+    env,
+    'activation_claim.issue',
+    'issued',
+    activationClaimRoomCode,
+  );
+  // The DO has already rotated and persisted the claim generation. If D1
+  // auditing fails, discard this credential; the next retry rotates again so
+  // no unaudited link can subsequently be used.
+  if (auditError) return auditError;
+  return json(issued.payload);
+}
+
 function emptyAdminCounters() {
   return Object.fromEntries(ADMIN_METRIC_EVENTS.map((event) => [event.key, 0]));
 }
@@ -931,6 +1411,22 @@ async function cleanupExpiredAdminMetrics(env, nowMs = Date.now()) {
     // Retention is maintenance, not a prerequisite for serving the dashboard
     // or refreshing Soro. Keep the scheduled task best-effort and observable.
     console.warn('[AdminMetrics] retention cleanup failed:', error?.message || error);
+    return 'failed';
+  }
+}
+
+async function cleanupExpiredProRoomAdminAudit(env, nowMs = Date.now()) {
+  const db = getAdminDb(env);
+  if (!db?.prepare) return 'unconfigured';
+  const cutoffMs = nowMs - ADMIN_PRO_ROOM_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  try {
+    await db
+      .prepare(`DELETE FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE} WHERE created_at < ?1`)
+      .bind(cutoffMs)
+      .run();
+    return 'cleaned';
+  } catch (error) {
+    console.warn('[PRO Admin Audit] retention cleanup failed:', error?.message || error);
     return 'failed';
   }
 }
@@ -1314,6 +1810,7 @@ function renderAdminPage(request, env) {
       </header>
       <nav class="admin-tabs" aria-label="Admin sections">
         <button class="is-active" type="button" data-admin-tab="operations">Operations</button>
+        <button type="button" data-admin-tab="pro-rooms">PRO Rooms</button>
         <button type="button" data-admin-tab="articles">Articles</button>
         <button type="button" data-admin-tab="announcements">Announcements</button>
       </nav>
@@ -1342,6 +1839,56 @@ function renderAdminPage(request, env) {
             <h2>Signals</h2>
           </div>
           <div class="signal-grid" data-signal-grid></div>
+        </section>
+      </section>
+      <section class="admin-view" data-admin-view="pro-rooms" hidden>
+        <section class="pro-room-management">
+          <section class="panel pro-room-register-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Register a PRO room</h2>
+                <p>Reserve a permanent room number and issue its one-time owner activation link.</p>
+              </div>
+              <span>1 GiB per room</span>
+            </div>
+            <form class="pro-room-form" data-pro-room-form>
+              <label class="pro-room-field pro-room-code-field">
+                <span>Room number</span>
+                <input name="roomCode" type="text" inputmode="numeric" autocomplete="off" maxlength="6" pattern="0[0-9]{5}" placeholder="000002" aria-describedby="pro-room-code-help" data-pro-room-code required>
+                <small id="pro-room-code-help">Six digits beginning with 0</small>
+              </label>
+              <label class="pro-room-field">
+                <span>Purpose / label</span>
+                <input name="label" type="text" autocomplete="off" maxlength="64" placeholder="Friends listening room" data-pro-room-label>
+                <small>Optional · visible only to administrators</small>
+              </label>
+              <button class="pro-room-register" type="submit" data-pro-room-register>Register</button>
+            </form>
+            <p class="pro-room-status" role="status" aria-live="polite" data-pro-room-status></p>
+          </section>
+
+          <section class="pro-room-claim panel" aria-live="polite" data-pro-room-claim hidden>
+            <div class="pro-room-claim-copy">
+              <strong data-pro-room-claim-title>Owner activation link</strong>
+              <span data-pro-room-claim-expiry></span>
+            </div>
+            <div class="pro-room-claim-row">
+              <input type="text" readonly aria-label="Owner activation link" data-pro-room-claim-url>
+              <button type="button" data-pro-room-claim-copy>Copy link</button>
+              <button class="is-secondary" type="button" aria-label="Dismiss activation link" data-pro-room-claim-dismiss>Dismiss</button>
+            </div>
+            <p>This link grants ownership. Send it privately and do not paste it into chat.</p>
+          </section>
+
+          <section class="pro-room-list-section">
+            <div class="pro-room-list-head">
+              <div>
+                <h2>Registered rooms</h2>
+                <p data-pro-room-list-status>Loading PRO rooms...</p>
+              </div>
+            </div>
+            <div class="pro-room-list" data-pro-room-list></div>
+          </section>
         </section>
       </section>
       <section class="admin-view" data-admin-view="articles" hidden>
@@ -3614,6 +4161,7 @@ export default {
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
     ctx.waitUntil(cleanupExpiredAdminMetrics(env));
+    ctx.waitUntil(cleanupExpiredProRoomAdminAudit(env));
   },
 
   async fetch(request, env, ctx) {
@@ -3628,6 +4176,10 @@ export default {
       (request.method === 'GET' || request.method === 'HEAD')
     ) {
       return renderAdminPage(request, env);
+    }
+
+    if (ADMIN_PRO_ROOM_PATH_RE.test(url.pathname)) {
+      return handleAdminProRooms(request, env, url.pathname);
     }
 
     switch (url.pathname) {

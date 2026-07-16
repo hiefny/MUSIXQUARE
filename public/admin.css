@@ -344,6 +344,270 @@ p {
   font-size: 12px;
 }
 
+.pro-room-management {
+  display: grid;
+  gap: 18px;
+}
+
+.pro-room-register-panel .panel-head {
+  align-items: start;
+}
+
+.pro-room-register-panel .panel-head > div {
+  display: grid;
+  gap: 5px;
+}
+
+.pro-room-register-panel .panel-head p,
+.pro-room-list-head p,
+.pro-room-claim p {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pro-room-form {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.55fr) minmax(260px, 1.45fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.pro-room-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.pro-room-field > span {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pro-room-field input,
+.pro-room-claim-row input {
+  width: 100%;
+  height: 42px;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0 13px;
+  background: var(--surface-2);
+  color: var(--text-main);
+  outline: none;
+}
+
+.pro-room-code-field input {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.pro-room-field input:focus,
+.pro-room-claim-row input:focus {
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
+}
+
+.pro-room-field small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.pro-room-register,
+.pro-room-claim-row button,
+.pro-room-actions a,
+.pro-room-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  padding: 0 15px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pro-room-register {
+  height: 42px;
+}
+
+.pro-room-register:disabled,
+.pro-room-claim-row button:disabled,
+.pro-room-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.pro-room-status {
+  min-height: 1.4em;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pro-room-status.is-error {
+  color: var(--fail);
+}
+
+.pro-room-claim {
+  display: grid;
+  gap: 12px;
+  background: rgba(var(--primary-rgb), 0.12);
+}
+
+.pro-room-claim-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pro-room-claim-copy strong {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.pro-room-claim-copy span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pro-room-claim-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.pro-room-claim-row input {
+  background: var(--surface-1);
+  font-size: 12px;
+}
+
+.pro-room-claim-row button.is-secondary {
+  background: var(--surface-2);
+  color: var(--text-sub);
+}
+
+.pro-room-list-section {
+  display: grid;
+  gap: 13px;
+}
+
+.pro-room-list-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pro-room-list-head > div {
+  display: grid;
+  gap: 5px;
+}
+
+.pro-room-list-head h2 {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.pro-room-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pro-room-item {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(210px, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 76px;
+  border-radius: var(--radius);
+  padding: 14px;
+  background: var(--surface-1);
+}
+
+.pro-room-identity,
+.pro-room-details {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.pro-room-identity strong {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.pro-room-identity span,
+.pro-room-details small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pro-room-state {
+  width: fit-content;
+  border-radius: var(--radius-pill);
+  padding: 4px 9px;
+  background: var(--surface-2);
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.pro-room-state.is-active {
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--pass);
+}
+
+.pro-room-state.is-suspended {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+.pro-room-state.is-unactivated {
+  background: rgba(250, 204, 21, 0.12);
+  color: var(--warn);
+}
+
+.pro-room-state.is-provisioning {
+  background: rgba(250, 204, 21, 0.12);
+  color: var(--warn);
+}
+
+.pro-room-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pro-room-actions a {
+  background: var(--surface-2);
+  color: var(--text-sub);
+}
+
+.pro-room-actions button {
+  min-width: 148px;
+}
+
+.pro-room-empty {
+  border-radius: var(--radius);
+  padding: 18px;
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .article-status {
   margin-bottom: 14px;
   color: var(--text-muted);
@@ -881,6 +1145,23 @@ p {
     justify-content: flex-start;
   }
 
+  .pro-room-form {
+    grid-template-columns: minmax(150px, 0.65fr) minmax(220px, 1.35fr);
+  }
+
+  .pro-room-register {
+    width: fit-content;
+  }
+
+  .pro-room-item {
+    grid-template-columns: minmax(150px, 0.7fr) minmax(190px, 1fr);
+  }
+
+  .pro-room-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
   .metric-grid,
   .trend-list,
   .signal-grid {
@@ -911,6 +1192,30 @@ p {
   .panel-head {
     align-items: start;
     flex-direction: column;
+  }
+
+  .pro-room-form,
+  .pro-room-item,
+  .pro-room-claim-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pro-room-register,
+  .pro-room-claim-row button,
+  .pro-room-actions a,
+  .pro-room-actions button {
+    width: 100%;
+  }
+
+  .pro-room-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .pro-room-claim-copy {
+    align-items: start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .admin-tabs {

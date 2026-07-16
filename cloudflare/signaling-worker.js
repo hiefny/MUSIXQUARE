@@ -1,7 +1,6 @@
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_CODE_PATTERN = /^0\d{5}$/;
-const DEFAULT_PRO_PROVISIONED_ROOM_CODES = ['000000', '000001'];
 const HOST_RECLAIM_GRACE_MS = 60_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
@@ -82,24 +81,6 @@ function isValidPeerId(peerId) {
 
 function isValidProEpoch(value) {
   return Number.isSafeInteger(value) && value >= 1;
-}
-
-function getProProvisionedRoomCodes(env = {}) {
-  const configured = String(
-    env.PRO_PROVISIONED_ROOM_CODES || env.PRO_RESERVED_ROOM_CODES || '',
-  ).trim();
-  const values = (configured || DEFAULT_PRO_PROVISIONED_ROOM_CODES.join(','))
-    .split(/[\s,]+/)
-    .map((value) => value.trim())
-    .filter((value) => PRO_ROOM_CODE_PATTERN.test(value));
-
-  // A present-but-invalid or blank production variable must not silently
-  // provision a room outside the two checked-in launch rooms.
-  return new Set(values.length > 0 ? values : DEFAULT_PRO_PROVISIONED_ROOM_CODES);
-}
-
-function isProProvisionedRoomCode(roomId, env = {}) {
-  return getProProvisionedRoomCodes(env).has(roomId);
 }
 
 function isProNamespaceRoomCode(roomId) {
@@ -1141,7 +1122,7 @@ export class MusixquareRoom {
     const url = new URL(request.url);
     const proRoomId = url.pathname.match(PRO_ROOM_PATH)?.[1];
     if (proRoomId) {
-      if (!isProProvisionedRoomCode(proRoomId, this.env)) {
+      if (!isProNamespaceRoomCode(proRoomId)) {
         return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
       }
       // The signed ticket must never be included in application logs. It is
@@ -1824,7 +1805,7 @@ export default {
 
     const roomId = (match || proMatch)[1];
     if (proMatch) {
-      if (!isProProvisionedRoomCode(roomId, env)) {
+      if (!isProNamespaceRoomCode(roomId)) {
         return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
       }
       // Do not log `request.url` in this branch: it contains the bearer ticket.

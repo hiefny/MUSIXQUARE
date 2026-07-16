@@ -1,16 +1,22 @@
 # MUSIXQUARE Admin Dashboard Ops
 
 The `/admin` dashboard is served by `musixquare-app` and reads aggregate room
-metrics from a shared D1 database. The signaling Worker writes minute-level
-counters for successful session transitions and rejected signaling traffic.
+metrics plus the operator-managed PRO room registry from a shared D1 database.
+The signaling Worker writes minute-level counters for successful session
+transitions and rejected signaling traffic. The App Worker owns PRO registry
+mutations and its bounded operator audit.
 
 The production database identity, APAC region, schema, and event inventory were
 last reconciled with Wrangler and both Workers on 2026-07-16.
 
 ## Data Model
 
-Only aggregate counters are stored. Room codes, peer IDs, IP addresses, and user
-agents are not stored.
+Ordinary room codes, peer IDs, IP addresses, raw Access identities, and user
+agents are not stored. The PRO registry necessarily stores its explicitly
+registered `0xxxxx` room codes and operator labels. Its audit stores a
+session-scoped HMAC actor pseudonym, action/result, PRO room code, and timestamp
+only. It must never store a PIN, activation claim, activation URL, admin cookie,
+or Access token.
 
 Events:
 
@@ -51,10 +57,11 @@ npx wrangler d1 create musixquare-admin-metrics
 ```
 
 Copy the returned `database_id`, then update the active `[[d1_databases]]`
-blocks in both files:
+blocks in all three files:
 
 - `cloudflare/wrangler.app.toml`
 - `cloudflare/wrangler.signaling.toml`
+- `cloudflare/wrangler.pro-room.toml`
 
 Apply or re-apply the schema:
 
@@ -72,10 +79,13 @@ npx wrangler secret put MXQR_ADMIN_SESSION_SECRET --config cloudflare/wrangler.a
 `MXQR_ADMIN_SESSION_SECRET` should be a long random string. It signs the
 HttpOnly admin session cookie.
 
-Deploy both Workers after the D1 binding is configured:
+Deploy the Workers after the schema and D1 bindings are configured. The PRO
+Worker must exist before the App Worker's cross-script Durable Object binding
+can become active:
 
 ```powershell
 npx wrangler deploy --config cloudflare/wrangler.signaling.toml
+npx wrangler deploy --config cloudflare/wrangler.pro-room.toml
 npx wrangler deploy --config cloudflare/wrangler.app.toml
 ```
 
@@ -88,7 +98,8 @@ https://musixquare.com/admin
 ## Notes
 
 - Before the D1 binding is configured, `/admin` still loads but metrics return
-  `ADMIN_DB_NOT_CONFIGURED`.
+  `ADMIN_DB_NOT_CONFIGURED` and PRO room management returns
+  `PRO_ROOM_ADMIN_NOT_CONFIGURED`.
 - Before the schema is applied, metrics return `ADMIN_METRICS_SCHEMA_MISSING`.
 - The dashboard starts showing useful data only after the signaling Worker has
   been redeployed with the D1 binding.
@@ -96,6 +107,9 @@ https://musixquare.com/admin
   scheduled task retains 90 days of aggregate history and removes older rows
   independently from the Soro refresh, so a D1 cleanup failure cannot block
   blog maintenance or user traffic.
+- The same scheduled event independently retains 365 days of PRO admin audit
+  metadata. Audit cleanup failure does not cancel metrics cleanup or Soro
+  refresh and never weakens claim issuance auditing.
 - Historical event names that are no longer in the 14-event inventory are
   ignored by current dashboard summaries. Keep them only while their audit
   value is useful.
@@ -108,12 +122,13 @@ Inspect table names and aggregate row ages without exposing user data:
 npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --command "SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name; SELECT MIN(bucket_minute) AS oldest_minute, MAX(bucket_minute) AS newest_minute, COUNT(*) AS rows FROM mxqr_metric_buckets;"
 ```
 
-The tracked application table is `mxqr_metric_buckets`; `_cf_KV` is managed by
-Cloudflare. Applying `admin-metrics.schema.sql` also removes the retired
+The tracked application tables are `mxqr_metric_buckets`,
+`mxqr_pro_room_registry`, and `mxqr_pro_room_admin_audit`; `_cf_KV` is managed
+by Cloudflare. Applying `admin-metrics.schema.sql` also removes the retired
 `mxqr_api_rate_limits` table, which has no current Worker reader or writer. The
-2026-07-16 production reconciliation applied that cleanup without removing any
-metric rows. For any other unexpected table, first search the deployed Worker
-source, take a D1 export or confirm Time Travel coverage, and record the
+PRO registry is capped by application policy and the audit contains metadata,
+never credentials. For any other unexpected table, first search the deployed
+Worker source, take a D1 export or confirm Time Travel coverage, and record the
 maintenance decision.
 
 The runtime retention cutoff is 90 days. To audit what the next scheduled

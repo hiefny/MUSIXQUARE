@@ -200,7 +200,7 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     return { ctx, pending };
   }
 
-  it('deletes metric buckets older than 90 days in an independent scheduled task', async () => {
+  it('deletes metric buckets and 365-day PRO admin audits in independent scheduled tasks', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-16T00:00:00.000Z'));
     vi.stubGlobal(
@@ -212,13 +212,17 @@ describe('Cloudflare app worker scheduled maintenance', () => {
 
     const { ctx, pending } = await runScheduled(env);
 
-    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(3);
     await Promise.all(pending);
     expect(prepare).toHaveBeenCalledWith(
       'DELETE FROM mxqr_metric_buckets WHERE bucket_minute < ?1',
     );
+    expect(prepare).toHaveBeenCalledWith(
+      'DELETE FROM mxqr_pro_room_admin_audit WHERE created_at < ?1',
+    );
     expect(bind).toHaveBeenCalledWith(Math.floor(Date.now() / 60000) - 90 * 24 * 60);
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(bind).toHaveBeenCalledWith(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    expect(run).toHaveBeenCalledTimes(2);
     expect(backup.put).toHaveBeenCalledWith('soro-rss-latest-good.xml', rss);
   });
 
@@ -235,10 +239,14 @@ describe('Cloudflare app worker scheduled maintenance', () => {
 
     const { pending } = await runScheduled(env);
 
-    await expect(Promise.all(pending)).resolves.toHaveLength(2);
+    await expect(Promise.all(pending)).resolves.toHaveLength(3);
     expect(backup.put).toHaveBeenCalledWith('soro-rss-latest-good.xml', rss);
     expect(warning).toHaveBeenCalledWith(
       '[AdminMetrics] retention cleanup failed:',
+      'D1 temporarily unavailable',
+    );
+    expect(warning).toHaveBeenCalledWith(
+      '[PRO Admin Audit] retention cleanup failed:',
       'D1 temporarily unavailable',
     );
   });
@@ -1647,6 +1655,298 @@ describe('Cloudflare app worker admin dashboard', () => {
     vi.useRealTimers();
   });
 
+  it('registers PRO rooms and issues claims through the cross-script Durable Object binding', async () => {
+    type RegistryRow = {
+      room_code: string;
+      label: string;
+      status: string;
+      activation_state: string;
+      created_at: number;
+      updated_at: number;
+    };
+    const rows = new Map<string, RegistryRow>();
+    let failAudit = false;
+    const audits: Array<{
+      actorId: string;
+      action: string;
+      result: string;
+      roomCode: string;
+      createdAt: number;
+    }> = [];
+    const db = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/INSERT OR IGNORE/i.test(sql)) {
+            const [roomCode, label, timestamp, limit] = values as [string, string, number, number?];
+            if (rows.has(roomCode)) return { meta: { changes: 0 } };
+            if (/SELECT COUNT\(\*\)/i.test(sql) && rows.size >= Number(limit)) {
+              return { meta: { changes: 0 } };
+            }
+            rows.set(roomCode, {
+              room_code: roomCode,
+              label,
+              status: /'provisioning'/i.test(sql) ? 'provisioning' : 'registered',
+              activation_state: 'unactivated',
+              created_at: timestamp,
+              updated_at: timestamp,
+            });
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+            if (failAudit) throw new Error('audit unavailable');
+            const [actorId, action, result, roomCode, createdAt] = values as [
+              string,
+              string,
+              string,
+              string,
+              number,
+            ];
+            audits.push({ actorId, action, result, roomCode, createdAt });
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE/i.test(sql)) {
+            const roomCode = String(values[0]);
+            const row = rows.get(roomCode);
+            if (row) {
+              if (/SET status = 'registered'/i.test(sql)) {
+                row.status = 'registered';
+                row.activation_state = String(values[1]);
+                row.updated_at = Number(values[2]);
+              } else {
+                row.activation_state = 'active';
+                row.updated_at = Number(values[1]);
+              }
+            }
+          }
+          return { meta: { changes: 0 } };
+        };
+        const statement = {
+          run: vi.fn(async () => executeRun()),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => executeRun(...values)),
+            first: vi.fn(async () => rows.get(String(values[0])) || null),
+            all: vi.fn(async () => ({
+              results: /WHERE room_code/i.test(sql)
+                ? [rows.get(String(values[0]))].filter(Boolean)
+                : [...rows.values()].sort((left, right) =>
+                    left.room_code.localeCompare(right.room_code),
+                  ),
+            })),
+          })),
+        };
+        return statement;
+      }),
+    };
+    const seen: Array<{ roomCode: string; url: string; authorization: string }> = [];
+    const provisionAttempts = new Map<string, number>();
+    const namespace = {
+      idFromName: vi.fn((roomCode: string) => roomCode),
+      get: vi.fn((roomCode: string) => ({
+        fetch: vi.fn(async (request: Request) => {
+          const url = new URL(request.url);
+          seen.push({
+            roomCode,
+            url: url.pathname,
+            authorization: request.headers.get('Authorization') || '',
+          });
+          if (url.pathname === '/internal/admin/provision') {
+            const attempt = (provisionAttempts.get(roomCode) || 0) + 1;
+            provisionAttempts.set(roomCode, attempt);
+            if (roomCode === '000003' && attempt === 1) {
+              return Response.json({ error: 'PROVISION_FAILED' }, { status: 503 });
+            }
+            return Response.json({ ok: true, roomCode, status: 'unactivated' });
+          }
+          if (url.pathname === '/internal/admin/status') {
+            return Response.json({ roomCode, provisioned: true, status: 'active' });
+          }
+          if (roomCode === '000004') {
+            return Response.json({ error: 'PRO_ROOM_ACTIVATION_UNAVAILABLE' }, { status: 409 });
+          }
+          return Response.json({
+            roomCode,
+            activationUrl: `https://musixquare.com/${roomCode}#pro-claim=secret-claim`,
+            expiresAt: Date.now() + 15 * 60 * 1000,
+          });
+        }),
+      })),
+    };
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MUSIXQUARE_ADMIN_DB: db,
+      PRO_ROOM_ADMIN_ROOMS: namespace,
+    };
+
+    const unauthenticated = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms'),
+      env,
+    );
+    expect(unauthenticated.status).toBe(401);
+    expect(namespace.get).not.toHaveBeenCalled();
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.83' },
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = (login.headers.get('Set-Cookie') || '').split(';')[0];
+    const adminHeaders = {
+      Cookie: cookie,
+      'Content-Type': 'application/json',
+      'Cf-Access-Authenticated-User-Email': 'operator@example.com',
+    };
+
+    const list = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', { headers: adminHeaders }),
+      env,
+    );
+    expect(list.status).toBe(200);
+    expect(list.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(await list.json()).toMatchObject({
+      rooms: [{ roomCode: '000000' }, { roomCode: '000001' }],
+    });
+
+    const registered = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode: '000002', label: 'Friends' }),
+      }),
+      env,
+    );
+    expect(registered.status).toBe(201);
+    expect(await registered.json()).toMatchObject({ room: { roomCode: '000002' } });
+
+    const claim = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000002/activation-claim', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: '{}',
+      }),
+      env,
+    );
+    const claimPayload = (await claim.json()) as { activationUrl?: string };
+    expect(claim.status).toBe(200);
+    expect(claimPayload.activationUrl).toContain('#pro-claim=');
+
+    failAudit = true;
+    const withheldClaim = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000002/activation-claim', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: '{}',
+      }),
+      env,
+    );
+    expect(withheldClaim.status).toBe(503);
+    expect(await withheldClaim.json()).toEqual({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' });
+    failAudit = false;
+
+    const incomplete = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode: '000003', label: 'Retry room' }),
+      }),
+      env,
+    );
+    expect(incomplete.status).toBe(503);
+    expect(rows.get('000003')?.status).toBe('provisioning');
+
+    const pendingList = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', { headers: adminHeaders }),
+      env,
+    );
+    const pendingPayload = (await pendingList.json()) as { rooms?: unknown[] };
+    expect(pendingPayload.rooms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ roomCode: '000003', status: 'provisioning' }),
+      ]),
+    );
+
+    const recovered = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode: '000003', label: 'Retry room' }),
+      }),
+      env,
+    );
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      room: { roomCode: '000003', status: 'registered' },
+    });
+
+    rows.set('000004', {
+      room_code: '000004',
+      label: 'Already active room',
+      status: 'registered',
+      activation_state: 'unactivated',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    const staleClaim = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000004/activation-claim', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: '{}',
+      }),
+      env,
+    );
+    expect(staleClaim.status).toBe(409);
+    expect(rows.get('000004')?.activation_state).toBe('active');
+
+    for (let index = 4; index < 1000; index += 1) {
+      const roomCode = `0${String(index).padStart(5, '0')}`;
+      rows.set(roomCode, {
+        room_code: roomCode,
+        label: `Room ${roomCode}`,
+        status: 'registered',
+        activation_state: 'unactivated',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      });
+    }
+    expect(rows.size).toBe(1000);
+    const capacityReached = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode: '001000', label: 'Over capacity' }),
+      }),
+      env,
+    );
+    expect(capacityReached.status).toBe(409);
+    expect(await capacityReached.json()).toEqual({ error: 'PRO_ROOM_REGISTRY_CAPACITY_REACHED' });
+
+    expect(seen).toEqual([
+      { roomCode: '000002', url: '/internal/admin/provision', authorization: '' },
+      { roomCode: '000002', url: '/internal/admin/activation-claim', authorization: '' },
+      { roomCode: '000002', url: '/internal/admin/activation-claim', authorization: '' },
+      { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
+      { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
+      { roomCode: '000004', url: '/internal/admin/activation-claim', authorization: '' },
+      { roomCode: '000004', url: '/internal/admin/status', authorization: '' },
+    ]);
+    expect(claim.headers.has('Authorization')).toBe(false);
+    expect(audits).toMatchObject([
+      { action: 'room.register', result: 'created', roomCode: '000002' },
+      { action: 'activation_claim.issue', result: 'issued', roomCode: '000002' },
+      { action: 'room.register', result: 'provision_failed', roomCode: '000003' },
+      { action: 'room.register', result: 'provisioning_recovered', roomCode: '000003' },
+      { action: 'activation_claim.issue', result: 'service_rejected', roomCode: '000004' },
+      { action: 'room.register', result: 'registry_capacity_reached', roomCode: '001000' },
+    ]);
+    expect(audits.every((entry) => /^admin_[A-Za-z0-9_-]{32}$/.test(entry.actorId))).toBe(true);
+    expect(JSON.stringify(audits)).not.toContain('secret-claim');
+    expect(JSON.stringify(audits)).not.toContain('pro-claim');
+    expect(JSON.stringify(audits)).not.toContain('operator@example.com');
+  });
+
   it('keeps /admin unindexed and no-store cached', async () => {
     const response = await appWorker.fetch(new Request('https://musixquare.com/admin'), {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
@@ -1659,6 +1959,8 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
     expect(html).toContain('/admin.js');
+    expect(html).toContain('data-admin-tab="pro-rooms"');
+    expect(html).toContain('data-pro-room-form');
   });
 });
 

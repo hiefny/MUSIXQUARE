@@ -414,6 +414,182 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(await responseJson(response)).toEqual({ error: 'NOT_FOUND' });
   });
 
+  it('provisions a future leading-zero room only through its direct admin DO binding', async () => {
+    const roomCode = '000002';
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const before = await worker.fetch(requestForRoom(roomCode, '/bootstrap'));
+    expect(before.status).toBe(404);
+
+    const provision = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/provision', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      }),
+    );
+    expect(provision.status).toBe(200);
+    expect(await responseJson(provision)).toEqual({
+      ok: true,
+      roomCode,
+      status: 'unactivated',
+    });
+
+    const after = await worker.fetch(requestForRoom(roomCode, '/bootstrap'));
+    expect(after.status).toBe(200);
+    expect(await responseJson(after)).toEqual({ roomCode, status: 'activation_required' });
+  });
+
+  it('rotates short-lived activation generations so only the newest admin link works', async () => {
+    const roomCode = '000002';
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, environment() as never);
+    await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/provision', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      }),
+    );
+
+    const issuedAt = Date.now();
+    const first = await responseJson(
+      await worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/activation-claim', {
+          method: 'POST',
+          headers: { 'x-mxqr-pro-room-code': roomCode },
+        }),
+      ),
+    );
+    const second = await responseJson(
+      await worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/activation-claim', {
+          method: 'POST',
+          headers: { 'x-mxqr-pro-room-code': roomCode },
+        }),
+      ),
+    );
+    expect(second.expiresAt).toBeGreaterThan(issuedAt);
+    expect(second.expiresAt).toBeLessThanOrEqual(issuedAt + 15 * 60 * 1000 + 1_000);
+
+    const claimFrom = (activationUrl: string): string => {
+      const encoded = new URL(activationUrl).hash.match(/^#pro-claim=(.+)$/)?.[1];
+      if (!encoded) throw new Error('missing claim fragment');
+      return decodeURIComponent(encoded);
+    };
+    const stale = await worker.fetch(
+      jsonRequestForRoom(roomCode, '/activation', 'POST', {
+        claimToken: claimFrom(first.activationUrl),
+        temporaryPin: '00000002',
+        newPin: '12345678',
+      }),
+    );
+    expect(stale.status).toBe(401);
+    expect(await responseJson(stale)).toEqual({ error: 'ACTIVATION_INVALID' });
+
+    const current = await worker.fetch(
+      jsonRequestForRoom(roomCode, '/activation', 'POST', {
+        claimToken: claimFrom(second.activationUrl),
+        temporaryPin: '00000002',
+        newPin: '12345678',
+      }),
+    );
+    expect(current.status).toBe(200);
+    expect(JSON.stringify(await responseJson(current))).not.toContain('pro-claim');
+  });
+
+  it('refuses activation claims whose requested lifetime exceeds fifteen minutes', async () => {
+    const nowMs = Date.now();
+    await expect(
+      issueProRoomActivationClaim('000002', ACTIVATION_SECRET, {
+        nowMs,
+        expiresAtMs: nowMs + 15 * 60 * 1000 + 1,
+      }),
+    ).rejects.toThrow('Invalid expiry');
+  });
+
+  it('never forwards direct admin DO paths through the public Worker router', async () => {
+    const env = environment() as ReturnType<typeof environment> & {
+      PRO_ROOM_RATE_LIMIT_SECRET: string;
+      PRO_ROOMS: {
+        idFromName(value: string): string;
+        get(value: string): { fetch(request: Request): Promise<Response> };
+      };
+    };
+    env.PRO_ROOM_RATE_LIMIT_SECRET = 'rate-limit-secret-'.padEnd(48, 'r');
+    let forwarded = 0;
+    env.PRO_ROOMS = {
+      idFromName: (value) => value,
+      get: () => ({
+        fetch: async () => {
+          forwarded += 1;
+          return new Response(null, { status: 204 });
+        },
+      }),
+    };
+    for (const path of ['/internal/admin/provision', '/v1/rooms/000002/internal/admin/provision']) {
+      const response = await proRoomWorker.fetch(
+        new Request(`https://pro.musixquare.com${path}`, {
+          method: 'POST',
+          headers: { origin: 'https://musixquare.com' },
+        }),
+        env as never,
+      );
+      expect(response.status).toBe(404);
+    }
+    expect(forwarded).toBe(0);
+  });
+
+  it('cold-loads a bounded registered-code cache before creating a dynamic room DO', async () => {
+    let registryReads = 0;
+    const forwardedCodes: string[] = [];
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          all: async () => {
+            registryReads += 1;
+            return {
+              results: [
+                { room_code: '000010' },
+                // A half-finished admin registration must not reach a DO.
+                { room_code: '000011', status: 'provisioning' },
+              ].filter((row) => row.status === undefined),
+            };
+          },
+        }),
+      }),
+    };
+    const env = {
+      ...environment(),
+      MUSIXQUARE_ADMIN_DB: db,
+      PRO_ROOM_RATE_LIMIT_SECRET: 'rate-limit-secret-'.padEnd(48, 'r'),
+      PRO_ROOMS: {
+        idFromName: (value: string) => value,
+        get: (value: string) => ({
+          fetch: async () => {
+            forwardedCodes.push(value);
+            return new Response(
+              JSON.stringify({ roomCode: value, status: 'activation_required' }),
+              {
+                headers: { 'content-type': 'application/json' },
+              },
+            );
+          },
+        }),
+      },
+    };
+    const publicBootstrap = (roomCode: string) =>
+      proRoomWorker.fetch(
+        new Request(`https://pro.musixquare.com/v1/rooms/${roomCode}/bootstrap`, {
+          headers: { origin: 'https://musixquare.com', 'cf-connecting-ip': '192.0.2.44' },
+        }),
+        env as never,
+      );
+
+    expect((await publicBootstrap('000010')).status).toBe(200);
+    expect((await publicBootstrap('000011')).status).toBe(404);
+    expect((await publicBootstrap('000010')).status).toBe(200);
+    expect(registryReads).toBe(1);
+    expect(forwardedCodes).toEqual(['000010', '000010']);
+  });
+
   it('scopes session and owner cookies per room so fixed rooms can coexist', async () => {
     const cookies: string[] = [];
     for (const roomCode of ['000000', '000001']) {
@@ -684,9 +860,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(ownerAfterRotation.snapshot.presence.participants).toEqual([
       expect.objectContaining({ participantId: ownerAfterRotation.snapshot.viewer.participantId }),
     ]);
-    expect(ownerAfterRotation.snapshot.presence.revision).toBe(
-      presenceRevisionBeforeRotation + 1,
-    );
+    expect(ownerAfterRotation.snapshot.presence.revision).toBe(presenceRevisionBeforeRotation + 1);
     expect(ownerAfterRotation.snapshot.playback).toMatchObject({
       coordinatorEpoch: epochBeforeRotation + 1,
       revision: playbackRevisionBeforeRotation + 1,

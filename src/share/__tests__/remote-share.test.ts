@@ -103,8 +103,11 @@ describe('remote file share policy', () => {
     // calls — module state would otherwise leak across tests.
     const { bus } = await import('../../core/events.ts');
     bus.emit('state:network.sessionCode', null);
+    bus.clear();
     const { resetFileRequestAuthority } = await import('../../network/file-request-authority.ts');
     resetFileRequestAuthority();
+    const { resetInboundRateLimit } = await import('../../network/protocol.ts');
+    resetInboundRateLimit(conn.peer);
     vi.clearAllMocks();
     const { isRemoteGuest, waitForGuestConnectionType } = await import('../../network/peer.ts');
     vi.mocked(isRemoteGuest).mockReturnValue(true);
@@ -165,6 +168,686 @@ describe('remote file share policy', () => {
       queueItemId: Q0,
       name: DEMO_TRACK.fileName,
     });
+  });
+
+  it('warms an R2 preload silently without entering the current-track lifecycle', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { showLoader, showToast } = await import('../../ui/toast.ts');
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q1, preload: true }),
+      },
+      conn,
+    );
+
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(getState('preload.ready')).toMatchObject({
+      queueItemId: Q1,
+      sessionId: 7,
+      objectId: OBJECT_1,
+    });
+    expect(getState('playlist.currentQueueItemId')).toBe(Q0);
+    expect(getState('share.remote').download.status).toBe('idle');
+    expect(mocks.transition).not.toHaveBeenCalled();
+    expect(showLoader).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('does not download a fresh-session preload for the current immutable object', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const current = new File(['data'], 'song.mp3', { type: 'audio/mpeg' });
+    setState('files.current', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: current.name,
+      size: current.size,
+      mime: current.type,
+      sessionId: 7,
+      objectId: OBJECT_1,
+      blob: current,
+    });
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q0, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+
+    expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
+    expect(getState('preload.ready')).toBeNull();
+    expect(getState('files.current')?.blob).toBe(current);
+  });
+
+  it('promotes the exact in-flight R2 preload without restarting its download', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+
+    const preload = handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q1, preload: true }),
+      },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q1 }),
+      },
+      conn,
+    );
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await preload;
+
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(getState('preload.ready')).toMatchObject({
+      queueItemId: Q1,
+      sessionId: 7,
+      objectId: OBJECT_1,
+    });
+    expect(mocks.transition).toHaveBeenCalledWith({
+      type: 'PRELOAD_FILE_READY',
+      queueItemId: Q1,
+    });
+  });
+
+  it('lets PLAY_PRELOADED promote the background owner before a current descriptor arrives', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { promoteRemotePreloadWait } = await import('../remote-share.ts');
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+
+    const preload = handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q1, preload: true }),
+      },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    expect(promoteRemotePreloadWait(Q1, 'song.mp3')).toBe(true);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await preload;
+
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(getState('preload.ready')).toMatchObject({ queueItemId: Q1, sessionId: 7 });
+    expect(mocks.transition).toHaveBeenCalledWith({
+      type: 'PRELOAD_FILE_READY',
+      queueItemId: Q1,
+    });
+  });
+
+  it('keeps an almost-finished preload owned across FILE_PREPARE before PLAY_PRELOADED', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { prepareRemoteShareWait } = await import('../remote-share.ts');
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+
+    const preload = handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q1, preload: true }),
+      },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    // This is the production ordering: FILE_PREPARE establishes foreground
+    // intent just before PLAY_PRELOADED promotes (or consumes) the warm bytes.
+    prepareRemoteShareWait(Q1, 'song.mp3', 7);
+    expect(getState('preload.activeTarget')).toMatchObject({
+      queueItemId: Q1,
+      sessionId: 7,
+      objectId: OBJECT_1,
+    });
+
+    // Completion in that exact gap must remain publishable, not be discarded
+    // and fetched again from 0% by the later current-track descriptor.
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await preload;
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(getState('preload.ready')).toMatchObject({
+      queueItemId: Q1,
+      sessionId: 7,
+      objectId: OBJECT_1,
+    });
+  });
+
+  it('carries background download progress into foreground promotion', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { promoteRemotePreloadWait } = await import('../remote-share.ts');
+    const { updateLoader } = await import('../../ui/toast.ts');
+    let resolveDownload!: (file: File) => void;
+    let reportProgress!: (fraction: number) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      (_descriptor, onProgress: (fraction: number) => void) =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+          reportProgress = onProgress;
+        }),
+    );
+
+    const preload = handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q1, preload: true }),
+      },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    reportProgress(0.37);
+    vi.mocked(updateLoader).mockClear();
+
+    expect(promoteRemotePreloadWait(Q1, 'song.mp3')).toBe(true);
+    expect(updateLoader).toHaveBeenLastCalledWith(37);
+    expect(getState('share.remote').download.progress).toBe(0.37);
+
+    reportProgress(0.6);
+    expect(updateLoader).toHaveBeenLastCalledWith(60);
+    expect(getState('share.remote').download.progress).toBe(0.6);
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await preload;
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a different speculative owner when the current track needs another object', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    let resolvePreload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      (_descriptor, _onProgress, signal: AbortSignal) =>
+        new Promise<File>((resolve) => {
+          resolvePreload = resolve;
+          expect(signal.aborted).toBe(false);
+        }),
+    );
+
+    const preload = handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ queueItemId: Q1, preload: true }),
+      },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    const preloadSignal = mocks.downloadRemoteFile.mock.calls[0]?.[2] as AbortSignal;
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({
+          objectId: OBJECT_2,
+          queueItemId: Q2,
+          sessionId: 8,
+        }),
+      },
+      conn,
+    );
+
+    expect(preloadSignal.aborted).toBe(true);
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2);
+    expect(getState('preload.ready')).toMatchObject({
+      queueItemId: Q2,
+      sessionId: 8,
+      objectId: OBJECT_2,
+    });
+    resolvePreload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await preload;
+  });
+
+  it('queues a speculative descriptor until the active current-file download releases', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getRemotePreloadOwnershipForTests } = await import('../remote-share.ts');
+    let resolveCurrent!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveCurrent = resolve;
+        }),
+    );
+
+    const current = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ queueItemId: Q0 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q0, objectId: OBJECT_1 });
+    expect(getRemotePreloadOwnershipForTests()).toMatchObject({
+      foregroundQueueItemId: Q0,
+      deferredQueueItemId: Q1,
+    });
+
+    resolveCurrent(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await current;
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    const currentReady = getState('preload.ready');
+    expect(currentReady).toMatchObject({ queueItemId: Q0, objectId: OBJECT_1 });
+    if (!currentReady) throw new Error('expected completed current resident');
+    setState('files.current', currentReady);
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('preload.nextQueueItemId', null);
+    setState('playback.pendingRecoveryTarget', null);
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(getState('preload.ready')).toMatchObject({
+        queueItemId: Q1,
+        sessionId: 8,
+        objectId: OBJECT_2,
+      }),
+    );
+  });
+
+  it('queues the next descriptor while FILE_PREPARE is waiting for the current descriptor', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getRemotePreloadOwnershipForTests, prepareRemoteShareWait } =
+      await import('../remote-share.ts');
+
+    prepareRemoteShareWait(Q0, 'song.mp3', 7);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(getRemotePreloadOwnershipForTests().foregroundQueueItemId).toBeNull();
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+    expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q0, sessionId: 7 });
+    expect(getRemotePreloadOwnershipForTests()).toMatchObject({
+      foregroundQueueItemId: null,
+      preloadQueueItemId: null,
+      deferredQueueItemId: Q1,
+    });
+
+    let resolveCurrent!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveCurrent = resolve;
+        }),
+    );
+    const current = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ queueItemId: Q0 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    expect(getRemotePreloadOwnershipForTests()).toMatchObject({
+      foregroundQueueItemId: Q0,
+      deferredQueueItemId: Q1,
+    });
+
+    resolveCurrent(new File(['current'], 'song.mp3', { type: 'audio/mpeg' }));
+    await current;
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(getState('preload.ready')).toMatchObject({
+        queueItemId: Q1,
+        sessionId: 8,
+        objectId: OBJECT_2,
+      }),
+    );
+  });
+
+  it('uses a late preload descriptor immediately when FILE_PREPARE already selected that row', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { prepareRemoteShareWait } = await import('../remote-share.ts');
+
+    prepareRemoteShareWait(Q1, 'song.mp3', 8);
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(mocks.downloadRemoteFile.mock.calls[0]?.[0]).toMatchObject({
+      objectId: OBJECT_2,
+      queueItemId: Q1,
+      sessionId: 8,
+    });
+    expect(getState('preload.ready')).toMatchObject({
+      objectId: OBJECT_2,
+      queueItemId: Q1,
+      sessionId: 8,
+    });
+  });
+
+  it('lets a selected late preload supersede the previous foreground GET', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { prepareRemoteShareWait } = await import('../remote-share.ts');
+    let resolveCurrent!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      (_descriptor, _onProgress, signal: AbortSignal) =>
+        new Promise<File>((resolve) => {
+          resolveCurrent = resolve;
+          expect(signal.aborted).toBe(false);
+        }),
+    );
+
+    const current = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ queueItemId: Q0, sessionId: 7 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    const currentSignal = mocks.downloadRemoteFile.mock.calls[0]?.[2] as AbortSignal;
+
+    prepareRemoteShareWait(Q1, 'song.mp3', 8);
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+
+    expect(currentSignal.aborted).toBe(true);
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2);
+    expect(getState('preload.ready')).toMatchObject({ queueItemId: Q1, sessionId: 8 });
+    resolveCurrent(new File(['stale'], 'song.mp3', { type: 'audio/mpeg' }));
+    await current;
+  });
+
+  it('drains an R2 next-track hint after a local current-file wait completes', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { prepareRemoteShareWait } = await import('../remote-share.ts');
+
+    prepareRemoteShareWait(Q0, 'song.mp3', 7);
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+    expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
+
+    const localFile = new File(['local'], 'song.mp3', { type: 'audio/mpeg' });
+    setState('files.current', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: localFile.name,
+      sessionId: 7,
+      size: localFile.size,
+      mime: localFile.type,
+      blob: localFile,
+    });
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('playback.pendingRecoveryTarget', null);
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    expect(getState('preload.ready')).toMatchObject({ queueItemId: Q1, sessionId: 8 });
+  });
+
+  it('aborts a speculative GET as soon as its queue occurrence is removed', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getRemotePreloadOwnershipForTests } = await import('../remote-share.ts');
+    let observedSignal: AbortSignal | null = null;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      async (_descriptor, _onProgress, signal: AbortSignal) => {
+        observedSignal = signal;
+        return await new Promise<File>((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Removed queue item', 'AbortError')),
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const preload = handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    setState(
+      'playlist.items',
+      getState('playlist.items').filter((item) => item.queueItemId !== Q1),
+    );
+
+    expect(observedSignal?.aborted).toBe(true);
+    await preload;
+    expect(getRemotePreloadOwnershipForTests().preloadQueueItemId).toBeNull();
+  });
+
+  it('discards a deferred next target when a newer direct jump becomes authoritative', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getRemotePreloadOwnershipForTests } = await import('../remote-share.ts');
+    let resolveCurrent!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveCurrent = resolve;
+        }),
+    );
+
+    const current = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ queueItemId: Q0, sessionId: 7 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+    expect(getRemotePreloadOwnershipForTests().deferredQueueItemId).toBe(Q1);
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_A, queueItemId: Q2, sessionId: 9 }),
+      },
+      conn,
+    );
+    expect(getRemotePreloadOwnershipForTests().deferredQueueItemId).toBeNull();
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2);
+
+    resolveCurrent(new File(['stale'], 'song.mp3', { type: 'audio/mpeg' }));
+    await current;
+    await Promise.resolve();
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not revive a deferred preload after its foreground barrier is cancelled', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { cancelRemoteShareWait, getRemotePreloadOwnershipForTests } =
+      await import('../remote-share.ts');
+    let resolveCurrent!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      (_descriptor, _onProgress, signal: AbortSignal) =>
+        new Promise<File>((resolve) => {
+          resolveCurrent = resolve;
+          expect(signal.aborted).toBe(false);
+        }),
+    );
+
+    const current = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ queueItemId: Q0 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    const currentSignal = mocks.downloadRemoteFile.mock.calls[0]?.[2] as AbortSignal;
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+    expect(getRemotePreloadOwnershipForTests().deferredQueueItemId).toBe(Q1);
+
+    cancelRemoteShareWait('superseded-playback-owner');
+    expect(currentSignal.aborted).toBe(true);
+    expect(getRemotePreloadOwnershipForTests()).toMatchObject({
+      foregroundQueueItemId: null,
+      deferredQueueItemId: null,
+    });
+
+    resolveCurrent(new File(['stale'], 'song.mp3', { type: 'audio/mpeg' }));
+    await current;
+    await Promise.resolve();
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the deferred successor when removing the current queue occurrence', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { cancelRemoteShareWait, getRemotePreloadOwnershipForTests, prepareRemoteShareWait } =
+      await import('../remote-share.ts');
+
+    prepareRemoteShareWait(Q0, 'song.mp3', 7);
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+    expect(getRemotePreloadOwnershipForTests().deferredQueueItemId).toBe(Q1);
+
+    setState(
+      'playlist.items',
+      getState('playlist.items').filter((item) => item.queueItemId !== Q0),
+    );
+    setState('playlist.currentQueueItemId', Q1);
+    cancelRemoteShareWait('playlist-current-removed');
+    expect(getRemotePreloadOwnershipForTests().deferredQueueItemId).toBe(Q1);
+
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    expect(getState('preload.ready')).toMatchObject({ queueItemId: Q1, sessionId: 8 });
+  });
+
+  it('promotes a queued descriptor immediately when its track is selected', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getRemotePreloadOwnershipForTests, promoteRemotePreloadWait } =
+      await import('../remote-share.ts');
+    let resolveCurrent!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      (_descriptor, _onProgress, signal: AbortSignal) =>
+        new Promise<File>((resolve) => {
+          resolveCurrent = resolve;
+          expect(signal.aborted).toBe(false);
+        }),
+    );
+
+    const current = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ queueItemId: Q0 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    const currentSignal = mocks.downloadRemoteFile.mock.calls[0]?.[2] as AbortSignal;
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: OBJECT_2, queueItemId: Q1, sessionId: 8, preload: true }),
+      },
+      conn,
+    );
+
+    expect(promoteRemotePreloadWait(Q1, 'song.mp3')).toBe(true);
+    expect(currentSignal.aborted).toBe(true);
+    expect(getRemotePreloadOwnershipForTests()).toMatchObject({
+      foregroundQueueItemId: Q1,
+      deferredQueueItemId: null,
+    });
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2));
+
+    resolveCurrent(new File(['stale'], 'song.mp3', { type: 'audio/mpeg' }));
+    await current;
+  });
+
+  it('does not classify explicit R2 current and preload descriptors through a shared wait', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { waitForGuestConnectionType } = await import('../../network/peer.ts');
+    setState('network.connectionType', 'unknown');
+    let resolveCurrent!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveCurrent = resolve;
+        }),
+    );
+
+    const current = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ queueItemId: Q0, delivery: 'r2' }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({
+          objectId: OBJECT_2,
+          queueItemId: Q1,
+          sessionId: 8,
+          delivery: 'r2',
+          preload: true,
+        }),
+      },
+      conn,
+    );
+
+    expect(waitForGuestConnectionType).not.toHaveBeenCalled();
+    resolveCurrent(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await current;
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    const currentReady = getState('preload.ready');
+    if (!currentReady) throw new Error('expected completed current resident');
+    setState('files.current', currentReady);
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('preload.nextQueueItemId', null);
+    setState('playback.pendingRecoveryTarget', null);
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2));
   });
 
   it('accepts only an explicitly R2-routed descriptor on a physically local guest', async () => {
@@ -258,6 +941,7 @@ describe('remote file share policy', () => {
 
   it('recovers only an authenticated legacy-overflow connection after capability arrives', async () => {
     const { handleData } = await import('../../network/protocol.ts');
+    const { safeSend } = await import('../../network/peer.ts');
     const {
       freezeFileDeliveryMode,
       getDirectFilePeers,
@@ -288,6 +972,34 @@ describe('remote file share policy', () => {
     expect(freezeFileDeliveryMode(11)).toBe('mixed');
     expect(getUnsupportedFileTargetsForTests(11).map((item) => item.peer)).toEqual([target.id]);
 
+    const next = new File(['next'], 'next.flac', { type: 'audio/flac' });
+    setState(
+      'playlist.items',
+      getState('playlist.items').map((item) =>
+        item.queueItemId === Q1 ? { ...item, name: next.name, file: next } : item,
+      ),
+    );
+    setState('preload.activeTarget', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 11,
+    });
+    setState('preload.ready', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 11,
+      blob: next,
+    });
+    mocks.uploadRemoteFile.mockResolvedValueOnce(
+      descriptor({ objectId: OBJECT_2, name: next.name, queueItemId: Q1, sessionId: 11 }),
+    );
+
     await handleData(
       { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: true },
       target.conn as DataConnection,
@@ -297,6 +1009,15 @@ describe('remote file share policy', () => {
     expect(getDirectFilePeers(11)).toHaveLength(8);
     expect(getR2FileTargets(11).map((item) => item.peer)).toEqual([target.id]);
     expect(getUnsupportedFileTargetsForTests(11)).toHaveLength(0);
+    expect(safeSend).toHaveBeenCalledWith(
+      target.conn,
+      expect.objectContaining({
+        type: MSG.REMOTE_FILE_SHARE,
+        queueItemId: Q1,
+        sessionId: 11,
+        preload: true,
+      }),
+    );
   });
 
   it('does not let a suspended stale descriptor replace a newer transfer owner', async () => {
@@ -1161,6 +1882,7 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     // state would otherwise leak across tests.
     const { bus } = await import('../../core/events.ts');
     bus.emit('state:network.sessionCode', null);
+    bus.clear();
     vi.clearAllMocks();
 
     // Host role: no hostConn, one connected remote guest as broadcast target.
@@ -1196,6 +1918,212 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
 
     expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
+  });
+
+  it('uploads the next R2 file silently and reuses that object when it becomes current', async () => {
+    const { preloadRemoteFileIfNeeded, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const { showLoader, showToast } = await import('../../ui/toast.ts');
+
+    const current = new File(['aaaa'], 'current.mp3', { type: 'audio/mpeg' });
+    const next = new File(['bbbb'], 'next.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(current, Q0), fileItem(next, Q1)]);
+    setHostFile(current, Q0, 6);
+    setState('preload.activeTarget', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 7,
+    });
+    setState('preload.ready', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 7,
+      blob: next,
+    });
+
+    const preload = preloadRemoteFileIfNeeded(next, 7, Q1);
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    expect(mocks.uploadRemoteFile.mock.calls[0]?.[3]).toMatchObject({ publishState: false });
+    resolveUpload(descriptor({ name: next.name, queueItemId: Q1, sessionId: 7 }));
+    await preload;
+
+    expect(safeSend).toHaveBeenCalledWith(
+      expect.objectContaining({ peer: 'guest-remote-1' }),
+      expect.objectContaining({
+        type: MSG.REMOTE_FILE_SHARE,
+        queueItemId: Q1,
+        sessionId: 7,
+        preload: true,
+      }),
+    );
+    expect(showLoader).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+
+    setHostFile(next, Q1, 7);
+    await shareRemoteFileIfNeeded(next, 7, undefined, { queueItemId: Q1 });
+
+    expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce();
+    expect(safeSend).toHaveBeenLastCalledWith(
+      expect.objectContaining({ peer: 'guest-remote-1' }),
+      expect.not.objectContaining({ preload: true }),
+    );
+  });
+
+  it('replays the warm descriptor after a late peer finishes route evaluation', async () => {
+    const { bus } = await import('../../core/events.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const next = new File(['bbbb'], 'next.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(next, Q1)]);
+    setState('preload.activeTarget', {
+      queueItemId: Q1,
+      indexHint: 0,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 7,
+    });
+    setState('preload.ready', {
+      queueItemId: Q1,
+      indexHint: 0,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 7,
+      blob: next,
+    });
+
+    bus.emit('orchestrator:peer-evaluated', 'guest-remote-1');
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    resolveUpload(descriptor({ name: next.name, queueItemId: Q1, sessionId: 7 }));
+    await vi.waitFor(() =>
+      expect(safeSend).toHaveBeenCalledWith(
+        expect.objectContaining({ peer: 'guest-remote-1' }),
+        expect.objectContaining({
+          type: MSG.REMOTE_FILE_SHARE,
+          queueItemId: Q1,
+          preload: true,
+        }),
+      ),
+    );
+  });
+
+  it('serializes late-peer current and next descriptors so the warm GET is not aborted', async () => {
+    const { bus } = await import('../../core/events.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const current = new File(['aaaa'], 'current.mp3', { type: 'audio/mpeg' });
+    const next = new File(['bbbb'], 'next.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(current, Q0), fileItem(next, Q1)]);
+    setHostFile(current, Q0, 7);
+    setState('preload.activeTarget', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 8,
+    });
+    setState('preload.ready', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 8,
+      blob: next,
+    });
+
+    const uploadResolvers: Array<(value: RemoteFileSharePayload) => void> = [];
+    mocks.uploadRemoteFile.mockImplementation(
+      () =>
+        new Promise<RemoteFileSharePayload>((resolve) => {
+          uploadResolvers.push(resolve);
+        }),
+    );
+
+    bus.emit('orchestrator:peer-evaluated', 'guest-remote-1');
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    expect(uploadResolvers[0]).toBeDefined();
+    uploadResolvers[0]!(
+      descriptor({ objectId: OBJECT_1, name: current.name, queueItemId: Q0, sessionId: 7 }),
+    );
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(2));
+    expect(uploadResolvers[1]).toBeDefined();
+    uploadResolvers[1]!(
+      descriptor({ objectId: OBJECT_2, name: next.name, queueItemId: Q1, sessionId: 8 }),
+    );
+
+    await vi.waitFor(() => {
+      const descriptors = vi
+        .mocked(safeSend)
+        .mock.calls.map(
+          (call) => call[1] as { type?: string; queueItemId?: string; preload?: true },
+        )
+        .filter((message) => message.type === MSG.REMOTE_FILE_SHARE);
+      const firstCurrent = descriptors.findIndex((message) => message.queueItemId === Q0);
+      const firstNext = descriptors.findIndex((message) => message.queueItemId === Q1);
+      expect(firstCurrent).toBeGreaterThanOrEqual(0);
+      expect(firstNext).toBeGreaterThan(firstCurrent);
+      expect(descriptors[firstCurrent]).not.toHaveProperty('preload');
+      expect(descriptors[firstNext]).toMatchObject({ queueItemId: Q1, preload: true });
+    });
+  });
+
+  it('cancels a host speculative upload but preserves it once foreground playback joins', async () => {
+    const { cancelRemoteFilePreload, preloadRemoteFileIfNeeded, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const next = new File(['bbbb'], 'next.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(next, Q1)]);
+    setState('preload.activeTarget', {
+      queueItemId: Q1,
+      indexHint: 0,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 7,
+    });
+    setState('preload.ready', {
+      queueItemId: Q1,
+      indexHint: 0,
+      name: next.name,
+      mime: next.type,
+      size: next.size,
+      sessionId: 7,
+      blob: next,
+    });
+
+    const preload = preloadRemoteFileIfNeeded(next, 7, Q1);
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    const firstSignal = mocks.uploadRemoteFile.mock.calls[0]?.[3]?.signal as AbortSignal;
+    cancelRemoteFilePreload('target-changed');
+    expect(firstSignal.aborted).toBe(true);
+    resolveUpload(descriptor({ name: next.name, queueItemId: Q1, sessionId: 7 }));
+    await preload;
+
+    mocks.uploadRemoteFile.mockClear();
+    const secondPreload = preloadRemoteFileIfNeeded(next, 8, Q1);
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    const secondOptions = mocks.uploadRemoteFile.mock.calls[0]?.[3];
+    const secondSignal = secondOptions?.signal as AbortSignal;
+    setHostFile(next, Q1, 8);
+    const foreground = shareRemoteFileIfNeeded(next, 8, undefined, { queueItemId: Q1 });
+    secondOptions?.onStageChange?.('uploading');
+    secondOptions?.onUploadProgress?.(0.42);
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.42,
+    });
+    cancelRemoteFilePreload('promoted');
+    expect(secondSignal.aborted).toBe(false);
+    resolveUpload(descriptor({ name: next.name, queueItemId: Q1, sessionId: 8 }));
+    await Promise.all([secondPreload, foreground]);
+    expect(getState('share.remote').upload).toMatchObject({ status: 'done', progress: 1 });
   });
 
   it('suppresses the broadcast when the host advanced past the track during the upload', async () => {

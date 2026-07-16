@@ -9,8 +9,13 @@ import { showLoader, updateLoader } from '../ui/toast.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { registerHandler } from '../network/protocol.ts';
 import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
-import { setPendingRecoveryTarget } from '../player/_state.ts';
+import { liveAudioBufferPcmBytes, setPendingRecoveryTarget } from '../player/_state.ts';
+import {
+  isAudioDecodeAdmissionError,
+  reserveEncodedReceiveMemoryWithinBudget,
+} from '../player/decode-admission.ts';
 import { clearPreloadState, getShuffleNextPlayableQueueItemId } from '../player/playlist.ts';
+import { schedulePreload } from '../storage/preload.ts';
 import { getTrackPosition } from '../player/transport.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import {
@@ -127,8 +132,24 @@ interface PendingFileDownload {
   roomCode: string;
   controller: AbortController;
   promise: Promise<File | null>;
+  mode: 'foreground' | 'preload';
+  /** Admission intent never changes when an in-flight preload is promoted. */
+  startedAsPreload: boolean;
+  source: ProRoomR2Source | null;
+  progress: number;
+  loaderId: string | null;
 }
 let pendingFileDownload: PendingFileDownload | null = null;
+let pendingPreloadDownload: PendingFileDownload | null = null;
+interface DeferredPreloadRequest {
+  queueItemId: QueueItemId;
+  leaseGeneration: number;
+  roomCode: string;
+  generation: number;
+  promise: Promise<File | null>;
+}
+let deferredPreloadRequest: DeferredPreloadRequest | null = null;
+let deferredPreloadGeneration = 0;
 let uploadOperationTail: Promise<void> = Promise.resolve();
 let transferLoaderSequence = 0;
 const activeTransferLoaderIds = new Set<string>();
@@ -182,6 +203,12 @@ function cancelSupersededFileDownload(queueItemId: QueueItemId | null): void {
   pending.controller.abort();
 }
 
+function cancelPendingPreloadDownload(queueItemId?: QueueItemId): void {
+  const pending = pendingPreloadDownload;
+  if (!pending || (queueItemId !== undefined && pending.queueItemId !== queueItemId)) return;
+  pending.controller.abort();
+}
+
 function shouldRetainPendingProDownload(roomCode: string, context: RoomContext): boolean {
   return context.kind === 'pro' && context.roomId === roomCode;
 }
@@ -207,6 +234,27 @@ function sameR2Source(left: ProRoomR2Source, right: ProRoomR2Source): boolean {
     left.byteLength === right.byteLength &&
     left.mime === right.mime &&
     left.sha256 === right.sha256
+  );
+}
+
+function pendingDownloadMatches(
+  pending: PendingFileDownload,
+  queueItemId: QueueItemId,
+  lease: PlaylistRuntimeLease,
+): boolean {
+  if (
+    pending.queueItemId !== queueItemId ||
+    pending.leaseGeneration !== lease.generation ||
+    pending.roomCode !== lease.roomCode ||
+    pending.controller.signal.aborted
+  ) {
+    return false;
+  }
+
+  const liveSource = playlistProjection?.sourceFor(queueItemId) ?? null;
+  return (
+    pending.source === null ||
+    (liveSource?.kind === 'pro-r2' && sameR2Source(pending.source, liveSource))
   );
 }
 
@@ -254,11 +302,21 @@ function playlistWireItems(items: readonly PlaylistItem[]): PlaylistWireItem[] {
 function attachCachedFiles(snapshot: ProRoomSnapshot): void {
   if (!mediaTransfer) return;
   const sourceById = new Map(snapshot.playlist.map((item) => [item.queueItemId, item]));
+  const currentQueueItemId = getState('playlist.currentQueueItemId');
   const current = getState('playlist.items');
   let changed = false;
   const next = current.map((item) => {
     const wire = sourceById.get(item.queueItemId);
     if (!wire || wire.source.kind !== 'pro-r2') return item;
+    // A playlist row is not a second cache. Only the selected occurrence may
+    // expose a File to the legacy decoder; background assets remain owned by
+    // ProRoomAssetCache so its byte-bounded LRU cannot be bypassed by row refs.
+    if (item.queueItemId !== currentQueueItemId) {
+      if (!item.file) return item;
+      const { file: _discardedFile, ...withoutFile } = item;
+      changed = true;
+      return withoutFile;
+    }
     const file = mediaTransfer?.cache.get(wire.source, wire.name) ?? null;
     if (!file || item.file === file) return item;
     changed = true;
@@ -267,9 +325,30 @@ function attachCachedFiles(snapshot: ProRoomSnapshot): void {
   if (changed) setState('playlist.items', next);
 }
 
+function pruneNonCurrentProRoomFileRows(): void {
+  if (!playlistProjection || getState('room.context').kind !== 'pro') return;
+  const currentQueueItemId = getState('playlist.currentQueueItemId');
+  const items = getState('playlist.items');
+  let changed = false;
+  const next = items.map((item) => {
+    if (!item.file || item.queueItemId === currentQueueItemId) return item;
+    if (playlistProjection?.sourceFor(item.queueItemId)?.kind !== 'pro-r2') return item;
+    const { file: _discardedFile, ...withoutFile } = item;
+    changed = true;
+    return withoutFile;
+  });
+  if (changed) setState('playlist.items', next);
+}
+
 function reconcileRemovedProRoomQueueState(removedQueueItemIds: readonly QueueItemId[]): void {
   if (removedQueueItemIds.length === 0) return;
   const removedIds = new Set(removedQueueItemIds);
+  if (pendingFileDownload && removedIds.has(pendingFileDownload.queueItemId)) {
+    pendingFileDownload.controller.abort();
+  }
+  if (pendingPreloadDownload && removedIds.has(pendingPreloadDownload.queueItemId)) {
+    pendingPreloadDownload.controller.abort();
+  }
 
   // A PRO mutation is projected locally before the coordinator's legacy
   // PLAYLIST_UPDATE relay. That later frame is a duplicate revision, so the
@@ -371,6 +450,12 @@ async function applyProjectedPlaylist(
       (queueItemId) => bus.emit('playlist:play-track', queueItemId),
       () => bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true }),
     );
+    // PRO mutations are projected through this runtime and therefore bypass
+    // playlist.ts's ordinary add/reorder/remove scheduling paths. Re-evaluate
+    // the coordinator-owned next occurrence after every accepted projection;
+    // schedulePreload preserves an exact still-valid owner and replaces only a
+    // target that actually changed.
+    if (isCoordinator()) schedulePreload();
     return;
   }
   attachCachedFiles(snapshot);
@@ -386,6 +471,224 @@ function reportPlaylistError(error: unknown): void {
         ? t('pro.quota_exceeded')
         : t('pro.connect_failed');
   bus.emit('ui:show-toast', message);
+}
+
+function ensureForegroundDownloadLoader(owner: PendingFileDownload): void {
+  if (owner.loaderId !== null) return;
+  owner.loaderId = openTransferLoader('download', t('pro.downloading'));
+  reportTransferProgress(owner.loaderId, owner.progress);
+}
+
+function promotePendingPreload(owner: PendingFileDownload): Promise<File | null> {
+  const foreground = pendingFileDownload;
+  if (foreground && foreground !== owner) foreground.controller.abort();
+  if (pendingPreloadDownload === owner) pendingPreloadDownload = null;
+  owner.mode = 'foreground';
+  pendingFileDownload = owner;
+  ensureForegroundDownloadLoader(owner);
+  return owner.promise;
+}
+
+function startProRoomFileDownload(
+  queueItemId: QueueItemId,
+  lease: PlaylistRuntimeLease,
+  mode: PendingFileDownload['mode'],
+): PendingFileDownload | null {
+  const transfer = mediaTransfer;
+  const projection = playlistProjection;
+  const context = getState('room.context');
+  const item = getState('playlist.items').find(
+    (candidate) => candidate.queueItemId === queueItemId,
+  );
+  if (
+    !transfer ||
+    !projection ||
+    !item ||
+    item.type !== 'file' ||
+    !isPlaylistLeaseCurrent(lease) ||
+    context.kind !== 'pro' ||
+    context.roomId !== lease.roomCode
+  ) {
+    return null;
+  }
+
+  const linkedAbort = createRoomLinkedAbortController(playlistRuntimeAbort?.signal);
+  const owner: PendingFileDownload = {
+    queueItemId,
+    leaseGeneration: lease.generation,
+    roomCode: lease.roomCode,
+    controller: linkedAbort.controller,
+    promise: Promise.resolve(null),
+    mode,
+    startedAsPreload: mode === 'preload',
+    source: null,
+    progress: 0,
+    loaderId: null,
+  };
+  if (mode === 'foreground') ensureForegroundDownloadLoader(owner);
+
+  let published = false;
+  const download = resolveCanonicalR2Source(queueItemId, lease)
+    .then(async (source) => {
+      if (!source || !isDownloadLeaseCurrent(lease) || owner.controller.signal.aborted) return null;
+      owner.source = source;
+      const currentResident = getState('files.current');
+      const retainedEncodedBytes =
+        currentResident?.queueItemId !== queueItemId ? (currentResident?.blob.size ?? 0) : 0;
+      if (owner.mode === 'preload') {
+        if (retainedEncodedBytes + source.byteLength > transfer.cache.maxTotalBytes) {
+          log.debug('[PRO] Background media preload skipped: encoded RAM budget is occupied');
+          return null;
+        }
+      }
+
+      let receiveReservation: ReturnType<typeof reserveEncodedReceiveMemoryWithinBudget> | null =
+        null;
+      try {
+        // A background GET assembles byte chunks while the current PCM remains
+        // live. Reuse the shared receive ledger for that overlap; foreground
+        // selection already releases the old PCM before resolving this hook.
+        if (owner.startedAsPreload) {
+          receiveReservation = reserveEncodedReceiveMemoryWithinBudget(source.byteLength, {
+            fileName: item.name,
+            retainedPcmBytes: liveAudioBufferPcmBytes(),
+          });
+        }
+        const file = await transfer.download({
+          code: lease.roomCode,
+          name: item.name,
+          source,
+          onProgress: (fraction) => {
+            owner.progress = fraction;
+            if (owner.loaderId !== null) reportTransferProgress(owner.loaderId, fraction);
+          },
+          signal: owner.controller.signal,
+          retainedEncodedBytes,
+        });
+        if (!isDownloadLeaseCurrent(lease) || owner.controller.signal.aborted) return null;
+
+        const liveSource = projection.sourceFor(queueItemId);
+        if (!liveSource || liveSource.kind !== 'pro-r2' || !sameR2Source(liveSource, source)) {
+          log.warn('[PRO] Downloaded asset no longer matches the canonical playlist source');
+          return null;
+        }
+
+        // A completed background body remains cache-only. resolveFile attaches
+        // it to the selected row only when playback adopts this occurrence.
+        if (owner.mode === 'preload') {
+          published = true;
+          return file;
+        }
+
+        const items = getState('playlist.items');
+        const index = items.findIndex((candidate) => candidate.queueItemId === queueItemId);
+        if (index < 0 || items[index]?.type !== 'file') return null;
+        const next = [...items];
+        next[index] = { ...next[index]!, file };
+        setState('playlist.items', next);
+        published = true;
+        return file;
+      } finally {
+        receiveReservation?.release();
+      }
+    })
+    .catch((error) => {
+      if (owner.controller.signal.aborted || !isDownloadLeaseCurrent(lease)) return null;
+      if (owner.mode === 'preload') {
+        if (isAudioDecodeAdmissionError(error)) {
+          log.debug('[PRO] Background media preload skipped by RAM admission');
+        } else {
+          log.warn('[PRO] Background media preload failed', error);
+        }
+        return null;
+      }
+      if (getState('playlist.currentQueueItemId') === queueItemId) reportPlaylistError(error);
+      throw error;
+    })
+    .finally(() => {
+      linkedAbort.detach();
+      if (owner.loaderId !== null) closeTransferLoader(owner.loaderId, published);
+      if (pendingFileDownload === owner) pendingFileDownload = null;
+      if (pendingPreloadDownload === owner) pendingPreloadDownload = null;
+    });
+  owner.promise = download;
+  if (mode === 'foreground') pendingFileDownload = owner;
+  else pendingPreloadDownload = owner;
+  return owner;
+}
+
+function deferProRoomFilePreload(
+  queueItemId: QueueItemId,
+  lease: PlaylistRuntimeLease,
+): Promise<File | null> {
+  const existing = deferredPreloadRequest;
+  if (
+    existing?.queueItemId === queueItemId &&
+    existing.leaseGeneration === lease.generation &&
+    existing.roomCode === lease.roomCode
+  ) {
+    return existing.promise;
+  }
+
+  const generation = ++deferredPreloadGeneration;
+  const request: DeferredPreloadRequest = {
+    queueItemId,
+    leaseGeneration: lease.generation,
+    roomCode: lease.roomCode,
+    generation,
+    promise: Promise.resolve(null),
+  };
+  deferredPreloadRequest = request;
+  request.promise = (async () => {
+    try {
+      // Foreground media owns the receive budget. Wait for every foreground
+      // owner that races this hint, then begin exactly the newest deferred
+      // preload instead of dropping the one-shot coordinator message.
+      while (pendingFileDownload) {
+        const foreground = pendingFileDownload;
+        try {
+          await foreground.promise;
+        } catch {
+          // A failed current track still releases the lane for the next hint.
+        }
+        if (
+          deferredPreloadRequest !== request ||
+          deferredPreloadGeneration !== generation ||
+          !isPlaylistLeaseCurrent(lease)
+        ) {
+          return null;
+        }
+      }
+
+      if (deferredPreloadRequest !== request || !isPlaylistLeaseCurrent(lease)) return null;
+      const item = getState('playlist.items').find(
+        (candidate) => candidate.queueItemId === queueItemId,
+      );
+      if (!item || item.type !== 'file') return null;
+      if (item.file) return item.file;
+
+      const source = playlistProjection?.sourceFor(queueItemId);
+      if (source?.kind === 'pro-r2') {
+        const cached = mediaTransfer?.cache.get(source, item.name);
+        if (cached) return cached;
+      }
+
+      const warm = pendingPreloadDownload;
+      if (warm && pendingDownloadMatches(warm, queueItemId, lease)) return warm.promise;
+      if (warm) warm.controller.abort();
+      return startProRoomFileDownload(queueItemId, lease, 'preload')?.promise ?? null;
+    } finally {
+      if (deferredPreloadRequest === request) deferredPreloadRequest = null;
+    }
+  })();
+  return request.promise;
+}
+
+function cancelDeferredProRoomPreload(queueItemId?: QueueItemId): void {
+  const deferred = deferredPreloadRequest;
+  if (!deferred || (queueItemId && deferred.queueItemId !== queueItemId)) return;
+  deferredPreloadGeneration++;
+  deferredPreloadRequest = null;
 }
 
 function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
@@ -541,77 +844,94 @@ function installLegacyMediaHooks(
       if (!mediaTransfer || !playlistProjection) return null;
       const context = getState('room.context');
       if (context.kind !== 'pro' || context.roomId !== lease.roomCode) return null;
-      const existing = pendingFileDownload;
-      if (
-        existing?.queueItemId === queueItemId &&
-        existing.leaseGeneration === lease.generation &&
-        existing.roomCode === lease.roomCode &&
-        !existing.controller.signal.aborted
-      ) {
-        return existing.promise;
-      }
-      if (existing) existing.controller.abort();
       const item = getState('playlist.items').find(
         (candidate) => candidate.queueItemId === queueItemId,
       );
       if (!item || item.type !== 'file') return null;
+
+      const existing = pendingFileDownload;
+      if (existing && pendingDownloadMatches(existing, queueItemId, lease)) return existing.promise;
       if (item.file) return Promise.resolve(item.file);
-      const transfer = mediaTransfer;
-      const roomCode = lease.roomCode;
-      const linkedAbort = createRoomLinkedAbortController(playlistRuntimeAbort?.signal);
-      const loaderId = openTransferLoader('download', t('pro.downloading'));
-      let completed = false;
-      const download: Promise<File | null> = resolveCanonicalR2Source(queueItemId, lease)
-        .then(async (source) => {
-          if (!source || !isDownloadLeaseCurrent(lease) || linkedAbort.controller.signal.aborted) {
-            return null;
-          }
-          const file = await transfer.download({
-            code: roomCode,
-            name: item.name,
-            source,
-            onProgress: (fraction) => reportTransferProgress(loaderId, fraction),
-            signal: linkedAbort.controller.signal,
-          });
-          if (!isDownloadLeaseCurrent(lease) || linkedAbort.controller.signal.aborted) {
-            return null;
-          }
-          const liveSource = playlistProjection?.sourceFor(queueItemId) ?? null;
-          if (!liveSource || liveSource.kind !== 'pro-r2' || !sameR2Source(liveSource, source)) {
-            log.warn('[PRO] Downloaded asset no longer matches the canonical playlist source');
-            return null;
-          }
+
+      // A completed self-preload is cache-only. Adopt the exact canonical
+      // asset into the selected legacy row without opening a foreground loader
+      // or issuing a second presign/GET.
+      const source = playlistProjection.sourceFor(queueItemId);
+      if (source?.kind === 'pro-r2') {
+        const cached = mediaTransfer.cache.get(source, item.name);
+        if (cached) {
           const items = getState('playlist.items');
           const index = items.findIndex((candidate) => candidate.queueItemId === queueItemId);
-          if (index < 0) return null;
-          const next = [...items];
-          next[index] = { ...next[index]!, file };
-          setState('playlist.items', next);
-          completed = true;
-          return file;
-        })
-        .catch((error) => {
-          if (linkedAbort.controller.signal.aborted || !isDownloadLeaseCurrent(lease)) {
-            return null;
+          if (index >= 0 && getState('playlist.currentQueueItemId') === queueItemId) {
+            const next = [...items];
+            next[index] = { ...next[index]!, file: cached };
+            setState('playlist.items', next);
           }
-          if (getState('playlist.currentQueueItemId') === queueItemId) {
-            reportPlaylistError(error);
-          }
-          throw error;
-        })
-        .finally(() => {
-          linkedAbort.detach();
-          closeTransferLoader(loaderId, completed);
-          if (pendingFileDownload?.promise === download) pendingFileDownload = null;
-        });
-      pendingFileDownload = {
-        queueItemId,
-        leaseGeneration: lease.generation,
-        roomCode,
-        controller: linkedAbort.controller,
-        promise: download,
-      };
-      return download;
+          // FILE_PREPARE resolves the canonical asset before the legacy queue
+          // selection is committed. The cache hit is still authoritative even
+          // when the row is not selected yet; the caller performs selection
+          // and final adoption without issuing a second GET.
+          return Promise.resolve(cached);
+        }
+      }
+
+      const warm = pendingPreloadDownload;
+      if (warm && pendingDownloadMatches(warm, queueItemId, lease)) {
+        return promotePendingPreload(warm);
+      }
+
+      if (existing) existing.controller.abort();
+      if (warm) warm.controller.abort();
+      return startProRoomFileDownload(queueItemId, lease, 'foreground')?.promise ?? null;
+    },
+    preloadFile(queueItemId) {
+      if (!isPlaylistLeaseCurrent(lease)) return null;
+      const projection = playlistProjection;
+      const transfer = mediaTransfer;
+      if (!projection || !transfer) return null;
+      const context = getState('room.context');
+      if (context.kind !== 'pro' || context.roomId !== lease.roomCode) return null;
+      const item = getState('playlist.items').find(
+        (candidate) => candidate.queueItemId === queueItemId,
+      );
+      if (!item || item.type !== 'file') return null;
+
+      if (item.file) return Promise.resolve(item.file);
+
+      const source = projection.sourceFor(queueItemId);
+      if (source?.kind === 'pro-r2') {
+        const cached = transfer.cache.get(source, item.name);
+        if (cached) return Promise.resolve(cached);
+      }
+
+      const foreground = pendingFileDownload;
+      if (foreground) {
+        return pendingDownloadMatches(foreground, queueItemId, lease)
+          ? foreground.promise
+          : deferProRoomFilePreload(queueItemId, lease);
+      }
+
+      const warm = pendingPreloadDownload;
+      if (warm && pendingDownloadMatches(warm, queueItemId, lease)) return warm.promise;
+      if (warm) warm.controller.abort();
+      return startProRoomFileDownload(queueItemId, lease, 'preload')?.promise ?? null;
+    },
+    hasPreloadedFile(queueItemId) {
+      if (!isPlaylistLeaseCurrent(lease)) return false;
+      const item = getState('playlist.items').find(
+        (candidate) => candidate.queueItemId === queueItemId,
+      );
+      if (!item || item.type !== 'file') return false;
+      if (item.file) return true;
+      const warm = pendingPreloadDownload;
+      if (warm && pendingDownloadMatches(warm, queueItemId, lease)) return true;
+      const source = playlistProjection?.sourceFor(queueItemId);
+      return source?.kind === 'pro-r2' && !!mediaTransfer?.cache.get(source, item.name);
+    },
+    cancelPreload(queueItemId) {
+      if (!isPlaylistLeaseCurrent(lease)) return;
+      cancelDeferredProRoomPreload(queueItemId);
+      cancelPendingPreloadDownload(queueItemId);
     },
     cancelFileResolution() {
       if (!isPlaylistLeaseCurrent(lease)) return;
@@ -624,8 +944,11 @@ function installLegacyMediaHooks(
 function resetPlaylistRuntime(): void {
   playlistRuntimeGeneration += 1;
   playlistRuntimeLease = null;
+  cancelDeferredProRoomPreload();
   pendingFileDownload?.controller.abort();
   pendingFileDownload = null;
+  pendingPreloadDownload?.controller.abort();
+  pendingPreloadDownload = null;
   playlistRuntimeAbort?.abort();
   playlistRuntimeAbort = null;
   closeAllTransferLoaders();
@@ -937,6 +1260,10 @@ function applyAuthority(context: RoomContext): void {
   const pending = pendingFileDownload;
   if (pending && !shouldRetainPendingProDownload(pending.roomCode, context)) {
     pending.controller.abort();
+  }
+  const preload = pendingPreloadDownload;
+  if (preload && !shouldRetainPendingProDownload(preload.roomCode, context)) {
+    preload.controller.abort();
   }
   setRoomContext(context);
   batchSetState({
@@ -1330,6 +1657,7 @@ for (const event of [
   bus.on(event, () => {
     if (event === 'state:playlist.currentQueueItemId') {
       cancelSupersededFileDownload(getState('playlist.currentQueueItemId'));
+      pruneNonCurrentProRoomFileRows();
     }
     if (cancelPlaybackRestoreForQueueOverride()) return;
     reconcilePlaybackRestore();

@@ -584,7 +584,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.encryptedSize as number) === (d.size as number) + REMOTE_SHARE_AES_GCM_TAG_BYTES &&
     isFiniteNumber(d.expiresAt) &&
     (d.delivery === undefined || d.delivery === 'r2') &&
-    d.preload === undefined,
+    (d.preload === undefined || d.preload === true),
   // Without `name`, a malicious peer can send file-resume with no name to
   // poison the host's transfer.localSessionId (the transfer-receive handler
   // bumps it from any incoming sessionId), blocking subsequent legitimate inbound
@@ -693,6 +693,10 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
 
   // Playlist snapshots are validated atomically, including unique IDs/current.
   [MSG.PLAYLIST_UPDATE]: (d) => parsePlaylistSnapshot(d) !== null,
+  [MSG.PRO_FILE_PRELOAD]: (d) =>
+    hasExactKeys(d, ['type', 'queueItemId', 'sessionId']) &&
+    isQueueItemId(d.queueItemId) &&
+    isPositiveSafeInt(d.sessionId),
 
   // Guest decode-failure reports identify the queue occurrence, not a row.
   [MSG.GUEST_DECODE_FAILED]: (d) => isQueueItemId(d.queueItemId),

@@ -130,6 +130,7 @@ export const MSG = {
   PAUSE: 'pause',
   PLAY: 'play',
   PLAYLIST_UPDATE: 'playlist-update',
+  PRO_FILE_PRELOAD: 'pro-file-preload',
   PRO_ROOM_INVALIDATED: 'pro-room-invalidated',
   PRO_SYSTEM_AUDIO_HINT: 'pro-system-audio-hint',
   PRO_SYSTEM_AUDIO_STATE: 'pro-system-audio-state',

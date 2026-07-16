@@ -4,13 +4,9 @@
  * This is intentionally a side path: LAN P2P transfer remains the primary
  * path, while remote/unknown guests receive an encrypted R2 descriptor.
  *
- * MSG.REMOTE_FILE_SHARE carries only the active CURRENT track descriptor.
- * Remote speculative preload is intentionally disabled: mobile guests avoid
- * extra R2 downloads, decrypted Blob retention, battery/GC churn, and URL
- * expiry races.
- *
- * Concurrency: only ONE active descriptor download runs at a time. A newer
- * active descriptor cancels the in-flight one via AbortController.
+ * Foreground playback and speculative next-track delivery use separate lanes.
+ * When the speculative object becomes current, its exact queue/session owner
+ * is promoted in place so the already-running download never restarts.
  */
 
 import { bus } from '../core/events.ts';
@@ -85,11 +81,18 @@ const REMOTE_UPLOAD_LOADER = 'remote-share-upload';
 // avoids handing out a 30-second-window URL to a guest who'd race the TTL.
 const EXPIRY_SAFETY_MARGIN_MS = 30_000;
 
+/** One switch for disabling speculative R2 traffic without changing playback. */
+const REMOTE_FILE_PRELOAD_ENABLED = true;
+
 interface UploadEntry {
   key: string;
   sessionId: number;
+  queueItemId: QueueItemId;
   promise: Promise<RemoteFileSharePayload>;
   abort: AbortController;
+  preload: boolean;
+  stage: 'encrypting' | 'uploading';
+  progress: number;
 }
 
 interface DownloadEntry {
@@ -98,6 +101,8 @@ interface DownloadEntry {
    * queueItemId/sessionId advances, so completion publishes through this descriptor. */
   descriptor: RemoteFileSharePayload;
   abort: AbortController;
+  intent: 'foreground' | 'preload';
+  progress: number;
 }
 
 // Upload tracking stays keyed by playback request. Navigating to another
@@ -115,6 +120,29 @@ let _nextFileId = 1;
 // Only one active (foreground) download at a time. A newer one supersedes
 // the in-flight one via abort.
 let _activeDownload: DownloadEntry | null = null;
+// One independent speculative next-track download. Promotion transfers this
+// exact entry to _activeDownload; its XHR/decrypt promise continues untouched.
+let _activePreloadDownload: DownloadEntry | null = null;
+// A current-track GET has strict priority, but the host sends a preload
+// descriptor only once. Keep the newest validated hint and start it as soon as
+// the foreground reservation is released instead of silently dropping it.
+let _deferredPreloadDescriptor: RemoteFileSharePayload | null = null;
+// Deferred work is resumed from a microtask so foreground completion can hand
+// its resident to the decoder before the next preload claims preload.ready.
+let _remotePreloadDrainQueued = false;
+
+/** @internal Focused ownership seam for remote-preload race tests. */
+export function getRemotePreloadOwnershipForTests(): {
+  foregroundQueueItemId: QueueItemId | null;
+  preloadQueueItemId: QueueItemId | null;
+  deferredQueueItemId: QueueItemId | null;
+} {
+  return {
+    foregroundQueueItemId: _activeDownload?.descriptor.queueItemId ?? null,
+    preloadQueueItemId: _activePreloadDownload?.descriptor.queueItemId ?? null,
+    deferredQueueItemId: _deferredPreloadDescriptor?.queueItemId ?? null,
+  };
+}
 
 // Last adopted playback context. This survives download completion so late
 // control responses cannot rewind the active queue occurrence or trigger another fetch.
@@ -247,8 +275,13 @@ function clearStaleRemotePlayback(reason: string): void {
   if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
 }
 
-function toRemoteShareMessage(descriptor: RemoteFileSharePayload): AnyProtocolMsg {
-  return { type: MSG.REMOTE_FILE_SHARE, ...descriptor, delivery: 'r2' } as AnyProtocolMsg;
+function toRemoteShareMessage(descriptor: RemoteFileSharePayload, preload = false): AnyProtocolMsg {
+  return {
+    type: MSG.REMOTE_FILE_SHARE,
+    ...descriptor,
+    delivery: 'r2',
+    ...(preload ? { preload: true as const } : {}),
+  } as AnyProtocolMsg;
 }
 
 function toRemoteFileUnavailableMessage(
@@ -318,6 +351,20 @@ function isHostActiveFile(file: File, queueItemId: QueueItemId): boolean {
   // queue occurrence is the only safe fallback.
   const item = getQueueItemById(queueItemId);
   return item?.file === file;
+}
+
+function isHostPreloadFile(file: File, queueItemId: QueueItemId, sessionId: number): boolean {
+  const item = getQueueItemById(queueItemId);
+  const ready = getState('preload.ready');
+  const target = getState('preload.activeTarget');
+  return (
+    item?.file === file &&
+    ready?.blob === file &&
+    ready.queueItemId === queueItemId &&
+    ready.sessionId === sessionId &&
+    target?.queueItemId === queueItemId &&
+    target.sessionId === sessionId
+  );
 }
 
 function showUploadProgress(message: string, progress = 0): void {
@@ -483,18 +530,59 @@ function resetRemoteUploadState(message: string | null = null): void {
   });
 }
 
+function publishForegroundUploadProgress(entry: UploadEntry): void {
+  const remote = getState('share.remote');
+  setState('share.remote', {
+    ...remote,
+    upload: {
+      status: entry.stage,
+      progress: entry.progress,
+      objectId: null,
+      expiresAt: null,
+      error: null,
+    },
+  });
+  showUploadProgress(
+    t(entry.stage === 'encrypting' ? 'share.remote.encrypting' : 'share.remote.uploading'),
+    entry.progress,
+  );
+}
+
+function publishForegroundUploadDone(descriptor: RemoteFileSharePayload): void {
+  const remote = getState('share.remote');
+  setState('share.remote', {
+    ...remote,
+    upload: {
+      status: 'done',
+      progress: 1,
+      objectId: descriptor.objectId,
+      expiresAt: descriptor.expiresAt,
+      error: null,
+    },
+  });
+}
+
 function abortActiveUploadsWithoutTargets(reason: string): void {
   if (getState('network.hostConn')) return;
   if (_activeUploads.size === 0) return;
+  let abortedForegroundUpload = false;
 
   for (const [key, entry] of _activeUploads) {
     if (hasR2Targets(entry.sessionId)) continue;
+    if (!entry.preload) abortedForegroundUpload = true;
     entry.abort.abort();
     _activeUploads.delete(key);
   }
+
+  // A surviving speculative next-track upload must not keep a cancelled
+  // foreground loader and progress state on screen.
+  const hasForegroundUpload = [..._activeUploads.values()].some((entry) => !entry.preload);
+  if (abortedForegroundUpload && !hasForegroundUpload) {
+    resetRemoteUploadState();
+    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+  }
   if (_activeUploads.size > 0) return;
-  resetRemoteUploadState();
-  showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+  if (!abortedForegroundUpload) resetRemoteUploadState();
   log.info(`[RemoteShare] Active upload cancelled (${reason})`);
 }
 
@@ -502,6 +590,19 @@ export function cancelRemoteShareWait(reason: string): void {
   // Supersede descriptors suspended in connection-type classification.
   _remoteDescriptorGeneration++;
   const hadActiveDownload = !!_activeDownload;
+
+  // A deferred next-track descriptor is subordinate to the foreground wait
+  // that kept it queued. Once that wait is explicitly cancelled, allowing its
+  // finally block to drain the old descriptor could resurrect a track from a
+  // superseded playlist/playback owner.
+  const deferred = _deferredPreloadDescriptor;
+  const authoritativeCurrentQueueItemId = getState('playlist.currentQueueItemId');
+  const preservePromotedSuccessor =
+    reason === 'playlist-current-removed' &&
+    !!deferred &&
+    deferred.queueItemId === authoritativeCurrentQueueItemId &&
+    !!getQueueItemById(deferred.queueItemId);
+  if (!preservePromotedSuccessor) _deferredPreloadDescriptor = null;
 
   if (_activeDownload) {
     _activeDownload.abort.abort();
@@ -517,6 +618,95 @@ export function cancelRemoteShareWait(reason: string): void {
   if (hadActiveDownload) {
     log.info(`[RemoteShare] Active remote download cancelled (${reason})`);
   }
+  if (preservePromotedSuccessor) scheduleDeferredRemotePreloadDrain();
+}
+
+/** Cancel only speculative R2 work; foreground remote playback is untouched. */
+export function cancelRemoteFilePreload(reason: string, queueItemId?: QueueItemId): void {
+  const active = _activePreloadDownload;
+  let cancelledDownload = false;
+  const deferred = _deferredPreloadDescriptor;
+  const hadDeferred = !!deferred && (!queueItemId || deferred.queueItemId === queueItemId);
+  if (hadDeferred) _deferredPreloadDescriptor = null;
+  if (active && (!queueItemId || active.descriptor.queueItemId === queueItemId)) {
+    active.abort.abort();
+    _activePreloadDownload = null;
+    clearOwnedRemotePreloadState(active);
+    cancelledDownload = true;
+  }
+
+  // Host uploads use the same in-flight promise when a preloaded track is
+  // promoted. A foreground caller flips entry.preload to false before waiting,
+  // so cancellation only aborts uploads that still have speculative ownership.
+  let cancelledUploads = 0;
+  for (const [key, entry] of _activeUploads) {
+    if (!entry.preload || (queueItemId && entry.queueItemId !== queueItemId)) continue;
+    entry.abort.abort();
+    _activeUploads.delete(key);
+    cancelledUploads++;
+  }
+
+  if (cancelledDownload || hadDeferred || cancelledUploads > 0) {
+    log.debug(
+      `[RemoteShare] Background preload cancelled (${reason}; uploads=${cancelledUploads})`,
+    );
+  }
+}
+
+/**
+ * Promote an in-flight speculative download as soon as PLAY_PRELOADED arrives.
+ * Waiting for the follow-up descriptor would create a small race where the
+ * background owner is cleared by the foreground wait before completion.
+ */
+export function promoteRemotePreloadWait(queueItemId: QueueItemId, name: string): boolean {
+  const entry = _activePreloadDownload;
+  if (entry) {
+    if (
+      entry.abort.signal.aborted ||
+      entry.descriptor.queueItemId !== queueItemId ||
+      (name && entry.descriptor.name !== name) ||
+      !getQueueItemById(queueItemId)
+    ) {
+      return false;
+    }
+
+    _activePreloadDownload = null;
+    _activeDownload?.abort.abort();
+    _activeDownload = entry;
+    entry.descriptor = { ...entry.descriptor, preload: undefined };
+    adoptRemoteContext(entry.descriptor);
+    enterForegroundRemoteDownload(entry, true);
+    log.info(`[RemoteShare] PLAY_PRELOADED promoted remote preload (${queueItemId})`);
+    return true;
+  }
+
+  // The hint may be queued behind the previous current-file GET. Selection
+  // transfers priority immediately and consumes that already-authenticated
+  // descriptor instead of waiting for a second host message.
+  const deferred = _deferredPreloadDescriptor;
+  if (
+    !deferred ||
+    deferred.queueItemId !== queueItemId ||
+    (name && deferred.name !== name) ||
+    !getQueueItemById(queueItemId)
+  ) {
+    return false;
+  }
+  _deferredPreloadDescriptor = null;
+  _activeDownload?.abort.abort();
+  const promoted: DownloadEntry = {
+    objectId: deferred.objectId,
+    descriptor: { ...deferred, preload: undefined },
+    abort: new AbortController(),
+    intent: 'foreground',
+    progress: 0,
+  };
+  _activeDownload = promoted;
+  adoptRemoteContext(promoted.descriptor);
+  enterForegroundRemoteDownload(promoted);
+  void runRemoteDownload(promoted);
+  log.info(`[RemoteShare] PLAY_PRELOADED activated queued remote preload (${queueItemId})`);
+  return true;
 }
 
 export function shouldWaitForRemoteShare(): boolean {
@@ -526,6 +716,23 @@ export function shouldWaitForRemoteShare(): boolean {
 interface ShareRemoteFileOptions {
   /** Stable queue occurrence that owns this upload. */
   queueItemId?: QueueItemId;
+  /** Publish as a silent next-track descriptor rather than active playback. */
+  preload?: boolean;
+}
+
+/**
+ * Speculatively upload the exact host preload owner for R2-routed guests.
+ * This is deliberately a narrow wrapper so the policy can later be disabled
+ * without touching the local P2P preload path.
+ */
+export async function preloadRemoteFileIfNeeded(
+  file: File,
+  sessionId: number,
+  queueItemId: QueueItemId,
+  targetConn?: DataConnection,
+): Promise<void> {
+  if (!REMOTE_FILE_PRELOAD_ENABLED) return;
+  await shareRemoteFileIfNeeded(file, sessionId, targetConn, { queueItemId, preload: true });
 }
 
 /**
@@ -550,6 +757,9 @@ export async function shareRemoteFileIfNeeded(
   if (sessionId === null) return;
   if (!targetConn && !hasR2Targets(sessionId)) return;
   if (targetConn && !shouldConnectionUseR2(targetConn, sessionId)) return;
+
+  const isPreload = options?.preload === true;
+  if (isPreload && !REMOTE_FILE_PRELOAD_ENABLED) return;
 
   const currentResident = getState('files.current');
   const queueItemId =
@@ -577,25 +787,56 @@ export async function shareRemoteFileIfNeeded(
       const inFlight = _activeUploads.get(uploadKey);
       if (inFlight) {
         // Another caller already uploading the same file — share the result.
-        showUploadProgress(t('share.remote.uploading'));
+        // Once active playback joins this promise, speculative cancellation may
+        // no longer abort it; completion still serves the current-track owner.
+        if (!isPreload) {
+          inFlight.preload = false;
+          publishForegroundUploadProgress(inFlight);
+        }
         descriptor = await inFlight.promise;
+        if (inFlight.abort.signal.aborted) return;
       } else {
         const abort = new AbortController();
+        let currentStage: UploadEntry['stage'] = 'encrypting';
+        let currentProgress = 0;
+        let entry: UploadEntry | null = null;
         const promise = uploadRemoteFile(file, sessionId, queueItemId, {
           signal: abort.signal,
+          publishState: !isPreload,
           onUploadProgress: (progress) => {
-            showUploadProgress(t('share.remote.uploading'), progress);
+            currentProgress = progress;
+            if (!entry) return;
+            entry.progress = progress;
+            if (!entry.preload) publishForegroundUploadProgress(entry);
+          },
+          onStageChange: (stage) => {
+            currentStage = stage;
+            if (!entry) return;
+            entry.stage = stage;
+            if (!entry.preload) publishForegroundUploadProgress(entry);
           },
         });
 
-        const entry: UploadEntry = { key: uploadKey, sessionId, promise, abort };
+        entry = {
+          key: uploadKey,
+          sessionId,
+          queueItemId,
+          promise,
+          abort,
+          preload: isPreload,
+          stage: currentStage,
+          progress: currentProgress,
+        };
         _activeUploads.set(uploadKey, entry);
 
-        showToast(t('share.remote.encrypting'));
-        showUploadProgress(t('share.remote.encrypting'));
+        if (!isPreload) {
+          showToast(t('share.remote.encrypting'));
+          showUploadProgress(t('share.remote.encrypting'));
+        }
 
         try {
           descriptor = await promise;
+          if (abort.signal.aborted) return;
           _descriptorCache.set(cacheKey, descriptor);
         } finally {
           if (_activeUploads.get(uploadKey) === entry) _activeUploads.delete(uploadKey);
@@ -603,20 +844,28 @@ export async function shareRemoteFileIfNeeded(
       }
     }
 
-    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+    if (!isPreload) {
+      publishForegroundUploadDone(descriptor);
+      showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+    }
 
     // Upload completion may resume long after either a room-wide publish or a
     // targeted late-join/recovery request began. Both paths obey the same
     // queue/file/playback authority: a unicast descriptor for an old track is
     // just as stale as a broadcast descriptor for that track.
-    if (!isHostActiveFile(file, queueItemId)) {
-      log.debug('[RemoteShare] Active upload completed for stale track; descriptor not published');
+    const stillOwned = isPreload
+      ? isHostPreloadFile(file, queueItemId, sessionId)
+      : isHostActiveFile(file, queueItemId);
+    if (!stillOwned) {
+      log.debug(
+        `[RemoteShare] ${isPreload ? 'Preload' : 'Active'} upload completed for stale track; descriptor not published`,
+      );
       return;
     }
     // Blob identity can remain current across an external-owner switch.
     // Require file ownership as well so completion cannot publish an inactive
     // file descriptor. Returning to file mode later may reuse the cached result.
-    if (isExternalOwner()) {
+    if (!isPreload && isExternalOwner()) {
       log.debug(
         '[RemoteShare] Upload completed but external playback mode owns the room; descriptor not published',
       );
@@ -637,18 +886,24 @@ export async function shareRemoteFileIfNeeded(
     }
 
     const outboundDescriptor = withPlaybackContext(descriptor, sessionId, queueItemId);
-    const msg = toRemoteShareMessage(outboundDescriptor);
+    const msg = toRemoteShareMessage(outboundDescriptor, isPreload);
     const targets = getR2MessageTargets(sessionId, targetConn);
     if (targets.length === 0) return;
     for (const conn of targets) safeSend(conn, msg);
-    log.info(`[RemoteShare] Shared encrypted descriptor for ${outboundDescriptor.name}`);
-    showToast(t('share.remote.upload_ready'));
+    log.info(
+      `[RemoteShare] Shared encrypted ${isPreload ? 'preload ' : ''}descriptor for ${outboundDescriptor.name}`,
+    );
+    if (!isPreload) showToast(t('share.remote.upload_ready'));
   } catch (error) {
     if (isAbortError(error)) {
       log.debug('[RemoteShare] Upload superseded — abort path is expected');
       return;
     }
-    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+    if (!isPreload) showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+    if (isPreload) {
+      log.debug('[RemoteShare] Speculative preload upload failed silently:', error);
+      return;
+    }
     const message = friendlyErrorMessage(error);
     setState('share.remote', {
       ...getState('share.remote'),
@@ -703,6 +958,10 @@ function armRemoteWaitTimeout(
         active.abort.abort();
         if (_activeDownload === active) _activeDownload = null;
       }
+      // The timed-out foreground owner was the serialization barrier for any
+      // deferred preload. Do not let its eventual promise settlement start a
+      // descriptor that is no longer attached to live playback authority.
+      _deferredPreloadDescriptor = null;
       showToast(t('share.remote.timeout'));
       showLoader(false);
       setState('share.remote', {
@@ -814,15 +1073,31 @@ export function prepareRemoteShareWait(
   selectQueueItemById(queueItemId);
   const existingReady = getState('preload.ready');
   const existingPreloadMeta = getState('preload.activeTarget');
-  const existingPreloadMatches =
-    existingReady &&
-    existingPreloadMeta &&
+  const activePreload = _activePreloadDownload;
+  const existingReadyMatches =
+    !!existingReady &&
+    !!existingPreloadMeta &&
     existingReady.queueItemId === queueItemId &&
     existingPreloadMeta.queueItemId === queueItemId &&
     existingReady.sessionId === sessionId &&
     existingPreloadMeta.sessionId === sessionId &&
     (!objectId ||
       (existingReady.objectId === objectId && existingPreloadMeta.objectId === objectId));
+  // FILE_PREPARE intentionally arrives before PLAY_PRELOADED. If the exact
+  // speculative GET is still running, preserve its object owner even though
+  // preload.ready has not been published yet. Clearing objectId in this tiny
+  // window makes completion look stale and throws away an almost-finished GET.
+  const existingInFlightPreloadMatches =
+    !!activePreload &&
+    !activePreload.abort.signal.aborted &&
+    !!existingPreloadMeta &&
+    activePreload.descriptor.queueItemId === queueItemId &&
+    activePreload.descriptor.sessionId === sessionId &&
+    existingPreloadMeta.queueItemId === queueItemId &&
+    existingPreloadMeta.sessionId === sessionId &&
+    existingPreloadMeta.objectId === activePreload.objectId &&
+    (!objectId || activePreload.objectId === objectId);
+  const existingPreloadMatches = existingReadyMatches || existingInFlightPreloadMatches;
   const waitMeta = existingPreloadMatches
     ? {
         ...existingPreloadMeta,
@@ -844,7 +1119,7 @@ export function prepareRemoteShareWait(
       };
   batchSetState({
     'preload.activeTarget': waitMeta,
-    'preload.ready': existingPreloadMatches ? existingReady : null,
+    'preload.ready': existingReadyMatches ? existingReady : null,
     'preload.nextQueueItemId': queueItemId,
     'transfer.meta': waitMeta,
   });
@@ -872,6 +1147,16 @@ function isCurrentRemoteFileLoaded(descriptor: RemoteFileSharePayload): boolean 
   );
 }
 
+function isCurrentRemoteObjectLoaded(descriptor: RemoteFileSharePayload): boolean {
+  const current = getState('files.current');
+  if (!current) return false;
+  return (
+    current.queueItemId === descriptor.queueItemId &&
+    current.objectId === descriptor.objectId &&
+    current.blob.size === descriptor.size
+  );
+}
+
 function isPreloadedRemoteFile(
   descriptor: RemoteFileSharePayload,
   ready: Readonly<ResidentFile>,
@@ -882,6 +1167,430 @@ function isPreloadedRemoteFile(
     ready.objectId === descriptor.objectId &&
     ready.sessionId === descriptor.sessionId
   );
+}
+
+function sameRemoteDownloadOwner(
+  entry: DownloadEntry,
+  descriptor: RemoteFileSharePayload,
+): boolean {
+  return (
+    entry.objectId === descriptor.objectId &&
+    entry.descriptor.queueItemId === descriptor.queueItemId &&
+    entry.descriptor.sessionId === descriptor.sessionId
+  );
+}
+
+function sameRemoteDescriptorBytes(
+  left: RemoteFileSharePayload,
+  right: RemoteFileSharePayload,
+): boolean {
+  return (
+    left.roomId === right.roomId &&
+    left.objectId === right.objectId &&
+    left.size === right.size &&
+    left.encryptedSize === right.encryptedSize
+  );
+}
+
+function reconcileDeferredPreloadForActiveDescriptor(descriptor: RemoteFileSharePayload): void {
+  const deferred = _deferredPreloadDescriptor;
+  if (!deferred) return;
+
+  // The current descriptor normally has an older SID than its already-issued
+  // next-track hint, which must survive. The same object consumes that hint;
+  // a same/newer authoritative SID is a direct jump and supersedes it.
+  if (
+    sameRemoteDescriptorBytes(deferred, descriptor) ||
+    descriptor.sessionId >= deferred.sessionId
+  ) {
+    _deferredPreloadDescriptor = null;
+  }
+}
+
+function remotePreloadMeta(descriptor: RemoteFileSharePayload) {
+  return {
+    name: descriptor.name,
+    title: descriptor.name.replace(/\.[^/.]+$/, ''),
+    queueItemId: descriptor.queueItemId,
+    indexHint: findQueueItemIndex(descriptor.queueItemId),
+    size: descriptor.size,
+    mime: descriptor.mime,
+    sessionId: descriptor.sessionId,
+    objectId: descriptor.objectId,
+  };
+}
+
+function ownsRemotePreloadDownload(entry: DownloadEntry): boolean {
+  if (_activePreloadDownload !== entry || entry.abort.signal.aborted) return false;
+  if (getState('network.hostConn') !== _observedHostConn) return false;
+  if (!getQueueItemById(entry.descriptor.queueItemId)) return false;
+  const target = getState('preload.activeTarget');
+  return (
+    target?.queueItemId === entry.descriptor.queueItemId &&
+    target.sessionId === entry.descriptor.sessionId &&
+    target.objectId === entry.descriptor.objectId
+  );
+}
+
+function publishForegroundDownloadProgress(entry: DownloadEntry): void {
+  if (entry.intent !== 'foreground' || _activeDownload !== entry) return;
+  updateLoader(Math.round(entry.progress * 100));
+  const remote = getState('share.remote');
+  setState('share.remote', {
+    ...remote,
+    download: {
+      ...remote.download,
+      status: 'fetching',
+      progress: entry.progress,
+      error: null,
+    },
+  });
+}
+
+function enterForegroundRemoteDownload(entry: DownloadEntry, alreadyStarted = false): void {
+  entry.intent = 'foreground';
+  setState('share.remote', {
+    ...getState('share.remote'),
+    download: {
+      status: 'fetching',
+      progress: entry.progress,
+      error: null,
+    },
+  });
+  prepareRemoteShareWait(
+    entry.descriptor.queueItemId,
+    entry.descriptor.name,
+    entry.descriptor.sessionId,
+    entry.descriptor.objectId,
+  );
+  showLoader(true, t('share.remote.downloading'));
+  updateLoader(Math.round(entry.progress * 100));
+  // The foreground wait timer protects descriptor/admission waiting. A
+  // promoted speculative transfer is already making progress and owns its own
+  // progress-aware XHR watchdog, so it must not inherit that absolute timer.
+  if (alreadyStarted) clearManagedTimer(REMOTE_WAIT_TIMER);
+}
+
+function clearOwnedRemotePreloadState(entry: DownloadEntry): void {
+  const target = getState('preload.activeTarget');
+  const ready = getState('preload.ready');
+  if (
+    target?.queueItemId !== entry.descriptor.queueItemId ||
+    target.sessionId !== entry.descriptor.sessionId ||
+    target.objectId !== entry.descriptor.objectId ||
+    ready
+  ) {
+    return;
+  }
+  batchSetState({
+    'preload.activeTarget': null,
+    'preload.nextQueueItemId': null,
+  });
+}
+
+async function runRemoteDownload(entry: DownloadEntry): Promise<void> {
+  const abort = entry.abort;
+  // Object bytes and cryptographic material are immutable even if promotion
+  // later rebinds the same object to a newer playback descriptor object.
+  const downloadDescriptor = entry.descriptor;
+  let transportReservation: RemoteTransportMemoryReservation | null = null;
+
+  try {
+    const memoryBudget = resolveDecodeMemoryBudget();
+    for (;;) {
+      try {
+        transportReservation = reserveRemoteTransportMemoryWithinBudget(downloadDescriptor.size, {
+          budget: memoryBudget,
+          fileName: downloadDescriptor.name,
+          retainedPcmBytes:
+            memoryBudget.tier === 'ios' ? liveAudioBufferPcmBytes() : currentAudioBufferPcmBytes(),
+        });
+        break;
+      } catch (error) {
+        const foreground = entry.intent === 'foreground' && _activeDownload === entry;
+        if (
+          foreground &&
+          isAudioDecodeAdmissionError(error) &&
+          error.reason === 'transport-working-set' &&
+          !abort.signal.aborted
+        ) {
+          const reservationChanged = await waitForInFlightMemoryReservationChange(abort.signal);
+          if (!reservationChanged) {
+            if (abort.signal.aborted || _activeDownload !== entry) return;
+            throw error;
+          }
+          if (!ownsLiveRemoteWait(abort)) return;
+          continue;
+        }
+        if (abort.signal.aborted) return;
+        throw error;
+      }
+    }
+
+    if (entry.intent === 'foreground' && _activeDownload === entry) {
+      clearManagedTimer(REMOTE_WAIT_TIMER);
+    }
+
+    const onDownloadProgress = (progress: number): void => {
+      if (abort.signal.aborted) return;
+      entry.progress = progress;
+      publishForegroundDownloadProgress(entry);
+    };
+
+    let file: File;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        file = await downloadRemoteFile(downloadDescriptor, onDownloadProgress, abort.signal);
+        break;
+      } catch (error) {
+        const raw = rawRemoteShareError(error);
+        const transient =
+          raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' || raw === 'REMOTE_SHARE_DOWNLOAD_STALLED';
+        if (
+          attempt >= 2 ||
+          !transient ||
+          isAbortError(error) ||
+          abort.signal.aborted ||
+          !isDescriptorFresh(downloadDescriptor)
+        ) {
+          throw error;
+        }
+        log.warn('[RemoteShare] Transient download failure - retrying once:', error);
+      }
+    }
+
+    if (abort.signal.aborted) return;
+    const foreground = entry.intent === 'foreground' && _activeDownload === entry;
+    const preload = entry.intent === 'preload' && ownsRemotePreloadDownload(entry);
+    if (!foreground && !preload) return;
+    if (foreground && !ownsLiveRemoteWait(abort)) return;
+
+    const publishDescriptor = entry.descriptor;
+    if (!getQueueItemById(publishDescriptor.queueItemId)) return;
+    const meta = remotePreloadMeta(publishDescriptor);
+    const retainedReservation = transportReservation.handoffToRetainedEncoded(file, file.size);
+    adoptExternalStoredFileAdmission({
+      queueItemId: publishDescriptor.queueItemId,
+      filename: publishDescriptor.name,
+      isPreload: true,
+      sessionId: publishDescriptor.sessionId,
+      blob: file,
+      reservation: retainedReservation,
+    });
+
+    const ready = { ...meta, blob: file };
+    batchSetState({
+      'preload.ready': ready,
+      'preload.activeTarget': meta,
+      'preload.nextQueueItemId': publishDescriptor.queueItemId,
+    });
+
+    if (!foreground) {
+      log.debug(`[RemoteShare] Background preload ready: ${publishDescriptor.name}`);
+      return;
+    }
+
+    setState('share.remote', {
+      ...getState('share.remote'),
+      download: {
+        status: 'ready',
+        progress: 1,
+        error: null,
+      },
+    });
+    clearManagedTimer(REMOTE_WAIT_TIMER);
+    transition({ type: 'PRELOAD_FILE_READY', queueItemId: publishDescriptor.queueItemId });
+    bus.emit(
+      'storage:use-preloaded',
+      publishDescriptor.queueItemId,
+      publishDescriptor.name,
+      publishDescriptor.sessionId,
+    );
+  } catch (error) {
+    const foreground = entry.intent === 'foreground' && _activeDownload === entry;
+    if (!foreground) {
+      clearOwnedRemotePreloadState(entry);
+      if (!isAbortError(error)) {
+        log.debug('[RemoteShare] Background preload download skipped:', error);
+      }
+      return;
+    }
+    if (!releaseOwnedRemoteWaitAfterDownloadFailure(abort)) return;
+    if (isAbortError(error)) return;
+    if (isAudioDecodeAdmissionError(error)) {
+      sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId: entry.descriptor.queueItemId });
+    }
+    const message = friendlyErrorMessage(error);
+    setState('share.remote', {
+      ...getState('share.remote'),
+      download: { status: 'error', progress: 0, error: message },
+    });
+    log.warn('[RemoteShare] Download/decrypt failed:', error);
+    showToast(t('share.remote.download_failed', { msg: message }));
+    showLoader(false);
+  } finally {
+    transportReservation?.release();
+    const releasedForeground = _activeDownload === entry;
+    if (releasedForeground) _activeDownload = null;
+    if (_activePreloadDownload === entry) _activePreloadDownload = null;
+    if (releasedForeground) scheduleDeferredRemotePreloadDrain();
+  }
+}
+
+function deferRemotePreload(descriptor: RemoteFileSharePayload): void {
+  const pending = _deferredPreloadDescriptor;
+  if (!pending || descriptor.sessionId > pending.sessionId) {
+    _deferredPreloadDescriptor = descriptor;
+    return;
+  }
+  if (
+    descriptor.sessionId === pending.sessionId &&
+    descriptor.queueItemId === pending.queueItemId &&
+    descriptor.objectId === pending.objectId
+  ) {
+    _deferredPreloadDescriptor = descriptor;
+  }
+}
+
+function liveForegroundRemoteWaitQueueItemId(): QueueItemId | null {
+  if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return null;
+  const recoveryTarget = getState('playback.pendingRecoveryTarget');
+  const waitTarget = getState('preload.activeTarget');
+  return recoveryTarget?.queueItemId &&
+    recoveryTarget.queueItemId === waitTarget?.queueItemId &&
+    !!getQueueItemById(recoveryTarget.queueItemId)
+    ? recoveryTarget.queueItemId
+    : null;
+}
+
+function scheduleDeferredRemotePreloadDrain(): void {
+  if (_remotePreloadDrainQueued || !_deferredPreloadDescriptor) return;
+  _remotePreloadDrainQueued = true;
+  queueMicrotask(() => {
+    _remotePreloadDrainQueued = false;
+    void drainDeferredRemotePreload();
+  });
+}
+
+async function drainDeferredRemotePreload(): Promise<void> {
+  if (
+    _activeDownload ||
+    _activePreloadDownload ||
+    liveForegroundRemoteWaitQueueItemId() ||
+    !REMOTE_FILE_PRELOAD_ENABLED
+  ) {
+    return;
+  }
+  const descriptor = _deferredPreloadDescriptor;
+  if (!descriptor) return;
+
+  // A completed foreground GET first lands in the shared preload slot. Let
+  // storage atomically move those bytes into files.current before the next
+  // speculative target is allowed to claim that slot.
+  const ready = getState('preload.ready');
+  const currentQueueItemId = getState('playlist.currentQueueItemId');
+  const pendingQueueItemId = getState('playback.pendingRecoveryTarget')?.queueItemId;
+  if (
+    ready &&
+    ready.queueItemId !== descriptor.queueItemId &&
+    (ready.queueItemId === currentQueueItemId || ready.queueItemId === pendingQueueItemId)
+  ) {
+    return;
+  }
+  _deferredPreloadDescriptor = null;
+
+  const expectedRoomId = getState('network.sessionCode') || getState('network.lastJoinCode');
+  if (
+    !getState('network.hostConn') ||
+    !getQueueItemById(descriptor.queueItemId) ||
+    !isDescriptorFresh(descriptor) ||
+    (expectedRoomId && descriptor.roomId !== expectedRoomId)
+  ) {
+    return;
+  }
+  await handleRemotePreloadShare(descriptor);
+}
+
+async function handleRemotePreloadShare(descriptor: RemoteFileSharePayload): Promise<void> {
+  if (!REMOTE_FILE_PRELOAD_ENABLED) return;
+
+  // Older/newer mixed clients may still advertise repeat-one with a fresh
+  // session id. The immutable object is already resident and replayable, so
+  // downloading it into the next-track slot would only duplicate RAM.
+  if (isCurrentRemoteObjectLoaded(descriptor)) {
+    log.debug('[RemoteShare] Preload object is already the current resident; ignoring duplicate');
+    return;
+  }
+
+  if (_activeDownload && sameRemoteDownloadOwner(_activeDownload, descriptor)) {
+    log.debug('[RemoteShare] Foreground download already owns this preload descriptor');
+    return;
+  }
+
+  const liveForegroundQueueItemId = liveForegroundRemoteWaitQueueItemId();
+  if (liveForegroundQueueItemId === descriptor.queueItemId) {
+    // FILE_PREPARE/PLAY_PRELOADED may select the row before the host finishes
+    // uploading its speculative object. The late preload descriptor is now the
+    // foreground answer; consume it immediately instead of waiting for a
+    // redundant non-preload descriptor that may never be sent.
+    if (
+      _deferredPreloadDescriptor &&
+      sameRemoteDescriptorBytes(_deferredPreloadDescriptor, descriptor)
+    ) {
+      _deferredPreloadDescriptor = null;
+    }
+    _activeDownload?.abort.abort();
+    _activeDownload = null;
+    _activePreloadDownload?.abort.abort();
+    _activePreloadDownload = null;
+    const foregroundDescriptor = { ...descriptor, preload: undefined };
+    const entry: DownloadEntry = {
+      objectId: descriptor.objectId,
+      descriptor: foregroundDescriptor,
+      abort: new AbortController(),
+      intent: 'foreground',
+      progress: 0,
+    };
+    _activeDownload = entry;
+    adoptRemoteContext(foregroundDescriptor);
+    enterForegroundRemoteDownload(entry);
+    await runRemoteDownload(entry);
+    return;
+  }
+
+  // FILE_PREPARE can establish foreground ownership before its R2 descriptor
+  // arrives. That descriptor-less wait is still the strict priority lane: a
+  // next-track hint must remain queued instead of overwriting activeTarget and
+  // then being discarded when the current descriptor finally appears.
+  if (_activeDownload || liveForegroundQueueItemId) {
+    deferRemotePreload(descriptor);
+    log.debug('[RemoteShare] Preload queued behind the current-file wait/download');
+    return;
+  }
+
+  const ready = getState('preload.ready');
+  if (ready && isPreloadedRemoteFile(descriptor, ready)) return;
+
+  if (_activePreloadDownload) {
+    if (sameRemoteDownloadOwner(_activePreloadDownload, descriptor)) return;
+    _activePreloadDownload.abort.abort();
+  }
+
+  const entry: DownloadEntry = {
+    objectId: descriptor.objectId,
+    descriptor,
+    abort: new AbortController(),
+    intent: 'preload',
+    progress: 0,
+  };
+  _activePreloadDownload = entry;
+  const meta = remotePreloadMeta(descriptor);
+  batchSetState({
+    'preload.ready': null,
+    'preload.activeTarget': meta,
+    'preload.nextQueueItemId': descriptor.queueItemId,
+  });
+  await runRemoteDownload(entry);
 }
 
 async function handleRemoteFileShare(
@@ -907,9 +1616,9 @@ async function handleRemoteFileShare(
   const ownerSnapshot = captureRemoteDescriptorOwner();
 
   const explicitR2Delivery = descriptor.delivery === 'r2';
-  if (getState('network.connectionType') === 'unknown') {
+  if (!explicitR2Delivery && getState('network.connectionType') === 'unknown') {
     const resolved = await waitForGuestConnectionType(3000);
-    if (resolved === 'local' && !explicitR2Delivery) return;
+    if (resolved === 'local') return;
   } else if (!isRemoteGuest() && !explicitR2Delivery) {
     return;
   }
@@ -921,7 +1630,13 @@ async function handleRemoteFileShare(
 
   recordGuestFileDelivery(descriptor.queueItemId, descriptor.sessionId, 'r2');
 
+  if (descriptor.preload === true) {
+    await handleRemotePreloadShare(descriptor);
+    return;
+  }
+
   if (isCurrentRemoteFileLoaded(descriptor)) {
+    reconcileDeferredPreloadForActiveDescriptor(descriptor);
     log.debug('[RemoteShare] Active descriptor already loaded, ignoring duplicate');
     clearManagedTimer(REMOTE_WAIT_TIMER);
     completeFileRequest(conn, descriptor.queueItemId, descriptor.sessionId);
@@ -932,6 +1647,7 @@ async function handleRemoteFileShare(
   // preload slot. Skip the redundant download and promote the existing blob.
   const preReady = getState('preload.ready');
   if (preReady && isPreloadedRemoteFile(descriptor, preReady)) {
+    reconcileDeferredPreloadForActiveDescriptor(descriptor);
     log.info(
       `[RemoteShare] Active descriptor matches preloaded blob (${descriptor.queueItemId}); promoting`,
     );
@@ -1008,10 +1724,34 @@ async function handleRemoteFileShare(
     }
   }
 
+  reconcileDeferredPreloadForActiveDescriptor(descriptor);
+
   // The descriptor has survived connection, queue, and adopted-context gates.
   // Only now may it settle a request; stale same-queue descriptors must not
   // clear an unscoped successor before being rejected above.
   completeFileRequest(conn, descriptor.queueItemId, descriptor.sessionId);
+
+  // The same speculative object is already arriving. Transfer ownership from
+  // the background lane to foreground playback without aborting XHR/decrypt or
+  // allocating a second transport reservation.
+  if (_activePreloadDownload && sameRemoteDownloadOwner(_activePreloadDownload, descriptor)) {
+    const promoted = _activePreloadDownload;
+    _activePreloadDownload = null;
+    _activeDownload?.abort.abort();
+    _activeDownload = promoted;
+    promoted.descriptor = descriptor;
+    adoptRemoteContext(descriptor);
+    enterForegroundRemoteDownload(promoted, true);
+    log.info(`[RemoteShare] Promoted in-flight remote preload (${descriptor.queueItemId})`);
+    return;
+  }
+
+  // An unrelated speculative object must yield to active playback. This is a
+  // narrow owner cancellation; a matching owner took the promotion path above.
+  if (_activePreloadDownload) {
+    _activePreloadDownload.abort.abort();
+    _activePreloadDownload = null;
+  }
 
   // Active descriptor: supersede any in-flight active download for a
   // DIFFERENT object (newer track wins). Same-object dedup keeps the
@@ -1051,6 +1791,8 @@ async function handleRemoteFileShare(
     objectId: descriptor.objectId,
     descriptor,
     abort,
+    intent: 'foreground',
+    progress: 0,
   };
   adoptRemoteContext(descriptor);
   let transportReservation: RemoteTransportMemoryReservation | null = null;
@@ -1247,8 +1989,10 @@ async function handleRemoteFileShare(
     showLoader(false);
   } finally {
     transportReservation?.release();
-    if (_activeDownload?.abort === abort) {
+    const releasedForeground = _activeDownload?.abort === abort;
+    if (releasedForeground) {
       _activeDownload = null;
+      scheduleDeferredRemotePreloadDrain();
     }
   }
 }
@@ -1314,10 +2058,10 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
 }
 
-function handleFileR2Capability(
+async function handleFileR2Capability(
   data: ProtocolMsg<typeof MSG.FILE_R2_CAPABILITY>,
   conn?: DataConnection,
-): void {
+): Promise<void> {
   if (data.version !== 1 || data.localAudience !== true) return;
   if (getState('network.appRole') !== 'host' || !conn?.peer) return;
   if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
@@ -1326,24 +2070,56 @@ function handleFileR2Capability(
   if (recoveredSessionIds.length === 0) return;
 
   const current = getState('files.current');
-  if (!(current?.blob instanceof File) || !current.queueItemId) return;
-  if (getState('playlist.currentQueueItemId') !== current.queueItemId) return;
-  if (!recoveredSessionIds.includes(current.sessionId)) return;
-  if (!shouldConnectionUseR2(conn, current.sessionId)) return;
+  let replayedCurrentOwner: { queueItemId: QueueItemId; sessionId: number } | null = null;
+  if (
+    current?.blob instanceof File &&
+    current.queueItemId &&
+    getState('playlist.currentQueueItemId') === current.queueItemId &&
+    recoveredSessionIds.includes(current.sessionId) &&
+    shouldConnectionUseR2(conn, current.sessionId)
+  ) {
+    safeSend(conn, {
+      type: MSG.FILE_PREPARE,
+      name: current.name,
+      queueItemId: current.queueItemId,
+      sessionId: current.sessionId,
+      size: current.blob.size,
+      mime: current.mime || current.blob.type || 'application/octet-stream',
+      autoPlayDelayMs: 0,
+      delivery: 'r2',
+    });
+    await shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {
+      queueItemId: current.queueItemId,
+    });
+    replayedCurrentOwner = {
+      queueItemId: current.queueItemId,
+      sessionId: current.sessionId,
+    };
+  }
 
-  safeSend(conn, {
-    type: MSG.FILE_PREPARE,
-    name: current.name,
-    queueItemId: current.queueItemId,
-    sessionId: current.sessionId,
-    size: current.blob.size,
-    mime: current.mime || current.blob.type || 'application/octet-stream',
-    autoPlayDelayMs: 0,
-    delivery: 'r2',
-  });
-  void shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {
-    queueItemId: current.queueItemId,
-  });
+  // ICE can classify the ninth local peer before its capability frame arrives.
+  // That ordering recovers every already-frozen session at once, including the
+  // independently frozen next-track session. Replay its warm descriptor too;
+  // otherwise this one peer alone would miss preload until foreground play.
+  // Establish current playback first. If next arrives before a slow current
+  // upload, the guest would start the warm GET and then abort it for current,
+  // with no second one-shot hint. Re-read authority after the await so playlist
+  // changes and connection replacement cannot publish a stale next target.
+  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn || !conn.open) return;
+  const preload = getState('preload.ready');
+  const preloadTarget = getState('preload.activeTarget');
+  if (
+    REMOTE_FILE_PRELOAD_ENABLED &&
+    preload?.blob instanceof File &&
+    preload.queueItemId === preloadTarget?.queueItemId &&
+    preload.sessionId === preloadTarget.sessionId &&
+    (replayedCurrentOwner?.queueItemId !== preload.queueItemId ||
+      replayedCurrentOwner.sessionId !== preload.sessionId) &&
+    recoveredSessionIds.includes(preload.sessionId) &&
+    shouldConnectionUseR2(conn, preload.sessionId)
+  ) {
+    await preloadRemoteFileIfNeeded(preload.blob, preload.sessionId, preload.queueItemId, conn);
+  }
 }
 
 function resetRemoteShareAuthorityBoundary(): void {
@@ -1358,6 +2134,10 @@ function resetRemoteShareAuthorityBoundary(): void {
 
   _activeDownload?.abort.abort();
   _activeDownload = null;
+  _activePreloadDownload?.abort.abort();
+  _activePreloadDownload = null;
+  _deferredPreloadDescriptor = null;
+  _remotePreloadDrainQueued = false;
   clearManagedTimer(REMOTE_WAIT_TIMER);
   setState('share.remote', {
     upload: {
@@ -1384,7 +2164,25 @@ export function initRemoteShare(): void {
 
   _observedHostConn = getState('network.hostConn');
 
-  bus.on('orchestrator:peer-joined', (peerId) => {
+  // Foreground storage adoption is asynchronous. These transitions retry a
+  // deferred R2 preload only after the shared resident slot is released, and
+  // also cover a local/P2P current transfer followed by an R2-only next track.
+  bus.on('state:preload.ready', scheduleDeferredRemotePreloadDrain);
+  bus.on('state:files.current', scheduleDeferredRemotePreloadDrain);
+  bus.on('state:playback.lifecycle', scheduleDeferredRemotePreloadDrain);
+  bus.on('state:playlist.items', () => {
+    const activeQueueItemId = _activePreloadDownload?.descriptor.queueItemId;
+    if (activeQueueItemId && !getQueueItemById(activeQueueItemId)) {
+      cancelRemoteFilePreload('playlist-item-removed', activeQueueItemId);
+    }
+    const deferredQueueItemId = _deferredPreloadDescriptor?.queueItemId;
+    if (deferredQueueItemId && !getQueueItemById(deferredQueueItemId)) {
+      cancelRemoteFilePreload('playlist-item-removed', deferredQueueItemId);
+    }
+    scheduleDeferredRemotePreloadDrain();
+  });
+
+  const warmLateR2Peer = async (peerId: string): Promise<void> => {
     const hostConn = getState('network.hostConn');
     if (hostConn || !isRemoteShareConfigured()) return;
 
@@ -1395,16 +2193,60 @@ export function initRemoteShare(): void {
 
     const current = getState('files.current');
     const currentBlob = current?.blob;
-    if (!(currentBlob instanceof File) || !current?.queueItemId) return;
-    if (getState('playlist.currentQueueItemId') !== current.queueItemId) return;
-    const sessionId = current.sessionId;
-    if (!sessionId || !shouldConnectionUseR2(peer.conn, sessionId)) return;
-    void shareRemoteFileIfNeeded(currentBlob, sessionId || null, peer.conn, {
-      queueItemId: current.queueItemId,
-    });
-  });
+    let replayedCurrentOwner: { queueItemId: QueueItemId; sessionId: number } | null = null;
+    if (
+      currentBlob instanceof File &&
+      current?.queueItemId &&
+      getState('playlist.currentQueueItemId') === current.queueItemId &&
+      current.sessionId &&
+      shouldConnectionUseR2(peer.conn, current.sessionId)
+    ) {
+      await shareRemoteFileIfNeeded(currentBlob, current.sessionId, peer.conn, {
+        queueItemId: current.queueItemId,
+      });
+      replayedCurrentOwner = {
+        queueItemId: current.queueItemId,
+        sessionId: current.sessionId,
+      };
+    }
 
-  bus.on('orchestrator:peer-evaluated', () => {
+    // Give a late R2 participant the same warm next-track resident that a late
+    // LAN participant receives through unicastPreload. The completed object is
+    // normally cached, so this targets only a small descriptor and one GET.
+    if (
+      getState('network.hostConn') ||
+      !peer.conn.open ||
+      !isPeerConnectionCurrent(peer.conn.peer, peer.conn)
+    ) {
+      return;
+    }
+    const preload = getState('preload.ready');
+    const preloadTarget = getState('preload.activeTarget');
+    if (
+      REMOTE_FILE_PRELOAD_ENABLED &&
+      preload?.blob instanceof File &&
+      preload.queueItemId === preloadTarget?.queueItemId &&
+      preload.sessionId === preloadTarget.sessionId &&
+      (replayedCurrentOwner?.queueItemId !== preload.queueItemId ||
+        replayedCurrentOwner.sessionId !== preload.sessionId) &&
+      shouldConnectionUseR2(peer.conn, preload.sessionId)
+    ) {
+      await preloadRemoteFileIfNeeded(
+        preload.blob,
+        preload.sessionId,
+        preload.queueItemId,
+        peer.conn,
+      );
+    }
+  };
+  // peer-joined may precede ICE classification; the later events retry the
+  // same idempotent cached descriptors once R2 routing/data eligibility is
+  // known, so no late participant misses the one-shot warm hint.
+  bus.on('orchestrator:peer-joined', warmLateR2Peer);
+  bus.on('orchestrator:peer-data-target-ready', warmLateR2Peer);
+
+  bus.on('orchestrator:peer-evaluated', (peerId: string) => {
+    warmLateR2Peer(peerId);
     abortActiveUploadsWithoutTargets('no-r2-targets');
   });
 

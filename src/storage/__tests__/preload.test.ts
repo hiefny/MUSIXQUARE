@@ -26,6 +26,11 @@ const storageMocks = vi.hoisted(() => ({
   readStoredFile: vi.fn(),
   postCommand: vi.fn(),
 }));
+const proRoomMocks = vi.hoisted(() => ({
+  preloadFile: vi.fn(),
+  hasPreloadedFile: vi.fn(),
+  cancelPreload: vi.fn(),
+}));
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
@@ -44,6 +49,16 @@ vi.mock('../storage.ts', async (importOriginal) => {
   };
 });
 
+vi.mock('../../pro-room/legacy-media-hooks.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../pro-room/legacy-media-hooks.ts')>();
+  return {
+    ...actual,
+    preloadProRoomPlaylistFile: proRoomMocks.preloadFile,
+    hasProRoomPlaylistFilePreload: proRoomMocks.hasPreloadedFile,
+    cancelProRoomPlaylistFilePreload: proRoomMocks.cancelPreload,
+  };
+});
+
 beforeEach(() => {
   resetState();
   resetFileDeliveryPolicies();
@@ -51,6 +66,10 @@ beforeEach(() => {
   storageMocks.readStoredFile.mockReset();
   storageMocks.readStoredFile.mockResolvedValue(null);
   storageMocks.postCommand.mockClear();
+  proRoomMocks.preloadFile.mockReset();
+  proRoomMocks.hasPreloadedFile.mockReset();
+  proRoomMocks.hasPreloadedFile.mockReturnValue(false);
+  proRoomMocks.cancelPreload.mockReset();
   queueSequence = 10;
 });
 
@@ -73,7 +92,173 @@ describe('schedulePreload', () => {
     expect(() => schedulePreload()).not.toThrow();
   });
 
-  it('does not enter the legacy preload pipeline in a persistent PRO room', async () => {
+  it('self-preloads the coordinator next PRO asset without legacy chunk frames', async () => {
+    vi.useFakeTimers();
+    const current = makeFileTrack('current.flac', Q0);
+    const next = makeFileTrack('next.flac', Q1);
+    const downloaded = new File(['persistent-r2'], 'next.flac', { type: 'audio/flac' });
+    const conn = {
+      open: true,
+      peer: 'pro-member',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-1',
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('playlist.items', [current, { ...next, file: undefined }]);
+    setState('playlist.currentQueueItemId', Q0);
+    setState('network.connectedPeers', [
+      {
+        id: conn.peer,
+        status: 'connected',
+        conn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+    ]);
+    proRoomMocks.preloadFile.mockResolvedValueOnce(downloaded);
+
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+
+    expect(proRoomMocks.preloadFile).toHaveBeenCalledWith(Q1);
+    expect(getState('preload.isPreloading')).toBe(false);
+    expect(getState('preload.nextQueueItemId')).toBe(Q1);
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1 });
+    expect(getState('preload.ready')).toBeNull();
+    const messages = vi.mocked(conn.send).mock.calls.map(([message]) => message);
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1 }),
+    );
+    expect(messages.some((message) => message.type === MSG.PRELOAD_START)).toBe(false);
+    expect(messages.some((message) => message.type === MSG.PRELOAD_CHUNK)).toBe(false);
+    expect(messages.some((message) => message.type === MSG.PRELOAD_END)).toBe(false);
+  });
+
+  it('accepts a PRO preload hint only from the exact coordinator connection', async () => {
+    initPreload();
+    const hostConn = {
+      open: true,
+      peer: 'pro-coordinator',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const staleConn = {
+      open: true,
+      peer: 'pro-coordinator',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const downloaded = new File(['next'], 'next.flac', { type: 'audio/flac' });
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: hostConn.peer,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile.mockResolvedValue(downloaded);
+
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, staleConn);
+    expect(proRoomMocks.preloadFile).not.toHaveBeenCalled();
+
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce();
+    expect(getState('preload.ready')).toBeNull();
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 9 });
+  });
+
+  it('re-fetches an identical PRO hint when its completed LRU entry was evicted', async () => {
+    initPreload();
+    const hostConn = {
+      open: true,
+      peer: 'pro-coordinator',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: hostConn.peer,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile.mockResolvedValue(
+      new File(['next'], 'next.flac', { type: 'audio/flac' }),
+    );
+
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce();
+
+    proRoomMocks.hasPreloadedFile.mockReturnValue(true);
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
+    expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce();
+
+    proRoomMocks.hasPreloadedFile.mockReturnValue(false);
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
+  });
+
+  it('replays a PRO preload hint that arrives before playlist projection', async () => {
+    initPreload();
+    const hostConn = {
+      open: true,
+      peer: 'pro-coordinator',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const downloaded = new File(['next'], 'next.flac', { type: 'audio/flac' });
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: hostConn.peer,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeFileTrack('current.flac', Q0)]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile.mockResolvedValue(downloaded);
+
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 9 }, hostConn);
+    expect(proRoomMocks.preloadFile).not.toHaveBeenCalled();
+
+    // Persistent-room projection installs the media hooks before publishing
+    // this playlist state. The retained one-shot hint must now start itself.
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 9 });
+  });
+
+  it('clears a skipped PRO preload so the same target can be retried', async () => {
     vi.useFakeTimers();
     setState('room.context', {
       kind: 'pro',
@@ -84,21 +269,215 @@ describe('schedulePreload', () => {
       snapshotRevision: 4,
       capabilities: ['playback.control'],
     });
-    setState('preload.isPreloading', true);
-    setState('preload.nextQueueItemId', Q1);
-    setState('preload.activeTarget', {
-      queueItemId: Q1,
-      sessionId: 7,
-      name: 'next.flac',
-    });
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile.mockResolvedValueOnce(null);
 
     schedulePreload(0);
     await vi.runOnlyPendingTimersAsync();
-
-    expect(storageMocks.readStoredFile).not.toHaveBeenCalled();
-    expect(getState('preload.isPreloading')).toBe(false);
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
     expect(getState('preload.nextQueueItemId')).toBeNull();
     expect(getState('preload.activeTarget')).toBeNull();
+
+    const retry = new File(['retry'], 'next.flac', { type: 'audio/flac' });
+    proRoomMocks.preloadFile.mockResolvedValueOnce(retry);
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2);
+    expect(getState('preload.nextQueueItemId')).toBe(Q1);
+  });
+
+  it('restarts a completed PRO target after its bounded cache entry was evicted', async () => {
+    vi.useFakeTimers();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-1',
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile.mockResolvedValue(
+      new File(['cached'], 'next.flac', { type: 'audio/flac' }),
+    );
+
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce();
+
+    // Metadata remains, but the runtime's byte-bounded LRU no longer owns the
+    // bytes. A new schedule must verify residency and warm the target again.
+    proRoomMocks.hasPreloadedFile.mockReturnValue(false);
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
+  });
+
+  it('accepts a lower PRO preload session after the coordinator connection changes', async () => {
+    initPreload();
+    const firstHost = {
+      open: true,
+      peer: 'coordinator-a',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const nextHost = {
+      open: true,
+      peer: 'coordinator-b',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: firstHost.peer,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile.mockResolvedValue(
+      new File(['next'], 'next.flac', { type: 'audio/flac' }),
+    );
+
+    setState('network.hostConn', firstHost);
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 99 }, firstHost);
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+
+    setState('network.hostConn', nextHost);
+    setState('room.context', {
+      ...getState('room.context'),
+      coordinatorId: nextHost.peer,
+      epoch: 3,
+    });
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 1 }, nextHost);
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 1 });
+  });
+
+  it('drops the predecessor preload owner when this member becomes coordinator', async () => {
+    initPreload();
+    const oldHost = {
+      open: true,
+      peer: 'coordinator-a',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const lateMember = {
+      open: true,
+      peer: 'late-member',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: oldHost.peer,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('network.hostConn', oldHost);
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    setState('network.connectedPeers', [
+      {
+        id: lateMember.peer,
+        status: 'connected',
+        conn: lateMember,
+        isDataTarget: true,
+        connectionType: 'remote',
+        joinOrder: 1,
+      },
+    ]);
+    proRoomMocks.preloadFile.mockResolvedValue(
+      new File(['next'], 'next.flac', { type: 'audio/flac' }),
+    );
+    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 99 }, oldHost);
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+
+    setState('room.context', {
+      ...getState('room.context'),
+      role: 'coordinator',
+      coordinatorId: 'participant-self',
+      epoch: 3,
+    });
+    expect(getState('preload.activeTarget')).toBeNull();
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    bus.emit('orchestrator:peer-joined', lateMember.peer);
+    expect(lateMember.send).not.toHaveBeenCalled();
+
+    setState('network.hostConn', null);
+    expect(getState('preload.activeTarget')).toBeNull();
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    bus.emit('orchestrator:peer-joined', lateMember.peer);
+    expect(lateMember.send).not.toHaveBeenCalled();
+  });
+
+  it('replays the authoritative PRO hint for both initial and promoted late peers', () => {
+    initPreload();
+    const conn = {
+      open: true,
+      peer: 'late-pro-member',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-1',
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('network.connectedPeers', [
+      {
+        id: conn.peer,
+        status: 'connected',
+        conn,
+        isDataTarget: true,
+        connectionType: 'remote',
+        joinOrder: 1,
+      },
+    ]);
+    setState('preload.nextQueueItemId', Q1);
+    setState('preload.activeTarget', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: 'next.flac',
+      sessionId: 14,
+    });
+
+    bus.emit('orchestrator:peer-joined', conn.peer);
+    expect(conn.send).toHaveBeenCalledWith({
+      type: MSG.PRO_FILE_PRELOAD,
+      queueItemId: Q1,
+      sessionId: 14,
+    });
+
+    vi.mocked(conn.send).mockClear();
+    bus.emit('orchestrator:peer-data-target-ready', conn.peer);
+    expect(conn.send).toHaveBeenCalledWith({
+      type: MSG.PRO_FILE_PRELOAD,
+      queueItemId: Q1,
+      sessionId: 14,
+    });
   });
 });
 
@@ -390,6 +769,30 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
 
     expect(getState('preload.nextQueueItemId')).toBe(getState('playlist.items')[0]!.queueItemId);
     expect(getState('preload.ready')).not.toBeNull();
+  });
+
+  it('does not duplicate the current resident for repeat-one replay', async () => {
+    const current = getState('playlist.items')[0]!;
+    const currentFile = current.file!;
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    setState('files.current', {
+      queueItemId: current.queueItemId,
+      indexHint: 0,
+      name: currentFile.name,
+      size: currentFile.size,
+      mime: currentFile.type,
+      sessionId: 7,
+      blob: currentFile,
+    });
+    setRepeatMode(2, false);
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.activeTarget')).toBeNull();
+    expect(getState('preload.ready')).toBeNull();
+    expect(getState('preload.isPreloading')).toBe(false);
   });
 });
 

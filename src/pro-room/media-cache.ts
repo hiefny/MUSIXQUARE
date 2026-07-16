@@ -99,6 +99,29 @@ export class ProRoomAssetCache {
     this.#totalBytes += normalizedFile.size;
   }
 
+  /**
+   * Evict before a whole response body is assembled. Waiting until put()
+   * would briefly retain the old LRU bytes and the incoming ArrayBuffer/File
+   * at the same time, defeating the cache's peak-memory bound.
+   */
+  prepareForIncoming(byteLength: number, retainedBytesOutsideCache = 0): void {
+    if (
+      !Number.isSafeInteger(byteLength) ||
+      byteLength <= 0 ||
+      byteLength > PRO_ROOM_MAX_ASSET_BYTES ||
+      !Number.isSafeInteger(retainedBytesOutsideCache) ||
+      retainedBytesOutsideCache < 0 ||
+      retainedBytesOutsideCache + byteLength > PRO_ROOM_MAX_ASSET_BYTES
+    ) {
+      throw new Error('PRO_ROOM_CACHE_BUDGET_EXCEEDED');
+    }
+    while (this.#totalBytes + retainedBytesOutsideCache + byteLength > this.#maxTotalBytes) {
+      const oldestKey = this.#entries.keys().next().value as string | undefined;
+      if (oldestKey === undefined) break;
+      this.#deleteKey(oldestKey);
+    }
+  }
+
   delete(source: Pick<ProRoomR2Source, 'assetId' | 'version'>): boolean {
     return this.#deleteKey(proRoomAssetCacheKey(source));
   }

@@ -73,6 +73,8 @@ export interface RemoteFileSharePayload {
   expiresAt: number;
   /** Explicit host-authorized object-storage delivery for a local guest. */
   delivery?: 'r2';
+  /** Background next-track delivery. Absence means the active playback file. */
+  preload?: true;
 }
 
 export type RemoteShareUploadStatus = 'idle' | 'encrypting' | 'uploading' | 'done' | 'error';
@@ -338,6 +340,8 @@ export interface ProtocolMap {
     /** Repaint an equal-revision operator view after a rejected/no-op mutation. */
     refresh?: true;
   };
+  /** Coordinator-selected next persistent file; members self-preload from R2. */
+  'pro-file-preload': { queueItemId: QueueItemId; sessionId: number };
   /** Member hint that the authenticated PRO service has a newer snapshot. */
   'pro-room-invalidated': { revision: number; playlistRevision: number };
   /** A member asks the coordinator to refresh the server-owned live-share resource. */

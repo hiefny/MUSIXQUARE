@@ -26,6 +26,7 @@ import {
   sendFileRequest,
 } from '../network/file-request-authority.ts';
 import {
+  broadcast,
   safeSend,
   sendToHost,
   canSendFileTo,
@@ -37,9 +38,15 @@ import {
   isBulkTransferWritablePeer,
   isPeerConnectionCurrent,
 } from './chunk-pump.ts';
-import type { ConnectedPeer, DataConnection, QueueItemId } from '../types/index.ts';
+import type { ConnectedPeer, DataConnection, ProtocolMsg, QueueItemId } from '../types/index.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
-import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
+import {
+  cancelRemoteFilePreload,
+  preloadRemoteFileIfNeeded,
+  prepareRemoteShareWait,
+  promoteRemotePreloadWait,
+  shouldWaitForRemoteShare,
+} from '../share/remote-share.ts';
 import { transition } from '../player/lifecycle.ts';
 import {
   currentAudioBufferPcmBytes,
@@ -53,6 +60,19 @@ import {
   isGuestR2FileDelivery,
   recordGuestFileDelivery,
 } from '../share/file-delivery-policy.ts';
+import { isCoordinator } from '../rooms/authority.ts';
+import {
+  cancelProRoomPlaylistFilePreload,
+  hasProRoomPlaylistFilePreload,
+  preloadProRoomPlaylistFile,
+} from '../pro-room/legacy-media-hooks.ts';
+
+/**
+ * One-switch rollback for the persistent-room R2 prefetch policy. Keep this
+ * independent from the standard-room remote-share switch so operations can
+ * shed either workload without disabling LAN preload.
+ */
+const PRO_ROOM_FILE_PRELOAD_ENABLED = true;
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -226,6 +246,32 @@ function cancelInFlightBackgroundTransfer(): void {
  */
 let _preloadGeneration = 0;
 
+interface ProRoomPreloadOwner {
+  readonly queueItemId: QueueItemId;
+  readonly sessionId: number;
+  promise: Promise<void>;
+}
+
+interface PendingProRoomPreloadHint {
+  readonly roomId: string;
+  readonly queueItemId: QueueItemId;
+  readonly sessionId: number;
+  readonly hostConn: DataConnection;
+}
+
+/**
+ * PRO media never enters the legacy chunk pump. Each participant warms the
+ * canonical private-R2 object itself, while this owner publishes the same
+ * queue/session identity into the ordinary preload slot. Selecting the row
+ * can therefore adopt an in-flight promise or a completed File without a
+ * second GET.
+ */
+let _proRoomPreloadOwner: ProRoomPreloadOwner | null = null;
+// Signaling can deliver the coordinator's one-shot warm hint before the
+// member has projected that queue occurrence. Retain only the newest exact
+// authority tuple and replay it once the playlist/runtime hooks are ready.
+let _pendingProRoomPreloadHint: PendingProRoomPreloadHint | null = null;
+
 /**
  * Clean up reorder buffers and session state for stale (non-current) sessions.
  */
@@ -300,11 +346,13 @@ function abandonStalledPreloadSession(sessionId: number, reason: string): void {
  * already in flight arrives before the abort; later chunks are dropped by the
  * receiver's skipped-session guard.
  */
-export function cancelPreloadTransfer(): void {
+export function cancelPreloadTransfer(queueItemId?: QueueItemId): void {
   // Supersede any pending preloadNextTrack that is still awaiting a prior
   // serialized transfer — it will notice the generation mismatch after its
   // await and exit instead of starting a new (unwanted) transfer.
   _preloadGeneration++;
+
+  cancelRemoteFilePreload('preload-transfer-cancelled', queueItemId);
 
   // Notify the exact peers that received PRELOAD_START before disposing the
   // transfer scope. This still works after local cache promotion clears its
@@ -341,6 +389,7 @@ export function resetPreloadReceiveAuthority(): void {
   _preloadGeneration++;
   _awaitedPreloadIdentity = null;
   _activePlayPreloadedQueueItemId = undefined;
+  _pendingProRoomPreloadHint = null;
   latestPreloadSessionId = 0;
 
   const sessionIds = new Set<number>([
@@ -384,13 +433,6 @@ export function resetPreloadReceiveAuthority(): void {
 export function schedulePreload(delayMs = 500): void {
   _preloadGeneration++;
   clearManagedTimer('preloadScheduleTimer');
-  if (getState('room.context').kind === 'pro') {
-    // PRO assets are fetched from the persistent room bucket by each device.
-    // Do not let a cached coordinator File re-enter the legacy PRELOAD_CHUNK
-    // fanout path.
-    clearPreloadCacheState();
-    return;
-  }
   setManagedTimer(
     'preloadScheduleTimer',
     () => {
@@ -402,10 +444,208 @@ export function schedulePreload(delayMs = 500): void {
 
 /** Reset the preload cache fields so the host fast path can't pick up a stale entry. */
 function clearPreloadCacheState(): void {
+  if (getState('room.context').kind === 'pro') {
+    const ownerQueueItemId =
+      _proRoomPreloadOwner?.queueItemId ??
+      getState('preload.ready')?.queueItemId ??
+      getState('preload.activeTarget')?.queueItemId;
+    cancelProRoomPlaylistFilePreload(ownerQueueItemId);
+    _proRoomPreloadOwner = null;
+  }
   setState('preload.nextQueueItemId', null);
   setState('preload.isPreloading', false);
   setState('preload.ready', null);
   setState('preload.activeTarget', null);
+}
+
+function proRoomPreloadMeta(queueItemId: QueueItemId, sessionId: number) {
+  const playlist = getState('playlist.items');
+  const indexHint = playlist.findIndex((item) => item.queueItemId === queueItemId);
+  const item = indexHint >= 0 ? playlist[indexHint] : null;
+  if (!item || item.type !== 'file') return null;
+  const size = item.file?.size ?? 0;
+  const mime = item.file?.type ?? '';
+  return {
+    name: item.name,
+    queueItemId,
+    indexHint,
+    mime,
+    size,
+    total: size > 0 ? Math.max(1, Math.ceil(size / CHUNK_SIZE)) : 1,
+    sessionId,
+  };
+}
+
+function isCurrentProRoomPreloadOwner(owner: ProRoomPreloadOwner): boolean {
+  const context = getState('room.context');
+  const target = getState('preload.activeTarget');
+  return (
+    _proRoomPreloadOwner === owner &&
+    context.kind === 'pro' &&
+    getState('preload.nextQueueItemId') === owner.queueItemId &&
+    target?.queueItemId === owner.queueItemId &&
+    Number(target.sessionId) === owner.sessionId
+  );
+}
+
+function beginProRoomFilePreload(
+  queueItemId: QueueItemId,
+  sessionId: number,
+): Promise<void> | null {
+  if (
+    !PRO_ROOM_FILE_PRELOAD_ENABLED ||
+    getState('room.context').kind !== 'pro' ||
+    !Number.isSafeInteger(sessionId) ||
+    sessionId <= 0
+  ) {
+    return null;
+  }
+
+  const existing = _proRoomPreloadOwner;
+  if (
+    existing?.queueItemId === queueItemId &&
+    existing.sessionId === sessionId &&
+    isCurrentProRoomPreloadOwner(existing)
+  ) {
+    return existing.promise;
+  }
+
+  const settledTarget = getState('preload.activeTarget');
+  if (
+    !_proRoomPreloadOwner &&
+    getState('preload.isPreloading') === false &&
+    getState('preload.nextQueueItemId') === queueItemId &&
+    settledTarget?.queueItemId === queueItemId &&
+    Number(settledTarget.sessionId) === sessionId &&
+    hasProRoomPlaylistFilePreload(queueItemId)
+  ) {
+    return Promise.resolve();
+  }
+
+  const meta = proRoomPreloadMeta(queueItemId, sessionId);
+  if (!meta) return null;
+  const preload = preloadProRoomPlaylistFile(queueItemId);
+  if (!preload) return null;
+
+  const owner: ProRoomPreloadOwner = {
+    queueItemId,
+    sessionId,
+    promise: Promise.resolve(),
+  };
+  _proRoomPreloadOwner = owner;
+  batchSetState({
+    'preload.sessionId': sessionId,
+    'preload.nextQueueItemId': queueItemId,
+    'preload.activeTarget': meta,
+    'preload.ready': null,
+    'preload.isPreloading': true,
+  });
+
+  owner.promise = (async () => {
+    try {
+      const file = await preload;
+      if (!isCurrentProRoomPreloadOwner(owner)) return;
+      if (!file) {
+        batchSetState({
+          'preload.nextQueueItemId': null,
+          'preload.activeTarget': null,
+          'preload.ready': null,
+          'preload.isPreloading': false,
+        });
+        return;
+      }
+      const liveMeta = proRoomPreloadMeta(queueItemId, sessionId);
+      if (!liveMeta) return;
+      const cachedMeta = {
+        ...liveMeta,
+        name: file.name || liveMeta.name,
+        mime: file.type || liveMeta.mime,
+        size: file.size,
+      };
+      batchSetState({
+        // The File stays solely in ProRoomAssetCache until selection. Keeping
+        // it in preload.ready as well would let a later cache eviction leave a
+        // hidden, unbounded Blob reference alive for the rest of the session.
+        'preload.activeTarget': cachedMeta,
+        'preload.ready': null,
+        'preload.isPreloading': false,
+      });
+      log.debug(`[Preload] PRO asset cached for ${queueItemId}`);
+    } catch (error) {
+      if (!isCurrentProRoomPreloadOwner(owner)) return;
+      log.warn('[Preload] PRO background fetch failed; foreground selection may retry', error);
+      batchSetState({
+        'preload.nextQueueItemId': null,
+        'preload.activeTarget': null,
+        'preload.ready': null,
+        'preload.isPreloading': false,
+      });
+    } finally {
+      if (_proRoomPreloadOwner === owner) _proRoomPreloadOwner = null;
+    }
+  })();
+  return owner.promise;
+}
+
+function handleProRoomFilePreload(
+  data: ProtocolMsg<typeof MSG.PRO_FILE_PRELOAD>,
+  conn?: DataConnection,
+): void {
+  const context = getState('room.context');
+  if (!PRO_ROOM_FILE_PRELOAD_ENABLED || context.kind !== 'pro' || !context.roomId) return;
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
+  const currentMeta = getState('preload.activeTarget');
+  const currentSessionId = Number(currentMeta?.sessionId) || 0;
+  if (
+    currentSessionId > data.sessionId ||
+    (currentSessionId === data.sessionId && currentMeta?.queueItemId !== data.queueItemId)
+  ) {
+    return;
+  }
+
+  const operation = beginProRoomFilePreload(data.queueItemId, data.sessionId);
+  if (operation) {
+    _pendingProRoomPreloadHint = null;
+    void operation;
+    return;
+  }
+
+  const pending = _pendingProRoomPreloadHint;
+  const sameAuthority = pending?.roomId === context.roomId && pending.hostConn === hostConn;
+  if (sameAuthority) {
+    if (pending.sessionId > data.sessionId) return;
+    // A coordinator session identifies exactly one queue occurrence. Keep the
+    // first authenticated tuple if a conflicting duplicate somehow arrives.
+    if (pending.sessionId === data.sessionId && pending.queueItemId !== data.queueItemId) return;
+  }
+  _pendingProRoomPreloadHint = {
+    roomId: context.roomId,
+    queueItemId: data.queueItemId,
+    sessionId: data.sessionId,
+    hostConn,
+  };
+}
+
+function replayPendingProRoomPreloadHint(): void {
+  const pending = _pendingProRoomPreloadHint;
+  if (!pending) return;
+  const context = getState('room.context');
+  const hostConn = getState('network.hostConn');
+  if (
+    context.kind !== 'pro' ||
+    context.roomId !== pending.roomId ||
+    hostConn !== pending.hostConn
+  ) {
+    _pendingProRoomPreloadHint = null;
+    return;
+  }
+
+  const operation = beginProRoomFilePreload(pending.queueItemId, pending.sessionId);
+  if (!operation) return;
+  _pendingProRoomPreloadHint = null;
+  void operation;
 }
 
 /**
@@ -418,8 +658,21 @@ function clearPreloadCacheState(): void {
 async function preloadNextTrack(): Promise<void> {
   const myGeneration = _preloadGeneration;
 
+  const roomContext = getState('room.context');
+  if (roomContext.kind === 'pro') {
+    // The coordinator chooses the authoritative next occurrence (especially
+    // for shuffle) and sends only that identity. Every member downloads the
+    // immutable object independently from the persistent room bucket.
+    if (!isCoordinator() || getState('network.hostConn')) return;
+  } else if (getState('network.hostConn')) {
+    return;
+  }
+
   const playlist = getState('playlist.items');
-  if (playlist.length <= 1) return;
+  if (playlist.length <= 1) {
+    clearPreloadCacheState();
+    return;
+  }
 
   const currentQueueItemId = getState('playlist.currentQueueItemId');
   const currentTrackIndex = playlist.findIndex((item) => item.queueItemId === currentQueueItemId);
@@ -427,11 +680,19 @@ async function preloadNextTrack(): Promise<void> {
   const repeatMode = getState('playlist.repeatMode');
   const isShuffle = getState('playlist.isShuffle');
 
+  // Repeat-one replays the already-decoded current owner in place. Staging
+  // that same queue occurrence again would mint a new transfer session and,
+  // for R2 participants, download a duplicate Blob that can never be used.
+  // setRepeatMode()/track transitions already cancel any prior next-track
+  // work before scheduling this pass, so there is intentionally no target.
+  if (repeatMode === 2) {
+    clearPreloadCacheState();
+    return;
+  }
+
   // Determine next index
   let nextIdx: number;
-  if (repeatMode === 2) {
-    nextIdx = currentTrackIndex; // Repeat One
-  } else if (isShuffle && playlist.length > 1) {
+  if (isShuffle && playlist.length > 1) {
     // Ask playlist.ts for the next slot in its Fisher-Yates permutation so
     // the preload matches exactly what playNextTrack will pick.
     //
@@ -457,6 +718,8 @@ async function preloadNextTrack(): Promise<void> {
     }
   }
 
+  if (_preloadGeneration !== myGeneration) return;
+
   // Invalid-target early exit: clear stale preload state and bail out
   // (this runs BEFORE the serialization await so there's no window
   // where inconsistent state could be observed by the host fast path).
@@ -474,10 +737,8 @@ async function preloadNextTrack(): Promise<void> {
   // at the playlist end. The currentTrackIndex check prevents an infinite
   // wrap on an all-YouTube playlist (or a repeat-all list with only one
   // local track that we'd otherwise re-pick as our own preload target).
-  // Shuffle and repeat-one keep the prior behavior — shuffle has its own
-  // permutation that we don't second-guess, and repeat-one preloading
-  // self is the entire point.
-  if (!isShuffle && repeatMode !== 2) {
+  // Shuffle keeps its own permutation that we don't second-guess.
+  if (!isShuffle) {
     let scanCount = 0;
     while (
       scanCount < playlist.length &&
@@ -510,8 +771,8 @@ async function preloadNextTrack(): Promise<void> {
   const item = playlist[nextIdx];
   if (!item) return;
 
-  // Still possible to land on a YouTube item: shuffle's getShuffleNextIndex
-  // can return one, and repeat-one of a YouTube track maps to itself.
+  // Still possible to land on a YouTube item: shuffle's next occurrence can
+  // return one.
   // Either way, clear stale preload state so the host's fast path in
   // playTrack doesn't match a no-longer-valid cached file.
   if (item.type === 'youtube') {
@@ -519,9 +780,37 @@ async function preloadNextTrack(): Promise<void> {
     return;
   }
 
+  const queueItemId = item.queueItemId;
+
+  if (roomContext.kind === 'pro') {
+    if (!PRO_ROOM_FILE_PRELOAD_ENABLED) {
+      clearPreloadCacheState();
+      return;
+    }
+
+    const active = getState('preload.activeTarget');
+    if (
+      getState('preload.nextQueueItemId') === queueItemId &&
+      active?.queueItemId === queueItemId &&
+      (_proRoomPreloadOwner?.queueItemId === queueItemId ||
+        hasProRoomPlaylistFilePreload(queueItemId))
+    ) {
+      return;
+    }
+
+    const sessionId = nextSessionId();
+    const operation = beginProRoomFilePreload(queueItemId, sessionId);
+    if (!operation) {
+      clearPreloadCacheState();
+      return;
+    }
+    broadcast({ type: MSG.PRO_FILE_PRELOAD, queueItemId, sessionId });
+    await operation;
+    return;
+  }
+
   const file = item.file as File;
   if (!file) return;
-  const queueItemId = item.queueItemId;
 
   // A reorder can move rows without changing the actual next occurrence.
   // Keep the completed resident and its transfer session in that case: the
@@ -594,14 +883,13 @@ async function preloadNextTrack(): Promise<void> {
 
   log.debug('[Preload] Starting for:', file.name, 'session:', currentSession);
 
-  // Remote preload policy: speculative preload is local-only. The direct
-  // chunk path below already excludes remote/unknown peers, and we also avoid
-  // uploading the next track to R2 speculatively. Remote guests receive only
-  // the active current-track descriptor on demand, which keeps mobile PWA
-  // memory, battery, URL expiry, and object churn predictable.
-
-  // Broadcast preload to connected peers
-  const transferPromise = backgroundTransfer(file, queueItemId, currentSession);
+  // Warm direct-local peers and R2-routed peers in parallel. Both lanes own
+  // the exact same queue/session tuple, so promotion never has to restart at
+  // zero when this occurrence becomes current.
+  const transferPromise = Promise.all([
+    backgroundTransfer(file, queueItemId, currentSession),
+    preloadRemoteFileIfNeeded(file, currentSession, queueItemId),
+  ]).then(() => undefined);
   _inFlightBackgroundTransfer = transferPromise;
   try {
     await transferPromise;
@@ -1573,6 +1861,10 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   if (isRemoteGuest() || isGuestR2FileDelivery(queueItemId)) {
     _activePlayPreloadedQueueItemId = undefined;
     if (shouldWaitForRemoteShare()) {
+      if (promoteRemotePreloadWait(queueItemId, name)) {
+        log.info('[Guest] Promoted in-flight remote preload without restarting');
+        return;
+      }
       setPendingRecoveryTarget({ queueItemId, indexHint, name });
       const localSid = Number(getState('transfer.localSessionId')) || 0;
       const currentSid = Number(getState('transfer.currentSessionId')) || 0;
@@ -1679,7 +1971,14 @@ export function getPreloadMemoryStats(): {
 // ─── Register Handlers ──────────────────────────────────────────────
 
 export function initPreload(): void {
+  let observedProHostConn = getState('network.hostConn');
+  const initialRoomContext = getState('room.context');
+  let observedCoordinatorRoomId =
+    initialRoomContext.kind === 'pro' && initialRoomContext.role === 'coordinator'
+      ? initialRoomContext.roomId
+      : null;
   registerHandlers({
+    [MSG.PRO_FILE_PRELOAD]: handleProRoomFilePreload,
     [MSG.PRELOAD_START]: handlePreloadStart,
     [MSG.PRELOAD_CHUNK]: handlePreloadChunk,
     [MSG.PRELOAD_END]: handlePreloadEnd,
@@ -1850,11 +2149,95 @@ export function initPreload(): void {
     }
   });
 
+  // A PRO_FILE_PRELOAD frame can beat the persistent playlist projection on
+  // a fresh/returning member. Projection publishes playlist.items only after
+  // the PRO media hooks exist, making this the safe replay boundary.
+  bus.on('state:playlist.items', replayPendingProRoomPreloadHint);
+
+  // A late PRO participant misses the original broadcast hint. Re-send the
+  // exact active preload owner once its data connection becomes eligible;
+  // duplicate hints are idempotent on the member.
+  const sendProRoomPreloadHintToPeer = (peerId: string): void => {
+    if (
+      !PRO_ROOM_FILE_PRELOAD_ENABLED ||
+      getState('room.context').kind !== 'pro' ||
+      !isCoordinator()
+    ) {
+      return;
+    }
+    const target = getState('preload.activeTarget');
+    const queueItemId = getState('preload.nextQueueItemId');
+    const sessionId = Number(target?.sessionId);
+    if (
+      !queueItemId ||
+      target?.queueItemId !== queueItemId ||
+      !Number.isSafeInteger(sessionId) ||
+      sessionId <= 0
+    ) {
+      schedulePreload(0);
+      return;
+    }
+    const peer = getState('network.connectedPeers').find((candidate) => candidate.id === peerId);
+    if (!peer?.conn?.open) return;
+    safeSend(peer.conn, { type: MSG.PRO_FILE_PRELOAD, queueItemId, sessionId });
+  };
+  // Initial peers emit peer-joined; a connection promoted to a data target
+  // later emits peer-data-target-ready. Listen to both and keep the hint
+  // idempotent so local, remote, and reclassified participants all catch up.
+  bus.on('orchestrator:peer-joined', sendProRoomPreloadHintToPeer);
+  bus.on('orchestrator:peer-data-target-ready', sendProRoomPreloadHintToPeer);
+
+  bus.on('state:network.hostConn', (nextConnection: unknown) => {
+    const next = (nextConnection as DataConnection | null) ?? null;
+    const previous = observedProHostConn;
+    observedProHostConn = next;
+    if (next === previous || getState('room.context').kind !== 'pro') return;
+
+    // PRO session IDs are generated per coordinator device. A failover keeps
+    // the room code but replaces (member) or removes (new coordinator) the
+    // authenticated host connection. Both edges must discard the prior SID;
+    // otherwise a newly elected coordinator can rebroadcast its predecessor's
+    // high SID before generating a lower device-local SID.
+    cancelProRoomPlaylistFilePreload();
+    _proRoomPreloadOwner = null;
+    resetPreloadReceiveAuthority();
+    if (!next && isCoordinator()) schedulePreload(0);
+  });
+
+  bus.on('state:room.context', () => {
+    const context = getState('room.context');
+    const nextCoordinatorRoomId =
+      context.kind === 'pro' && context.role === 'coordinator' ? context.roomId : null;
+    const gainedCoordinatorAuthority =
+      !!nextCoordinatorRoomId && nextCoordinatorRoomId !== observedCoordinatorRoomId;
+    observedCoordinatorRoomId = nextCoordinatorRoomId;
+    if (context.kind !== 'pro') {
+      _pendingProRoomPreloadHint = null;
+      return;
+    }
+    // Authority can flip member→coordinator before network.hostConn is
+    // cleared. Reset on the role edge itself so peer-joined cannot rebroadcast
+    // the predecessor's cached SID under the newly elected coordinator.
+    if (gainedCoordinatorAuthority) {
+      cancelProRoomPlaylistFilePreload();
+      _proRoomPreloadOwner = null;
+      resetPreloadReceiveAuthority();
+      if (!getState('network.hostConn')) schedulePreload(0);
+      return;
+    }
+    replayPendingProRoomPreloadHint();
+    // hostConn may be cleared before the refreshed context announces our new
+    // coordinator role. Re-schedule here as the complementary ordering edge.
+    if (!getState('network.hostConn') && isCoordinator()) schedulePreload(0);
+  });
+
   // Clean up module-local variables when the session is left
   bus.on('state:network.sessionCode', () => {
     // Preload SIDs, reorder buffers, and transfer scopes belong to exactly one
     // room. Reset on every actual room-code change, including A -> B without
     // an intermediate empty value.
+    cancelProRoomPlaylistFilePreload();
+    _proRoomPreloadOwner = null;
     resetPreloadReceiveAuthority();
   });
 

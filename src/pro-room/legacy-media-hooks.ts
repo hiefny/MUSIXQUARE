@@ -14,6 +14,17 @@ export interface ProRoomLegacyMediaHooks {
     baseRevision: PlaylistRevision,
   ): boolean;
   resolveFile(queueItemId: QueueItemId): Promise<File | null> | null;
+  /**
+   * Warm one immutable PRO asset into this participant's RAM cache without
+   * entering the foreground playback lifecycle or opening the global loader.
+   * A later resolveFile() for the same queue occurrence adopts this exact
+   * promise instead of restarting the R2 request.
+   */
+  preloadFile?(queueItemId: QueueItemId): Promise<File | null> | null;
+  /** Verify that completed preload metadata still has resident cache bytes. */
+  hasPreloadedFile?(queueItemId: QueueItemId): boolean;
+  /** Cancel the background lane, optionally only when it owns this target. */
+  cancelPreload?(queueItemId?: QueueItemId): void;
   handlesPersistentFile?(queueItemId: QueueItemId): boolean;
   cancelFileResolution?(): void;
 }
@@ -76,6 +87,18 @@ export function handleProRoomTrackReorder(
 
 export function resolveProRoomPlaylistFile(queueItemId: QueueItemId): Promise<File | null> | null {
   return activeHooks?.resolveFile(queueItemId) ?? null;
+}
+
+export function preloadProRoomPlaylistFile(queueItemId: QueueItemId): Promise<File | null> | null {
+  return activeHooks?.preloadFile?.(queueItemId) ?? null;
+}
+
+export function hasProRoomPlaylistFilePreload(queueItemId: QueueItemId): boolean {
+  return activeHooks?.hasPreloadedFile?.(queueItemId) ?? false;
+}
+
+export function cancelProRoomPlaylistFilePreload(queueItemId?: QueueItemId): void {
+  activeHooks?.cancelPreload?.(queueItemId);
 }
 
 /**

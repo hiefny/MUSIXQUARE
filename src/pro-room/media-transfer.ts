@@ -53,6 +53,8 @@ interface DownloadProRoomMediaInput {
   source: ProRoomR2Source;
   onProgress?: ProRoomMediaProgress;
   signal?: AbortSignal;
+  /** Encoded bytes still owned by active playback but no longer bounded by this LRU. */
+  retainedEncodedBytes?: number;
 }
 
 export interface ProRoomMediaUploadResult {
@@ -507,6 +509,11 @@ export class ProRoomMediaTransfer {
       await cancelResponseBody(response);
       throw error;
     }
+    // Make room only after the response and its declared size are verified,
+    // but before readExactBody creates the incoming byte buffer. put() still
+    // enforces the final ledger; this pre-eviction bounds the transient
+    // old-cache + new-body overlap without discarding cache on network errors.
+    this.#cache.prepareForIncoming(input.source.byteLength, input.retainedEncodedBytes ?? 0);
     const bytes = await readExactBody(response, input.source.byteLength, report, input.signal);
     const file = new File([bytes], input.name, {
       type: effectiveMime(input.name, input.source.mime),

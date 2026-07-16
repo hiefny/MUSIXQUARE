@@ -343,6 +343,77 @@ describe('PRO playlist mutation bridge', () => {
     );
   });
 
+  it('promotes an in-flight PRO preload promise without starting a second resolution', async () => {
+    const currentFile = new File(['current'], 'current.flac', { type: 'audio/flac' });
+    const current = fileItem(currentFile.name, currentFile);
+    const next = fileItem('next.flac');
+    const downloaded = new File(['next'], next.name, { type: 'audio/flac' });
+    setState('playlist.items', [current, next]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    setState('files.current', {
+      queueItemId: current.queueItemId,
+      indexHint: 0,
+      name: currentFile.name,
+      sessionId: 16,
+      blob: currentFile,
+      mime: currentFile.type,
+      size: currentFile.size,
+    });
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setState('preload.nextQueueItemId', next.queueItemId);
+    setState('preload.isPreloading', true);
+    setState('preload.activeTarget', {
+      queueItemId: next.queueItemId,
+      indexHint: 1,
+      name: next.name,
+      sessionId: 17,
+      mime: 'audio/flac',
+      size: downloaded.size,
+    });
+    enterProRoom(['playback.control'], 'coordinator');
+
+    let finish!: (file: File) => void;
+    const inFlight = new Promise<File>((resolve) => {
+      finish = resolve;
+    });
+    let residentAtResolution: ResidentFile | null | undefined;
+    let bufferAtResolution: AudioBuffer | null | undefined;
+    const resolveFile = vi.fn(() => {
+      residentAtResolution = getState('files.current');
+      bufferAtResolution = getCurrentAudioBuffer();
+      return inFlight.then((file) => {
+        setState('playlist.items', [current, { ...next, file }]);
+        return file;
+      });
+    });
+    registerProRoomLegacyMediaHooks(
+      proMediaHooks({
+        resolveFile,
+        handlesPersistentFile: (queueItemId) => queueItemId === next.queueItemId,
+      }),
+    );
+    decodeMocks.loadPreloadedTrack.mockResolvedValue(false);
+
+    const play = playTrack(next.queueItemId);
+    await vi.waitFor(() => expect(resolveFile).toHaveBeenCalledOnce());
+    finish(downloaded);
+    await play;
+
+    expect(resolveFile).toHaveBeenCalledOnce();
+    expect(residentAtResolution).toBeNull();
+    expect(bufferAtResolution).toBeNull();
+    expect(decodeMocks.loadPreloadedTrack).toHaveBeenCalledOnce();
+    expect(decodeMocks.loadPreloadedTrack).toHaveBeenCalledWith(
+      next.queueItemId,
+      expect.any(Number),
+    );
+    expect(getState('preload.ready')).toMatchObject({
+      queueItemId: next.queueItemId,
+      sessionId: 17,
+      blob: downloaded,
+    });
+  });
+
   it('enters the existing file busy lifecycle before awaiting a persistent download', async () => {
     const unloaded = fileItem('slow.flac');
     setState('playlist.items', [unloaded]);

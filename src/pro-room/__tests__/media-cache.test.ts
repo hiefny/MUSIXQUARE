@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProRoomR2Source } from '../contracts.ts';
+import { PRO_ROOM_MAX_ASSET_BYTES, type ProRoomR2Source } from '../contracts.ts';
 import {
   ProRoomAssetCache,
   proRoomAssetCacheKeyForTests as proRoomAssetCacheKey,
@@ -45,6 +45,37 @@ describe('PRO room RAM asset cache', () => {
     expect(cache.get(c)).not.toBeNull();
     expect(cache.size).toBe(2);
     expect(cache.totalBytes).toBe(6);
+  });
+
+  it('evicts stale bytes before an incoming body is allocated', () => {
+    const cache = new ProRoomAssetCache(6);
+    const a = mediaSource('asset_00000000001', 1, 3);
+    const b = mediaSource('asset_00000000002', 1, 3);
+    cache.put(a, new File(['aaa'], 'a.mp3'));
+    cache.put(b, new File(['bbb'], 'b.mp3'));
+
+    cache.prepareForIncoming(4);
+
+    expect(cache.totalBytes).toBe(0);
+    expect(cache.get(a)).toBeNull();
+    expect(cache.get(b)).toBeNull();
+  });
+
+  it('bounds cached assets together with the active encoded resident', () => {
+    const cache = new ProRoomAssetCache(8);
+    const a = mediaSource('asset_00000000001', 1, 3);
+    const b = mediaSource('asset_00000000002', 1, 3);
+    cache.put(a, new File(['aaa'], 'a.mp3'));
+    cache.put(b, new File(['bbb'], 'b.mp3'));
+
+    cache.prepareForIncoming(3, 5);
+
+    expect(cache.totalBytes).toBe(0);
+    expect(cache.get(a)).toBeNull();
+    expect(cache.get(b)).toBeNull();
+    expect(() => cache.prepareForIncoming(4, PRO_ROOM_MAX_ASSET_BYTES)).toThrow(
+      'PRO_ROOM_CACHE_BUDGET_EXCEEDED',
+    );
   });
 
   it('fails closed on size mismatch and supports explicit asset/session cleanup', () => {

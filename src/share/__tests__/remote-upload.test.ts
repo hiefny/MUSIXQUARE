@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { REMOTE_SHARE_MAX_BYTES } from '../../core/constants.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -84,6 +84,19 @@ describe('remote upload contract', () => {
       sessionId: 7,
       queueItemId: Q2,
     });
+  });
+
+  it('keeps speculative uploads out of the foreground remote-share state', async () => {
+    const { uploadRemoteFile } = await import('../remote-upload.ts');
+    const file = new File(['data'], 'next.mp3', { type: 'audio/mpeg' });
+    const before = getState('share.remote').upload;
+
+    await expect(uploadRemoteFile(file, 7, Q2, { publishState: false })).resolves.toMatchObject({
+      queueItemId: Q2,
+      sessionId: 7,
+    });
+
+    expect(getState('share.remote').upload).toEqual(before);
   });
 
   it('accepts the exact 200 MiB boundary when encryption reports one 16-byte tag', async () => {

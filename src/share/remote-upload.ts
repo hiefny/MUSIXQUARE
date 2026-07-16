@@ -12,7 +12,10 @@ import type { QueueItemId, RemoteFileSharePayload } from '../types/index.ts';
 
 interface UploadRemoteFileOptions {
   onUploadProgress?: (progress: number) => void;
+  onStageChange?: (stage: 'encrypting' | 'uploading') => void;
   signal?: AbortSignal;
+  /** Keep speculative preload work out of the foreground remote-share UI state. */
+  publishState?: boolean;
 }
 
 export async function uploadRemoteFile(
@@ -21,7 +24,7 @@ export async function uploadRemoteFile(
   queueItemId: QueueItemId,
   options: UploadRemoteFileOptions = {},
 ): Promise<RemoteFileSharePayload> {
-  const { onUploadProgress, signal } = options;
+  const { onUploadProgress, onStageChange, signal, publishState = true } = options;
 
   if (!Number.isSafeInteger(sessionId) || sessionId <= 0 || !isQueueItemId(queueItemId)) {
     throw new Error('REMOTE_SHARE_INVALID_IDENTITY');
@@ -42,16 +45,19 @@ export async function uploadRemoteFile(
   try {
     const roomId = getState('network.sessionCode') || getState('network.myId') || 'room';
 
-    setState('share.remote', {
-      ...getState('share.remote'),
-      upload: {
-        status: 'encrypting',
-        progress: 0,
-        objectId: null,
-        expiresAt: null,
-        error: null,
-      },
-    });
+    onStageChange?.('encrypting');
+    if (publishState) {
+      setState('share.remote', {
+        ...getState('share.remote'),
+        upload: {
+          status: 'encrypting',
+          progress: 0,
+          objectId: null,
+          expiresAt: null,
+          error: null,
+        },
+      });
+    }
     onUploadProgress?.(0);
 
     const encrypted = await encryptFile(file);
@@ -60,16 +66,19 @@ export async function uploadRemoteFile(
     }
     if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
 
-    setState('share.remote', {
-      ...getState('share.remote'),
-      upload: {
-        status: 'uploading',
-        progress: 0,
-        objectId: null,
-        expiresAt: null,
-        error: null,
-      },
-    });
+    onStageChange?.('uploading');
+    if (publishState) {
+      setState('share.remote', {
+        ...getState('share.remote'),
+        upload: {
+          status: 'uploading',
+          progress: 0,
+          objectId: null,
+          expiresAt: null,
+          error: null,
+        },
+      });
+    }
 
     const uploaded = await uploadEncryptedBlob(
       encrypted.encryptedBlob,
@@ -82,30 +91,34 @@ export async function uploadRemoteFile(
         queueItemId,
       },
       (progress) => {
-        const remote = getState('share.remote');
-        setState('share.remote', {
-          ...remote,
-          upload: {
-            ...remote.upload,
-            status: 'uploading',
-            progress,
-          },
-        });
+        if (publishState) {
+          const remote = getState('share.remote');
+          setState('share.remote', {
+            ...remote,
+            upload: {
+              ...remote.upload,
+              status: 'uploading',
+              progress,
+            },
+          });
+        }
         onUploadProgress?.(progress);
       },
       signal,
     );
 
-    setState('share.remote', {
-      ...getState('share.remote'),
-      upload: {
-        status: 'done',
-        progress: 1,
-        objectId: uploaded.objectId,
-        expiresAt: uploaded.expiresAt,
-        error: null,
-      },
-    });
+    if (publishState) {
+      setState('share.remote', {
+        ...getState('share.remote'),
+        upload: {
+          status: 'done',
+          progress: 1,
+          objectId: uploaded.objectId,
+          expiresAt: uploaded.expiresAt,
+          error: null,
+        },
+      });
+    }
     onUploadProgress?.(1);
 
     return {

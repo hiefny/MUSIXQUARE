@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
-import { getState, setState } from '../core/state.ts';
+import { batchSetState as publishPreloadPromotion, getState, setState } from '../core/state.ts';
 import { MSG, WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -72,6 +72,7 @@ import {
 } from '../network/queue-mutation-authority.ts';
 import { uploadStandardOperatorFiles } from '../network/operator-file-uplink.ts';
 import {
+  cancelProRoomPlaylistFilePreload,
   handleProRoomFiles,
   handleProRoomTrackRemoval,
   handleProRoomTrackReorder,
@@ -415,9 +416,13 @@ export function clearPreloadState(force = false): void {
   const isPreloadOwnerActive =
     !force && preloadOwner !== null && preloadOwner === currentQueueItemId;
 
+  if (getState('room.context').kind === 'pro' && preloadOwner && !isPreloadOwnerActive) {
+    cancelProRoomPlaylistFilePreload(preloadOwner);
+  }
+
   // Cancel any in-flight backgroundTransfer to prevent stale preload data
   // from reaching guests after backward navigation (host-only).
-  cancelPreloadTransfer();
+  cancelPreloadTransfer(preloadOwner ?? undefined);
   if (force) resetPreloadReceiveAuthority();
 
   setState('preload.nextQueueItemId', null);
@@ -483,8 +488,14 @@ export async function playTrack(
   // leave the previous track resident while selection has advanced. The
   // resident's queueItemId, not its name or former array slot, proves ownership.
   const _isSameTrack = queueItemId === getCurrentQueueItemId();
-  const _isLocalFileTrack = item.type !== 'youtube' && !!item.file;
   const _resident = getState('files.current');
+  const _residentFile =
+    _resident?.queueItemId === queueItemId && _resident.blob instanceof File
+      ? _resident.blob
+      : null;
+  const _isLocalFileTrack =
+    item.type !== 'youtube' &&
+    (!!item.file || (isProRoomPersistentPlaylistFile(queueItemId) && !!_residentFile));
   const _bufferMatchesTrack = !!getCurrentAudioBuffer() && _resident?.queueItemId === queueItemId;
 
   if (
@@ -496,7 +507,8 @@ export async function playTrack(
   ) {
     log.debug('[Host] Same-track re-click — fast replay path (no redecode/rebroadcast)');
 
-    const file = item.file!;
+    const file = item.file ?? _residentFile;
+    if (!file) return;
     const sessionId =
       _resident?.sessionId || getState('transfer.currentSessionId') || nextSessionId();
     freezeFileDeliveryMode(sessionId);
@@ -566,6 +578,86 @@ export async function playTrack(
   // Check if preloaded
   const nextQueueItemId = getState('preload.nextQueueItemId');
   const readyPreload = getState('preload.ready');
+  const activePreloadTarget = getState('preload.activeTarget');
+
+  // A persistent PRO object may still be arriving when the coordinator picks
+  // it. Adopt that exact background promise before clearPreloadState() gets a
+  // chance to cancel it; the recursive entry then uses either the completed
+  // preload fast path or the already-published foreground File.
+  if (
+    !options.proRestore &&
+    !hostConn &&
+    isProRoomPersistentPlaylistFile(queueItemId) &&
+    queueItemId === nextQueueItemId &&
+    activePreloadTarget?.queueItemId === queueItemId &&
+    !readyPreload
+  ) {
+    const stoppedYouTubeBeforeSelection = isYouTubeOwner();
+    if (stoppedYouTubeBeforeSelection) stopAllMedia({ silent: true });
+    selectQueueItemById(queueItemId);
+    setPlaybackTrackMeta(item);
+    if (!stoppedYouTubeBeforeSelection) stopAllMedia({ silent: true });
+    // A preload can be promoted before its presigned source resolves. Release
+    // both the previous PCM and encoded resident before changing the runtime
+    // lane to foreground; otherwise two maximum-size PRO files could overlap
+    // outside the byte-bounded cache during the new GET.
+    clearPreviousTrackState('pro-preload-promote');
+    transition({ type: 'FILE_PREPARE', variant: 'fresh', queueItemId, name: item.name });
+
+    const pendingFile = resolveProRoomPlaylistFile(queueItemId);
+    if (pendingFile) {
+      try {
+        const resolved = await pendingFile;
+        if (
+          !resolved ||
+          !isCurrentLoadEpoch(myLoadEpoch) ||
+          getCurrentQueueItemId() !== queueItemId
+        ) {
+          return;
+        }
+        const promotedTarget = getState('preload.activeTarget');
+        const promotedSessionId = Number(promotedTarget?.sessionId);
+        if (
+          getState('preload.nextQueueItemId') === queueItemId &&
+          promotedTarget?.queueItemId === queueItemId &&
+          Number.isSafeInteger(promotedSessionId) &&
+          promotedSessionId > 0
+        ) {
+          const promotedIndexHint = findQueueItemIndex(queueItemId);
+          publishPreloadPromotion({
+            'preload.activeTarget': {
+              ...promotedTarget,
+              queueItemId,
+              indexHint: promotedIndexHint,
+              name: resolved.name || item.name,
+              mime: resolved.type || promotedTarget.mime || 'application/octet-stream',
+              size: resolved.size,
+            },
+            // This duplicate reference exists only across the immediate
+            // recursive activation; loadPreloadedTrack atomically promotes it
+            // to files.current and clears the preload slot.
+            'preload.ready': {
+              queueItemId,
+              indexHint: promotedIndexHint,
+              name: resolved.name || item.name,
+              sessionId: promotedSessionId,
+              blob: resolved,
+              mime: resolved.type || promotedTarget.mime || 'application/octet-stream',
+              size: resolved.size,
+            },
+            'preload.isPreloading': false,
+          });
+        }
+        return playTrack(queueItemId, subIndex, options);
+      } catch (error) {
+        if (isCurrentLoadEpoch(myLoadEpoch) && getCurrentQueueItemId() === queueItemId) {
+          log.warn('[Playlist] PRO preload promotion failed', error);
+          transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
+        }
+        return;
+      }
+    }
+  }
 
   if (
     !options.proRestore &&
@@ -599,35 +691,41 @@ export async function playTrack(
       stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
     }
 
-    const fileName = item.file?.name || item.name;
+    const preloadBlob = readyPreload.blob;
+    const preloadFile =
+      item.file ??
+      (preloadBlob instanceof File
+        ? preloadBlob
+        : new File([preloadBlob], readyPreload.name || item.name, {
+            type: readyPreload.mime || preloadBlob.type || 'application/octet-stream',
+          }));
+    const fileName = preloadFile.name || readyPreload.name || item.name;
     const isProDirect = isProRoomPersistentPlaylistFile(queueItemId);
-    if (isProDirect && item.file) {
+    if (isProDirect) {
       broadcast({
         type: MSG.FILE_PREPARE,
         queueItemId,
         name: fileName,
-        mime: item.file.type || 'application/octet-stream',
-        size: item.file.size,
+        mime: preloadFile.type || readyPreload.mime || 'application/octet-stream',
+        size: preloadFile.size,
         sessionId: getState('transfer.currentSessionId'),
         autoPlayDelayMs: 0,
       });
     } else {
-      if (item.file) {
-        const preloadSessionId = getState('transfer.currentSessionId');
-        sendFilePrepareByDelivery(
-          {
-            type: MSG.FILE_PREPARE,
-            queueItemId,
-            name: fileName,
-            mime: item.file.type || 'application/octet-stream',
-            size: item.file.size,
-            sessionId: preloadSessionId,
-            autoPlayDelayMs: 0,
-          },
-          preloadSessionId,
-          { r2Only: true },
-        );
-      }
+      const preloadSessionId = getState('transfer.currentSessionId');
+      sendFilePrepareByDelivery(
+        {
+          type: MSG.FILE_PREPARE,
+          queueItemId,
+          name: fileName,
+          mime: preloadFile.type || readyPreload.mime || 'application/octet-stream',
+          size: preloadFile.size,
+          sessionId: preloadSessionId,
+          autoPlayDelayMs: 0,
+        },
+        preloadSessionId,
+        { r2Only: true },
+      );
       broadcast({
         type: MSG.PLAY_PRELOADED,
         queueItemId,
@@ -651,9 +749,9 @@ export async function playTrack(
     // Whole-file remote encryption is admitted against the active PCM buffer.
     // Start it only after this preloaded track has decoded and published its
     // own AudioBuffer, never while the previous track still owns that slot.
-    if (item.file && !isProDirect) {
+    if (!isProDirect) {
       const remoteShareSessionId = getState('transfer.currentSessionId') || null;
-      void shareRemoteFileIfNeeded(item.file, remoteShareSessionId, undefined, { queueItemId });
+      void shareRemoteFileIfNeeded(preloadFile, remoteShareSessionId, undefined, { queueItemId });
     }
     await play(0);
     broadcast({

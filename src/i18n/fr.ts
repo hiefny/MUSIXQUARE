@@ -361,6 +361,13 @@ const fr: Record<I18nKey, string> = {
   'system_audio.button': 'Audio système',
   'system_audio.sharing': 'Partage de l’audio système',
   'system_audio.receiving': 'Réception de l’audio système',
+  'system_audio.owner_active': '{{name}} partage l’audio système.',
+  'system_audio.owner_preparing': '{{name}} se prépare à partager l’audio système.',
+  'system_audio.pro_preparing': 'Préparation du partage de l’audio système.',
+  'system_audio.pro_publish_failed': 'Impossible de démarrer le partage de l’audio système.',
+  'system_audio.coordinator_update_required': 'Mettez à jour l’appareil qui gère cette salle.',
+  'system_audio.connection_unstable':
+    'La connexion audio système de {{name}} est instable.\nTentative de rétablissement.',
   'system_audio.capture_denied': 'Le partage audio a été annulé.',
   'system_audio.no_audio_track': '"Partager l’audio" n’a pas été activé.\nVeuillez réessayer.',
   'system_audio.stop': 'Arrêter le partage',

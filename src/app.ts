@@ -53,6 +53,7 @@ import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 import { registerSystemAudioSfuListeners } from './network/system-audio-sfu.ts';
+import { registerProSystemAudioServiceListeners } from './pro-room/system-audio-service.ts';
 // ── Storage ──
 // RAM-only storage dispatches STORAGE_* commands in-process.
 import { initTransfer } from './storage/transfer.ts';
@@ -420,6 +421,7 @@ async function bootstrap(): Promise<void> {
   safeInit('SystemAudioHost', registerSystemAudioHostListeners);
   safeInit('SystemAudioGuest', registerSystemAudioGuestListeners);
   safeInit('SystemAudioSFU', registerSystemAudioSfuListeners);
+  safeInit('ProSystemAudio', registerProSystemAudioServiceListeners);
   // 6. Workers & Storage
   try {
     const syncW = new Worker(new URL('./workers/sync.worker.ts', import.meta.url), {

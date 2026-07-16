@@ -11,6 +11,7 @@ import {
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomCapability,
   type ProRoomSnapshot,
+  type ProRoomSystemAudioPublication,
 } from '../contracts.ts';
 
 const ROOM_CODE = '000001';
@@ -610,6 +611,123 @@ describe('PRO room cookie session API', () => {
     expect(JSON.stringify(error)).not.toContain('12345678');
     expect(JSON.stringify(error)).not.toContain(CLAIM_TOKEN);
     expect(JSON.stringify(error)).not.toContain('private claim');
+  });
+});
+
+describe('PRO room system-audio lease API', () => {
+  const leaseId = 'L'.repeat(43);
+  const publication: ProRoomSystemAudioPublication = {
+    publicationId: 'publication_00001',
+    sessionId: 'realtime_session_01',
+    tracks: [
+      { trackName: 'audio-L', channel: 'L', mid: '0' },
+      { trackName: 'audio-R', channel: 'R', mid: '1' },
+    ],
+  };
+  const idle = {
+    generation: 0,
+    status: 'idle' as const,
+    ownerParticipantId: null,
+    claimExpiresAt: null,
+    liveExpiresAt: null,
+    publication: null,
+  };
+  const preparing = {
+    generation: 1,
+    status: 'preparing' as const,
+    ownerParticipantId: activeSnapshot().viewer!.participantId,
+    claimExpiresAt: 1_900_000_045_000,
+    liveExpiresAt: null,
+    publication: null,
+  };
+  const live = {
+    generation: 1,
+    status: 'live' as const,
+    ownerParticipantId: activeSnapshot().viewer!.participantId,
+    claimExpiresAt: null,
+    liveExpiresAt: 1_900_007_200_000,
+    publication,
+  };
+
+  it('uses the dedicated authenticated resource and keeps the lease credential out of public state', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ systemAudio: idle }))
+      .mockResolvedValueOnce(jsonResponse({ systemAudio: preparing, leaseId }))
+      .mockResolvedValueOnce(jsonResponse({ systemAudio: live }))
+      .mockResolvedValueOnce(jsonResponse({ systemAudio: live }))
+      .mockResolvedValueOnce(jsonResponse({ systemAudio: { ...idle, generation: 2 } }));
+
+    await expect(client.getSystemAudioState(ROOM_CODE)).resolves.toEqual(idle);
+    await expect(client.acquireSystemAudioLease(ROOM_CODE)).resolves.toEqual({
+      systemAudio: preparing,
+      leaseId,
+    });
+    await expect(
+      client.commitSystemAudioPublication({ code: ROOM_CODE, generation: 1, leaseId, publication }),
+    ).resolves.toEqual(live);
+    await expect(
+      client.heartbeatSystemAudioLease({ code: ROOM_CODE, generation: 1, leaseId }),
+    ).resolves.toEqual(live);
+    await expect(
+      client.releaseSystemAudioLease({ code: ROOM_CODE, generation: 1, leaseId }),
+    ).resolves.toEqual({ ...idle, generation: 2 });
+
+    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
+      '/v1/rooms/000001/system-audio',
+      '/v1/rooms/000001/system-audio/acquire',
+      '/v1/rooms/000001/system-audio/commit',
+      '/v1/rooms/000001/system-audio/heartbeat',
+      '/v1/rooms/000001/system-audio/release',
+    ]);
+    for (const call of fetchMock.mock.calls) {
+      const headers = new Headers(call[1]?.headers);
+      expect(headers.get('x-mxqr-pro-participant-id')).toBe(activeSnapshot().viewer!.participantId);
+      expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe(
+        activeSnapshot().viewer!.presenceIncarnationId,
+      );
+    }
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({});
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      generation: 1,
+      leaseId,
+      publication,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({
+      generation: 1,
+      leaseId,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body))).toEqual({
+      generation: 1,
+      leaseId,
+    });
+  });
+
+  it('rejects malformed credentials and any leaked private field before accepting state', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+
+    expect(() =>
+      client.heartbeatSystemAudioLease({ code: ROOM_CODE, generation: 1, leaseId: 'short' }),
+    ).toThrow('PRO_ROOM_API_INVALID_SYSTEM_AUDIO_LEASE');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ systemAudio: { ...preparing, leaseId: 'must-not-be-public' } }),
+    );
+    await expect(client.getSystemAudioState(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ systemAudio: preparing, leaseId: 'not-a-32-byte-base64url-secret' }),
+    );
+    await expect(client.acquireSystemAudioLease(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
   });
 });
 

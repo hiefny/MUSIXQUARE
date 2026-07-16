@@ -357,6 +357,15 @@ const ptBr: Record<I18nKey, string> = {
   'system_audio.button': 'Áudio do sistema',
   'system_audio.sharing': 'Compartilhando áudio do sistema',
   'system_audio.receiving': 'Recebendo áudio do sistema',
+  'system_audio.owner_active': '{{name}} está compartilhando o áudio do sistema.',
+  'system_audio.owner_preparing':
+    '{{name}} está se preparando para compartilhar o áudio do sistema.',
+  'system_audio.pro_preparing': 'Preparando o compartilhamento do áudio do sistema.',
+  'system_audio.pro_publish_failed':
+    'Não foi possível iniciar o compartilhamento do áudio do sistema.',
+  'system_audio.coordinator_update_required': 'Atualize o dispositivo que gerencia esta sala.',
+  'system_audio.connection_unstable':
+    'A conexão de áudio do sistema de {{name}} está instável.\nTentando restabelecê-la.',
   'system_audio.capture_denied': 'Compartilhamento de áudio cancelado.',
   'system_audio.no_audio_track': '"Compartilhar áudio" não foi ativado.\nTente novamente.',
   'system_audio.stop': 'Parar compartilhamento',

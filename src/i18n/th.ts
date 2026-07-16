@@ -625,6 +625,13 @@ const th: Record<I18nKey, string> = {
   'system_audio.button': 'เสียงระบบ',
   'system_audio.sharing': 'กำลังแชร์เสียงระบบ',
   'system_audio.receiving': 'กำลังรับเสียงระบบ',
+  'system_audio.owner_active': '{{name}} กำลังแชร์เสียงระบบ',
+  'system_audio.owner_preparing': '{{name}} กำลังเตรียมแชร์เสียงระบบ',
+  'system_audio.pro_preparing': 'กำลังเตรียมแชร์เสียงระบบ',
+  'system_audio.pro_publish_failed': 'เริ่มแชร์เสียงระบบไม่ได้',
+  'system_audio.coordinator_update_required': 'โปรดอัปเดตอุปกรณ์ที่จัดการห้องนี้',
+  'system_audio.connection_unstable':
+    'การเชื่อมต่อเสียงระบบของ {{name}} ไม่เสถียร\nกำลังพยายามเชื่อมต่อใหม่',
   'system_audio.capture_denied': 'การแชร์เสียงถูกยกเลิก',
   'system_audio.no_audio_track': 'ไม่ได้เปิด "แชร์เสียง"\nโปรดลองอีกครั้ง',
   'system_audio.stop': 'หยุดแชร์',

@@ -24,17 +24,36 @@ const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
 const h = vi.hoisted(() => {
   const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+  let destinationIndex = 0;
   return {
+    resetDestinations: () => {
+      destinationIndex = 0;
+    },
     ctx: {
       createMediaStreamSource: () => node(),
       createChannelSplitter: () => node(),
-      createMediaStreamDestination: () => ({
-        channelCount: 0,
-        channelCountMode: '',
-        stream: { id: 'dest-stream-1', active: true, getAudioTracks: () => [] },
-        connect: vi.fn(),
-        disconnect: vi.fn(),
-      }),
+      createMediaStreamDestination: () => {
+        destinationIndex += 1;
+        const track = {
+          id: `dest-track-${destinationIndex}`,
+          kind: 'audio',
+          readyState: 'live',
+          muted: false,
+          stop: vi.fn(),
+        } as unknown as MediaStreamTrack;
+        return {
+          channelCount: 0,
+          channelCountMode: '',
+          stream: {
+            id: `dest-stream-${destinationIndex}`,
+            active: true,
+            getAudioTracks: () => [track],
+            getTracks: () => [track],
+          },
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+        };
+      },
       createGain: () => ({
         channelCount: 0,
         channelCountMode: '',
@@ -46,6 +65,28 @@ const h = vi.hoisted(() => {
   };
 });
 
+const proAudio = vi.hoisted(() => ({
+  view: {
+    roomCode: '000001',
+    initialized: true,
+    phase: 'idle' as 'idle' | 'preparing' | 'live',
+    generation: 0 as number | null,
+    ownerParticipantId: null as string | null,
+    isLocalOwner: false,
+    localRequestPending: false,
+    canStart: true,
+    canStop: false,
+    claimExpiresAt: null as number | null,
+    liveExpiresAt: null as number | null,
+    publication: null,
+  },
+  ownerName: null as string | null,
+  acquire: vi.fn(),
+  publish: vi.fn(),
+  release: vi.fn(),
+  coordinatorCompatible: true,
+}));
+
 vi.mock('../engine.ts', () => ({
   initAudio: vi.fn(async () => {}),
   getWidener: vi.fn(() => ({ input: {} })),
@@ -56,6 +97,15 @@ vi.mock('../context.ts', () => ({
   getAudioContext: vi.fn(() => h.ctx),
   getCurrentTime: vi.fn(() => 0),
   ensureRunning: vi.fn(async () => {}),
+}));
+
+vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
+  acquireLocalProSystemAudioLease: proAudio.acquire,
+  canPublishProSystemAudioWithCurrentCoordinator: vi.fn(() => proAudio.coordinatorCompatible),
+  getProSystemAudioOwnerDisplayName: vi.fn(() => proAudio.ownerName),
+  getProSystemAudioViewState: vi.fn(() => ({ ...proAudio.view })),
+  publishLocalProSystemAudio: proAudio.publish,
+  releaseLocalProSystemAudioLease: proAudio.release,
 }));
 
 function youtubeMeta(): TrackMeta {
@@ -172,7 +222,45 @@ beforeEach(() => {
   bus.clear();
   clearAllManagedTimers();
   vi.clearAllMocks();
+  h.resetDestinations();
   lastDisplayCapture = null;
+  Object.assign(proAudio.view, {
+    roomCode: '000001',
+    initialized: true,
+    phase: 'idle',
+    generation: 0,
+    ownerParticipantId: null,
+    isLocalOwner: false,
+    localRequestPending: false,
+    canStart: true,
+    canStop: false,
+    claimExpiresAt: null,
+    liveExpiresAt: null,
+    publication: null,
+  });
+  proAudio.ownerName = null;
+  proAudio.coordinatorCompatible = true;
+  proAudio.acquire.mockResolvedValue({
+    generation: 1,
+    status: 'preparing',
+    ownerParticipantId: 'member-1',
+    claimExpiresAt: Date.now() + 45_000,
+    liveExpiresAt: null,
+    publication: null,
+  });
+  proAudio.publish.mockResolvedValue({
+    generation: 1,
+    status: 'live',
+    ownerParticipantId: 'member-1',
+    claimExpiresAt: null,
+    liveExpiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    publication: {
+      publicationId: 'publication-1',
+      sessionId: 'session-1',
+      tracks: [],
+    },
+  });
+  proAudio.release.mockResolvedValue(null);
   setState('network.appRole', 'host');
   registerSystemCaptureListeners();
 });
@@ -248,6 +336,20 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
 });
 
 describe('system audio operating-cost limits', () => {
+  it('keeps standard-room capture coordinator-only', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', {
+      peer: 'host-1',
+      open: true,
+    } as DataConnection);
+    const getDisplayMedia = stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
   it('allows sharing with four total devices, including the host', async () => {
     setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
     const getDisplayMedia = stubDisplayMedia();
@@ -322,42 +424,74 @@ describe('system audio operating-cost limits', () => {
     bus.emit('system-audio:stop');
   });
 
-  it('discards a pending capture after PRO coordinator authority is lost', async () => {
+  it('starts PRO lease acquisition and the native picker in the same activation turn', async () => {
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
-      role: 'coordinator',
+      role: 'member',
       coordinatorId: 'host-1',
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['playback.control'],
     });
-    let resolvePicker!: (stream: MediaStream) => void;
-    const pickerResult = new Promise<MediaStream>((resolve) => {
-      resolvePicker = resolve;
+    let resolveLease!: (state: unknown) => void;
+    const leaseResult = new Promise((resolve) => {
+      resolveLease = resolve;
     });
-    let selectedStream: MediaStream | null = null;
-    stubDisplayMedia((stream) => {
-      selectedStream = stream;
-      return pickerResult;
-    });
+    proAudio.acquire.mockImplementationOnce(() => leaseResult);
+    const getDisplayMedia = stubDisplayMedia();
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:streams-ready', streamsReadySpy);
 
     const startPromise = startSystemAudioCapture();
-    await Promise.resolve();
-    setState('room.context', {
-      ...getState('room.context'),
-      role: 'member',
-      coordinatorId: 'peer-1',
-      epoch: 2,
+    // Neither request may wait for the other: getDisplayMedia must execute
+    // before the still-pending server lease settles, preserving user activation.
+    expect(proAudio.acquire).toHaveBeenCalledTimes(1);
+    expect(getDisplayMedia).toHaveBeenCalledTimes(1);
+    expect(proAudio.publish).not.toHaveBeenCalled();
+
+    resolveLease({
+      generation: 1,
+      status: 'preparing',
+      ownerParticipantId: 'member-1',
+      claimExpiresAt: Date.now() + 45_000,
+      liveExpiresAt: null,
+      publication: null,
     });
-    resolvePicker(selectedStream!);
     await startPromise;
 
-    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
-    expect(isSystemAudioActive()).toBe(false);
+    expect(proAudio.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dest-track-1' }),
+      expect.objectContaining({ id: 'dest-track-2' }),
+    );
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(true);
+    bus.emit('system-audio:stop');
   });
 
-  it('force-stops an active share when the PRO coordinator becomes a member', async () => {
+  it('blocks a PRO member before lease acquisition and the native picker when its coordinator is old', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    proAudio.coordinatorCompatible = false;
+    const getDisplayMedia = stubDisplayMedia();
+    const toastSpy = vi.fn();
+    bus.on('ui:show-toast', toastSpy);
+
+    await startSystemAudioCapture();
+
+    expect(proAudio.acquire).not.toHaveBeenCalled();
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    expect(toastSpy).toHaveBeenCalledWith(t('system_audio.coordinator_update_required'));
+  });
+
+  it('keeps a PRO publisher alive when coordinator responsibility moves away', async () => {
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
@@ -379,8 +513,84 @@ describe('system audio operating-cost limits', () => {
       epoch: 2,
     });
 
+    expect(forceStopSpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(true);
+    bus.emit('system-audio:stop');
+  });
+
+  it('force-stops a PRO publisher silently when its room session resets', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    const forceStopSpy = vi.fn();
+    bus.on('system-audio:force-stop', forceStopSpy);
+
+    bus.emit('pro-system-audio:lease-lost', 'reset');
+
     expect(forceStopSpy).toHaveBeenCalledTimes(1);
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
     expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('restores playback when a live PRO lease is authoritatively revoked', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    const stopSpy = vi.fn();
+    const forceStopSpy = vi.fn();
+    bus.on('system-audio:stop', stopSpy);
+    bus.on('system-audio:force-stop', forceStopSpy);
+
+    bus.emit('pro-system-audio:lease-lost', 'authoritative-revocation');
+
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expect(forceStopSpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('blocks the native picker when another PRO participant already owns the share', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    Object.assign(proAudio.view, {
+      initialized: true,
+      phase: 'live',
+      generation: 7,
+      ownerParticipantId: 'member-2',
+      canStart: false,
+    });
+    proAudio.ownerName = 'Peer 2';
+    const getDisplayMedia = stubDisplayMedia();
+    const toastSpy = vi.fn();
+    bus.on('ui:show-toast', toastSpy);
+
+    await startSystemAudioCapture();
+
+    expect(proAudio.acquire).not.toHaveBeenCalled();
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    expect(toastSpy).toHaveBeenCalledWith(t('system_audio.owner_active', { name: 'Peer 2' }));
   });
 
   it('rechecks capacity after asynchronous audio initialization', async () => {

@@ -641,6 +641,13 @@ const tr: Record<I18nKey, string> = {
   'system_audio.button': 'Sistem Sesi',
   'system_audio.sharing': 'Sistem Sesi Paylaşılıyor',
   'system_audio.receiving': 'Sistem Sesi Alınıyor',
+  'system_audio.owner_active': '{{name}} sistem sesini paylaşıyor.',
+  'system_audio.owner_preparing': '{{name}} sistem sesi paylaşımına hazırlanıyor.',
+  'system_audio.pro_preparing': 'Sistem sesi paylaşımı hazırlanıyor.',
+  'system_audio.pro_publish_failed': 'Sistem sesi paylaşımı başlatılamadı.',
+  'system_audio.coordinator_update_required': 'Bu odayı yöneten cihazı güncelleyin.',
+  'system_audio.connection_unstable':
+    '{{name}} kullanıcısının sistem sesi bağlantısı kararsız.\nBağlantı yeniden kurulmaya çalışılıyor.',
   'system_audio.capture_denied': 'Ses paylaşımı iptal edildi.',
   'system_audio.no_audio_track': '"Sesi paylaş" etkinleştirilmedi.\nLütfen tekrar deneyin.',
   'system_audio.stop': 'Paylaşımı Durdur',

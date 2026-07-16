@@ -632,6 +632,13 @@ const nl: Record<I18nKey, string> = {
   'system_audio.button': 'Systeem-audio',
   'system_audio.sharing': 'Systeem-audio delen',
   'system_audio.receiving': 'Systeem-audio ontvangen',
+  'system_audio.owner_active': '{{name}} deelt systeem-audio.',
+  'system_audio.owner_preparing': '{{name}} bereidt het delen van systeem-audio voor.',
+  'system_audio.pro_preparing': 'Het delen van systeem-audio wordt voorbereid.',
+  'system_audio.pro_publish_failed': 'Kan het delen van systeem-audio niet starten.',
+  'system_audio.coordinator_update_required': 'Werk het apparaat bij dat deze ruimte beheert.',
+  'system_audio.connection_unstable':
+    'De systeem-audioverbinding van {{name}} is instabiel.\nBezig met herstellen.',
   'system_audio.capture_denied': 'Audio delen is geannuleerd.',
   'system_audio.no_audio_track': '"Audio delen" was niet ingeschakeld.\nProbeer opnieuw.',
   'system_audio.stop': 'Delen stoppen',

@@ -58,6 +58,13 @@ import { ProRoomSessionController, type ProRoomSessionObserver } from './session
 import { createByteWeightedProgressEntries } from './transfer-progress.ts';
 import { resetProRoomTransportRecovery } from './transport-recovery.ts';
 import { onProRoomTabTakeover } from './tab-handoff.ts';
+import {
+  bindProSystemAudioSession,
+  configureProSystemAudioService,
+  refreshProSystemAudioState,
+  releaseLocalProSystemAudioLease,
+  resetProSystemAudioService,
+} from './system-audio-service.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const TOPOLOGY_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
@@ -75,6 +82,7 @@ const INVALIDATION_REFRESH_TIMER = 'pro-room-invalidation-refresh';
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 
 const api = new ProRoomApiClient();
+configureProSystemAudioService(api);
 const bridge = new LegacyProRoomNetworkBridge();
 let active = false;
 let refreshInFlight = false;
@@ -887,6 +895,7 @@ const observer: ProRoomSessionObserver = {
     // Runtime entry points accept playlist state transactionally. The observer
     // only enforces topology authority, avoiding a duplicate async projection
     // of the same snapshot racing that explicit accept.
+    bindProSystemAudioSession(snapshot);
     reconcileAuthoritativePeers(snapshot);
   },
   authority(context) {
@@ -894,6 +903,7 @@ const observer: ProRoomSessionObserver = {
   },
   cleared() {
     stopLifecycle();
+    resetProSystemAudioService();
     resetPlaylistRuntime();
     resetProRoomTransportRecovery();
     resetRoomContext();
@@ -951,6 +961,13 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
         const invalidationGeneration = invalidationHighWater.beginHeartbeat();
         const snapshot = await controller.heartbeat();
         await acceptPlaylistSnapshot(snapshot);
+        if (isCoordinator()) {
+          await refreshProSystemAudioState().catch((error) => {
+            // The media lease is intentionally independent from presence.
+            // A transient state refresh must not tear down a healthy room.
+            log.warn('[PRO] System-audio state refresh failed', error);
+          });
+        }
         invalidationHighWater.finishHeartbeat(snapshot, invalidationGeneration);
         if (!invalidationHighWater.pending) {
           invalidationRefreshScheduled = false;
@@ -1080,6 +1097,9 @@ async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSna
     throw error;
   }
   startLifecycle();
+  void refreshProSystemAudioState().catch((error) => {
+    log.warn('[PRO] Initial system-audio state refresh failed', error);
+  });
   void restorePersistedPlayback(snapshot).catch((error) => {
     log.warn('[PRO] Persistent playback restore failed', error);
     showPlaybackRestoreHint();
@@ -1162,6 +1182,9 @@ function leaveActiveProRoom(signal?: AbortSignal): Promise<void> {
   // async leave request accidentally authenticating with a newly-created
   // same-room cookie.
   const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  // Release a locally-owned media lease promptly. Presence removal is the
+  // authoritative fallback when this best-effort request races navigation.
+  void releaseLocalProSystemAudioLease().catch(() => undefined);
   const atomicPresenceClose = active && snapshot ? startAtomicPresenceClose(snapshot) : null;
   const presenceClose = atomicPresenceClose
     ? waitForProRoomPresenceClose(atomicPresenceClose, EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS)

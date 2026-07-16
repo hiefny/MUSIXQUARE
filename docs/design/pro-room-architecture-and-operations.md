@@ -122,6 +122,37 @@ later become the current credential.
   blips still preserve healthy data channels, and member-only re-entry does not
   force a room-wide reconnect.
 
+### Live system-audio ownership
+
+PRO system audio deliberately separates two roles:
+
+- the **coordinator** remains the room's synchronization and control-plane
+  tie-breaker;
+- the **system-audio owner** is whichever authenticated participant currently
+  holds the room's short-lived media lease and browser capture.
+
+Every active PRO participant may request that lease, but one Durable Object
+serializes acquisition so only one owner can prepare or publish at a time. The
+private lease credential remains in the acquiring browser and the Durable
+Object; peer messages and public room state contain only a fenced generation
+and the Cloudflare Realtime publication descriptor. A 45-second preparing
+claim bounds abandoned native-picker attempts. Once committed, the live lease
+has a fixed two-hour deadline and cannot be extended by heartbeat.
+
+PRO live audio always uses the role-independent Cloudflare Realtime path. The
+owner publishes the two mono L/R tracks once; the coordinator and every other
+participant subscribe from the public descriptor. Coordinator handoff closes
+the old receiver and rebuilds only the new coordinator's subscription. It does
+not stop or republish the owner's capture. Owner exit, tab-incarnation
+replacement, lease expiry, or a fifth active device atomically fences the old
+generation and ends the share.
+
+The cost boundary is four active devices total. Acquisition is refused above
+that count, and joining a fifth device ends an already-running share while the
+room, playlist, chat, and ordinary playback remain active. System audio is
+ephemeral: it is never persisted as a sleeping-room playback source and never
+changes the PRO room's durable media quota.
+
 ### Persistent state and sleep
 
 The Durable Object persists the canonical playlist, current queue occurrence,

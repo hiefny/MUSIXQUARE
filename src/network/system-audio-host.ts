@@ -30,6 +30,7 @@ import {
 } from './system-audio-delivery.ts';
 
 import { forceStereoSdp } from './peer.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 
 // ─── SDP Munging & Track Constraints ──────────────────────────────
 
@@ -406,6 +407,7 @@ function sendActiveSystemAudioToPeer(peerId: string): void {
 export function registerSystemAudioHostListeners(): void {
   // L/R streams ready → call all connected guests
   bus.on('system-audio:streams-ready', () => {
+    if (getRoomContext().kind === 'pro') return;
     _remoteDirectFallbackEnabled = false;
     _remoteFallbackPeerIds.clear();
     beginSystemAudioShareDelivery(getState('network.connectedPeers'));
@@ -414,6 +416,7 @@ export function registerSystemAudioHostListeners(): void {
 
   // Late-joining guest during active sharing
   bus.on('network:peer-connected', () => {
+    if (getRoomContext().kind === 'pro') return;
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
 
@@ -433,10 +436,12 @@ export function registerSystemAudioHostListeners(): void {
 
   // ICE type resolved on initial join → if local and system audio active, call them
   bus.on('orchestrator:peer-joined', (peerId: string) => {
+    if (getRoomContext().kind === 'pro') return;
     sendActiveSystemAudioToPeer(peerId);
   });
 
   bus.on('orchestrator:peer-data-target-ready', (peerId: string) => {
+    if (getRoomContext().kind === 'pro') return;
     sendActiveSystemAudioToPeer(peerId);
   });
 
@@ -452,6 +457,7 @@ export function registerSystemAudioHostListeners(): void {
   });
 
   bus.on('system-audio:sfu-fallback', (reason: string) => {
+    if (getRoomContext().kind === 'pro') return;
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
     if (_remoteDirectFallbackEnabled) return;

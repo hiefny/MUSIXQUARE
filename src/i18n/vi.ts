@@ -352,6 +352,13 @@ const vi: Record<I18nKey, string> = {
   'system_audio.button': 'Âm thanh hệ thống',
   'system_audio.sharing': 'Đang chia sẻ âm thanh hệ thống',
   'system_audio.receiving': 'Đang nhận âm thanh hệ thống',
+  'system_audio.owner_active': '{{name}} đang chia sẻ âm thanh hệ thống.',
+  'system_audio.owner_preparing': '{{name}} đang chuẩn bị chia sẻ âm thanh hệ thống.',
+  'system_audio.pro_preparing': 'Đang chuẩn bị chia sẻ âm thanh hệ thống.',
+  'system_audio.pro_publish_failed': 'Không thể bắt đầu chia sẻ âm thanh hệ thống.',
+  'system_audio.coordinator_update_required': 'Hãy cập nhật thiết bị đang quản lý phòng này.',
+  'system_audio.connection_unstable':
+    'Kết nối âm thanh hệ thống của {{name}} không ổn định.\nĐang thử khôi phục.',
   'system_audio.capture_denied': 'Chia sẻ âm thanh đã bị hủy.',
   'system_audio.no_audio_track': '"Chia sẻ âm thanh" chưa được bật.\nVui lòng thử lại.',
   'system_audio.stop': 'Dừng chia sẻ',

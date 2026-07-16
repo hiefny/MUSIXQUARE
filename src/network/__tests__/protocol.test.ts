@@ -422,6 +422,128 @@ describe('system-audio SFU frame validation', () => {
   });
 });
 
+describe('PRO system-audio control-frame validation', () => {
+  const publication = {
+    publicationId: 'publication_00001',
+    sessionId: 'realtime_session_01',
+    tracks: [
+      { trackName: 'audio-L', channel: 'L', mid: '0' },
+      { trackName: 'audio-R', channel: 'R', mid: '1' },
+    ],
+  };
+  const live = {
+    type: MSG.PRO_SYSTEM_AUDIO_STATE,
+    version: 1,
+    generation: 7,
+    status: 'live',
+    ownerParticipantId: 'participant_00001',
+    ownerDisplayName: 'Peer 1',
+    claimExpiresAt: null,
+    liveExpiresAt: 1_900_000_000_000,
+    publication,
+  };
+
+  it('accepts only the exact versioned lifecycle shape', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-pro-system-audio-state');
+    registerHandler(MSG.PRO_SYSTEM_AUDIO_STATE, handler);
+
+    await handleData(live, conn);
+    await handleData(
+      {
+        ...live,
+        generation: 8,
+        status: 'preparing',
+        claimExpiresAt: 1_800_000_045_000,
+        liveExpiresAt: null,
+        publication: null,
+      },
+      conn,
+    );
+    await handleData(
+      {
+        ...live,
+        generation: 9,
+        status: 'idle',
+        ownerParticipantId: null,
+        ownerDisplayName: null,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication: null,
+      },
+      conn,
+    );
+
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects private, unknown, ambiguous, and cross-layer-incompatible fields', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-pro-system-audio-invalid');
+    registerHandler(MSG.PRO_SYSTEM_AUDIO_STATE, handler);
+
+    const invalidFrames = [
+      { ...live, version: 0 },
+      { ...live, version: 2 },
+      { ...live, leaseId: 'must-not-cross-peer-wire' },
+      { ...live, ownerPresenceIncarnationId: 'must-not-cross-peer-wire' },
+      { ...live, ownerParticipantId: 'short' },
+      { ...live, ownerDisplayName: ' Peer 1 ' },
+      { ...live, claimExpiresAt: 1_800_000_000_000 },
+      { ...live, publication: { ...publication, sessionOwnerToken: 'private-token' } },
+      {
+        ...live,
+        publication: {
+          ...publication,
+          tracks: [
+            { ...publication.tracks[0], transceiver: 'private-object' },
+            publication.tracks[1],
+          ],
+        },
+      },
+      {
+        ...live,
+        publication: {
+          ...publication,
+          tracks: [{ ...publication.tracks[0], trackName: ' audio-L ' }, publication.tracks[1]],
+        },
+      },
+      {
+        ...live,
+        publication: {
+          ...publication,
+          tracks: [publication.tracks[0], { ...publication.tracks[1], mid: ' 1 ' }],
+        },
+      },
+      {
+        ...live,
+        publication: {
+          ...publication,
+          tracks: [publication.tracks[0], { ...publication.tracks[1], channel: 'L' }],
+        },
+      },
+    ];
+    for (const frame of invalidFrames) await handleData(frame, conn);
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('keeps refresh hints minimal and rejects credential smuggling', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-pro-system-audio-hint');
+    registerHandler(MSG.PRO_SYSTEM_AUDIO_HINT, handler);
+
+    await handleData({ type: MSG.PRO_SYSTEM_AUDIO_HINT, generation: 0 }, conn);
+    await handleData(
+      { type: MSG.PRO_SYSTEM_AUDIO_HINT, generation: 1, leaseId: 'must-not-cross-peer-wire' },
+      conn,
+    );
+    await handleData({ type: MSG.PRO_SYSTEM_AUDIO_HINT, generation: -1 }, conn);
+
+    expect(handler).toHaveBeenCalledOnce();
+  });
+});
+
 describe('file-transfer frame validation', () => {
   it('accepts only the explicit current local R2 capability marker', async () => {
     const handler = vi.fn();

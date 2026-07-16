@@ -353,6 +353,13 @@ const ja: Record<I18nKey, string> = {
   'system_audio.button': 'システムオーディオ',
   'system_audio.sharing': 'システムオーディオ共有中',
   'system_audio.receiving': 'システムオーディオ受信中',
+  'system_audio.owner_active': '{{name}}さんがシステムオーディオを共有しています。',
+  'system_audio.owner_preparing': '{{name}}さんがシステムオーディオ共有を準備しています。',
+  'system_audio.pro_preparing': 'システムオーディオ共有を準備しています。',
+  'system_audio.pro_publish_failed': 'システムオーディオ共有を開始できませんでした。',
+  'system_audio.coordinator_update_required': 'このルームを管理している端末を更新してください。',
+  'system_audio.connection_unstable':
+    '{{name}}さんのシステムオーディオ接続が不安定です。\n復旧を試みています。',
   'system_audio.capture_denied': 'オーディオ共有がキャンセルされました。',
   'system_audio.no_audio_track': '「音声を共有」が有効ではありません。\nもう一度お試しください。',
   'system_audio.stop': '共有を停止',

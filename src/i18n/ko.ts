@@ -624,6 +624,14 @@ const ko = {
   'system_audio.button': '시스템 오디오 공유',
   'system_audio.sharing': '시스템 오디오 공유 중',
   'system_audio.receiving': '시스템 오디오 수신 중',
+  'system_audio.owner_active': '{{name}} 님이 시스템 오디오를 공유 중이에요.',
+  'system_audio.owner_preparing': '{{name}} 님이 시스템 오디오 공유를 준비 중이에요.',
+  'system_audio.pro_preparing': '시스템 오디오 공유를 준비하고 있어요.',
+  'system_audio.pro_publish_failed': '시스템 오디오 공유를 시작하지 못했어요.',
+  'system_audio.coordinator_update_required':
+    '시스템 오디오를 공유하려면 방을 관리 중인 기기를 업데이트해 주세요.',
+  'system_audio.connection_unstable':
+    '{{name}} 님의 시스템 오디오 연결이 불안정해요.\n복구를 시도 중이에요.',
   'system_audio.capture_denied': '오디오 공유가 취소되었어요.',
   'system_audio.no_audio_track': '"오디오 공유" 토글이 켜지지 않았어요.\n다시 시도해주세요.',
   'system_audio.stop': '공유 중지',

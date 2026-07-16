@@ -684,6 +684,29 @@ export function cleanupGuestSystemAudio(): void {
   }
 }
 
+/**
+ * Enter the trusted receive placeholder without requiring a legacy host
+ * frame. PRO rooms call this only after the coordinator has fetched the
+ * server-owned live-share lease.
+ */
+export function beginTrustedSystemAudioReception(): boolean {
+  if (isSystemAudioPlaceholder()) return false;
+  _debugLastStartAt = Date.now();
+  _debugLastStartIgnoredReason = '';
+  _prevTrackMeta = getState('player.currentTrackMeta') as TrackMeta | null;
+  stopAllMedia({ silent: true, cancelInFlight: true });
+  cancelIncomingFileTransfer('system-audio-start');
+  cancelRemoteShareWait('system-audio-start');
+  clearManagedTimer('preloadWatchdog');
+  claimPlaybackOwner('system-audio', {
+    pending: true,
+    currentTrackMeta: createSystemAudioTrackMeta('receiving'),
+  });
+  bus.emit('system-audio:host-started');
+  armReceiveWatchdog();
+  return true;
+}
+
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioGuestListeners(): void {
@@ -709,7 +732,6 @@ export function registerSystemAudioGuestListeners(): void {
         _debugLastStartIgnoredReason = conn ? 'non-host-connection' : 'missing-connection';
         return;
       }
-      const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
       if (isSystemAudioPlaceholder()) {
         _debugLastStartIgnoredAt = Date.now();
         _debugLastStartIgnoredReason = 'duplicate-placeholder';
@@ -717,31 +739,7 @@ export function registerSystemAudioGuestListeners(): void {
         return;
       }
       log.info('[SysAudioGuest] Host started system audio sharing');
-      _debugLastStartAt = Date.now();
-      _debugLastStartIgnoredReason = '';
-      _prevTrackMeta = currentMeta;
-      stopAllMedia({ silent: true, cancelInFlight: true });
-      // Mirror the YouTube switch's cancelInFlightTransfer. The share
-      // takes over the receive path (incoming chunks are dropped via the
-      // external-owner gate), so tear down any in-flight main download —
-      // otherwise the still-armed chunk/prepare watchdogs keep firing
-      // REQUEST_DATA_RECOVERY during the share for chunks we discard anyway.
-      cancelIncomingFileTransfer('system-audio-start');
-      // The R2 sibling: cancelIncomingFileTransfer is keyed on transfer.state
-      // (RECEIVING), which the remote-share path never sets — a remote guest's
-      // in-flight encrypted download would keep streaming through the whole
-      // share otherwise. Idempotent no-op when nothing is in flight.
-      cancelRemoteShareWait('system-audio-start');
-      clearManagedTimer('preloadWatchdog');
-      claimPlaybackOwner('system-audio', {
-        pending: true,
-        currentTrackMeta: createSystemAudioTrackMeta('receiving'),
-      });
-      // Delivery modules use this trusted START boundary to clear any route
-      // frozen by the previous share. Do not infer a new share from mutable ICE
-      // classification or from an unauthenticated media call.
-      bus.emit('system-audio:host-started');
-      armReceiveWatchdog();
+      beginTrustedSystemAudioReception();
     },
   );
 

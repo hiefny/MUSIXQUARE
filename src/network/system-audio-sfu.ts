@@ -40,6 +40,7 @@ import {
   type WebRtcAudioDecoderPrimer,
 } from './webrtc-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
@@ -925,6 +926,16 @@ function cleanupGuestSfu(updateState = true): void {
   }
 }
 
+/**
+ * Drop only the legacy guest SFU transport during a PRO coordinator handoff.
+ * Playback ownership is preserved until the role-independent PRO subscriber
+ * replaces it, avoiding both double audio and an unnecessary idle flash.
+ */
+export function cleanupSystemAudioSfuGuestRoute(): void {
+  cleanupGuestSfu(false);
+  resetGuestSystemAudioShareRoute();
+}
+
 function closeGuestSessionTracks(
   sessionId: string | null,
   sessionOwnerToken: string | null,
@@ -1240,6 +1251,7 @@ export function registerSystemAudioSfuListeners(): void {
   registerHandler(MSG.SYSTEM_AUDIO_SFU_CAPABILITY, handleSfuCapability);
 
   bus.on('system-audio:streams-ready', () => {
+    if (getRoomContext().kind === 'pro') return;
     if (!shouldUseRealtimeSfu()) return;
     if (getState('network.appRole') !== 'host') return;
     beginSystemAudioShareDelivery(getState('network.connectedPeers'));
@@ -1256,14 +1268,17 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   bus.on('orchestrator:peer-joined', (peerId: string) => {
+    if (getRoomContext().kind === 'pro') return;
     publishToEligiblePeer(peerId);
   });
 
   bus.on('orchestrator:peer-evaluated', (peerId: string) => {
+    if (getRoomContext().kind === 'pro') return;
     publishToEligiblePeer(peerId);
   });
 
   bus.on('network:peer-connected', (conn: DataConnection) => {
+    if (getRoomContext().kind === 'pro') return;
     if (getState('network.appRole') !== 'guest') return;
     const hostConn = getState('network.hostConn');
     if (!hostConn || conn !== hostConn) return;

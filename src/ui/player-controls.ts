@@ -43,12 +43,18 @@ import {
   isPlaybackModeYouTube,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
-import { hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
 import {
   clearProRoomTrackChangeIntent,
   isProRoomTrackChangeIntentPending,
 } from '../player/track-change-intent.ts';
 import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
+import {
+  canPublishProSystemAudioWithCurrentCoordinator,
+  getProSystemAudioOwnerDisplayName,
+  getProSystemAudioViewState,
+  isLocalProSystemAudioOwner,
+} from '../pro-room/system-audio-bridge.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -424,7 +430,10 @@ function openMediaSourcePopup(): void {
     return;
   }
   const systemAudioButton = document.getElementById('btn-system-audio');
-  if (systemAudioButton) systemAudioButton.hidden = !isCoordinator();
+  if (systemAudioButton) {
+    systemAudioButton.hidden = !(isCoordinator() || getRoomContext().kind === 'pro');
+  }
+  syncSystemAudioSourceButton();
   animateTransition(() => {
     const overlay = document.getElementById('media-source-overlay');
     if (overlay) {
@@ -432,6 +441,35 @@ function openMediaSourcePopup(): void {
       updateOverlayOpenClass();
     }
   });
+}
+
+function showProSystemAudioOwnerToast(): void {
+  const view = getProSystemAudioViewState();
+  const name = getProSystemAudioOwnerDisplayName();
+  if (view.localRequestPending || (view.isLocalOwner && view.phase === 'preparing')) {
+    showToast(t('system_audio.pro_preparing'));
+  } else if (name && view.phase === 'preparing') {
+    showToast(t('system_audio.owner_preparing', { name }));
+  } else if (name && view.phase === 'live') {
+    showToast(t('system_audio.owner_active', { name }));
+  } else {
+    showToast(t('system_audio.pro_publish_failed'));
+  }
+}
+
+function syncSystemAudioSourceButton(): void {
+  const button = document.getElementById('btn-system-audio') as HTMLButtonElement | null;
+  if (!button) return;
+  const label = button.querySelector<HTMLElement>('.media-source-label-text');
+  const isProRoom = getRoomContext().kind === 'pro';
+  const view = getProSystemAudioViewState();
+  const pending = isProRoom && view.localRequestPending;
+  button.disabled = pending;
+  button.setAttribute('aria-busy', String(pending));
+  if (!label) return;
+  const key: I18nKey = pending ? 'system_audio.pro_preparing' : 'system_audio.button';
+  label.textContent = t(key);
+  label.setAttribute('data-i18n', key);
 }
 
 function syncMediaSourceButtonAuthority(): void {
@@ -819,7 +857,12 @@ export function initPlayerControls(): void {
   $on('btn-sync', 'click', () => handleMainSyncBtn());
   $on('btn-media-source', 'click', () => {
     if (isPlaybackModeSystemAudio()) {
-      if (getState('network.hostConn')) {
+      if (getRoomContext().kind === 'pro') {
+        if (!isLocalProSystemAudioOwner()) {
+          showProSystemAudioOwnerToast();
+          return;
+        }
+      } else if (getState('network.hostConn')) {
         showToast(t('toast.host_only_media'));
         return;
       }
@@ -841,15 +884,24 @@ export function initPlayerControls(): void {
     openYouTubePopup();
   });
   $on('btn-system-audio', 'click', () => {
-    // Live system-audio capture remains coordinator-owned. PRO members can
-    // open this shared source picker to add files and YouTube entries, but a
-    // second capture source cannot safely replace the coordinator's stream.
-    if (!isCoordinator()) {
+    const isProRoom = getRoomContext().kind === 'pro';
+    if (!isProRoom && !isCoordinator()) {
       showToast(t('toast.host_only_media'));
       return;
     }
+    if (isProRoom) {
+      const view = getProSystemAudioViewState();
+      if (view.localRequestPending || (view.initialized && view.phase !== 'idle')) {
+        showProSystemAudioOwnerToast();
+        return;
+      }
+      if (!canPublishProSystemAudioWithCurrentCoordinator()) {
+        showToast(t('system_audio.coordinator_update_required'));
+        return;
+      }
+    }
     if (canCaptureSystemAudio()) {
-      if (!hasSystemAudioDeviceCapacity()) {
+      if (!isProRoom && !hasSystemAudioDeviceCapacity()) {
         showToast(t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }));
         return;
       }
@@ -1075,9 +1127,11 @@ export function initPlayerControls(): void {
       const mediaBtn = document.getElementById('btn-media-source');
       const mediaBtnLabel = mediaBtn?.querySelector('span');
       const isGuest = !!getState('network.hostConn');
+      const canStopSystemAudio =
+        getRoomContext().kind === 'pro' ? isLocalProSystemAudioOwner() : !isGuest;
       if (mediaBtnLabel) {
         if (playback.mode === 'system-audio') {
-          if (isGuest) {
+          if (!canStopSystemAudio) {
             // Guest: keep original label + color (opacity already set by hostConn listener)
             if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');
           } else {
@@ -1141,6 +1195,10 @@ export function initPlayerControls(): void {
     ) {
       clearProRoomTrackChangeIntent();
     }
+    syncSystemAudioSourceButton();
+  });
+  _busScope.on('pro-system-audio:state-changed', () => {
+    syncSystemAudioSourceButton();
   });
   _busScope.on('state:playlist.items', () => {
     const pendingQueueItemId = getState('network.pendingTrackChangeQueueItemId');

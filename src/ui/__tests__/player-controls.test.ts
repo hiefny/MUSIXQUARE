@@ -6,6 +6,7 @@ import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
+import { t } from '../../i18n/index.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -22,6 +23,25 @@ import {
 const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
+const proSystemAudio = vi.hoisted(() => ({
+  view: {
+    roomCode: '000001',
+    initialized: true,
+    phase: 'idle' as 'idle' | 'preparing' | 'live',
+    generation: 0 as number | null,
+    ownerParticipantId: null as string | null,
+    isLocalOwner: false,
+    localRequestPending: false,
+    canStart: true,
+    canStop: false,
+    claimExpiresAt: null as number | null,
+    liveExpiresAt: null as number | null,
+    publication: null,
+  },
+  ownerName: null as string | null,
+  coordinatorCompatible: true,
+}));
+
 vi.mock('../../youtube/sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
   guestRendezvousSync: vi.fn(),
@@ -32,12 +52,35 @@ vi.mock('../toast.ts', () => ({
   showLoader: vi.fn(),
 }));
 
+vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
+  canPublishProSystemAudioWithCurrentCoordinator: vi.fn(() => proSystemAudio.coordinatorCompatible),
+  getProSystemAudioOwnerDisplayName: vi.fn(() => proSystemAudio.ownerName),
+  getProSystemAudioViewState: vi.fn(() => ({ ...proSystemAudio.view })),
+  isLocalProSystemAudioOwner: vi.fn(() => proSystemAudio.view.isLocalOwner),
+}));
+
 beforeEach(() => {
   resetState();
   bus.clear();
   clearAllManagedTimers();
   setCurrentAudioBuffer(null);
   vi.clearAllMocks();
+  Object.assign(proSystemAudio.view, {
+    roomCode: '000001',
+    initialized: true,
+    phase: 'idle',
+    generation: 0,
+    ownerParticipantId: null,
+    isLocalOwner: false,
+    localRequestPending: false,
+    canStart: true,
+    canStop: false,
+    claimExpiresAt: null,
+    liveExpiresAt: null,
+    publication: null,
+  });
+  proSystemAudio.ownerName = null;
+  proSystemAudio.coordinatorCompatible = true;
   document.body.innerHTML = '';
 });
 
@@ -239,7 +282,7 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
   });
 
-  it('lets a PRO member add files and YouTube entries without granting live capture ownership', () => {
+  it('lets a PRO member add files, YouTube entries, and role-independent live capture', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>
       <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
@@ -278,7 +321,86 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-youtube-source')?.click();
     expect(document.getElementById('youtube-url-overlay')?.classList.contains('active')).toBe(true);
 
-    expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
+    expect(document.getElementById('btn-system-audio')?.hidden).toBe(false);
+  });
+
+  it('shows the current owner and never starts a second PRO picker', () => {
+    document.body.innerHTML = `
+      <button id="btn-add-media"></button>
+      <div id="media-source-overlay"></div>
+      <button id="btn-system-audio"><span class="media-source-label-text"></span></button>
+    `;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('coordinator'));
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate', 'asset.upload'],
+    });
+    Object.assign(proSystemAudio.view, {
+      initialized: true,
+      phase: 'live',
+      generation: 9,
+      ownerParticipantId: 'participant-2',
+      canStart: false,
+    });
+    proSystemAudio.ownerName = 'Peer 2';
+    const startSpy = vi.fn();
+    bus.on('system-audio:start', startSpy);
+
+    initPlayerControls();
+    document.getElementById('btn-add-media')?.click();
+    document.getElementById('btn-system-audio')?.click();
+
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(t('system_audio.owner_active', { name: 'Peer 2' }));
+  });
+
+  it('asks for a coordinator update instead of starting an unsupported PRO publisher', () => {
+    document.body.innerHTML = `
+      <button id="btn-add-media"></button>
+      <div id="media-source-overlay"></div>
+      <button id="btn-system-audio"><span class="media-source-label-text"></span></button>
+    `;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('coordinator'));
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate', 'asset.upload'],
+    });
+    proSystemAudio.coordinatorCompatible = false;
+    const startSpy = vi.fn();
+    bus.on('system-audio:start', startSpy);
+
+    initPlayerControls();
+    document.getElementById('btn-add-media')?.click();
+    document.getElementById('btn-system-audio')?.click();
+
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(t('system_audio.coordinator_update_required'));
+  });
+
+  it('keeps standard-room live capture coordinator-only', () => {
+    document.body.innerHTML = '<button id="btn-system-audio"></button>';
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+    const startSpy = vi.fn();
+    bus.on('system-audio:start', startSpy);
+
+    initPlayerControls();
+    document.getElementById('btn-system-audio')?.click();
+
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(t('toast.host_only_media'));
   });
 });
 

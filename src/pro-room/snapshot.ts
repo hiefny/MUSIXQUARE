@@ -15,6 +15,9 @@ import {
   type ProRoomRuntimeStatus,
   type ProRoomSnapshot,
   type ProRoomStatus,
+  type ProRoomSystemAudioPublication,
+  type ProRoomSystemAudioPublicationTrack,
+  type ProRoomSystemAudioState,
   type ProRoomViewerSnapshot,
 } from './contracts.ts';
 import { isProRoomCode } from './room-code.ts';
@@ -27,6 +30,9 @@ const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
+const SYSTEM_AUDIO_PUBLIC_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const MAX_SYSTEM_AUDIO_TRACK_NAME_LENGTH = 160;
+const MAX_SYSTEM_AUDIO_MID_LENGTH = 64;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -78,6 +84,12 @@ function isOptionalBoundedString(value: unknown): value is string | undefined {
   return value === undefined || isBoundedString(value);
 }
 
+function parseTrimmedString(value: unknown, maxLength: number): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= maxLength ? trimmed : null;
+}
+
 function isRole(value: unknown): value is ProRoomRole {
   return value === 'owner' || value === 'controller';
 }
@@ -111,6 +123,138 @@ function cloneOptionalMetadata(
     ...(item.artist === undefined ? {} : { artist: item.artist as string }),
     ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail as string }),
   };
+}
+
+function parseSystemAudioTrack(value: unknown): ProRoomSystemAudioPublicationTrack | null {
+  if (!isRecord(value)) return null;
+  if (!hasExactKeysWithOptionals(value, ['trackName', 'channel'], ['mid'])) return null;
+  const trackName = parseTrimmedString(value.trackName, MAX_SYSTEM_AUDIO_TRACK_NAME_LENGTH);
+  const mid =
+    value.mid === undefined
+      ? undefined
+      : parseTrimmedString(value.mid, MAX_SYSTEM_AUDIO_MID_LENGTH);
+  if (!trackName || (value.channel !== 'L' && value.channel !== 'R')) return null;
+  if (value.mid !== undefined && !mid) return null;
+  return {
+    trackName,
+    channel: value.channel,
+    ...(typeof mid === 'string' ? { mid } : {}),
+  };
+}
+
+export function parseProRoomSystemAudioPublication(
+  value: unknown,
+): ProRoomSystemAudioPublication | null {
+  if (!isRecord(value)) return null;
+  if (!hasExactKeys(value, ['publicationId', 'sessionId', 'tracks'])) return null;
+  if (
+    typeof value.publicationId !== 'string' ||
+    !SYSTEM_AUDIO_PUBLIC_ID_RE.test(value.publicationId) ||
+    typeof value.sessionId !== 'string' ||
+    !SYSTEM_AUDIO_PUBLIC_ID_RE.test(value.sessionId) ||
+    !Array.isArray(value.tracks) ||
+    value.tracks.length !== 2
+  ) {
+    return null;
+  }
+  const leftOrRight = parseSystemAudioTrack(value.tracks[0]);
+  const rightOrLeft = parseSystemAudioTrack(value.tracks[1]);
+  if (!leftOrRight || !rightOrLeft) return null;
+  if (leftOrRight.channel === rightOrLeft.channel) return null;
+  if (leftOrRight.trackName === rightOrLeft.trackName) return null;
+  if (leftOrRight.mid !== undefined && leftOrRight.mid === rightOrLeft.mid) return null;
+
+  return {
+    publicationId: value.publicationId,
+    sessionId: value.sessionId,
+    tracks: [leftOrRight, rightOrLeft],
+  };
+}
+
+/** Strict parser for the dedicated authenticated PRO system-audio resource. */
+export function parseProRoomSystemAudioState(value: unknown): ProRoomSystemAudioState | null {
+  if (!isRecord(value)) return null;
+  if (
+    !hasExactKeys(value, [
+      'generation',
+      'status',
+      'ownerParticipantId',
+      'claimExpiresAt',
+      'liveExpiresAt',
+      'publication',
+    ]) ||
+    !isRevision(value.generation)
+  ) {
+    return null;
+  }
+
+  if (value.status === 'idle') {
+    if (
+      value.ownerParticipantId !== null ||
+      value.claimExpiresAt !== null ||
+      value.liveExpiresAt !== null ||
+      value.publication !== null
+    ) {
+      return null;
+    }
+    return {
+      generation: value.generation,
+      status: 'idle',
+      ownerParticipantId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    };
+  }
+
+  if (
+    value.generation === 0 ||
+    typeof value.ownerParticipantId !== 'string' ||
+    !OPAQUE_ID_RE.test(value.ownerParticipantId)
+  ) {
+    return null;
+  }
+
+  if (value.status === 'preparing') {
+    if (
+      !isTimestampMs(value.claimExpiresAt) ||
+      value.claimExpiresAt === 0 ||
+      value.liveExpiresAt !== null ||
+      value.publication !== null
+    ) {
+      return null;
+    }
+    return {
+      generation: value.generation,
+      status: 'preparing',
+      ownerParticipantId: value.ownerParticipantId,
+      claimExpiresAt: value.claimExpiresAt,
+      liveExpiresAt: null,
+      publication: null,
+    };
+  }
+
+  if (value.status === 'live') {
+    const publication = parseProRoomSystemAudioPublication(value.publication);
+    if (
+      value.claimExpiresAt !== null ||
+      !isTimestampMs(value.liveExpiresAt) ||
+      value.liveExpiresAt === 0 ||
+      !publication
+    ) {
+      return null;
+    }
+    return {
+      generation: value.generation,
+      status: 'live',
+      ownerParticipantId: value.ownerParticipantId,
+      claimExpiresAt: null,
+      liveExpiresAt: value.liveExpiresAt,
+      publication,
+    };
+  }
+
+  return null;
 }
 
 export function parseProRoomPlaylistItem(value: unknown): ProRoomPlaylistWireItem | null {

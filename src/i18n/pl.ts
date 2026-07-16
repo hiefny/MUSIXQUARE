@@ -643,6 +643,13 @@ const pl: Record<I18nKey, string> = {
   'system_audio.button': 'Dźwięk systemowy',
   'system_audio.sharing': 'Udostępnianie dźwięku systemowego',
   'system_audio.receiving': 'Odbieranie dźwięku systemowego',
+  'system_audio.owner_active': '{{name}} udostępnia dźwięk systemowy.',
+  'system_audio.owner_preparing': '{{name}} przygotowuje udostępnianie dźwięku systemowego.',
+  'system_audio.pro_preparing': 'Przygotowywanie udostępniania dźwięku systemowego.',
+  'system_audio.pro_publish_failed': 'Nie udało się rozpocząć udostępniania dźwięku systemowego.',
+  'system_audio.coordinator_update_required': 'Zaktualizuj urządzenie zarządzające tym pokojem.',
+  'system_audio.connection_unstable':
+    'Połączenie z dźwiękiem systemowym użytkownika {{name}} jest niestabilne.\nTrwa próba przywrócenia.',
   'system_audio.capture_denied': 'Udostępnianie dźwięku zostało anulowane.',
   'system_audio.no_audio_track':
     'Opcja „Udostępnij dźwięk” nie została włączona.\nSpróbuj ponownie.',

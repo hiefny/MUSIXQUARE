@@ -5,6 +5,7 @@ import {
   issueProRoomOwnerRecoveryClaim,
   default as proRoomWorker,
 } from '../../../cloudflare/pro-room-worker.js';
+import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
 
 const ROOM_CODE = '000001';
@@ -2173,6 +2174,449 @@ describe('persistent PRO room private media accounting', () => {
     expect(bucket.deleted).toContain(objectKey);
     expect(internal.room.assets[reservation.reservation.assetId]).toBeUndefined();
     expect(internal.room.quota.reservedBytes).toBe(0);
+  });
+});
+
+describe('PRO room system-audio ownership lease', () => {
+  const publication = {
+    publicationId: 'publication_018f977e5df57c8f',
+    sessionId: 'session_018f977e5df57c8fbb80',
+    tracks: [
+      { trackName: 'mxqr-system-audio-000001-L-track', channel: 'L' },
+      { trackName: 'mxqr-system-audio-000001-R-track', channel: 'R', mid: '1' },
+    ],
+  } as const;
+
+  async function acquireSystemAudio(
+    worker: MusixquareProRoom,
+    cookie: string,
+  ): Promise<Record<string, any>> {
+    const response = await worker.fetch(jsonRequest('/system-audio/acquire', 'POST', {}, cookie));
+    expect(response.status).toBe(200);
+    return responseJson(response);
+  }
+
+  it('keeps the v1 snapshot shape unchanged and exposes live state only through its own API', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const snapshotResponse = await worker.fetch(request('/snapshot', {}, ownerCookie));
+    const snapshotEnvelope = await responseJson(snapshotResponse);
+    expect(parseProRoomSnapshot(snapshotEnvelope.snapshot)).not.toBeNull();
+    expect(snapshotEnvelope.snapshot).not.toHaveProperty('systemAudio');
+    expect(snapshotEnvelope.snapshot.viewer.capabilities).not.toContain('system-audio.publish');
+
+    const stateResponse = await worker.fetch(request('/system-audio', {}, ownerCookie));
+    expect(stateResponse.status).toBe(200);
+    expect(await responseJson(stateResponse)).toEqual({
+      systemAudio: {
+        generation: 0,
+        status: 'idle',
+        ownerParticipantId: null,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication: null,
+      },
+    });
+  });
+
+  it('requires an authenticated active presence and fences mutations by owner, generation, and lease', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    expect((await worker.fetch(jsonRequest('/system-audio/acquire', 'POST', {}))).status).toBe(401);
+
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const generation = acquired.systemAudio.generation as number;
+    const leaseId = acquired.leaseId as string;
+    expect(leaseId).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const wrongOwner = await worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        { generation, leaseId, publication },
+        memberCookie,
+      ),
+    );
+    expect(wrongOwner.status).toBe(409);
+    expect(await responseJson(wrongOwner)).toEqual({ error: 'SYSTEM_AUDIO_NOT_OWNER' });
+
+    const wrongGeneration = await worker.fetch(
+      jsonRequest(
+        '/system-audio/heartbeat',
+        'POST',
+        { generation: generation + 1, leaseId },
+        ownerCookie,
+      ),
+    );
+    expect(wrongGeneration.status).toBe(409);
+    expect(await responseJson(wrongGeneration)).toEqual({
+      error: 'SYSTEM_AUDIO_GENERATION_MISMATCH',
+    });
+
+    const wrongLease = await worker.fetch(
+      jsonRequest(
+        '/system-audio/release',
+        'POST',
+        { generation, leaseId: 'x'.repeat(43) },
+        ownerCookie,
+      ),
+    );
+    expect(wrongLease.status).toBe(409);
+    expect(await responseJson(wrongLease)).toEqual({ error: 'SYSTEM_AUDIO_LEASE_INVALID' });
+  });
+
+  it('returns the same private lease on an owner retry without extending the fixed claim', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const internal = worker as unknown as {
+      room: {
+        presence: {
+          participants: Record<string, { lastSeenAtMs: number }>;
+        };
+      };
+    };
+    const participant =
+      internal.room.presence.participants[acquired.systemAudio.ownerParticipantId]!;
+    const staleButActiveLastSeenAtMs = Date.now() - 40_000;
+    participant.lastSeenAtMs = staleButActiveLastSeenAtMs;
+
+    const retry = await acquireSystemAudio(worker, ownerCookie);
+
+    expect(retry.leaseId).toBe(acquired.leaseId);
+    expect(retry.systemAudio).toEqual(acquired.systemAudio);
+    expect(participant.lastSeenAtMs).toBeGreaterThan(staleButActiveLastSeenAtMs);
+  });
+
+  it('never publishes the lease, owner incarnation, or Cloudflare session owner token', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const generation = acquired.systemAudio.generation as number;
+    const leaseId = acquired.leaseId as string;
+    expect(Object.keys(acquired).sort()).toEqual(['leaseId', 'systemAudio']);
+    expect(JSON.stringify(acquired.systemAudio)).not.toContain(leaseId);
+    expect(acquired.systemAudio).not.toHaveProperty('ownerPresenceIncarnationId');
+
+    const leakedToken = await worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        {
+          generation,
+          leaseId,
+          publication: { ...publication, sessionOwnerToken: 'must-never-be-stored' },
+        },
+        ownerCookie,
+      ),
+    );
+    expect(leakedToken.status).toBe(400);
+    expect(await responseJson(leakedToken)).toEqual({ error: 'INVALID_REQUEST' });
+
+    const committed = await worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        { generation, leaseId, publication },
+        ownerCookie,
+      ),
+    );
+    expect(committed.status).toBe(200);
+    const committedEnvelope = await responseJson(committed);
+    expect(committedEnvelope).toEqual({
+      systemAudio: expect.objectContaining({ status: 'live', publication }),
+    });
+    expect(JSON.stringify(committedEnvelope)).not.toContain(leaseId);
+    expect(JSON.stringify(committedEnvelope)).not.toContain('sessionOwnerToken');
+
+    const observed = await responseJson(
+      await worker.fetch(request('/system-audio', {}, ownerCookie)),
+    );
+    expect(JSON.stringify(observed)).not.toContain(leaseId);
+    expect(observed.systemAudio).not.toHaveProperty('ownerPresenceIncarnationId');
+  });
+
+  it('makes commit response-loss retries idempotent without extending the two-hour deadline', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const body = {
+      generation: acquired.systemAudio.generation,
+      leaseId: acquired.leaseId,
+      publication,
+    };
+    const first = await responseJson(
+      await worker.fetch(jsonRequest('/system-audio/commit', 'POST', body, ownerCookie)),
+    );
+    const retry = await responseJson(
+      await worker.fetch(jsonRequest('/system-audio/commit', 'POST', body, ownerCookie)),
+    );
+    expect(retry).toEqual(first);
+
+    const conflicting = await worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        {
+          ...body,
+          publication: { ...publication, publicationId: 'publication_018f977e5df57c9f' },
+        },
+        ownerCookie,
+      ),
+    );
+    expect(conflicting.status).toBe(409);
+    expect(await responseJson(conflicting)).toEqual({
+      error: 'SYSTEM_AUDIO_ALREADY_COMMITTED',
+    });
+  });
+
+  it('fails closed and durably fences malformed stored live state', async () => {
+    const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: { systemAudio: Record<string, unknown> };
+    };
+    internal.room.systemAudio = {
+      generation: 11,
+      status: 'live',
+      ownerParticipantId: activationEnvelope.snapshot.viewer.participantId,
+      ownerPresenceIncarnationId: activationEnvelope.snapshot.viewer.presenceIncarnationId,
+      leaseId: 'z'.repeat(43),
+      claimExpiresAt: null,
+      liveExpiresAt: Date.now() + 60_000,
+      publication: { ...publication, sessionOwnerToken: 'must-not-survive-migration' },
+    };
+
+    const observed = await responseJson(
+      await worker.fetch(request('/system-audio', {}, ownerCookie)),
+    );
+    expect(observed).toEqual({
+      systemAudio: {
+        generation: 12,
+        status: 'idle',
+        ownerParticipantId: null,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication: null,
+      },
+    });
+    const stored = (await state.storage.get('pro-room:v1')) as {
+      systemAudio: Record<string, unknown>;
+    };
+    expect(stored.systemAudio).toEqual(
+      expect.objectContaining({ generation: 12, status: 'idle', leaseId: null }),
+    );
+    expect(JSON.stringify(stored.systemAudio)).not.toContain('sessionOwnerToken');
+  });
+
+  it('migrates an old stored room when its alarm fires before any HTTP request', async () => {
+    const context = await activatedRoom();
+    const legacyRoom = (await context.state.storage.get('pro-room:v1')) as Record<string, unknown>;
+    delete legacyRoom.systemAudio;
+
+    const reloadedState = new FakeState();
+    reloadedState.storage.data.set('pro-room:v1', legacyRoom);
+    const reloadedWorker = new MusixquareProRoom(
+      reloadedState as never,
+      environment(context.bucket) as never,
+    ) as MusixquareProRoom & { alarm(): Promise<void> };
+
+    await expect(reloadedWorker.alarm()).resolves.toBeUndefined();
+
+    const migrated = (await reloadedState.storage.get('pro-room:v1')) as {
+      systemAudio: Record<string, unknown>;
+    };
+    expect(migrated.systemAudio).toEqual({
+      generation: 0,
+      status: 'idle',
+      ownerParticipantId: null,
+      ownerPresenceIncarnationId: null,
+      leaseId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    });
+    expect(reloadedState.storage.alarm).toEqual(expect.any(Number));
+  });
+
+  it('holds preparing for at most 45 seconds and live for at most two hours without heartbeat extension', async () => {
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const acquiredAt = Date.now();
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    expect(acquired.systemAudio.claimExpiresAt).toBeGreaterThanOrEqual(acquiredAt + 45_000);
+    expect(acquired.systemAudio.claimExpiresAt).toBeLessThanOrEqual(Date.now() + 45_000);
+    const claimExpiresAt = acquired.systemAudio.claimExpiresAt as number;
+
+    const preparingHeartbeat = await worker.fetch(
+      jsonRequest(
+        '/system-audio/heartbeat',
+        'POST',
+        { generation: acquired.systemAudio.generation, leaseId: acquired.leaseId },
+        ownerCookie,
+      ),
+    );
+    expect((await responseJson(preparingHeartbeat)).systemAudio.claimExpiresAt).toBe(
+      claimExpiresAt,
+    );
+
+    const committedAt = Date.now();
+    const committed = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/system-audio/commit',
+          'POST',
+          {
+            generation: acquired.systemAudio.generation,
+            leaseId: acquired.leaseId,
+            publication,
+          },
+          ownerCookie,
+        ),
+      ),
+    );
+    expect(committed.systemAudio.liveExpiresAt).toBeGreaterThanOrEqual(
+      committedAt + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    );
+    expect(committed.systemAudio.liveExpiresAt).toBeLessThanOrEqual(
+      Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    );
+    const liveExpiresAt = committed.systemAudio.liveExpiresAt as number;
+    const liveHeartbeat = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/system-audio/heartbeat',
+          'POST',
+          { generation: acquired.systemAudio.generation, leaseId: acquired.leaseId },
+          ownerCookie,
+        ),
+      ),
+    );
+    expect(liveHeartbeat.systemAudio.liveExpiresAt).toBe(liveExpiresAt);
+
+    const internal = worker as unknown as {
+      room: { systemAudio: { generation: number; liveExpiresAt: number } };
+      alarm(): Promise<void>;
+    };
+    const liveGeneration = internal.room.systemAudio.generation;
+    internal.room.systemAudio.liveExpiresAt = Date.now() - 1;
+    await internal.alarm();
+    expect(internal.room.systemAudio).toMatchObject({
+      generation: liveGeneration + 1,
+      status: 'idle',
+    });
+    expect(state.storage.alarm).not.toBe(liveExpiresAt);
+  });
+
+  it('expires an abandoned preparing claim and allows a new participant to acquire afterward', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const internal = worker as unknown as {
+      room: {
+        systemAudio: { generation: number; status: string; claimExpiresAt: number };
+      };
+      alarm(): Promise<void>;
+    };
+    internal.room.systemAudio.claimExpiresAt = Date.now() - 1;
+    await internal.alarm();
+    expect(internal.room.systemAudio).toMatchObject({
+      generation: acquired.systemAudio.generation + 1,
+      status: 'idle',
+    });
+
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Next owner' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+    const next = await acquireSystemAudio(worker, memberCookie);
+    expect(next.systemAudio).toMatchObject({
+      generation: acquired.systemAudio.generation + 2,
+      status: 'preparing',
+    });
+  });
+
+  it('rejects acquisition above four devices and revokes a live share when the fifth joins', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    for (let index = 1; index < MAX_SYSTEM_AUDIO_DEVICES; index += 1) {
+      const response = await worker.fetch(
+        jsonRequest('/sessions', 'POST', {
+          pin: '12345678',
+          displayName: `Member ${index}`,
+        }),
+      );
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, await responseJson(response));
+    }
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const committed = await worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        {
+          generation: acquired.systemAudio.generation,
+          leaseId: acquired.leaseId,
+          publication,
+        },
+        ownerCookie,
+      ),
+    );
+    expect(committed.status).toBe(200);
+
+    const fifth = await worker.fetch(
+      jsonRequest('/sessions', 'POST', {
+        pin: '12345678',
+        displayName: `Member ${MAX_SYSTEM_AUDIO_DEVICES}`,
+      }),
+    );
+    expect(fifth.status).toBe(200);
+    const fifthCookie = cookieFrom(fifth);
+    bindCookiePresence(fifthCookie, await responseJson(fifth));
+
+    const afterJoin = await responseJson(
+      await worker.fetch(request('/system-audio', {}, ownerCookie)),
+    );
+    expect(afterJoin.systemAudio).toMatchObject({
+      generation: acquired.systemAudio.generation + 1,
+      status: 'idle',
+      ownerParticipantId: null,
+      publication: null,
+    });
+    const blocked = await worker.fetch(
+      jsonRequest('/system-audio/acquire', 'POST', {}, fifthCookie),
+    );
+    expect(blocked.status).toBe(409);
+    expect(await responseJson(blocked)).toEqual({ error: 'SYSTEM_AUDIO_DEVICE_LIMIT' });
+  });
+
+  it('revokes ownership when its exact presence leaves or is superseded', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const takeover = await worker.fetch(
+      jsonRequest('/presence/enter', 'POST', { takeover: true }, ownerCookie),
+    );
+    expect(takeover.status).toBe(200);
+    const takeoverEnvelope = await responseJson(takeover);
+    bindCookiePresence(ownerCookie, takeoverEnvelope);
+    expect(takeoverEnvelope.snapshot).not.toHaveProperty('systemAudio');
+    const superseded = await responseJson(
+      await worker.fetch(request('/system-audio', {}, ownerCookie)),
+    );
+    expect(superseded.systemAudio).toMatchObject({
+      generation: acquired.systemAudio.generation + 1,
+      status: 'idle',
+    });
+
+    const reacquired = await acquireSystemAudio(worker, ownerCookie);
+    const left = await worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, ownerCookie),
+    );
+    expect(left.status).toBe(200);
+    const internal = worker as unknown as {
+      room: { systemAudio: { generation: number; status: string } };
+    };
+    expect(internal.room.systemAudio).toMatchObject({
+      generation: reacquired.systemAudio.generation + 1,
+      status: 'idle',
+    });
   });
 });
 

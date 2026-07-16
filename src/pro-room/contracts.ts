@@ -125,6 +125,65 @@ export interface ProRoomViewerSnapshot {
   coordinatorEligible: boolean;
 }
 
+export type ProRoomSystemAudioStatus = 'idle' | 'preparing' | 'live';
+
+/** Public Cloudflare Realtime coordinates. Ownership credentials never enter this value. */
+export interface ProRoomSystemAudioPublication {
+  publicationId: string;
+  sessionId: string;
+  tracks: [ProRoomSystemAudioPublicationTrack, ProRoomSystemAudioPublicationTrack];
+}
+
+export interface ProRoomSystemAudioPublicationTrack {
+  trackName: string;
+  channel: 'L' | 'R';
+  mid?: string;
+}
+
+interface ProRoomSystemAudioStateBase {
+  /** Monotonic fencing generation advanced whenever ownership is revoked or replaced. */
+  generation: number;
+  status: ProRoomSystemAudioStatus;
+  ownerParticipantId: string | null;
+  claimExpiresAt: number | null;
+  liveExpiresAt: number | null;
+  publication: ProRoomSystemAudioPublication | null;
+}
+
+interface ProRoomSystemAudioIdleState extends ProRoomSystemAudioStateBase {
+  status: 'idle';
+  ownerParticipantId: null;
+  claimExpiresAt: null;
+  liveExpiresAt: null;
+  publication: null;
+}
+
+interface ProRoomSystemAudioPreparingState extends ProRoomSystemAudioStateBase {
+  status: 'preparing';
+  ownerParticipantId: string;
+  claimExpiresAt: number;
+  liveExpiresAt: null;
+  publication: null;
+}
+
+interface ProRoomSystemAudioLiveState extends ProRoomSystemAudioStateBase {
+  status: 'live';
+  ownerParticipantId: string;
+  claimExpiresAt: null;
+  liveExpiresAt: number;
+  publication: ProRoomSystemAudioPublication;
+}
+
+/**
+ * Authoritative PRO live-share ownership returned by the dedicated
+ * `/system-audio` resource. It deliberately stays outside snapshot v1 so old
+ * strict clients can keep joining during a rolling deployment.
+ */
+export type ProRoomSystemAudioState =
+  | ProRoomSystemAudioIdleState
+  | ProRoomSystemAudioPreparingState
+  | ProRoomSystemAudioLiveState;
+
 /** Authoritative, fully validated room state returned after activation/authentication. */
 interface ProRoomSnapshotV1 {
   schemaVersion: typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;

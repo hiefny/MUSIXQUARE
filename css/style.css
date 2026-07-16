@@ -6813,6 +6813,43 @@
     opacity: 0.5;
   }
 
+  #btn-system-audio:disabled {
+    cursor: wait;
+    opacity: 0.72;
+    transform: none;
+  }
+
+  #btn-system-audio[aria-busy='true'] .btn-icon-bg svg {
+    visibility: hidden;
+  }
+
+  #btn-system-audio[aria-busy='true'] .btn-icon-bg {
+    position: relative;
+  }
+
+  #btn-system-audio[aria-busy='true'] .btn-icon-bg::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: pro-system-audio-spin 0.8s linear infinite;
+  }
+
+  @keyframes pro-system-audio-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #btn-system-audio[aria-busy='true'] .btn-icon-bg::after {
+      animation-duration: 1.8s;
+    }
+  }
+
   .file-select-btn span {
     font-size: 15px;
     font-weight: 600;

@@ -645,6 +645,13 @@ const ru: Record<I18nKey, string> = {
   'system_audio.button': 'Системный звук',
   'system_audio.sharing': 'Трансляция системного звука',
   'system_audio.receiving': 'Прием системного звука',
+  'system_audio.owner_active': '{{name}} транслирует системный звук.',
+  'system_audio.owner_preparing': '{{name}} готовится к трансляции системного звука.',
+  'system_audio.pro_preparing': 'Подготовка трансляции системного звука.',
+  'system_audio.pro_publish_failed': 'Не удалось начать трансляцию системного звука.',
+  'system_audio.coordinator_update_required': 'Обновите устройство, управляющее этой комнатой.',
+  'system_audio.connection_unstable':
+    'Соединение с системным звуком {{name}} нестабильно.\nПытаемся восстановить его.',
   'system_audio.capture_denied': 'Трансляция звука была отменена.',
   'system_audio.no_audio_track':
     'Опция «Поделиться звуком» не была активирована.\nПопробуйте еще раз.',

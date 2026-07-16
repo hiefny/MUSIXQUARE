@@ -6,6 +6,8 @@ import {
   type ProRoomQuotaSnapshot,
   type ProRoomR2Source,
   type ProRoomSnapshot,
+  type ProRoomSystemAudioPublication,
+  type ProRoomSystemAudioState,
 } from './contracts.ts';
 import {
   isProRoomPin,
@@ -15,7 +17,12 @@ import {
   type ProRoomSignalingTicket,
 } from './credentials.ts';
 import { isProRoomCode } from './room-code.ts';
-import { isProRoomQueueItemId, parseProRoomSnapshot } from './snapshot.ts';
+import {
+  isProRoomQueueItemId,
+  parseProRoomSnapshot,
+  parseProRoomSystemAudioPublication,
+  parseProRoomSystemAudioState,
+} from './snapshot.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://pro.musixquare.com';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -33,6 +40,7 @@ const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 const ERROR_CODE_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const FORBIDDEN_UPLOAD_HEADERS = new Set([
@@ -82,6 +90,25 @@ export interface ProRoomSignalingAccess {
 export interface ProRoomPresenceIdentity {
   participantId: string;
   presenceIncarnationId: string;
+}
+
+export interface ProRoomSystemAudioLeaseGrant {
+  systemAudio: ProRoomSystemAudioState;
+  /** Private 32-byte capability. Never publish this through room state or peer messages. */
+  leaseId: string;
+}
+
+export interface CommitProRoomSystemAudioInput {
+  code: string;
+  generation: number;
+  leaseId: string;
+  publication: ProRoomSystemAudioPublication;
+}
+
+export interface UpdateProRoomSystemAudioLeaseInput {
+  code: string;
+  generation: number;
+  leaseId: string;
 }
 
 export interface EnterProRoomPresenceOptions {
@@ -255,6 +282,28 @@ function validateOpaqueId(value: string, errorCode: string): string {
   return value;
 }
 
+function validateSystemAudioGeneration(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new ProRoomApiError('INVALID_SYSTEM_AUDIO_GENERATION');
+  }
+  return value;
+}
+
+function validateSystemAudioLeaseId(value: string): string {
+  if (!SYSTEM_AUDIO_LEASE_ID_RE.test(value)) {
+    throw new ProRoomApiError('INVALID_SYSTEM_AUDIO_LEASE');
+  }
+  return value;
+}
+
+function validateSystemAudioPublication(
+  value: ProRoomSystemAudioPublication,
+): ProRoomSystemAudioPublication {
+  const publication = parseProRoomSystemAudioPublication(value);
+  if (!publication) throw new ProRoomApiError('INVALID_SYSTEM_AUDIO_PUBLICATION');
+  return publication;
+}
+
 function encodeRequestBody(value: unknown): string {
   let body: string;
   try {
@@ -368,6 +417,25 @@ function parseSnapshotEnvelope(value: unknown, expectedCode: string): ProRoomSna
   if (!isRecord(value) || !hasExactKeys(value, ['snapshot'])) return null;
   const snapshot = parseProRoomSnapshot(value.snapshot);
   return snapshot?.roomCode === expectedCode ? snapshot : null;
+}
+
+function parseSystemAudioEnvelope(value: unknown): ProRoomSystemAudioState | null {
+  if (!isRecord(value) || !hasExactKeys(value, ['systemAudio'])) return null;
+  return parseProRoomSystemAudioState(value.systemAudio);
+}
+
+function parseSystemAudioLeaseGrant(value: unknown): ProRoomSystemAudioLeaseGrant | null {
+  if (!isRecord(value) || !hasExactKeys(value, ['systemAudio', 'leaseId'])) return null;
+  const systemAudio = parseProRoomSystemAudioState(value.systemAudio);
+  if (
+    !systemAudio ||
+    systemAudio.status === 'idle' ||
+    typeof value.leaseId !== 'string' ||
+    !SYSTEM_AUDIO_LEASE_ID_RE.test(value.leaseId)
+  ) {
+    return null;
+  }
+  return { systemAudio, leaseId: value.leaseId };
 }
 
 function parseOk(value: unknown): true | null {
@@ -772,6 +840,86 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+  }
+
+  getSystemAudioState(code: string, signal?: AbortSignal): Promise<ProRoomSystemAudioState> {
+    const path = roomPath(code);
+    return this.#request(`${path}/system-audio`, {
+      signal,
+      activeRoomCode: code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: parseSystemAudioEnvelope,
+    });
+  }
+
+  acquireSystemAudioLease(
+    code: string,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSystemAudioLeaseGrant> {
+    const path = roomPath(code);
+    return this.#request(`${path}/system-audio/acquire`, {
+      method: 'POST',
+      body: {},
+      signal,
+      activeRoomCode: code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: parseSystemAudioLeaseGrant,
+    });
+  }
+
+  commitSystemAudioPublication(
+    input: CommitProRoomSystemAudioInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSystemAudioState> {
+    const path = roomPath(input.code);
+    return this.#request(`${path}/system-audio/commit`, {
+      method: 'POST',
+      body: {
+        generation: validateSystemAudioGeneration(input.generation),
+        leaseId: validateSystemAudioLeaseId(input.leaseId),
+        publication: validateSystemAudioPublication(input.publication),
+      },
+      signal,
+      activeRoomCode: input.code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: parseSystemAudioEnvelope,
+    });
+  }
+
+  heartbeatSystemAudioLease(
+    input: UpdateProRoomSystemAudioLeaseInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSystemAudioState> {
+    const path = roomPath(input.code);
+    return this.#request(`${path}/system-audio/heartbeat`, {
+      method: 'POST',
+      body: {
+        generation: validateSystemAudioGeneration(input.generation),
+        leaseId: validateSystemAudioLeaseId(input.leaseId),
+      },
+      signal,
+      activeRoomCode: input.code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: parseSystemAudioEnvelope,
+    });
+  }
+
+  releaseSystemAudioLease(
+    input: UpdateProRoomSystemAudioLeaseInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSystemAudioState> {
+    const path = roomPath(input.code);
+    return this.#request(`${path}/system-audio/release`, {
+      method: 'POST',
+      body: {
+        generation: validateSystemAudioGeneration(input.generation),
+        leaseId: validateSystemAudioLeaseId(input.leaseId),
+      },
+      signal,
+      activeRoomCode: input.code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: parseSystemAudioEnvelope,
     });
   }
 

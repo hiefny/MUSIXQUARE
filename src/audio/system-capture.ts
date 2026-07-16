@@ -32,9 +32,17 @@ import {
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
-import { isCoordinator } from '../rooms/authority.ts';
+import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
 import { hasSystemAudioDeviceCapacity } from './system-audio-policy.ts';
 import type { QueueItemId, SystemAudioStopReason, TrackMeta } from '../types/index.ts';
+import {
+  acquireLocalProSystemAudioLease,
+  canPublishProSystemAudioWithCurrentCoordinator,
+  getProSystemAudioOwnerDisplayName,
+  getProSystemAudioViewState,
+  publishLocalProSystemAudio,
+  releaseLocalProSystemAudioLease,
+} from '../pro-room/system-audio-bridge.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -68,7 +76,10 @@ interface PreSystemAudioState {
 
 let _preSysAudioState: PreSystemAudioState | null = null;
 let _captureStartPromise: Promise<void> | null = null;
+let _captureRoomKind: 'standard' | 'pro' | null = null;
 const SYSTEM_AUDIO_SHARE_LIMIT_TIMER = 'system-audio-host-share-limit';
+
+type ProLeaseAttempt = Promise<{ ok: true } | { ok: false; error: unknown }>;
 
 function showSystemAudioDeviceLimit(): void {
   bus.emit('ui:show-toast', t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }));
@@ -78,7 +89,54 @@ function discardPendingCapture(stream: MediaStream): void {
   for (const track of stream.getTracks()) track.stop();
 }
 
-function startSystemAudioShareLimitTimer(): void {
+function beginProLeaseAttempt(): ProLeaseAttempt {
+  // Convert rejection to data immediately. The native picker can remain open
+  // after the request finishes, and an unobserved rejected Promise would
+  // otherwise surface as a browser-level unhandled rejection.
+  return acquireLocalProSystemAudioLease().then(
+    () => ({ ok: true as const }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+}
+
+function releaseProLeaseAttempt(attempt: ProLeaseAttempt | null): void {
+  if (!attempt) return;
+  void attempt.then((result) => {
+    if (result.ok) void releaseLocalProSystemAudioLease().catch(() => undefined);
+  });
+}
+
+function showProLeaseFailure(error?: unknown): void {
+  const view = getProSystemAudioViewState();
+  const ownerName = getProSystemAudioOwnerDisplayName();
+  if (view.phase === 'live' && ownerName) {
+    bus.emit('ui:show-toast', t('system_audio.owner_active', { name: ownerName }));
+    return;
+  }
+  if (view.phase === 'preparing' && ownerName) {
+    bus.emit('ui:show-toast', t('system_audio.owner_preparing', { name: ownerName }));
+    return;
+  }
+  const code = error instanceof Error ? error.message : String(error ?? '');
+  if (code.includes('COORDINATOR_UPDATE_REQUIRED')) {
+    showProCoordinatorUpdateRequired();
+    return;
+  }
+  if (code.includes('DEVICE_LIMIT')) {
+    showSystemAudioDeviceLimit();
+    return;
+  }
+  bus.emit('ui:show-toast', t('system_audio.pro_publish_failed'));
+}
+
+function showProCoordinatorUpdateRequired(): void {
+  bus.emit('ui:show-toast', t('system_audio.coordinator_update_required'));
+}
+
+function startSystemAudioShareLimitTimer(
+  expiresAt = Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+): void {
+  const remainingMs = Math.max(0, Math.min(SYSTEM_AUDIO_SHARE_LIMIT_MS, expiresAt - Date.now()));
   setManagedTimer(
     SYSTEM_AUDIO_SHARE_LIMIT_TIMER,
     () => {
@@ -86,7 +144,7 @@ function startSystemAudioShareLimitTimer(): void {
       log.info('[SystemAudio] Host share duration limit reached');
       bus.emit('system-audio:stop', { reason: 'duration-limit' });
     },
-    SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    remainingMs,
   );
 }
 
@@ -156,19 +214,35 @@ export async function startSystemAudioCapture(): Promise<void> {
     log.warn('[SystemAudio] Capture start already pending');
     return;
   }
-  if (!isCoordinator()) {
+  const isProRoom = getRoomContext().kind === 'pro';
+  if (!isProRoom && !isCoordinator()) {
     log.warn('[SystemAudio] Capture start ignored on a non-coordinator device');
     return;
   }
 
+  if (isProRoom) {
+    const view = getProSystemAudioViewState();
+    if (view.initialized && view.phase !== 'idle') {
+      showProLeaseFailure();
+      return;
+    }
+    if (!canPublishProSystemAudioWithCurrentCoordinator()) {
+      showProCoordinatorUpdateRequired();
+      return;
+    }
+  }
+
   // The host counts as one device. Refuse before opening the native picker
   // when four guests (five total devices) are already connected.
-  if (!hasSystemAudioDeviceCapacity()) {
+  if (!isProRoom && !hasSystemAudioDeviceCapacity()) {
     showSystemAudioDeviceLimit();
     return;
   }
 
-  const attempt = performSystemAudioCaptureStart();
+  // Both calls begin in this user-activation turn. Waiting for the server
+  // before getDisplayMedia would lose the browser's trusted click gesture.
+  const proLeaseAttempt = isProRoom ? beginProLeaseAttempt() : null;
+  const attempt = performSystemAudioCaptureStart(isProRoom, proLeaseAttempt);
   _captureStartPromise = attempt;
   try {
     await attempt;
@@ -177,7 +251,11 @@ export async function startSystemAudioCapture(): Promise<void> {
   }
 }
 
-async function performSystemAudioCaptureStart(): Promise<void> {
+async function performSystemAudioCaptureStart(
+  isProRoom: boolean,
+  proLeaseAttempt: ProLeaseAttempt | null,
+): Promise<void> {
+  let authoritativeLiveExpiresAt: number | null = null;
   // 1. Capture FIRST (user gesture must be synchronous call stack)
   let stream: MediaStream;
   try {
@@ -192,26 +270,45 @@ async function performSystemAudioCaptureStart(): Promise<void> {
       },
     });
   } catch (e) {
+    releaseProLeaseAttempt(proLeaseAttempt);
     log.warn('[SystemAudio] getDisplayMedia denied or failed:', e);
     bus.emit('ui:show-toast', t('system_audio.capture_denied'));
     return;
   }
 
-  // A fifth device can connect while the browser's native picker is open.
-  // Discard the newly granted capture before touching current playback.
-  if (!isCoordinator() || !hasSystemAudioDeviceCapacity()) {
-    discardPendingCapture(stream);
-    if (!hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
-    return;
-  }
-
-  // Discard video track
+  // Discard video as soon as the native picker completes. Only the captured
+  // audio track belongs in the product graph.
   for (const vt of stream.getVideoTracks()) vt.stop();
 
   const audioTracks = stream.getAudioTracks();
   if (audioTracks.length === 0) {
+    releaseProLeaseAttempt(proLeaseAttempt);
+    discardPendingCapture(stream);
     log.warn('[SystemAudio] No audio track');
     bus.emit('ui:show-toast', t('system_audio.no_audio_track'));
+    return;
+  }
+
+  if (isProRoom) {
+    const leaseResult = await proLeaseAttempt!;
+    if (!leaseResult.ok) {
+      discardPendingCapture(stream);
+      await refreshProLeaseFailure(leaseResult.error);
+      return;
+    }
+    if (!canPublishProSystemAudioWithCurrentCoordinator()) {
+      discardPendingCapture(stream);
+      void releaseLocalProSystemAudioLease().catch(() => undefined);
+      showProCoordinatorUpdateRequired();
+      return;
+    }
+  }
+
+  // A fifth device can connect while the browser's native picker is open.
+  // Standard rooms enforce locally; PRO rooms use the authoritative lease.
+  if (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity())) {
+    discardPendingCapture(stream);
+    if (!hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
     return;
   }
 
@@ -222,12 +319,19 @@ async function performSystemAudioCaptureStart(): Promise<void> {
     await initAudio();
   } catch (error) {
     discardPendingCapture(stream);
+    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
     throw error;
   }
 
-  if (!isCoordinator() || !hasSystemAudioDeviceCapacity()) {
+  if (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity())) {
     discardPendingCapture(stream);
     if (!hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
+    return;
+  }
+  if (isProRoom && !canPublishProSystemAudioWithCurrentCoordinator()) {
+    discardPendingCapture(stream);
+    void releaseLocalProSystemAudioLease().catch(() => undefined);
+    showProCoordinatorUpdateRequired();
     return;
   }
 
@@ -260,6 +364,7 @@ async function performSystemAudioCaptureStart(): Promise<void> {
   // 4. Audio was initialized before changing the previous playback state.
   const ctx = getAudioContext();
   _capturedStream = stream;
+  _captureRoomKind = isProRoom ? 'pro' : 'standard';
   _debugLastCaptureStartedAt = Date.now();
   _sourceNode = ctx.createMediaStreamSource(stream);
 
@@ -297,7 +402,8 @@ async function performSystemAudioCaptureStart(): Promise<void> {
     stereoUpmix.connect(widener.input);
   } else {
     log.error('[SystemAudio] No widener found');
-    cleanupCapture();
+    abortPreparedCapture();
+    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
     return;
   }
 
@@ -312,17 +418,41 @@ async function performSystemAudioCaptureStart(): Promise<void> {
   claimPlaybackOwner('system-audio', {
     currentTrackMeta: createSystemAudioTrackMeta('sharing'),
   });
-  startSystemAudioShareLimitTimer();
-
-  // 9. Broadcast start + call guests with L/R streams
-  _debugLastStartBroadcastAt = Date.now();
-  broadcast({ type: MSG.SYSTEM_AUDIO_START });
-  _debugLastStreamsReadyAt = Date.now();
-  bus.emit('system-audio:streams-ready');
-
-  // 9.1 Localized transient system message for everyone in the room. Each
-  // device renders the i18n key in its own locale.
-  broadcastSystemMessage('chat.system_audio_started_system_message');
+  // 9. Standard rooms keep their bounded direct/SFU hybrid. PRO rooms publish
+  // role-independently and only expose the public descriptor after the SFU
+  // session and the server-side lease have both committed.
+  if (isProRoom) {
+    try {
+      if (!canPublishProSystemAudioWithCurrentCoordinator()) {
+        throw new Error('PRO_SYSTEM_AUDIO_COORDINATOR_UPDATE_REQUIRED');
+      }
+      const leftTrack = _streamL?.getAudioTracks()[0];
+      const rightTrack = _streamR?.getAudioTracks()[0];
+      if (!leftTrack || !rightTrack) throw new Error('PRO_SYSTEM_AUDIO_TRACKS_UNAVAILABLE');
+      const liveState = await publishLocalProSystemAudio(leftTrack, rightTrack);
+      authoritativeLiveExpiresAt = liveState.status === 'live' ? liveState.liveExpiresAt : null;
+    } catch (error) {
+      log.warn('[SystemAudio] PRO publication failed:', error);
+      abortPreparedCapture();
+      void releaseLocalProSystemAudioLease().catch(() => undefined);
+      if (
+        error instanceof Error &&
+        error.message === 'PRO_SYSTEM_AUDIO_COORDINATOR_UPDATE_REQUIRED'
+      ) {
+        showProCoordinatorUpdateRequired();
+      } else {
+        showProLeaseFailure(error);
+      }
+      return;
+    }
+  } else {
+    _debugLastStartBroadcastAt = Date.now();
+    broadcast({ type: MSG.SYSTEM_AUDIO_START });
+    _debugLastStreamsReadyAt = Date.now();
+    bus.emit('system-audio:streams-ready');
+    broadcastSystemMessage('chat.system_audio_started_system_message');
+  }
+  startSystemAudioShareLimitTimer(authoritativeLiveExpiresAt ?? undefined);
 
   // 10. Advisory toast — latency is unavoidable, and the host's
   // desktop speakers would otherwise drown out the distributed feed.
@@ -362,11 +492,19 @@ function stopSystemAudioCapture(opts?: {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
   if (!isSystemAudioActive() && !_capturedStream) return;
   const shouldRestore = opts?.restore ?? true;
+  const captureRoomKind = _captureRoomKind;
 
   _debugLastStopBroadcastAt = Date.now();
-  broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
-  broadcastSystemMessage('chat.system_audio_stopped_system_message');
+  if (captureRoomKind === 'pro') {
+    void releaseLocalProSystemAudioLease().catch((error) => {
+      log.debug('[SystemAudio] PRO lease release failed:', error);
+    });
+  } else {
+    broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
+    broadcastSystemMessage('chat.system_audio_stopped_system_message');
+  }
   cleanupCapture();
+  _captureRoomKind = null;
   muteLocalOutput(false);
 
   if (shouldRestore && _preSysAudioState) {
@@ -512,11 +650,29 @@ function cleanupCapture(): void {
   }
 }
 
+function abortPreparedCapture(): void {
+  clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
+  cleanupCapture();
+  _captureRoomKind = null;
+  muteLocalOutput(false);
+  if (_preSysAudioState) restorePreSystemAudioPlaybackState(_preSysAudioState);
+  else setPlaybackIdle();
+  _preSysAudioState = null;
+}
+
+async function refreshProLeaseFailure(error: unknown): Promise<void> {
+  // Acquisition errors may carry the winner only in the next authoritative
+  // read. The controller already refreshes best-effort; yield once so its
+  // resolved view can produce a useful owner-specific message.
+  await Promise.resolve();
+  showProLeaseFailure(error);
+}
+
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemCaptureListeners(): void {
   const stopAfterCoordinatorAuthorityLoss = (): void => {
-    if (!_capturedStream || isCoordinator()) return;
+    if (!_capturedStream || _captureRoomKind === 'pro' || isCoordinator()) return;
     log.info('[SystemAudio] Coordinator authority lost; force-stopping active share');
     bus.emit('system-audio:force-stop');
   };
@@ -539,6 +695,7 @@ export function registerSystemCaptureListeners(): void {
     stopSystemAudioCapture({ restore: false });
   });
   bus.on('network:peer-connected', () => {
+    if (_captureRoomKind === 'pro') return;
     if (!isCoordinator()) return;
     if (!_capturedStream || hasSystemAudioDeviceCapacity()) return;
     log.info('[SystemAudio] Device limit exceeded; stopping active share');
@@ -547,4 +704,15 @@ export function registerSystemCaptureListeners(): void {
   bus.on('state:room.context', stopAfterCoordinatorAuthorityLoss);
   bus.on('state:network.appRole', stopAfterCoordinatorAuthorityLoss);
   bus.on('state:network.hostConn', stopAfterCoordinatorAuthorityLoss);
+  bus.on('pro-system-audio:lease-lost', (reason) => {
+    if (_captureRoomKind !== 'pro' || !_capturedStream) return;
+    log.info(`[SystemAudio] PRO lease lost (${reason}); stopping local capture`);
+    if (reason === 'reset' || reason === 'session-changed') {
+      bus.emit('system-audio:force-stop');
+    } else {
+      // The share ended while this room remains active. Resume the exact
+      // pre-share item instead of leaving the former owner on an idle screen.
+      bus.emit('system-audio:stop');
+    }
+  });
 }

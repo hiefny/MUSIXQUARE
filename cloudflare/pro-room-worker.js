@@ -24,6 +24,7 @@ const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 
 const SCHEMA_VERSION = 1;
 const STORAGE_KEY = 'pro-room:v1';
@@ -57,6 +58,11 @@ const ASSET_GC_GRACE_SECONDS = 15 * 60;
 const ASSET_GC_RETRY_SECONDS = 60;
 const PRESIGN_TTL_SECONDS = 10 * 60;
 const SIGNALING_TICKET_TTL_SECONDS = 90;
+const SYSTEM_AUDIO_MAX_PRESENCE_ITEMS = 4;
+const SYSTEM_AUDIO_CLAIM_TTL_MS = 45 * 1000;
+const SYSTEM_AUDIO_LIVE_TTL_MS = 2 * 60 * 60 * 1000;
+const SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH = 160;
+const SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH = 64;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 // workerd rejects PBKDF2 counts above 100,000. Keep the stored record at the
 // runtime ceiling so activation and PIN verification use the strongest value
@@ -600,6 +606,7 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
       coordinatorParticipantId: null,
       participants: {},
     },
+    systemAudio: initialSystemAudioState(),
     quota: {
       limitBytes: ROOM_QUOTA_BYTES,
       perAssetLimitBytes: ASSET_MAX_BYTES,
@@ -616,6 +623,150 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
     rateLimits: {},
     consumedRecoveryNonces: {},
     stagingTombstones: {},
+  };
+}
+
+function initialSystemAudioState(generation = 0) {
+  return {
+    generation,
+    status: 'idle',
+    ownerParticipantId: null,
+    ownerPresenceIncarnationId: null,
+    leaseId: null,
+    claimExpiresAt: null,
+    liveExpiresAt: null,
+    publication: null,
+  };
+}
+
+function publicSystemAudio(state) {
+  return {
+    generation: state.generation,
+    status: state.status,
+    ownerParticipantId: state.ownerParticipantId,
+    claimExpiresAt: state.claimExpiresAt,
+    liveExpiresAt: state.liveExpiresAt,
+    publication: state.publication ? structuredClone(state.publication) : null,
+  };
+}
+
+function parseSystemAudioPublication(value) {
+  if (!hasExactKeys(value, ['publicationId', 'sessionId', 'tracks'])) return null;
+  if (!OPAQUE_ID_RE.test(value.publicationId) || !OPAQUE_ID_RE.test(value.sessionId)) return null;
+  if (!Array.isArray(value.tracks) || value.tracks.length !== 2) return null;
+  const channels = new Set();
+  const trackNames = new Set();
+  const mids = new Set();
+  const tracks = [];
+  for (const rawTrack of value.tracks) {
+    if (!hasExactKeys(rawTrack, ['trackName', 'channel'], ['mid'])) return null;
+    const trackName = boundedString(rawTrack.trackName, SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH);
+    if (
+      !trackName ||
+      (rawTrack.channel !== 'L' && rawTrack.channel !== 'R') ||
+      channels.has(rawTrack.channel) ||
+      trackNames.has(trackName)
+    ) {
+      return null;
+    }
+    const mid =
+      rawTrack.mid === undefined
+        ? undefined
+        : boundedString(rawTrack.mid, SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH);
+    if (rawTrack.mid !== undefined && (!mid || mids.has(mid))) return null;
+    channels.add(rawTrack.channel);
+    trackNames.add(trackName);
+    if (mid) mids.add(mid);
+    tracks.push({
+      trackName,
+      channel: rawTrack.channel,
+      ...(mid === undefined ? {} : { mid }),
+    });
+  }
+  if (!channels.has('L') || !channels.has('R')) return null;
+  return {
+    publicationId: value.publicationId,
+    sessionId: value.sessionId,
+    tracks,
+  };
+}
+
+function normalizeStoredSystemAudio(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    !hasExactKeys(value, [
+      'generation',
+      'status',
+      'ownerParticipantId',
+      'ownerPresenceIncarnationId',
+      'leaseId',
+      'claimExpiresAt',
+      'liveExpiresAt',
+      'publication',
+    ]) ||
+    !isSafeNonNegativeInteger(value.generation)
+  ) {
+    return null;
+  }
+  if (value.status === 'idle') {
+    return value.ownerParticipantId === null &&
+      value.ownerPresenceIncarnationId === null &&
+      value.leaseId === null &&
+      value.claimExpiresAt === null &&
+      value.liveExpiresAt === null &&
+      value.publication === null
+      ? initialSystemAudioState(value.generation)
+      : null;
+  }
+  if (
+    value.generation === 0 ||
+    !OPAQUE_ID_RE.test(value.ownerParticipantId || '') ||
+    !OPAQUE_ID_RE.test(value.ownerPresenceIncarnationId || '') ||
+    !SYSTEM_AUDIO_LEASE_ID_RE.test(value.leaseId || '')
+  ) {
+    return null;
+  }
+  if (value.status === 'preparing') {
+    if (
+      !Number.isSafeInteger(value.claimExpiresAt) ||
+      value.claimExpiresAt <= 0 ||
+      value.liveExpiresAt !== null ||
+      value.publication !== null
+    ) {
+      return null;
+    }
+    return {
+      generation: value.generation,
+      status: 'preparing',
+      ownerParticipantId: value.ownerParticipantId,
+      ownerPresenceIncarnationId: value.ownerPresenceIncarnationId,
+      leaseId: value.leaseId,
+      claimExpiresAt: value.claimExpiresAt,
+      liveExpiresAt: null,
+      publication: null,
+    };
+  }
+  const publication = parseSystemAudioPublication(value.publication);
+  if (
+    value.status !== 'live' ||
+    value.claimExpiresAt !== null ||
+    !Number.isSafeInteger(value.liveExpiresAt) ||
+    value.liveExpiresAt <= 0 ||
+    !publication
+  ) {
+    return null;
+  }
+  return {
+    generation: value.generation,
+    status: 'live',
+    ownerParticipantId: value.ownerParticipantId,
+    ownerPresenceIncarnationId: value.ownerPresenceIncarnationId,
+    leaseId: value.leaseId,
+    claimExpiresAt: null,
+    liveExpiresAt: value.liveExpiresAt,
+    publication,
   };
 }
 
@@ -1035,8 +1186,10 @@ export class MusixquareProRoom {
     this.env = env;
     this.room = null;
     this.mutationTail = Promise.resolve();
+    this.systemAudioMigrationPending = false;
     const load = async () => {
       this.room = (await this.storage.get(STORAGE_KEY)) || null;
+      this.normalizeLoadedSystemAudio();
     };
     if (typeof state.blockConcurrencyWhile === 'function') state.blockConcurrencyWhile(load);
     else this.ready = load();
@@ -1060,6 +1213,7 @@ export class MusixquareProRoom {
     }
     if (!this.room.consumedRecoveryNonces) this.room.consumedRecoveryNonces = {};
     if (!this.room.stagingTombstones) this.room.stagingTombstones = {};
+    this.normalizeLoadedSystemAudio();
     if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
       this.room.playback.youtubeVideoId = null;
       this.room.playback.youtubeSubIndex = null;
@@ -1070,6 +1224,26 @@ export class MusixquareProRoom {
       }
     }
     return this.room.roomCode === roomCode;
+  }
+
+  normalizeLoadedSystemAudio() {
+    if (!this.room) return;
+    const normalizedSystemAudio = normalizeStoredSystemAudio(this.room.systemAudio);
+    if (normalizedSystemAudio) {
+      this.room.systemAudio = normalizedSystemAudio;
+    } else {
+      const storedGeneration = isSafeNonNegativeInteger(this.room.systemAudio?.generation)
+        ? this.room.systemAudio.generation
+        : 0;
+      const mustFenceMalformedLease =
+        this.room.systemAudio && this.room.systemAudio.status !== 'idle';
+      this.room.systemAudio = initialSystemAudioState(
+        mustFenceMalformedLease && storedGeneration < Number.MAX_SAFE_INTEGER
+          ? storedGeneration + 1
+          : storedGeneration,
+      );
+      this.systemAudioMigrationPending = true;
+    }
   }
 
   async withMutation(callback) {
@@ -1111,6 +1285,11 @@ export class MusixquareProRoom {
     for (const session of Object.values(this.room.sessions)) candidates.push(session.expiresAtMs);
     for (const participant of Object.values(this.room.presence.participants)) {
       candidates.push(participant.lastSeenAtMs + this.presenceTtlMs());
+    }
+    if (this.room.systemAudio.status === 'preparing') {
+      candidates.push(this.room.systemAudio.claimExpiresAt);
+    } else if (this.room.systemAudio.status === 'live') {
+      candidates.push(this.room.systemAudio.liveExpiresAt);
     }
     for (const asset of Object.values(this.room.assets)) {
       if (asset.status === 'reserved') candidates.push(asset.expiresAtMs);
@@ -1259,6 +1438,16 @@ export class MusixquareProRoom {
           return this.handleLeavePresence(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
           return this.handleSignalingTicket(request);
+        if (request.method === 'GET' && url.pathname === `${prefix}/system-audio`)
+          return this.handleGetSystemAudio(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
+          return this.handleAcquireSystemAudio(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/commit`)
+          return this.handleCommitSystemAudio(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/heartbeat`)
+          return this.handleHeartbeatSystemAudio(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/release`)
+          return this.handleReleaseSystemAudio(request);
         if (request.method === 'PUT' && url.pathname === `${prefix}/snapshot`)
           return this.handleUpdateSnapshot(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
@@ -1484,6 +1673,184 @@ export class MusixquareProRoom {
     return auth;
   }
 
+  systemAudioResponse(extra = {}) {
+    return jsonResponse({ systemAudio: publicSystemAudio(this.room.systemAudio), ...extra });
+  }
+
+  isSystemAudioOwner(auth) {
+    const state = this.room.systemAudio;
+    return (
+      state.status !== 'idle' &&
+      state.ownerParticipantId === auth.session.participantId &&
+      state.ownerPresenceIncarnationId === auth.participant?.presenceIncarnationId
+    );
+  }
+
+  clearSystemAudioLease() {
+    const currentGeneration = isSafeNonNegativeInteger(this.room.systemAudio?.generation)
+      ? this.room.systemAudio.generation
+      : 0;
+    const nextGeneration =
+      currentGeneration < Number.MAX_SAFE_INTEGER ? currentGeneration + 1 : currentGeneration;
+    this.room.systemAudio = initialSystemAudioState(nextGeneration);
+    return true;
+  }
+
+  reconcileSystemAudio(nowMs) {
+    const state = this.room.systemAudio;
+    if (!state || state.status === 'idle') return false;
+    const owner = this.room.presence.participants[state.ownerParticipantId];
+    const ownerMissingOrSuperseded =
+      !owner || owner.presenceIncarnationId !== state.ownerPresenceIncarnationId;
+    const overDeviceLimit =
+      Object.keys(this.room.presence.participants).length > SYSTEM_AUDIO_MAX_PRESENCE_ITEMS;
+    const expired =
+      (state.status === 'preparing' &&
+        (!Number.isSafeInteger(state.claimExpiresAt) || state.claimExpiresAt <= nowMs)) ||
+      (state.status === 'live' &&
+        (!Number.isSafeInteger(state.liveExpiresAt) || state.liveExpiresAt <= nowMs));
+    if (!ownerMissingOrSuperseded && !overDeviceLimit && !expired) return false;
+    return this.clearSystemAudioLease();
+  }
+
+  validateSystemAudioLease(auth, generation, leaseId) {
+    if (!isSafeNonNegativeInteger(generation) || !SYSTEM_AUDIO_LEASE_ID_RE.test(leaseId || '')) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    if (generation !== this.room.systemAudio.generation) {
+      return errorResponse('SYSTEM_AUDIO_GENERATION_MISMATCH', 409);
+    }
+    if (!this.isSystemAudioOwner(auth)) {
+      return errorResponse('SYSTEM_AUDIO_NOT_OWNER', 409);
+    }
+    if (!constantTimeEqual(leaseId, this.room.systemAudio.leaseId || '')) {
+      return errorResponse('SYSTEM_AUDIO_LEASE_INVALID', 409);
+    }
+    return null;
+  }
+
+  async handleGetSystemAudio(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    if (request.body && (request.headers.get('content-length') || '') !== '0') {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    return this.systemAudioResponse();
+  }
+
+  async handleAcquireSystemAudio(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    if (!hasExactKeys(parsed.value, [])) return errorResponse('INVALID_REQUEST', 400);
+    if (Object.keys(this.room.presence.participants).length > SYSTEM_AUDIO_MAX_PRESENCE_ITEMS) {
+      return errorResponse('SYSTEM_AUDIO_DEVICE_LIMIT', 409);
+    }
+
+    if (this.room.systemAudio.status !== 'idle') {
+      if (!this.isSystemAudioOwner(auth)) {
+        return errorResponse('SYSTEM_AUDIO_OWNER_ACTIVE', 409);
+      }
+      auth.participant.lastSeenAtMs = Date.now();
+      await this.persist();
+      return this.systemAudioResponse({ leaseId: this.room.systemAudio.leaseId });
+    }
+    if (this.room.systemAudio.generation >= Number.MAX_SAFE_INTEGER) {
+      return errorResponse('SYSTEM_AUDIO_GENERATION_EXHAUSTED', 409);
+    }
+
+    const nowMs = Date.now();
+    this.room.systemAudio = {
+      generation: this.room.systemAudio.generation + 1,
+      status: 'preparing',
+      ownerParticipantId: auth.session.participantId,
+      ownerPresenceIncarnationId: auth.participant.presenceIncarnationId,
+      leaseId: randomToken(32),
+      claimExpiresAt: nowMs + SYSTEM_AUDIO_CLAIM_TTL_MS,
+      liveExpiresAt: null,
+      publication: null,
+    };
+    auth.participant.lastSeenAtMs = nowMs;
+    await this.persist();
+    return this.systemAudioResponse({ leaseId: this.room.systemAudio.leaseId });
+  }
+
+  async handleCommitSystemAudio(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    if (!hasExactKeys(parsed.value, ['generation', 'leaseId', 'publication'])) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const publication = parseSystemAudioPublication(parsed.value.publication);
+    if (!publication) return errorResponse('INVALID_REQUEST', 400);
+    const leaseError = this.validateSystemAudioLease(
+      auth,
+      parsed.value.generation,
+      parsed.value.leaseId,
+    );
+    if (leaseError) return leaseError;
+
+    if (this.room.systemAudio.status === 'live') {
+      if (JSON.stringify(this.room.systemAudio.publication) !== JSON.stringify(publication)) {
+        return errorResponse('SYSTEM_AUDIO_ALREADY_COMMITTED', 409);
+      }
+      return this.systemAudioResponse();
+    }
+    if (this.room.systemAudio.status !== 'preparing') {
+      return errorResponse('SYSTEM_AUDIO_INVALID_TRANSITION', 409);
+    }
+
+    const nowMs = Date.now();
+    this.room.systemAudio.status = 'live';
+    this.room.systemAudio.claimExpiresAt = null;
+    this.room.systemAudio.liveExpiresAt = nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
+    this.room.systemAudio.publication = publication;
+    auth.participant.lastSeenAtMs = nowMs;
+    await this.persist();
+    return this.systemAudioResponse();
+  }
+
+  async handleHeartbeatSystemAudio(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    if (!hasExactKeys(parsed.value, ['generation', 'leaseId'])) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const leaseError = this.validateSystemAudioLease(
+      auth,
+      parsed.value.generation,
+      parsed.value.leaseId,
+    );
+    if (leaseError) return leaseError;
+    auth.participant.lastSeenAtMs = Date.now();
+    await this.persist();
+    return this.systemAudioResponse();
+  }
+
+  async handleReleaseSystemAudio(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    if (!hasExactKeys(parsed.value, ['generation', 'leaseId'])) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const leaseError = this.validateSystemAudioLease(
+      auth,
+      parsed.value.generation,
+      parsed.value.leaseId,
+    );
+    if (leaseError) return leaseError;
+    this.clearSystemAudioLease();
+    await this.persist();
+    return this.systemAudioResponse();
+  }
+
   joinPresence(session, tokenHash, nowMs) {
     const existing = this.room.presence.participants[session.participantId];
     if (existing) {
@@ -1511,6 +1878,7 @@ export class MusixquareProRoom {
       this.room.presence.coordinatorParticipantId = session.participantId;
       this.bumpCoordinatorEpoch(nowMs, wasSleeping);
     }
+    this.reconcileSystemAudio(nowMs);
     this.room.revision += 1;
     return true;
   }
@@ -1544,6 +1912,7 @@ export class MusixquareProRoom {
     if (this.room.presence.coordinatorParticipantId === session.participantId) {
       this.bumpCoordinatorEpoch(nowMs);
     }
+    this.reconcileSystemAudio(nowMs);
     this.room.presence.revision += 1;
     this.room.revision += 1;
     return 'entered';
@@ -1571,6 +1940,7 @@ export class MusixquareProRoom {
     if (!this.room.presence.participants[participantId]) return false;
     const wasCoordinator = this.room.presence.coordinatorParticipantId === participantId;
     delete this.room.presence.participants[participantId];
+    this.reconcileSystemAudio(nowMs);
     const remaining = Object.values(this.room.presence.participants).sort(
       (left, right) =>
         left.joinedAtMs - right.joinedAtMs || left.participantId.localeCompare(right.participantId),
@@ -1877,6 +2247,7 @@ export class MusixquareProRoom {
     this.room.presence.participants = {
       [ownerSession.participantId]: ownerParticipant,
     };
+    this.reconcileSystemAudio(nowMs);
     this.room.presence.coordinatorParticipantId = ownerSession.participantId;
     this.room.presence.revision += 1;
     this.room.runtime = 'awake';
@@ -2521,7 +2892,8 @@ export class MusixquareProRoom {
   async prune(nowMs) {
     // This also migrates ready assets written before gcAfterMs existed and
     // repairs stale markers on assets that are referenced by the playlist.
-    let changed = this.reconcileAssetGarbageCollection(nowMs);
+    let changed = this.systemAudioMigrationPending || this.reconcileSystemAudio(nowMs);
+    changed = this.reconcileAssetGarbageCollection(nowMs) || changed;
     for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
       if (session.expiresAtMs <= nowMs || session.authEpoch !== this.room.authEpoch) {
         changed = this.removePresence(session.participantId, nowMs) || changed;
@@ -2646,14 +3018,19 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
-    if (changed) await this.persist();
+    if (changed) {
+      await this.persist();
+      this.systemAudioMigrationPending = false;
+    }
     return changed;
   }
 
   async alarm() {
     await this.withMutation(async () => {
+      if (this.ready) await this.ready;
       if (!this.room) this.room = (await this.storage.get(STORAGE_KEY)) || null;
       if (!this.room) return;
+      this.normalizeLoadedSystemAudio();
       await this.prune(Date.now());
       await this.scheduleAlarm();
     });

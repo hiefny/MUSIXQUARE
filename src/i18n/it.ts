@@ -647,6 +647,13 @@ const it: Record<I18nKey, string> = {
   'system_audio.button': 'Audio di sistema',
   'system_audio.sharing': "Condivisione dell'audio di sistema",
   'system_audio.receiving': "Ricezione dell'audio di sistema",
+  'system_audio.owner_active': '{{name}} sta condividendo l’audio di sistema.',
+  'system_audio.owner_preparing': '{{name}} si sta preparando a condividere l’audio di sistema.',
+  'system_audio.pro_preparing': 'Preparazione della condivisione dell’audio di sistema.',
+  'system_audio.pro_publish_failed': 'Impossibile avviare la condivisione dell’audio di sistema.',
+  'system_audio.coordinator_update_required': 'Aggiorna il dispositivo che gestisce questa stanza.',
+  'system_audio.connection_unstable':
+    'La connessione audio di sistema di {{name}} è instabile.\nTentativo di ripristino.',
   'system_audio.capture_denied': "La condivisione dell'audio è stata annullata.",
   'system_audio.no_audio_track': '"Condividi audio" non abilitato.\nRiprova.',
   'system_audio.stop': 'Interrompi condivisione',

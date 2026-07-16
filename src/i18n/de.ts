@@ -356,6 +356,13 @@ const de: Record<I18nKey, string> = {
   'system_audio.button': 'Systemaudio',
   'system_audio.sharing': 'Systemaudio wird geteilt',
   'system_audio.receiving': 'Systemaudio wird empfangen',
+  'system_audio.owner_active': '{{name}} teilt Systemaudio.',
+  'system_audio.owner_preparing': '{{name}} bereitet die Systemaudio-Freigabe vor.',
+  'system_audio.pro_preparing': 'Systemaudio-Freigabe wird vorbereitet.',
+  'system_audio.pro_publish_failed': 'Systemaudio-Freigabe konnte nicht gestartet werden.',
+  'system_audio.coordinator_update_required': 'Aktualisiere das Gerät, das diesen Raum verwaltet.',
+  'system_audio.connection_unstable':
+    'Die Systemaudio-Verbindung zu {{name}} ist instabil.\nVerbindung wird wiederhergestellt.',
   'system_audio.capture_denied': 'Audiofreigabe wurde abgebrochen.',
   'system_audio.no_audio_track': '„Audio teilen“ wurde nicht aktiviert.\nBitte erneut versuchen.',
   'system_audio.stop': 'Freigabe stoppen',

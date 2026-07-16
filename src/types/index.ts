@@ -323,6 +323,27 @@ export interface ProtocolMap {
   };
   /** Member hint that the authenticated PRO service has a newer snapshot. */
   'pro-room-invalidated': { revision: number; playlistRevision: number };
+  /** A member asks the coordinator to refresh the server-owned live-share resource. */
+  'pro-system-audio-hint': { generation: number };
+  /** Coordinator fanout of an already server-validated PRO live-share state. */
+  'pro-system-audio-state': {
+    version: 1;
+    generation: number;
+    status: 'idle' | 'preparing' | 'live';
+    ownerParticipantId: string | null;
+    ownerDisplayName: string | null;
+    claimExpiresAt: number | null;
+    liveExpiresAt: number | null;
+    publication: null | {
+      publicationId: string;
+      sessionId: string;
+      tracks: Array<{
+        trackName: string;
+        channel: 'L' | 'R';
+        mid?: string;
+      }>;
+    };
+  };
   // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
   // resync) — the receiving handler applies the value but skips the toast.
   'repeat-mode': { value: number; _bootstrap?: boolean };
@@ -837,6 +858,25 @@ export type EventMap = BaseEventMap & StateEvents;
 
 export type SystemAudioStopReason = 'device-limit' | 'duration-limit';
 
+/**
+ * Stable, UI-facing projection of the authenticated PRO system-audio lease.
+ * The private lease credential and the public SFU descriptor deliberately do
+ * not cross the application event bus.
+ */
+interface ProSystemAudioUiState {
+  roomCode: string | null;
+  initialized: boolean;
+  phase: 'idle' | 'preparing' | 'live';
+  generation: number | null;
+  ownerParticipantId: string | null;
+  isLocalOwner: boolean;
+  localRequestPending: boolean;
+  canStart: boolean;
+  canStop: boolean;
+  claimExpiresAt: number | null;
+  liveExpiresAt: number | null;
+}
+
 interface BaseEventMap {
   // ── Audio ─────────────────────────────────────────────────────────
   'audio:ready': [];
@@ -1100,6 +1140,10 @@ interface BaseEventMap {
   'system-audio:delivery-handoff': [];
   'system-audio:host-started': [];
   'system-audio:host-stopped': [];
+  'pro-system-audio:state-changed': [state: ProSystemAudioUiState, ownerDisplayName: string | null];
+  'pro-system-audio:lease-lost': [
+    reason: 'authoritative-revocation' | 'session-changed' | 'reset' | 'publisher-failed',
+  ];
 
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];

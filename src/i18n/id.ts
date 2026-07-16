@@ -356,6 +356,13 @@ const id: Record<I18nKey, string> = {
   'system_audio.button': 'Audio sistem',
   'system_audio.sharing': 'Berbagi audio sistem',
   'system_audio.receiving': 'Menerima audio sistem',
+  'system_audio.owner_active': '{{name}} sedang berbagi audio sistem.',
+  'system_audio.owner_preparing': '{{name}} sedang bersiap untuk berbagi audio sistem.',
+  'system_audio.pro_preparing': 'Mempersiapkan berbagi audio sistem.',
+  'system_audio.pro_publish_failed': 'Gagal memulai berbagi audio sistem.',
+  'system_audio.coordinator_update_required': 'Perbarui perangkat yang mengelola ruang ini.',
+  'system_audio.connection_unstable':
+    'Koneksi audio sistem {{name}} tidak stabil.\nMencoba memulihkannya.',
   'system_audio.capture_denied': 'Berbagi audio dibatalkan.',
   'system_audio.no_audio_track': '"Bagikan audio" belum diaktifkan.\nCoba lagi.',
   'system_audio.stop': 'Hentikan berbagi',

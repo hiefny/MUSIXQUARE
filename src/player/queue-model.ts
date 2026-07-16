@@ -12,6 +12,7 @@ import type {
   PlaylistWireItem,
   QueueItemId,
 } from '../types/index.ts';
+import { clearProRoomTrackChangeIntent } from './track-change-intent.ts';
 
 const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_QUEUE_ITEMS = 1000;
@@ -90,6 +91,10 @@ export function getCurrentQueueItemIndex(): number {
 
 export function selectQueueItemById(queueItemId: QueueItemId | null): boolean {
   if (queueItemId !== null && !getQueueItemById(queueItemId)) return false;
+  // Any validated coordinator selection is the authoritative answer to a
+  // PRO member's optimistic outbound request (including a competing member
+  // winning the race with a different row).
+  clearProRoomTrackChangeIntent();
   setState('playlist.currentQueueItemId', queueItemId);
   return true;
 }

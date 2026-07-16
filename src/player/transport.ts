@@ -33,6 +33,8 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
+import { cancelProRoomPlaylistFileResolution } from '../pro-room/legacy-media-hooks.ts';
+import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
@@ -234,10 +236,12 @@ export function stopAllMedia(opts?: {
 }): void {
   const queueItemId = getCurrentQueueItemId();
   const wasInYouTube = isYouTubeOwner();
+  const wasPreparingFile = isFilePipelineBusyForPlay();
 
   if (opts?.cancelInFlight) {
     newLoadEpoch();
     incrementLoadSessionId();
+    cancelProRoomPlaylistFileResolution();
   }
 
   // Stop system audio if active (without recursive loop — cleanup only disconnects nodes)
@@ -270,6 +274,13 @@ export function stopAllMedia(opts?: {
   // YouTube blocks file lifecycle transitions and play(), so clear the mode
   // after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
   if (opts?.silent && wasInYouTube && isYouTubeOwner()) {
+    setPlaybackIdle();
+  }
+
+  // cancelInFlight is an authoritative teardown, including the PRO R2 fetch
+  // phase that precedes ordinary decode. A silent external-mode takeover must
+  // release the file-only lifecycle as well as aborting its bytes.
+  if (opts?.silent && opts.cancelInFlight && wasPreparingFile) {
     setPlaybackIdle();
   }
 
@@ -654,6 +665,15 @@ export function handleEnded(): void {
 export function togglePlay(): void {
   if (isGuestBlocked()) return;
 
+  // A PRO member can request a persistent row while the coordinator is still
+  // downloading it from R2. Until an authoritative selection/prepare arrives,
+  // the local owner may still be the previous YouTube row; never let Play
+  // toggle that stale owner during this request gap.
+  if (isProRoomTrackChangeIntentPending()) {
+    log.debug('[Play] Ignoring toggle while a PRO track change is pending');
+    return;
+  }
+
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
 
@@ -691,6 +711,22 @@ export function togglePlay(): void {
       sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, queueItemId: firstQueueItemId });
     }
     return;
+  }
+
+  // A failed/purged file fetch must never broadcast PLAY for a queue ID whose
+  // resident PCM is missing (the previous buffer may have belonged to another
+  // row). On the coordinator, treat Play as an explicit retry of the selected
+  // row; guests continue to request playback from their coordinator below.
+  if (!hostConn && !isActuallyPlaying && currentQueueItemId) {
+    const selectedItem = playlistItems.find((item) => item.queueItemId === currentQueueItemId);
+    const resident = getState('files.current');
+    if (
+      selectedItem?.type === 'file' &&
+      (!getCurrentAudioBuffer() || resident?.queueItemId !== currentQueueItemId)
+    ) {
+      void import('./playlist.ts').then((mod) => mod.playTrack(currentQueueItemId));
+      return;
+    }
   }
 
   // A natural track end stops playback immediately, then playlist.ts advances

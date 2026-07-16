@@ -601,6 +601,7 @@ const pl: Record<I18nKey, string> = {
   'pro.suspended_title': 'Ten pokój PRO jest obecnie niedostępny',
   'pro.suspended_message': 'Skontaktuj się z właścicielem.',
   'pro.loading': 'Ładowanie pokoju PRO...',
+  'pro.reconnecting': 'Ponowne łączenie...',
   'pro.resume_tap': 'Dotknij, aby wznowić odtwarzanie',
   'pro.pin_title': 'Hasło pokoju',
   'pro.pin_message': 'Wpisz 8-cyfrowe hasło do tego pokoju PRO.',

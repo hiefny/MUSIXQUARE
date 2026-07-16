@@ -526,6 +526,7 @@ const de: Record<I18nKey, string> = {
   'pro.suspended_title': 'Dieser PRO-Raum ist derzeit nicht verfügbar',
   'pro.suspended_message': 'Bitte wende dich an den Raumbesitzer.',
   'pro.loading': 'PRO-Raum wird geladen...',
+  'pro.reconnecting': 'Verbindung wird wiederhergestellt...',
   'pro.resume_tap': 'Tippe, um die Wiedergabe fortzusetzen',
   'pro.pin_title': 'Raumpasswort eingeben',
   'pro.pin_message': 'Gib das 8-stellige Passwort für diesen PRO-Raum ein.',

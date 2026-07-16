@@ -597,6 +597,7 @@ const tr: Record<I18nKey, string> = {
   'pro.suspended_title': 'Bu PRO odası şu anda kullanılamıyor',
   'pro.suspended_message': 'Oda sahibinden yardım isteyin.',
   'pro.loading': 'PRO odası yükleniyor...',
+  'pro.reconnecting': 'Yeniden bağlanılıyor...',
   'pro.resume_tap': 'Oynatmayı sürdürmek için dokunun',
   'pro.pin_title': 'Oda parolası',
   'pro.pin_message': 'Bu PRO odasının 8 haneli parolasını girin.',

@@ -17,6 +17,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const id of ['loader-a', 'loader-b', 'remote-upload', 'removed-loader']) {
+    showLoader(false, undefined, id);
+  }
+  showLoader(false);
+  vi.runOnlyPendingTimers();
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
@@ -156,6 +161,50 @@ describe('showLoader', () => {
     const progressBg = document.getElementById('header-progress-bg')!;
     expect(progressBg.style.width).not.toBe('0%');
   });
+
+  it('preserves background holder state and restores it after the foreground hides', () => {
+    showLoader(true, 'Uploading...', 'loader-a');
+    updateLoader(20, 'loader-a');
+    showLoader(true, 'Downloading...', 'loader-b');
+    updateLoader(70, 'loader-b');
+
+    // Background progress is retained without repainting the foreground.
+    updateLoader(45, 'loader-a');
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Downloading...');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('70%');
+
+    showLoader(false, undefined, 'loader-b');
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Uploading...');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('45%');
+  });
+
+  it('does not let a background holder hide the foreground holder', () => {
+    showLoader(true, 'Uploading...', 'loader-a');
+    showLoader(true, 'Downloading...', 'loader-b');
+
+    showLoader(false, undefined, 'loader-a');
+
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Downloading...');
+  });
+
+  it('does not promote a background holder when it reports new text or progress', () => {
+    showLoader(true, 'Upload A', 'loader-a');
+    updateLoader(25, 'loader-a');
+    showLoader(true, 'Download B', 'loader-b');
+    updateLoader(10, 'loader-b');
+
+    showLoader(true, 'Upload A 50%', 'loader-a');
+    updateLoader(50, 'loader-a');
+
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Download B');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('10%');
+
+    showLoader(false, undefined, 'loader-b');
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Upload A 50%');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('50%');
+  });
 });
 
 describe('updateLoader', () => {
@@ -175,5 +224,31 @@ describe('updateLoader', () => {
     updateLoader(0);
     const progressBg = document.getElementById('header-progress-bg')!;
     expect(progressBg.style.width).toBe('0%');
+  });
+
+  it('keeps default progress behind an explicitly named foreground holder', () => {
+    showLoader(true, 'Preparing...');
+    updateLoader(20);
+    showLoader(true, 'Uploading...', 'remote-upload');
+    updateLoader(40);
+
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Uploading...');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+
+    showLoader(false, undefined, 'remote-upload');
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Preparing...');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('40%');
+  });
+
+  it('ignores a late explicit update after its holder was removed', () => {
+    showLoader(true, 'Old operation', 'removed-loader');
+    updateLoader(25, 'removed-loader');
+    showLoader(false, undefined, 'removed-loader');
+    vi.advanceTimersByTime(400);
+
+    updateLoader(90, 'removed-loader');
+
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
   });
 });

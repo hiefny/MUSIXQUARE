@@ -504,6 +504,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.suspended_title': '此 PRO 房间当前不可用',
   'pro.suspended_message': '请联系房主。',
   'pro.loading': '正在加载 PRO 房间...',
+  'pro.reconnecting': '正在重新连接...',
   'pro.resume_tap': '点按以继续播放',
   'pro.pin_title': '输入房间密码',
   'pro.pin_message': '请输入此 PRO 房间的 8 位数字密码。',

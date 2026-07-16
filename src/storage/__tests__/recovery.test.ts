@@ -14,6 +14,10 @@ import {
   getCurrentFileRequestOwnerForTests,
   resetFileRequestAuthority,
 } from '../../network/file-request-authority.ts';
+import {
+  registerProRoomLegacyMediaHooks,
+  type ProRoomLegacyMediaHooks,
+} from '../../pro-room/legacy-media-hooks.ts';
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
@@ -51,6 +55,10 @@ vi.mock('../transfer.ts', () => ({
 
 vi.mock('../../network/peer.ts', () => ({
   isRemoteGuest: vi.fn(() => false),
+  safeSend: vi.fn((conn: AnyConn, message: Record<string, unknown>) => {
+    conn.send(message);
+    return true;
+  }),
 }));
 
 vi.mock('../../share/r2-client.ts', () => ({
@@ -117,6 +125,7 @@ function arrangeStoreChunks(name: string, sid: number, count: number, queueItemI
 }
 
 afterEach(() => {
+  registerProRoomLegacyMediaHooks(null);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -565,6 +574,37 @@ describe('host cached-blob recovery identity', () => {
     setState('transfer.currentSessionId', sessionId);
     setState('transfer.meta', { queueItemId, name, sessionId, size: blob.size });
   }
+
+  it('serves persistent PRO recovery as FILE_PREPARE control without relaying bytes', async () => {
+    const currentBlob = new Blob(['canonical-pro-r2'], { type: 'audio/flac' });
+    setResident(Q2, 'persistent.flac', currentBlob, 17);
+    const hooks: ProRoomLegacyMediaHooks = {
+      addFiles: () => false,
+      addYouTube: () => false,
+      updateTrackMetadata: () => false,
+      removeTracks: () => false,
+      reorderTrack: () => false,
+      resolveFile: () => null,
+      handlesPersistentFile: (queueItemId) => queueItemId === Q2,
+    };
+    registerProRoomLegacyMediaHooks(hooks);
+
+    const conn = makeGuestConn('remote');
+    await invokeRecoveryHandler(MSG.REQUEST_CURRENT_FILE, { queueItemId: Q2 }, conn);
+
+    const { unicastFile } = await import('../transfer.ts');
+    expect(conn.send).toHaveBeenCalledWith({
+      type: MSG.FILE_PREPARE,
+      queueItemId: Q2,
+      sessionId: 17,
+      name: 'persistent.flac',
+      mime: 'audio/flac',
+      size: currentBlob.size,
+      autoPlayDelayMs: 0,
+    });
+    expect(unicastFile).not.toHaveBeenCalled();
+    expect(remoteShareMocks.shareRemoteFileIfNeeded).not.toHaveBeenCalled();
+  });
 
   it('does not send a future preload as the current main transfer', async () => {
     const currentBlob = new Blob(['current-index-zero']);

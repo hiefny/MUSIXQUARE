@@ -14,6 +14,8 @@ export interface ProRoomLegacyMediaHooks {
     baseRevision: PlaylistRevision,
   ): boolean;
   resolveFile(queueItemId: QueueItemId): Promise<File | null> | null;
+  handlesPersistentFile?(queueItemId: QueueItemId): boolean;
+  cancelFileResolution?(): void;
 }
 
 export interface ProRoomLegacyPlaybackRestore {
@@ -26,8 +28,15 @@ type ProRoomLegacyPlaybackRestoreHandler = (
   checkpoint: ProRoomLegacyPlaybackRestore,
 ) => Promise<boolean>;
 
+type ProRoomLegacyDirectFileHandler = (
+  file: File,
+  queueItemId: QueueItemId,
+  sessionId: number,
+) => Promise<void>;
+
 let activeHooks: ProRoomLegacyMediaHooks | null = null;
 let activePlaybackRestoreHandler: ProRoomLegacyPlaybackRestoreHandler | null = null;
+let activeDirectFileHandler: ProRoomLegacyDirectFileHandler | null = null;
 
 /**
  * Late-bound seam between the legacy player graph and the persistent PRO
@@ -67,6 +76,33 @@ export function handleProRoomTrackReorder(
 
 export function resolveProRoomPlaylistFile(queueItemId: QueueItemId): Promise<File | null> | null {
   return activeHooks?.resolveFile(queueItemId) ?? null;
+}
+
+/**
+ * True only while the active room owns this queue occurrence as persistent
+ * PRO media. Legacy callers use this as a routing decision; the runtime still
+ * resolves and validates the canonical R2 source before returning any bytes.
+ */
+export function isProRoomPersistentPlaylistFile(queueItemId: QueueItemId): boolean {
+  return activeHooks?.handlesPersistentFile?.(queueItemId) ?? false;
+}
+
+export function cancelProRoomPlaylistFileResolution(): void {
+  activeHooks?.cancelFileResolution?.();
+}
+
+export function registerProRoomLegacyDirectFileHandler(
+  handler: ProRoomLegacyDirectFileHandler | null,
+): void {
+  activeDirectFileHandler = handler;
+}
+
+export function finalizeProRoomLegacyDirectFile(
+  file: File,
+  queueItemId: QueueItemId,
+  sessionId: number,
+): Promise<void> {
+  return activeDirectFileHandler?.(file, queueItemId, sessionId) ?? Promise.resolve();
 }
 
 /**

@@ -167,6 +167,7 @@ function createInitialState(): StateTree {
       hostConn: null,
       connectedPeers: [],
       isOperator: false,
+      pendingTrackChangeQueueItemId: null,
       maxGuestSlots: DEFAULT_MAX_GUEST_SLOTS,
       roomPasswordRequired: false,
       roomPassword: '',

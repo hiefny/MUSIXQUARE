@@ -601,6 +601,7 @@ const ru: Record<I18nKey, string> = {
   'pro.suspended_title': 'Эта PRO-комната сейчас недоступна',
   'pro.suspended_message': 'Обратитесь к владельцу комнаты.',
   'pro.loading': 'Загрузка PRO-комнаты...',
+  'pro.reconnecting': 'Повторное подключение...',
   'pro.resume_tap': 'Коснитесь, чтобы продолжить воспроизведение',
   'pro.pin_title': 'Пароль комнаты',
   'pro.pin_message': 'Введите 8-значный пароль этой PRO-комнаты.',

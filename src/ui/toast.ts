@@ -10,17 +10,69 @@ const ELLIPSIS = '…';
 
 // ─── Loader (Header Progress Bar) ────────────────────────────────
 
-export function updateLoader(percent: number): void {
-  const progressBg = document.getElementById('header-progress-bg');
-  if (progressBg) {
-    (progressBg as HTMLElement).style.width = `${percent}%`;
-  }
+const DEFAULT_LOADER_ID = '_default';
+
+interface LoaderHolder {
+  text: string;
+  percent: number;
+  order: number;
 }
 
-// Each unique ID owns one visibility hold. Overlapping flows must use distinct
-// IDs so one flow cannot hide the loader while another still needs it.
-const _loaderHolders = new Set<string>();
-const DEFAULT_LOADER_ID = '_default';
+// A holder owns the full visual state, not only a visibility hold. This lets a
+// foreground operation temporarily cover a background transfer and restore
+// the background operation's exact text/progress when it finishes.
+const _loaderHolders = new Map<string, LoaderHolder>();
+let _loaderOrder = 0;
+
+function displayedProgress(progressBg: HTMLElement | null): number {
+  if (!progressBg) return 0;
+  const parsed = Number.parseFloat(progressBg.style.width);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function foregroundLoader(): [string, LoaderHolder] | null {
+  let foreground: [string, LoaderHolder] | null = null;
+  for (const entry of _loaderHolders) {
+    if (!foreground || entry[1].order > foreground[1].order) foreground = entry;
+  }
+  return foreground;
+}
+
+function renderLoader(holder: LoaderHolder): void {
+  const loadingText = document.getElementById('header-loading-text');
+  const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
+  if (loadingText) loadingText.innerText = holder.text;
+  if (progressBg) progressBg.style.width = `${holder.percent}%`;
+}
+
+export function updateLoader(percent: number, id?: string): void {
+  // Explicit IDs are strict ownership tokens. Once removed, a late callback
+  // with that ID must not repaint a newer operation's loader.
+  if (id !== undefined) {
+    const holder = _loaderHolders.get(id);
+    if (!holder) return;
+    holder.percent = percent;
+    if (foregroundLoader()?.[0] === id) renderLoader(holder);
+    return;
+  }
+
+  // No-ID callers own the default holder. If a named operation is temporarily
+  // in front, retain the default operation's tick without repainting that
+  // foreground. Named flows must use their ID for the same reason.
+  const target = _loaderHolders.get(DEFAULT_LOADER_ID);
+  if (target) {
+    target.percent = percent;
+    if (foregroundLoader()?.[0] === DEFAULT_LOADER_ID) renderLoader(target);
+    return;
+  }
+
+  // Some older flows publish a progress tick before acquiring a holder. Keep
+  // that harmless direct-DOM behavior only when no operation currently owns
+  // the surface; otherwise it could corrupt an unrelated named transfer.
+  if (_loaderHolders.size > 0) return;
+  const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
+  if (progressBg) progressBg.style.width = `${percent}%`;
+}
 
 export function showLoader(show: boolean, txt?: string, id?: string): void {
   const key = id ?? DEFAULT_LOADER_ID;
@@ -29,24 +81,36 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
 
   if (show) {
-    _loaderHolders.add(key);
+    const existing = _loaderHolders.get(key);
+    const holder: LoaderHolder = existing
+      ? {
+          ...existing,
+          text: txt ?? existing.text,
+        }
+      : {
+          text: txt ?? loadingText?.innerText ?? '',
+          // Retaining the displayed value preserves the legacy quick
+          // hide/show transition. New determinate flows should publish their
+          // initial 0 tick.
+          percent: key === DEFAULT_LOADER_ID ? displayedProgress(progressBg) : 0,
+          order: ++_loaderOrder,
+        };
+    _loaderHolders.set(key, holder);
     clearManagedTimer('loader-reset');
     // Suppress View Transitions while the loading CSS transition plays
     // (1s transform + buffer) to prevent snapshot-replay double-animation
     suppressViewTransitions(1200);
     header?.classList.add('loading');
-    if (txt && loadingText) loadingText.innerText = txt;
-    if (
-      progressBg &&
-      (!progressBg.style.width ||
-        progressBg.style.width === '0%' ||
-        progressBg.style.width === '0px')
-    ) {
-      progressBg.style.width = '0%';
-    }
+    // Repeated progress/text updates for an existing background holder must
+    // not promote it over a newer foreground operation.
+    if (foregroundLoader()?.[0] === key) renderLoader(holder);
   } else {
     _loaderHolders.delete(key);
-    if (_loaderHolders.size > 0) return;
+    const foreground = foregroundLoader();
+    if (foreground) {
+      renderLoader(foreground[1]);
+      return;
+    }
     // Suppress through the reverse CSS transition as well
     suppressViewTransitions(1200);
     header?.classList.remove('loading');

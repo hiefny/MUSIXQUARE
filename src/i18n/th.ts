@@ -583,6 +583,7 @@ const th: Record<I18nKey, string> = {
   'pro.suspended_title': 'ห้อง PRO นี้ไม่พร้อมใช้งาน',
   'pro.suspended_message': 'โปรดติดต่อเจ้าของห้อง',
   'pro.loading': 'กำลังโหลดห้อง PRO...',
+  'pro.reconnecting': 'กำลังเชื่อมต่อใหม่...',
   'pro.resume_tap': 'แตะเพื่อเล่นต่อ',
   'pro.pin_title': 'รหัสผ่านห้อง',
   'pro.pin_message': 'ป้อนรหัสผ่าน 8 หลักของห้อง PRO นี้',

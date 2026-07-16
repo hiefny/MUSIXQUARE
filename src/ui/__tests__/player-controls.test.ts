@@ -167,6 +167,20 @@ describe('updateRoleBadge', () => {
     expect(badge.classList.contains('remote')).toBe(false);
   });
 
+  it('shows a host device name and reacts when the host is renamed', () => {
+    renderBadge();
+    initPlayerControls();
+
+    setState('network.appRole', 'host');
+    setState('network.myDeviceLabel', 'Studio Host');
+
+    expect(document.getElementById('role-text')?.innerText).toBe('Studio Host');
+
+    setState('network.myDeviceLabel', 'Living Room');
+
+    expect(document.getElementById('role-text')?.innerText).toBe('Living Room');
+  });
+
   it('pulses the role dot twice per host-clock second', () => {
     vi.useFakeTimers();
     try {
@@ -212,6 +226,19 @@ describe('local file picker hint', () => {
 });
 
 describe('PRO room media-source capabilities', () => {
+  it('restores the ordinary host affordance when setup changes idle to host', () => {
+    document.body.innerHTML = `
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+    `;
+
+    initPlayerControls();
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('0.15');
+
+    setState('network.appRole', 'host');
+
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
+  });
+
   it('lets a PRO member add files and YouTube entries without granting live capture ownership', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>
@@ -297,9 +324,28 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
   });
 
-  it('shows the loading play button while a local file is preparing', () => {
+  it.each([PLAYBACK_STATE.DOWNLOADING, PLAYBACK_STATE.AWAITING_PRELOAD, PLAYBACK_STATE.DECODING])(
+    'shows the loading play button while a local file is preparing (%s)',
+    (lifecycle) => {
+      renderPlaybackControls();
+      setState('playback.lifecycle', lifecycle);
+
+      initPlayerControls();
+
+      const playBtn = document.getElementById('play-btn');
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+      expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+      expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+    },
+  );
+
+  it('shows the loading play button while a PRO member awaits the coordinator selection', () => {
     renderPlaybackControls();
-    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setState('network.pendingTrackChangeQueueItemId', PLAY_QUEUE_ITEM_ID);
 
     initPlayerControls();
 
@@ -307,7 +353,7 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
     expect(playBtn?.getAttribute('aria-busy')).toBe('true');
 
-    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    setState('network.pendingTrackChangeQueueItemId', null);
 
     expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');

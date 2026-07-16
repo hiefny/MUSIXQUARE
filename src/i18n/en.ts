@@ -586,6 +586,7 @@ const en: Record<I18nKey, string> = {
   'pro.suspended_title': 'This PRO room is unavailable',
   'pro.suspended_message': 'Ask the room owner for help.',
   'pro.loading': 'Loading PRO room...',
+  'pro.reconnecting': 'Reconnecting...',
   'pro.resume_tap': 'Tap to resume playback',
   'pro.pin_title': 'Enter room password',
   'pro.pin_message': 'Enter the 8-digit password for this PRO room.',

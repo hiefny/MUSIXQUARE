@@ -1,12 +1,15 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { MSG } from '../../core/constants.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection, PlaylistItem } from '../../types/index.ts';
 import { setLanguageMode, t } from '../../i18n/index.ts';
 import { initPlaylistView, updatePlaylistUI } from '../playlist-view.ts';
+import { safeSend } from '../../network/peer.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   safeSend: vi.fn(),
@@ -19,6 +22,8 @@ vi.mock('../../core/log.ts', () => ({
 beforeEach(() => {
   resetState();
   bus.clear();
+  clearAllManagedTimers();
+  vi.mocked(safeSend).mockReset();
   localStorage.clear();
   setState('network.appRole', 'host');
   document.body.innerHTML =
@@ -28,6 +33,10 @@ beforeEach(() => {
     value: vi.fn(),
   });
   setLanguageMode('ko');
+});
+
+afterEach(() => {
+  clearAllManagedTimers();
 });
 
 const FILE_A = '00000000-0000-4000-8000-000000000001';
@@ -181,6 +190,35 @@ describe('playlist queue identity rendering and actions', () => {
 
     expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(2);
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(2);
+  });
+
+  it('arms an immediate play-control wait after a PRO member requests a row', () => {
+    const hostConn = { open: true, peer: 'coordinator' } as DataConnection;
+    vi.mocked(safeSend).mockReturnValue(true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.isOperator', true);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+
+    document
+      .querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_A}"] .track-name`)!
+      .click();
+
+    expect(safeSend).toHaveBeenCalledWith(hostConn, {
+      type: MSG.REQUEST_TRACK_CHANGE,
+      queueItemId: FILE_A,
+    });
+    expect(getState('network.pendingTrackChangeQueueItemId')).toBe(FILE_A);
   });
 
   it('delegates play, remove, expansion, and sub-seek actions by queueItemId', async () => {

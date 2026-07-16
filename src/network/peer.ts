@@ -16,6 +16,7 @@ import { showDialog } from '../ui/dialog.ts';
 import {
   DEFAULT_MAX_GUEST_SLOTS,
   MAX_GUEST_SLOTS_LIMIT,
+  PEER_NAME_PREFIX,
   TRANSFER_STATE,
   PLAYBACK_STATE,
 } from '../core/constants.ts';
@@ -31,10 +32,13 @@ import {
 import { setPlaybackIdle } from '../player/ownership.ts';
 import {
   requestProRoomLeave,
-  requestProRoomSignalingEpochAdvance,
   requestProRoomSignalingReconnect,
 } from '../pro-room/lifecycle-hook.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
+import {
+  markProRoomTransportRecovered,
+  requestProRoomTransportRecovery,
+} from '../pro-room/transport-recovery.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -484,6 +488,7 @@ function waitForProGuestConnection(roomCode: string): Promise<void> {
     const cleanup = () => {
       offSuccess();
       offFailure();
+      offTransportFailure();
       clearManagedTimer('pro-room-guest-connect-timeout');
     };
     const settle = (error?: unknown) => {
@@ -495,6 +500,9 @@ function waitForProGuestConnection(roomCode: string): Promise<void> {
     };
     const offSuccess = bus.on('setup:guest-join-success', () => settle());
     const offFailure = bus.on('setup:guest-join-failure', (error) =>
+      settle(error instanceof Error ? error : new Error('PRO_ROOM_CONNECT_FAILED')),
+    );
+    const offTransportFailure = bus.on('pro-room:transport-connect-failure', (error) =>
       settle(error instanceof Error ? error : new Error('PRO_ROOM_CONNECT_FAILED')),
     );
     setManagedTimer(
@@ -520,8 +528,17 @@ export async function connectProRoomTransport(access: ProSignalingOptions): Prom
   closeCurrentTransportResources();
 
   const coordinator = access.role === 'coordinator';
+  const currentDeviceLabel = (getState('network.myDeviceLabel') || '').trim();
   batchSetState({
     'network.appRole': coordinator ? 'host' : 'guest',
+    // The first PRO participant enters setup with the unnumbered default
+    // "Peer" label and never receives the host-issued WELCOME that numbers
+    // ordinary guests. Give only that default coordinator the stable zero
+    // identity; promoted Peer 1/2 devices and user-renamed devices keep their
+    // existing names across topology reconfiguration.
+    ...(coordinator && currentDeviceLabel === PEER_NAME_PREFIX
+      ? { 'network.myDeviceLabel': `${PEER_NAME_PREFIX} 0` }
+      : {}),
     'network.sessionCode': access.roomCode,
     'network.lastJoinCode': access.roomCode,
     'network.isOperator': !coordinator,
@@ -534,10 +551,12 @@ export async function connectProRoomTransport(access: ProSignalingOptions): Prom
     await initNetwork(coordinator ? access.roomCode : null, access);
     if (coordinator) {
       setState('network.isConnecting', false);
+      markProRoomTransportRecovered();
       return;
     }
     await waitForProGuestConnection(access.roomCode);
     setState('network.isOperator', true);
+    markProRoomTransportRecovered();
   } catch (error) {
     setState('network.isConnecting', false);
     closeCurrentTransportResources();
@@ -696,7 +715,7 @@ function setupPeerEvents(peer: PeerInstance): void {
   peer.on('pro-epoch-advanced', () => {
     if (getPeer() !== peer) return;
     log.info('[Transport] PRO coordinator epoch advanced; rebuilding transport');
-    requestProRoomSignalingEpochAdvance();
+    requestProRoomTransportRecovery();
   });
 
   peer.on('error', (err: unknown) => {
@@ -788,6 +807,11 @@ function setupPeerEvents(peer: PeerInstance): void {
             );
             return;
           }
+        }
+
+        if (requestProRoomTransportRecovery()) {
+          log.info('[Transport] PRO signaling is unavailable; topology recovery requested');
+          return;
         }
 
         showDialog({

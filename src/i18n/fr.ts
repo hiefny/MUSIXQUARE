@@ -535,6 +535,7 @@ const fr: Record<I18nKey, string> = {
   'pro.suspended_title': 'Cette salle PRO est indisponible',
   'pro.suspended_message': 'Contactez le propriétaire.',
   'pro.loading': 'Chargement de la salle PRO...',
+  'pro.reconnecting': 'Reconnexion...',
   'pro.resume_tap': 'Touchez pour reprendre la lecture',
   'pro.pin_title': 'Mot de passe de la salle',
   'pro.pin_message': 'Saisissez le mot de passe à 8 chiffres de cette salle PRO.',

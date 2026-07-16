@@ -529,6 +529,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.suspended_title': 'Esta sala PRO está indisponível',
   'pro.suspended_message': 'Peça ajuda ao proprietário.',
   'pro.loading': 'Carregando sala PRO...',
+  'pro.reconnecting': 'Reconectando...',
   'pro.resume_tap': 'Toque para retomar a reprodução',
   'pro.pin_title': 'Senha da sala',
   'pro.pin_message': 'Digite a senha de 8 dígitos desta sala PRO.',

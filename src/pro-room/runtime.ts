@@ -5,6 +5,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { MSG } from '../core/constants.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
+import { showLoader, updateLoader } from '../ui/toast.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { registerHandler } from '../network/protocol.ts';
 import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
@@ -31,7 +32,7 @@ import {
   type ProRoomBootstrap,
   type RecoverProRoomOwnerInput,
 } from './api.ts';
-import type { ProRoomSnapshot } from './contracts.ts';
+import type { ProRoomR2Source, ProRoomSnapshot } from './contracts.ts';
 import {
   registerProRoomLegacyMediaHooks,
   restoreProRoomLegacyPlayback,
@@ -53,8 +54,11 @@ import { completeProRoomPinRotation } from './pin-rotation.ts';
 import { ProRoomPlaylistProjection } from './playlist-projection.ts';
 import { ProRoomPlaylistStateManager } from './playlist-state-manager.ts';
 import { ProRoomSessionController, type ProRoomSessionObserver } from './session-controller.ts';
+import { createByteWeightedProgressEntries } from './transfer-progress.ts';
+import { resetProRoomTransportRecovery } from './transport-recovery.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
+const TOPOLOGY_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
 const SIGNALING_REFRESH_INTERVAL_MS = 45_000;
 const HEARTBEAT_TIMER = 'pro-room-heartbeat';
 const SIGNALING_REFRESH_TIMER = 'pro-room-signaling-refresh';
@@ -91,6 +95,7 @@ let checkpointDirty = false;
 let suppressPlaybackCheckpoint = false;
 let lastPlaybackRestoreKey = '';
 let terminalRecoveryInFlight = false;
+let topologyRecoveryAttempt = 0;
 let invalidationRefreshScheduled = false;
 let lastInvalidationRefreshAt = 0;
 const invalidationHighWater = new ProRoomInvalidationHighWater();
@@ -99,7 +104,110 @@ let pendingPlaybackRestore: {
   queueItemId: QueueItemId;
   state: 'playing' | 'paused';
 } | null = null;
-const pendingFileDownloads = new Map<QueueItemId, Promise<File | null>>();
+interface PendingFileDownload {
+  queueItemId: QueueItemId;
+  leaseGeneration: number;
+  roomCode: string;
+  controller: AbortController;
+  promise: Promise<File | null>;
+}
+let pendingFileDownload: PendingFileDownload | null = null;
+let uploadOperationTail: Promise<void> = Promise.resolve();
+let transferLoaderSequence = 0;
+const activeTransferLoaderIds = new Set<string>();
+
+function openTransferLoader(kind: 'upload' | 'download', text: string): string {
+  const id = `pro-room-${kind}-${++transferLoaderSequence}`;
+  activeTransferLoaderIds.add(id);
+  showLoader(true, text, id);
+  updateLoader(0, id);
+  return id;
+}
+
+function reportTransferProgress(id: string, fraction: number): void {
+  if (!activeTransferLoaderIds.has(id)) return;
+  // PUT/GET byte completion is followed by server verification, canonical
+  // snapshot acceptance, and (for downloads) File publication. Reserve 100%
+  // for the completion of that whole operation rather than claiming success
+  // as soon as the last network byte arrives.
+  const percent = Math.round(Math.max(0, Math.min(0.99, fraction)) * 100);
+  updateLoader(percent, id);
+}
+
+function closeTransferLoader(id: string, completed = false): void {
+  if (!activeTransferLoaderIds.delete(id)) return;
+  if (completed) updateLoader(100, id);
+  showLoader(false, undefined, id);
+}
+
+function closeAllTransferLoaders(): void {
+  for (const id of activeTransferLoaderIds) showLoader(false, undefined, id);
+  activeTransferLoaderIds.clear();
+}
+
+function createRoomLinkedAbortController(parent?: AbortSignal): {
+  controller: AbortController;
+  detach: () => void;
+} {
+  const controller = new AbortController();
+  const abort = (): void => controller.abort();
+  if (parent?.aborted) controller.abort();
+  else parent?.addEventListener('abort', abort, { once: true });
+  return {
+    controller,
+    detach: () => parent?.removeEventListener('abort', abort),
+  };
+}
+
+function cancelSupersededFileDownload(queueItemId: QueueItemId | null): void {
+  const pending = pendingFileDownload;
+  if (!pending || pending.queueItemId === queueItemId) return;
+  pending.controller.abort();
+}
+
+function shouldRetainPendingProDownload(roomCode: string, context: RoomContext): boolean {
+  return context.kind === 'pro' && context.roomId === roomCode;
+}
+
+export function shouldRetainPendingProDownloadForTests(
+  roomCode: string,
+  context: RoomContext,
+): boolean {
+  return shouldRetainPendingProDownload(roomCode, context);
+}
+
+function isDownloadLeaseCurrent(lease: PlaylistRuntimeLease): boolean {
+  const context = getState('room.context');
+  return (
+    isPlaylistLeaseCurrent(lease) && context.kind === 'pro' && context.roomId === lease.roomCode
+  );
+}
+
+function sameR2Source(left: ProRoomR2Source, right: ProRoomR2Source): boolean {
+  return (
+    left.assetId === right.assetId &&
+    left.version === right.version &&
+    left.byteLength === right.byteLength &&
+    left.mime === right.mime &&
+    left.sha256 === right.sha256
+  );
+}
+
+async function resolveCanonicalR2Source(
+  queueItemId: QueueItemId,
+  lease: PlaylistRuntimeLease,
+): Promise<ProRoomR2Source | null> {
+  const current = playlistProjection?.sourceFor(queueItemId) ?? null;
+  if (current?.kind === 'pro-r2') return current;
+
+  // A newly connected participant can receive the legacy queue projection a
+  // moment before its own authenticated heartbeat carries the canonical media
+  // source. Refresh once; never accept an asset identity supplied by a peer.
+  await runHeartbeat(true, true);
+  if (!isDownloadLeaseCurrent(lease)) return null;
+  const refreshed = playlistProjection?.sourceFor(queueItemId) ?? null;
+  return refreshed?.kind === 'pro-r2' ? refreshed : null;
+}
 
 function isPlaylistLeaseCurrent(lease: PlaylistRuntimeLease): boolean {
   return (
@@ -253,19 +361,36 @@ function installLegacyMediaHooks(
     addFiles(files, rejectedCount) {
       if (!isPlaylistLeaseCurrent(lease)) return true;
       if (files.length === 0) return true;
-      const uploadingMessage = t('pro.uploading');
-      bus.emit(
-        'ui:show-toast',
-        rejectedCount > 0
-          ? `${uploadingMessage}\n${t('toast.unsupported_files_excluded', { count: rejectedCount })}`
-          : uploadingMessage,
-      );
-      void manager
-        .addLocalFiles(
-          files.map((file) => ({ file })),
-          { signal: playlistRuntimeAbort?.signal },
-        )
-        .catch(reportCurrentPlaylistError);
+      if (rejectedCount > 0) {
+        bus.emit('ui:show-toast', t('toast.unsupported_files_excluded', { count: rejectedCount }));
+      }
+
+      // The playlist manager serializes mutations. Mirror that ordering in the
+      // UI so a newly queued batch at 0% cannot cover an upload already making
+      // progress. The authoritative row still appears only after R2 complete
+      // and snapshot acceptance.
+      const operation = uploadOperationTail.then(async () => {
+        if (!isPlaylistLeaseCurrent(lease)) return;
+        const signal = playlistRuntimeAbort?.signal;
+        if (!signal || signal.aborted) return;
+        const loaderId = openTransferLoader('upload', t('pro.uploading'));
+        let completed = false;
+        try {
+          const entries = createByteWeightedProgressEntries(files, (fraction) => {
+            reportTransferProgress(loaderId, fraction);
+          });
+          await manager.addLocalFiles(
+            entries.map(({ value: file, onProgress }) => ({ file, onProgress })),
+            { signal },
+          );
+          completed = isPlaylistLeaseCurrent(lease) && !signal.aborted;
+        } catch (error) {
+          reportCurrentPlaylistError(error);
+        } finally {
+          closeTransferLoader(loaderId, completed);
+        }
+      });
+      uploadOperationTail = operation.catch(() => undefined);
       return true;
     },
     addYouTube(item) {
@@ -321,47 +446,94 @@ function installLegacyMediaHooks(
         .catch(reportCurrentPlaylistError);
       return true;
     },
-    resolveFile(queueItemId) {
-      if (!isPlaylistLeaseCurrent(lease)) return null;
-      if (!isCoordinator() || !mediaTransfer || !playlistProjection) return null;
-      const existing = pendingFileDownloads.get(queueItemId);
-      if (existing) return existing;
+    handlesPersistentFile(queueItemId) {
+      if (!isPlaylistLeaseCurrent(lease)) return false;
+      const context = getState('room.context');
       const item = getState('playlist.items').find(
         (candidate) => candidate.queueItemId === queueItemId,
       );
-      const source = playlistProjection.sourceFor(queueItemId);
-      if (!item || !source || source.kind !== 'pro-r2') return null;
-      bus.emit('ui:show-toast', t('pro.downloading'));
+      return context.kind === 'pro' && context.roomId === lease.roomCode && item?.type === 'file';
+    },
+    resolveFile(queueItemId) {
+      if (!isPlaylistLeaseCurrent(lease)) return null;
+      if (!mediaTransfer || !playlistProjection) return null;
+      const context = getState('room.context');
+      if (context.kind !== 'pro' || context.roomId !== lease.roomCode) return null;
+      const existing = pendingFileDownload;
+      if (
+        existing?.queueItemId === queueItemId &&
+        existing.leaseGeneration === lease.generation &&
+        existing.roomCode === lease.roomCode &&
+        !existing.controller.signal.aborted
+      ) {
+        return existing.promise;
+      }
+      if (existing) existing.controller.abort();
+      const item = getState('playlist.items').find(
+        (candidate) => candidate.queueItemId === queueItemId,
+      );
+      if (!item || item.type !== 'file') return null;
+      if (item.file) return Promise.resolve(item.file);
       const transfer = mediaTransfer;
       const roomCode = lease.roomCode;
-      const download = transfer
-        .download({
-          code: roomCode,
-          name: item.name,
-          source,
-          signal: playlistRuntimeAbort?.signal,
-        })
-        .then((file) => {
-          if (!isPlaylistLeaseCurrent(lease)) return null;
+      const linkedAbort = createRoomLinkedAbortController(playlistRuntimeAbort?.signal);
+      const loaderId = openTransferLoader('download', t('pro.downloading'));
+      let completed = false;
+      const download: Promise<File | null> = resolveCanonicalR2Source(queueItemId, lease)
+        .then(async (source) => {
+          if (!source || !isDownloadLeaseCurrent(lease) || linkedAbort.controller.signal.aborted) {
+            return null;
+          }
+          const file = await transfer.download({
+            code: roomCode,
+            name: item.name,
+            source,
+            onProgress: (fraction) => reportTransferProgress(loaderId, fraction),
+            signal: linkedAbort.controller.signal,
+          });
+          if (!isDownloadLeaseCurrent(lease) || linkedAbort.controller.signal.aborted) {
+            return null;
+          }
+          const liveSource = playlistProjection?.sourceFor(queueItemId) ?? null;
+          if (!liveSource || liveSource.kind !== 'pro-r2' || !sameR2Source(liveSource, source)) {
+            log.warn('[PRO] Downloaded asset no longer matches the canonical playlist source');
+            return null;
+          }
           const items = getState('playlist.items');
           const index = items.findIndex((candidate) => candidate.queueItemId === queueItemId);
           if (index < 0) return null;
           const next = [...items];
           next[index] = { ...next[index]!, file };
           setState('playlist.items', next);
+          completed = true;
           return file;
         })
         .catch((error) => {
-          if (isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
-          return null;
+          if (linkedAbort.controller.signal.aborted || !isDownloadLeaseCurrent(lease)) {
+            return null;
+          }
+          if (getState('playlist.currentQueueItemId') === queueItemId) {
+            reportPlaylistError(error);
+          }
+          throw error;
         })
         .finally(() => {
-          if (pendingFileDownloads.get(queueItemId) === download) {
-            pendingFileDownloads.delete(queueItemId);
-          }
+          linkedAbort.detach();
+          closeTransferLoader(loaderId, completed);
+          if (pendingFileDownload?.promise === download) pendingFileDownload = null;
         });
-      pendingFileDownloads.set(queueItemId, download);
+      pendingFileDownload = {
+        queueItemId,
+        leaseGeneration: lease.generation,
+        roomCode,
+        controller: linkedAbort.controller,
+        promise: download,
+      };
       return download;
+    },
+    cancelFileResolution() {
+      if (!isPlaylistLeaseCurrent(lease)) return;
+      pendingFileDownload?.controller.abort();
     },
   };
   registerProRoomLegacyMediaHooks(hooks);
@@ -370,11 +542,14 @@ function installLegacyMediaHooks(
 function resetPlaylistRuntime(): void {
   playlistRuntimeGeneration += 1;
   playlistRuntimeLease = null;
+  pendingFileDownload?.controller.abort();
+  pendingFileDownload = null;
   playlistRuntimeAbort?.abort();
   playlistRuntimeAbort = null;
+  closeAllTransferLoaders();
+  uploadOperationTail = Promise.resolve();
   registerProRoomLegacyMediaHooks(null);
   mediaTransfer?.cache.clear();
-  pendingFileDownloads.clear();
   playlistManager = null;
   playlistProjection = null;
   mediaTransfer = null;
@@ -503,6 +678,13 @@ function captureLocalPlaybackCheckpoint(): {
     youtubeSubIndex,
     updatedAtMs: Date.now(),
   };
+}
+
+/** Exact periodic-checkpoint observation seam used by lifecycle regression tests. */
+export function captureLocalPlaybackCheckpointForTests(): ReturnType<
+  typeof captureLocalPlaybackCheckpoint
+> {
+  return captureLocalPlaybackCheckpoint();
 }
 
 async function persistPlaybackCheckpoint(): Promise<void> {
@@ -670,6 +852,10 @@ async function restorePersistedPlayback(snapshot: ProRoomSnapshot): Promise<void
 }
 
 function applyAuthority(context: RoomContext): void {
+  const pending = pendingFileDownload;
+  if (pending && !shouldRetainPendingProDownload(pending.roomCode, context)) {
+    pending.controller.abort();
+  }
   setRoomContext(context);
   batchSetState({
     'network.sessionCode': context.roomId ?? '',
@@ -684,6 +870,7 @@ function stopLifecycle(): void {
   active = false;
   heartbeatSingleFlight.reset();
   refreshInFlight = false;
+  topologyRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
   clearManagedTimer(SIGNALING_REFRESH_TIMER);
   clearManagedTimer(PLAYBACK_CHECKPOINT_TIMER);
@@ -706,6 +893,7 @@ const observer: ProRoomSessionObserver = {
   cleared() {
     stopLifecycle();
     resetPlaylistRuntime();
+    resetProRoomTransportRecovery();
     resetRoomContext();
   },
 };
@@ -777,6 +965,38 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
       setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
     }
   }
+}
+
+async function runTopologyRecovery(): Promise<void> {
+  const lease = playlistRuntimeLease;
+  if (!active || !lease) return;
+  clearManagedTimer(HEARTBEAT_TIMER);
+  try {
+    await runHeartbeat(true, true);
+    topologyRecoveryAttempt = 0;
+  } catch {
+    if (!active || !isPlaylistLeaseCurrent(lease)) return;
+    const delay =
+      TOPOLOGY_RECOVERY_RETRY_MS[
+        Math.min(topologyRecoveryAttempt, TOPOLOGY_RECOVERY_RETRY_MS.length - 1)
+      ] ?? HEARTBEAT_INTERVAL_MS;
+    topologyRecoveryAttempt += 1;
+    // A member can reach signaling just before the newly elected coordinator
+    // has attached. Every ticket is one-use, so retry through heartbeat to
+    // mint a fresh ticket; keep doing so through the 45s presence TTL for an
+    // abruptly vanished coordinator.
+    setManagedTimer(HEARTBEAT_TIMER, () => void runTopologyRecovery(), delay);
+  }
+}
+
+function beginTopologyRecovery(): Promise<void> {
+  topologyRecoveryAttempt = 0;
+  clearManagedTimer(HEARTBEAT_TIMER);
+  // The data topology is known dead even when authority has not changed yet.
+  // Force the next accepted heartbeat to rebuild the transport for the same
+  // coordinator as well as for a newly elected one.
+  controller.invalidateTransportAuthority();
+  return runTopologyRecovery();
 }
 
 async function refreshSignalingCredential(): Promise<boolean> {
@@ -998,6 +1218,9 @@ for (const event of [
   'state:player.pausedAt',
 ] as const) {
   bus.on(event, () => {
+    if (event === 'state:playlist.currentQueueItemId') {
+      cancelSupersededFileDownload(getState('playlist.currentQueueItemId'));
+    }
     if (cancelPlaybackRestoreForQueueOverride()) return;
     reconcilePlaybackRestore();
     schedulePlaybackCheckpoint();
@@ -1094,7 +1317,4 @@ registerHandler(MSG.PRO_ROOM_INVALIDATED, (data, conn: DataConnection) => {
 registerProRoomHardCloseHandler(() => hardCloseActiveProRoom());
 registerProRoomLeaveHandler(() => leaveActiveProRoom());
 registerProRoomSignalingReconnectHandler(() => refreshSignalingCredential());
-registerProRoomSignalingEpochAdvanceHandler(() => {
-  clearManagedTimer(HEARTBEAT_TIMER);
-  return runHeartbeat(true);
-});
+registerProRoomSignalingEpochAdvanceHandler(() => beginTopologyRecovery());

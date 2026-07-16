@@ -60,6 +60,34 @@ describe('schedulePreload', () => {
     expect(getState('playlist.items')).toEqual([]);
     expect(() => schedulePreload()).not.toThrow();
   });
+
+  it('does not enter the legacy preload pipeline in a persistent PRO room', async () => {
+    vi.useFakeTimers();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-1',
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('preload.isPreloading', true);
+    setState('preload.nextQueueItemId', Q1);
+    setState('preload.activeTarget', {
+      queueItemId: Q1,
+      sessionId: 7,
+      name: 'next.flac',
+    });
+
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(storageMocks.readStoredFile).not.toHaveBeenCalled();
+    expect(getState('preload.isPreloading')).toBe(false);
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.activeTarget')).toBeNull();
+  });
 });
 
 // ─── Initial Preload State ───────────────────────────────────────────
@@ -732,6 +760,26 @@ describe('preload completion session identity', () => {
 });
 
 describe('unicastPreload source liveness', () => {
+  it('never sends PRELOAD frames for persistent PRO media', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-1',
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    const conn = { open: true, peer: 'pro-member', send: vi.fn() } as unknown as DataConnection;
+    const file = new File([new Uint8Array([1, 2, 3])], 'next.flac', {
+      type: 'audio/flac',
+    });
+
+    await unicastPreload(conn, file, Q1, 7);
+
+    expect(conn.send).not.toHaveBeenCalled();
+  });
+
   function installPeer(file: Blob, bufferedAmount = 0): DataConnection {
     const conn = {
       open: true,
@@ -772,6 +820,26 @@ describe('unicastPreload source liveness', () => {
       .mock.calls.map(([message]) => message as Record<string, unknown>)
       .filter((message) => message.type === type);
   }
+
+  it('never emits speculative preload frames in a PRO room', async () => {
+    const selected = new Blob(['persistent-r2'], { type: 'audio/flac' });
+    const conn = installPeer(selected);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'local-device',
+      epoch: 8,
+      snapshotRevision: 20,
+      capabilities: ['playback.control'],
+    });
+
+    await unicastPreload(conn, selected, Q2, 20);
+
+    expect(messages(conn, MSG.PRELOAD_START)).toHaveLength(0);
+    expect(messages(conn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
+    expect(messages(conn, MSG.PRELOAD_END)).toHaveLength(0);
+  });
 
   it('lets only the exact successor emit when two unicasts overlap', async () => {
     const first = new Blob(['first'], { type: 'audio/mpeg' });

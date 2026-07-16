@@ -16,6 +16,10 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
+import {
+  registerProRoomLegacyMediaHooks,
+  type ProRoomLegacyMediaHooks,
+} from '../../pro-room/legacy-media-hooks.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -175,6 +179,18 @@ function makeFileTrack(file: File): PlaylistItem {
   };
 }
 
+function persistentProMediaHooks(queueItemId: QueueItemId): ProRoomLegacyMediaHooks {
+  return {
+    addFiles: () => false,
+    addYouTube: () => false,
+    updateTrackMetadata: () => false,
+    removeTracks: () => false,
+    reorderTrack: () => false,
+    resolveFile: () => null,
+    handlesPersistentFile: (candidate) => candidate === queueItemId,
+  };
+}
+
 function setCurrentIndex(index: number): QueueItemId | null {
   const queueItemId = getState('playlist.items')[index]?.queueItemId ?? null;
   setState('playlist.currentQueueItemId', queueItemId);
@@ -218,6 +234,7 @@ function stageMainTransfer(item: PlaylistItem, file: Blob, sessionId: number): v
 }
 
 afterEach(() => {
+  registerProRoomLegacyMediaHooks(null);
   clearAllManagedTimers();
   vi.useRealTimers();
 });
@@ -891,6 +908,33 @@ describe('native decoder deadline policy', () => {
     expect(vi.mocked(shareRemoteFileIfNeeded)).toHaveBeenCalledWith(file, 7, undefined, {
       queueItemId: item.queueItemId,
     });
+  });
+
+  it('publishes only FILE_PREPARE for persistent PRO media', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'persistent.flac', {
+      type: 'audio/flac',
+    });
+    const item = makeFileTrack(file);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    setState('network.connectedPeers', [makeConnectedPeer('pro-member', false)]);
+    registerProRoomLegacyMediaHooks(persistentProMediaHooks(item.queueItemId));
+    mocks.decodeAudioData.mockResolvedValue({ duration: 120 });
+
+    const { loadAndBroadcastFile } = await import('../decode.ts');
+    const { shareRemoteFileIfNeeded } = await import('../../share/remote-share.ts');
+    await expect(loadAndBroadcastFile(file, item.queueItemId, 11)).resolves.toBe(true);
+
+    expect(mocks.broadcast).toHaveBeenCalledWith({
+      type: MSG.FILE_PREPARE,
+      name: file.name,
+      mime: file.type,
+      size: file.size,
+      queueItemId: item.queueItemId,
+      sessionId: 11,
+    });
+    expect(vi.mocked(broadcastFileDebounced)).not.toHaveBeenCalled();
+    expect(vi.mocked(shareRemoteFileIfNeeded)).not.toHaveBeenCalled();
   });
 
   it('does not abandon a healthy native decode at the former 10-second deadline', async () => {

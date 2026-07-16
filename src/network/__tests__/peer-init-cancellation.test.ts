@@ -5,12 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import type { PeerInstance } from '../../types/index.ts';
-import { registerProRoomSignalingReconnectHandler } from '../../pro-room/lifecycle-hook.ts';
+import type { DataConnection, PeerInstance } from '../../types/index.ts';
+import {
+  registerProRoomSignalingEpochAdvanceHandler,
+  registerProRoomSignalingReconnectHandler,
+} from '../../pro-room/lifecycle-hook.ts';
 
 const mocks = vi.hoisted(() => ({
   createTransportPeer: vi.fn(),
   fetchWithCapability: vi.fn(),
+  showDialog: vi.fn(async () => ({ action: 'cancel' })),
+  showToast: vi.fn(),
 }));
 
 vi.mock('../../core/capability.ts', async (importOriginal) => {
@@ -29,6 +34,9 @@ vi.mock('../transport/config.ts', () => ({
     signalingUrl: 'https://signal.example.test/api/rooms',
   }),
 }));
+
+vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
+vi.mock('../../ui/toast.ts', () => ({ showToast: mocks.showToast }));
 
 import { getPeer, setPeer } from '../peer-state.ts';
 import {
@@ -119,6 +127,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  registerProRoomSignalingEpochAdvanceHandler(null);
   registerProRoomSignalingReconnectHandler(null);
   setState('setup.sessionStarted', false);
   cancelPendingSessionSetup();
@@ -128,6 +137,125 @@ afterEach(() => {
 });
 
 describe('network initialization ownership', () => {
+  it('coalesces duplicate PRO epoch-close notifications into one recovery request', async () => {
+    const peer = makePeer('000001', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const recover = vi.fn();
+    registerProRoomSignalingEpochAdvanceHandler(recover);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant_owner',
+      epoch: 4,
+      snapshotRevision: 8,
+      capabilities: [],
+    });
+    await connectProRoomTransport({
+      roomCode: '000001',
+      ticket: `${'a'.repeat(32)}.${'b'.repeat(43)}`,
+      role: 'coordinator',
+      coordinatorEpoch: 4,
+    });
+
+    peer.fire('pro-epoch-advanced');
+    peer.fire('pro-epoch-advanced');
+
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('suppresses the signaling-loss dialog and requests PRO topology recovery once', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('000001', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const recover = vi.fn();
+    registerProRoomSignalingEpochAdvanceHandler(recover);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant_owner',
+      epoch: 4,
+      snapshotRevision: 8,
+      capabilities: [],
+    });
+    await connectProRoomTransport({
+      roomCode: '000001',
+      ticket: `${'a'.repeat(32)}.${'b'.repeat(43)}`,
+      role: 'coordinator',
+      coordinatorEpoch: 4,
+    });
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledOnce();
+  });
+
+  it('does not rebuild a PRO topology while its existing data channel is still live', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('000001', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const recover = vi.fn();
+    registerProRoomSignalingEpochAdvanceHandler(recover);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant_owner',
+      epoch: 4,
+      snapshotRevision: 8,
+      capabilities: [],
+    });
+    await connectProRoomTransport({
+      roomCode: '000001',
+      ticket: `${'a'.repeat(32)}.${'b'.repeat(43)}`,
+      role: 'coordinator',
+      coordinatorEpoch: 4,
+    });
+    setState('network.connectedPeers', [
+      {
+        id: 'member-1',
+        slot: 1,
+        label: 'Peer 1',
+        conn: { open: true } as DataConnection,
+        isOp: true,
+        preloadedQueueItemIds: new Set(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+      },
+    ]);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(recover).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('keeps the ordinary-room signaling-loss dialog after its grace period', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
   it('installs a fresh one-use PRO ticket before invoking signaling reconnect', async () => {
     const peer = makePeer('000001', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
@@ -192,6 +320,7 @@ describe('network initialization ownership', () => {
   it('opens an authenticated PRO coordinator without entering the standard room flow', async () => {
     const peer = makePeer('000001', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    setState('network.myDeviceLabel', 'Peer');
     const access = {
       roomCode: '000001',
       ticket: `${'a'.repeat(32)}.${'b'.repeat(43)}`,
@@ -206,11 +335,27 @@ describe('network initialization ownership', () => {
       expect.objectContaining({ proSignaling: access, provider: 'cloudflare' }),
     );
     expect(getState('network.appRole')).toBe('host');
+    expect(getState('network.myDeviceLabel')).toBe('Peer 0');
     expect(getState('network.sessionCode')).toBe('000001');
     expect(getState('network.maxGuestSlots')).toBe(32);
 
     disconnectProRoomTransport();
     expect(peer.destroy).toHaveBeenCalled();
+  });
+
+  it('preserves a custom PRO coordinator device name', async () => {
+    const peer = makePeer('000001', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    setState('network.myDeviceLabel', 'Cafe Speaker');
+
+    await connectProRoomTransport({
+      roomCode: '000001',
+      ticket: `${'a'.repeat(32)}.${'b'.repeat(43)}`,
+      role: 'coordinator',
+      coordinatorEpoch: 4,
+    });
+
+    expect(getState('network.myDeviceLabel')).toBe('Cafe Speaker');
   });
 
   it('surfaces a guest peer initialization error exactly once', async () => {

@@ -3,6 +3,8 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
+import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
+import { resetProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
 
 const mocks = vi.hoisted(() => ({
   getPeer: vi.fn(),
@@ -89,15 +91,103 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  resetProRoomTransportRecovery();
   mocks.detectConnectionType.mockResolvedValue('local');
 });
 
 afterEach(() => {
+  registerProRoomSignalingEpochAdvanceHandler(null);
   clearAllManagedTimers();
   vi.useRealTimers();
 });
 
 describe('joinSession reconnect racing', () => {
+  it.each(['close', 'error'] as const)(
+    'turns a PRO host-connection %s into one topology recovery without a network error',
+    (event) => {
+      const { peer, conns } = makeFakePeer();
+      mocks.getPeer.mockReturnValue(peer);
+      const errors = vi.fn();
+      const transportFailures = vi.fn();
+      const recover = vi.fn();
+      bus.on('network:error', errors);
+      bus.on('pro-room:transport-connect-failure', transportFailures);
+      registerProRoomSignalingEpochAdvanceHandler(recover);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'participant_owner',
+        epoch: 4,
+        snapshotRevision: 8,
+        capabilities: [],
+      });
+      setState('setup.sessionStarted', true);
+
+      joinSession('000001');
+      const conn = conns[0];
+      conn.fire('open');
+      if (event === 'error') conn.fire('error', new Error('coordinator left'));
+      else conn.fire('close');
+
+      expect(getState('network.hostConn')).toBeNull();
+      expect(errors).not.toHaveBeenCalled();
+      expect(transportFailures).toHaveBeenCalledOnce();
+      expect((transportFailures.mock.calls[0][0] as Error).message).toBe(
+        event === 'error' ? 'HOST_CONNECTION_ERROR' : 'HOST_DISCONNECTED',
+      );
+      expect(recover).toHaveBeenCalledOnce();
+      expect(mocks.showToast).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('rejects an active PRO handoff immediately when the replacement connection fails pre-open', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    const transportFailures = vi.fn();
+    const recover = vi.fn();
+    bus.on('network:error', errors);
+    bus.on('pro-room:transport-connect-failure', transportFailures);
+    registerProRoomSignalingEpochAdvanceHandler(recover);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'participant_owner',
+      epoch: 4,
+      snapshotRevision: 8,
+      capabilities: [],
+    });
+    setState('setup.sessionStarted', true);
+
+    joinSession('000001');
+    conns[0].fire('error', new Error('replacement unavailable'));
+
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(errors).not.toHaveBeenCalled();
+    expect(transportFailures).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the ordinary-room HOST_DISCONNECTED error contract', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    const recover = vi.fn();
+    bus.on('network:error', errors);
+    registerProRoomSignalingEpochAdvanceHandler(recover);
+
+    joinSession('HOST01');
+    conns[0].fire('open');
+    conns[0].fire('close');
+
+    expect(errors).toHaveBeenCalledOnce();
+    expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_DISCONNECTED');
+    expect(recover).not.toHaveBeenCalled();
+  });
+
   it('ignores a duplicate joinSession call while the first attempt is still connecting', () => {
     vi.useFakeTimers();
     const { peer, connect } = makeFakePeer();

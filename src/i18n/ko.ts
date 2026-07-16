@@ -582,6 +582,7 @@ const ko = {
   'pro.suspended_title': '현재 이용할 수 없는 PRO 방이에요',
   'pro.suspended_message': '방 소유자에게 문의해 주세요.',
   'pro.loading': 'PRO 방을 불러오는 중...',
+  'pro.reconnecting': '다시 연결 중...',
   'pro.resume_tap': '재생을 계속하려면 눌러 주세요',
   'pro.pin_title': '방 암호 입력',
   'pro.pin_message': '이 PRO 방의 8자리 암호를 입력해 주세요.',

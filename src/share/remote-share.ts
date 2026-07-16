@@ -315,7 +315,7 @@ function isHostActiveFile(file: File, queueItemId: QueueItemId): boolean {
 
 function showUploadProgress(message: string, progress = 0): void {
   showLoader(true, message, REMOTE_UPLOAD_LOADER);
-  updateLoader(Math.round(progress * 100));
+  updateLoader(Math.round(progress * 100), REMOTE_UPLOAD_LOADER);
 }
 
 /**
@@ -541,6 +541,10 @@ export async function shareRemoteFileIfNeeded(
   options?: ShareRemoteFileOptions,
 ): Promise<void> {
   if (getState('network.hostConn')) return;
+  // Persistent PRO media already lives in the private room bucket. Every
+  // participant downloads that canonical object directly; re-encrypting and
+  // uploading a second transient copy would waste memory, storage, and uplink.
+  if (getState('room.context').kind === 'pro') return;
   if (!isRemoteShareConfigured()) return;
   if (sessionId === null) return;
   if (!targetConn && !hasRemoteTargets()) return;
@@ -884,6 +888,7 @@ async function handleRemoteFileShare(
   descriptor: RemoteFileSharePayload,
   conn?: DataConnection,
 ): Promise<void> {
+  if (getState('room.context').kind === 'pro') return;
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   if (

@@ -605,6 +605,7 @@ const it: Record<I18nKey, string> = {
   'pro.suspended_title': 'Questa stanza PRO non è disponibile',
   'pro.suspended_message': 'Chiedi aiuto al proprietario.',
   'pro.loading': 'Caricamento stanza PRO...',
+  'pro.reconnecting': 'Riconnessione...',
   'pro.resume_tap': 'Tocca per riprendere la riproduzione',
   'pro.pin_title': 'Password della stanza',
   'pro.pin_message': 'Inserisci la password di 8 cifre di questa stanza PRO.',

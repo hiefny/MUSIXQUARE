@@ -266,6 +266,71 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledWith(changed, signaling('member', 2), undefined);
   });
 
+  it('rebuilds a lost transport on the same authority without clearing the PRO session', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.reconfigure.mockClear();
+    observer.cleared.mockClear();
+
+    controller.invalidateTransportAuthority();
+    await controller.heartbeat();
+
+    expect(transport.reconfigure).toHaveBeenCalledOnce();
+    expect(transport.reconfigure).toHaveBeenCalledWith(snapshot(), signaling('coordinator'), undefined);
+    expect(observer.cleared).not.toHaveBeenCalled();
+    expect(controller.snapshot).toEqual(snapshot());
+
+    await controller.heartbeat();
+    expect(transport.reconfigure).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the authenticated room and retries a transient authority reconfigure with a fresh ticket', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+
+    const changed = snapshot({
+      revision: 2,
+      presence: {
+        ...snapshot().presence,
+        revision: 2,
+        coordinatorEpoch: 2,
+        coordinatorParticipantId: 'participant_00002',
+        participants: [
+          ...snapshot().presence.participants,
+          {
+            participantId: 'participant_00002',
+            displayName: 'Friend',
+            role: 'controller',
+            joinedAtMs: 2,
+          },
+        ],
+      },
+      playback: { ...snapshot().playback, coordinatorEpoch: 2, revision: 0 },
+    });
+    api.heartbeat.mockResolvedValue(changed);
+    api.createSignalingTicket.mockResolvedValue(signaling('member', 2));
+    transport.reconfigure
+      .mockRejectedValueOnce(new Error('HOST_NOT_AVAILABLE'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(controller.heartbeat()).rejects.toThrow('HOST_NOT_AVAILABLE');
+
+    expect(controller.snapshot).toEqual(changed);
+    expect(controller.context).toMatchObject({ role: 'member', epoch: 2 });
+    expect(transport.disconnect).not.toHaveBeenCalled();
+    expect(observer.cleared).not.toHaveBeenCalled();
+
+    await expect(controller.heartbeat()).resolves.toEqual(changed);
+
+    expect(api.createSignalingTicket).toHaveBeenCalledTimes(3);
+    expect(transport.reconfigure).toHaveBeenCalledTimes(2);
+    expect(transport.reconfigure).toHaveBeenLastCalledWith(
+      changed,
+      signaling('member', 2),
+      undefined,
+    );
+  });
+
   it('rejects a replacement tab incarnation before publishing or adopting its snapshot', async () => {
     const { api, transport, observer, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });

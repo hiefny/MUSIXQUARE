@@ -530,6 +530,7 @@ const es: Record<I18nKey, string> = {
   'pro.suspended_title': 'Esta sala PRO no está disponible',
   'pro.suspended_message': 'Pide ayuda al propietario.',
   'pro.loading': 'Cargando sala PRO...',
+  'pro.reconnecting': 'Reconectando...',
   'pro.resume_tap': 'Toca para reanudar la reproducción',
   'pro.pin_title': 'Contraseña de la sala',
   'pro.pin_message': 'Introduce la contraseña de 8 dígitos de esta sala PRO.',

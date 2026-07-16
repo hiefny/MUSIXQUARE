@@ -593,6 +593,7 @@ const nl: Record<I18nKey, string> = {
   'pro.suspended_title': 'Deze PRO-ruimte is niet beschikbaar',
   'pro.suspended_message': 'Neem contact op met de eigenaar.',
   'pro.loading': 'PRO-ruimte laden...',
+  'pro.reconnecting': 'Opnieuw verbinden...',
   'pro.resume_tap': 'Tik om het afspelen te hervatten',
   'pro.pin_title': 'Wachtwoord van ruimte',
   'pro.pin_message': 'Voer het 8-cijferige wachtwoord van deze PRO-ruimte in.',

@@ -343,6 +343,13 @@ export function resetPreloadReceiveAuthority(): void {
 export function schedulePreload(delayMs = 500): void {
   _preloadGeneration++;
   clearManagedTimer('preloadScheduleTimer');
+  if (getState('room.context').kind === 'pro') {
+    // PRO assets are fetched from the persistent room bucket by each device.
+    // Do not let a cached coordinator File re-enter the legacy PRELOAD_CHUNK
+    // fanout path.
+    clearPreloadCacheState();
+    return;
+  }
   setManagedTimer(
     'preloadScheduleTimer',
     () => {
@@ -581,6 +588,7 @@ async function backgroundTransfer(
   queueItemId: string,
   sessionId: number,
 ): Promise<void> {
+  if (getState('room.context').kind === 'pro') return;
   // The caller serialized prior work, so only explicit cancellation disposes
   // this fresh scope.
   const scope = new SessionScope();
@@ -678,6 +686,7 @@ export async function unicastPreload(
   queueItemId: string,
   sessionId: number,
 ): Promise<void> {
+  if (getState('room.context').kind === 'pro') return;
   if (!conn?.open || !file || !queueItemId || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
     return;
   }

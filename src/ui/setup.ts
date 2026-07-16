@@ -16,6 +16,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { cancelCapabilityChallenge } from '../core/capability.ts';
 import { isPlaybackModeYouTube } from '../player/ownership.ts';
+import { requestProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
 import { showToast, showLoader } from './toast.ts';
@@ -446,6 +447,15 @@ export function initSetup(): void {
     const err = error as Record<string, unknown> | null;
     const msg = (err as Error | null)?.message || '';
     const peerType = err && typeof err === 'object' ? String(err.type || '') : '';
+    if (
+      (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') &&
+      requestProRoomTransportRecovery()
+    ) {
+      // A PRO coordinator is an elected transport role, not the lifetime of
+      // the room. Keep media/playlist/UI intact while the persistent service
+      // elects and reconnects the replacement topology.
+      return;
+    }
     let userMsg = t('error.network_generic');
     const isRoomPasswordRequired =
       msg === 'ROOM_PASSWORD_REQUIRED' || peerType === 'room-password-required';

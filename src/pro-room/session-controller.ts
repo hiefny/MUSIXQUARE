@@ -55,17 +55,27 @@ export interface ProRoomSessionObserver {
 
 function authorityChanged(previous: RoomContext | null, next: RoomContext): boolean {
   return (
-    previous !== null &&
-    (previous.roomId !== next.roomId ||
+    previous === null ||
+    previous.roomId !== next.roomId ||
       previous.role !== next.role ||
       previous.coordinatorId !== next.coordinatorId ||
-      previous.epoch !== next.epoch)
+      previous.epoch !== next.epoch
   );
 }
 
 export class ProRoomSessionController {
   #snapshot: ProRoomSnapshot | null = null;
   #context: RoomContext | null = null;
+  /**
+   * Authority that the currently installed transport has actually accepted.
+   *
+   * The room snapshot is committed before a replacement signaling facade can
+   * finish opening.  Keeping this separately means a transient
+   * HOST_NOT_AVAILABLE/epoch race does not destroy the authenticated PRO
+   * session: the next heartbeat can mint a fresh one-use ticket and retry the
+   * same authority transition.
+   */
+  #transportContext: RoomContext | null = null;
   #operationEpoch = 0;
   #openAbort: AbortController | null = null;
   #pendingRoomCode: string | null = null;
@@ -93,6 +103,17 @@ export class ProRoomSessionController {
 
   isSessionLeaseCurrent(lease: number, roomCode: string): boolean {
     return lease === this.#operationEpoch && this.#snapshot?.roomCode === roomCode;
+  }
+
+  /**
+   * Mark the legacy RTC facade as unusable without revoking the authenticated
+   * room. The next heartbeat then installs a fresh one-use signaling ticket
+   * even when the server has not changed coordinator authority (for example,
+   * a transient coordinator network loss followed by recovery in-place).
+   */
+  invalidateTransportAuthority(): void {
+    if (!this.#snapshot) return;
+    this.#transportContext = null;
   }
 
   async join(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
@@ -328,6 +349,7 @@ export class ProRoomSessionController {
       this.#assertAccessMatches(accepted, access);
       await this.transport.connect(accepted, access, operationAbort.signal);
       this.#assertOperationCurrent(operationEpoch);
+      this.#transportContext = this.#context;
       return accepted;
     } catch (error) {
       if (operationEpoch === this.#operationEpoch) {
@@ -360,13 +382,12 @@ export class ProRoomSessionController {
     operationEpoch = this.#operationEpoch,
   ): Promise<ProRoomSnapshot> {
     this.#assertOperationCurrent(operationEpoch);
-    const previousContext = this.#context;
     const accepted = this.#commit(incoming);
     const nextContext = this.#context;
     if (
       allowTransportReconfigure &&
       nextContext &&
-      authorityChanged(previousContext, nextContext)
+      authorityChanged(this.#transportContext, nextContext)
     ) {
       try {
         const access = await this.api.createSignalingTicket(accepted.roomCode, signal);
@@ -374,11 +395,13 @@ export class ProRoomSessionController {
         this.#assertAccessMatches(accepted, access);
         await this.transport.reconfigure(accepted, access, signal);
         this.#assertOperationCurrent(operationEpoch);
+        this.#transportContext = nextContext;
       } catch (error) {
-        if (operationEpoch === this.#operationEpoch) {
-          await this.transport.disconnect();
-          if (operationEpoch === this.#operationEpoch) this.#clear();
-        }
+        // A newly elected coordinator may not have attached to signaling yet.
+        // Tickets are single-use, so preserve the authenticated room and the
+        // last installed transport authority; a later heartbeat will request
+        // a fresh ticket and retry this same transition. Terminal session
+        // errors are classified and cleared by the runtime.
         this.#assertOperationCurrent(operationEpoch);
         throw error;
       }
@@ -458,6 +481,7 @@ export class ProRoomSessionController {
   }
 
   #clear(): void {
+    this.#transportContext = null;
     const ownedPresence = this.#ownedPresence;
     this.#ownedPresence = null;
     this.#snapshot = null;

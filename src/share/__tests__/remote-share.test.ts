@@ -1046,6 +1046,26 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     initRemoteShare();
   });
 
+  it('never creates a second encrypted remote-share object for PRO room media', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const file = new File(['canonical-r2'], 'persistent.flac', { type: 'audio/flac' });
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'local-device',
+      epoch: 5,
+      snapshotRevision: 9,
+      capabilities: ['playback.control'],
+    });
+
+    await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+
+    expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
+  });
+
   it('suppresses the broadcast when the host advanced past the track during the upload', async () => {
     const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
     const { broadcast, safeSend } = await import('../../network/peer.ts');

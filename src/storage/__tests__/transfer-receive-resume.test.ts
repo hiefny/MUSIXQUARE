@@ -12,11 +12,16 @@
  * work. postCommand defers dispatch via queueMicrotask — flush before
  * asserting ramstore effects.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { CHUNK_SIZE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import type { DataConnection } from '../../types/index.ts';
+import {
+  registerProRoomLegacyDirectFileHandler,
+  registerProRoomLegacyMediaHooks,
+  type ProRoomLegacyMediaHooks,
+} from '../../pro-room/legacy-media-hooks.ts';
 import {
   ramStart as rawRamStart,
   ramWrite as rawRamWrite,
@@ -101,6 +106,11 @@ const ramContiguousCount = (name: string, isPreload: boolean, sid: number, queue
   rawRamContiguousCount(queueItemId, isPreload, sid);
 const FOUR_CHUNK_FILE_SIZE = 3 * CHUNK_SIZE + 1;
 const TWO_CHUNK_FILE_SIZE = CHUNK_SIZE + 1;
+
+afterEach(() => {
+  registerProRoomLegacyDirectFileHandler(null);
+  registerProRoomLegacyMediaHooks(null);
+});
 
 async function expectCompletedMime(
   name: string,
@@ -783,6 +793,48 @@ describe('handleFileWait - identity repair isolation', () => {
     expect(getCurrentFileRequestOwnerForTests()?.requestId).not.toBe(ownerA.requestId);
   });
 
+  it('keeps a remote PRO persistent FILE_WAIT on direct-R2 recovery', async () => {
+    const { handleFileWait } = await import('../transfer-receive.ts');
+    const { beginFileRequest } = await import('../../network/file-request-authority.ts');
+    const { setManagedTimer } = await import('../../core/timers.ts');
+    const hooks: ProRoomLegacyMediaHooks = {
+      addFiles: () => false,
+      addYouTube: () => false,
+      updateTrackMetadata: () => false,
+      removeTracks: () => false,
+      reorderTrack: () => false,
+      resolveFile: () => null,
+      handlesPersistentFile: (queueItemId) => queueItemId === Q[0],
+    };
+    registerProRoomLegacyMediaHooks(hooks);
+    setState('network.connectionType', 'remote');
+    const owner = beginFileRequest(conn, Q[0]!, 7);
+
+    handleFileWait(
+      {
+        type: 'file-wait',
+        message: 'coordinator preparing R2 asset',
+        requestId: owner.requestId,
+        queueItemId: owner.queueItemId,
+        sessionId: owner.sessionId,
+      },
+      conn,
+    );
+    const timer = vi
+      .mocked(setManagedTimer)
+      .mock.calls.find(([name]) => name === 'fileWaitTimeout')?.[1];
+    timer?.();
+
+    expect(hostSend).toHaveBeenCalledWith({
+      type: 'request-data-recovery',
+      nextChunk: 0,
+      fileName: 'a.mp3',
+      requestId: expect.any(Number),
+      queueItemId: Q[0],
+      sessionId: 7,
+    });
+  });
+
   it('clears only the exact request owner on an accepted FILE_START', async () => {
     const { handleFileStart } = await import('../transfer-receive.ts');
     const { beginFileRequest, getCurrentFileRequestOwnerForTests } =
@@ -1187,5 +1239,93 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       nextExpectedChunk: 0,
     });
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+  });
+});
+
+describe('persistent PRO file receive routing', () => {
+  const conn = { open: true, peer: 'pro-coordinator' } as DataConnection;
+
+  beforeEach(async () => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    const { clearReceiveState } = await import('../transfer-receive.ts');
+    clearReceiveState();
+    setState('network.hostConn', conn);
+    setState('network.connectionType', 'remote');
+    setState('playlist.items', [
+      {
+        queueItemId: Q[0],
+        type: 'file',
+        name: 'persistent.flac',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', Q[0]!);
+  });
+
+  it('downloads on the participant and never enters P2P chunk or remote-share receive', async () => {
+    let finishDownload!: (file: File) => void;
+    const download = new Promise<File>((resolve) => {
+      finishDownload = resolve;
+    });
+    const hooks: ProRoomLegacyMediaHooks = {
+      addFiles: () => false,
+      addYouTube: () => false,
+      updateTrackMetadata: () => false,
+      removeTracks: () => false,
+      reorderTrack: () => false,
+      resolveFile: () => download,
+      handlesPersistentFile: (queueItemId) => queueItemId === Q[0],
+    };
+    const finalize = vi.fn(async () => undefined);
+    registerProRoomLegacyMediaHooks(hooks);
+    registerProRoomLegacyDirectFileHandler(finalize);
+
+    const { handleFilePrepare, handleFileStart } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+    const { prepareRemoteShareWait } = await import('../../share/remote-share.ts');
+    const file = new File([u8(1, 2, 3)], 'persistent.flac', { type: 'audio/flac' });
+    const prepared = handleFilePrepare(
+      {
+        type: 'file-prepare',
+        queueItemId: Q[0],
+        sessionId: 12,
+        name: file.name,
+        mime: file.type,
+        size: file.size,
+      },
+      conn,
+    );
+
+    await Promise.resolve();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(prepareRemoteShareWait).not.toHaveBeenCalled();
+    expect(postCommand).not.toHaveBeenCalled();
+
+    finishDownload(file);
+    await prepared;
+
+    expect(finalize).toHaveBeenCalledWith(file, Q[0], 12);
+    expect(getState('transfer.meta')).toEqual(
+      expect.objectContaining({ queueItemId: Q[0], sessionId: 12, mime: 'audio/flac' }),
+    );
+
+    // A stale coordinator that still emits byte frames cannot reopen the
+    // legacy RAM chunk pipeline for a persistent PRO occurrence.
+    handleFileStart(
+      {
+        type: 'file-start',
+        queueItemId: Q[0],
+        sessionId: 12,
+        name: file.name,
+        mime: file.type,
+        size: file.size,
+        total: 1,
+      },
+      conn,
+    );
+    expect(postCommand).not.toHaveBeenCalled();
   });
 });

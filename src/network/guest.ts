@@ -23,6 +23,10 @@ import { getPeer, detectConnectionType } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import {
+  markProRoomTransportRecovered,
+  requestProRoomTransportRecovery,
+} from '../pro-room/transport-recovery.ts';
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
@@ -72,6 +76,17 @@ function applyHostReportedConnectionType(type: ConnectionType): void {
 /** Called by peer.ts during bootstrap to inject initNetwork reference. */
 export function setInitNetwork(fn: (requestedId: string | null) => Promise<string>): void {
   _initNetwork = fn;
+}
+
+function reportGuestConnectionFailure(error: unknown): void {
+  if (getRoomContext().kind === 'pro') {
+    // Initial PRO entry is still owned by setup-flow's catch boundary. During
+    // an already-running room handoff, also wake the topology recovery loop.
+    if (getState('setup.sessionStarted')) requestProRoomTransportRecovery();
+    bus.emit('pro-room:transport-connect-failure', error);
+    return;
+  }
+  bus.emit('network:error', error);
 }
 
 /** Invalidate every callback/timer owned by the current provisional join. */
@@ -154,12 +169,12 @@ export function joinSession(
   if (!peer) {
     if (retryAttempt > 3) {
       setState('network.isConnecting', false);
-      bus.emit('network:error', new Error('NETWORK_INIT_FAILED'));
+      reportGuestConnectionFailure(new Error('NETWORK_INIT_FAILED'));
       return;
     }
     if (!_initNetwork) {
       setState('network.isConnecting', false);
-      bus.emit('network:error', new Error('NETWORK_INIT_FAILED'));
+      reportGuestConnectionFailure(new Error('NETWORK_INIT_FAILED'));
       return;
     }
     _initNetwork(null)
@@ -185,8 +200,7 @@ export function joinSession(
         setState('network.isConnecting', false);
         const typedTransportError =
           e && typeof e === 'object' && typeof (e as Record<string, unknown>).type === 'string';
-        bus.emit(
-          'network:error',
+        reportGuestConnectionFailure(
           typedTransportError ? e : new Error('NETWORK_INIT_FAILED', { cause: e }),
         );
       });
@@ -205,7 +219,7 @@ export function joinSession(
       );
     } else {
       setState('network.isConnecting', false);
-      bus.emit('network:error', new Error('PEER_NOT_READY'));
+      reportGuestConnectionFailure(new Error('PEER_NOT_READY'));
     }
     return;
   }
@@ -221,7 +235,7 @@ export function joinSession(
   } catch (e) {
     log.error('[Join] peer.connect failed', e);
     setState('network.isConnecting', false);
-    bus.emit('network:error', new Error('CONNECT_FAILED'));
+    reportGuestConnectionFailure(new Error('CONNECT_FAILED'));
     return;
   }
 
@@ -238,7 +252,7 @@ export function joinSession(
       /* noop */
     }
     setState('network.isConnecting', false);
-    bus.emit('network:error', err);
+    reportGuestConnectionFailure(err);
   };
 
   // Register data handler BEFORE 'open' to avoid missing early messages
@@ -265,7 +279,7 @@ export function joinSession(
         /* noop */
       }
       setState('network.isConnecting', false);
-      bus.emit('network:error', new Error('HOST_UNREACHABLE'));
+      reportGuestConnectionFailure(new Error('HOST_UNREACHABLE'));
     },
     10000,
   );
@@ -325,7 +339,7 @@ export function joinSession(
 
       const isIntentional = getState('network.isIntentionalDisconnect');
       if (!isIntentional) {
-        bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+        reportGuestConnectionFailure(new Error('HOST_DISCONNECTED'));
       }
       setState('network.isIntentionalDisconnect', false);
     });
@@ -345,7 +359,10 @@ export function joinSession(
       if (_handledConnectionErrors.has(conn)) return;
       _handledConnectionErrors.add(conn);
 
-      bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));
+      const isIntentional = getState('network.isIntentionalDisconnect');
+      if (!isIntentional) {
+        reportGuestConnectionFailure(new Error('HOST_CONNECTION_ERROR'));
+      }
     });
 
     // Start unified sync timer (replaces separate heartbeat + ping timers)
@@ -383,6 +400,7 @@ export function joinSession(
 
     bus.emit('network:peer-connected', conn);
     bus.emit('setup:guest-join-success');
+    markProRoomTransportRecovered();
   });
 }
 

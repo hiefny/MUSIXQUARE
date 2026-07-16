@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../core/capability.ts', () => ({
   cancelCapabilityChallenge: vi.fn(),
@@ -97,7 +97,11 @@ vi.mock('../setup-shared.ts', () => ({
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { cancelPendingSessionSetup } from '../../network/peer.ts';
+import { isPlaybackModeYouTube } from '../../player/ownership.ts';
+import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
+import { markProRoomTransportRecovered } from '../../pro-room/transport-recovery.ts';
 import { initSetup } from '../setup.ts';
+import { showDialog } from '../dialog.ts';
 import { setHostGoBack } from '../setup-host.ts';
 import { showToast } from '../toast.ts';
 
@@ -110,6 +114,7 @@ function startJoining(): void {
 beforeEach(() => {
   bus.clear();
   resetState();
+  markProRoomTransportRecovered();
   sessionStorage.clear();
   document.body.innerHTML = '';
   window.history.replaceState({}, '', '/');
@@ -122,10 +127,55 @@ beforeEach(() => {
     })),
   });
   initSetup();
+  vi.mocked(showToast).mockClear();
+  vi.mocked(showDialog).mockClear();
+  vi.mocked(isPlaybackModeYouTube).mockClear();
+  vi.mocked(isPlaybackModeYouTube).mockReturnValue(false);
   startJoining();
 });
 
+afterEach(() => {
+  registerProRoomSignalingEpochAdvanceHandler(null);
+});
+
 describe('setup network error messages', () => {
+  it('keeps active PRO media intact and suppresses the ordinary host-loss dialog', () => {
+    const recover = vi.fn();
+    const youtubeStop = vi.fn();
+    registerProRoomSignalingEpochAdvanceHandler(recover);
+    bus.on('youtube:stop-mode', youtubeStop);
+    vi.mocked(isPlaybackModeYouTube).mockReturnValue(true);
+    setState('network.isConnecting', false);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'participant_owner',
+      epoch: 4,
+      snapshotRevision: 8,
+      capabilities: [],
+    });
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+
+    expect(recover).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledWith('pro.reconnecting');
+    expect(showDialog).not.toHaveBeenCalled();
+    expect(youtubeStop).not.toHaveBeenCalled();
+  });
+
+  it('retains the ordinary-room host-loss dialog and YouTube cleanup', () => {
+    const youtubeStop = vi.fn();
+    bus.on('youtube:stop-mode', youtubeStop);
+    vi.mocked(isPlaybackModeYouTube).mockReturnValue(true);
+    setState('network.isConnecting', false);
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+
+    expect(showDialog).toHaveBeenCalledOnce();
+    expect(youtubeStop).toHaveBeenCalledOnce();
+  });
+
   it.each([
     [
       'Worker reason',

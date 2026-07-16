@@ -44,6 +44,10 @@ import {
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 import { hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import {
+  clearProRoomTrackChangeIntent,
+  isProRoomTrackChangeIntentPending,
+} from '../player/track-change-intent.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -68,6 +72,7 @@ let _filePlayButtonLoading = false;
 function isFilePlayButtonLoading(): boolean {
   const lifecycle = getState('playback.lifecycle');
   return (
+    isProRoomTrackChangeIntentPending() ||
     lifecycle === PLAYBACK_STATE.DOWNLOADING ||
     lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
     lifecycle === PLAYBACK_STATE.DECODING
@@ -325,13 +330,13 @@ export function updateRoleBadge(): void {
     return;
   }
 
-  // Role badge text is INTENTIONALLY English-only ('HOST', 'GUEST', 'SETUP').
-  // The device list UI also uses English labels ('Host', 'Peer 1', etc.),
-  // so translating the badge to Korean ('호스트') creates a visual mismatch.
-  // Do NOT i18n-ize these — they are identity labels, not UI copy.
+  // Default role labels remain English-only, but an active host's badge is
+  // also its device identity. Keep a renamed host aligned with the device
+  // list instead of replacing that identity with a permanent "HOST" label.
   const appRole = getState('network.appRole');
   if (appRole === 'host') {
-    text.innerText = 'HOST';
+    const myDeviceLabel = getState('network.myDeviceLabel') || '';
+    text.innerText = myDeviceLabel.trim() || 'HOST';
     badge.classList.add('connected');
     scheduleRoleClockPulse();
     return;
@@ -912,6 +917,9 @@ export function initPlayerControls(): void {
   _busScope.on('network:role-badge-update', () => {
     updateRoleBadge();
   });
+  _busScope.on('state:network.myDeviceLabel', () => {
+    updateRoleBadge();
+  });
 
   // Latency update → refresh role badge + clock offset display
   _busScope.on('sync:latency-update', () => {
@@ -939,6 +947,10 @@ export function initPlayerControls(): void {
   // controller can. Derive the visual affordance from the same capability
   // guard as the click handler instead of the legacy host/guest topology.
   _busScope.on('state:network.hostConn', syncMediaSourceButtonAuthority);
+  _busScope.on('state:network.appRole', () => {
+    updateRoleBadge();
+    syncMediaSourceButtonAuthority();
+  });
   _busScope.on('state:room.context', syncMediaSourceButtonAuthority);
   syncMediaSourceButtonAuthority();
 
@@ -1102,6 +1114,37 @@ export function initPlayerControls(): void {
   refreshFilePlayButtonLoading();
   _busScope.on('state:playback.lifecycle', () => {
     refreshFilePlayButtonLoading();
+  });
+  _busScope.on('state:network.pendingTrackChangeQueueItemId', () => {
+    refreshFilePlayButtonLoading();
+  });
+  _busScope.on('state:network.hostConn', (hostConn) => {
+    if (!hostConn && isProRoomTrackChangeIntentPending()) {
+      clearProRoomTrackChangeIntent();
+    }
+  });
+  _busScope.on('state:network.isOperator', (isOperator) => {
+    if (!isOperator && isProRoomTrackChangeIntentPending()) {
+      clearProRoomTrackChangeIntent();
+    }
+  });
+  _busScope.on('state:room.context', () => {
+    const context = getState('room.context');
+    if (
+      isProRoomTrackChangeIntentPending() &&
+      (context.kind !== 'pro' || context.role !== 'member')
+    ) {
+      clearProRoomTrackChangeIntent();
+    }
+  });
+  _busScope.on('state:playlist.items', () => {
+    const pendingQueueItemId = getState('network.pendingTrackChangeQueueItemId');
+    if (
+      pendingQueueItemId &&
+      !getState('playlist.items').some((item) => item.queueItemId === pendingQueueItemId)
+    ) {
+      clearProRoomTrackChangeIntent();
+    }
   });
 
   // Player actions

@@ -523,6 +523,7 @@ const id: Record<I18nKey, string> = {
   'pro.suspended_title': 'Ruang PRO ini sedang tidak tersedia',
   'pro.suspended_message': 'Hubungi pemilik ruang.',
   'pro.loading': 'Memuat ruang PRO...',
+  'pro.reconnecting': 'Menyambungkan kembali...',
   'pro.resume_tap': 'Ketuk untuk melanjutkan pemutaran',
   'pro.pin_title': 'Kata sandi ruang',
   'pro.pin_message': 'Masukkan kata sandi 8 digit untuk ruang PRO ini.',

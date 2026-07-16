@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
@@ -35,6 +35,10 @@ import {
 import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../../types/index.ts';
+import {
+  registerProRoomLegacyMediaHooks,
+  type ProRoomLegacyMediaHooks,
+} from '../../pro-room/legacy-media-hooks.ts';
 
 const QID_OLD = '00000000-0000-4000-8000-000000000001';
 const QID_NEW = '00000000-0000-4000-8000-000000000002';
@@ -89,6 +93,22 @@ beforeEach(() => {
   vi.mocked(broadcast).mockClear();
   vi.mocked(sendToHost).mockClear();
 });
+
+afterEach(() => {
+  registerProRoomLegacyMediaHooks(null);
+});
+
+function persistentProMediaHooks(queueItemId: string): ProRoomLegacyMediaHooks {
+  return {
+    addFiles: () => false,
+    addYouTube: () => false,
+    updateTrackMetadata: () => false,
+    removeTracks: () => false,
+    reorderTrack: () => false,
+    resolveFile: () => null,
+    handlesPersistentFile: (candidate) => candidate === queueItemId,
+  };
+}
 
 // ─── getCurrentAudioBuffer ───────────────────────────────────────────
 
@@ -433,6 +453,32 @@ describe('handlePlayMsg lifecycle gate', () => {
 // consume pendingPlayTime and sync bootstrap requires a buffer.
 
 describe('handlePlayMsg orphaned-pipeline recovery', () => {
+  it('keeps PLAY pending and requests the persistent PRO file when PLAY wins the race', async () => {
+    const exactHostSend = vi.fn();
+    const hostConn = { open: true, peer: 'pro-coordinator', send: exactHostSend } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    setState('playlist.items', [playlistItem(QID_NEW, 'persistent.flac', 'Persistent')]);
+    setState('playlist.currentQueueItemId', QID_NEW);
+    setCurrentAudioBuffer(null);
+    registerProRoomLegacyMediaHooks(persistentProMediaHooks(QID_NEW));
+
+    initPlayback();
+    await handleData(
+      { type: MSG.PLAY, time: 18, queueItemId: QID_NEW, name: 'persistent.flac' },
+      hostConn,
+    );
+
+    expect(getPendingPlayTime()).toBe(18);
+    expectCorrelatedRequest(exactHostSend, {
+      type: MSG.REQUEST_CURRENT_FILE,
+      queueItemId: QID_NEW,
+      name: 'persistent.flac',
+      reason: 'pro_room_no_buffer',
+    });
+    expect(getState('playback.activity')).not.toBe('playing');
+  });
+
   it('requests the current file when PLAY arrives with no buffer and no inbound pipeline', async () => {
     const exactHostSend = vi.fn();
     const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;

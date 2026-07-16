@@ -31,6 +31,7 @@ import {
   type PlaylistFollowController,
 } from './playlist-follow.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
+import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
@@ -335,7 +336,11 @@ function playQueueItem(queueItemId: QueueItemId): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) bus.emit('playlist:play-track', queueItemId);
   else if (getState('network.isOperator')) {
-    safeSend(hostConn, { type: MSG.REQUEST_TRACK_CHANGE, queueItemId });
+    const sent = safeSend(hostConn, { type: MSG.REQUEST_TRACK_CHANGE, queueItemId });
+    const roomContext = getState('room.context');
+    if (sent && roomContext.kind === 'pro' && roomContext.role === 'member') {
+      beginProRoomTrackChangeIntent(queueItemId);
+    }
   } else {
     showToast(t('toast.host_only_control'));
   }

@@ -68,6 +68,7 @@ import {
   handleProRoomFiles,
   handleProRoomTrackRemoval,
   handleProRoomTrackReorder,
+  isProRoomPersistentPlaylistFile,
   registerProRoomLegacyPlaybackRestoreHandler,
   resolveProRoomPlaylistFile,
   type ProRoomLegacyPlaybackRestore,
@@ -505,7 +506,9 @@ export async function playTrack(
       mime: file.type,
       autoPlayDelayMs,
     });
-    void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
+    if (!isProRoomPersistentPlaylistFile(queueItemId)) {
+      void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
+    }
 
     // Reset host position to 0 and wait, mirroring the normal branch's UX
     pause(0, { holdVisualizer: false });
@@ -571,12 +574,25 @@ export async function playTrack(
     stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
 
     const fileName = item.file?.name || item.name;
-    broadcast({
-      type: MSG.PLAY_PRELOADED,
-      queueItemId,
-      name: fileName,
-      mime: item.file?.type,
-    });
+    const isProDirect = isProRoomPersistentPlaylistFile(queueItemId);
+    if (isProDirect && item.file) {
+      broadcast({
+        type: MSG.FILE_PREPARE,
+        queueItemId,
+        name: fileName,
+        mime: item.file.type || 'application/octet-stream',
+        size: item.file.size,
+        sessionId: getState('transfer.currentSessionId'),
+        autoPlayDelayMs: 0,
+      });
+    } else {
+      broadcast({
+        type: MSG.PLAY_PRELOADED,
+        queueItemId,
+        name: fileName,
+        mime: item.file?.type,
+      });
+    }
 
     // Host must transition to DECODING before decode begins, so that the
     // subsequent DECODE_SUCCESS lands cleanly on READY.
@@ -593,7 +609,7 @@ export async function playTrack(
     // Whole-file remote encryption is admitted against the active PCM buffer.
     // Start it only after this preloaded track has decoded and published its
     // own AudioBuffer, never while the previous track still owns that slot.
-    if (item.file) {
+    if (item.file && !isProDirect) {
       const remoteShareSessionId = getState('transfer.currentSessionId') || null;
       void shareRemoteFileIfNeeded(item.file, remoteShareSessionId, undefined, { queueItemId });
     }
@@ -632,7 +648,22 @@ export async function playTrack(
       // reuses the existing player instance, preserving the iOS user gesture.
       // Destroying the iframe forces a "tap to play" on mobile.
       const isYtToYt = isYouTubeOwner();
-      if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
+      const wasPreparingFile = isFilePipelineBusyForPlay();
+      if (!isYtToYt) {
+        stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
+        if (wasPreparingFile) {
+          // A superseded PRO fetch is aborted by the runtime when selection
+          // changes. Release its file-only lifecycle too, otherwise the play
+          // button would keep showing the file spinner after YouTube takes
+          // ownership.
+          transition({
+            type: 'PAUSE',
+            time: 0,
+            queueItemId: null,
+            endOfPlaylist: true,
+          });
+        }
+      }
 
       // Broadcast one resolved videoId; playlistId is UI/navigation context,
       // not an instruction to start YouTube's native playlist engine. Prefer
@@ -719,13 +750,25 @@ export async function playTrack(
   if (!file) {
     const pendingFile = resolveProRoomPlaylistFile(queueItemId);
     if (pendingFile) {
+      // Playback of the previous row is already stopped. Release its decoded
+      // PCM before the potentially large R2 body is assembled, both to bound
+      // peak RAM and to make a later failed fetch incapable of replaying a
+      // stale buffer under this newly selected queue ID.
+      if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+      // Persistent PRO media has a network fetch phase before the ordinary
+      // decode pipeline begins. Enter the existing file lifecycle immediately
+      // so checkpointing preserves this selected row and every play/seek
+      // entry point reuses the established spinner + busy guards.
+      transition({ type: 'FILE_PREPARE', variant: 'fresh', queueItemId, name: item.name });
       try {
         const resolvedFile = await pendingFile;
-        if (
-          !resolvedFile ||
-          !isCurrentLoadEpoch(myLoadEpoch) ||
-          getCurrentQueueItemId() !== queueItemId
-        ) {
+        const stillOwnsSelection =
+          isCurrentLoadEpoch(myLoadEpoch) && getCurrentQueueItemId() === queueItemId;
+        if (!resolvedFile) {
+          if (stillOwnsSelection) transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
+          return;
+        }
+        if (!stillOwnsSelection) {
           return;
         }
 
@@ -740,6 +783,9 @@ export async function playTrack(
       } catch (error) {
         if (isCurrentLoadEpoch(myLoadEpoch)) {
           log.warn('[Playlist] PRO media download failed', error);
+          if (getCurrentQueueItemId() === queueItemId) {
+            transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
+          }
         }
         return;
       }

@@ -40,6 +40,7 @@ import type {
 import { findQueueItemIndex } from '../queue-model.ts';
 import { t } from '../../i18n/index.ts';
 import * as transport from '../transport.ts';
+import { transition } from '../lifecycle.ts';
 import {
   registerProRoomLegacyMediaHooks,
   restoreProRoomLegacyPlayback,
@@ -338,6 +339,139 @@ describe('PRO playlist mutation bridge', () => {
       expect.any(Number),
       expect.objectContaining({ queueItemId: unloaded.queueItemId, mime: 'audio/flac' }),
     );
+  });
+
+  it('enters the existing file busy lifecycle before awaiting a persistent download', async () => {
+    const unloaded = fileItem('slow.flac');
+    setState('playlist.items', [unloaded]);
+    setPlaybackYouTubePlaying();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    let settleDownload!: (file: File | null) => void;
+    const pendingDownload = new Promise<File | null>((resolve) => {
+      settleDownload = resolve;
+    });
+    const resolveFile = vi.fn(() => pendingDownload);
+    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
+
+    const playPromise = playTrack(unloaded.queueItemId);
+    await vi.waitFor(() => expect(resolveFile).toHaveBeenCalledWith(unloaded.queueItemId));
+
+    expect(getState('playlist.currentQueueItemId')).toBe(unloaded.queueItemId);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('pending');
+    expect(getCurrentAudioBuffer()).toBeNull();
+
+    settleDownload(null);
+    await playPromise;
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.FAILED);
+  });
+
+  it('does not let a superseded persistent fetch clear the newer file selection', async () => {
+    const second = fileItem('second.flac');
+    const third = fileItem('third.flac');
+    setState('playlist.items', [second, third]);
+    let settleSecond!: (file: File | null) => void;
+    let settleThird!: (file: File | null) => void;
+    const secondDownload = new Promise<File | null>((resolve) => {
+      settleSecond = resolve;
+    });
+    const thirdDownload = new Promise<File | null>((resolve) => {
+      settleThird = resolve;
+    });
+    registerProRoomLegacyMediaHooks(
+      proMediaHooks({
+        resolveFile: (queueItemId) =>
+          queueItemId === second.queueItemId ? secondDownload : thirdDownload,
+      }),
+    );
+
+    const secondPlay = playTrack(second.queueItemId);
+    await vi.waitFor(() => expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING));
+    const thirdPlay = playTrack(third.queueItemId);
+    await vi.waitFor(() => expect(getState('playlist.currentQueueItemId')).toBe(third.queueItemId));
+
+    settleSecond(null);
+    await secondPlay;
+    expect(getState('playlist.currentQueueItemId')).toBe(third.queueItemId);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+
+    settleThird(null);
+    await thirdPlay;
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.FAILED);
+  });
+
+  it('releases the file spinner when YouTube supersedes a persistent fetch', async () => {
+    const video = youtubeItem('First video', 'VIDEO_ID_01');
+    const unloaded = fileItem('second.flac');
+    setState('playlist.items', [video, unloaded]);
+    setPlaybackYouTubePlaying();
+    let settleDownload!: (file: File | null) => void;
+    const pendingDownload = new Promise<File | null>((resolve) => {
+      settleDownload = resolve;
+    });
+    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile: () => pendingDownload }));
+
+    const filePlay = playTrack(unloaded.queueItemId);
+    await vi.waitFor(() => expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING));
+
+    await playTrack(video.queueItemId);
+    expect(getState('playlist.currentQueueItemId')).toBe(video.queueItemId);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+
+    settleDownload(null);
+    await filePlay;
+    expect(getState('playlist.currentQueueItemId')).toBe(video.queueItemId);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  });
+
+  it('cancels a pending PRO resolver during an authoritative in-flight teardown', () => {
+    const cancelFileResolution = vi.fn();
+    registerProRoomLegacyMediaHooks(proMediaHooks({ cancelFileResolution }));
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'fresh',
+      queueItemId: nextQueueItemId(),
+      name: 'pending.flac',
+    });
+
+    transport.stopAllMedia({ silent: true, cancelInFlight: true });
+
+    expect(cancelFileResolution).toHaveBeenCalledOnce();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  });
+
+  it('releases the download spinner into FAILED when the selected persistent fetch fails', async () => {
+    const unloaded = fileItem('offline.flac');
+    const downloaded = new File(['audio'], unloaded.name, { type: 'audio/flac' });
+    setState('playlist.items', [unloaded]);
+    const resolveFile = vi
+      .fn<() => Promise<File | null>>()
+      .mockRejectedValueOnce(new Error('R2 unavailable'))
+      .mockImplementationOnce(async () => {
+        setState('playlist.items', [{ ...unloaded, file: downloaded }]);
+        return downloaded;
+      });
+    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
+    decodeMocks.loadAndBroadcastFile.mockResolvedValue(false);
+
+    await playTrack(unloaded.queueItemId);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(unloaded.queueItemId);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.FAILED);
+    expect(getState('playback.activity')).toBe('pending');
+
+    transport.togglePlay();
+    await vi.waitFor(() => expect(resolveFile).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => {
+      expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
+        downloaded,
+        unloaded.queueItemId,
+        expect.any(Number),
+        expect.any(Number),
+        expect.objectContaining({ queueItemId: unloaded.queueItemId }),
+      );
+    });
   });
 
   it('restores an unloaded persistent file as decoded and paused at its checkpoint', async () => {

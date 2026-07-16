@@ -653,6 +653,12 @@ export interface StateTree {
     hostConn: DataConnection | null;
     connectedPeers: ConnectedPeer[];
     isOperator: boolean;
+    /**
+     * A PRO member's outbound row-selection request while the coordinator is
+     * still fetching/preparing that occurrence. This is local UI intent only;
+     * authoritative queue selection still comes from the coordinator.
+     */
+    pendingTrackChangeQueueItemId: QueueItemId | null;
     isConnecting: boolean;
     isIntentionalDisconnect: boolean;
     lastKnownDeviceList: DeviceInfo[] | null;
@@ -1057,6 +1063,8 @@ interface BaseEventMap {
   // ── Setup ─────────────────────────────────────────────────────────
   'setup:guest-join-success': [];
   'setup:guest-join-failure': [error: unknown];
+  // Internal PRO handoff failure; remains available after setup is complete.
+  'pro-room:transport-connect-failure': [error: unknown];
   // User-cancelled the capability/Turnstile challenge mid-join — restore the
   // join UI silently (no red error toast). See guest.ts and setup.ts.
   'setup:guest-join-cancelled': [];

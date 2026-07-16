@@ -245,6 +245,12 @@ describe('lifecycle: from DOWNLOADING', () => {
     expect(step(FROM, { type: 'LOAD_TOKEN_MISMATCH' })).toEqual({ stay: true });
   });
 
+  it('REMOTE_FILE_UNAVAILABLE → FAILED (persistent fetch failed)', () => {
+    expect(step(FROM, { type: 'REMOTE_FILE_UNAVAILABLE' })).toEqual({
+      next: PLAYBACK_STATE.FAILED,
+    });
+  });
+
   it('DECODE_SUCCESS in DOWNLOADING is rejected', () => {
     expect(step(FROM, { type: 'DECODE_SUCCESS' })).toHaveProperty('reject');
   });

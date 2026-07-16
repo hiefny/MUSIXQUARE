@@ -517,6 +517,7 @@ const vi: Record<I18nKey, string> = {
   'pro.suspended_title': 'Phòng PRO này hiện không khả dụng',
   'pro.suspended_message': 'Hãy liên hệ với chủ phòng.',
   'pro.loading': 'Đang tải phòng PRO...',
+  'pro.reconnecting': 'Đang kết nối lại...',
   'pro.resume_tap': 'Chạm để tiếp tục phát',
   'pro.pin_title': 'Mật khẩu phòng',
   'pro.pin_message': 'Nhập mật khẩu 8 chữ số của phòng PRO này.',

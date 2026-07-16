@@ -78,6 +78,7 @@ import { isFilePipelineBusyForPlay, play, stopAllMedia, stopPlayerNode } from '.
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
+import { isProRoomPersistentPlaylistFile } from '../pro-room/legacy-media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
@@ -367,11 +368,27 @@ export async function loadAndBroadcastFile(
     // so guests don't see metadata flicker for tracks the user already left).
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0) {
-      showToast(t('transfer.file_sending'));
-      broadcastFileDebounced(file, queueItemId, sessionId, prepareMsg);
-      // Queue files are user media regardless of filename. Bundled demo audio
-      // has its own DEMO_* protocol and never enters this queue pipeline.
-      void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
+      if (isProRoomPersistentPlaylistFile(queueItemId)) {
+        // Persistent PRO participants fetch the immutable asset from the room
+        // bucket with their own authenticated presign. The coordinator sends
+        // only timing/identity control and never relays these bytes again.
+        broadcast(
+          prepareMsg ?? {
+            type: MSG.FILE_PREPARE,
+            name: file.name,
+            mime: file.type || 'application/octet-stream',
+            size: file.size,
+            queueItemId,
+            sessionId,
+          },
+        );
+      } else {
+        showToast(t('transfer.file_sending'));
+        broadcastFileDebounced(file, queueItemId, sessionId, prepareMsg);
+        // Queue files are user media regardless of filename. Bundled demo audio
+        // has its own DEMO_* protocol and never enters this queue pipeline.
+        void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
+      }
     }
 
     if (!hostConn) {

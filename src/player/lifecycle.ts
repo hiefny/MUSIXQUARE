@@ -212,6 +212,8 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         return { next: PLAYBACK_STATE.DECODING }; // Safety promotion if preload assembly finishes during P2P download
       case 'LOAD_TOKEN_MISMATCH':
         return { stay: true }; // handler aborts; machine unchanged
+      case 'REMOTE_FILE_UNAVAILABLE':
+        return { next: PLAYBACK_STATE.FAILED };
       default:
         return { reject: `${ev.type} not expected in DOWNLOADING` };
     }

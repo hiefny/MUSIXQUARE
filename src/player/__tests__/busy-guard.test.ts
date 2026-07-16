@@ -18,7 +18,7 @@ import { handleData } from '../../network/protocol.ts';
 import { transition } from '../lifecycle.ts';
 import { setPlaybackFilePlaying } from '../ownership.ts';
 import { getPendingPlayTime, setCurrentAudioBuffer } from '../_state.ts';
-import { play, seekTo, skipTime } from '../transport.ts';
+import { play, seekTo, skipTime, togglePlay } from '../transport.ts';
 import { playPrevTrack } from '../playlist.ts';
 import { initPlayback } from '../playback.ts';
 import type {
@@ -101,6 +101,31 @@ afterEach(() => {
 });
 
 describe('busy-window guards (SA-04 family)', () => {
+  it('togglePlay drops the action before the selected-track fallback can run', () => {
+    enterBusyWindow();
+
+    togglePlay();
+
+    expect(getPendingPlayTime()).toBeUndefined();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('does not toggle the previous YouTube owner during a PRO member request gap', () => {
+    const youtubeToggle = vi.fn();
+    bus.on('youtube:toggle-play', youtubeToggle);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    setState(
+      'network.pendingTrackChangeQueueItemId',
+      getState('playlist.items')[0]?.queueItemId ?? null,
+    );
+
+    togglePlay();
+
+    expect(youtubeToggle).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('seekTo drops the seek and broadcasts nothing while preparing', () => {
     enterBusyWindow();
     seekTo(42);

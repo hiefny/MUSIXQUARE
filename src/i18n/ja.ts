@@ -522,6 +522,7 @@ const ja: Record<I18nKey, string> = {
   'pro.suspended_title': 'このPROルームは現在利用できません',
   'pro.suspended_message': 'ルームのオーナーにお問い合わせください。',
   'pro.loading': 'PROルームを読み込み中...',
+  'pro.reconnecting': '再接続中...',
   'pro.resume_tap': 'タップして再生を続ける',
   'pro.pin_title': 'ルームのパスワード',
   'pro.pin_message': 'このPROルームの8桁のパスワードを入力してください。',

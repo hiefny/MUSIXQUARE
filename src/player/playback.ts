@@ -21,7 +21,7 @@ import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-c
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
 import { unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
-import { broadcast, isRemoteGuest } from '../network/peer.ts';
+import { broadcast, isRemoteGuest, safeSend } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
@@ -52,6 +52,10 @@ import {
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
+import {
+  isProRoomPersistentPlaylistFile,
+  registerProRoomLegacyDirectFileHandler,
+} from '../pro-room/legacy-media-hooks.ts';
 import {
   createFileTrackMeta,
   getPlaybackModeActivity,
@@ -229,6 +233,18 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       return;
     }
 
+    if (isProRoomPersistentPlaylistFile(incomingQueueItemId)) {
+      const name = incomingItem.name || (typeof data.name === 'string' ? data.name : '');
+      setRecoveryTarget(incomingQueueItemId, name);
+      setPendingPlayTime(time);
+      // Persistent PRO bytes come from the authenticated room bucket on this
+      // device. Ask only for the coordinator's transfer identity/control frame;
+      // the response contains no file bytes or reusable R2 credential.
+      requestCurrentFile(incomingQueueItemId, name, 'pro_room_direct');
+      log.info('[Guest] PRO file selected - requesting direct R2 prepare');
+      return;
+    }
+
     // Remote guest: orchestrator won't unicast the file. Queue files always
     // use remote share; bundled demo playback has a separate DEMO_* protocol.
     if (isRemoteGuest()) {
@@ -357,6 +373,16 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       scheduleSameTrackReplayResync(time, incomingQueueItemId, currentQueueItemId);
     }
   } else {
+    if (isProRoomPersistentPlaylistFile(incomingQueueItemId)) {
+      setPendingPlayTime(time);
+      const lifecycleNow = getState('playback.lifecycle');
+      if (lifecycleNow === PLAYBACK_STATE.IDLE || lifecycleNow === PLAYBACK_STATE.FAILED) {
+        const trackName = incomingItem.name || (data.name as string) || '';
+        requestCurrentFile(incomingQueueItemId, trackName, 'pro_room_no_buffer');
+      }
+      return;
+    }
+
     // Remote guest: no queue file arrives via P2P; wait for remote share.
     if (isRemoteGuest()) {
       if (shouldWaitForRemoteShare()) {
@@ -654,6 +680,9 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initPlayback(): void {
+  registerProRoomLegacyDirectFileHandler((file, queueItemId, sessionId) =>
+    finalizeGuestFile(file, queueItemId, sessionId),
+  );
   registerHandlers({
     [MSG.PLAY]: handlePlayMsg,
     [MSG.PAUSE]: handlePauseMsg,
@@ -1035,18 +1064,32 @@ export function initPlayback(): void {
     if (hostConn) return; // Only Host
     if (getState('demo.active')) return;
 
-    const peers = getState('network.connectedPeers') || [];
-    const peer = peers.find((p) => p.id === peerId);
-    if (!peer || !peer.isDataTarget) return; // Remote peer — no direct file send
-    const conn = peer.conn as DataConnection;
-    if (!conn?.open) return;
-
     const currentQueueItemId = getCurrentQueueItemId();
     const item = getQueueItemById(currentQueueItemId);
     if (!currentQueueItemId || !item || item.type === 'youtube') return;
+    const isProDirect = isProRoomPersistentPlaylistFile(currentQueueItemId);
+
+    const peers = getState('network.connectedPeers') || [];
+    const peer = peers.find((p) => p.id === peerId);
+    if (!peer || (!isProDirect && !peer.isDataTarget)) return;
+    const conn = peer.conn as DataConnection;
+    if (!conn?.open) return;
 
     const currentResident = getState('files.current');
     if (currentResident?.queueItemId === currentQueueItemId) {
+      if (isProDirect) {
+        safeSend(conn, {
+          type: MSG.FILE_PREPARE,
+          name: currentResident.name || item.name,
+          queueItemId: currentQueueItemId,
+          sessionId: currentResident.sessionId,
+          size: currentResident.blob.size,
+          mime: currentResident.mime || currentResident.blob.type || 'application/octet-stream',
+          autoPlayDelayMs: 0,
+        });
+        log.debug(`[Playback] Sent PRO direct-file prepare to ${peer.label || peerId} (${reason})`);
+        return;
+      }
       log.debug(`[Playback] Sending current file to ${peer.label || peerId} (${reason})`);
       try {
         await unicastFile(conn, currentResident.blob, 0, currentResident.sessionId, {
@@ -1066,6 +1109,8 @@ export function initPlayback(): void {
         return;
       }
     }
+
+    if (isProDirect) return;
 
     // Also send the atomically published preload resident.
     const preloadResident = getState('preload.ready');

@@ -29,7 +29,7 @@ import {
   resetFileRequestAuthority,
   sendFileRequest,
 } from '../network/file-request-authority.ts';
-import { isRemoteGuest } from '../network/peer.ts';
+import { isRemoteGuest, safeSend } from '../network/peer.ts';
 import { canSendFileTo } from '../network/peer-state.ts';
 import { isRemoteShareConfigured } from '../share/r2-client.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
@@ -43,6 +43,7 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
+import { isProRoomPersistentPlaylistFile } from '../pro-room/legacy-media-hooks.ts';
 
 let recoveryRequestGeneration = 0;
 
@@ -53,8 +54,10 @@ let recoveryRequestGeneration = 0;
  * Requests a resend from the host when direct local file transfer is available.
  */
 export function sendRecoveryRequest(forceChunk: number | null = null): void {
+  const selectedQueueItemId = getState('playlist.currentQueueItemId');
+  const isProDirect = !!selectedQueueItemId && isProRoomPersistentPlaylistFile(selectedQueueItemId);
   // Remote guests receive files through remote-share descriptors; host resend is local-only.
-  if (isRemoteGuest()) {
+  if (isRemoteGuest() && !isProDirect) {
     log.info('[Recovery] Remote guest - skipping direct host recovery');
     clearManagedTimer('chunkWatchdog');
     if (
@@ -193,6 +196,34 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
 
 // ─── Host: Handle File Requests ─────────────────────────────────────
 
+function routeProRoomFileRequest(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+  queueItemId: string,
+): boolean {
+  if (!isProRoomPersistentPlaylistFile(queueItemId)) return false;
+  const resident = getState('files.current');
+  if (
+    resident?.queueItemId !== queueItemId ||
+    getState('playlist.currentQueueItemId') !== queueItemId
+  ) {
+    sendFileWait(conn, data, 'PRO room file is not ready yet');
+    return true;
+  }
+
+  const sessionId = ensureValidSessionId(resident.sessionId);
+  safeSend(conn, {
+    type: MSG.FILE_PREPARE,
+    name: resident.name,
+    mime: resident.mime || resident.blob.type || 'application/octet-stream',
+    size: resident.blob.size,
+    queueItemId,
+    sessionId,
+    autoPlayDelayMs: 0,
+  });
+  return true;
+}
+
 async function handleRequestCurrentFile(
   data: Record<string, unknown>,
   conn: DataConnection,
@@ -211,6 +242,7 @@ async function handleRequestCurrentFile(
   const reqName = data.name ? String(data.name) : '';
   const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
   if (!queueItemId) return;
+  if (routeProRoomFileRequest(data, conn, queueItemId)) return;
   const reqSessionId = normalizeSessionId(data.sessionId);
 
   // Find matching blob
@@ -272,6 +304,7 @@ async function handleRequestDataRecovery(
   const reqName = data.fileName || data.name ? String(data.fileName || data.name) : '';
   const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
   if (!queueItemId) return;
+  if (routeProRoomFileRequest(data, conn, queueItemId)) return;
   const reqSessionId = normalizeSessionId(data.sessionId);
 
   const match = findMatchingBlob(queueItemId, reqSessionId);

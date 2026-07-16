@@ -7,7 +7,13 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
-import { getPreloadMemoryStats, initPreload, schedulePreload, unicastPreload } from '../preload.ts';
+import {
+  cancelPreloadTransfer,
+  getPreloadMemoryStats,
+  initPreload,
+  schedulePreload,
+  unicastPreload,
+} from '../preload.ts';
 import { setRepeatMode, setShuffle } from '../../player/playlist.ts';
 import {
   freezeFileDeliveryMode,
@@ -511,6 +517,63 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     expect(aborts[0].sessionId).toBe(sid);
     expect(msgsOf(frozenConn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
     expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
+  });
+
+  it('finishes an in-flight preload after the host promotes its cache into the current track', async () => {
+    const conn = makeBulkConn('peer-promoted', 10 * 1024 * 1024);
+    connectBulkPeers([conn]);
+
+    const target = getState('playlist.items')[1]!;
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const sessionId = getState('preload.sessionId');
+    expect(msgsOf(conn, MSG.PRELOAD_START)).toEqual([
+      expect.objectContaining({ queueItemId: target.queueItemId, sessionId }),
+    ]);
+
+    // Mirror loadPreloadedTrack's atomic cache-to-current promotion while the
+    // first chunk is still held behind backpressure. These consumer fields no
+    // longer own the outbound transfer lifetime.
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('preload.nextQueueItemId', null);
+    setState('preload.isPreloading', false);
+
+    (conn.dataChannel as unknown as { bufferedAmount: number }).bufferedAmount = 0;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(msgsOf(conn, MSG.PRELOAD_CHUNK)).toHaveLength(2);
+    expect(msgsOf(conn, MSG.PRELOAD_END)).toEqual([
+      expect.objectContaining({ queueItemId: target.queueItemId, sessionId }),
+    ]);
+    expect(msgsOf(conn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+  });
+
+  it('can still abort the exact outbound preload after local cache promotion', async () => {
+    const conn = makeBulkConn('peer-promoted-cancel', 10 * 1024 * 1024);
+    connectBulkPeers([conn]);
+
+    const target = getState('playlist.items')[1]!;
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(1);
+    const sessionId = getState('preload.sessionId');
+
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('preload.nextQueueItemId', null);
+    setState('preload.isPreloading', false);
+    cancelPreloadTransfer();
+
+    expect(msgsOf(conn, MSG.PRELOAD_ABORT)).toEqual([
+      expect.objectContaining({ queueItemId: target.queueItemId, sessionId }),
+    ]);
+
+    (conn.dataChannel as unknown as { bufferedAmount: number }).bufferedAmount = 0;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(msgsOf(conn, MSG.PRELOAD_END)).toHaveLength(0);
+    expect(msgsOf(conn, MSG.PRELOAD_ABORT)).toHaveLength(1);
   });
 
   it('does not escalate a single stalled peer to session-level teardown', async () => {

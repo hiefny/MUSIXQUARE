@@ -37,7 +37,7 @@ import {
   isBulkTransferWritablePeer,
   isPeerConnectionCurrent,
 } from './chunk-pump.ts';
-import type { DataConnection, QueueItemId } from '../types/index.ts';
+import type { ConnectedPeer, DataConnection, QueueItemId } from '../types/index.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { transition } from '../player/lifecycle.ts';
@@ -173,6 +173,51 @@ function reconcileAwaitedPreloadOnStart(identity: PreloadIdentity): void {
 // Let the current background transfer finish before starting its successor so
 // guests can consume a partially completed preload without restarting it.
 let _inFlightBackgroundTransfer: Promise<void> | null = null;
+type BackgroundTransferTerminal = 'streaming' | 'completed' | 'cancelled';
+
+/**
+ * Outbound preload delivery owns a different lifetime from the host's local
+ * preload cache. The cache is promoted into files.current as soon as the host
+ * activates the track, while guests may still need the remainder of the same
+ * transfer. Keeping this frozen owner separate lets that transfer reach END
+ * without allowing a later queue occurrence or Blob to inherit its authority.
+ */
+interface BackgroundTransferOwner {
+  readonly queueItemId: QueueItemId;
+  readonly sessionId: number;
+  readonly sourceBlob: File;
+  readonly scope: SessionScope;
+  readonly targets: readonly ConnectedPeer[];
+  readonly abortedPeerIds: Set<string>;
+  terminal: BackgroundTransferTerminal;
+}
+
+let _inFlightBackgroundOwner: BackgroundTransferOwner | null = null;
+
+function abortBackgroundPeer(owner: BackgroundTransferOwner, peer: ConnectedPeer): void {
+  if (owner.abortedPeerIds.has(peer.id)) return;
+  owner.abortedPeerIds.add(peer.id);
+  safeSend(peer.conn, {
+    type: MSG.PRELOAD_ABORT,
+    queueItemId: owner.queueItemId,
+    sessionId: owner.sessionId,
+  });
+}
+
+function cancelInFlightBackgroundTransfer(): void {
+  const owner = _inFlightBackgroundOwner;
+  if (!owner || owner.terminal !== 'streaming') return;
+
+  // Claim the terminal transition before sending anything. END and ABORT can
+  // therefore never both win for the same outbound transfer.
+  owner.terminal = 'cancelled';
+  owner.targets.forEach((peer) => abortBackgroundPeer(owner, peer));
+  owner.scope.dispose();
+
+  if (_inFlightBackgroundOwner === owner) _inFlightBackgroundOwner = null;
+  if (_preloadScope === owner.scope) _preloadScope = null;
+}
+
 /**
  * Monotonic counter incremented on every schedulePreload/cancelPreloadTransfer
  * call. Each preloadNextTrack snapshot its myGeneration; after the serialization
@@ -261,20 +306,10 @@ export function cancelPreloadTransfer(): void {
   // await and exit instead of starting a new (unwanted) transfer.
   _preloadGeneration++;
 
-  // Notify receivers of in-flight transfers BEFORE disposing scopes.
-  const sid = getState('preload.sessionId') as number;
-  const queueItemId = getState('preload.nextQueueItemId');
-
-  // Broadcast: every eligible peer that the broadcast loop targets shares
-  // the current preload sid. Send ABORT to all of them — handler is a
-  // no-op if a peer never had a session for this sid.
-  if (sid && queueItemId) {
-    const broadcastTargets = filterEligiblePeers(sid);
-    broadcastTargets.forEach((p) => {
-      const conn = p.conn as DataConnection;
-      safeSend(conn, { type: MSG.PRELOAD_ABORT, queueItemId, sessionId: sid });
-    });
-  }
+  // Notify the exact peers that received PRELOAD_START before disposing the
+  // transfer scope. This still works after local cache promotion clears its
+  // ready/nextQueueItemId consumer fields.
+  cancelInFlightBackgroundTransfer();
 
   // Unicast: each entry tracks its own (sid, conn). May differ from the
   // broadcast sid if a unicast was started for an earlier preload session
@@ -320,6 +355,7 @@ export function resetPreloadReceiveAuthority(): void {
   preloadReorderBuffer.clear();
   preloadQueueItemBySid.clear();
 
+  cancelInFlightBackgroundTransfer();
   _preloadScope?.dispose();
   _preloadScope = null;
   _activePreloadUnicasts.forEach((entry) => entry.scope.dispose());
@@ -591,15 +627,10 @@ const PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 async function backgroundTransfer(
   file: File,
-  queueItemId: string,
+  queueItemId: QueueItemId,
   sessionId: number,
 ): Promise<void> {
   if (getState('room.context').kind === 'pro') return;
-  // The caller serialized prior work, so only explicit cancellation disposes
-  // this fresh scope.
-  const scope = new SessionScope();
-  _preloadScope = scope;
-
   const CHUNK = CHUNK_SIZE;
   const total = Math.ceil(file.size / CHUNK);
   const header = {
@@ -620,56 +651,79 @@ async function backgroundTransfer(
 
   if (targets.length === 0) return;
 
-  const targetsWhoNeedChunks = targets.filter((p) => {
-    const preloadedQueueItemIds = p.preloadedQueueItemIds as Set<string> | undefined;
-    return !preloadedQueueItemIds || !preloadedQueueItemIds.has(queueItemId);
-  });
+  // The caller serialized prior work, so only explicit cancellation disposes
+  // this fresh scope. This owner deliberately survives local cache promotion:
+  // the host can decode its own File before slower guests receive every byte.
+  const scope = new SessionScope();
+  const owner: BackgroundTransferOwner = {
+    queueItemId,
+    sessionId,
+    sourceBlob: file,
+    scope,
+    targets,
+    abortedPeerIds: new Set(),
+    terminal: 'streaming',
+  };
+  _preloadScope = scope;
+  _inFlightBackgroundOwner = owner;
 
-  // Send header per-peer
-  targets.forEach((p) => {
-    const conn = p.conn as DataConnection;
-    const needsChunks = targetsWhoNeedChunks.includes(p);
-    safeSend(conn, { ...header, skipped: !needsChunks });
-  });
+  try {
+    const targetsWhoNeedChunks = targets.filter((p) => {
+      const preloadedQueueItemIds = p.preloadedQueueItemIds as Set<string> | undefined;
+      return !preloadedQueueItemIds || !preloadedQueueItemIds.has(queueItemId);
+    });
 
-  // Per-peer backpressure prevents one stalled guest from blocking the room.
-  const { status, excluded } = await pumpChunksToPeers({
-    file,
-    chunkSize: CHUNK,
-    peers: targetsWhoNeedChunks,
-    buildChunkMsg: (chunk, i) => ({
-      type: MSG.PRELOAD_CHUNK,
-      chunk,
-      chunkIndex: i,
-      queueItemId,
-      sessionId,
-    }),
-    bufferedLimit: PRELOAD_BROADCAST_BACKPRESSURE_LIMIT,
-    stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
-    isWritable: isBulkTransferWritablePeer,
-    shouldContinue: () =>
-      !scope.aborted &&
-      getState('preload.sessionId') === sessionId &&
-      getState('preload.nextQueueItemId') === queueItemId &&
-      getState('preload.ready')?.blob === file,
-    // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
-    // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
-    onPeerExcluded: (p) => {
-      safeSend(p.conn, { type: MSG.PRELOAD_ABORT, queueItemId, sessionId });
-    },
-  });
+    // Send header per-peer
+    targets.forEach((p) => {
+      const conn = p.conn as DataConnection;
+      const needsChunks = targetsWhoNeedChunks.includes(p);
+      safeSend(conn, { ...header, skipped: !needsChunks });
+    });
 
-  // Cancelled/superseded mid-pump: no fanout, no state writes.
-  // cancelPreloadTransfer already broadcast PRELOAD_ABORT to all targets,
-  // and preloadNextTrack's finally owns preload.isPreloading.
-  if (status === 'stopped') return;
+    // Per-peer backpressure prevents one stalled guest from blocking the room.
+    const { status, excluded } = await pumpChunksToPeers({
+      file: owner.sourceBlob,
+      chunkSize: CHUNK,
+      peers: targetsWhoNeedChunks,
+      buildChunkMsg: (chunk, i) => ({
+        type: MSG.PRELOAD_CHUNK,
+        chunk,
+        chunkIndex: i,
+        queueItemId: owner.queueItemId,
+        sessionId: owner.sessionId,
+      }),
+      bufferedLimit: PRELOAD_BROADCAST_BACKPRESSURE_LIMIT,
+      stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
+      isWritable: isBulkTransferWritablePeer,
+      shouldContinue: () =>
+        _inFlightBackgroundOwner === owner &&
+        owner.terminal === 'streaming' &&
+        !owner.scope.aborted,
+      // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
+      // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
+      onPeerExcluded: (p) => abortBackgroundPeer(owner, p),
+    });
 
-  if (
-    getState('preload.sessionId') === sessionId &&
-    getState('preload.nextQueueItemId') === queueItemId &&
-    getState('preload.ready')?.blob === file
-  ) {
-    const endMsg = { type: MSG.PRELOAD_END, name: file.name, queueItemId, sessionId };
+    // Cancelled/superseded mid-pump: no fanout, no state writes.
+    // cancelPreloadTransfer already broadcast PRELOAD_ABORT to all targets,
+    // and preloadNextTrack's finally owns preload.isPreloading.
+    if (
+      status === 'stopped' ||
+      _inFlightBackgroundOwner !== owner ||
+      owner.terminal !== 'streaming'
+    ) {
+      return;
+    }
+
+    // Claim completion before sending END so an explicit cancellation cannot
+    // also emit ABORT for this same owner.
+    owner.terminal = 'completed';
+    const endMsg = {
+      type: MSG.PRELOAD_END,
+      name: owner.sourceBlob.name,
+      queueItemId: owner.queueItemId,
+      sessionId: owner.sessionId,
+    };
     // END audience: all targets — INCLUDING skipped-flag peers, whose
     // handler no-ops on it — MINUS excluded peers. Excluded peers got a
     // targeted PRELOAD_ABORT instead; sending them END too would arm
@@ -679,7 +733,19 @@ async function backgroundTransfer(
       const conn = p.conn as DataConnection;
       if (conn?.open) safeSend(conn, endMsg);
     });
-    log.debug('[Preload] Complete for queue item:', queueItemId);
+    log.debug('[Preload] Complete for queue item:', owner.queueItemId);
+  } catch (error) {
+    // A source read failure after PRELOAD_START must terminate the exact
+    // receivers immediately instead of leaving them to a 30-second watchdog.
+    if (_inFlightBackgroundOwner === owner && owner.terminal === 'streaming') {
+      owner.terminal = 'cancelled';
+      owner.targets.forEach((peer) => abortBackgroundPeer(owner, peer));
+    }
+    throw error;
+  } finally {
+    if (_inFlightBackgroundOwner === owner) _inFlightBackgroundOwner = null;
+    if (_preloadScope === scope) _preloadScope = null;
+    scope.dispose();
   }
 }
 

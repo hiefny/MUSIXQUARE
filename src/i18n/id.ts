@@ -533,6 +533,10 @@ const id: Record<I18nKey, string> = {
   'pro.pin_changed': 'Kata sandi ruang telah diubah.',
   'pro.owner_only': 'Hanya pemilik ruang yang dapat melakukannya.',
   'pro.connect_failed': 'Tidak dapat terhubung ke ruang PRO.',
+  'pro.active_tab_title': 'Ruang PRO ini sudah terbuka di tab lain',
+  'pro.active_tab_message':
+    'Tab sebelumnya akan tetap terhubung. Jika Anda melanjutkan di sini, koneksinya akan diputus.',
+  'pro.use_this_tab': 'Lanjutkan di tab ini',
   'pro.uploading': 'Menyimpan ke ruang PRO...',
   'pro.downloading': 'Memuat dari ruang PRO...',
   'pro.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB.',

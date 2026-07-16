@@ -611,6 +611,10 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_changed': 'Hasło pokoju zostało zmienione.',
   'pro.owner_only': 'Tylko właściciel może to zrobić.',
   'pro.connect_failed': 'Nie udało się połączyć z pokojem PRO.',
+  'pro.active_tab_title': 'Ten pokój PRO jest już otwarty w innej karcie',
+  'pro.active_tab_message':
+    'Dotychczasowa karta pozostanie połączona. Jeśli będziesz kontynuować tutaj, zostanie rozłączona.',
+  'pro.use_this_tab': 'Kontynuuj w tej karcie',
   'pro.uploading': 'Zapisywanie w pokoju PRO...',
   'pro.downloading': 'Ładowanie z pokoju PRO...',
   'pro.quota_exceeded': 'Ten pokój PRO wykorzystał limit 1 GB.',

@@ -608,6 +608,10 @@ const tr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Oda parolası değiştirildi.',
   'pro.owner_only': 'Bunu yalnızca oda sahibi yapabilir.',
   'pro.connect_failed': 'PRO odasına bağlanılamadı.',
+  'pro.active_tab_title': 'Bu PRO odası başka bir sekmede zaten açık',
+  'pro.active_tab_message':
+    'Diğer sekme bağlı kalır. Burada devam ederseniz o sekmenin bağlantısı kesilir.',
+  'pro.use_this_tab': 'Bu sekmede devam et',
   'pro.uploading': 'PRO odasına kaydediliyor...',
   'pro.downloading': 'PRO odasından yükleniyor...',
   'pro.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu.',

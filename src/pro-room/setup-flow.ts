@@ -4,6 +4,7 @@ import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api.ts';
 import { takeProRoomClaimsFromFragment } from './claim-fragment.ts';
 import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
+import { announceProRoomTabTakeover } from './tab-handoff.ts';
 
 async function showUnavailable(title: string, message: string): Promise<void> {
   await showDialog({ title, message, buttonText: t('common.ok') });
@@ -46,6 +47,10 @@ function isMissingCookieSession(error: unknown): boolean {
   return (
     error instanceof ProRoomApiError && (error.status === 401 || error.code === 'SESSION_REQUIRED')
   );
+}
+
+function isActiveInAnotherTab(error: unknown): boolean {
+  return error instanceof ProRoomApiError && error.code === 'PRESENCE_ACTIVE_ELSEWHERE';
 }
 
 /**
@@ -118,6 +123,23 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     await runtime.resumeProRoom(code);
     return true;
   } catch (error) {
+    if (isActiveInAnotherTab(error)) {
+      const result = await showDialog({
+        title: t('pro.active_tab_title'),
+        message: t('pro.active_tab_message'),
+        buttonText: t('pro.use_this_tab'),
+        secondaryText: t('common.cancel'),
+        dismissible: false,
+        defaultFocus: 'secondary',
+      });
+      if (result.action !== 'ok') return false;
+      await runtime.resumeProRoom(code, { takeover: true });
+      // The server is the source of truth. Broadcast only after it commits the
+      // new incarnation so the previous tab can stop immediately instead of
+      // waiting for its next signaling/heartbeat failure.
+      announceProRoomTabTakeover(code);
+      return true;
+    }
     if (!isMissingCookieSession(error)) throw error;
   }
 

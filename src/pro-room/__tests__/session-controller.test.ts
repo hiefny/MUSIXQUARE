@@ -158,10 +158,31 @@ describe('PRO room session controller', () => {
 
     await expect(controller.resume(ROOM_CODE)).resolves.toEqual(resumed);
 
-    expect(api.enterPresence).toHaveBeenCalledWith(ROOM_CODE, expect.any(AbortSignal));
+    expect(api.enterPresence).toHaveBeenCalledWith(ROOM_CODE, {
+      signal: expect.any(AbortSignal),
+    });
     expect(api.getSnapshot).not.toHaveBeenCalled();
     expect(api.createSession).not.toHaveBeenCalled();
     expect(transport.connect).toHaveBeenCalledOnce();
+  });
+
+  it('can retry a protected same-cookie resume as an explicit tab takeover', async () => {
+    const { api, controller } = fixtures();
+    api.enterPresence.mockRejectedValueOnce(
+      new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409),
+    );
+
+    await expect(controller.resume(ROOM_CODE)).rejects.toMatchObject({
+      code: 'PRESENCE_ACTIVE_ELSEWHERE',
+      status: 409,
+    });
+
+    await controller.resume(ROOM_CODE, { takeover: true });
+
+    expect(api.enterPresence.mock.calls).toEqual([
+      [ROOM_CODE, { signal: expect.any(AbortSignal) }],
+      [ROOM_CODE, { signal: expect.any(AbortSignal), takeover: true }],
+    ]);
   });
 
   it('fails locally instead of rotating the cookie incarnation while already active', async () => {
@@ -276,7 +297,11 @@ describe('PRO room session controller', () => {
     await controller.heartbeat();
 
     expect(transport.reconfigure).toHaveBeenCalledOnce();
-    expect(transport.reconfigure).toHaveBeenCalledWith(snapshot(), signaling('coordinator'), undefined);
+    expect(transport.reconfigure).toHaveBeenCalledWith(
+      snapshot(),
+      signaling('coordinator'),
+      undefined,
+    );
     expect(observer.cleared).not.toHaveBeenCalled();
     expect(controller.snapshot).toEqual(snapshot());
 

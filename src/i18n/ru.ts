@@ -611,6 +611,10 @@ const ru: Record<I18nKey, string> = {
   'pro.pin_changed': 'Пароль комнаты изменён.',
   'pro.owner_only': 'Это может сделать только владелец.',
   'pro.connect_failed': 'Не удалось подключиться к PRO-комнате.',
+  'pro.active_tab_title': 'Эта PRO-комната уже открыта в другой вкладке',
+  'pro.active_tab_message':
+    'Другая вкладка останется подключённой. Если продолжить здесь, она будет отключена.',
+  'pro.use_this_tab': 'Продолжить в этой вкладке',
   'pro.uploading': 'Сохранение в PRO-комнате...',
   'pro.downloading': 'Загрузка из PRO-комнаты...',
   'pro.quota_exceeded': 'В PRO-комнате исчерпан лимит хранилища 1 ГБ.',

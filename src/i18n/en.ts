@@ -596,6 +596,10 @@ const en: Record<I18nKey, string> = {
   'pro.pin_changed': 'Room password changed.',
   'pro.owner_only': 'Only the room owner can do that.',
   'pro.connect_failed': 'Could not connect to the PRO room.',
+  'pro.active_tab_title': 'This PRO room is already open in another tab',
+  'pro.active_tab_message':
+    'The existing tab will stay connected. Continuing here will disconnect it.',
+  'pro.use_this_tab': 'Continue in this tab',
   'pro.uploading': 'Saving to PRO room...',
   'pro.downloading': 'Loading from PRO room...',
   'pro.quota_exceeded': 'This PRO room has reached its 1 GB storage limit.',

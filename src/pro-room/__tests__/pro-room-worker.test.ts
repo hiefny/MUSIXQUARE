@@ -1005,12 +1005,27 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
   });
 
-  it('rotates the presence incarnation and coordinator epoch on coordinator resume only', async () => {
+  it('keeps the active coordinator stable until a confirmed tab takeover', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
 
-    const enteredResponse = await worker.fetch(
+    const blockedResponse = await worker.fetch(
       request('/presence/enter', { method: 'POST' }, ownerCookie),
+    );
+    expect(blockedResponse.status).toBe(409);
+    expect(await responseJson(blockedResponse)).toEqual({
+      error: 'PRESENCE_ACTIVE_ELSEWHERE',
+    });
+    const unchanged = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    expect(unchanged.snapshot.viewer.presenceIncarnationId).toBe(
+      before.snapshot.viewer.presenceIncarnationId,
+    );
+    expect(unchanged.snapshot.presence.coordinatorEpoch).toBe(
+      before.snapshot.presence.coordinatorEpoch,
+    );
+
+    const enteredResponse = await worker.fetch(
+      jsonRequest('/presence/enter', 'POST', { takeover: true }, ownerCookie),
     );
     expect(enteredResponse.status).toBe(200);
     const entered = await responseJson(enteredResponse);
@@ -1029,7 +1044,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
   });
 
-  it('rotates a member incarnation without advancing coordinator authority', async () => {
+  it('requires confirmation to move a member tab without advancing coordinator authority', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const memberResponse = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
@@ -1041,8 +1056,16 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/snapshot', {}, ownerCookie)),
     );
 
-    const enteredResponse = await worker.fetch(
+    const blockedResponse = await worker.fetch(
       request('/presence/enter', { method: 'POST' }, memberCookie),
+    );
+    expect(blockedResponse.status).toBe(409);
+    expect(await responseJson(blockedResponse)).toEqual({
+      error: 'PRESENCE_ACTIVE_ELSEWHERE',
+    });
+
+    const enteredResponse = await worker.fetch(
+      jsonRequest('/presence/enter', 'POST', { takeover: true }, memberCookie),
     );
     expect(enteredResponse.status).toBe(200);
     const entered = await responseJson(enteredResponse);
@@ -1079,7 +1102,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
 
     const enteredResponse = await worker.fetch(
-      request('/presence/enter', { method: 'POST' }, ownerCookie),
+      jsonRequest('/presence/enter', 'POST', { takeover: true }, ownerCookie),
     );
     const entered = await responseJson(enteredResponse);
     bindCookiePresence(ownerCookie, entered);
@@ -1178,7 +1201,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
       expectedPresenceIncarnationId: before.snapshot.viewer.presenceIncarnationId,
     };
 
-    const entered = await worker.fetch(request('/presence/enter', { method: 'POST' }, ownerCookie));
+    const entered = await worker.fetch(
+      jsonRequest('/presence/enter', 'POST', { takeover: true }, ownerCookie),
+    );
     expect(entered.status).toBe(200);
     const enteredEnvelope = await responseJson(entered);
     bindCookiePresence(ownerCookie, enteredEnvelope);

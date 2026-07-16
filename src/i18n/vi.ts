@@ -527,6 +527,10 @@ const vi: Record<I18nKey, string> = {
   'pro.pin_changed': 'Đã đổi mật khẩu phòng.',
   'pro.owner_only': 'Chỉ chủ phòng mới có thể thực hiện.',
   'pro.connect_failed': 'Không thể kết nối với phòng PRO.',
+  'pro.active_tab_title': 'Phòng PRO này đã được mở trong thẻ khác',
+  'pro.active_tab_message':
+    'Thẻ kia sẽ tiếp tục được kết nối. Nếu bạn tiếp tục tại đây, thẻ đó sẽ bị ngắt kết nối.',
+  'pro.use_this_tab': 'Tiếp tục trong thẻ này',
   'pro.uploading': 'Đang lưu vào phòng PRO...',
   'pro.downloading': 'Đang tải từ phòng PRO...',
   'pro.quota_exceeded': 'Phòng PRO này đã dùng hết giới hạn lưu trữ 1 GB.',

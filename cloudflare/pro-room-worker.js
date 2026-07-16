@@ -1513,12 +1513,19 @@ export class MusixquareProRoom {
     return true;
   }
 
-  enterPresence(session, tokenHash, nowMs) {
+  enterPresence(session, tokenHash, nowMs, takeover = false) {
     const existing = this.room.presence.participants[session.participantId];
     if (!existing) {
       return this.joinPresence(session, tokenHash, nowMs) === null ? 'room-full' : 'entered';
     }
     if (existing.sessionHash !== tokenHash) return 'identity-mismatch';
+
+    // A room cookie is shared by every tab in the same browser profile. Do
+    // not let an ordinary resume silently rotate the live tab's incarnation:
+    // doing so repeatedly replaces signaling sockets and, for a coordinator,
+    // advances the room epoch until the whole topology becomes unstable. A
+    // takeover is therefore an explicit, user-confirmed operation.
+    if (!takeover) return 'active-elsewhere';
 
     // A resumed tab is a new presence incarnation even though its long-lived
     // HttpOnly session and participant identity are intentionally reused.
@@ -1759,11 +1766,20 @@ export class MusixquareProRoom {
   async handleEnterPresence(request) {
     const auth = await this.requireSession(request);
     if (auth.response) return auth.response;
-    if (request.body && (request.headers.get('content-length') || '') !== '0') {
-      return errorResponse('INVALID_REQUEST', 400);
+    let takeover = false;
+    if (request.body) {
+      const parsed = await this.parseBody(request);
+      if (parsed.response) return parsed.response;
+      if (!hasExactKeys(parsed.value, ['takeover']) || parsed.value.takeover !== true) {
+        return errorResponse('INVALID_REQUEST', 400);
+      }
+      takeover = true;
     }
-    const entered = this.enterPresence(auth.session, auth.tokenHash, Date.now());
+    const entered = this.enterPresence(auth.session, auth.tokenHash, Date.now(), takeover);
     if (entered === 'room-full') return errorResponse('ROOM_FULL', 409);
+    if (entered === 'active-elsewhere') {
+      return errorResponse('PRESENCE_ACTIVE_ELSEWHERE', 409);
+    }
     if (entered === 'identity-mismatch') {
       return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
     }

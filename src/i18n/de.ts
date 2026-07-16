@@ -537,6 +537,10 @@ const de: Record<I18nKey, string> = {
   'pro.pin_changed': 'Raumpasswort wurde geändert.',
   'pro.owner_only': 'Das kann nur der Raumbesitzer.',
   'pro.connect_failed': 'Verbindung zum PRO-Raum fehlgeschlagen.',
+  'pro.active_tab_title': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
+  'pro.active_tab_message':
+    'Der bisherige Tab bleibt verbunden. Wenn du hier fortfährst, wird seine Verbindung getrennt.',
+  'pro.use_this_tab': 'In diesem Tab fortfahren',
   'pro.uploading': 'Im PRO-Raum speichern...',
   'pro.downloading': 'Aus dem PRO-Raum laden...',
   'pro.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',

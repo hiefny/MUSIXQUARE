@@ -4,6 +4,7 @@ import {
   type ActivateProRoomInput,
   type CloseProRoomSessionFencedInput,
   type CreateProRoomSessionInput,
+  type EnterProRoomPresenceOptions,
   type ProRoomSignalingAccess,
   type RecoverProRoomOwnerInput,
 } from './api.ts';
@@ -16,7 +17,7 @@ interface ProRoomSessionApi {
   activate(input: ActivateProRoomInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   recoverOwner(input: RecoverProRoomOwnerInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
-  enterPresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  enterPresence(code: string, options?: EnterProRoomPresenceOptions): Promise<ProRoomSnapshot>;
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   heartbeat(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
@@ -124,11 +125,15 @@ export class ProRoomSessionController {
     );
   }
 
-  async resume(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+  async resume(code: string, options: EnterProRoomPresenceOptions = {}): Promise<ProRoomSnapshot> {
     return this.#open(
-      (operationSignal) => this.api.enterPresence(code, operationSignal),
+      (operationSignal) =>
+        this.api.enterPresence(code, {
+          signal: operationSignal,
+          ...(options.takeover === true ? { takeover: true } : {}),
+        }),
       code,
-      signal,
+      options.signal,
     );
   }
 

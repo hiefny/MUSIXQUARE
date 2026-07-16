@@ -84,6 +84,11 @@ export interface ProRoomPresenceIdentity {
   presenceIncarnationId: string;
 }
 
+export interface EnterProRoomPresenceOptions {
+  signal?: AbortSignal;
+  takeover?: boolean;
+}
+
 export interface ActivateProRoomInput {
   code: string;
   claimToken: string;
@@ -689,11 +694,15 @@ export class ProRoomApiClient {
     });
   }
 
-  async enterPresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+  async enterPresence(
+    code: string,
+    options: EnterProRoomPresenceOptions = {},
+  ): Promise<ProRoomSnapshot> {
     const path = roomPath(code);
     const snapshot = await this.#request(`${path}/presence/enter`, {
       method: 'POST',
-      signal,
+      ...(options.takeover === true ? { body: { takeover: true } } : {}),
+      signal: options.signal,
       parser: (value) => parseSnapshotEnvelope(value, code),
     });
     return this.#bindPresenceIdentity(code, snapshot);

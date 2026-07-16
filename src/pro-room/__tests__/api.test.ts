@@ -395,6 +395,27 @@ describe('PRO room cookie session API', () => {
     expect(client.presenceIdentity(ROOM_CODE)).toBeNull();
   });
 
+  it('sends an explicit bounded body only for a confirmed tab takeover', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
+      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }));
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await client.enterPresence(ROOM_CODE);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', body: undefined });
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has('content-type')).toBe(false);
+
+    await client.enterPresence(ROOM_CODE, { takeover: true });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ takeover: true }),
+    });
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get('content-type')).toBe(
+      'application/json',
+    );
+  });
+
   it('leaves presence explicitly and obtains a short-lived signaling ticket', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
     const fetchMock = vi.fn<typeof fetch>();

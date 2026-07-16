@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   resume: vi.fn(),
   showDialog: vi.fn(),
   takeClaims: vi.fn(),
+  announceTakeover: vi.fn(),
 }));
 
 vi.mock('../../core/state.ts', () => ({ getState: mocks.getState }));
@@ -19,6 +20,9 @@ vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
 vi.mock('../claim-fragment.ts', () => ({
   takeProRoomClaimsFromFragment: mocks.takeClaims,
+}));
+vi.mock('../tab-handoff.ts', () => ({
+  announceProRoomTabTakeover: mocks.announceTakeover,
 }));
 vi.mock('../runtime.ts', () => ({
   activateProRoom: mocks.activate,
@@ -70,6 +74,38 @@ describe('PRO room setup flow', () => {
       pin: '12345678',
       displayName: 'Peer 1',
     });
+  });
+
+  it('keeps the existing tab connected when takeover confirmation is cancelled', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
+    mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.resume).toHaveBeenCalledTimes(1);
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.active_tab_title',
+      message: 'pro.active_tab_message',
+      buttonText: 'pro.use_this_tab',
+      secondaryText: 'common.cancel',
+      dismissible: false,
+      defaultFocus: 'secondary',
+    });
+    expect(mocks.announceTakeover).not.toHaveBeenCalled();
+  });
+
+  it('moves the room to this tab only after explicit confirmation', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume
+      .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409))
+      .mockResolvedValueOnce({});
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.resume.mock.calls).toEqual([[ROOM_CODE], [ROOM_CODE, { takeover: true }]]);
+    expect(mocks.announceTakeover).toHaveBeenCalledWith(ROOM_CODE);
   });
 
   it('re-prompts after an invalid PIN and never retries unrelated failures', async () => {

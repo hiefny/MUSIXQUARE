@@ -604,6 +604,10 @@ const nl: Record<I18nKey, string> = {
   'pro.pin_changed': 'Wachtwoord van ruimte gewijzigd.',
   'pro.owner_only': 'Alleen de eigenaar kan dit doen.',
   'pro.connect_failed': 'Kan geen verbinding maken met de PRO-ruimte.',
+  'pro.active_tab_title': 'Deze PRO-ruimte is al geopend in een ander tabblad',
+  'pro.active_tab_message':
+    'Het andere tabblad blijft verbonden. Als je hier doorgaat, wordt de verbinding daar verbroken.',
+  'pro.use_this_tab': 'Doorgaan in dit tabblad',
   'pro.uploading': 'Opslaan in PRO-ruimte...',
   'pro.downloading': 'Laden uit PRO-ruimte...',
   'pro.quota_exceeded': 'Deze PRO-ruimte heeft de opslaglimiet van 1 GB bereikt.',

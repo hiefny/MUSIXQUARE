@@ -29,6 +29,7 @@ import {
   ProRoomApiError,
   type ActivateProRoomInput,
   type CreateProRoomSessionInput,
+  type EnterProRoomPresenceOptions,
   type ProRoomBootstrap,
   type RecoverProRoomOwnerInput,
 } from './api.ts';
@@ -56,6 +57,7 @@ import { ProRoomPlaylistStateManager } from './playlist-state-manager.ts';
 import { ProRoomSessionController, type ProRoomSessionObserver } from './session-controller.ts';
 import { createByteWeightedProgressEntries } from './transfer-progress.ts';
 import { resetProRoomTransportRecovery } from './transport-recovery.ts';
+import { onProRoomTabTakeover } from './tab-handoff.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const TOPOLOGY_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
@@ -900,6 +902,11 @@ const observer: ProRoomSessionObserver = {
 
 const controller = new ProRoomSessionController(api, bridge, observer);
 
+onProRoomTabTakeover((roomCode) => {
+  if (!active || controller.snapshot?.roomCode !== roomCode) return;
+  void recoverTerminalSession(new ProRoomApiError('PRESENCE_SUPERSEDED', 409));
+});
+
 function isTerminalSessionError(error: unknown): error is ProRoomApiError {
   return (
     error instanceof ProRoomApiError &&
@@ -921,10 +928,15 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   } catch (disconnectError) {
     log.warn('[PRO] Terminal session transport cleanup failed', disconnectError);
   }
-  // Another tab with the same HttpOnly cookie explicitly entered and now
-  // owns the session incarnation. Stay locally terminated: an automatic
-  // reload would enter again and create an endless cross-tab takeover loop.
-  if (error.code === 'PRESENCE_SUPERSEDED') return;
+  // Another tab with the same HttpOnly cookie explicitly took ownership.
+  // Leave this document inert and navigate home; reloading the room URL would
+  // immediately challenge the new tab and recreate the takeover loop.
+  if (error.code === 'PRESENCE_SUPERSEDED') {
+    if (typeof window !== 'undefined') {
+      scheduleSessionReset(t('pro.active_tab_title'), () => window.location.replace('/'));
+    }
+    return;
+  }
   if (typeof window !== 'undefined') {
     scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
   }
@@ -1075,8 +1087,11 @@ async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSna
   return snapshot;
 }
 
-export async function resumeProRoom(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
-  const snapshot = await controller.resume(code, signal);
+export async function resumeProRoom(
+  code: string,
+  options: EnterProRoomPresenceOptions = {},
+): Promise<ProRoomSnapshot> {
+  const snapshot = await controller.resume(code, options);
   return finalizeOpenedRoom(snapshot);
 }
 

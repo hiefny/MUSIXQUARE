@@ -616,6 +616,10 @@ const it: Record<I18nKey, string> = {
   'pro.pin_changed': 'Password della stanza modificata.',
   'pro.owner_only': 'Solo il proprietario può farlo.',
   'pro.connect_failed': 'Impossibile connettersi alla stanza PRO.',
+  'pro.active_tab_title': 'Questa stanza PRO è già aperta in un’altra scheda',
+  'pro.active_tab_message':
+    'L’altra scheda resterà connessa. Se continui qui, verrà disconnessa.',
+  'pro.use_this_tab': 'Continua in questa scheda',
   'pro.uploading': 'Salvataggio nella stanza PRO...',
   'pro.downloading': 'Caricamento dalla stanza PRO...',
   'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di 1 GB.',

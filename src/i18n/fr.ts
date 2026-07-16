@@ -546,6 +546,10 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Mot de passe de la salle modifié.',
   'pro.owner_only': 'Seul le propriétaire peut le faire.',
   'pro.connect_failed': 'Connexion à la salle PRO impossible.',
+  'pro.active_tab_title': 'Cette salle PRO est déjà ouverte dans un autre onglet',
+  'pro.active_tab_message':
+    'L’autre onglet restera connecté. Si vous continuez ici, il sera déconnecté.',
+  'pro.use_this_tab': 'Continuer dans cet onglet',
   'pro.uploading': 'Enregistrement dans la salle PRO...',
   'pro.downloading': 'Chargement depuis la salle PRO...',
   'pro.quota_exceeded': 'Cette salle PRO a atteint sa limite de stockage de 1 Go.',

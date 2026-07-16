@@ -593,6 +593,10 @@ const th: Record<I18nKey, string> = {
   'pro.pin_changed': 'เปลี่ยนรหัสผ่านห้องแล้ว',
   'pro.owner_only': 'เฉพาะเจ้าของห้องเท่านั้นที่ทำได้',
   'pro.connect_failed': 'เชื่อมต่อห้อง PRO ไม่สำเร็จ',
+  'pro.active_tab_title': 'ห้อง PRO นี้เปิดอยู่ในแท็บอื่นแล้ว',
+  'pro.active_tab_message':
+    'แท็บเดิมจะยังคงเชื่อมต่อ หากดำเนินการต่อในแท็บนี้ แท็บเดิมจะถูกตัดการเชื่อมต่อ',
+  'pro.use_this_tab': 'ดำเนินการต่อในแท็บนี้',
   'pro.uploading': 'กำลังบันทึกไปยังห้อง PRO...',
   'pro.downloading': 'กำลังโหลดจากห้อง PRO...',
   'pro.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',

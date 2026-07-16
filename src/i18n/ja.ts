@@ -533,6 +533,10 @@ const ja: Record<I18nKey, string> = {
   'pro.pin_changed': 'ルームのパスワードを変更しました。',
   'pro.owner_only': 'この操作はルームのオーナーのみ行えます。',
   'pro.connect_failed': 'PROルームに接続できませんでした。',
+  'pro.active_tab_title': 'このPROルームは別のタブで開いています',
+  'pro.active_tab_message':
+    '先に開いているタブの接続は維持されます。このタブで続けると、先のタブは切断されます。',
+  'pro.use_this_tab': 'このタブで続ける',
   'pro.uploading': 'PROルームに保存中...',
   'pro.downloading': 'PROルームから読み込み中...',
   'pro.quota_exceeded': 'このPROルームは1GBの保存上限に達しました。',

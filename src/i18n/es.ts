@@ -541,6 +541,10 @@ const es: Record<I18nKey, string> = {
   'pro.pin_changed': 'Contraseña de la sala actualizada.',
   'pro.owner_only': 'Solo el propietario puede hacer eso.',
   'pro.connect_failed': 'No se pudo conectar con la sala PRO.',
+  'pro.active_tab_title': 'Esta sala PRO ya está abierta en otra pestaña',
+  'pro.active_tab_message':
+    'La otra pestaña seguirá conectada. Si continúas aquí, se desconectará.',
+  'pro.use_this_tab': 'Continuar en esta pestaña',
   'pro.uploading': 'Guardando en la sala PRO...',
   'pro.downloading': 'Cargando desde la sala PRO...',
   'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de 1 GB.',

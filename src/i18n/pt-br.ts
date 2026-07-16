@@ -540,6 +540,10 @@ const ptBr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Senha da sala alterada.',
   'pro.owner_only': 'Só o proprietário pode fazer isso.',
   'pro.connect_failed': 'Não foi possível conectar à sala PRO.',
+  'pro.active_tab_title': 'Esta sala PRO já está aberta em outra aba',
+  'pro.active_tab_message':
+    'A outra aba continuará conectada. Se você continuar aqui, ela será desconectada.',
+  'pro.use_this_tab': 'Continuar nesta aba',
   'pro.uploading': 'Salvando na sala PRO...',
   'pro.downloading': 'Carregando da sala PRO...',
   'pro.quota_exceeded': 'Esta sala PRO atingiu o limite de 1 GB.',

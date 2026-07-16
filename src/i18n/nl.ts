@@ -108,6 +108,10 @@ const nl: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Laden...',
   'playlist.track_fallback': 'Nummer {{idx}}',
   'playlist.deferred_load_hint': 'Speel af om de volledige nummerlijst te laden',
+  'playlist.host_update_required': 'Werk het apparaat bij dat deze ruimte beheert.',
+  'playlist.queue_full': 'De afspeellijst is vol.',
+  'playlist.mutation_retry': 'De afspeellijst is gewijzigd. Probeer het opnieuw.',
+  'transfer.host_busy': 'De host verwerkt een ander bestand. Probeer het zo opnieuw.',
 
   // Role
   'role.center': 'Center-speaker',

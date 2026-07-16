@@ -64,7 +64,36 @@ describe('room authority compatibility layer', () => {
     expect(getAuthorityConnection()).toBe(host);
     expect(isAuthoritativeConnection(host)).toBe(true);
     expect(hasRoomCapability('playback.control')).toBe(true);
+    expect(hasRoomCapability('queue.mutate')).toBe(true);
+    expect(hasRoomCapability('asset.upload')).toBe(true);
+  });
+
+  it('fails closed when stale operator state outlives the live host connection', () => {
+    const host = connection('host');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    expect(hasRoomCapability('queue.mutate')).toBe(true);
+
+    host.open = false;
     expect(hasRoomCapability('queue.mutate')).toBe(false);
+    expect(hasRoomCapability('asset.upload')).toBe(false);
+
+    setState('network.hostConn', null);
+    expect(hasRoomCapability('queue.mutate')).toBe(false);
+    expect(hasRoomCapability('asset.upload')).toBe(false);
+  });
+
+  it('authorizes queue mutation only for the exact live standard operator connection', () => {
+    const live = connection('operator-1');
+    const stale = connection('operator-1');
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[live.peer, live]]));
+    setState('network.connectedPeers', [connectedPeer(live, { isOp: true })]);
+
+    expect(verifyPeerCapability(live, 'queue.mutate')).toBe(true);
+    expect(verifyPeerCapability(live, 'asset.upload')).toBe(true);
+    expect(verifyPeerCapability(stale, 'queue.mutate')).toBe(false);
   });
 
   it('uses only server-projected capabilities in a PRO room', () => {

@@ -27,7 +27,13 @@ import {
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
-import { hasRoomCapability } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../rooms/authority.ts';
+import {
+  acceptStandardQueueMutationRequest,
+  sendStandardQueueMutationRequest,
+  settleStandardQueueMutationRequest,
+  type StandardQueueMutationResultCode,
+} from '../network/queue-mutation-authority.ts';
 import {
   handleProRoomTrackMetadata,
   handleProRoomYouTube,
@@ -100,7 +106,9 @@ import {
 import { fetchOEmbedTitle } from './oembed.ts';
 import type { DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
 import {
+  canAppendPlaylistItems,
   commitPlaylistItems,
+  createPlaylistSnapshot,
   createQueueItemId,
   findQueueItemIndex,
   getCurrentQueueItemId,
@@ -537,6 +545,195 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
 export function initYouTube(): void {
   const resolvingProPlaylists = new Set<string>();
 
+  function requestStandardOperatorYouTubeAdd(sourceUrl: string, title: string): boolean {
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || getRoomContext().kind !== 'standard') return false;
+    // A standard guest must never fall through to the local commit path, even
+    // if its operator capability is revoked between opening and submitting.
+    if (!hasRoomCapability('queue.mutate')) {
+      showToast(t('toast.host_only_youtube'));
+      return true;
+    }
+    if (sourceUrl.length > 2048) {
+      showToast(t('youtube.invalid_link'));
+      return true;
+    }
+    const normalizedTitle = (title.trim() || sourceUrl).slice(0, 512);
+    sendStandardQueueMutationRequest({
+      type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+      requestId: createQueueItemId(),
+      baseRevision: getState('playlist.revision'),
+      sourceUrl,
+      title: normalizedTitle,
+    });
+    return true;
+  }
+
+  function isLiveStandardOperatorConnection(conn: DataConnection, roomCode: string): boolean {
+    return (
+      getRoomContext().kind === 'standard' &&
+      getState('network.appRole') === 'host' &&
+      !getState('network.hostConn') &&
+      getState('network.sessionCode') === roomCode &&
+      conn.open === true &&
+      getState('network.activeHostConnByPeerId').get(conn.peer) === conn &&
+      verifyPeerCapability(conn, 'queue.mutate')
+    );
+  }
+
+  function sendStandardQueueRequestFailure(
+    conn: DataConnection,
+    roomCode: string,
+    requestId: string,
+    code: StandardQueueMutationResultCode,
+  ): void {
+    if (!isLiveStandardOperatorConnection(conn, roomCode)) return;
+    safeSend(conn, {
+      type: MSG.PLAYLIST_UPDATE,
+      ...createPlaylistSnapshot(),
+      refresh: true,
+    });
+    settleStandardQueueMutationRequest(conn, requestId, {
+      outcome: 'rejected',
+      code,
+    });
+  }
+
+  type StandardOperatorYouTubeRequest = {
+    requestId: string;
+    baseRevision: number;
+    sourceUrl: string;
+    title: string;
+  };
+
+  type PreparedStandardOperatorYouTubeAdd =
+    | {
+        ok: true;
+        videoId: string;
+        playlistId: string | null;
+        title: string;
+      }
+    | {
+        ok: false;
+        code: 'invalid-source' | 'resolution-failed';
+      };
+
+  let standardOperatorYouTubeMutationTail: Promise<void> = Promise.resolve();
+  let standardOperatorYouTubeMutationRoomCode: string | null = null;
+
+  function prepareStandardOperatorYouTubeAdd(
+    data: StandardOperatorYouTubeRequest,
+  ): Promise<PreparedStandardOperatorYouTubeAdd> {
+    const videoId = extractYouTubeVideoId(data.sourceUrl);
+    let playlistId = extractYouTubePlaylistId(data.sourceUrl);
+    if (videoId && playlistId?.startsWith('RD')) playlistId = null;
+    if (!videoId && !playlistId) {
+      log.warn('[YouTube] Rejected operator queue request with a non-YouTube source');
+      return Promise.resolve({ ok: false, code: 'invalid-source' });
+    }
+
+    if (!videoId && playlistId) {
+      return resolveYouTubePlaylistEntry(playlistId)
+        .then((entry) => ({
+          ok: true as const,
+          videoId: entry.videoId,
+          playlistId,
+          title: data.title === data.sourceUrl ? entry.title : data.title,
+        }))
+        .catch((error): PreparedStandardOperatorYouTubeAdd => {
+          log.warn('[YouTube] Standard operator playlist resolution failed:', error);
+          return { ok: false, code: 'resolution-failed' };
+        });
+    }
+
+    return Promise.resolve({
+      ok: true,
+      videoId: videoId!,
+      playlistId,
+      title: data.title,
+    });
+  }
+
+  async function applyStandardOperatorYouTubeAdd(
+    data: StandardOperatorYouTubeRequest,
+    conn: DataConnection,
+    roomCode: string,
+    prepared: Promise<PreparedStandardOperatorYouTubeAdd>,
+  ): Promise<void> {
+    const resolved = await prepared;
+    if (!isLiveStandardOperatorConnection(conn, roomCode)) return;
+    if (!resolved.ok) {
+      sendStandardQueueRequestFailure(conn, roomCode, data.requestId, resolved.code);
+      return;
+    }
+    if (!canAppendPlaylistItems()) {
+      sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'queue-full');
+      return;
+    }
+    try {
+      _addYouTubeToPlaylist(resolved.videoId, resolved.playlistId, resolved.title, data.sourceUrl);
+      if (!isLiveStandardOperatorConnection(conn, roomCode)) return;
+      settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
+    } catch (error) {
+      log.warn('[YouTube] Standard operator queue commit failed:', error);
+      sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'internal-error');
+    }
+  }
+
+  function enqueueStandardOperatorYouTubeAdd(
+    data: StandardOperatorYouTubeRequest,
+    conn: DataConnection,
+    roomCode: string,
+  ): void {
+    // Do not let a timed-out resolver from a room that has already ended hold
+    // up additions in the next room. The stale task still revalidates its
+    // captured room/connection before every side effect.
+    if (standardOperatorYouTubeMutationRoomCode !== roomCode) {
+      standardOperatorYouTubeMutationRoomCode = roomCode;
+      standardOperatorYouTubeMutationTail = Promise.resolve();
+    }
+    // Resolve playlist metadata immediately and concurrently. Only the commit
+    // is serialized, preserving request arrival order without multiplying the
+    // resolver's bounded timeout by the number of queued requests.
+    const prepared = prepareStandardOperatorYouTubeAdd(data);
+    const task = standardOperatorYouTubeMutationTail.then(() =>
+      applyStandardOperatorYouTubeAdd(data, conn, roomCode, prepared),
+    );
+    standardOperatorYouTubeMutationTail = task.catch((error) => {
+      log.warn('[YouTube] Standard operator mutation failed:', error);
+      sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'internal-error');
+    });
+  }
+
+  function handleRequestPlaylistAddYouTube(
+    data: StandardOperatorYouTubeRequest,
+    conn: DataConnection,
+  ): void {
+    const fingerprint = JSON.stringify([
+      MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+      data.baseRevision,
+      data.sourceUrl,
+      data.title,
+    ]);
+    const outcome = acceptStandardQueueMutationRequest({
+      conn,
+      requestId: data.requestId,
+      requestName: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+      fingerprint,
+    });
+    if (outcome !== 'accepted') {
+      if (outcome !== 'unauthorized') {
+        safeSend(conn, {
+          type: MSG.PLAYLIST_UPDATE,
+          ...createPlaylistSnapshot(),
+          refresh: true,
+        });
+      }
+      return;
+    }
+    enqueueStandardOperatorYouTubeAdd(data, conn, getState('network.sessionCode'));
+  }
+
   registerHandlers({
     [MSG.YOUTUBE_PLAY]: handleYouTubePlay,
     [MSG.REQUEST_YOUTUBE_PLAY]: handleRequestYouTubePlay,
@@ -544,6 +741,7 @@ export function initYouTube(): void {
     [MSG.REQUEST_YOUTUBE_TOGGLE]: handleRequestYouTubeToggle,
     [MSG.REQUEST_YOUTUBE_SUB_SEEK]: handleRequestYouTubeSubSeek,
     [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: handleRequestYouTubePlaylistInfo,
+    [MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]: handleRequestPlaylistAddYouTube,
   });
 
   // Bus event handlers from other modules
@@ -1407,6 +1605,8 @@ export function initYouTube(): void {
 
     _closeYouTubeInputOverlay(input);
 
+    if (requestStandardOperatorYouTubeAdd(sourceUrl, titleText)) return;
+
     // A persistent PRO playlist needs one concrete entry video. Resolve it
     // without borrowing the hidden iframe indexer, which stops active media.
     if (!videoId && playlistId && _resolveAndAddProPlaylist(playlistId, titleText, sourceUrl)) {
@@ -1612,6 +1812,8 @@ export function initYouTube(): void {
 
     // Close chat drawer if open
     bus.emit('ui:close-chat-drawer');
+
+    if (requestStandardOperatorYouTubeAdd(url, url)) return;
 
     if (!videoId && playlistId && _resolveAndAddProPlaylist(playlistId, url, url)) return;
 

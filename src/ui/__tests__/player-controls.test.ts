@@ -282,6 +282,23 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
   });
 
+  it('updates the standard ADMIN media affordance immediately on grant and revoke', () => {
+    document.body.innerHTML = `
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+    `;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+
+    initPlayerControls();
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('0.15');
+
+    setState('network.isOperator', true);
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
+
+    setState('network.isOperator', false);
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('0.15');
+  });
+
   it('lets a PRO member add files, YouTube entries, and role-independent live capture', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>

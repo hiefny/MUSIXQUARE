@@ -110,6 +110,7 @@ interface AddProRoomLocalFileInput {
 }
 
 interface ProRoomPlaylistMutationOptions {
+  baseRevision?: number;
   signal?: AbortSignal;
 }
 
@@ -454,12 +455,29 @@ export class ProRoomPlaylistStateManager {
     options: ProRoomPlaylistMutationOptions = {},
   ): Promise<ProRoomSnapshot> {
     const requested = [...orderedQueueItemIds];
-    return this.#enqueue(() => {
+    return this.#enqueue(async () => {
       if (
         requested.some((queueItemId) => !isProRoomQueueItemId(queueItemId)) ||
-        new Set(requested).size !== requested.length
+        new Set(requested).size !== requested.length ||
+        (options.baseRevision !== undefined && !isSafeNonNegativeInteger(options.baseRevision))
       ) {
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_REORDER_INVALID');
+      }
+
+      assertNotAborted(options.signal);
+      const local = this.#requireSnapshot();
+      let refreshedPastBase = false;
+      // The legacy queue revision is the room revision from the most recent
+      // queue projection. Presence/checkpoint writes can legitimately move
+      // the manager ahead without changing that projection, so only a manager
+      // trailing the dragged view needs an eager refresh.
+      if (options.baseRevision !== undefined && local.revision < options.baseRevision) {
+        const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
+        const accepted = await this.#accept(refreshed);
+        if (accepted.revision < options.baseRevision) {
+          throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_CONFLICT_REFRESH_STALE');
+        }
+        refreshedPastBase = accepted.revision > options.baseRevision;
       }
 
       const requestedSet = new Set(requested);
@@ -467,6 +485,7 @@ export class ProRoomPlaylistStateManager {
         const currentIds = snapshot.playlist.map((item) => item.queueItemId);
         if (
           !isRebase &&
+          !refreshedPastBase &&
           (currentIds.length !== requested.length ||
             currentIds.some((queueItemId) => !requestedSet.has(queueItemId)))
         ) {

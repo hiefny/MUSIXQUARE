@@ -2,10 +2,31 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { showToast, showLoader, updateLoader } from '../toast.ts';
+import { bus } from '../../core/events.ts';
+import { resetState, setState } from '../../core/state.ts';
+import type { StandardOperatorFileUplinkProgress } from '../../types/index.ts';
+import { initToast, showToast, showLoader, updateLoader } from '../toast.ts';
+
+let uplinkSequence = 0;
+
+function uplinkProgress(
+  overrides: Partial<StandardOperatorFileUplinkProgress> = {},
+): StandardOperatorFileUplinkProgress {
+  return {
+    direction: 'send',
+    phase: 'waiting',
+    requestId: `request-${uplinkSequence}`,
+    sessionId: `session-${++uplinkSequence}`,
+    fileName: 'song.flac',
+    loaded: 0,
+    total: 100,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
+  resetState();
 
   document.body.innerHTML = `
     <div id="toast"><span id="toast-msg"></span></div>
@@ -14,6 +35,7 @@ beforeEach(() => {
       <div id="header-progress-bg" style="width: 0%"></div>
     </header>
   `;
+  initToast();
 });
 
 afterEach(() => {
@@ -24,6 +46,203 @@ afterEach(() => {
   vi.runOnlyPendingTimers();
   vi.useRealTimers();
   document.body.innerHTML = '';
+});
+
+describe('standard operator file uplink feedback', () => {
+  it('shows determinate sender progress, caps assembly at 99%, and closes at 100%', () => {
+    const progress = uplinkProgress();
+
+    bus.emit('standard-room:operator-file-uplink-progress', progress);
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Sending file\u2026');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...progress,
+      phase: 'uploading',
+      loaded: 50,
+    });
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('50%');
+
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...progress,
+      phase: 'assembling',
+      loaded: 100,
+    });
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('99%');
+
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...progress,
+      phase: 'complete',
+      loaded: 100,
+    });
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('100%');
+
+    vi.advanceTimersByTime(400);
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+  });
+
+  it('shows the current batch position and a bounded file name', () => {
+    const progress = uplinkProgress({
+      fileIndex: 1,
+      fileCount: 3,
+      fileName: 'a-very-long-orchestra-master-recording.flac',
+    });
+
+    bus.emit('standard-room:operator-file-uplink-progress', progress);
+
+    expect(document.getElementById('header-loading-text')!.innerText).toBe(
+      'Sending file… 2/3 · a-very-long-orch….flac',
+    );
+  });
+
+  it('ignores host receive progress', () => {
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...uplinkProgress(),
+      direction: 'receive',
+      phase: 'uploading',
+      loaded: 50,
+    });
+
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
+    expect(document.getElementById('toast')!.classList.contains('show')).toBe(false);
+  });
+
+  it('keeps a newer file loader when an older session terminates late', () => {
+    const older = uplinkProgress({ fileName: 'older.flac' });
+    const newer = uplinkProgress({ fileName: 'newer.wav' });
+
+    bus.emit('standard-room:operator-file-uplink-progress', older);
+    bus.emit('standard-room:operator-file-uplink-progress', newer);
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...older,
+      phase: 'error',
+      code: 'upload-failed',
+    });
+
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
+    expect(document.getElementById('header-loading-text')!.innerText).toBe('Sending file\u2026');
+    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...newer,
+      phase: 'complete',
+      loaded: newer.total,
+    });
+  });
+
+  it('maps terminal errors and does not replay a duplicate terminal toast', () => {
+    setState('network.isOperator', true);
+    const revoked = uplinkProgress();
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...revoked,
+      phase: 'error',
+      code: 'operator-revoked',
+    });
+    expect(document.getElementById('toast-msg')!.innerText).toBe('Admin permission revoked.');
+
+    const invalid = uplinkProgress();
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...invalid,
+      phase: 'error',
+      code: 'invalid-file',
+    });
+    expect(document.getElementById('toast-msg')!.innerText).toBe(
+      'No supported audio files to add.',
+    );
+
+    const tooLarge = uplinkProgress();
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...tooLarge,
+      phase: 'error',
+      code: 'file-too-large',
+    });
+    expect(document.getElementById('toast-msg')!.innerText).toBe('File too large (200 MB max)');
+
+    const busy = uplinkProgress();
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...busy,
+      phase: 'error',
+      code: 'host-busy',
+    });
+    expect(document.getElementById('toast-msg')!.innerText).toBe(
+      'Host is processing another file. Try again soon.',
+    );
+
+    const full = uplinkProgress();
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...full,
+      phase: 'error',
+      code: 'queue-full',
+    });
+    expect(document.getElementById('toast-msg')!.innerText).toBe('The playlist is full.');
+
+    const network = uplinkProgress();
+    const terminal: StandardOperatorFileUplinkProgress = {
+      ...network,
+      phase: 'error',
+      code: 'upload-failed',
+    };
+    bus.emit('standard-room:operator-file-uplink-progress', terminal);
+    expect(document.getElementById('toast-msg')!.innerText).toBe('A network error occurred');
+
+    vi.advanceTimersByTime(1500);
+    bus.emit('standard-room:operator-file-uplink-progress', terminal);
+    vi.advanceTimersByTime(500);
+    expect(document.getElementById('toast')!.classList.contains('show')).toBe(false);
+  });
+
+  it('does not duplicate the normal operator-revoked toast for an active uplink', () => {
+    setState('network.isOperator', true);
+    const progress = uplinkProgress();
+    bus.emit('standard-room:operator-file-uplink-progress', progress);
+    setState('network.isOperator', false);
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...progress,
+      phase: 'aborted',
+      code: 'operator-revoked',
+    });
+
+    expect(document.getElementById('toast')!.classList.contains('show')).toBe(false);
+  });
+
+  it('closes quietly when the user cancels', () => {
+    const progress = uplinkProgress();
+    bus.emit('standard-room:operator-file-uplink-progress', progress);
+    bus.emit('standard-room:operator-file-uplink-progress', {
+      ...progress,
+      phase: 'aborted',
+      code: 'cancelled',
+    });
+
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
+    expect(document.getElementById('toast')!.classList.contains('show')).toBe(false);
+  });
+
+  it('does not duplicate the uplink listener when initialized again', () => {
+    initToast();
+    initToast();
+
+    expect(bus.debug()['standard-room:operator-file-uplink-progress']).toBe(1);
+  });
+});
+
+describe('standard queue mutation feedback', () => {
+  it('distinguishes legacy hosts, queue conflicts, and capacity', () => {
+    bus.emit('standard-room:queue-mutation-failed', 'accept-timeout', null);
+    expect(document.getElementById('toast-msg')!.innerText).toBe(
+      'Please update the device managing this room.',
+    );
+
+    bus.emit('standard-room:queue-mutation-failed', 'rejected', 'invalid-target');
+    expect(document.getElementById('toast-msg')!.innerText).toBe(
+      'The playlist changed. Please try again.',
+    );
+
+    bus.emit('standard-room:queue-mutation-failed', 'rejected', 'queue-full');
+    expect(document.getElementById('toast-msg')!.innerText).toBe('The playlist is full.');
+  });
 });
 
 describe('showToast', () => {

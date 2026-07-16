@@ -180,6 +180,10 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Carregando...',
   'playlist.track_fallback': 'Faixa {{idx}}',
   'playlist.deferred_load_hint': 'Reproduza para carregar a lista completa de faixas',
+  'playlist.host_update_required': 'Atualize o dispositivo que gerencia esta sala.',
+  'playlist.queue_full': 'A playlist está cheia.',
+  'playlist.mutation_retry': 'A playlist mudou. Tente novamente.',
+  'transfer.host_busy': 'O anfitrião está processando outro arquivo. Tente novamente em instantes.',
 
   // Connect
   'connect.qr_title': 'Convidar por QR ou link',

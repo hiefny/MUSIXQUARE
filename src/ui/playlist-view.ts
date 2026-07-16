@@ -521,9 +521,21 @@ export function initPlaylistView(): void {
   _busScope.on('state:playlist.currentQueueItemId', schedulePlaylistUpdate);
   _busScope.on('state:youtube.currentSubIndex', schedulePlaylistUpdate);
   _busScope.on('state:youtube.subItemsMap', schedulePlaylistUpdate);
+  _busScope.on('playlist:refresh-requested', schedulePlaylistUpdate);
   _busScope.on('state:network.hostConn', () => {
     _reorderController?.cancel();
     _removalController?.cancel();
+    schedulePlaylistUpdate();
+  });
+  _busScope.on('state:network.isOperator', (isOperator) => {
+    // Standard-room ADMIN grants and revocations do not change hostConn or
+    // room.context. Re-render from the capability source itself so queue edit
+    // controls appear immediately on grant and an in-flight edit is cancelled
+    // immediately on revoke.
+    if (!isOperator) {
+      _reorderController?.cancel();
+      _removalController?.cancel();
+    }
     schedulePlaylistUpdate();
   });
   scopePlaybackModeActivity(_busScope, () => {

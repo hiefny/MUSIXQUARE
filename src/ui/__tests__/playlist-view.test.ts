@@ -192,6 +192,32 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(2);
   });
 
+  it('updates standard ADMIN editing controls immediately on grant and revoke', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+
+    expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
+    expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
+
+    setState('network.isOperator', true);
+    await nextAnimationFrame();
+    expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(2);
+    expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(2);
+
+    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
+    expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
+
+    setState('network.isOperator', false);
+    await nextAnimationFrame();
+    expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
+    expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
+    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
+      'is-visible',
+    );
+  });
+
   it('arms an immediate play-control wait after a PRO member requests a row', () => {
     const hostConn = { open: true, peer: 'coordinator' } as DataConnection;
     vi.mocked(safeSend).mockReturnValue(true);

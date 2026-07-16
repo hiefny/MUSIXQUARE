@@ -104,6 +104,10 @@ const ru: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Загрузка...',
   'playlist.track_fallback': 'Трек {{idx}}',
   'playlist.deferred_load_hint': 'Запустите воспроизведение для загрузки информации о всех треках',
+  'playlist.host_update_required': 'Обновите устройство, управляющее этой комнатой.',
+  'playlist.queue_full': 'Плейлист заполнен.',
+  'playlist.mutation_retry': 'Плейлист изменился. Повторите попытку.',
+  'transfer.host_busy': 'Хост обрабатывает другой файл. Повторите попытку чуть позже.',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Центральный динамик',

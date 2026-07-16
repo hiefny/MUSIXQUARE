@@ -180,6 +180,10 @@ const id: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Memuat...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Putar untuk memuat daftar track lengkap',
+  'playlist.host_update_required': 'Perbarui perangkat yang mengelola ruang ini.',
+  'playlist.queue_full': 'Daftar putar sudah penuh.',
+  'playlist.mutation_retry': 'Daftar putar telah berubah. Silakan coba lagi.',
+  'transfer.host_busy': 'Host sedang memproses file lain. Silakan coba lagi sebentar lagi.',
 
   // Connect
   'connect.qr_title': 'Undang lewat QR atau tautan',

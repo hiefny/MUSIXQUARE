@@ -103,6 +103,10 @@ const ko = {
   'playlist.video_fallback': '불러오는 중...',
   'playlist.track_fallback': '트랙 {{idx}}',
   'playlist.deferred_load_hint': '재생하면 모든 곡 정보를 불러올게요',
+  'playlist.host_update_required': '방을 관리 중인 기기를 업데이트해 주세요.',
+  'playlist.queue_full': '재생목록이 가득 찼어요.',
+  'playlist.mutation_retry': '재생목록이 변경됐어요. 다시 시도해주세요.',
+  'transfer.host_busy': '방장이 다른 파일을 처리 중이에요. 잠시 후 다시 시도해주세요.',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': '중앙 스피커',

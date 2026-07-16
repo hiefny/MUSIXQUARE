@@ -180,6 +180,10 @@ const zhHans: Record<I18nKey, string> = {
   'playlist.video_fallback': '正在加载...',
   'playlist.track_fallback': '曲目 {{idx}}',
   'playlist.deferred_load_hint': '播放后加载完整曲目列表',
+  'playlist.host_update_required': '请更新正在管理此房间的设备。',
+  'playlist.queue_full': '播放列表已满。',
+  'playlist.mutation_retry': '播放列表已更改，请重试。',
+  'transfer.host_busy': '房主正在处理另一个文件，请稍后重试。',
 
   // Connect
   'connect.qr_title': '通过二维码或链接邀请',

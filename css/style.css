@@ -855,6 +855,8 @@
     font-weight: 600;
     color: var(--text-main);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 
     transform: translateY(100%);
     /* Start from below */
@@ -2047,10 +2049,8 @@
     transition: none;
   }
 
-  .playlist-entry.is-reorder-source.is-reorder-settling-source.is-reorder-handoff
-    > .track-item,
-  .playlist-entry.is-reorder-source.is-reorder-settling-source.is-reorder-handoff
-    > .sub-playlist {
+  .playlist-entry.is-reorder-source.is-reorder-settling-source.is-reorder-handoff > .track-item,
+  .playlist-entry.is-reorder-source.is-reorder-settling-source.is-reorder-handoff > .sub-playlist {
     opacity: 1;
     transition: opacity 0.09s ease-out 0.18s;
   }

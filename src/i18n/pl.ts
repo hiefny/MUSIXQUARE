@@ -105,6 +105,10 @@ const pl: Record<I18nKey, string> = {
   'playlist.track_fallback': 'Utwór {{idx}}',
   'playlist.deferred_load_hint':
     'Uruchom odtwarzanie, aby załadować informacje o wszystkich utworach',
+  'playlist.host_update_required': 'Zaktualizuj urządzenie zarządzające tym pokojem.',
+  'playlist.queue_full': 'Playlista jest pełna.',
+  'playlist.mutation_retry': 'Playlista uległa zmianie. Spróbuj ponownie.',
+  'transfer.host_busy': 'Host przetwarza inny plik. Spróbuj ponownie za chwilę.',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Głośnik centralny',

@@ -93,6 +93,21 @@ export interface RemoteShareState {
   };
 }
 
+/** UI projection for the bounded standard-room administrator file uplink. */
+export interface StandardOperatorFileUplinkProgress {
+  direction: 'send' | 'receive';
+  phase: 'waiting' | 'uploading' | 'assembling' | 'complete' | 'aborted' | 'error';
+  requestId: string;
+  sessionId: string;
+  fileName: string;
+  loaded: number;
+  total: number;
+  /** Zero-based position within the sender's sequential selection batch. */
+  fileIndex?: number;
+  fileCount?: number;
+  code?: string;
+}
+
 // ─── Playlist ──────────────────────────────────────────────────────
 export type QueueItemId = string;
 /** Guest-local correlation token for one concrete file request. */
@@ -320,6 +335,8 @@ export interface ProtocolMap {
     currentQueueItemId: QueueItemId | null;
     /** Only the first queue snapshot on a new host connection may rebaseline. */
     bootstrap?: true;
+    /** Repaint an equal-revision operator view after a rejected/no-op mutation. */
+    refresh?: true;
   };
   /** Member hint that the authenticated PRO service has a newer snapshot. */
   'pro-room-invalidated': { revision: number; playlistRevision: number };
@@ -385,6 +402,35 @@ export interface ProtocolMap {
     sessionId: number;
     queueItemId: QueueItemId;
   };
+  /** Separate upstream namespace: standard-room administrator -> host. */
+  'operator-file-upload-start': {
+    requestId: string;
+    sessionId: string;
+    name: string;
+    mime: string;
+    size: number;
+    total: number;
+  };
+  'operator-file-upload-chunk': {
+    requestId: string;
+    sessionId: string;
+    chunkIndex: number;
+    chunk: Uint8Array | ArrayBuffer;
+  };
+  'operator-file-upload-finish': { requestId: string; sessionId: string };
+  'operator-file-upload-abort': {
+    requestId: string;
+    sessionId: string;
+    reason: string;
+  };
+  'operator-file-upload-status': {
+    requestId: string;
+    sessionId: string;
+    status: 'ready' | 'progress' | 'complete' | 'rejected' | 'aborted';
+    loaded: number;
+    total: number;
+    code: string | null;
+  };
 
   // ── Preload ──────────────────────────────────────────────────────
   'preload-start': {
@@ -435,6 +481,46 @@ export interface ProtocolMap {
   'request-next-track': { queueItemId: QueueItemId | null };
   'request-prev-track': { queueItemId: QueueItemId | null };
   'request-track-change': { queueItemId: QueueItemId };
+  /** Standard-room operator request; the host remains the sole queue writer. */
+  'request-playlist-add-youtube': {
+    requestId: string;
+    baseRevision: PlaylistRevision;
+    sourceUrl: string;
+    title: string;
+  };
+  /** Standard-room operator request; the host resolves IDs against its live queue. */
+  'request-playlist-remove': {
+    requestId: string;
+    baseRevision: PlaylistRevision;
+    queueItemIds: QueueItemId[];
+  };
+  /** Standard-room operator request; insertion is expressed by stable queue IDs. */
+  'request-playlist-reorder': {
+    requestId: string;
+    baseRevision: PlaylistRevision;
+    queueItemId: QueueItemId;
+    beforeQueueItemId: QueueItemId | null;
+  };
+  /**
+   * Two-phase acknowledgement for standard-room operator queue requests.
+   * The authoritative playlist snapshot remains the only queue state writer;
+   * this message only reports compatibility and terminal request outcome.
+   */
+  'operator-queue-mutation-result': {
+    requestId: string;
+    phase: 'accepted' | 'settled';
+    outcome: null | 'applied' | 'rejected';
+    revision: PlaylistRevision;
+    code:
+      | null
+      | 'conflict'
+      | 'unauthorized'
+      | 'invalid-target'
+      | 'invalid-source'
+      | 'queue-full'
+      | 'resolution-failed'
+      | 'internal-error';
+  };
   'request-setting': { settingType: string; value?: unknown; band?: number };
   'request-eq-reset': NoPayload;
   'request-current-file': {
@@ -1072,6 +1158,26 @@ interface BaseEventMap {
     baseRevision: PlaylistRevision,
   ];
   'playlist:items-added': [queueItemIds: QueueItemId[]];
+  /** Re-render the current authoritative queue after a local request send fails. */
+  'playlist:refresh-requested': [];
+  /** Fully verified upstream File; the host remains the sole queue writer. */
+  'standard-room:operator-file-received': [
+    file: File,
+    acknowledge: (outcome: true | false | 'queue-full') => void,
+  ];
+  'standard-room:operator-file-uplink-progress': [progress: StandardOperatorFileUplinkProgress];
+  'standard-room:queue-mutation-failed': [
+    reason: 'send-failed' | 'accept-timeout' | 'settle-timeout' | 'rejected',
+    code:
+      | null
+      | 'conflict'
+      | 'unauthorized'
+      | 'invalid-target'
+      | 'invalid-source'
+      | 'queue-full'
+      | 'resolution-failed'
+      | 'internal-error',
+  ];
 
   // ── Storage ───────────────────────────────────────────────────────
   'storage:transfer-progress': [progress: number, total: number];

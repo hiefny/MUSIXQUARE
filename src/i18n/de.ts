@@ -180,6 +180,11 @@ const de: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Wird geladen...',
   'playlist.track_fallback': 'Titel {{idx}}',
   'playlist.deferred_load_hint': 'Abspielen, um die vollständige Titelliste zu laden',
+  'playlist.host_update_required': 'Aktualisiere das Gerät, das diesen Raum verwaltet.',
+  'playlist.queue_full': 'Die Wiedergabeliste ist voll.',
+  'playlist.mutation_retry': 'Die Wiedergabeliste wurde geändert. Bitte versuche es erneut.',
+  'transfer.host_busy':
+    'Der Host verarbeitet gerade eine andere Datei. Bitte versuche es gleich noch einmal.',
 
   // Connect
   'connect.qr_title': 'Per QR oder Link einladen',

@@ -5,13 +5,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { transition } from '../../player/lifecycle.ts';
-import type { PlaylistItem, QueueItemId, RoomContext } from '../../types/index.ts';
+import type { ConnectedPeer, PlaylistItem, QueueItemId, RoomContext } from '../../types/index.ts';
 import {
   captureLocalPlaybackCheckpointForTests,
+  reconcileRemovedProRoomQueueStateForTests,
   shouldRetainPendingProDownloadForTests,
 } from '../runtime.ts';
 
 const QUEUE_ITEM_ID = '20000000-0000-4000-8000-000000000001' as QueueItemId;
+const REMOVED_PRELOAD_ID = '20000000-0000-4000-8000-000000000002' as QueueItemId;
+const REMOVED_RECOVERY_ID = '20000000-0000-4000-8000-000000000003' as QueueItemId;
 
 beforeEach(() => {
   resetState();
@@ -80,5 +83,53 @@ describe('PRO room R2 download ownership', () => {
         capabilities: [],
       }),
     ).toBe(false);
+  });
+});
+
+describe('PRO room accepted removal cleanup', () => {
+  it('clears preload and recovery owners for every removed queue identity', () => {
+    setState('preload.nextQueueItemId', REMOVED_PRELOAD_ID);
+    setState('preload.activeTarget', {
+      queueItemId: REMOVED_PRELOAD_ID,
+      indexHint: 1,
+      name: 'preloaded.flac',
+      sessionId: 9,
+    });
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: REMOVED_RECOVERY_ID,
+      indexHint: 2,
+      name: 'recovering.flac',
+    });
+    setState('recovery.pending', true);
+
+    reconcileRemovedProRoomQueueStateForTests([REMOVED_PRELOAD_ID, REMOVED_RECOVERY_ID]);
+
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.activeTarget')).toBeNull();
+    expect(getState('playback.pendingRecoveryTarget')).toBeNull();
+    expect(getState('recovery.pending')).toBe(false);
+  });
+
+  it('prunes removed IDs from coordinator peer preload caches without dropping survivors', () => {
+    const peer = {
+      id: 'peer-1',
+      slot: 1,
+      label: 'Peer 1',
+      conn: null,
+      isOp: true,
+      preloadedQueueItemIds: new Set([QUEUE_ITEM_ID, REMOVED_PRELOAD_ID, REMOVED_RECOVERY_ID]),
+      status: 'connected',
+      isDataTarget: true,
+      joinOrder: 1,
+      connectionType: 'local',
+      lastHeartbeat: Date.now(),
+    } satisfies ConnectedPeer;
+    setState('network.connectedPeers', [peer]);
+
+    reconcileRemovedProRoomQueueStateForTests([REMOVED_PRELOAD_ID, REMOVED_RECOVERY_ID]);
+
+    expect([...getState('network.connectedPeers')[0]!.preloadedQueueItemIds]).toEqual([
+      QUEUE_ITEM_ID,
+    ]);
   });
 });

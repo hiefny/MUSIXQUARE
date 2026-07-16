@@ -15,7 +15,7 @@ import type {
 import { clearProRoomTrackChangeIntent } from './track-change-intent.ts';
 
 const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MAX_QUEUE_ITEMS = 1000;
+export const MAX_QUEUE_ITEMS = 1000;
 const MAX_QUEUE_TEXT_LENGTH = 2048;
 
 interface PlaylistSnapshot {
@@ -59,6 +59,14 @@ export function createQueueItemId(): QueueItemId {
 
 export function isQueueItemId(value: unknown): value is QueueItemId {
   return typeof value === 'string' && QUEUE_ITEM_ID_RE.test(value);
+}
+
+export function canAppendPlaylistItems(count = 1): boolean {
+  return (
+    Number.isSafeInteger(count) &&
+    count >= 0 &&
+    getState('playlist.items').length + count <= MAX_QUEUE_ITEMS
+  );
 }
 
 function isPlaylistRevision(value: unknown): value is PlaylistRevision {
@@ -181,6 +189,7 @@ export function parsePlaylistSnapshot(value: unknown): PlaylistSnapshot | null {
   if (!Array.isArray(snapshot.list) || snapshot.list.length > MAX_QUEUE_ITEMS) return null;
   if (!isPlaylistRevision(snapshot.revision)) return null;
   if (snapshot.bootstrap !== undefined && snapshot.bootstrap !== true) return null;
+  if (snapshot.refresh !== undefined && snapshot.refresh !== true) return null;
   if (snapshot.currentQueueItemId !== null && !isQueueItemId(snapshot.currentQueueItemId)) {
     return null;
   }

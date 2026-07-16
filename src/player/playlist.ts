@@ -51,7 +51,7 @@ import {
   resetIncomingTransferAuthority,
   sendFilePrepareByDelivery,
 } from '../storage/transfer.ts';
-import { broadcast, sendToHost } from '../network/peer.ts';
+import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
@@ -64,7 +64,13 @@ import { cancelRemoteShareWait, shareRemoteFileIfNeeded } from '../share/remote-
 import { getHostNow } from '../network/shared-clock.ts';
 import { hasQueueAuthority, markQueueAuthorityReady } from '../network/queue-authority.ts';
 import { resetRecoveryAuthority } from '../storage/recovery.ts';
-import { hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import {
+  acceptStandardQueueMutationRequest,
+  sendStandardQueueMutationRequest,
+  settleStandardQueueMutationRequest,
+} from '../network/queue-mutation-authority.ts';
+import { uploadStandardOperatorFiles } from '../network/operator-file-uplink.ts';
 import {
   handleProRoomFiles,
   handleProRoomTrackRemoval,
@@ -77,6 +83,7 @@ import {
 import { freezeFileDeliveryMode } from '../share/file-delivery-policy.ts';
 import {
   applyPlaylistSnapshot,
+  canAppendPlaylistItems,
   commitPlaylistItems,
   createPlaylistSnapshot,
   createQueueItemId,
@@ -1246,6 +1253,7 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     return;
   }
   if (outcome === 'duplicate') {
+    if (data.refresh === true) bus.emit('playlist:refresh-requested');
     return;
   }
 
@@ -1479,6 +1487,59 @@ function broadcastPlaylistSnapshot(): void {
   broadcast({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot() });
 }
 
+function appendStandardHostFiles(files: readonly File[], rejectedCount = 0): boolean {
+  if (
+    files.length === 0 ||
+    getState('network.appRole') !== 'host' ||
+    getState('network.hostConn') ||
+    getRoomContext().kind !== 'standard'
+  ) {
+    return false;
+  }
+
+  const playlist = [...(getState('playlist.items') || [])];
+  const addedQueueItemIds: QueueItemId[] = [];
+  for (const file of files) {
+    const queueItemId = createQueueItemId();
+    playlist.push({
+      queueItemId,
+      type: 'file',
+      file,
+      name: file.name,
+      title: file.name.replace(/\.[^/.]+$/, ''),
+      videoId: null,
+      playlistId: null,
+    });
+    addedQueueItemIds.push(queueItemId);
+  }
+
+  const firstAddedQueueItemId = addedQueueItemIds[0] ?? null;
+  const previousCurrentQueueItemId = getCurrentQueueItemId();
+  const shouldAutoPlay =
+    firstAddedQueueItemId !== null && isQueueIdle() && previousCurrentQueueItemId === null;
+
+  commitPlaylistItems(playlist, {
+    currentQueueItemId: shouldAutoPlay ? firstAddedQueueItemId : previousCurrentQueueItemId,
+  });
+  if (getState('playlist.isShuffle')) generateShuffleOrder();
+  broadcastPlaylistSnapshot();
+  bus.emit('playlist:items-added', addedQueueItemIds);
+
+  const addedMessage = t('toast.added_tracks', { count: addedQueueItemIds.length });
+  showToast(
+    rejectedCount > 0
+      ? `${addedMessage}\n${t('toast.unsupported_files_excluded', { count: rejectedCount })}`
+      : addedMessage,
+  );
+
+  if (shouldAutoPlay && firstAddedQueueItemId) {
+    void playTrack(firstAddedQueueItemId);
+  } else {
+    schedulePreload(1000);
+  }
+  return true;
+}
+
 async function handleFilesSelected(files: FileList | readonly File[] | null): Promise<void> {
   if (!files || files.length === 0) return;
 
@@ -1506,6 +1567,14 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
     return;
   }
 
+  if (hostConn && getRoomContext().kind === 'standard') {
+    if (rejected.length > 0) {
+      showToast(t('toast.unsupported_files_excluded', { count: rejected.length }));
+    }
+    void uploadStandardOperatorFiles(accepted);
+    return;
+  }
+
   // The bounded direct-file budget counts LAN guests only. Remote guests
   // already use R2 from the first recipient, so they must not make an
   // otherwise-small local fanout look like a nine-device local room.
@@ -1527,57 +1596,7 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
     markFileShareWarned();
   }
 
-  const playlist = [...(getState('playlist.items') || [])];
-  const addedQueueItemIds: QueueItemId[] = [];
-
-  for (const file of accepted) {
-    const queueItemId = createQueueItemId();
-    const newTrack: PlaylistItem = {
-      queueItemId,
-      type: 'file',
-      file,
-      name: file.name,
-      title: file.name.replace(/\.[^/.]+$/, ''),
-      videoId: null,
-      playlistId: null,
-    };
-    playlist.push(newTrack);
-    addedQueueItemIds.push(queueItemId);
-  }
-
-  if (addedQueueItemIds.length === 0) return;
-
-  const firstAddedQueueItemId = addedQueueItemIds[0] ?? null;
-  const previousCurrentQueueItemId = getCurrentQueueItemId();
-  const shouldAutoPlay =
-    firstAddedQueueItemId !== null && isQueueIdle() && previousCurrentQueueItemId === null;
-
-  // Publish the initial selection in the same revision as the newly added
-  // rows. A late joiner must never observe a snapshot where the queue exists
-  // but its already-owned first occurrence is still reported as unselected.
-  commitPlaylistItems(playlist, {
-    currentQueueItemId: shouldAutoPlay ? firstAddedQueueItemId : previousCurrentQueueItemId,
-  });
-  if (getState('playlist.isShuffle')) generateShuffleOrder();
-  broadcastPlaylistSnapshot();
-  bus.emit('playlist:items-added', addedQueueItemIds);
-
-  const addedMessage = t('toast.added_tracks', { count: addedQueueItemIds.length });
-  showToast(
-    rejected.length > 0
-      ? `${addedMessage}\n${t('toast.unsupported_files_excluded', { count: rejected.length })}`
-      : addedMessage,
-  );
-
-  // Auto-play the first added occurrence only when no occurrence is already
-  // selected. Selection happens synchronously before async decode, preventing
-  // later add batches from stealing ownership while playback still looks idle.
-  if (shouldAutoPlay && firstAddedQueueItemId) {
-    playTrack(firstAddedQueueItemId);
-  } else {
-    // Already playing — preload next track for guests (covers end-of-playlist + file add case)
-    schedulePreload(1000);
-  }
+  appendStandardHostFiles(accepted, rejected.length);
 }
 
 // ─── Init ──────────────────────────────────────────────────────────
@@ -1623,11 +1642,130 @@ function findShuffleRemovalSuccessor(
   return null;
 }
 
+function handleRequestPlaylistRemove(
+  data: {
+    requestId: string;
+    baseRevision: number;
+    queueItemIds: QueueItemId[];
+  },
+  conn: DataConnection,
+): void {
+  const fingerprint = JSON.stringify([
+    MSG.REQUEST_PLAYLIST_REMOVE,
+    data.baseRevision,
+    data.queueItemIds,
+  ]);
+  const outcome = acceptStandardQueueMutationRequest({
+    conn,
+    requestId: data.requestId,
+    requestName: MSG.REQUEST_PLAYLIST_REMOVE,
+    fingerprint,
+  });
+  if (outcome !== 'accepted') {
+    if (outcome !== 'unauthorized') {
+      safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    }
+    return;
+  }
+
+  // Removal is stable-ID based and therefore safely rebases over unrelated
+  // appends/reorders. Missing rows are already removed, so retain idempotency.
+  const liveQueueItemIds = data.queueItemIds.filter((queueItemId) => getQueueItemById(queueItemId));
+  if (liveQueueItemIds.length === 0) {
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
+    return;
+  }
+  try {
+    removeQueueItems(liveQueueItemIds);
+    settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
+  } catch (error) {
+    log.warn('[Playlist] Standard operator removal failed:', error);
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    settleStandardQueueMutationRequest(conn, data.requestId, {
+      outcome: 'rejected',
+      code: 'internal-error',
+    });
+  }
+}
+
+function handleRequestPlaylistReorder(
+  data: {
+    requestId: string;
+    baseRevision: number;
+    queueItemId: QueueItemId;
+    beforeQueueItemId: QueueItemId | null;
+  },
+  conn: DataConnection,
+): void {
+  const fingerprint = JSON.stringify([
+    MSG.REQUEST_PLAYLIST_REORDER,
+    data.baseRevision,
+    data.queueItemId,
+    data.beforeQueueItemId,
+  ]);
+  const outcome = acceptStandardQueueMutationRequest({
+    conn,
+    requestId: data.requestId,
+    requestName: MSG.REQUEST_PLAYLIST_REORDER,
+    fingerprint,
+  });
+  if (outcome !== 'accepted') {
+    if (outcome !== 'unauthorized') {
+      safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    }
+    return;
+  }
+
+  // Rebase by stable identity when concurrent mutations leave both anchors
+  // alive. A removed insertion anchor is ambiguous, so reject and converge.
+  if (
+    !getQueueItemById(data.queueItemId) ||
+    (data.beforeQueueItemId !== null && !getQueueItemById(data.beforeQueueItemId))
+  ) {
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    settleStandardQueueMutationRequest(conn, data.requestId, {
+      outcome: 'rejected',
+      code: 'invalid-target',
+    });
+    return;
+  }
+  if (!moveQueueItemBefore(data.queueItemId, data.beforeQueueItemId)) {
+    // Already in the requested position is an idempotent success, not an
+    // invalid target. Repaint the caller after its drag projection and settle
+    // without incrementing the authoritative revision.
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
+    return;
+  }
+  try {
+    reorderQueueItem(data.queueItemId, data.beforeQueueItemId, getState('playlist.revision'));
+    settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
+  } catch (error) {
+    log.warn('[Playlist] Standard operator reorder failed:', error);
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    settleStandardQueueMutationRequest(conn, data.requestId, {
+      outcome: 'rejected',
+      code: 'internal-error',
+    });
+  }
+}
+
 function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   if (hasRoomCapability('queue.mutate') && handleProRoomTrackRemoval(queueItemIds)) {
     return;
   }
-  if (getState('network.hostConn')) return;
+  if (getState('network.hostConn')) {
+    if (getRoomContext().kind === 'standard' && hasRoomCapability('queue.mutate')) {
+      sendStandardQueueMutationRequest({
+        type: MSG.REQUEST_PLAYLIST_REMOVE,
+        requestId: createQueueItemId(),
+        baseRevision: getState('playlist.revision'),
+        queueItemIds: [...new Set(queueItemIds)],
+      });
+    }
+    return;
+  }
 
   const previousItems = getState('playlist.items') || [];
   const requestedIds = new Set(queueItemIds);
@@ -1741,7 +1879,18 @@ function reorderQueueItem(
   ) {
     return;
   }
-  if (getState('network.hostConn')) return;
+  if (getState('network.hostConn')) {
+    if (getRoomContext().kind === 'standard' && hasRoomCapability('queue.mutate')) {
+      sendStandardQueueMutationRequest({
+        type: MSG.REQUEST_PLAYLIST_REORDER,
+        requestId: createQueueItemId(),
+        baseRevision,
+        queueItemId,
+        beforeQueueItemId,
+      });
+    }
+    return;
+  }
   if (baseRevision !== getState('playlist.revision')) {
     log.debug('[Playlist] Ignoring reorder from a stale playlist revision');
     return;
@@ -1770,6 +1919,8 @@ export function initPlaylist(): void {
     [MSG.REQUEST_NEXT_TRACK]: handleRequestNextTrack,
     [MSG.REQUEST_PREV_TRACK]: handleRequestPrevTrack,
     [MSG.REQUEST_SETTING]: handleRequestSetting,
+    [MSG.REQUEST_PLAYLIST_REMOVE]: handleRequestPlaylistRemove,
+    [MSG.REQUEST_PLAYLIST_REORDER]: handleRequestPlaylistReorder,
   });
 
   // Handle track ended auto-advance (guarded against double-fire from overlapping timers)
@@ -1835,6 +1986,25 @@ export function initPlaylist(): void {
   // File selection
   bus.on('app:files-selected', (files) => {
     handleFilesSelected(files);
+  });
+
+  // The operator uplink emits only after the host has received and verified
+  // the complete File. Re-run the shared media candidate filter, then append
+  // directly without a second large-room confirmation dialog.
+  bus.on('standard-room:operator-file-received', (file, acknowledge) => {
+    let outcome: true | false | 'queue-full' = false;
+    try {
+      const { accepted } = partitionAudioFileCandidates([file]);
+      if (accepted.length !== 1) {
+        outcome = false;
+      } else if (!canAppendPlaylistItems(1)) {
+        outcome = 'queue-full';
+      } else {
+        outcome = appendStandardHostFiles(accepted);
+      }
+    } finally {
+      acknowledge(outcome);
+    }
   });
 
   // Play specific track from playlist view click

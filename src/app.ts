@@ -46,6 +46,7 @@ import {
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
+import { initStandardQueueMutationAuthority } from './network/queue-mutation-authority.ts';
 import { initPeerHandlers, leaveSession } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
@@ -54,6 +55,7 @@ import { registerSystemAudioHostListeners } from './network/system-audio-host.ts
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 import { registerSystemAudioSfuListeners } from './network/system-audio-sfu.ts';
 import { registerProSystemAudioServiceListeners } from './pro-room/system-audio-service.ts';
+import { initStandardOperatorFileUplink } from './network/operator-file-uplink.ts';
 // ── Storage ──
 // RAM-only storage dispatches STORAGE_* commands in-process.
 import { initTransfer } from './storage/transfer.ts';
@@ -414,6 +416,7 @@ async function bootstrap(): Promise<void> {
   // 5. Network (registers listeners; transport startup is deferred to the
   // host/guest flow in setup.ts).
   safeInit('Protocol', initProtocol);
+  safeInit('StandardQueueMutationAuthority', initStandardQueueMutationAuthority);
   safeInit('PeerHandlers', initPeerHandlers);
   safeInit('Sync', initSync);
   safeInit('Orchestrator', initOrchestrator);
@@ -422,6 +425,7 @@ async function bootstrap(): Promise<void> {
   safeInit('SystemAudioGuest', registerSystemAudioGuestListeners);
   safeInit('SystemAudioSFU', registerSystemAudioSfuListeners);
   safeInit('ProSystemAudio', registerProSystemAudioServiceListeners);
+  safeInit('StandardOperatorFileUplink', initStandardOperatorFileUplink);
   // 6. Workers & Storage
   try {
     const syncW = new Worker(new URL('./workers/sync.worker.ts', import.meta.url), {

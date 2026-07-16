@@ -104,6 +104,10 @@ const tr: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Yükleniyor...',
   'playlist.track_fallback': 'Şarkı {{idx}}',
   'playlist.deferred_load_hint': 'Tüm şarkı bilgilerini yüklemek için oynatmayı başlatın',
+  'playlist.host_update_required': 'Bu odayı yöneten cihazı güncelleyin.',
+  'playlist.queue_full': 'Oynatma listesi dolu.',
+  'playlist.mutation_retry': 'Oynatma listesi değişti. Lütfen tekrar deneyin.',
+  'transfer.host_busy': 'Sunucu başka bir dosyayı işliyor. Lütfen biraz sonra tekrar deneyin.',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Merkez Hoparlör',

@@ -180,6 +180,10 @@ const zhHant: Record<I18nKey, string> = {
   'playlist.video_fallback': '正在載入...',
   'playlist.track_fallback': '曲目 {{idx}}',
   'playlist.deferred_load_hint': '播放後載入完整曲目清單',
+  'playlist.host_update_required': '請更新正在管理此房間的裝置。',
+  'playlist.queue_full': '播放清單已滿。',
+  'playlist.mutation_retry': '播放清單已變更，請再試一次。',
+  'transfer.host_busy': '房主正在處理另一個檔案，請稍後再試。',
 
   // Connect
   'connect.qr_title': '透過 QR 或連結邀請',

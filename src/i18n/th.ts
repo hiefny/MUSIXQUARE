@@ -104,6 +104,10 @@ const th: Record<I18nKey, string> = {
   'playlist.video_fallback': 'กำลังโหลด...',
   'playlist.track_fallback': 'เพลงที่ {{idx}}',
   'playlist.deferred_load_hint': 'กดเล่นเพื่อโหลดข้อมูลเพลงทั้งหมด',
+  'playlist.host_update_required': 'โปรดอัปเดตอุปกรณ์ที่จัดการห้องนี้',
+  'playlist.queue_full': 'เพลย์ลิสต์เต็มแล้ว',
+  'playlist.mutation_retry': 'เพลย์ลิสต์มีการเปลี่ยนแปลง โปรดลองอีกครั้ง',
+  'transfer.host_busy': 'โฮสต์กำลังประมวลผลไฟล์อื่น โปรดลองอีกครั้งในอีกสักครู่',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'ลำโพงกลาง',

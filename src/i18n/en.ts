@@ -105,6 +105,10 @@ const en: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Loading...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Play to load the full track list',
+  'playlist.host_update_required': 'Please update the device managing this room.',
+  'playlist.queue_full': 'The playlist is full.',
+  'playlist.mutation_retry': 'The playlist changed. Please try again.',
+  'transfer.host_busy': 'Host is processing another file. Try again soon.',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Center Speaker',

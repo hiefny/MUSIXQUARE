@@ -180,6 +180,10 @@ const vi: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Đang tải...',
   'playlist.track_fallback': 'Bài {{idx}}',
   'playlist.deferred_load_hint': 'Phát để tải toàn bộ danh sách bài',
+  'playlist.host_update_required': 'Hãy cập nhật thiết bị đang quản lý phòng này.',
+  'playlist.queue_full': 'Danh sách phát đã đầy.',
+  'playlist.mutation_retry': 'Danh sách phát đã thay đổi. Vui lòng thử lại.',
+  'transfer.host_busy': 'Máy chủ đang xử lý một tệp khác. Vui lòng thử lại sau giây lát.',
 
   // Connect
   'connect.qr_title': 'Mời bằng QR hoặc liên kết',

@@ -625,6 +625,118 @@ describe('PRO room playlist state manager', () => {
     expect(request.playback).toEqual(playback);
   });
 
+  it('refreshes a member manager that trails the relayed playlist before reordering', async () => {
+    const initial = activeSnapshot({
+      revision: 1,
+      playlistRevision: 1,
+      playlist: [youtube(A), youtube(B)],
+    });
+    const relayed = activeSnapshot({
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [youtube(A), youtube(B), youtube(C)],
+    });
+    const api = {
+      getSnapshot: vi.fn(async () => relayed),
+      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) =>
+        activeSnapshot({
+          ...relayed,
+          revision: 3,
+          playlistRevision: 3,
+          playlist: input.playlist,
+          currentQueueItemId: input.currentQueueItemId,
+          playback: input.playback,
+        }),
+      ),
+    } satisfies ProRoomPlaylistStateApi;
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const accepted = await manager.reorder([B, A, C], { baseRevision: relayed.revision });
+
+    expect(api.getSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateSnapshot.mock.calls[0]![0]).toMatchObject({
+      baseRevision: relayed.revision,
+      playlist: [youtube(B), youtube(A), youtube(C)],
+    });
+    expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([B, A, C]);
+  });
+
+  it('does not refresh when only the manager room clock is ahead of the queue view', async () => {
+    const initial = activeSnapshot({
+      revision: 3,
+      playlistRevision: 1,
+      playlist: [youtube(A), youtube(B)],
+    });
+    const { api } = updatingApi(initial);
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    await manager.reorder([B, A], { baseRevision: 2 });
+
+    expect(api.getSnapshot).not.toHaveBeenCalled();
+    expect(api.updateSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateSnapshot.mock.calls[0]![0].baseRevision).toBe(initial.revision);
+  });
+
+  it('rebases a trailing manager reorder over a concurrent appended row', async () => {
+    const initial = activeSnapshot({
+      revision: 1,
+      playlistRevision: 1,
+      playlist: [youtube(A), youtube(B)],
+    });
+    const concurrent = activeSnapshot({
+      revision: 3,
+      playlistRevision: 3,
+      playlist: [youtube(A), youtube(B), youtube(C), youtube(D)],
+    });
+    const api = {
+      getSnapshot: vi.fn(async () => concurrent),
+      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) =>
+        activeSnapshot({
+          ...concurrent,
+          revision: 4,
+          playlistRevision: 4,
+          playlist: input.playlist,
+          currentQueueItemId: input.currentQueueItemId,
+          playback: input.playback,
+        }),
+      ),
+    } satisfies ProRoomPlaylistStateApi;
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const accepted = await manager.reorder([B, A, C], { baseRevision: 2 });
+
+    expect(api.getSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateSnapshot.mock.calls[0]![0].playlist.map((item) => item.queueItemId)).toEqual([
+      B,
+      A,
+      C,
+      D,
+    ]);
+    expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([B, A, C, D]);
+  });
+
   it('updates metadata by queue identity without changing source or playback state', async () => {
     const playback = {
       coordinatorEpoch: 1,

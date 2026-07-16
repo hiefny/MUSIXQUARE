@@ -9,6 +9,8 @@ import { showLoader, updateLoader } from '../ui/toast.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { registerHandler } from '../network/protocol.ts';
 import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
+import { setPendingRecoveryTarget } from '../player/_state.ts';
+import { clearPreloadState, getShuffleNextPlayableQueueItemId } from '../player/playlist.ts';
 import { getTrackPosition } from '../player/transport.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import {
@@ -54,6 +56,11 @@ import { LegacyProRoomNetworkBridge } from './network-bridge.ts';
 import { completeProRoomPinRotation } from './pin-rotation.ts';
 import { ProRoomPlaylistProjection } from './playlist-projection.ts';
 import { ProRoomPlaylistStateManager } from './playlist-state-manager.ts';
+import {
+  dispatchProRoomRemovalTransition,
+  findRemovedProRoomQueueItemIds,
+  resolveProRoomRemovalTransition,
+} from './playlist-transition.ts';
 import { ProRoomSessionController, type ProRoomSessionObserver } from './session-controller.ts';
 import { createByteWeightedProgressEntries } from './transfer-progress.ts';
 import { resetProRoomTransportRecovery } from './transport-recovery.ts';
@@ -260,6 +267,53 @@ function attachCachedFiles(snapshot: ProRoomSnapshot): void {
   if (changed) setState('playlist.items', next);
 }
 
+function reconcileRemovedProRoomQueueState(removedQueueItemIds: readonly QueueItemId[]): void {
+  if (removedQueueItemIds.length === 0) return;
+  const removedIds = new Set(removedQueueItemIds);
+
+  // A PRO mutation is projected locally before the coordinator's legacy
+  // PLAYLIST_UPDATE relay. That later frame is a duplicate revision, so the
+  // ordinary guest cleanup path cannot be relied upon to release background
+  // bytes owned by a deleted occurrence.
+  const preloadOwnsRemovedItem =
+    removedIds.has(getState('preload.nextQueueItemId') ?? '') ||
+    removedIds.has(getState('preload.ready')?.queueItemId ?? '') ||
+    removedIds.has(getState('preload.activeTarget')?.queueItemId ?? '');
+  if (preloadOwnsRemovedItem) clearPreloadState();
+
+  const recoveryTarget = getState('playback.pendingRecoveryTarget');
+  if (recoveryTarget?.queueItemId && removedIds.has(recoveryTarget.queueItemId)) {
+    setPendingRecoveryTarget(null);
+    setState('recovery.pending', false);
+  }
+
+  const connectedPeers = getState('network.connectedPeers');
+  if (
+    connectedPeers.some((peer) =>
+      [...removedIds].some((queueItemId) => peer.preloadedQueueItemIds.has(queueItemId)),
+    )
+  ) {
+    setState(
+      'network.connectedPeers',
+      connectedPeers.map((peer) => {
+        const preloadedQueueItemIds = new Set(peer.preloadedQueueItemIds);
+        let changed = false;
+        for (const queueItemId of removedIds) {
+          changed = preloadedQueueItemIds.delete(queueItemId) || changed;
+        }
+        return changed ? { ...peer, preloadedQueueItemIds } : peer;
+      }),
+    );
+  }
+}
+
+/** @internal Focused regression seam for accepted PRO removal projections. */
+export function reconcileRemovedProRoomQueueStateForTests(
+  removedQueueItemIds: readonly QueueItemId[],
+): void {
+  reconcileRemovedProRoomQueueState(removedQueueItemIds);
+}
+
 async function applyProjectedPlaylist(
   snapshot: ProRoomSnapshot,
   playlist: PlaylistItem[],
@@ -271,16 +325,26 @@ async function applyProjectedPlaylist(
   if (firstProjection || nextSignature !== playlistSignature) {
     const previousItems = getState('playlist.items');
     const previousCurrent = getState('playlist.currentQueueItemId');
-    const previousIndex = previousCurrent
-      ? previousItems.findIndex((item) => item.queueItemId === previousCurrent)
-      : -1;
-    const removedCurrent =
+    const removedQueueItemIds = firstProjection
+      ? []
+      : findRemovedProRoomQueueItemIds(previousItems, playlist);
+    const survivingQueueItemIds = new Set(playlist.map((item) => item.queueItemId));
+    const preferredShuffleSuccessor =
       !firstProjection &&
+      isCoordinator() &&
+      getState('playlist.isShuffle') &&
       previousCurrent !== null &&
-      !playlist.some((item) => item.queueItemId === previousCurrent);
-    const successor = removedCurrent
-      ? (playlist[Math.min(Math.max(previousIndex, 0), playlist.length - 1)] ?? null)
-      : null;
+      removedQueueItemIds.includes(previousCurrent)
+        ? getShuffleNextPlayableQueueItemId((queueItemId) => survivingQueueItemIds.has(queueItemId))
+        : null;
+    const removalTransition = firstProjection
+      ? { removedCurrent: false, successorQueueItemId: null }
+      : resolveProRoomRemovalTransition(
+          previousItems,
+          playlist,
+          previousCurrent,
+          preferredShuffleSuccessor,
+        );
     const payload = {
       list: playlistWireItems(playlist),
       // The room revision, unlike playlistRevision, also advances when the
@@ -292,13 +356,21 @@ async function applyProjectedPlaylist(
     if (outcome === 'invalid' || outcome === 'stale' || outcome === 'conflict') {
       throw new Error(`PRO_ROOM_PLAYLIST_PROJECTION_${outcome.toUpperCase()}`);
     }
+    reconcileRemovedProRoomQueueState(removedQueueItemIds);
     playlistSignature = nextSignature;
     attachCachedFiles(snapshot);
     if (isCoordinator()) broadcast({ type: MSG.PLAYLIST_UPDATE, ...payload });
-    if (isCoordinator() && removedCurrent) {
-      if (successor) bus.emit('playlist:play-track', successor.queueItemId);
-      else bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
-    }
+    // A member's own accepted mutation is projected before the coordinator
+    // relays the same revision. That later PLAYLIST_UPDATE is a duplicate, so
+    // it cannot be relied upon to tear down media owned by a deleted row.
+    // Stop locally now; only the elected coordinator chooses/starts the
+    // successor and therefore remains the sole playback authority.
+    dispatchProRoomRemovalTransition(
+      removalTransition,
+      isCoordinator(),
+      (queueItemId) => bus.emit('playlist:play-track', queueItemId),
+      () => bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true }),
+    );
     return;
   }
   attachCachedFiles(snapshot);
@@ -451,7 +523,7 @@ function installLegacyMediaHooks(
       void manager
         .reorder(
           reordered.map((item) => item.queueItemId),
-          { signal: playlistRuntimeAbort?.signal },
+          { baseRevision, signal: playlistRuntimeAbort?.signal },
         )
         .catch(reportCurrentPlaylistError);
       return true;

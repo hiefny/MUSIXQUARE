@@ -60,6 +60,8 @@ const REMOTE_OBJECT_ID_RE =
 // cannot smuggle a connection object or other coordinator-owned state.
 const PRO_PEER_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 const PRO_SYSTEM_AUDIO_PUBLIC_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const OPERATOR_FILE_UPLOAD_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Tight numeric validator — rejects NaN, Infinity, -Infinity, and out-of-range
 // values. Without this, Number(undefined) → NaN silently passes typeof===number,
@@ -70,6 +72,23 @@ const isNonNegSafeInt = (v: unknown): v is number =>
   typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const isPositiveSafeInt = (v: unknown): v is number =>
   typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+
+function isSafeOperatorUploadFileName(value: unknown): value is string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 255 ||
+    value.trim() !== value ||
+    value.includes('/') ||
+    value.includes('\\')
+  ) {
+    return false;
+  }
+  return ![...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 || codePoint === 127;
+  });
+}
 
 function hasExactKeys(
   value: Record<string, unknown>,
@@ -309,6 +328,63 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isPositiveSafeInt(d.sessionId) &&
     isQueueItemId(d.queueItemId) &&
     hasExactFileSizeContract(d),
+  [MSG.OPERATOR_FILE_UPLOAD_START]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'sessionId', 'name', 'mime', 'size', 'total']) &&
+    typeof d.requestId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.requestId) &&
+    typeof d.sessionId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.sessionId) &&
+    isSafeOperatorUploadFileName(d.name) &&
+    typeof d.mime === 'string' &&
+    d.mime.length > 0 &&
+    d.mime.length <= 128 &&
+    d.mime.trim() === d.mime &&
+    isPositiveSafeInt(d.size) &&
+    (d.size as number) <= REMOTE_SHARE_MAX_BYTES &&
+    isPositiveSafeInt(d.total) &&
+    (d.total as number) === Math.ceil((d.size as number) / CHUNK_SIZE),
+  [MSG.OPERATOR_FILE_UPLOAD_CHUNK]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'sessionId', 'chunkIndex', 'chunk']) &&
+    typeof d.requestId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.requestId) &&
+    typeof d.sessionId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.sessionId) &&
+    isNonNegInt(d.chunkIndex) &&
+    isBoundedChunk(d.chunk) &&
+    (d.chunk as Uint8Array | ArrayBuffer).byteLength > 0,
+  [MSG.OPERATOR_FILE_UPLOAD_FINISH]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'sessionId']) &&
+    typeof d.requestId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.requestId) &&
+    typeof d.sessionId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.sessionId),
+  [MSG.OPERATOR_FILE_UPLOAD_ABORT]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'sessionId', 'reason']) &&
+    typeof d.requestId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.requestId) &&
+    typeof d.sessionId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.sessionId) &&
+    typeof d.reason === 'string' &&
+    d.reason.length > 0 &&
+    d.reason.length <= 64,
+  [MSG.OPERATOR_FILE_UPLOAD_STATUS]: (d) => {
+    if (
+      !hasExactKeys(d, ['type', 'requestId', 'sessionId', 'status', 'loaded', 'total', 'code']) ||
+      typeof d.requestId !== 'string' ||
+      !OPERATOR_FILE_UPLOAD_ID_RE.test(d.requestId) ||
+      typeof d.sessionId !== 'string' ||
+      !OPERATOR_FILE_UPLOAD_ID_RE.test(d.sessionId) ||
+      !isNonNegSafeInt(d.loaded) ||
+      !isPositiveSafeInt(d.total) ||
+      (d.loaded as number) > (d.total as number) ||
+      (d.code !== null && (typeof d.code !== 'string' || d.code.length === 0 || d.code.length > 64))
+    ) {
+      return false;
+    }
+    if (d.status === 'ready' || d.status === 'progress') return d.code === null;
+    if (d.status === 'complete') return d.code === null && d.loaded === d.total;
+    return (d.status === 'rejected' || d.status === 'aborted') && typeof d.code === 'string';
+  },
   [MSG.FILE_END]: (d) =>
     typeof d.name === 'string' &&
     d.name.length > 0 &&
@@ -408,6 +484,54 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.REQUEST_YOUTUBE_TOGGLE]: (d) => isQueueItemId(d.queueItemId),
   [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: (d) =>
     typeof d.playlistId === 'string' && d.playlistId.length > 0 && d.playlistId.length <= 64,
+  [MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'baseRevision', 'sourceUrl', 'title']) &&
+    isQueueItemId(d.requestId) &&
+    isNonNegSafeInt(d.baseRevision) &&
+    typeof d.sourceUrl === 'string' &&
+    d.sourceUrl.length > 0 &&
+    d.sourceUrl.length <= 2048 &&
+    typeof d.title === 'string' &&
+    d.title.length > 0 &&
+    d.title.length <= 512,
+  [MSG.REQUEST_PLAYLIST_REMOVE]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'baseRevision', 'queueItemIds']) &&
+    isQueueItemId(d.requestId) &&
+    isNonNegSafeInt(d.baseRevision) &&
+    Array.isArray(d.queueItemIds) &&
+    d.queueItemIds.length > 0 &&
+    d.queueItemIds.length <= 1000 &&
+    d.queueItemIds.every(isQueueItemId) &&
+    new Set(d.queueItemIds).size === d.queueItemIds.length,
+  [MSG.REQUEST_PLAYLIST_REORDER]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'baseRevision', 'queueItemId', 'beforeQueueItemId']) &&
+    isQueueItemId(d.requestId) &&
+    isNonNegSafeInt(d.baseRevision) &&
+    isQueueItemId(d.queueItemId) &&
+    (d.beforeQueueItemId === null || isQueueItemId(d.beforeQueueItemId)) &&
+    d.beforeQueueItemId !== d.queueItemId,
+  [MSG.OPERATOR_QUEUE_MUTATION_RESULT]: (d) => {
+    if (
+      !hasExactKeys(d, ['type', 'requestId', 'phase', 'outcome', 'revision', 'code']) ||
+      !isQueueItemId(d.requestId) ||
+      !isNonNegSafeInt(d.revision)
+    ) {
+      return false;
+    }
+    if (d.phase === 'accepted') return d.outcome === null && d.code === null;
+    if (d.phase !== 'settled') return false;
+    if (d.outcome === 'applied') return d.code === null;
+    return (
+      d.outcome === 'rejected' &&
+      (d.code === 'conflict' ||
+        d.code === 'unauthorized' ||
+        d.code === 'invalid-target' ||
+        d.code === 'invalid-source' ||
+        d.code === 'queue-full' ||
+        d.code === 'resolution-failed' ||
+        d.code === 'internal-error')
+    );
+  },
   [MSG.REQUEST_SETTING]: isValidRequestSetting,
   [MSG.REQUEST_KICK_DEVICE]: (d) =>
     Object.keys(d).length === 2 &&
@@ -601,6 +725,40 @@ const _inboundBuckets = new Map<string, { tokens: number; lastRefill: number }>(
 
 const RATE_LIMIT_EXEMPT: ReadonlySet<string> = new Set<string>([MSG.FILE_CHUNK, MSG.PRELOAD_CHUNK]);
 
+type InboundRateLimitExemptionGuard = (
+  msg: Readonly<Record<string, unknown>>,
+  conn: DataConnection,
+) => boolean;
+
+// Some high-rate protocols are only safe to exempt while their own bounded,
+// authorized transfer state is active. Keep the guard registration here so a
+// feature module can prove that state without protocol.ts importing the
+// feature back and creating an initialization cycle.
+const _conditionalRateLimitExemptions = new Map<string, InboundRateLimitExemptionGuard>();
+
+export function registerInboundRateLimitExemptionGuard(
+  type: MsgType,
+  guard: InboundRateLimitExemptionGuard,
+): void {
+  _conditionalRateLimitExemptions.set(type, guard);
+}
+
+function isInboundRateLimitExempt(
+  msgType: MsgType,
+  msg: Readonly<Record<string, unknown>>,
+  conn: DataConnection,
+): boolean {
+  if (RATE_LIMIT_EXEMPT.has(msgType)) return true;
+  const guard = _conditionalRateLimitExemptions.get(msgType);
+  if (!guard) return false;
+  try {
+    return guard(msg, conn);
+  } catch (error) {
+    log.warn(`[Protocol] Rate-limit exemption guard failed for ${msgType}:`, error);
+    return false;
+  }
+}
+
 function allowInboundFromPeer(peerId: string): boolean {
   if (!peerId) return true;
   const now = Date.now();
@@ -720,7 +878,11 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 
   // Generic per-peer rate-limit — chunks bypass (high-legitimate-rate, bounded
   // by transfer-layer backpressure). Silently drops frames over the cap.
-  if (conn?.peer && !RATE_LIMIT_EXEMPT.has(msgType) && !allowInboundFromPeer(conn.peer)) {
+  if (
+    conn?.peer &&
+    !isInboundRateLimitExempt(msgType, msg, conn) &&
+    !allowInboundFromPeer(conn.peer)
+  ) {
     return;
   }
 

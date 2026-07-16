@@ -1186,6 +1186,9 @@ export function initPlayerControls(): void {
     if (!isOperator && isProRoomTrackChangeIntentPending()) {
       clearProRoomTrackChangeIntent();
     }
+    // A standard-room ADMIN grant/revoke changes media-source capabilities
+    // without changing hostConn or room.context.
+    syncMediaSourceButtonAuthority();
   });
   _busScope.on('state:room.context', () => {
     const context = getState('room.context');

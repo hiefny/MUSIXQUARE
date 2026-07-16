@@ -1,7 +1,11 @@
 /** Toast notifications and the shared header progress indicator. */
 
 import { log } from '../core/log.ts';
+import { createBusScope } from '../core/events.ts';
+import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { t } from '../i18n/index.ts';
+import type { StandardOperatorFileUplinkProgress } from '../types/index.ts';
 import { suppressViewTransitions } from './dom.ts';
 
 const TOAST_MAX_LINE_CHARS = 50;
@@ -11,6 +15,9 @@ const ELLIPSIS = '…';
 // ─── Loader (Header Progress Bar) ────────────────────────────────
 
 const DEFAULT_LOADER_ID = '_default';
+const OPERATOR_UPLINK_LOADER_PREFIX = 'standard-operator-file-uplink:';
+const MAX_REMEMBERED_UPLINK_TERMINALS = 64;
+const OPERATOR_UPLINK_FILE_NAME_CHARS = 22;
 
 interface LoaderHolder {
   text: string;
@@ -23,6 +30,11 @@ interface LoaderHolder {
 // the background operation's exact text/progress when it finishes.
 const _loaderHolders = new Map<string, LoaderHolder>();
 let _loaderOrder = 0;
+
+const _toastBusScope = createBusScope();
+const _operatorUplinkLoaderIds = new Set<string>();
+const _operatorUplinkTerminalIds = new Set<string>();
+const _operatorUplinkTerminalOrder: string[] = [];
 
 function displayedProgress(progressBg: HTMLElement | null): number {
   if (!progressBg) return 0;
@@ -226,6 +238,125 @@ export function showToast(msg: unknown, options: { durationMs?: number } = {}): 
 
 // ─── Init ────────────────────────────────────────────────────────
 
+function operatorUplinkLoaderId(progress: StandardOperatorFileUplinkProgress): string {
+  return `${OPERATOR_UPLINK_LOADER_PREFIX}${encodeURIComponent(progress.requestId)}:${encodeURIComponent(progress.sessionId)}`;
+}
+
+function rememberOperatorUplinkTerminal(loaderId: string): boolean {
+  if (_operatorUplinkTerminalIds.has(loaderId)) return false;
+
+  _operatorUplinkTerminalIds.add(loaderId);
+  _operatorUplinkTerminalOrder.push(loaderId);
+  while (_operatorUplinkTerminalOrder.length > MAX_REMEMBERED_UPLINK_TERMINALS) {
+    const staleId = _operatorUplinkTerminalOrder.shift();
+    if (staleId) _operatorUplinkTerminalIds.delete(staleId);
+  }
+  return true;
+}
+
+function closeOperatorUplinkLoader(loaderId: string): void {
+  showLoader(false, undefined, loaderId);
+  _operatorUplinkLoaderIds.delete(loaderId);
+}
+
+function operatorUplinkPercent(loaded: number, total: number): number {
+  if (!Number.isFinite(loaded) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.min(99, Math.max(0, Math.round((loaded / total) * 100)));
+}
+
+function operatorUplinkLoaderText(progress: StandardOperatorFileUplinkProgress): string {
+  const count = progress.fileCount;
+  const index = progress.fileIndex;
+  if (
+    !Number.isSafeInteger(count) ||
+    !Number.isSafeInteger(index) ||
+    count === undefined ||
+    index === undefined ||
+    count <= 0 ||
+    index < 0 ||
+    index >= count
+  ) {
+    return t('transfer.file_sending');
+  }
+  const fileName = truncateValue(progress.fileName, OPERATOR_UPLINK_FILE_NAME_CHARS);
+  return `${t('transfer.file_sending')} ${index + 1}/${count} · ${fileName}`;
+}
+
+function operatorUplinkErrorMessage(code: string | undefined): string {
+  if (code === 'operator-revoked') return t('network.op_revoked');
+  if (code === 'file-too-large') return t('share.remote.too_large');
+  if (code === 'invalid-file') return t('toast.no_supported_audio_files');
+  if (code === 'host-busy') return t('transfer.host_busy');
+  if (code === 'queue-full') return t('playlist.queue_full');
+  return t('error.network_generic');
+}
+
+function standardQueueMutationErrorMessage(reason: string, code: string | null): string {
+  if (reason === 'accept-timeout') return t('playlist.host_update_required');
+  if (code === 'queue-full') return t('playlist.queue_full');
+  if (code === 'invalid-source') return t('youtube.invalid_link');
+  if (code === 'resolution-failed') return t('youtube.fetch_failed');
+  if (code === 'unauthorized') return t('network.op_revoked');
+  if (reason === 'settle-timeout' || code === 'conflict' || code === 'invalid-target') {
+    return t('playlist.mutation_retry');
+  }
+  return t('error.network_generic');
+}
+
+function handleOperatorFileUplinkProgress(progress: StandardOperatorFileUplinkProgress): void {
+  // The host already has queue-level feedback when it accepts the completed
+  // File. Showing every receive tick would make one upload appear twice.
+  if (progress.direction !== 'send') return;
+
+  const loaderId = operatorUplinkLoaderId(progress);
+  if (progress.phase === 'waiting') {
+    if (_operatorUplinkTerminalIds.has(loaderId)) return;
+    _operatorUplinkLoaderIds.add(loaderId);
+    showLoader(true, operatorUplinkLoaderText(progress), loaderId);
+    updateLoader(0, loaderId);
+    return;
+  }
+
+  if (progress.phase === 'uploading' || progress.phase === 'assembling') {
+    if (_operatorUplinkTerminalIds.has(loaderId)) return;
+    _operatorUplinkLoaderIds.add(loaderId);
+    showLoader(true, operatorUplinkLoaderText(progress), loaderId);
+    updateLoader(operatorUplinkPercent(progress.loaded, progress.total), loaderId);
+    return;
+  }
+
+  if (!rememberOperatorUplinkTerminal(loaderId)) return;
+
+  if (progress.phase === 'complete') {
+    // Paint completion before releasing ownership. showLoader(false) keeps the
+    // final width through the existing reverse transition, then resets it.
+    updateLoader(100, loaderId);
+    closeOperatorUplinkLoader(loaderId);
+    return;
+  }
+
+  closeOperatorUplinkLoader(loaderId);
+  // Explicit cancellation is user intent, not an error. Authority loss and
+  // transport failures remain actionable and get one terminal toast.
+  if (
+    progress.code === 'cancelled' ||
+    (progress.code === 'operator-revoked' && !getState('network.isOperator'))
+  ) {
+    return;
+  }
+  showToast(operatorUplinkErrorMessage(progress.code));
+}
+
 export function initToast(): void {
+  _toastBusScope.dispose();
+  for (const loaderId of _operatorUplinkLoaderIds) showLoader(false, undefined, loaderId);
+  _operatorUplinkLoaderIds.clear();
+  _toastBusScope.on(
+    'standard-room:operator-file-uplink-progress',
+    handleOperatorFileUplinkProgress,
+  );
+  _toastBusScope.on('standard-room:queue-mutation-failed', (reason, code) => {
+    showToast(standardQueueMutationErrorMessage(reason, code));
+  });
   log.info('[Toast] Initialized');
 }

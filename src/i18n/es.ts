@@ -180,6 +180,11 @@ const es: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Cargando...',
   'playlist.track_fallback': 'Pista {{idx}}',
   'playlist.deferred_load_hint': 'Reproduce para cargar la lista completa',
+  'playlist.host_update_required': 'Actualiza el dispositivo que administra esta sala.',
+  'playlist.queue_full': 'La lista de reproducción está llena.',
+  'playlist.mutation_retry': 'La lista de reproducción cambió. Inténtalo de nuevo.',
+  'transfer.host_busy':
+    'El anfitrión está procesando otro archivo. Inténtalo de nuevo en un momento.',
 
   // Connect
   'connect.qr_title': 'Invitar por QR o enlace',

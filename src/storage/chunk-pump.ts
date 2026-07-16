@@ -93,6 +93,12 @@ interface ChunkPumpOptions {
    * escalate a single peer's exclusion to session-level teardown.
    */
   onPeerExcluded?: (peer: ConnectedPeer) => void;
+  /**
+   * Fired after every active peer has either accepted or been excluded from
+   * one prepared chunk. Unicast producers use this for sender-side progress
+   * without maintaining a second, subtly different backpressure loop.
+   */
+  onChunkComplete?: (index: number, byteLength: number) => void;
 }
 
 interface ChunkPumpResult {
@@ -127,6 +133,7 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
     isWritable,
     shouldContinue,
     onPeerExcluded,
+    onChunkComplete,
   } = opts;
 
   const total = Math.ceil(file.size / chunkSize);
@@ -189,6 +196,8 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
         safeSend(conn, chunkMsg);
       }),
     );
+
+    onChunkComplete?.(i, chunk.byteLength);
 
     // Yield periodically so chunk preparation does not monopolize the thread.
     if (i % 50 === 0) await delay(DELAY.TICK);

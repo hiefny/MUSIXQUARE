@@ -180,6 +180,11 @@ const ja: Record<I18nKey, string> = {
   'playlist.video_fallback': '読み込み中...',
   'playlist.track_fallback': 'トラック {{idx}}',
   'playlist.deferred_load_hint': '再生すると全トラック情報を読み込みます',
+  'playlist.host_update_required': 'このルームを管理している端末を更新してください。',
+  'playlist.queue_full': 'プレイリストがいっぱいです。',
+  'playlist.mutation_retry': 'プレイリストが変更されました。もう一度お試しください。',
+  'transfer.host_busy':
+    'ホストが別のファイルを処理しています。しばらくしてからもう一度お試しください。',
 
   // Connect
   'connect.qr_title': 'QRまたはリンクで招待',

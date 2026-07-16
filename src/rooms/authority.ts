@@ -12,8 +12,10 @@ const STANDARD_HOST_CAPABILITIES = new Set<RoomCapability>([
 ]);
 
 const STANDARD_OPERATOR_CAPABILITIES = new Set<RoomCapability>([
+  'queue.mutate',
   'playback.control',
   'effects.control',
+  'asset.upload',
 ]);
 
 function createIdleRoomContext(): RoomContext {
@@ -63,7 +65,14 @@ export function hasRoomCapability(capability: RoomCapability): boolean {
   if (getState('network.appRole') === 'host' && !getState('network.hostConn')) {
     return STANDARD_HOST_CAPABILITIES.has(capability);
   }
-  if (getState('network.isOperator')) return STANDARD_OPERATOR_CAPABILITIES.has(capability);
+  const hostConn = getState('network.hostConn');
+  if (
+    getState('network.appRole') === 'guest' &&
+    hostConn?.open === true &&
+    getState('network.isOperator')
+  ) {
+    return STANDARD_OPERATOR_CAPABILITIES.has(capability);
+  }
   return false;
 }
 

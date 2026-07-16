@@ -23,6 +23,11 @@ const presenceByCookie = new Map<
 type StoredRoom = {
   revision: number;
   playlist: unknown[];
+  pin: {
+    salt: string;
+    iterations: number;
+    hash: string;
+  } | null;
   quota: {
     limitBytes: number;
     perAssetLimitBytes: number;
@@ -391,7 +396,7 @@ describe('persistent PRO room bootstrap and activation', () => {
   });
 
   it('atomically activates an owner session and returns a contract-valid snapshot', async () => {
-    const { worker, ownerCookie } = await activatedRoom();
+    const { worker, state, ownerCookie } = await activatedRoom();
     const response = await worker.fetch(request('/snapshot', {}, ownerCookie));
     const envelope = await responseJson(response);
     const snapshot = parseProRoomSnapshot(envelope.snapshot);
@@ -405,6 +410,22 @@ describe('persistent PRO room bootstrap and activation', () => {
     });
     expect(JSON.stringify(envelope)).not.toContain('objectKey');
     expect(JSON.stringify(envelope)).not.toContain(ACTIVATION_SECRET);
+    const stored = state.storage.data.get('pro-room:v1') as StoredRoom;
+    expect(stored.pin?.iterations).toBe(100_000);
+  });
+
+  it('fails closed instead of throwing for an over-limit stored PBKDF2 record', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: StoredRoom };
+    expect(internal.room.pin).not.toBeNull();
+    internal.room.pin!.iterations = 100_001;
+
+    const response = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await responseJson(response)).toEqual({ error: 'PIN_INVALID' });
   });
 
   it('has no public claim-issuance endpoint', async () => {

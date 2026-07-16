@@ -3821,6 +3821,10 @@
     transition: color 0.2s;
   }
 
+  .dialog-input-split + .dialog-hint {
+    text-align: center;
+  }
+
   .dialog-hint.error {
     color: #ef4444;
   }

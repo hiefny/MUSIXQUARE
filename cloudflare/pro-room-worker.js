@@ -57,7 +57,11 @@ const ASSET_GC_RETRY_SECONDS = 60;
 const PRESIGN_TTL_SECONDS = 10 * 60;
 const SIGNALING_TICKET_TTL_SECONDS = 90;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-const PBKDF2_ITERATIONS = 210_000;
+// workerd rejects PBKDF2 counts above 100,000. Keep the stored record at the
+// runtime ceiling so activation and PIN verification use the strongest value
+// Cloudflare can execute instead of surfacing an unhandled NotSupportedError.
+const PBKDF2_MAX_ITERATIONS = 100_000;
+const PBKDF2_ITERATIONS = PBKDF2_MAX_ITERATIONS;
 const MAX_DISPLAY_NAME_LENGTH = 64;
 const MAX_MEDIA_NAME_LENGTH = 2048;
 const MAX_TEXT_LENGTH = 2048;
@@ -438,6 +442,13 @@ async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
 }
 
 async function derivePinHash(pin, salt, pepper, iterations = PBKDF2_ITERATIONS) {
+  if (
+    !Number.isSafeInteger(iterations) ||
+    iterations < 1 ||
+    iterations > PBKDF2_MAX_ITERATIONS
+  ) {
+    throw new RangeError('Invalid PBKDF2 iteration count');
+  }
   const material = await crypto.subtle.importKey(
     'raw',
     encoder.encode(`${pin}\u0000${pepper}`),
@@ -463,8 +474,25 @@ async function createPinRecord(pin, pepper) {
 
 async function verifyPin(pin, record, pepper) {
   if (!record || typeof pepper !== 'string' || pepper.length < 32) return false;
-  const actual = await derivePinHash(pin, record.salt, pepper, record.iterations);
-  return constantTimeEqual(actual, record.hash);
+  if (
+    typeof record.salt !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(record.salt) ||
+    typeof record.hash !== 'string' ||
+    !/^[A-Za-z0-9_-]{43}$/.test(record.hash) ||
+    !Number.isSafeInteger(record.iterations) ||
+    record.iterations < 1 ||
+    record.iterations > PBKDF2_MAX_ITERATIONS
+  ) {
+    return false;
+  }
+  try {
+    const actual = await derivePinHash(pin, record.salt, pepper, record.iterations);
+    return constantTimeEqual(actual, record.hash);
+  } catch {
+    // Corrupt or runtime-incompatible stored credentials fail closed instead
+    // of turning a PIN attempt into a Worker exception.
+    return false;
+  }
 }
 
 async function readJsonBody(request, maxBytes, allowSimpleText = false) {

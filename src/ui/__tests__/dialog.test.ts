@@ -131,6 +131,38 @@ describe('Dialog System', () => {
       closeDialog();
       vi.advanceTimersByTime(10);
     });
+
+    it('returns the edited split PIN and keeps its hint adjacent to the input group', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Activate room',
+        inputField: {
+          placeholder: '8-digit PIN',
+          maxLength: 8,
+          inputMode: 'numeric',
+          splitEvery: 4,
+          separator: '-',
+          validator: (value) => (value === '00000001' ? 'Choose another PIN' : null),
+        },
+      });
+      vi.advanceTimersByTime(10);
+
+      const group = document.querySelector<HTMLElement>('.dialog-input-split');
+      const segments = document.querySelectorAll<HTMLInputElement>('.dialog-input-segment');
+      const hint = document.querySelector<HTMLElement>('.dialog-hint');
+      expect(group).not.toBeNull();
+      expect(segments).toHaveLength(2);
+      expect(group?.nextElementSibling).toBe(hint);
+
+      segments[0]!.value = '8765';
+      segments[0]!.dispatchEvent(new Event('input', { bubbles: true }));
+      segments[1]!.value = '4321';
+      segments[1]!.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('btn-dialog-ok')?.click();
+      vi.advanceTimersByTime(10);
+
+      await expect(promise).resolves.toEqual({ action: 'ok', inputValue: '87654321' });
+    });
   });
 
   describe('closeDialog()', () => {

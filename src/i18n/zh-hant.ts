@@ -525,7 +525,7 @@ const zhHant: Record<I18nKey, string> = {
   'pro.active_tab_message': '原分頁會保持連線。若在此繼續，原分頁將中斷連線。',
   'pro.use_this_tab': '在此分頁繼續',
   'pro.uploading': '正在儲存至 PRO 房間...',
-  'pro.downloading': '正在從 PRO 房間載入...',
+  'pro.downloading': '正在載入檔案...',
   'pro.quota_exceeded': '此 PRO 房間的 1 GB 儲存空間已用完。',
   'pro.file_too_large': '此檔案超過單一檔案 200 MB 的上限。',
 

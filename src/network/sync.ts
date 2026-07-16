@@ -108,9 +108,20 @@ function clampManualSyncOffset(value: number): number {
   return Math.max(-MANUAL_SYNC_OFFSET_LIMIT_SEC, Math.min(MANUAL_SYNC_OFFSET_LIMIT_SEC, value));
 }
 
-function canApplyManualSyncAction(): boolean {
+function hasManualSyncEndpoint(): boolean {
   const hostConn = getState('network.hostConn');
-  if (!hostConn?.open) return false;
+  if (hostConn?.open) return true;
+  const room = getRoomContext();
+  return room.kind === 'pro' && room.role === 'coordinator';
+}
+
+function isProCoordinatorManualSyncEndpoint(): boolean {
+  const room = getRoomContext();
+  return room.kind === 'pro' && room.role === 'coordinator';
+}
+
+function canApplyManualSyncAction(): boolean {
+  if (!hasManualSyncEndpoint()) return false;
   if (isPlaybackModeYouTube()) return true;
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
@@ -139,7 +150,15 @@ function scheduleYouTubeManualSyncApply(): void {
 
 function adjustYouTubeSync(val: number): void {
   const localOffset = getState('sync.youtubeLocalOffset') || 0;
-  setState('sync.youtubeLocalOffset', clampManualSyncOffset(localOffset + val));
+  const nextOffset = clampManualSyncOffset(localOffset + val);
+  if (isProCoordinatorManualSyncEndpoint()) {
+    clearManagedTimer('sync-youtube-nudge-apply');
+    // The iframe handler stores the offset that was actually achievable at
+    // 0/duration boundaries. Do not pre-write the requested value here.
+    bus.emit('youtube:set-coordinator-manual-offset', nextOffset);
+    return;
+  }
+  setState('sync.youtubeLocalOffset', nextOffset);
   bus.emit('sync:display-update');
   scheduleYouTubeManualSyncApply();
 }
@@ -148,6 +167,16 @@ function adjustYouTubeSync(val: number): void {
 
 export function handleAutoSync(): void {
   const offsetPath = getActiveManualOffsetPath();
+  const isProCoordinatorYouTubeReset =
+    offsetPath === 'sync.youtubeLocalOffset' &&
+    isProCoordinatorManualSyncEndpoint() &&
+    isPlaybackModeYouTube();
+  if (isProCoordinatorYouTubeReset) {
+    clearManagedTimer('sync-youtube-nudge-apply');
+    bus.emit('youtube:set-coordinator-manual-offset', 0);
+    showToast(t('toast.sync_reset'));
+    return;
+  }
   if (offsetPath === 'sync.localOffset') {
     setLocalManualSyncOffset(0);
   } else {
@@ -158,8 +187,7 @@ export function handleAutoSync(): void {
   clearManagedTimer('sync-youtube-nudge-apply');
 
   if (offsetPath === 'sync.youtubeLocalOffset') {
-    const hostConn = getState('network.hostConn');
-    if (hostConn?.open && isPlaybackModeYouTube()) {
+    if (hasManualSyncEndpoint() && isPlaybackModeYouTube()) {
       bus.emit('youtube:apply-manual-sync');
     }
     return;

@@ -189,12 +189,14 @@ describe('updateRoleBadge', () => {
     setState('network.hostConn', makeConnection('host-1'));
     setState('network.myDeviceLabel', 'GUEST 1');
     setState('network.connectionType', 'remote');
+    setState('sync.lastLatencyMs', 42);
 
     updateRoleBadge();
 
     expect(badge.classList.contains('connected')).toBe(true);
     expect(badge.classList.contains('remote')).toBe(true);
-    expect(document.getElementById('role-text')?.textContent).toContain('GUEST 1');
+    expect(document.getElementById('role-text')?.textContent).toBe('GUEST 1 (42ms)');
+    expect(document.querySelector('.badge-ping')?.textContent).toBe('(42ms)');
   });
 
   it('keeps a connected local guest blue by clearing the remote class', () => {
@@ -222,6 +224,52 @@ describe('updateRoleBadge', () => {
     setState('network.myDeviceLabel', 'Living Room');
 
     expect(document.getElementById('role-text')?.innerText).toBe('Living Room');
+  });
+
+  it('renders every PRO member as the same compact identity without ping or route color', () => {
+    const badge = renderBadge();
+    setState('network.hostConn', makeConnection('coordinator'));
+    setState('network.myDeviceLabel', 'Listening Room');
+    setState('network.connectionType', 'remote');
+    setState('sync.lastLatencyMs', 87);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+
+    updateRoleBadge();
+
+    expect(badge.classList.contains('connected')).toBe(true);
+    expect(badge.classList.contains('remote')).toBe(false);
+    expect(document.getElementById('role-text')?.textContent).toBe('Listening Room');
+    expect(document.querySelector('.badge-ping')).toBeNull();
+  });
+
+  it('uses the same PRO identity contract for the active coordinator', () => {
+    const badge = renderBadge();
+    setState('network.appRole', 'host');
+    setState('network.myDeviceLabel', 'Peer 0');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-0',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+
+    updateRoleBadge();
+
+    expect(badge.classList.contains('connected')).toBe(true);
+    expect(badge.classList.contains('remote')).toBe(false);
+    expect(document.getElementById('role-text')?.textContent).toBe('Peer 0');
+    expect(document.querySelector('.badge-ping')).toBeNull();
   });
 
   it('pulses the role dot twice per host-clock second', () => {
@@ -722,6 +770,29 @@ describe('initPlayerControls sync button', () => {
     );
   });
 
+  it('opens the same local YouTube nudge panel for a PRO coordinator', () => {
+    renderSyncControls();
+    setState('network.appRole', 'host');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-0',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    expect(broadcastYouTubeSync).not.toHaveBeenCalled();
+    expect(guestRendezvousSync).not.toHaveBeenCalled();
+  });
+
   it('does not treat a closed YouTube host connection as either host or guest sync', () => {
     renderSyncControls();
     setState('network.hostConn', { peer: 'host-1', open: false } as DataConnection);
@@ -761,6 +832,33 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith(
       'Precision sync requested.\nAdjust manual sync on a guest device.',
     );
+  });
+
+  it('opens the local-file nudge panel without broadcasting for a PRO coordinator', () => {
+    renderSyncControls();
+    setState('network.appRole', 'host');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-0',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const broadcastSpy = vi.fn();
+    bus.on('network:broadcast', broadcastSpy);
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    expect(broadcastSpy).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   it('broadcasts a local-file PAUSE position sync when the host is paused', () => {

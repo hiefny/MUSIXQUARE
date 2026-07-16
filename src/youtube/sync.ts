@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
+import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
@@ -37,6 +37,14 @@ import { invalidateYtDurationCache } from './iframe.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
+import {
+  beginProCoordinatorYouTubeNudge,
+  clearProCoordinatorYouTubeNudgeAnchor,
+  isProCoordinatorYouTubeEndpoint,
+  PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
+  resolveProCoordinatorYouTubeTarget,
+  toCanonicalYouTubeTime,
+} from './local-offset.ts';
 import {
   DRIFT_SEEK_THRESHOLD_SEC,
   HOST_AD_STALE_THRESHOLD,
@@ -75,6 +83,7 @@ import {
  */
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
+let _wasProCoordinatorYouTubeEndpoint = false;
 
 /** Effective playVideo-to-audible latency for guest rendezvous calibration. */
 function getEffectiveGuestPlayLatencyMs(): number {
@@ -86,6 +95,57 @@ function getEffectiveGuestPlayLatencyMs(): number {
 function getYouTubeManualOffsetSec(): number {
   const offset = getState('sync.youtubeLocalOffset') || 0;
   return Number.isFinite(offset) ? offset : 0;
+}
+
+function getPromotedCoordinatorAppliedOffset(requestedOffset: number): number {
+  const snapshot = _rt.lastHostSnapshot;
+  const player = getYouTubePlayer();
+  if (!snapshot || !player?.getCurrentTime) return requestedOffset;
+
+  try {
+    const snapshotAgeMs = getHostNow() - snapshot.hostClockAt;
+    if (!Number.isFinite(snapshotAgeMs) || snapshotAgeMs > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS) {
+      return requestedOffset;
+    }
+
+    const snapshotVideoId = snapshot._videoId || '';
+    const currentVideoId = player.getVideoData?.()?.video_id || '';
+    if (snapshotVideoId && currentVideoId && snapshotVideoId !== currentVideoId) {
+      return requestedOffset;
+    }
+
+    const duration = player.getDuration?.() || 0;
+    const elapsedSeconds = snapshot.hostState === 1 ? Math.max(0, snapshotAgeMs) / 1000 : 0;
+    const canonicalTime = clampYouTubeTime(snapshot.hostPosition + elapsedSeconds, duration);
+    const localTime = clampYouTubeTime(player.getCurrentTime(), duration);
+    return Math.max(
+      -MANUAL_SYNC_OFFSET_LIMIT_SEC,
+      Math.min(MANUAL_SYNC_OFFSET_LIMIT_SEC, localTime - canonicalTime),
+    );
+  } catch {
+    return requestedOffset;
+  }
+}
+
+function reconcileProCoordinatorAppliedOffset(): void {
+  const isCoordinator = isProCoordinatorYouTubeEndpoint();
+  if (isCoordinator && !_wasProCoordinatorYouTubeEndpoint) {
+    clearProCoordinatorYouTubeNudgeAnchor();
+    // A promoted member's iframe already carries its personal offset. Prefer
+    // the actual local-vs-canonical delta from the last trusted host snapshot:
+    // near the start/end of a video the requested offset may have been
+    // clamped, so copying the request would corrupt the first coordinator
+    // snapshot. Fall back to the request when no compatible snapshot exists.
+    const requestedOffset = getYouTubeManualOffsetSec();
+    setState(
+      'sync.youtubeCoordinatorAppliedOffset',
+      getPromotedCoordinatorAppliedOffset(requestedOffset),
+    );
+  } else if (!isCoordinator) {
+    clearProCoordinatorYouTubeNudgeAnchor();
+    setState('sync.youtubeCoordinatorAppliedOffset', 0);
+  }
+  _wasProCoordinatorYouTubeEndpoint = isCoordinator;
 }
 
 function clampYouTubeTime(time: number, duration: number): number {
@@ -113,6 +173,11 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // fresh sync).
   if (!isManual && Date.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) return;
 
+  // A coordinator-only nudge can make the iframe report transient BUFFERING
+  // and PLAYING states. Neither those states nor the settling heartbeat are
+  // room actions, so keep them local until the iframe has stabilized.
+  if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;
+
   // Suppress heartbeat while the 2-stage rendezvous is in-flight.
   // During the stage-2 delay the host just seeked — getCurrentTime()
   // may return a stale (pre-seek) value. Broadcasting that stale position
@@ -128,6 +193,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
 
   try {
     const currentTime = player.getCurrentTime();
+    const canonicalTime = toCanonicalYouTubeTime(currentTime, player.getDuration?.() || 0);
     // Prefer caller-supplied INTENT state when provided. scheduleYtAutoSync's
     // Stage 2 callback uses this so a transient BUFFERING (3) state on slow
     // networks doesn't poison guests' lastHostSnapshot.hostState and trip
@@ -195,7 +261,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
     broadcast({
       type: MSG.YOUTUBE_SYNC,
       queueItemId,
-      time: currentTime,
+      time: canonicalTime,
       state,
       subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId,
@@ -209,7 +275,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
     });
     if (isManual) _lastManualBroadcastAt = Date.now();
     log.debug(
-      `[YouTube] Broadcast sync: t=${currentTime}, s=${state}${isManual ? ' (Manual)' : ''}`,
+      `[YouTube] Broadcast sync: t=${canonicalTime}, s=${state}${isManual ? ' (Manual)' : ''}`,
     );
   } catch (e) {
     log.error('[YouTube Sync] broadcast error:', e);
@@ -282,13 +348,18 @@ export function suppressDriftUntil(ms: number): void {
 // Consumed by guestRendezvousSync() to extrapolate host's current position
 // using the shared clock. hostClockAt is in host-clock milliseconds so
 // extrapolation composes directly with getHostNow().
-function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: number): void {
+function updateHostSnapshot(
+  hostTime: number,
+  hostState: number,
+  hostClock?: number,
+  hostVideoId?: string,
+): void {
   const player = getYouTubePlayer();
   _rt.lastHostSnapshot = {
     hostClockAt: hostClock ?? getHostNow(),
     hostPosition: hostTime,
     hostState,
-    _videoId: player?.getVideoData?.()?.video_id || '',
+    _videoId: hostVideoId || player?.getVideoData?.()?.video_id || '',
   };
 }
 
@@ -386,6 +457,54 @@ function runManualOffsetApplyRendezvous(): void {
   clearPendingManualOffsetApply();
 }
 
+function setCoordinatorManualYouTubeOffset(requestedOffsetSeconds: number): void {
+  if (
+    !isProCoordinatorYouTubeEndpoint() ||
+    !Number.isFinite(requestedOffsetSeconds) ||
+    !isPlaybackModeYouTube()
+  ) {
+    return;
+  }
+  const player = getYouTubePlayer();
+  if (!player?.getCurrentTime || !player.seekTo) return;
+  try {
+    const duration = player.getDuration?.() || 0;
+    const canonicalTime = beginProCoordinatorYouTubeNudge(
+      player.getCurrentTime(),
+      duration,
+      player.getPlayerState?.() === 1,
+    );
+    const target = resolveProCoordinatorYouTubeTarget(
+      canonicalTime,
+      requestedOffsetSeconds,
+      duration,
+    );
+
+    // Arm the gate before seekTo: some iframe implementations synchronously
+    // enter BUFFERING while the call is still on the stack.
+    setManagedTimer(
+      PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
+      clearProCoordinatorYouTubeNudgeAnchor,
+      IMMEDIATE_ACTION_COOLDOWN_MS,
+    );
+    player.seekTo(target.localTime, true);
+    setState('sync.youtubeLocalOffset', target.requestedOffset);
+    setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
+    bus.emit('sync:display-update');
+    bus.emit(
+      'ui:time-update',
+      fmtTime(target.canonicalTime),
+      fmtTime(duration),
+      target.canonicalTime,
+      duration,
+    );
+  } catch (error) {
+    clearManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
+    clearProCoordinatorYouTubeNudgeAnchor();
+    log.debug('[YouTube Sync] PRO coordinator local nudge skipped:', error);
+  }
+}
+
 // Spoofing defense helper: only accept host broadcasts from hostConn.
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
@@ -421,7 +540,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostState = Number(data.state);
   const hostSubIndex = data.subIndex as number | undefined;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
-  updateHostSnapshot(hostTime, hostState, hostClock);
+  updateHostSnapshot(hostTime, hostState, hostClock, (data.videoId as string) || '');
 
   const isManual = !!data.isManual;
   if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) {
@@ -938,10 +1057,13 @@ export function resetYouTubeSyncState(): void {
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
   _pendingManualOffsetApplyUntil = 0;
+  setState('sync.youtubeCoordinatorAppliedOffset', 0);
   setLocalYouTubePaused(false);
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');
   clearManagedTimer('yt-manual-offset-apply-retry');
+  clearManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
+  clearProCoordinatorYouTubeNudgeAnchor();
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
@@ -987,7 +1109,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // bad snapshot.
   const time = Number(data.time) || 0;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
-  updateHostSnapshot(time, state, hostClock);
+  updateHostSnapshot(time, state, hostClock, (data.videoId as string) || '');
 
   if (!player || !isPlaybackModeYouTube()) return;
 
@@ -1383,6 +1505,9 @@ export function initYouTubeSync(): void {
 
   bus.on('youtube:player-ready', runPendingManualRendezvous);
   bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
+  bus.on('youtube:set-coordinator-manual-offset', setCoordinatorManualYouTubeOffset);
+  bus.on('state:room.context', reconcileProCoordinatorAppliedOffset);
+  reconcileProCoordinatorAppliedOffset();
 
   log.info('[YouTube Sync] Initialized');
 }

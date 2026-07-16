@@ -591,7 +591,7 @@ const ko = {
     '기존 탭의 연결은 그대로 유지돼요. 이 탭에서 계속하면 기존 탭의 연결이 종료돼요.',
   'pro.use_this_tab': '이 탭에서 계속',
   'pro.uploading': 'PRO 방에 저장하는 중...',
-  'pro.downloading': 'PRO 방에서 불러오는 중...',
+  'pro.downloading': '파일 불러오는 중...',
   'pro.quota_exceeded': 'PRO 방의 1GB 저장 공간을 모두 사용했어요.',
   'pro.file_too_large': '이 파일은 파일당 200MB 제한을 넘어요.',
 

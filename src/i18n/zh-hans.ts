@@ -524,7 +524,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.active_tab_message': '原标签页会保持连接。若在此处继续，原标签页将断开连接。',
   'pro.use_this_tab': '在此标签页继续',
   'pro.uploading': '正在保存到 PRO 房间...',
-  'pro.downloading': '正在从 PRO 房间加载...',
+  'pro.downloading': '正在加载文件...',
   'pro.quota_exceeded': '此 PRO 房间的 1 GB 存储空间已用完。',
   'pro.file_too_large': '此文件超过单个文件 200 MB 的上限。',
 

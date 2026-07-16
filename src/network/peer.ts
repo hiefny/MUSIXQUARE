@@ -1138,6 +1138,7 @@ export function leaveSession(): void {
     // Sync
     'sync.localOffset': 0,
     'sync.youtubeLocalOffset': 0,
+    'sync.youtubeCoordinatorAppliedOffset': 0,
     'sync.lastLatencyMs': 0,
     'sync.latencyHistory': [],
     // Player

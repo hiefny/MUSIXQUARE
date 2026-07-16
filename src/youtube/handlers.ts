@@ -15,6 +15,7 @@ import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
+import { toCanonicalYouTubeTime } from './local-offset.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
@@ -132,7 +133,9 @@ export function handleRequestYouTubePlay(
 
   const player = getYouTubePlayer();
   if (player?.getCurrentTime) {
-    scheduleYtAutoSync(player.getCurrentTime() || 0);
+    scheduleYtAutoSync(
+      toCanonicalYouTubeTime(player.getCurrentTime() || 0, player.getDuration?.() || 0),
+    );
   }
 }
 
@@ -144,7 +147,10 @@ export function handleRequestYouTubePause(
 
   const player = getYouTubePlayer();
   if (player?.pauseVideo) {
-    const time = player.getCurrentTime?.() || 0;
+    const time = toCanonicalYouTubeTime(
+      player.getCurrentTime?.() || 0,
+      player.getDuration?.() || 0,
+    );
     scheduleYtAutoSync(time, { state: 2 });
   }
 }
@@ -160,11 +166,16 @@ export function handleRequestYouTubeToggle(
   try {
     const state = player.getPlayerState();
     if (state === YT.PlayerState.PLAYING) {
-      const time = player.getCurrentTime?.() || 0;
+      const time = toCanonicalYouTubeTime(
+        player.getCurrentTime?.() || 0,
+        player.getDuration?.() || 0,
+      );
       scheduleYtAutoSync(time, { state: 2 });
     } else {
       // Play
-      scheduleYtAutoSync(player.getCurrentTime?.() || 0);
+      scheduleYtAutoSync(
+        toCanonicalYouTubeTime(player.getCurrentTime?.() || 0, player.getDuration?.() || 0),
+      );
     }
   } catch (e) {
     log.error('[YouTube] Toggle error:', e);

@@ -559,7 +559,7 @@ const fr: Record<I18nKey, string> = {
     'L’autre onglet restera connecté. Si vous continuez ici, il sera déconnecté.',
   'pro.use_this_tab': 'Continuer dans cet onglet',
   'pro.uploading': 'Enregistrement dans la salle PRO...',
-  'pro.downloading': 'Chargement depuis la salle PRO...',
+  'pro.downloading': 'Chargement du fichier...',
   'pro.quota_exceeded': 'Cette salle PRO a atteint sa limite de stockage de 1 Go.',
   'pro.file_too_large': 'Ce fichier dépasse la limite de 200 Mo par fichier.',
 

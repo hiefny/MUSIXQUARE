@@ -556,7 +556,7 @@ const ptBr: Record<I18nKey, string> = {
     'A outra aba continuará conectada. Se você continuar aqui, ela será desconectada.',
   'pro.use_this_tab': 'Continuar nesta aba',
   'pro.uploading': 'Salvando na sala PRO...',
-  'pro.downloading': 'Carregando da sala PRO...',
+  'pro.downloading': 'Carregando arquivo...',
   'pro.quota_exceeded': 'Esta sala PRO atingiu o limite de 1 GB.',
   'pro.file_too_large': 'Este arquivo excede o limite de 200 MB por arquivo.',
 

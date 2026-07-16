@@ -607,7 +607,7 @@ const tr: Record<I18nKey, string> = {
     'Diğer sekme bağlı kalır. Burada devam ederseniz o sekmenin bağlantısı kesilir.',
   'pro.use_this_tab': 'Bu sekmede devam et',
   'pro.uploading': 'PRO odasına kaydediliyor...',
-  'pro.downloading': 'PRO odasından yükleniyor...',
+  'pro.downloading': 'Dosya yükleniyor...',
   'pro.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu.',
   'pro.file_too_large': 'Bu dosya, dosya başına 200 MB sınırını aşıyor.',
 

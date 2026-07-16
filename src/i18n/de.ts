@@ -551,7 +551,7 @@ const de: Record<I18nKey, string> = {
     'Der bisherige Tab bleibt verbunden. Wenn du hier fortfährst, wird seine Verbindung getrennt.',
   'pro.use_this_tab': 'In diesem Tab fortfahren',
   'pro.uploading': 'Im PRO-Raum speichern...',
-  'pro.downloading': 'Aus dem PRO-Raum laden...',
+  'pro.downloading': 'Datei wird geladen...',
   'pro.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',
   'pro.file_too_large': 'Diese Datei überschreitet das Limit von 200 MB pro Datei.',
 

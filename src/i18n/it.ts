@@ -614,7 +614,7 @@ const it: Record<I18nKey, string> = {
   'pro.active_tab_message': 'L’altra scheda resterà connessa. Se continui qui, verrà disconnessa.',
   'pro.use_this_tab': 'Continua in questa scheda',
   'pro.uploading': 'Salvataggio nella stanza PRO...',
-  'pro.downloading': 'Caricamento dalla stanza PRO...',
+  'pro.downloading': 'Caricamento del file...',
   'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di 1 GB.',
   'pro.file_too_large': 'Questo file supera il limite di 200 MB per file.',
 

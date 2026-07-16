@@ -765,6 +765,8 @@ export interface StateTree {
   sync: {
     localOffset: number;
     youtubeLocalOffset: number;
+    /** Actual offset currently realized by the authoritative PRO YouTube iframe. */
+    youtubeCoordinatorAppliedOffset: number;
     lastLatencyMs: number;
     latencyHistory: number[];
   };
@@ -1118,6 +1120,7 @@ interface BaseEventMap {
   'youtube:player-ready': [];
   'youtube:broadcast-sync': [];
   'youtube:apply-manual-sync': [];
+  'youtube:set-coordinator-manual-offset': [requestedOffsetSeconds: number];
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];
   'youtube:load-from-chat': [url: string];

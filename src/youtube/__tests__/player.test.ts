@@ -191,6 +191,181 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('PRO coordinator canonical controls', () => {
+    it('keeps displayed position and paused seek messages on room time', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const player = {
+        getCurrentTime: vi.fn(() => 10.25),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 2),
+        getVideoData: vi.fn(() => ({ video_id: 'video-1', title: 'Video' })),
+        seekTo: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(player);
+      setPlaybackYouTubePlaying();
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'video-1',
+          playlistId: null,
+          name: 'Video',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('sync.youtubeLocalOffset', 0.25);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      initYouTube();
+
+      let position = -1;
+      bus.emit('youtube:get-position', (value) => {
+        position = value;
+      });
+      expect(position).toBe(10);
+
+      bus.emit('youtube:seek-to', 20);
+
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.YOUTUBE_STATE, state: 2, time: 20 }),
+      );
+      expect(player.seekTo).toHaveBeenCalledWith(20.25, true);
+    });
+
+    it('honors Pause and freezes the anchor while a coordinator nudge is buffering', async () => {
+      const yt = { PlayerState: { PLAYING: 1, PAUSED: 2 } };
+      (window as unknown as { YT: unknown }).YT = yt;
+      (globalThis as unknown as { YT: unknown }).YT = yt;
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const { getManagedTimer } = await import('../../core/timers.ts');
+      const { beginProCoordinatorYouTubeNudge, toCanonicalYouTubeTime } =
+        await import('../local-offset.ts');
+      let playerState = 3;
+      const player = {
+        getCurrentTime: vi.fn(() => 10.25),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => playerState),
+        getVideoData: vi.fn(() => ({ video_id: 'video-1', title: 'Video' })),
+        pauseVideo: vi.fn(() => {
+          playerState = 2;
+        }),
+        playVideo: vi.fn(),
+        seekTo: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(player);
+      setPlaybackYouTubePlaying();
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'video-1',
+          playlistId: null,
+          name: 'Video',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('sync.youtubeLocalOffset', 0.25);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      beginProCoordinatorYouTubeNudge(10.25, 120, true);
+      vi.mocked(getManagedTimer).mockImplementation((name) =>
+        name === 'yt-pro-coordinator-local-nudge'
+          ? ({} as ReturnType<typeof getManagedTimer>)
+          : null,
+      );
+      initYouTube();
+
+      vi.advanceTimersByTime(1000);
+      bus.emit('youtube:toggle-play');
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.YOUTUBE_STATE, state: 2, time: 11 }),
+      );
+
+      vi.advanceTimersByTime(1000);
+      expect(toCanonicalYouTubeTime(10.25, 120)).toBe(11);
+      vi.mocked(getManagedTimer).mockReturnValue(null);
+    });
+
+    it('rebases a native playlist advance onto the new video before broadcasting', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const player = {
+        getCurrentTime: vi.fn(() => 0.2),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 3),
+        getPlaylistIndex: vi.fn(() => 1),
+        getPlaylist: vi.fn(() => ['video-1', 'video-2']),
+        getVideoData: vi.fn(() => ({ video_id: 'video-2', title: 'Video 2' })),
+        loadVideoById: vi.fn(),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        seekTo: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(player);
+      setPlaybackYouTubePlaying();
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'video-1',
+          playlistId: 'playlist-1',
+          name: 'Playlist',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('sync.youtubeLocalOffset', -3);
+      setState('sync.youtubeCoordinatorAppliedOffset', -3);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      initYouTube();
+
+      bus.emit('youtube:sub-video-advanced');
+
+      expect(player.loadVideoById).toHaveBeenCalledWith('video-2');
+      expect(player.seekTo).toHaveBeenCalledWith(0, true);
+      expect(player.playVideo).toHaveBeenCalled();
+      expect(getState('sync.youtubeLocalOffset')).toBe(-3);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-0.2, 8);
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_STATE,
+          state: 1,
+          time: 0.2,
+          subIndex: 1,
+          videoId: 'video-2',
+        }),
+      );
+    });
+  });
+
   describe('stopYouTubeMode()', () => {
     it('does not throw when no player exists', async () => {
       const { stopYouTubeMode } = await import('../player.ts');
@@ -203,7 +378,7 @@ describe('YouTube Player', () => {
       const { initYouTube } = await import('../player.ts');
       const { setYouTubePlayer } = await import('../_state.ts');
       const { safeSend } = await import('../../network/peer.ts');
-      const { setManagedTimer } = await import('../../core/timers.ts');
+      const { getManagedTimer, setManagedTimer } = await import('../../core/timers.ts');
       const { STAGE2_RENDEZVOUS_BROADCAST_MS } = await import('../constants.ts');
 
       setPlaybackYouTubePlaying();
@@ -287,6 +462,92 @@ describe('YouTube Player', () => {
           videoId: 'liveVideo123',
           title: 'Late Join Video',
         }),
+      );
+
+      setState('sync.youtubeLocalOffset', 0.25);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      const proConn = { open: true, peer: 'pro-guest', send: vi.fn() } as DataConnection;
+      bus.emit('network:peer-connected', proConn);
+
+      expect(safeSend).toHaveBeenCalledWith(
+        proConn,
+        expect.objectContaining({ type: MSG.YOUTUBE_STATE, time: 41.75 }),
+      );
+
+      const proTimerCall = vi
+        .mocked(setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-late-join-rendezvous-pro-guest');
+      (proTimerCall?.[1] as (() => void) | undefined)?.();
+      expect(safeSend).toHaveBeenCalledWith(
+        proConn,
+        expect.objectContaining({ type: MSG.YOUTUBE_SYNC, time: 41.75, isManual: true }),
+      );
+
+      vi.mocked(getManagedTimer).mockImplementation((name) =>
+        name === 'yt-pro-coordinator-local-nudge'
+          ? ({} as ReturnType<typeof getManagedTimer>)
+          : null,
+      );
+      const settlingConn = {
+        open: true,
+        peer: 'settling-guest',
+        send: vi.fn(),
+      } as DataConnection;
+      bus.emit('network:peer-connected', settlingConn);
+      expect(vi.mocked(safeSend).mock.calls.some(([target]) => target === settlingConn)).toBe(
+        false,
+      );
+
+      const settlingTimer = vi
+        .mocked(setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-late-join-pro-nudge-settling-guest');
+      expect(settlingTimer).toBeDefined();
+      vi.mocked(getManagedTimer).mockReturnValue(null);
+      (settlingTimer?.[1] as (() => void) | undefined)?.();
+      expect(safeSend).toHaveBeenCalledWith(
+        settlingConn,
+        expect.objectContaining({ type: MSG.YOUTUBE_STATE, time: 41.75 }),
+      );
+
+      const midNudgeConn = {
+        open: true,
+        peer: 'mid-nudge-guest',
+        send: vi.fn(),
+      } as DataConnection;
+      bus.emit('network:peer-connected', midNudgeConn);
+      const midNudgeTimer = vi
+        .mocked(setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-late-join-rendezvous-mid-nudge-guest');
+      expect(midNudgeTimer).toBeDefined();
+
+      vi.mocked(getManagedTimer).mockImplementation((name) =>
+        name === 'yt-pro-coordinator-local-nudge'
+          ? ({} as ReturnType<typeof getManagedTimer>)
+          : null,
+      );
+      const sendsBeforeDeferredRendezvous = vi.mocked(safeSend).mock.calls.length;
+      (midNudgeTimer?.[1] as (() => void) | undefined)?.();
+      expect(vi.mocked(safeSend).mock.calls.length).toBe(sendsBeforeDeferredRendezvous);
+
+      const deferredMidNudgeTimer = vi
+        .mocked(setManagedTimer)
+        .mock.calls.filter(([name]) => name === 'yt-late-join-rendezvous-mid-nudge-guest')
+        .at(-1);
+      expect(deferredMidNudgeTimer).not.toBe(midNudgeTimer);
+      vi.mocked(getManagedTimer).mockReturnValue(null);
+      (deferredMidNudgeTimer?.[1] as (() => void) | undefined)?.();
+      expect(safeSend).toHaveBeenCalledWith(
+        midNudgeConn,
+        expect.objectContaining({ type: MSG.YOUTUBE_SYNC, time: 41.75, isManual: true }),
       );
     });
   });

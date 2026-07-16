@@ -62,6 +62,7 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
+import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, toCanonicalYouTubeTime } from './local-offset.ts';
 import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
@@ -1449,12 +1450,19 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // at the start of its sequence, so suppressing these in-flight auxiliary
   // broadcasts is safe.
   const syncInFlight = !!getManagedTimer('yt-auto-sync');
+  const coordinatorNudgeInFlight = !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
   // Deduplicate by state as well as time. A time-only cooldown would swallow a
   // rapid pause→play transition and leave guests stale until the next heartbeat.
   const isDuplicateState =
     state === _ifr.lastBroadcastState && now - _ifr.lastStateBroadcast < STATE_BROADCAST_DEDUP_MS;
-  if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
+  if (
+    !hostConn &&
+    player?.getCurrentTime &&
+    !syncInFlight &&
+    !coordinatorNudgeInFlight &&
+    !isDuplicateState
+  ) {
     _ifr.lastStateBroadcast = now;
     _ifr.lastBroadcastState = state;
     const queueItemId = getCurrentQueueItemId();
@@ -1463,7 +1471,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
         type: MSG.YOUTUBE_STATE,
         queueItemId,
         state,
-        time: player.getCurrentTime(),
+        time: toCanonicalYouTubeTime(player.getCurrentTime(), player.getDuration?.() || 0),
         subIndex: getState('youtube.currentSubIndex') ?? -1,
         videoId: player.getVideoData?.()?.video_id || '',
         title: player.getVideoData?.()?.title || '',
@@ -1491,7 +1499,7 @@ function updateYouTubeUI(): void {
   try {
     currentTime = player.getCurrentTime();
     if (Number.isFinite(currentTime) && currentTime >= 0) {
-      _ifr.lastRecoverableTime = currentTime;
+      _ifr.lastRecoverableTime = toCanonicalYouTubeTime(currentTime, player.getDuration?.() || 0);
     }
     _ifr.crashFailCount = 0; // Reset on success
   } catch {
@@ -1784,11 +1792,12 @@ function updateYouTubeUI(): void {
     // the current time text still updates.
     {
       const displayDuration = cachedDuration > 0 ? cachedDuration : rawDuration;
+      const displayTime = toCanonicalYouTubeTime(currentTime, displayDuration);
       bus.emit(
         'ui:time-update',
-        fmtTime(currentTime),
+        fmtTime(displayTime),
         fmtTime(displayDuration),
-        currentTime,
+        displayTime,
         displayDuration,
       );
     }

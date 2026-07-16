@@ -604,7 +604,7 @@ const nl: Record<I18nKey, string> = {
     'Het andere tabblad blijft verbonden. Als je hier doorgaat, wordt de verbinding daar verbroken.',
   'pro.use_this_tab': 'Doorgaan in dit tabblad',
   'pro.uploading': 'Opslaan in PRO-ruimte...',
-  'pro.downloading': 'Laden uit PRO-ruimte...',
+  'pro.downloading': 'Bestand laden...',
   'pro.quota_exceeded': 'Deze PRO-ruimte heeft de opslaglimiet van 1 GB bereikt.',
   'pro.file_too_large': 'Dit bestand overschrijdt de limiet van 200 MB per bestand.',
 

@@ -261,6 +261,67 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(msg.hostPlayAt).toBe(0);
     });
 
+    it('keeps PRO coordinator local seek offset out of both rendezvous stages', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 120 });
+      setState('sync.youtubeLocalOffset', 0.25);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      const { scheduleYtAutoSync } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+
+      scheduleYtAutoSync(10);
+
+      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([10.25, true]);
+      expect(broadcastMock.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ type: MSG.YOUTUBE_STATE, time: 10 }),
+      );
+
+      broadcastMock.mockClear();
+      vi.advanceTimersByTime(2000);
+
+      expect(broadcastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.YOUTUBE_SYNC, time: 10, isManual: true }),
+      );
+    });
+
+    it('preserves a requested negative offset across a clamped new-video boundary', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 120 });
+      setState('sync.youtubeLocalOffset', -0.25);
+      setState('sync.youtubeCoordinatorAppliedOffset', -0.25);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      const { scheduleYtAutoSync } = await importPlayer();
+
+      scheduleYtAutoSync(0, { skipSeek: true, state: 2 });
+
+      expect(getState('sync.youtubeLocalOffset')).toBe(-0.25);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+
+      scheduleYtAutoSync(10, { state: 2 });
+
+      expect(player.__log.filter((entry) => entry.op === 'seekTo').at(-1)?.args).toEqual([
+        9.75,
+        true,
+      ]);
+      expect(getState('sync.youtubeLocalOffset')).toBe(-0.25);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(-0.25);
+    });
+
     it('does NOT broadcast Stage 2 before STAGE2_RENDEZVOUS_BROADCAST_MS (=2000ms)', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();

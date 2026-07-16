@@ -610,7 +610,7 @@ const pl: Record<I18nKey, string> = {
     'Dotychczasowa karta pozostanie połączona. Jeśli będziesz kontynuować tutaj, zostanie rozłączona.',
   'pro.use_this_tab': 'Kontynuuj w tej karcie',
   'pro.uploading': 'Zapisywanie w pokoju PRO...',
-  'pro.downloading': 'Ładowanie z pokoju PRO...',
+  'pro.downloading': 'Ładowanie pliku...',
   'pro.quota_exceeded': 'Ten pokój PRO wykorzystał limit 1 GB.',
   'pro.file_too_large': 'Ten plik przekracza limit 200 MB na plik.',
 

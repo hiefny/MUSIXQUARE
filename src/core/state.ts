@@ -153,6 +153,7 @@ function createInitialState(): StateTree {
     sync: {
       localOffset: 0,
       youtubeLocalOffset: 0,
+      youtubeCoordinatorAppliedOffset: 0,
       lastLatencyMs: 0,
       latencyHistory: [],
     },

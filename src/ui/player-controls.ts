@@ -315,6 +315,19 @@ export function updateRoleBadge(): void {
     return;
   }
 
+  // A PRO coordinator is an implementation detail, not a user-facing rank.
+  // Every participant has the same control authority, so render the same
+  // compact identity badge regardless of coordinator ownership or whether the
+  // current data path happens to be local/remote. This also keeps long device
+  // names usable beside the header's PRO badge.
+  if (getRoomContext().kind === 'pro') {
+    const myDeviceLabel = getState('network.myDeviceLabel') || '';
+    text.replaceChildren(document.createTextNode(myDeviceLabel.trim() || 'PEER'));
+    badge.classList.add('connected');
+    scheduleRoleClockPulse();
+    return;
+  }
+
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     const myDeviceLabel = getState('network.myDeviceLabel') || '';
@@ -557,7 +570,9 @@ function closeManualSyncOverlay(): void {
 
 function canUseManualSyncPanel(): boolean {
   const hostConn = getState('network.hostConn');
-  if (!hostConn?.open) return false;
+  const room = getRoomContext();
+  const isProCoordinator = room.kind === 'pro' && room.role === 'coordinator';
+  if (!hostConn?.open && !isProCoordinator) return false;
   if (isPlaybackModeSystemAudio()) return false;
   if (isPlaybackModeYouTube()) return true;
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
@@ -571,8 +586,19 @@ function handleMainSyncBtn(): void {
   }
 
   const hostConn = getState('network.hostConn');
+  const room = getRoomContext();
+  const isProCoordinator = room.kind === 'pro' && room.role === 'coordinator';
   if (!hostConn && !isPlaybackModeFile() && !isPlaybackModeYouTube()) {
     showToast(t('toast.sync_no_media'));
+    return;
+  }
+
+  // In a PRO room the coordinator is only the current transport worker. Its
+  // own speaker remains an equal playback endpoint, so Sync opens the same
+  // local nudge panel as every other participant instead of broadcasting a
+  // standard-room host command.
+  if (isProCoordinator) {
+    openManualSyncOverlay();
     return;
   }
 
@@ -1008,7 +1034,10 @@ export function initPlayerControls(): void {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
   });
-  _busScope.on('state:room.context', syncMediaSourceButtonAuthority);
+  _busScope.on('state:room.context', () => {
+    updateRoleBadge();
+    syncMediaSourceButtonAuthority();
+  });
   syncMediaSourceButtonAuthority();
 
   // Language switch → refresh translated track title + tab title

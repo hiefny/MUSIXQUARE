@@ -557,7 +557,7 @@ const es: Record<I18nKey, string> = {
     'La otra pestaña seguirá conectada. Si continúas aquí, se desconectará.',
   'pro.use_this_tab': 'Continuar en esta pestaña',
   'pro.uploading': 'Guardando en la sala PRO...',
-  'pro.downloading': 'Cargando desde la sala PRO...',
+  'pro.downloading': 'Cargando archivo...',
   'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de 1 GB.',
   'pro.file_too_large': 'Este archivo supera el límite de 200 MB por archivo.',
 

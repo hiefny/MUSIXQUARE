@@ -547,7 +547,7 @@ const id: Record<I18nKey, string> = {
     'Tab sebelumnya akan tetap terhubung. Jika Anda melanjutkan di sini, koneksinya akan diputus.',
   'pro.use_this_tab': 'Lanjutkan di tab ini',
   'pro.uploading': 'Menyimpan ke ruang PRO...',
-  'pro.downloading': 'Memuat dari ruang PRO...',
+  'pro.downloading': 'Memuat file...',
   'pro.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB.',
   'pro.file_too_large': 'File ini melebihi batas 200 MB per file.',
 

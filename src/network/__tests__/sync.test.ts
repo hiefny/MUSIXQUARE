@@ -157,6 +157,57 @@ describe('manual sync nudge routing', () => {
     vi.advanceTimersByTime(1);
     expect(applySpy).toHaveBeenCalledTimes(1);
   });
+
+  it('lets a PRO coordinator nudge its decoded local file without hostConn', () => {
+    initSync();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-0',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setPlaybackFilePlaying();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    bus.emit('sync:nudge', 10);
+
+    expect(getState('sync.localOffset')).toBeCloseTo(0.01, 4);
+  });
+
+  it('applies and resets a PRO coordinator YouTube nudge locally', () => {
+    initSync();
+    const coordinatorApply = vi.fn();
+    const guestApply = vi.fn();
+    bus.on('youtube:set-coordinator-manual-offset', coordinatorApply);
+    bus.on('youtube:apply-manual-sync', guestApply);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-0',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setPlaybackYouTubePlaying();
+
+    bus.emit('sync:nudge', 10);
+
+    // The iframe-side handler commits only the offset that can actually be
+    // applied at media boundaries; this routing unit test observes the request.
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
+    expect(coordinatorApply).toHaveBeenLastCalledWith(0.01);
+    expect(guestApply).not.toHaveBeenCalled();
+
+    bus.emit('sync:auto-sync');
+
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
+    expect(coordinatorApply).toHaveBeenLastCalledWith(0);
+    expect(guestApply).not.toHaveBeenCalled();
+  });
 });
 
 describe('SYNC_PING playback snapshot', () => {

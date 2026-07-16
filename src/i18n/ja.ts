@@ -546,7 +546,7 @@ const ja: Record<I18nKey, string> = {
     '先に開いているタブの接続は維持されます。このタブで続けると、先のタブは切断されます。',
   'pro.use_this_tab': 'このタブで続ける',
   'pro.uploading': 'PROルームに保存中...',
-  'pro.downloading': 'PROルームから読み込み中...',
+  'pro.downloading': 'ファイルを読み込み中...',
   'pro.quota_exceeded': 'このPROルームは1GBの保存上限に達しました。',
   'pro.file_too_large': 'このファイルは1ファイルあたり200MBの上限を超えています。',
 

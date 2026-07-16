@@ -20,6 +20,7 @@ import { IS_IOS } from '../core/platform.ts';
 import {
   isPlaybackIdleCompat,
   isPlaybackModeYouTube,
+  isPlaybackPlayingYouTube,
   setPlaybackIdle,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
@@ -44,6 +45,7 @@ import {
   TRACK_TRANSITION_RENDEZVOUS_MS,
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
+  IMMEDIATE_ACTION_COOLDOWN_MS,
 } from './constants.ts';
 
 interface PendingAutoSyncOptions {
@@ -156,9 +158,17 @@ import {
   handleRequestYouTubePlaylistInfo,
 } from './handlers.ts';
 import { broadcastYouTubeSync, guestRendezvousSync, resetYouTubeSyncState } from './sync.ts';
+import {
+  clearProCoordinatorYouTubeNudgeAnchor,
+  isProCoordinatorYouTubeEndpoint,
+  PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
+  rebaseProCoordinatorYouTubeNudgeAnchor,
+  resolveProCoordinatorYouTubeTarget,
+  toCanonicalYouTubeTime,
+} from './local-offset.ts';
 import { showToast } from '../ui/toast.ts';
 
-import type { YTNamespace } from './_state.ts';
+import type { YTNamespace, YouTubePlayerInstance } from './_state.ts';
 declare const YT: YTNamespace;
 
 // ─── Re-exports ────────────────────────────────────────────────────
@@ -166,6 +176,38 @@ declare const YT: YTNamespace;
 
 export { getYouTubePlayer } from './_state.ts';
 export { loadYouTubeVideo, primeYouTubePlayer, precreateYouTubePlayer } from './iframe.ts';
+
+function getYouTubeDuration(player: YouTubePlayerInstance): number {
+  try {
+    return player.getDuration?.() || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function readCanonicalYouTubeTime(player: YouTubePlayerInstance): number {
+  return toCanonicalYouTubeTime(player.getCurrentTime?.() || 0, getYouTubeDuration(player));
+}
+
+function resolveCoordinatorLocalTarget(
+  player: YouTubePlayerInstance,
+  canonicalTime: number,
+): { canonicalTime: number; localTime: number } {
+  if (!isProCoordinatorYouTubeEndpoint()) {
+    return { canonicalTime, localTime: canonicalTime };
+  }
+
+  // A room-level play/pause/seek supersedes a still-settling local nudge.
+  // Its explicit canonical target is now the source of truth.
+  clearProCoordinatorYouTubeNudgeAnchor();
+  const target = resolveProCoordinatorYouTubeTarget(
+    canonicalTime,
+    getState('sync.youtubeLocalOffset') || 0,
+    getYouTubeDuration(player),
+  );
+  setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
+  return target;
+}
 
 // ─── YouTube Auto-Sync (SharedClock) ──────────────────────────────
 // Host actions run immediately, then a two-stage broadcast aligns guests.
@@ -206,10 +248,16 @@ export function scheduleYtAutoSync(
   const targetState = overrides?.state ?? 1; // Default to PLAYING
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
   const videoId = (overrides?.videoId ?? player.getVideoData?.()?.video_id) || '';
+  const resolvedTarget = resolveCoordinatorLocalTarget(player, targetTime);
+  const canonicalTargetTime = resolvedTarget.canonicalTime;
+  const localTargetTime = resolvedTarget.localTime;
 
   // 1. Host: Execute action immediately
-  if (!overrides?.skipSeek && targetTime >= 0) {
-    player.seekTo(targetTime, true);
+  const localOffsetRequiresSeek =
+    isProCoordinatorYouTubeEndpoint() &&
+    Math.abs(localTargetTime - canonicalTargetTime) > Number.EPSILON;
+  if ((!overrides?.skipSeek || localOffsetRequiresSeek) && canonicalTargetTime >= 0) {
+    player.seekTo(localTargetTime, true);
   }
   if (targetState === 1) {
     setYtAutoplayIntent(true);
@@ -225,7 +273,7 @@ export function scheduleYtAutoSync(
     type: MSG.YOUTUBE_STATE,
     queueItemId,
     state: targetState,
-    time: targetTime,
+    time: canonicalTargetTime,
     subIndex,
     videoId,
     hostPlayAt: 0,
@@ -292,6 +340,14 @@ function scheduleLateJoinRendezvousSync(
       if (!isPlaybackModeYouTube()) return;
       if (queueItemId !== getCurrentQueueItemId()) return;
 
+      // A coordinator-local nudge changes the iframe position before that
+      // position is reliably observable. Do not combine an old currentTime
+      // with the newly-applied offset in the second late-join snapshot.
+      if (getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) {
+        scheduleLateJoinRendezvousSync(conn, queueItemId, fallbackSubIndex, fallbackVideoId);
+        return;
+      }
+
       const player = getYouTubePlayer();
       if (!player?.getCurrentTime) return;
 
@@ -303,7 +359,7 @@ function scheduleLateJoinRendezvousSync(
         safeSend(conn, {
           type: MSG.YOUTUBE_SYNC,
           queueItemId,
-          time: player.getCurrentTime(),
+          time: toCanonicalYouTubeTime(player.getCurrentTime(), getYouTubeDuration(player)),
           state: 1,
           subIndex:
             currentSubIndex !== undefined && currentSubIndex >= 0
@@ -939,8 +995,12 @@ export function initYouTube(): void {
     if (!player) return;
     try {
       const state = player.getPlayerState();
-      const currentTime = player.getCurrentTime?.() || 0;
-      if (state === YT.PlayerState.PLAYING) {
+      const currentTime = readCanonicalYouTubeTime(player);
+      const settlingCoordinatorStillPlaying =
+        isProCoordinatorYouTubeEndpoint() &&
+        !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) &&
+        isPlaybackPlayingYouTube();
+      if (state === YT.PlayerState.PLAYING || settlingCoordinatorStillPlaying) {
         // PAUSE: immediate, no delay
         cancelYtAutoSync();
         markYtStateBroadcast();
@@ -957,6 +1017,7 @@ export function initYouTube(): void {
           });
         }
         player.pauseVideo();
+        rebaseProCoordinatorYouTubeNudgeAnchor(currentTime, getYouTubeDuration(player), false);
         markYtStateBroadcast();
       } else {
         // PLAY: 1s auto-sync delay
@@ -1014,7 +1075,7 @@ export function initYouTube(): void {
       // host. Pause + 4s TRACK_TRANSITION mirrors youtube:sub-video-advanced
       // so cross-block transitions match the rendezvous UX users already
       // expect from sub-video transitions inside a single playlist.
-      const currentTime = options.targetTime ?? player.getCurrentTime?.() ?? 0;
+      const currentTime = options.targetTime ?? readCanonicalYouTubeTime(player);
       try {
         player.pauseVideo?.();
       } catch {
@@ -1064,6 +1125,15 @@ export function initYouTube(): void {
     const player = getYouTubePlayer();
     if (!player?.playVideo) return;
 
+    // Native auto-advance has already entered a different video's timeline.
+    // The previous video's settling anchor/applied boundary cannot describe
+    // this new video; start from the raw new-video position and re-resolve the
+    // participant's requested local offset below.
+    if (isProCoordinatorYouTubeEndpoint()) {
+      clearProCoordinatorYouTubeNudgeAnchor();
+      setState('sync.youtubeCoordinatorAppliedOffset', 0);
+    }
+
     // Force-pause the host regardless of current state. At the moment of
     // detection the player may be in BUFFERING or PLAYING; we want it
     // paused so the transition rendezvous has a deterministic starting point.
@@ -1080,7 +1150,8 @@ export function initYouTube(): void {
     // exactly 0 (YouTube may have buffered a few frames ahead).
     const currentTime = (() => {
       try {
-        return player.getCurrentTime?.() || 0;
+        const rawTime = player.getCurrentTime?.() || 0;
+        return Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : 0;
       } catch {
         return 0;
       }
@@ -1116,20 +1187,20 @@ export function initYouTube(): void {
       }
     }
 
-    // Hijack native auto-advance: load the next videoId via loadVideoById and
-    // broadcast immediately instead of starting another transition rendezvous.
+    // Hijack native auto-advance into single-video mode, send Stage 1
+    // immediately, then follow with the usual precision rendezvous.
     if (nextVideoId && nextIdx > 0) {
       log.debug('[YouTube] Hijacking native auto-advance');
       setYouTubeSubIndex(nextIdx); // update highlight immediately
       player.loadVideoById?.(nextVideoId);
 
-      // Broadcast the new video and index without a transition delay.
-      // stateOverride=PLAYING — at this instant getPlayerState() reads the
-      // post-pauseVideo / pre-loadVideoById state (PAUSED or BUFFERING),
-      // which would trip guests' guestRendezvousSync "host paused" branch
-      // and stall them until the next 3s heartbeat. Mirror the Stage-2 state
-      // override used by the rendezvous path above.
-      broadcastYouTubeSync(true, YT.PlayerState.PLAYING);
+      // Reapply the requested coordinator-local nudge against this new
+      // video's boundaries; Stage 1 still broadcasts without a delay.
+      scheduleYtAutoSync(currentTime, {
+        subIndex: nextIdx,
+        videoId: nextVideoId,
+        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
+      });
       return;
     }
 
@@ -1161,7 +1232,7 @@ export function initYouTube(): void {
     if (typeof callback === 'function') {
       try {
         const player = getYouTubePlayer();
-        const pos = player?.getCurrentTime?.() ?? 0;
+        const pos = player ? readCanonicalYouTubeTime(player) : 0;
         callback(Number.isFinite(pos) && pos >= 0 ? pos : 0);
       } catch {
         callback(0);
@@ -1172,7 +1243,7 @@ export function initYouTube(): void {
   bus.on('youtube:stop-playback', () => {
     const player = getYouTubePlayer();
     if (player?.pauseVideo) {
-      const time = player.getCurrentTime?.() || 0;
+      const time = readCanonicalYouTubeTime(player);
       scheduleYtAutoSync(time, { state: 2 });
     }
   });
@@ -1181,8 +1252,8 @@ export function initYouTube(): void {
     const player = getYouTubePlayer();
     if (!player) return;
     try {
-      const current = player.getCurrentTime();
       const duration = player.getDuration();
+      const current = toCanonicalYouTubeTime(player.getCurrentTime(), duration);
       let target = current + seconds;
       if (target < 0) target = 0;
       if (target > duration) target = duration;
@@ -1213,7 +1284,7 @@ export function initYouTube(): void {
               hostClock: getHostNow(),
             });
           }
-          player.seekTo(target, true);
+          player.seekTo(resolveCoordinatorLocalTarget(player, target).localTime, true);
           markYtStateBroadcast();
         }
       } else {
@@ -1257,7 +1328,7 @@ export function initYouTube(): void {
               hostClock: getHostNow(),
             });
           }
-          player.seekTo(seconds, true);
+          player.seekTo(resolveCoordinatorLocalTarget(player, seconds).localTime, true);
           markYtStateBroadcast();
         }
       } else {
@@ -1284,7 +1355,7 @@ export function initYouTube(): void {
     // Special "restart" case: if we've played past the threshold, prev
     // restarts the current track instead of jumping to the previous sub-video.
     try {
-      if (player.getCurrentTime() > PREV_TRACK_RESTART_THRESHOLD_SEC) {
+      if (readCanonicalYouTubeTime(player) > PREV_TRACK_RESTART_THRESHOLD_SEC) {
         scheduleYtAutoSync(0);
         callback(true);
         return;
@@ -1821,7 +1892,7 @@ export function initYouTube(): void {
   });
 
   // Host: Send YouTube state to newly connected peer (late-join bootstrap)
-  bus.on('network:peer-connected', (conn) => {
+  const bootstrapYouTubePeer = (conn: DataConnection): void => {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
@@ -1829,6 +1900,19 @@ export function initYouTube(): void {
     if (hostConn) return;
 
     if (!isPlaybackModeYouTube()) return;
+
+    // seekTo may take a moment to become observable through getCurrentTime().
+    // A participant arriving inside that window must not receive a snapshot
+    // calculated from the old local position and the new applied offset.
+    if (getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) {
+      const peerId = conn.peer || 'unknown';
+      setManagedTimer(
+        `yt-late-join-pro-nudge-${peerId}`,
+        () => bootstrapYouTubePeer(conn),
+        IMMEDIATE_ACTION_COOLDOWN_MS,
+      );
+      return;
+    }
 
     const queueItemId = getCurrentQueueItemId();
     const item = getQueueItemById(queueItemId);
@@ -1842,7 +1926,7 @@ export function initYouTube(): void {
       let ytState = 2; // paused
 
       try {
-        if (player?.getCurrentTime) ytTime = player.getCurrentTime();
+        if (player?.getCurrentTime) ytTime = readCanonicalYouTubeTime(player);
         if (player?.getPlayerState) ytState = player.getPlayerState();
       } catch (e) {
         log.debug('[YouTube] late-join state read:', e);
@@ -1927,7 +2011,8 @@ export function initYouTube(): void {
     } catch (e) {
       log.warn('[YouTube] Bootstrap send failed:', e);
     }
-  });
+  };
+  bus.on('network:peer-connected', bootstrapYouTubePeer);
 
   log.info('[YouTube] Player initialized');
 }

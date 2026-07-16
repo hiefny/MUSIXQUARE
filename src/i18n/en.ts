@@ -596,7 +596,7 @@ const en: Record<I18nKey, string> = {
     'The existing tab will stay connected. Continuing here will disconnect it.',
   'pro.use_this_tab': 'Continue in this tab',
   'pro.uploading': 'Saving to PRO room...',
-  'pro.downloading': 'Loading from PRO room...',
+  'pro.downloading': 'Loading file...',
   'pro.quota_exceeded': 'This PRO room has reached its 1 GB storage limit.',
   'pro.file_too_large': 'This file is larger than the 200 MB per-file limit.',
 

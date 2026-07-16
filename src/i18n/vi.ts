@@ -540,7 +540,7 @@ const vi: Record<I18nKey, string> = {
     'Thẻ kia sẽ tiếp tục được kết nối. Nếu bạn tiếp tục tại đây, thẻ đó sẽ bị ngắt kết nối.',
   'pro.use_this_tab': 'Tiếp tục trong thẻ này',
   'pro.uploading': 'Đang lưu vào phòng PRO...',
-  'pro.downloading': 'Đang tải từ phòng PRO...',
+  'pro.downloading': 'Đang tải tệp...',
   'pro.quota_exceeded': 'Phòng PRO này đã dùng hết giới hạn lưu trữ 1 GB.',
   'pro.file_too_large': 'Tệp này vượt quá giới hạn 200 MB cho mỗi tệp.',
 

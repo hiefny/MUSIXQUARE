@@ -117,14 +117,6 @@ async function assertHostAlive(page: Page): Promise<void> {
   expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
 }
 
-async function allowExtraGuestSlots(page: Page, slots = 8): Promise<void> {
-  await page.evaluate((maxSlots) => {
-    const set = (window as any).__MUSIXQUARE_SET_STATE__;
-    if (!set) return;
-    set('network.maxGuestSlots', maxSlots);
-  }, slots);
-}
-
 async function grantOperatorToGuest(hostPage: Page, guestPage: Page): Promise<void> {
   const buttons = hostPage.locator('.d-op-btn');
   const count = await buttons.count();
@@ -750,7 +742,6 @@ test.describe('Full Lifecycle Chaos', () => {
 
       await g3.guestContext.close();
       await waitForPeerCountAtMost(hostPage, 1);
-      await allowExtraGuestSlots(hostPage);
 
       await hostPage.click('#play-btn');
       // Audio may already have stopped; any non-playing state is valid.
@@ -803,74 +794,6 @@ test.describe('Full Lifecycle Chaos', () => {
   });
 });
 
-test.describe('Simultaneous Join Attempts', () => {
-  test('maxGuestSlots=1 rejects second guest after first is connected', async ({ browser }) => {
-    test.setTimeout(90_000);
-
-    const hostCtx = await browser.newContext({
-      permissions: ['clipboard-read', 'clipboard-write'],
-    });
-    const hostPage = await hostCtx.newPage();
-    await injectPeerServer(hostPage);
-
-    await hostPage.goto('/');
-    await hostPage.waitForLoadState('networkidle');
-    await hostPage.evaluate(() => {
-      const set = (window as any).__MUSIXQUARE_SET_STATE__;
-      if (set) set('network.maxGuestSlots', 1);
-    });
-
-    const code = await setupHostAndStart(hostPage);
-
-    const guests: { ctx: BrowserContext; page: Page }[] = [];
-    for (let i = 0; i < 2; i++) {
-      const ctx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-      const page = await ctx.newPage();
-      await injectPeerServer(page);
-      guests.push({ ctx, page });
-    }
-
-    try {
-      await setupGuest(guests[0].page, code);
-      await waitForDeviceCount(hostPage, 2);
-
-      await guests[1].page.goto('/');
-      await guests[1].page.waitForLoadState('networkidle');
-      await guests[1].page.waitForSelector('#btn-setup-guest', {
-        state: 'visible',
-        timeout: 15_000,
-      });
-      await guests[1].page.click('#btn-setup-guest');
-      await guests[1].page.waitForSelector('#setup-join-area', {
-        state: 'visible',
-        timeout: 10_000,
-      });
-      await guests[1].page.fill('#setup-join-code', code);
-      await guests[1].page.click('#btn-setup-confirm');
-
-      await guests[1].page.waitForFunction(
-        () => {
-          const overlay = document.getElementById('setup-overlay');
-          const dialog = document.querySelector(
-            '.dialog-overlay.active, .dialog-backdrop.active, .dialog-container',
-          );
-          return overlay?.classList.contains('active') || !!dialog;
-        },
-        { timeout: 20_000 },
-      );
-
-      const hostPeers = await hostPage.evaluate(() => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
-      });
-      expect(hostPeers).toBe(1);
-    } finally {
-      for (const g of guests) await g.ctx.close().catch(() => {});
-      await hostCtx.close().catch(() => {});
-    }
-  });
-});
-
 test.describe('Rapid Reconnect Cycle', () => {
   test('3 consecutive disconnect/reconnect cycles keep host usable', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -881,7 +804,6 @@ test.describe('Rapid Reconnect Cycle', () => {
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
-    await allowExtraGuestSlots(hostPage);
 
     const guestRefs: LateGuest[] = [];
 

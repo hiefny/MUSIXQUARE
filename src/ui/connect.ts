@@ -1,22 +1,15 @@
 /**
  * MUSIXQUARE — Connect Tab (UI)
  *
- * Manages: QR code generation for session joining, max-device slider,
- * connected device list rendering (mobile + desktop sub-panel).
+ * Manages: QR code generation for session joining and connected device list
+ * rendering (mobile + desktop sub-panel).
  */
 
 import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import {
-  DEFAULT_MAX_GUEST_SLOTS,
-  DEVICE_LABEL_SANITIZE_RE,
-  MIN_GUEST_SLOTS,
-  MAX_GUEST_SLOTS_LIMIT,
-  MSG,
-  RESERVED_NAMES,
-} from '../core/constants.ts';
+import { DEVICE_LABEL_SANITIZE_RE, MSG, RESERVED_NAMES } from '../core/constants.ts';
 import { getOtherDeviceLabels } from '../network/guards.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
@@ -130,110 +123,6 @@ async function generateQR(containerId: string): Promise<void> {
 function refreshAllQR(): void {
   generateQR('qr-container');
   generateQR('desktop-qr-container');
-}
-
-// ─── Max Device Stepper (−  N  +) ───────────────────────────────
-
-const VALUE_IDS = ['max-device-value', 'desktop-max-device-value'];
-
-function _applyValue(value: number): void {
-  const clamped = Math.max(MIN_GUEST_SLOTS, Math.min(MAX_GUEST_SLOTS_LIMIT, value));
-  const cur = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
-
-  // Prevent reducing below current connected device count (only count peers with open connections)
-  const allPeers = getState('network.connectedPeers') || [];
-  const peers = allPeers.filter((p) => p.conn?.open !== false);
-  if (clamped < peers.length && clamped < cur) {
-    showToast(t('connect.cannot_reduce', { count: peers.length }));
-    syncAllValues(cur); // revert display
-    return;
-  }
-
-  syncAllValues(clamped);
-  if (clamped !== cur) bus.emit('network:max-guests-changed', clamped);
-}
-
-function initStepper(stepperId: string): void {
-  const stepper = document.getElementById(stepperId);
-  if (!stepper) return;
-
-  const current = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
-  syncAllValues(current);
-
-  // +/- button clicks
-  stepper.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('.stepper-btn') as HTMLElement | null;
-    if (!btn) return;
-
-    if (_guardHostSettingCtrl()) return;
-
-    const dir = parseInt(btn.dataset.dir || '0', 10);
-    const cur = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
-    _applyValue(cur + dir);
-  });
-
-  // Tap on value → inline input
-  stepper.addEventListener('click', (e) => {
-    const span = (e.target as HTMLElement).closest('.stepper-value') as HTMLElement | null;
-    if (!span || span.querySelector('input')) return;
-    if (_guardHostSettingCtrl()) return;
-
-    const cur = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.className = 'stepper-input';
-    input.inputMode = 'numeric';
-    input.min = String(MIN_GUEST_SLOTS);
-    input.max = String(MAX_GUEST_SLOTS_LIMIT);
-    input.value = String(cur);
-
-    span.textContent = '';
-    span.classList.add('editing');
-    span.appendChild(input);
-    input.focus();
-    input.select();
-
-    const commit = () => {
-      const raw = parseInt(input.value, 10);
-      // Remove input, restore span text before syncing
-      span.classList.remove('editing');
-      if (input.parentNode) input.remove();
-      if (!isNaN(raw)) _applyValue(raw);
-      else syncAllValues(cur); // restore on invalid
-    };
-
-    input.addEventListener(
-      'blur',
-      () => {
-        commit();
-      },
-      { once: true },
-    );
-
-    input.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') {
-        input.blur();
-      }
-      if (ev.key === 'Escape') {
-        input.value = '';
-        input.blur();
-      }
-    });
-  });
-}
-
-function syncAllValues(value: number): void {
-  VALUE_IDS.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = String(value);
-  });
-  // Update disabled state on all stepper buttons
-  document.querySelectorAll<HTMLButtonElement>('.stepper-btn[data-dir="-1"]').forEach((btn) => {
-    btn.disabled = value <= MIN_GUEST_SLOTS;
-  });
-  document.querySelectorAll<HTMLButtonElement>('.stepper-btn[data-dir="1"]').forEach((btn) => {
-    btn.disabled = value >= MAX_GUEST_SLOTS_LIMIT;
-  });
 }
 
 // ─── Room Password ───────────────────────────────────────────────
@@ -360,15 +249,9 @@ function syncHostOwnedConnectSections(): void {
   const passwordVisible = isProRoom
     ? hasRoomCapability('room.configure')
     : _canEditHostOwnedSetting();
-  const maxGuestsVisible = !isProRoom && _canEditHostOwnedSetting();
-
   document.querySelectorAll<HTMLElement>('.room-password-section').forEach((section) => {
     section.hidden = !passwordVisible;
     section.setAttribute('aria-hidden', passwordVisible ? 'false' : 'true');
-  });
-  document.querySelectorAll<HTMLElement>('.max-guests-section').forEach((section) => {
-    section.hidden = !maxGuestsVisible;
-    section.setAttribute('aria-hidden', maxGuestsVisible ? 'false' : 'true');
   });
 }
 
@@ -602,23 +485,8 @@ const _busScope = createBusScope();
 export function initConnect(): void {
   _busScope.dispose();
 
-  initStepper('max-device-stepper');
-  initStepper('desktop-max-device-stepper');
   initRoomPasswordControls();
   syncHostOwnedConnectSections();
-
-  // Slot-guide ⓘ buttons (mobile + desktop). Same info dialog either way.
-  const openSlotGuide = () => {
-    showDialog({
-      title: t('connect.slot_guide.title'),
-      message: t('connect.slot_guide.body'),
-      buttonText: t('common.ok'),
-    });
-  };
-  const slotGuideMobile = document.getElementById('slot-guide-btn-mobile');
-  const slotGuideDesktop = document.getElementById('slot-guide-btn-desktop');
-  slotGuideMobile?.addEventListener('click', openSlotGuide);
-  slotGuideDesktop?.addEventListener('click', openSlotGuide);
 
   // QR refresh when connect tab is opened
   _busScope.on('ui:connect-tab-opened', () => {

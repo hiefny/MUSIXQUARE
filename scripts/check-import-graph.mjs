@@ -89,11 +89,6 @@ const UI_OPEN_MODULES = new Map([
 // `importer` is an exact file key; `importerPrefix` covers a directory.
 const UI_LAYERING_ALLOWLIST = [
   {
-    importer: 'src/audio/system-capture.ts',
-    target: 'src/ui/large-room-warnings.ts',
-    reason: 'system-audio entry consults the shared large-room warning latch',
-  },
-  {
     importer: 'src/player/playlist.ts',
     target: 'src/ui/large-room-warnings.ts',
     reason: 'file-share entry consults the shared large-room warning latch',

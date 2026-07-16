@@ -6,7 +6,10 @@ import { getState } from '../core/state.ts';
 import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { resetAllStoredFiles } from './storage.ts';
-import { cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal } from './transfer-send.ts';
+import {
+  cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal,
+  cancelOutgoingFileTransfers as cancelOutgoingFileTransfersInternal,
+} from './transfer-send.ts';
 import {
   handleFilePrepare,
   handleFileStart,
@@ -14,7 +17,7 @@ import {
   handleFileChunk,
   handleFileEnd,
   handleFileWait,
-  clearReceiveState,
+  resetIncomingTransferAuthority,
 } from './transfer-receive.ts';
 
 // ─── Re-exports ──────────────────────────────────────────────────────
@@ -22,6 +25,8 @@ import {
 export {
   broadcastFile,
   broadcastFileDebounced,
+  sendFilePrepareByDelivery,
+  sendFileDeliveryUnavailable,
   cancelPendingBroadcast,
   unicastFile,
   cancelOutgoingFileTransfers,
@@ -67,14 +72,19 @@ export function initTransfer(): void {
     }
   });
 
-  bus.on('state:network.sessionCode', (code: unknown) => {
-    if (!code) {
-      clearReceiveState();
-      resetAllStoredFiles();
-    }
+  bus.on('state:network.sessionCode', () => {
+    // File-transfer session ids and byte ownership are scoped to one room.
+    // A direct truthy-to-truthy room switch is just as strong a boundary as
+    // leaving through the empty-code state.
+    cancelOutgoingFileTransfersInternal();
+    resetIncomingTransferAuthority();
+    resetAllStoredFiles();
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {
+    cancelOutgoingFileTransferForPeerInternal(peerId);
+  });
+  bus.on('network:peer-connection-replaced', (peerId: string) => {
     cancelOutgoingFileTransferForPeerInternal(peerId);
   });
 

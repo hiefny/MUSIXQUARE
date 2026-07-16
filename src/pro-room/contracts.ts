@@ -4,8 +4,8 @@ export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 export const PRO_ROOM_MAX_ASSET_BYTES = 200 * 1024 * 1024;
 export const PRO_ROOM_MAX_PLAYLIST_ITEMS = 1000;
-/** One elected coordinator plus at most 32 connected members. */
-export const PRO_ROOM_MAX_PRESENCE_ITEMS = 33;
+/** One elected coordinator plus at most 99 connected members. */
+export const PRO_ROOM_MAX_PRESENCE_ITEMS = 100;
 
 export type ProRoomStatus = 'unactivated' | 'active' | 'suspended';
 export type ProRoomRuntimeStatus = 'awake' | 'sleeping';

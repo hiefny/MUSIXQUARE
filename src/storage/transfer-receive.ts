@@ -66,6 +66,7 @@ import {
   isProRoomPersistentPlaylistFile,
   resolveProRoomPlaylistFile,
 } from '../pro-room/legacy-media-hooks.ts';
+import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -299,11 +300,14 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
   // dropped before lifecycle/transfer heuristics get a chance to accept them.
   if (isExternalOwner()) return true;
 
+  const queueItemId = data ? incomingQueueItemId(data) : null;
+  const sessionId = data ? Number(data.sessionId) : undefined;
+  if (isGuestR2FileDelivery(queueItemId, sessionId)) return true;
+
   // Remote guests use encrypted remote-share instead of direct file chunks;
   // orchestrator gates isDataTarget=false so stale direct frames are dropped.
   if (isRemoteGuest()) return true;
 
-  const queueItemId = data ? incomingQueueItemId(data) : null;
   if (data && !queueItemId) return true;
   if (queueItemId && isProRoomPersistentPlaylistFile(queueItemId)) return true;
 
@@ -357,6 +361,7 @@ function shouldAcceptLocalDirectFileStart(data: Record<string, unknown>): boolea
 
   const queueItemId = incomingQueueItemId(data);
   if (!queueItemId) return false;
+  if (isGuestR2FileDelivery(queueItemId, Number(data.sessionId))) return false;
 
   const pendingTarget = getState('playback.pendingRecoveryTarget');
   const meta = getState('transfer.meta');
@@ -645,6 +650,20 @@ export async function handleFilePrepare(
     }
   }
 
+  // A host may intentionally offload a physically local guest once direct
+  // LAN fanout is full. The authenticated per-peer marker, not ICE location,
+  // owns that decision for this transfer session.
+  if (data.delivery === 'r2') {
+    recordGuestFileDelivery(queueItemId, incomingSid, 'r2');
+    completeAcceptedFileRequest(data, conn);
+    if (shouldWaitForRemoteShare()) {
+      prepareRemoteShareWait(queueItemId, (data.name as string) || '', incomingSid);
+      return;
+    }
+    showRemoteUnavailableUI(data);
+    return;
+  }
+
   // Remote guests do not use the local P2P path. Every queue file waits for
   // an R2 descriptor; bundled demo audio travels only through DEMO_* messages.
   if (isRemoteGuest()) {
@@ -666,6 +685,7 @@ export async function handleFilePrepare(
     }
 
     if (confirmedRemote) {
+      recordGuestFileDelivery(queueItemId, incomingSid, 'r2');
       completeAcceptedFileRequest(data, conn);
       if (shouldWaitForRemoteShare()) {
         prepareRemoteShareWait(
@@ -682,6 +702,7 @@ export async function handleFilePrepare(
 
   // The connection, stable queue occurrence, transfer session, playback
   // owner, and remote/local route have all survived their admission gates.
+  recordGuestFileDelivery(queueItemId, incomingSid, 'direct-local');
   completeAcceptedFileRequest(data, conn);
 
   // Lifecycle is authoritative. If we were AWAITING_PRELOAD, the transition()
@@ -1033,6 +1054,12 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
+  if (isGuestR2FileDelivery(queueItemId, incomingSid)) {
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    return;
+  }
+  recordGuestFileDelivery(queueItemId, incomingSid, 'direct-local');
   const localSid = getState('transfer.localSessionId');
   const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data);
 
@@ -1734,7 +1761,7 @@ export function getTransferMemoryStats(): {
 
 // ─── Session Cleanup (exported for initTransfer) ─────────────────────
 
-export function clearReceiveState(): void {
+function clearReceiveState(): void {
   // Invalidate FILE_PREPARE handlers suspended in connection classification.
   _filePrepareGeneration++;
   fileReorderBuffer.clear();

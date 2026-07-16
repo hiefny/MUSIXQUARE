@@ -29,10 +29,10 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(10);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(9);
   });
 
-  it('uses natural English singular and plural copy for all ten messages', async () => {
+  it('uses natural English singular and plural copy for all nine messages', async () => {
     const t = await loadTranslator('en-US');
 
     const cases = [
@@ -40,16 +40,6 @@ describe('count-sensitive translations', () => {
       ['playlist.delete_selected', { count: 2 }, 'Delete 2 selected tracks'],
       ['connect.device_list', { count: 1 }, '1 Connected Device'],
       ['connect.device_list', { count: 2 }, '2 Connected Devices'],
-      [
-        'connect.cannot_reduce',
-        { count: 1 },
-        'Cannot reduce capacity: 1 device is already connected',
-      ],
-      [
-        'connect.cannot_reduce',
-        { count: 2 },
-        'Cannot reduce capacity: 2 devices are already connected',
-      ],
       [
         'demo.session_body_connected',
         { count: 1 },

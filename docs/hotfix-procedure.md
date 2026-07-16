@@ -1,6 +1,6 @@
 # Production Hotfix And Rollback Procedure
 
-Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the three
+Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the four
 Wrangler configs, the production release workflow, and the live-smoke scripts
 on 2026-07-16. Read the current
 `CACHE_VERSION` from the service-worker source rather than copying a number
@@ -88,12 +88,13 @@ OAuth credential into GitHub.
 ### Worker scope and order
 
 The release workflow deploys only the selected scope. For a backward-compatible
-change that touches all three, it uses this order so the existing browser
+change that touches all four, it uses this order so the existing browser
 remains usable while backends roll forward:
 
 1. `cloudflare/wrangler.remote-share.toml`, then its live smoke;
 2. `cloudflare/wrangler.signaling.toml`, then its live smoke;
-3. `cloudflare/wrangler.app.toml` with the verified artifact, then its live smoke
+3. `cloudflare/wrangler.pro-room.toml`, then its version-aware health smoke;
+4. `cloudflare/wrangler.app.toml` with the verified artifact, then its live smoke
    and browser QA.
 
 That Worker-first order applies only to backward-compatible protocol changes.

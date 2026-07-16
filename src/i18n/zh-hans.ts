@@ -183,11 +183,9 @@ const zhHans: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': '通过二维码或链接邀请',
-  'connect.max_devices': '最大容纳设备数',
   'connect.device_list': '{{count}} 台已连接设备',
   'connect.no_session': '请先创建房间',
   'connect.generating_qr': '正在生成二维码...',
-  'connect.cannot_reduce': '当前已连接 {{count}} 台设备，无法缩减容量',
   'connect.kick_title': '移除设备',
   'connect.kick_message': '要将此设备从房间中移除吗？',
   'connect.kick_yes': '移除',
@@ -310,7 +308,7 @@ const zhHans: Record<I18nKey, string> = {
   'network.disconnected': '已断开连接',
   'network.cant_join': '找不到房间。\n请检查网络。',
   'network.session_full': '房间已满',
-  'network.session_full_detail': '此房间已达到设备数量限制。\n请让主持人在“连接”标签页中提高上限。',
+  'network.session_full_detail': '此房间已连接最多 100 台设备（包括主持人）。',
   'network.op_granted': '已授予管理员权限。',
   'network.op_revoked': '已撤销管理员权限。',
 
@@ -357,14 +355,12 @@ const zhHans: Record<I18nKey, string> = {
   'system_audio.stop': '停止共享',
   'system_audio.started': '系统音频可能有轻微延迟。\n请尽量降低源设备音量。',
   'system_audio.stopped': '系统音频共享已结束。\n正在恢复播放列表。',
-  'system_audio.many_devices_warning':
-    '系统音频建议最多约 4 位参与者。\n更多设备可能增加延迟或卡顿。',
   'system_audio.host_channel_locked': '系统音频共享期间无法更改角色。',
   'system_audio.effects_guest_only': '系统音频已启用。\n音效仅应用于参与者设备。',
   'system_audio.desktop_only': '仅可在电脑上的 Chromium 内核浏览器（Chrome、Edge 等）中使用。',
   'system_audio.receive_failed': '无法接收系统音频。\n请让主持人重新开始共享。',
   'system_audio.remote_receive_limit':
-    '远程系统音频接收已在 2 小时后自动停止。\n请重新加入房间继续收听。',
+    '系统音频接收已在 2 小时后自动停止。\n请重新加入房间继续收听。',
 
   // Toast
   'toast.device_connected': '{{name}} 已连接',
@@ -462,10 +458,7 @@ const zhHans: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': '大房间中的文件共享',
   'dialog.large_room_file.message':
-    '在同一网络下，本地文件共享在约 8 位参与者以内较为稳定。\n\n继续吗？',
-  'dialog.large_room_sysaudio.title': '大房间中的系统音频',
-  'dialog.large_room_sysaudio.message':
-    '系统音频共享支持本地和远程参与者，但考虑主持人设备负载和延迟，建议最多约 4 位参与者。\n\n继续吗？',
+    '在同一网络下，除主持人的设备外，向最多 8 台参与者设备直接传输文件较为稳定。在同一网络中规模更大的房间里，文件可能会通过 Cloudflare R2 分发。\n\n继续吗？',
   'dialog.continue': '继续',
   'dialog.file_drop.title': '添加本地文件',
   'dialog.file_drop.message': '要添加 {{count}} 首歌曲吗？',
@@ -606,16 +599,12 @@ const zhHans: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': '滚动到底部',
 
   // Final help and legal blocks
-  'connect.slot_guide.aria': '打开推荐参与者数量指南',
-  'connect.slot_guide.title': '参与者数量',
-  'connect.slot_guide.body':
-    '连接的参与者越多，系统越容易不稳定。\n\n• 一起看 YouTube：最多 32 人\n• 本地文件共享：最多 8 人\n• 系统音频共享：建议最多 4 人',
   'help.install_app_html':
     '喜欢 MUSIXQUARE 吗？你可以将它安装为应用。<ul class="help-list"><li><strong>iOS：</strong>分享 → 添加到主屏幕</li><li><strong>Android：</strong>菜单 → 安装应用</li><li><strong>Windows：</strong>地址栏中的安装图标</li><li><strong>macOS：</strong>分享 → 添加到 Dock</li></ul>',
   'help.local_recommended_html':
     '音频共享在同一网络上最稳定。<ul class="help-list"><li>远程参与者也可以使用相同功能。</li><li>远程参与者会使用 Cloudflare 路径，因此延迟可能增加，或因网络状况导致接收失败。</li><li>VPN 或受限网络可能导致连接不稳定。</li></ul>',
   'setup.how_to_connect_html':
-    '输入主持人提供的<strong>6 位代码</strong>进行连接。<ul class="help-list"><li><strong>主持人：</strong>“创建房间” → 查看代码</li><li><strong>参与者：</strong>“加入房间” → 输入代码</li><li>可连接的设备数量可在<strong>“连接”标签页</strong>中设置。</li></ul>',
+    '输入主持人提供的<strong>6 位代码</strong>进行连接。<ul class="help-list"><li><strong>主持人：</strong>“创建房间” → 查看代码</li><li><strong>参与者：</strong>“加入房间” → 输入代码</li><li>包括主持人在内，最多可连接 <strong>100 台设备</strong>。</li></ul>',
   'player.play_speakers_html':
     '每位参与者选择一个<strong>角色（输出声道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立体声（默认）输出</li><li><strong>左：</strong>L 声道输出</li><li><strong>右：</strong>R 声道输出</li><li><strong>低音炮：</strong>低频混合输出</li></ul>你可以随时在<strong>设置</strong>中更改角色。',
   'player.play_media_action_html':
@@ -634,7 +623,7 @@ const zhHans: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': '只能播放公开视频或播放列表。',
   'legal.title': '服务说明',
   'legal.content_html':
-    '<strong>隐私政策</strong><br><span data-legal-standard-storage>在同一网络上，会话数据会直接在设备之间传输；只有 IP 和连接信息会经过信令服务。远程文件和系统音频共享会通过 Cloudflare 传输数据；远程文件会被加密，最多保留 24 小时，并且不会保存解密密钥。除提供功能外，MUSIXQUARE 不会查看、分析或保存数据。</span><span data-legal-pro-storage>在 PRO 房间中，建立会话所需的 IP 地址和连接信息会经过信令服务器。添加到播放列表的原始文件会存储在私有 Cloudflare R2 中，以便房间可以持续使用。文件不再用于播放列表或运营者删除房间数据时会被清理，只有已进入房间的用户才能通过短期有效的 URL 下载。除提供服务外，MUSIXQUARE 不会出于其他目的查看或分析数据。</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>版权提示</strong><br>通过 MUSIXQUARE 共享的内容归相应权利人所有。系统音频共享和文件共享旨在供个人使用。用户需对受版权保护内容的未经授权分发或公开传播负责。YouTube 共享使用官方播放方式，播放量和权利处理遵循该服务的政策和权利人设置。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免责声明</strong><br>MUSIXQUARE 免费提供。部分功能依赖 YouTube 或 Cloudflare 等外部服务，因此这些服务变更或中断时可能出现临时限制。实时音频同步和远程共享质量会因网络、浏览器政策和设备性能而有很大差异。非 Wi-Fi 环境下使用可能产生移动数据费用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>隐私政策</strong><br><span data-legal-standard-storage>在同一网络上，会话数据通常在设备之间直接传输，只有 IP 地址和连接信息会经过信令服务。不过，远程传输以及大型房间中的文件和系统音频分发可能会通过 Cloudflare 进行。通过 Cloudflare 传输的普通房间临时文件会被加密，最多保留 24 小时，并且不会保存解密密钥。除提供功能所需外，MUSIXQUARE 不会查看、分析或保存数据。</span><span data-legal-pro-storage>在 PRO 房间中，建立会话所需的 IP 地址和连接信息会经过信令服务器。添加到播放列表的原始文件会存储在私有 Cloudflare R2 中，以便房间可以持续使用。文件不再用于播放列表或运营者删除房间数据时会被清理，只有已进入房间的用户才能通过短期有效的 URL 下载。除提供服务外，MUSIXQUARE 不会出于其他目的查看或分析数据。</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>版权提示</strong><br>通过 MUSIXQUARE 共享的内容归相应权利人所有。系统音频共享和文件共享旨在供个人使用。用户需对受版权保护内容的未经授权分发或公开传播负责。YouTube 共享使用官方播放方式，播放量和权利处理遵循该服务的政策和权利人设置。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免责声明</strong><br>MUSIXQUARE 免费提供。部分功能依赖 YouTube 或 Cloudflare 等外部服务，因此这些服务变更或中断时可能出现临时限制。实时音频同步和远程共享质量会因网络、浏览器政策和设备性能而有很大差异。非 Wi-Fi 环境下使用可能产生移动数据费用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default zhHans;

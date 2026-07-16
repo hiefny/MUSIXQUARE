@@ -50,13 +50,6 @@ beforeEach(() => {
       </button>
       <div id="room-password-code-row"></div>
     </div>
-    <div class="section-group max-guests-section">
-      <div class="number-stepper" id="max-device-stepper">
-        <button type="button" class="stepper-btn" data-dir="-1"></button>
-        <span class="stepper-value" id="max-device-value">3</span>
-        <button type="button" class="stepper-btn" data-dir="1"></button>
-      </div>
-    </div>
     <div id="connect-device-title"></div>
     <div id="desktop-device-title"></div>
     <div id="connect-device-list"></div>
@@ -232,27 +225,25 @@ describe('connect i18n refresh', () => {
   });
 });
 
-describe('connect host-owned admission controls', () => {
-  it('hides controls from guests because the values are host-local admission policy', () => {
+describe('connect host-owned room password controls', () => {
+  it('hides the room password controls from guests', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection());
 
     initConnect();
 
     expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(true);
-    expect(document.querySelector<HTMLElement>('.max-guests-section')?.hidden).toBe(true);
   });
 
-  it('shows controls on the host', () => {
+  it('shows the room password controls on the host', () => {
     setState('network.appRole', 'host');
 
     initConnect();
 
     expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(false);
-    expect(document.querySelector<HTMLElement>('.max-guests-section')?.hidden).toBe(false);
   });
 
-  it('shows only masked PIN editing to a PRO owner and hides legacy guest limits', () => {
+  it('shows masked PIN editing to a PRO owner', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection('coordinator'));
     setState('room.context', {
@@ -268,7 +259,6 @@ describe('connect host-owned admission controls', () => {
     initConnect();
 
     expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(false);
-    expect(document.querySelector<HTMLElement>('.max-guests-section')?.hidden).toBe(true);
     expect(document.getElementById('room-password-toggle')?.hidden).toBe(true);
     expect(document.getElementById('room-password-code')?.textContent).toBe('••••-••••');
     expect(document.getElementById('room-password-refresh')?.getAttribute('aria-label')).toBe(
@@ -295,7 +285,6 @@ describe('connect host-owned admission controls', () => {
     initConnect();
 
     expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(true);
-    expect(document.querySelector<HTMLElement>('.max-guests-section')?.hidden).toBe(true);
   });
 
   it('changes the active PRO PIN through the owner-only pencil action', async () => {
@@ -343,20 +332,5 @@ describe('connect permission toasts', () => {
 
     expect(showToast).toHaveBeenCalledWith('방장만 이 설정을 변경할 수 있어요');
     expect(getState('network.roomPasswordRequired')).toBe(false);
-  });
-
-  it('keeps max-device controls host-only, even for operator guests', () => {
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', makeConnection());
-    setState('network.isOperator', true);
-
-    initConnect();
-    const beforeSlots = getState('network.maxGuestSlots');
-    document
-      .querySelector<HTMLButtonElement>('#max-device-stepper .stepper-btn[data-dir="1"]')
-      ?.click();
-
-    expect(showToast).toHaveBeenCalledWith('방장만 이 설정을 변경할 수 있어요');
-    expect(getState('network.maxGuestSlots')).toBe(beforeSlots);
   });
 });

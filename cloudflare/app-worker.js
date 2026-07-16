@@ -27,6 +27,16 @@ const CAPABILITY_POW_TTL_MAX = 5 * SECONDS_PER_MINUTE;
 const CAPABILITY_JSON_BODY_MAX_BYTES = 8 * 1024;
 const ADMIN_JSON_BODY_MAX_BYTES = 8 * 1024;
 const REALTIME_JSON_BODY_MAX_BYTES = 128 * 1024;
+// One venue can legitimately place 100 browsers behind one public IP. Keep
+// paid-resource room bursts separate from the default API limits and retain a
+// per-capability/session limiter below so one browser cannot consume the burst.
+const ROOM_BURST_CAPABILITY_LIMIT = 300;
+const ROOM_BURST_TURN_LIMIT = 150;
+const ROOM_BURST_REALTIME_NEW_SESSION_LIMIT = 250;
+const ROOM_BURST_REALTIME_MUTATION_LIMIT = 650;
+const REALTIME_NEW_SESSION_PER_CAPABILITY_LIMIT = 4;
+const REALTIME_MUTATION_PER_CAPABILITY_LIMIT = 12;
+const REALTIME_MUTATION_PER_SESSION_LIMIT = 8;
 // Realtime session ownership is a separate, least-privilege capability. The
 // general `realtime` capability only permits creating an SFU session; it must
 // never be enough to mutate an arbitrary session ID learned from a peer.
@@ -272,17 +282,23 @@ function getClientIp(request) {
 // count, but the worst-case overshoot is bounded by edge node concurrency
 // per IP. Adequate for paid-resource leak prevention; not for strict abuse
 // quotas.
-async function checkRateLimit(request, endpoint, limit = 60, windowSec = 60) {
+async function checkRateLimit(
+  request,
+  endpoint,
+  limit = 60,
+  windowSec = 60,
+  identityOverride = '',
+) {
   // Graceful bypass if the runtime doesn't expose Cache API (e.g. jsdom unit
   // tests that invoke the worker directly). Production Cloudflare workers
   // always have `caches.default`.
   if (typeof caches === 'undefined' || !caches?.default) return true;
 
-  const ip = getClientIp(request);
+  const identity = identityOverride || getClientIp(request);
   const window = Math.floor(Date.now() / (windowSec * 1000));
   // Use a synthetic cache URL so the key is opaque to upstream caches.
   const cacheKey = new Request(
-    `https://ratelimit.internal/${encodeURIComponent(endpoint)}/${encodeURIComponent(ip)}/${window}`,
+    `https://ratelimit.internal/${encodeURIComponent(endpoint)}/${encodeURIComponent(identity)}/${window}`,
     { method: 'GET' },
   );
   const cache = caches.default;
@@ -1984,6 +2000,7 @@ async function guardSensitiveRequest(
   capabilityScope,
   rateLimitKey,
   rateLimit,
+  options = {},
 ) {
   if (!isCapabilityAuthEnabled(env)) {
     if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, trust.headers);
@@ -1996,13 +2013,33 @@ async function guardSensitiveRequest(
     return null;
   }
 
-  if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
+  const authenticatedRateLimit = Number.isSafeInteger(options.authenticatedRateLimit)
+    ? options.authenticatedRateLimit
+    : rateLimit;
+  if (!(await checkRateLimit(request, rateLimitKey, authenticatedRateLimit, 60))) {
     return rateLimitResponse(trust.headers);
   }
 
   const token = readCapabilityToken(request);
-  if (await verifyCapabilityToken(token, request, env, capabilityScope)) return null;
-  return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
+  if (!(await verifyCapabilityToken(token, request, env, capabilityScope))) {
+    return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
+  }
+
+  if (Number.isSafeInteger(options.perCapabilityLimit) && options.perCapabilityLimit > 0) {
+    const tokenIdentity = (await hmacSha256(getCapabilitySecret(env), `rate:${token}`)).slice(
+      0,
+      32,
+    );
+    const allowed = await checkRateLimit(
+      request,
+      `${rateLimitKey}-capability`,
+      options.perCapabilityLimit,
+      60,
+      tokenIdentity,
+    );
+    if (!allowed) return rateLimitResponse(trust.headers);
+  }
+  return null;
 }
 
 async function handleSecurityConfig(request, env) {
@@ -2043,14 +2080,22 @@ async function handleCapabilityChallenge(request, env) {
   }
   if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
   if (isTurnstileConfigured(env)) return json({ error: 'TURNSTILE_REQUIRED' }, 409, headers);
-  if (!(await checkRateLimit(request, 'capability-challenge', 30, 60))) {
-    return rateLimitResponse(headers);
-  }
 
   const parsedBody = await readJsonBodyLimited(request, CAPABILITY_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(parsedBody, headers);
   const scopes = parseRequestedScopes(parsedBody.value?.scopes);
   if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
+  const roomBurst = scopes.includes('realtime') || scopes.includes('turn');
+  if (
+    !(await checkRateLimit(
+      request,
+      roomBurst ? 'capability-challenge-room' : 'capability-challenge',
+      roomBurst ? ROOM_BURST_CAPABILITY_LIMIT : 30,
+      60,
+    ))
+  ) {
+    return rateLimitResponse(headers);
+  }
   return json(await createCapabilityPowChallenge(scopes, request, env), 200, headers);
 }
 
@@ -2064,15 +2109,23 @@ async function handleCapabilityToken(request, env) {
     return json({ capabilityRequired: false }, 200, headers);
   }
   if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
-  if (!(await checkRateLimit(request, 'capability-token', 30, 60))) {
-    return rateLimitResponse(headers);
-  }
 
   const parsedBody = await readJsonBodyLimited(request, CAPABILITY_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(parsedBody, headers);
   const body = parsedBody.value;
   const scopes = parseRequestedScopes(body?.scopes);
   if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
+  const roomBurst = scopes.includes('realtime') || scopes.includes('turn');
+  if (
+    !(await checkRateLimit(
+      request,
+      roomBurst ? 'capability-token-room' : 'capability-token',
+      roomBurst ? ROOM_BURST_CAPABILITY_LIMIT : 30,
+      60,
+    ))
+  ) {
+    return rateLimitResponse(headers);
+  }
 
   if (isTurnstileConfigured(env) && typeof body?.turnstileToken === 'string') {
     if (!(await verifyTurnstileToken(body.turnstileToken, request, env))) {
@@ -2427,7 +2480,10 @@ async function handleTurnConfig(request, env) {
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
-  const guard = await guardSensitiveRequest(request, env, trust, 'turn', 'turn-config', 60);
+  const guard = await guardSensitiveRequest(request, env, trust, 'turn', 'turn-config', 60, {
+    authenticatedRateLimit: ROOM_BURST_TURN_LIMIT,
+    perCapabilityLimit: 4,
+  });
   if (guard) return guard;
 
   try {
@@ -2502,11 +2558,6 @@ async function handleRealtime(request, env) {
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
-  const guard = await guardSensitiveRequest(request, env, trust, 'realtime', 'realtime', 30);
-  if (guard) return guard;
-
-  const { appId, appSecret } = getRealtimeEnv(env);
-  if (!appId || !appSecret) return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);
 
   const parsedBody = await readJsonBodyLimited(request, REALTIME_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(parsedBody, headers);
@@ -2517,6 +2568,28 @@ async function handleRealtime(request, env) {
 
   const action = typeof body.action === 'string' ? body.action : '';
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+  const isNewSession = action === 'new-session';
+  const guard = await guardSensitiveRequest(
+    request,
+    env,
+    trust,
+    'realtime',
+    isNewSession ? 'realtime-new-session' : 'realtime-mutation',
+    30,
+    {
+      authenticatedRateLimit: isNewSession
+        ? ROOM_BURST_REALTIME_NEW_SESSION_LIMIT
+        : ROOM_BURST_REALTIME_MUTATION_LIMIT,
+      perCapabilityLimit: isNewSession
+        ? REALTIME_NEW_SESSION_PER_CAPABILITY_LIMIT
+        : REALTIME_MUTATION_PER_CAPABILITY_LIMIT,
+    },
+  );
+  if (guard) return guard;
+
+  const { appId, appSecret } = getRealtimeEnv(env);
+  if (!appId || !appSecret) return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);
+
   const realtimeRequest = buildRealtimeRequest(action, appId, sessionId, body.correlationId);
   if (!realtimeRequest) return json({ error: 'Unsupported action' }, 400, headers);
   if (action !== 'new-session') {
@@ -2531,6 +2604,20 @@ async function handleRealtime(request, env) {
     );
     if (!ownsSession) {
       return json({ error: 'REALTIME_SESSION_CAPABILITY_REQUIRED' }, 403, headers);
+    }
+    const sessionRateIdentity = (
+      await hmacSha256(appSecret, `rate:${body.sessionOwnerToken}`)
+    ).slice(0, 32);
+    if (
+      !(await checkRateLimit(
+        request,
+        'realtime-session-mutation',
+        REALTIME_MUTATION_PER_SESSION_LIMIT,
+        60,
+        sessionRateIdentity,
+      ))
+    ) {
+      return rateLimitResponse(headers);
     }
   }
 

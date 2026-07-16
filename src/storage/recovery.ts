@@ -20,7 +20,7 @@ import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { ensureNamedFile } from './storage.ts';
 import { ramContiguousCount } from './ramstore.ts';
-import { unicastFile } from './transfer.ts';
+import { sendFileDeliveryUnavailable, unicastFile } from './transfer.ts';
 import { isPeerConnectionCurrent } from './chunk-pump.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -33,6 +33,10 @@ import { isRemoteGuest, safeSend } from '../network/peer.ts';
 import { canSendFileTo } from '../network/peer-state.ts';
 import { isRemoteShareConfigured } from '../share/r2-client.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
+import {
+  isConnectionFileDeliveryPending,
+  isConnectionFileDeliveryUnsupported,
+} from '../share/file-delivery-policy.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection, ResidentFile } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -263,9 +267,9 @@ async function handleRequestCurrentFile(
   const fileToSend = ensureNamedFile(match.blob, fallbackName);
   if (!fileToSend) return;
 
-  // Direct unicast is local-only. Remote guests receive a refreshed descriptor;
-  // the encrypted bytes continue to travel through object storage.
-  const canDirect = await canSendFileTo(conn);
+  // Follow the frozen per-session route. New remote peers receive a refreshed
+  // descriptor; an already-direct connection stays on its current engine.
+  const canDirect = await canSendFileTo(conn, sid);
   if (!conn.open || !isPeerConnectionCurrent(conn.peer, conn) || !isCachedBlobMatchCurrent(match))
     return;
   if (canDirect) {
@@ -274,6 +278,14 @@ async function handleRequestCurrentFile(
       skipTransportGuard: true,
       isSourceCurrent: () => isCachedBlobMatchCurrent(match),
     });
+    return;
+  }
+  if (isConnectionFileDeliveryPending(conn, sid)) {
+    sendFileWait(conn, data, 'Host is still evaluating the file delivery route');
+    return;
+  }
+  if (isConnectionFileDeliveryUnsupported(conn, sid)) {
+    sendFileDeliveryUnavailable(conn, { name: fallbackName, queueItemId: match.queueItemId }, sid);
     return;
   }
   if (isRemoteShareConfigured() && fileToSend instanceof File) {
@@ -326,10 +338,34 @@ async function handleRequestDataRecovery(
   const fallbackName = getBlobFallbackName(match, reqName);
   const fileToSend = ensureNamedFile(match.blob, fallbackName);
   if (fileToSend) {
-    await unicastFile(conn, fileToSend, startChunk, sid, {
-      queueItemId: match.queueItemId,
-      isSourceCurrent: () => isCachedBlobMatchCurrent(match),
-    });
+    const canDirect = await canSendFileTo(conn, sid);
+    if (!conn.open || !isPeerConnectionCurrent(conn.peer, conn) || !isCachedBlobMatchCurrent(match))
+      return;
+    if (canDirect) {
+      await unicastFile(conn, fileToSend, startChunk, sid, {
+        queueItemId: match.queueItemId,
+        skipTransportGuard: true,
+        isSourceCurrent: () => isCachedBlobMatchCurrent(match),
+      });
+      return;
+    }
+    if (isConnectionFileDeliveryPending(conn, sid)) {
+      sendFileWait(conn, data, 'Host is still evaluating the file delivery route');
+      return;
+    }
+    if (isConnectionFileDeliveryUnsupported(conn, sid)) {
+      sendFileDeliveryUnavailable(
+        conn,
+        { name: fallbackName, queueItemId: match.queueItemId },
+        sid,
+      );
+      return;
+    }
+    if (isRemoteShareConfigured() && fileToSend instanceof File) {
+      void shareRemoteFileIfNeeded(fileToSend, sid, conn, { queueItemId: match.queueItemId });
+      return;
+    }
+    sendFileWait(conn, data, 'Host cannot serve this peer directly');
   }
 }
 

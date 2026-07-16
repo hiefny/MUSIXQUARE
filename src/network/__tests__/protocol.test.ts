@@ -379,7 +379,67 @@ describe('track-scoped playback request validation', () => {
   });
 });
 
+describe('system-audio SFU frame validation', () => {
+  it('accepts only the explicit current LAN capability marker', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-system-audio-capability');
+    registerHandler(MSG.SYSTEM_AUDIO_SFU_CAPABILITY, handler);
+
+    await handleData(
+      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: true },
+      conn,
+    );
+    for (const invalid of [
+      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 2, localAudience: true },
+      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: false },
+      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: 'true' },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unknown SFU audience marker', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-system-audio-ready');
+    registerHandler(MSG.SYSTEM_AUDIO_SFU_READY, handler);
+    const valid = {
+      type: MSG.SYSTEM_AUDIO_SFU_READY,
+      version: 1,
+      sessionId: 'publication-session',
+      tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+    };
+
+    for (const audience of [undefined, 'remote', 'all']) {
+      await handleData({ ...valid, audience }, conn);
+    }
+    for (const audience of ['local', 'everyone', true]) {
+      await handleData({ ...valid, audience }, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe('file-transfer frame validation', () => {
+  it('accepts only the explicit current local R2 capability marker', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-file-r2-capability');
+    registerHandler(MSG.FILE_R2_CAPABILITY, handler);
+
+    await handleData({ type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: true }, conn);
+    for (const invalid of [
+      { type: MSG.FILE_R2_CAPABILITY, version: 2, localAudience: true },
+      { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: false },
+      { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: 'true' },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('enforces the exact 200 MiB whole-file AES-GCM descriptor contract', async () => {
     const handler = vi.fn();
     registerHandler(MSG.REMOTE_FILE_SHARE, handler);

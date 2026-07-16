@@ -168,9 +168,7 @@ describe('PRO room session controller', () => {
 
   it('can retry a protected same-cookie resume as an explicit tab takeover', async () => {
     const { api, controller } = fixtures();
-    api.enterPresence.mockRejectedValueOnce(
-      new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409),
-    );
+    api.enterPresence.mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
 
     await expect(controller.resume(ROOM_CODE)).rejects.toMatchObject({
       code: 'PRESENCE_ACTIVE_ELSEWHERE',

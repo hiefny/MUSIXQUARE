@@ -17,16 +17,24 @@ import {
   setSystemAudioReceiving,
 } from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
+import {
+  freezeGuestSystemAudioSfuRoute,
+  resetGuestSystemAudioShareRoute,
+} from '../system-audio-delivery.ts';
 
 const timerMocks = vi.hoisted(() => {
   const timers = new Map<string, () => void>();
+  const delays = new Map<string, number>();
   return {
     timers,
-    setManagedTimer: vi.fn((name: string, fn: () => void) => {
+    delays,
+    setManagedTimer: vi.fn((name: string, fn: () => void, delay: number) => {
       timers.set(name, fn);
+      delays.set(name, delay);
     }),
     clearManagedTimer: vi.fn((name: string) => {
       timers.delete(name);
+      delays.delete(name);
     }),
   };
 });
@@ -82,6 +90,8 @@ describe('system audio guest receive watchdog', () => {
     bus.clear();
     vi.clearAllMocks();
     timerMocks.timers.clear();
+    timerMocks.delays.clear();
+    resetGuestSystemAudioShareRoute();
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     markQueueAuthorityReady(hostConn);
@@ -98,6 +108,7 @@ describe('system audio guest receive watchdog', () => {
     expect(stopAllMedia).toHaveBeenCalledWith({ silent: true, cancelInFlight: true });
     expect(getState('player.currentTrackMeta')?.name).toBe('system-audio-receiving');
     expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+    expect(timerMocks.delays.get(watchdogName)).toBe(30_000);
 
     timerMocks.timers.get(watchdogName)?.();
 
@@ -105,6 +116,25 @@ describe('system audio guest receive watchdog', () => {
     expect(getState('systemAudio.isReceiving')).toBe(false);
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('emits one trusted share boundary and ignores duplicate START frames', async () => {
+    const hostStarted = vi.fn();
+    bus.on('system-audio:host-started', hostStarted);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    expect(hostStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes a stale direct call after an all-audience SFU route is frozen', () => {
+    const mediaConn = { close: vi.fn() };
+    freezeGuestSystemAudioSfuRoute('all');
+
+    bus.emit('system-audio:incoming-call', mediaConn, 'L');
+
+    expect(mediaConn.close).toHaveBeenCalledTimes(1);
   });
 
   it('clears stale file pipeline sources when placeholder receive falls back', async () => {
@@ -141,6 +171,20 @@ describe('system audio guest receive watchdog', () => {
     expect(getState('player.currentTrackMeta')?.name).toBe('system-audio-receiving');
     expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
     expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('re-arms the watchdog while preserving the placeholder during adapter handoff', async () => {
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    setState('player.currentTrackMeta', previousMeta);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    setSystemAudioReceiving(true);
+    expect(timerMocks.timers.has(watchdogName)).toBe(false);
+
+    bus.emit('system-audio:delivery-handoff');
+
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+    expect(timerMocks.delays.get(watchdogName)).toBe(30_000);
   });
 
   it('restores previous meta when an active adapter-level receive cleanup runs', async () => {

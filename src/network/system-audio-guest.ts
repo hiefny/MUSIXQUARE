@@ -27,6 +27,7 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
+import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
 import { forceStereoSdp } from './peer.ts';
@@ -54,7 +55,11 @@ import {
 //   500ms favors lower cross-device variance at the upper end of that range.
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const SYSTEM_AUDIO_RECEIVE_WATCHDOG = 'sys-audio-guest-receive-watchdog';
-const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 12_000;
+// A 9+ device share can require one bounded SFU publication retry before the
+// guest subscription is ready. Keep the watchdog finite, but leave enough
+// headroom for a busy venue/NAT so a healthy large-room join is not mistaken
+// for a failed receive.
+const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;
 
 type SystemAudioTrackMapping = Record<string, 'L' | 'R'>;
 
@@ -732,6 +737,10 @@ export function registerSystemAudioGuestListeners(): void {
         pending: true,
         currentTrackMeta: createSystemAudioTrackMeta('receiving'),
       });
+      // Delivery modules use this trusted START boundary to clear any route
+      // frozen by the previous share. Do not infer a new share from mutable ICE
+      // classification or from an unauthenticated media call.
+      bus.emit('system-audio:host-started');
       armReceiveWatchdog();
     },
   );
@@ -748,6 +757,15 @@ export function registerSystemAudioGuestListeners(): void {
   );
 
   bus.on('system-audio:incoming-call', (mediaConn: unknown, channel: string) => {
+    if (!claimGuestDirectSystemAudioRoute()) {
+      log.info('[SysAudioGuest] Ignored stale direct call after all-audience SFU route froze');
+      try {
+        (mediaConn as MediaConnection).close();
+      } catch {
+        /* noop */
+      }
+      return;
+    }
     handleIncomingCall(mediaConn as MediaConnection, channel).catch((e) =>
       log.error('[SysAudioGuest] handleIncomingCall failed:', e),
     );
@@ -755,6 +773,16 @@ export function registerSystemAudioGuestListeners(): void {
 
   bus.on('state:systemAudio.isReceiving', (value) => {
     if (value === true) clearReceiveWatchdog();
+  });
+
+  bus.on('system-audio:delivery-handoff', () => {
+    if (getState('network.appRole') !== 'guest') return;
+    if (!isSystemAudioPlaceholder()) return;
+    // Preserve the current system-audio placeholder/previous-track restore
+    // point, but make the replacement adapter earn the receiving state again.
+    // This covers both SFU retry handoff and SFU -> bounded direct fallback.
+    setSystemAudioReceiving(false);
+    armReceiveWatchdog();
   });
 
   bus.on('system-audio:force-stop', () => {

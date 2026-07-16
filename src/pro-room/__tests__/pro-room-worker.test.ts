@@ -128,6 +128,22 @@ function request(path: string, init: RequestInit = {}, cookie?: string): Request
   return requestForRoom(ROOM_CODE, path, init, cookie);
 }
 
+describe('PRO room Worker health', () => {
+  it('publishes the exact deployed Worker version for release readiness checks', async () => {
+    const response = await proRoomWorker.fetch(new Request('https://pro.musixquare.com/health'), {
+      ...environment(),
+      CF_VERSION_METADATA: { id: 'pro-version-123' },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      service: 'musixquare-pro-room',
+      workerVersionId: 'pro-version-123',
+    });
+  });
+});
+
 function requestWithPresence(
   path: string,
   init: RequestInit,
@@ -1537,10 +1553,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(stillPresent.snapshot.presence.participants).toHaveLength(2);
   });
 
-  it('allows 32 valid same-NAT members and evicts only inactive sessions during long churn', async () => {
+  it('allows 100 total same-NAT devices and evicts only inactive sessions during long churn', async () => {
     const { worker } = await activatedRoom();
     const activeCookies: string[] = [];
-    for (let index = 0; index < 32; index += 1) {
+    // activatedRoom() already enters the owner/coordinator, leaving 99 member
+    // places under the host-inclusive 100-device room ceiling.
+    for (let index = 0; index < 99; index += 1) {
       const joined = await worker.fetch(
         jsonRequest('/sessions', 'POST', {
           pin: '12345678',

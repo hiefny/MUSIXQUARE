@@ -71,6 +71,8 @@ export interface RemoteFileSharePayload {
   queueItemId: QueueItemId;
   sessionId: number;
   expiresAt: number;
+  /** Explicit host-authorized object-storage delivery for a local guest. */
+  delivery?: 'r2';
 }
 
 export type RemoteShareUploadStatus = 'idle' | 'encrypting' | 'uploading' | 'done' | 'error';
@@ -297,12 +299,18 @@ export interface ProtocolMap {
     mime: string;
     size?: number;
     autoPlayDelayMs?: number;
+    delivery?: 'r2';
+  };
+  'file-r2-capability': {
+    version: 1;
+    localAudience: true;
   };
   'remote-file-unavailable': {
     name: string;
     queueItemId: QueueItemId;
     sessionId: number;
     limited?: boolean;
+    delivery?: 'r2';
   };
   'remote-file-share': RemoteFileSharePayload;
   // ── Playlist ─────────────────────────────────────────────────────
@@ -524,8 +532,14 @@ export interface ProtocolMap {
 
   // ── System Audio Sharing ──────────────────────────────────────
   'system-audio-start': NoPayload;
+  'system-audio-sfu-capability': {
+    version: 1;
+    localAudience: true;
+  };
   'system-audio-sfu-ready': {
     version: 1;
+    /** `all` lets a LAN guest consume the publication instead of P2P. */
+    audience?: 'remote' | 'all';
     sessionId: string;
     tracks: Array<{
       trackName: string;
@@ -663,7 +677,6 @@ export interface StateTree {
     isIntentionalDisconnect: boolean;
     lastKnownDeviceList: DeviceInfo[] | null;
     peerLabels: Record<string, string>;
-    maxGuestSlots: number;
     roomPasswordRequired: boolean;
     roomPassword: string;
     peerSlots: (string | null)[];
@@ -990,6 +1003,8 @@ interface BaseEventMap {
   'network:peer-bootstrap': [conn: DataConnection];
   'network:peer-connected': [conn: DataConnection];
   'network:peer-disconnected': [peerId: string];
+  /** Same logical peerId, but a new exact authenticated DataConnection. */
+  'network:peer-connection-replaced': [peerId: string];
   'network:data': [data: unknown, conn: DataConnection];
   'network:error': [error: unknown];
   'network:broadcast': [data: unknown];
@@ -1058,7 +1073,6 @@ interface BaseEventMap {
 
   // ── Connect ─────────────────────────────────────────────────────────
   'ui:connect-tab-opened': [];
-  'network:max-guests-changed': [max: number];
 
   // ── Setup ─────────────────────────────────────────────────────────
   'setup:guest-join-success': [];
@@ -1081,6 +1095,8 @@ interface BaseEventMap {
   'system-audio:incoming-call': [mediaConn: unknown, channel: string];
   'system-audio:receive-timeout': [];
   'system-audio:sfu-fallback': [reason: string];
+  'system-audio:delivery-handoff': [];
+  'system-audio:host-started': [];
   'system-audio:host-stopped': [];
 
   // ── Visualizer ────────────────────────────────────────────────────

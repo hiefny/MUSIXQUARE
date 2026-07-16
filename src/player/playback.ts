@@ -19,7 +19,7 @@ import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
-import { unicastFile } from '../storage/transfer.ts';
+import { sendFileDeliveryUnavailable, unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, isRemoteGuest, safeSend } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
@@ -27,6 +27,11 @@ import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
+import {
+  isGuestR2FileDelivery,
+  markLateLocalPeerForR2,
+  resolvePeerFileDelivery,
+} from '../share/file-delivery-policy.ts';
 
 import {
   getCurrentAudioBuffer,
@@ -247,7 +252,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
 
     // Remote guest: orchestrator won't unicast the file. Queue files always
     // use remote share; bundled demo playback has a separate DEMO_* protocol.
-    if (isRemoteGuest()) {
+    if (isRemoteGuest() || isGuestR2FileDelivery(incomingQueueItemId)) {
       if (shouldWaitForRemoteShare()) {
         const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
         // Dedup mirror of prepareRemoteShareWait's alreadyWaiting check —
@@ -384,7 +389,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     }
 
     // Remote guest: no queue file arrives via P2P; wait for remote share.
-    if (isRemoteGuest()) {
+    if (isRemoteGuest() || isGuestR2FileDelivery(incomingQueueItemId)) {
       if (shouldWaitForRemoteShare()) {
         const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
         // Dedup mirror of prepareRemoteShareWait's alreadyWaiting check.
@@ -1071,9 +1076,11 @@ export function initPlayback(): void {
 
     const peers = getState('network.connectedPeers') || [];
     const peer = peers.find((p) => p.id === peerId);
-    if (!peer || (!isProDirect && !peer.isDataTarget)) return;
+    if (!peer) return;
     const conn = peer.conn as DataConnection;
     if (!conn?.open) return;
+
+    markLateLocalPeerForR2(peerId);
 
     const currentResident = getState('files.current');
     if (currentResident?.queueItemId === currentQueueItemId) {
@@ -1090,6 +1097,36 @@ export function initPlayback(): void {
         log.debug(`[Playback] Sent PRO direct-file prepare to ${peer.label || peerId} (${reason})`);
         return;
       }
+      const delivery = resolvePeerFileDelivery(peer, currentResident.sessionId);
+      const prepare = {
+        type: MSG.FILE_PREPARE,
+        name: currentResident.name || item.name,
+        queueItemId: currentQueueItemId,
+        sessionId: currentResident.sessionId,
+        size: currentResident.blob.size,
+        mime: currentResident.mime || currentResident.blob.type || 'application/octet-stream',
+        autoPlayDelayMs: 0,
+      };
+      if (delivery === 'r2') {
+        safeSend(conn, {
+          ...prepare,
+          delivery: 'r2',
+        });
+        log.debug(`[Playback] Sent R2 file prepare to ${peer.label || peerId} (${reason})`);
+        return;
+      }
+      if (delivery === 'unsupported') {
+        sendFileDeliveryUnavailable(conn, prepare, currentResident.sessionId);
+        log.warn(
+          `[Playback] File delivery unavailable for legacy overflow peer ${peer.label || peerId}`,
+        );
+        return;
+      }
+      if (delivery === 'pending') {
+        log.debug(`[Playback] Deferring file bootstrap until ICE resolves for ${peerId}`);
+        return;
+      }
+      if (!peer.isDataTarget) return;
       log.debug(`[Playback] Sending current file to ${peer.label || peerId} (${reason})`);
       try {
         await unicastFile(conn, currentResident.blob, 0, currentResident.sessionId, {

@@ -18,6 +18,16 @@ import {
   getCapturedAudioStream,
 } from '../audio/system-capture.ts';
 import type { MediaConnection } from '../types/index.ts';
+import {
+  beginSystemAudioShareDelivery,
+  endSystemAudioShareDelivery,
+  getFrozenSystemAudioSfuAudience,
+  getSystemAudioShareDeliverySnapshot,
+  getRemainingDirectSystemAudioCapacity,
+  releaseSystemAudioPeerDelivery,
+  reserveSystemAudioFallbackDirect,
+  resolveSystemAudioPeerDelivery,
+} from './system-audio-delivery.ts';
 
 import { forceStereoSdp } from './peer.ts';
 
@@ -81,6 +91,7 @@ function applySdpMunge(mc: MediaConnection): void {
 
 const _mediaConns = new Map<string, MediaConnection>();
 let _remoteDirectFallbackEnabled = false;
+const _remoteFallbackPeerIds = new Set<string>();
 
 interface HostDirectCallDebug {
   at: number;
@@ -110,12 +121,6 @@ function pushDebugCall(entry: Omit<HostDirectCallDebug, 'at'>): void {
   if (_debugCalls.length > 30) _debugCalls.splice(0, _debugCalls.length - 30);
 }
 
-function shouldUseDirectMediaCall(connectionType: string | undefined): boolean {
-  if (connectionType === 'local') return true;
-  if (_remoteDirectFallbackEnabled && connectionType === 'remote') return true;
-  return false;
-}
-
 export function getSystemAudioHostDebugSnapshot() {
   const mediaConns = [..._mediaConns.entries()].map(([peerId, conn]) => ({
     peerId,
@@ -133,6 +138,8 @@ export function getSystemAudioHostDebugSnapshot() {
   return {
     active: isSystemAudioActive(),
     remoteDirectFallbackEnabled: _remoteDirectFallbackEnabled,
+    remoteFallbackPeerIds: [..._remoteFallbackPeerIds],
+    delivery: getSystemAudioShareDeliverySnapshot(),
     mediaConnCount: _mediaConns.size,
     mediaConns,
     recentCalls: _debugCalls.slice(-12),
@@ -157,32 +164,60 @@ function callGuest(guestPeerId: string): void {
     peerLabel: peerObj?.label,
     connectionType: peerObj?.connectionType,
   };
+
+  // Resolve the frozen route before checking whether the current transport
+  // adapter can create direct calls. Unsupported legacy overflow still needs
+  // an immediate STOP to undo the room-wide START placeholder, while SFU and
+  // pending peers must bypass direct-only prerequisites entirely.
+  const delivery = resolveSystemAudioPeerDelivery(peerObj);
+  if (delivery === 'unsupported') {
+    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'unsupported-overflow' });
+    return;
+  }
+  let useRemoteDirectFallback =
+    _remoteDirectFallbackEnabled && _remoteFallbackPeerIds.has(guestPeerId);
+  if (
+    delivery === 'sfu' &&
+    _remoteDirectFallbackEnabled &&
+    getFrozenSystemAudioSfuAudience(guestPeerId) === 'remote' &&
+    !useRemoteDirectFallback
+  ) {
+    if (!reserveSystemAudioFallbackDirect(guestPeerId)) {
+      if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+      pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'remote-fallback-full' });
+      return;
+    }
+    _remoteFallbackPeerIds.add(guestPeerId);
+    useRemoteDirectFallback = true;
+  }
+  if (delivery !== 'direct' && !useRemoteDirectFallback) {
+    log.info(`[SysAudioHost] Skipping direct call for ${guestPeerId.slice(0, 8)} (${delivery})`);
+    pushDebugCall({ ...debugBase, action: 'skip', reason: 'waiting-for-sfu' });
+    return;
+  }
+
   const peer = getPeer();
   const streamL = getStreamL();
   const streamR = getStreamR();
   if (!peer) {
-    pushDebugCall({ ...debugBase, action: 'skip', reason: 'no-peer' });
+    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'no-peer' });
     return;
   }
   if (!streamL || !streamR) {
-    pushDebugCall({ ...debugBase, action: 'skip', reason: 'missing-lr-streams' });
+    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'missing-lr-streams' });
     return;
   }
   if (!peer.call) {
     log.warn('[SysAudioHost] Current transport does not support direct media calls');
-    pushDebugCall({ ...debugBase, action: 'skip', reason: 'no-call-support' });
+    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'no-call-support' });
     return;
   }
   if (_mediaConns.has(guestPeerId)) {
     pushDebugCall({ ...debugBase, action: 'skip', reason: 'already-connected' });
-    return;
-  }
-
-  // Remote peers should use the Cloudflare Realtime SFU path. Direct media calls
-  // are kept for local peers and as a fallback when SFU publication fails.
-  if (peerObj && !shouldUseDirectMediaCall(peerObj.connectionType)) {
-    log.info(`[SysAudioHost] Skipping non-local peer ${guestPeerId.slice(0, 8)} for SFU`);
-    pushDebugCall({ ...debugBase, action: 'skip', reason: 'waiting-for-sfu' });
     return;
   }
 
@@ -271,9 +306,10 @@ function callGuest(guestPeerId: string): void {
     );
   } catch (e) {
     log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
+    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
     pushDebugCall({
       ...debugBase,
-      action: 'error',
+      action: 'stop-sent',
       reason: 'call-threw',
       error: errorToDebugString(e),
     });
@@ -290,7 +326,13 @@ function callAllGuests(): void {
 function callRemoteGuestsForFallback(): void {
   const peers = getState('network.connectedPeers');
   for (const p of peers) {
-    if (p.status !== 'connected' || p.connectionType !== 'remote' || !p.id) continue;
+    if (getRemainingDirectSystemAudioCapacity(_remoteFallbackPeerIds) <= 0) break;
+    if (p.status !== 'connected' || !p.id || getFrozenSystemAudioSfuAudience(p.id) !== 'remote') {
+      continue;
+    }
+    if (resolveSystemAudioPeerDelivery(p) !== 'sfu') continue;
+    if (!reserveSystemAudioFallbackDirect(p.id)) continue;
+    _remoteFallbackPeerIds.add(p.id);
     if (p.conn?.open) {
       safeSend(p.conn, { type: MSG.SYSTEM_AUDIO_START });
       pushDebugCall({
@@ -314,6 +356,21 @@ function closeAllMediaConns(): void {
     }
   }
   _mediaConns.clear();
+  _remoteFallbackPeerIds.clear();
+}
+
+function cleanupPeerSystemAudioRoute(peerId: string): void {
+  const mc = _mediaConns.get(peerId);
+  if (mc) {
+    try {
+      mc.close();
+    } catch {
+      /* noop */
+    }
+    _mediaConns.delete(peerId);
+  }
+  _remoteFallbackPeerIds.delete(peerId);
+  releaseSystemAudioPeerDelivery(peerId);
 }
 
 function sendActiveSystemAudioToPeer(peerId: string): void {
@@ -350,6 +407,8 @@ export function registerSystemAudioHostListeners(): void {
   // L/R streams ready → call all connected guests
   bus.on('system-audio:streams-ready', () => {
     _remoteDirectFallbackEnabled = false;
+    _remoteFallbackPeerIds.clear();
+    beginSystemAudioShareDelivery(getState('network.connectedPeers'));
     callAllGuests();
   });
 
@@ -382,21 +441,30 @@ export function registerSystemAudioHostListeners(): void {
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {
-    const mc = _mediaConns.get(peerId);
-    if (mc) {
-      try {
-        mc.close();
-      } catch {
-        /* noop */
-      }
-      _mediaConns.delete(peerId);
-    }
+    cleanupPeerSystemAudioRoute(peerId);
+  });
+
+  // Same peerId, new exact DataConnection: capability and route authority do
+  // not carry across. Close any media call owned by the replaced connection
+  // without emitting UI leave semantics.
+  bus.on('network:peer-connection-replaced', (peerId: string) => {
+    cleanupPeerSystemAudioRoute(peerId);
   });
 
   bus.on('system-audio:sfu-fallback', (reason: string) => {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
     if (_remoteDirectFallbackEnabled) return;
+    const delivery = getSystemAudioShareDeliverySnapshot();
+    const hasLocalSfuTargets = delivery.sfuPeerIds.some(
+      (peerId) => getFrozenSystemAudioSfuAudience(peerId) === 'all',
+    );
+    if (hasLocalSfuTargets) {
+      log.warn(
+        `[SysAudioHost] SFU unavailable for a bounded large-room share; refusing direct fanout: ${reason}`,
+      );
+      return;
+    }
     _remoteDirectFallbackEnabled = true;
     log.warn(
       `[SysAudioHost] SFU unavailable; falling back to direct remote media calls: ${reason}`,
@@ -407,9 +475,11 @@ export function registerSystemAudioHostListeners(): void {
   bus.on('system-audio:force-stop', () => {
     _remoteDirectFallbackEnabled = false;
     closeAllMediaConns();
+    endSystemAudioShareDelivery();
   });
   bus.on('system-audio:stop', () => {
     _remoteDirectFallbackEnabled = false;
     closeAllMediaConns();
+    endSystemAudioShareDelivery();
   });
 }

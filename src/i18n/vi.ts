@@ -183,11 +183,9 @@ const vi: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': 'Mời bằng QR hoặc liên kết',
-  'connect.max_devices': 'Sức chứa phòng',
   'connect.device_list': '{{count}} thiết bị đã kết nối',
   'connect.no_session': 'Hãy tạo phòng trước',
   'connect.generating_qr': 'Đang tạo mã QR...',
-  'connect.cannot_reduce': 'Không thể giảm sức chứa: {{count}} thiết bị đã kết nối',
   'connect.kick_title': 'Đẩy thiết bị ra',
   'connect.kick_message': 'Xóa thiết bị này khỏi phòng?',
   'connect.kick_yes': 'Đẩy ra',
@@ -312,8 +310,7 @@ const vi: Record<I18nKey, string> = {
   'network.disconnected': 'Đã ngắt kết nối',
   'network.cant_join': 'Không tìm thấy phòng.\nVui lòng kiểm tra mạng.',
   'network.session_full': 'Phòng đã đầy',
-  'network.session_full_detail':
-    'Phòng này đã đạt giới hạn thiết bị.\nHãy nhờ host tăng giới hạn trong tab "Kết nối".',
+  'network.session_full_detail': 'Phòng này đã có tối đa 100 thiết bị kết nối, bao gồm cả host.',
   'network.op_granted': 'Đã cấp quyền quản trị.',
   'network.op_revoked': 'Đã thu hồi quyền quản trị.',
 
@@ -361,8 +358,6 @@ const vi: Record<I18nKey, string> = {
   'system_audio.started':
     'Âm thanh hệ thống có thể có độ trễ nhẹ.\nHãy giảm âm lượng nguồn nếu có thể.',
   'system_audio.stopped': 'Chia sẻ âm thanh hệ thống đã kết thúc.\nĐang tiếp tục danh sách phát.',
-  'system_audio.many_devices_warning':
-    'Âm thanh hệ thống tốt nhất với tối đa 4 người tham gia.\nNhiều thiết bị hơn có thể gây trễ hoặc giật.',
   'system_audio.host_channel_locked': 'Không thể đổi vai trò khi chia sẻ âm thanh hệ thống.',
   'system_audio.effects_guest_only':
     'Đang chia sẻ âm thanh hệ thống.\nHiệu ứng chỉ áp dụng cho người tham gia.',
@@ -371,7 +366,7 @@ const vi: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Không nhận được âm thanh hệ thống.\nHãy nhờ host bắt đầu chia sẻ lại.',
   'system_audio.remote_receive_limit':
-    'Đã tự động dừng nhận âm thanh hệ thống từ xa sau 2 giờ.\nVào lại phòng để tiếp tục nghe.',
+    'Đã tự động dừng nhận âm thanh hệ thống sau 2 giờ.\nVào lại phòng để tiếp tục nghe.',
 
   // Toast
   'toast.device_connected': '{{name}} đã kết nối',
@@ -473,10 +468,7 @@ const vi: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Chia sẻ tệp trong phòng lớn',
   'dialog.large_room_file.message':
-    'Chia sẻ tệp cục bộ ổn định với tối đa khoảng 8 người tham gia trên mạng cục bộ.\n\nTiếp tục?',
-  'dialog.large_room_sysaudio.title': 'Âm thanh hệ thống trong phòng lớn',
-  'dialog.large_room_sysaudio.message':
-    'Chia sẻ âm thanh hệ thống hỗ trợ người tham gia cục bộ và từ xa, nhưng khuyến nghị tối đa khoảng 4 người tham gia để giảm tải host và độ trễ.\n\nTiếp tục?',
+    'Trên cùng một mạng, truyền tệp trực tiếp ổn định với tối đa 8 thiết bị khách, không tính thiết bị của host. Trong phòng nội bộ lớn hơn, tệp có thể được phân phối qua Cloudflare R2.\n\nTiếp tục?',
   'dialog.continue': 'Tiếp tục',
   'dialog.file_drop.title': 'Thêm tệp trên thiết bị',
   'dialog.file_drop.message': 'Thêm {{count}} bài hát?',
@@ -622,16 +614,12 @@ const vi: Record<I18nKey, string> = {
   'chat.empty_html': 'Chưa có tin nhắn.<br>Hãy gửi tin nhắn đầu tiên!',
   'chat.msg_truncated': 'Tin nhắn đã bị cắt còn {{max}} ký tự',
   'chat.scroll_to_bottom': 'Cuộn xuống cuối',
-  'connect.slot_guide.aria': 'Mở hướng dẫn số người tham gia khuyến nghị',
-  'connect.slot_guide.title': 'Số lượng người tham gia',
-  'connect.slot_guide.body':
-    'Càng nhiều người tham gia kết nối, hệ thống càng kém ổn định.\n\n• YouTube cùng nhau: tối đa 32\n• Chia sẻ tệp cục bộ: tối đa 8\n• Chia sẻ âm thanh hệ thống: khuyến nghị tối đa 4',
   'help.install_app_html':
     'Bạn thích MUSIXQUARE? Bạn có thể cài đặt như một ứng dụng.<ul class="help-list"><li><strong>iOS:</strong> Chia sẻ → Thêm vào Màn hình chính</li><li><strong>Android:</strong> Menu → Cài đặt ứng dụng</li><li><strong>Windows:</strong> Biểu tượng cài đặt trên thanh địa chỉ</li><li><strong>macOS:</strong> Chia sẻ → Thêm vào Dock</li></ul>',
   'help.local_recommended_html':
     'Chia sẻ âm thanh ổn định nhất trên cùng một mạng.<ul class="help-list"><li>Người tham gia từ xa có thể dùng cùng các tính năng.</li><li>Người tham gia từ xa dùng đường truyền Cloudflare, nên độ trễ có thể tăng hoặc việc nhận dữ liệu có thể thất bại tùy điều kiện mạng.</li><li>VPN hoặc mạng bị hạn chế có thể khiến kết nối không ổn định.</li></ul>',
   'setup.how_to_connect_html':
-    'Nhập <strong>mã 6 chữ số</strong> từ host để kết nối.<ul class="help-list"><li><strong>Host:</strong> “Tạo phòng” → kiểm tra mã</li><li><strong>Người tham gia:</strong> “Tham gia phòng” → nhập mã</li><li>Bạn có thể đặt số thiết bị kết nối trong <strong>tab "Kết nối"</strong>.</li></ul>',
+    'Nhập <strong>mã 6 chữ số</strong> từ host để kết nối.<ul class="help-list"><li><strong>Host:</strong> “Tạo phòng” → kiểm tra mã</li><li><strong>Người tham gia:</strong> “Tham gia phòng” → nhập mã</li><li>Có thể kết nối tối đa <strong>100 thiết bị, bao gồm cả host</strong>.</li></ul>',
   'player.play_speakers_html':
     'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Giữa:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh L</li><li><strong>Phải:</strong> Đầu ra kênh R</li><li><strong>Subwoofer:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
   'player.play_media_action_html':
@@ -650,7 +638,7 @@ const vi: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Chỉ có thể phát video hoặc playlist công khai.',
   'legal.title': 'Ghi chú dịch vụ',
   'legal.content_html':
-    '<strong>Chính sách quyền riêng tư</strong><br><span data-legal-standard-storage>Trên cùng một mạng, dữ liệu phiên đi trực tiếp giữa các thiết bị; chỉ IP và chi tiết kết nối đi qua signaling. Chia sẻ tệp từ xa và âm thanh hệ thống định tuyến dữ liệu qua Cloudflare; tệp từ xa được mã hóa, chỉ lưu tối đa 24 giờ và không kèm khóa giải mã. MUSIXQUARE không xem, phân tích hoặc lưu trữ dữ liệu ngoài phạm vi cần thiết để cung cấp tính năng.</span><span data-legal-pro-storage>Trong phòng PRO, địa chỉ IP và thông tin kết nối cần thiết để thiết lập phiên sẽ đi qua máy chủ signaling. Các tệp gốc được thêm vào danh sách phát được lưu trong bộ nhớ Cloudflare R2 riêng tư để phòng luôn có thể sử dụng. Tệp sẽ được xóa khi không còn được dùng trong danh sách phát hoặc khi nhà vận hành xóa dữ liệu phòng, và chỉ người dùng đã vào phòng mới có thể tải xuống qua URL có thời hạn ngắn. MUSIXQUARE không xem hoặc phân tích dữ liệu cho mục đích nào khác ngoài việc cung cấp dịch vụ.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Thông báo bản quyền</strong><br>Nội dung được chia sẻ qua MUSIXQUARE thuộc về các chủ sở hữu quyền tương ứng. Chia sẻ âm thanh hệ thống và chia sẻ tệp dành cho mục đích sử dụng cá nhân. Người dùng chịu trách nhiệm về việc phân phối trái phép hoặc truyền phát công khai nội dung có bản quyền. Chia sẻ YouTube dùng phương thức phát chính thức, còn lượt xem và xử lý quyền tuân theo chính sách của dịch vụ đó và cài đặt của chủ sở hữu quyền. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Tuyên bố miễn trừ</strong><br>MUSIXQUARE được cung cấp miễn phí. Một số tính năng phụ thuộc vào dịch vụ bên ngoài như YouTube hoặc Cloudflare, nên có thể xuất hiện giới hạn tạm thời nếu các dịch vụ đó thay đổi hoặc ngừng hoạt động. Đồng bộ âm thanh thời gian thực và chất lượng chia sẻ từ xa có thể thay đổi rất nhiều tùy mạng, chính sách trình duyệt và hiệu năng thiết bị. Có thể phát sinh phí dữ liệu di động khi không dùng Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Giới thiệu</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lịch sử</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hệ thống thiết kế</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Chính sách quyền riêng tư</strong><br><span data-legal-standard-storage>Trên cùng một mạng, dữ liệu phiên thường được truyền trực tiếp giữa các thiết bị; chỉ địa chỉ IP và thông tin kết nối đi qua máy chủ signaling. Tuy nhiên, việc truyền từ xa cũng như phân phối tệp và âm thanh hệ thống trong phòng quy mô lớn có thể được định tuyến qua Cloudflare. Các tệp tạm thời của phòng thông thường được truyền qua Cloudflare sẽ được mã hóa, lưu tối đa 24 giờ và không lưu kèm khóa giải mã. MUSIXQUARE không xem, phân tích hoặc lưu trữ dữ liệu trừ khi cần thiết để cung cấp tính năng.</span><span data-legal-pro-storage>Trong phòng PRO, địa chỉ IP và thông tin kết nối cần thiết để thiết lập phiên sẽ đi qua máy chủ signaling. Các tệp gốc được thêm vào danh sách phát được lưu trong bộ nhớ Cloudflare R2 riêng tư để phòng luôn có thể sử dụng. Tệp sẽ được xóa khi không còn được dùng trong danh sách phát hoặc khi nhà vận hành xóa dữ liệu phòng, và chỉ người dùng đã vào phòng mới có thể tải xuống qua URL có thời hạn ngắn. MUSIXQUARE không xem hoặc phân tích dữ liệu cho mục đích nào khác ngoài việc cung cấp dịch vụ.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Thông báo bản quyền</strong><br>Nội dung được chia sẻ qua MUSIXQUARE thuộc về các chủ sở hữu quyền tương ứng. Chia sẻ âm thanh hệ thống và chia sẻ tệp dành cho mục đích sử dụng cá nhân. Người dùng chịu trách nhiệm về việc phân phối trái phép hoặc truyền phát công khai nội dung có bản quyền. Chia sẻ YouTube dùng phương thức phát chính thức, còn lượt xem và xử lý quyền tuân theo chính sách của dịch vụ đó và cài đặt của chủ sở hữu quyền. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Tuyên bố miễn trừ</strong><br>MUSIXQUARE được cung cấp miễn phí. Một số tính năng phụ thuộc vào dịch vụ bên ngoài như YouTube hoặc Cloudflare, nên có thể xuất hiện giới hạn tạm thời nếu các dịch vụ đó thay đổi hoặc ngừng hoạt động. Đồng bộ âm thanh thời gian thực và chất lượng chia sẻ từ xa có thể thay đổi rất nhiều tùy mạng, chính sách trình duyệt và hiệu năng thiết bị. Có thể phát sinh phí dữ liệu di động khi không dùng Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Giới thiệu</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lịch sử</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hệ thống thiết kế</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default vi;

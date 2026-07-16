@@ -9,6 +9,11 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import { getPreloadMemoryStats, initPreload, schedulePreload, unicastPreload } from '../preload.ts';
 import { setRepeatMode, setShuffle } from '../../player/playlist.ts';
+import {
+  freezeFileDeliveryMode,
+  markLocalFileR2Capable,
+  resetFileDeliveryPolicies,
+} from '../../share/file-delivery-policy.ts';
 import type { DataConnection, PlaylistItem } from '../../types/index.ts';
 
 const storageMocks = vi.hoisted(() => ({
@@ -35,6 +40,7 @@ vi.mock('../storage.ts', async (importOriginal) => {
 
 beforeEach(() => {
   resetState();
+  resetFileDeliveryPolicies();
   bus.clear();
   storageMocks.readStoredFile.mockReset();
   storageMocks.readStoredFile.mockResolvedValue(null);
@@ -157,6 +163,63 @@ describe('preload MIME preservation', () => {
 });
 
 describe('pre-admission preload buffer bounds', () => {
+  it('clears high-water marks and early chunks on a direct room-code switch', async () => {
+    initPreload();
+    const hostConn = {
+      open: true,
+      peer: 'host-room-switch',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [makeFileTrack('room-b.mp3', Q0)]);
+    setState('network.sessionCode', '111111');
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        sessionId: 50,
+        queueItemId: Q0,
+        chunkIndex: 0,
+        chunk: new Uint8Array([1]),
+      },
+      hostConn,
+    );
+    expect(getPreloadMemoryStats().reorderChunks).toBe(1);
+    setState('preload.isPreloading', true);
+    setState('preload.nextQueueItemId', Q0);
+
+    setState('network.sessionCode', '222222');
+
+    expect(getPreloadMemoryStats()).toMatchObject({
+      reorderSessions: 0,
+      reorderChunks: 0,
+      latestSessionId: 0,
+    });
+    expect(getState('preload.isPreloading')).toBe(false);
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        sessionId: 1,
+        queueItemId: Q0,
+        name: 'room-b.mp3',
+        mime: 'audio/mpeg',
+        total: 1,
+        size: 1,
+      },
+      hostConn,
+    );
+    expect(storageMocks.postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+        sessionId: 1,
+        queueItemId: Q0,
+      }),
+    );
+  });
+
   it('caps unknown sessions globally while preserving the newest contiguous prefix', async () => {
     vi.useFakeTimers();
     initPreload();
@@ -834,6 +897,33 @@ describe('unicastPreload source liveness', () => {
       capabilities: ['playback.control'],
     });
 
+    await unicastPreload(conn, selected, Q2, 20);
+
+    expect(messages(conn, MSG.PRELOAD_START)).toHaveLength(0);
+    expect(messages(conn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
+    expect(messages(conn, MSG.PRELOAD_END)).toHaveLength(0);
+  });
+
+  it('does not send preload bytes directly in a nine-local-guest R2 session', async () => {
+    const selected = new Blob(['large-room-preload'], { type: 'audio/mpeg' });
+    const conn = installPeer(selected);
+    const firstPeer = getState('network.connectedPeers')[0]!;
+    const peers = [
+      firstPeer,
+      ...Array.from({ length: 8 }, (_, index) => {
+        const id = `preload-peer-${index + 2}`;
+        return {
+          ...firstPeer,
+          id,
+          conn: { open: true, peer: id, send: vi.fn() } as unknown as DataConnection,
+          joinOrder: index + 2,
+        };
+      }),
+    ];
+    for (const peer of peers) markLocalFileR2Capable(peer.id);
+    setState('network.connectedPeers', peers);
+
+    expect(freezeFileDeliveryMode(20)).toBe('r2-fanout');
     await unicastPreload(conn, selected, Q2, 20);
 
     expect(messages(conn, MSG.PRELOAD_START)).toHaveLength(0);

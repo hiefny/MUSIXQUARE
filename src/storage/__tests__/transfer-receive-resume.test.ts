@@ -150,8 +150,8 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     __resetRamStoreForTests();
     const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
     resetStoredFileAdmissionsForTests();
-    const { clearReceiveState } = await import('../transfer-receive.ts');
-    clearReceiveState();
+    const { resetIncomingTransferAuthority } = await import('../transfer-receive.ts');
+    resetIncomingTransferAuthority();
     setState('network.hostConn', conn);
     setState(
       'playlist.items',
@@ -658,8 +658,8 @@ describe('handleFileWait - identity repair isolation', () => {
     vi.clearAllMocks();
     const { resetFileRequestAuthority } = await import('../../network/file-request-authority.ts');
     resetFileRequestAuthority();
-    const { clearReceiveState } = await import('../transfer-receive.ts');
-    clearReceiveState();
+    const { resetIncomingTransferAuthority } = await import('../transfer-receive.ts');
+    resetIncomingTransferAuthority();
     setState('network.hostConn', conn);
     setState('network.connectionType', 'local');
     setState('playlist.items', [
@@ -880,8 +880,8 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     __resetRamStoreForTests();
     const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
     resetStoredFileAdmissionsForTests();
-    const { clearReceiveState } = await import('../transfer-receive.ts');
-    clearReceiveState();
+    const { resetIncomingTransferAuthority } = await import('../transfer-receive.ts');
+    resetIncomingTransferAuthority();
     setState('network.hostConn', conn);
     setState('network.connectionType', 'local');
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
@@ -1249,8 +1249,8 @@ describe('persistent PRO file receive routing', () => {
     resetState();
     bus.clear();
     vi.clearAllMocks();
-    const { clearReceiveState } = await import('../transfer-receive.ts');
-    clearReceiveState();
+    const { resetIncomingTransferAuthority } = await import('../transfer-receive.ts');
+    resetIncomingTransferAuthority();
     setState('network.hostConn', conn);
     setState('network.connectionType', 'remote');
     setState('playlist.items', [

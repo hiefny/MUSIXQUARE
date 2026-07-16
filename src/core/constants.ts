@@ -73,14 +73,13 @@ export const DELAY = {
 export const MANUAL_SYNC_OFFSET_LIMIT_SEC = 3;
 
 // ─── Network ───────────────────────────────────────────────────────
-export const DEFAULT_MAX_GUEST_SLOTS = 4;
-export const MIN_GUEST_SLOTS = 1;
-export const MAX_GUEST_SLOTS_LIMIT = 32;
-/** Show "this mode is recommended for small rooms" dialog only when the host
- *  has opted into a larger room (slot cap ≥ this). Users sticking to the
- *  default room limit won't trigger the warning for file-share or
- *  system-audio entry. */
-export const WARN_WHEN_MAX_SLOTS_AT_LEAST = 6;
+/** Absolute room capacity. The host occupies device 0; guests use slots 1–99. */
+const MAX_CONNECTED_DEVICES = 100;
+export const MAX_GUEST_SLOTS = MAX_CONNECTED_DEVICES - 1;
+/** Show the local-file warning only once the ninth connected guest requires
+ *  the bounded R2 fanout path. The fixed room ceiling must never make the
+ *  dialog appear in an otherwise direct-transfer room. */
+export const WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST = 9;
 export const PEER_NAME_PREFIX = 'Peer';
 
 // ─── Chat Wire Caps ────────────────────────────────────────────────
@@ -106,6 +105,7 @@ export const MSG = {
   FILE_CHUNK: 'file-chunk',
   FILE_END: 'file-end',
   FILE_PREPARE: 'file-prepare',
+  FILE_R2_CAPABILITY: 'file-r2-capability',
   REMOTE_FILE_UNAVAILABLE: 'remote-file-unavailable',
   REMOTE_FILE_SHARE: 'remote-file-share',
   FILE_RESUME: 'file-resume',
@@ -176,6 +176,7 @@ export const MSG = {
 
   // ── System Audio Sharing ────────────────────────────────────────
   SYSTEM_AUDIO_START: 'system-audio-start',
+  SYSTEM_AUDIO_SFU_CAPABILITY: 'system-audio-sfu-capability',
   SYSTEM_AUDIO_SFU_READY: 'system-audio-sfu-ready',
   SYSTEM_AUDIO_STOP: 'system-audio-stop',
 

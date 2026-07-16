@@ -972,7 +972,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
-  it('admits one PRO coordinator plus at most 32 distinct members', async () => {
+  it('admits one PRO coordinator plus at most 99 distinct members', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -984,7 +984,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
     const coordinator = lastServer();
 
-    for (let index = 0; index < 32; index++) {
+    for (let index = 0; index < 99; index++) {
       await room.fetch(
         await proWsRequest({
           role: 'member',
@@ -1006,6 +1006,51 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_GUEST_LIMIT_REACHED');
     expect(sent(rejected)[0]).toMatchObject({ message: 'ROOM_GUEST_LIMIT_REACHED' });
+    expect(coordinator.closed).toBe(false);
+  });
+
+  it('rehydrates at most 99 PRO members alongside the coordinator', () => {
+    const state = new FakeDurableObjectState();
+    const coordinator = new FakeSocket();
+    coordinator.serializeAttachment({
+      v: 1,
+      roomKind: 'pro',
+      role: 'host',
+      roomId: '000001',
+      peerId: '000001',
+      participantId: 'rehydrated-coordinator',
+      coordinatorEpoch: 1,
+      ticketJti: 'rehydrated-coordinator-ticket',
+      presenceIncarnationId: 'rehydrated-coordinator-presence',
+      ticketSequence: 1,
+      auth: 'ok',
+    });
+    const members = Array.from({ length: 100 }, (_, index) => {
+      const member = new FakeSocket();
+      member.serializeAttachment({
+        v: 1,
+        roomKind: 'pro',
+        role: 'guest',
+        roomId: '000001',
+        peerId: `rehydrated-member-${index}`,
+        participantId: `rehydrated-member-${index}`,
+        coordinatorEpoch: 1,
+        ticketJti: `rehydrated-member-ticket-${index}`,
+        presenceIncarnationId: `rehydrated-member-presence-${index}`,
+        ticketSequence: 1,
+        auth: 'ok',
+      });
+      return member;
+    });
+    state.sockets.push(coordinator, ...members);
+
+    new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+
+    expect(members.slice(0, 99).every((member) => !member.closed)).toBe(true);
+    expect(members[99]?.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'ROOM_GUEST_LIMIT_REACHED',
+    });
     expect(coordinator.closed).toBe(false);
   });
 
@@ -1796,7 +1841,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
   it('caps duplicate pending sockets even when they reuse one peerId', async () => {
     const { room, host } = await createHostRoom();
-    for (let index = 0; index < 64; index++) {
+    for (let index = 0; index < 99; index++) {
       await room.fetch(wsRequest('123456', 'guest', 'same-peer'));
       expect(lastServer().closed).toBe(false);
     }
@@ -1816,10 +1861,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(host.closed).toBe(false);
   });
 
-  it('allows a bound guest to reconnect while all 32 unique room slots are occupied', async () => {
+  it('allows a bound guest to reconnect while all 99 unique room slots are occupied', async () => {
     const { room } = await createHostRoom();
     const guests: FakeSocket[] = [];
-    for (let index = 0; index < 32; index++) {
+    for (let index = 0; index < 99; index++) {
       guests.push(await joinGuest(room, `guest-${index}`));
     }
 
@@ -1927,18 +1972,17 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(guest)[0]).toMatchObject({ type: 'peer-open' });
   });
 
-  it('admits at most 32 unique accepted or password-pending guests', async () => {
+  it('admits at most 99 unique accepted or password-pending guests', async () => {
     const { room, host } = await createHostRoom();
 
-    for (let index = 0; index < 16; index++) {
-      await room.fetch(wsRequest('123456', 'guest', `guest-${index}`));
-      expect(lastServer().closed).toBe(false);
+    for (let index = 0; index < 49; index++) {
+      expect((await joinGuest(room, `guest-${index}`)).closed).toBe(false);
     }
     await room.webSocketMessage(
       host,
       JSON.stringify({ type: 'room-password-set', password: '12345678' }),
     );
-    for (let index = 16; index < 32; index++) {
+    for (let index = 49; index < 99; index++) {
       await room.fetch(wsRequest('123456', 'guest', `guest-${index}`));
       expect(lastServer().closed).toBe(false);
     }

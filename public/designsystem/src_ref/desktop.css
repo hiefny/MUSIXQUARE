@@ -414,8 +414,7 @@
 
     /* Connect sub-panel content — match 20px inner padding of other panels */
     #desktop-connect-content .qr-container,
-    #desktop-connect-content .device-list,
-    #desktop-connect-content .number-stepper {
+    #desktop-connect-content .device-list {
         margin-left: 20px;
         margin-right: 20px;
     }

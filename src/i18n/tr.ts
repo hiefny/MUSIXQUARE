@@ -180,11 +180,9 @@ const tr: Record<I18nKey, string> = {
 
   // ─── Connect ───────────────────────────────────────────────────
   'connect.qr_title': 'QR veya Link ile Davet Et',
-  'connect.max_devices': 'Oda Kapasitesi',
   'connect.device_list': '{{count}} bağlı cihaz',
   'connect.no_session': 'Lütfen önce bir oda oluşturun',
   'connect.generating_qr': 'QR kodu oluşturuluyor...',
-  'connect.cannot_reduce': 'Kapasite düşürülemez: Zaten {{count}} cihaz bağlı',
   'connect.kick_title': 'Cihazı Odadan Çıkar',
   'connect.kick_message': 'Bu cihazı odadan çıkarmak istiyor musunuz?',
   'connect.kick_yes': 'Çıkar',
@@ -399,8 +397,7 @@ const tr: Record<I18nKey, string> = {
   'network.disconnected': 'Bağlantı koptu',
   'network.cant_join': 'Oda bulunamadı.\nLütfen ağ bağlantınızı kontrol edin.',
   'network.session_full': 'Oda Dolu',
-  'network.session_full_detail':
-    'Bu oda cihaz sınırına ulaştı.\nOda sahibinden sınırı "Bağlantı" sekmesinden artırmasını isteyin.',
+  'network.session_full_detail': 'Bu odada, oda sahibi dâhil en fazla 100 cihaz zaten bağlı.',
   'network.op_granted': 'Yönetici yetkisi verildi.',
   'network.op_revoked': 'Yönetici yetkisi geri alındı.',
 
@@ -443,15 +440,8 @@ const tr: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Eklenebilecek ses dosyası yok.',
   'dialog.large_room_file.title': 'Geniş Odada Dosya Paylaşımı',
   'dialog.large_room_file.message':
-    'Yerel dosya paylaşımı, yerel ağda yaklaşık 8 kişiye kadar kararlı çalışır.\n\nDevam etmek istiyor musunuz?',
-  'dialog.large_room_sysaudio.title': 'Geniş Odada Sistem Sesi Paylaşımı',
-  'dialog.large_room_sysaudio.message':
-    'Sistem sesi paylaşımı hem yerel hem uzaktaki misafirleri destekler ancak oda sahibinin yükü ve gecikmeleri önlemek için en fazla 4 misafir önerilir.\n\nDevam etmek istiyor musunuz?',
+    'Aynı ağda doğrudan dosya aktarımı, oda sahibinin cihazı hariç en fazla 8 misafir cihazıyla kararlı çalışır. Daha büyük yerel odalarda dosyalar Cloudflare R2 üzerinden dağıtılabilir.\n\nDevam etmek istiyor musunuz?',
   'dialog.continue': 'Devam et',
-  'connect.slot_guide.aria': 'Önerilen katılımcı sınırı kılavuzunu aç',
-  'connect.slot_guide.title': 'Önerilen Katılımcı Sınırı',
-  'connect.slot_guide.body':
-    'Çok fazla misafir bağlandığında sistem kararlılığı düşebilir.\n\n• YouTube Birlikte: En fazla 32 misafir\n• Yerel Dosya Paylaşımı: En fazla 8 misafir\n• Sistem Sesi Paylaşımı: En fazla 4 misafir önerilir',
   'toast.sync_reset': 'Senkronizasyon ofseti sıfırlandı',
   'toast.stop_sent': 'Durdurma isteği gönderildi',
   'toast.auto_play_canceled': 'Otomatik oynatma iptal edildi',
@@ -623,7 +613,7 @@ const tr: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Ses paylaşımı aynı ağ üzerinde en kararlı şekilde çalışır.<ul class="help-list"><li>Uzaktaki misafirler de aynı özellikleri kullanabilir.</li><li>Uzaktaki misafirler Cloudflare altyapısını kullanır, bu nedenle ağ koşullarına bağlı olarak gecikme artabilir veya bağlantı kopabilir.</li><li>VPN veya kısıtlı şirket ağları bağlantıyı istikrarsız hale getirebilir.</li></ul>',
   'setup.how_to_connect_html':
-    'Bağlanmak için oda sahibinden aldığınız <strong>6 haneli kodu</strong> girin.<ul class="help-list"><li><strong>Oda Sahibi:</strong> “Oda Oluştur” → Kodu Al</li><li><strong>Katılımcı (Misafir):</strong> “Odaya Katıl” → Kodu Gir</li><li>Bağlanabilecek cihaz sınırını <strong>"Bağlantı" sekmesinden</strong> değiştirebilirsiniz.</li></ul>',
+    'Bağlanmak için oda sahibinden aldığınız <strong>6 haneli kodu</strong> girin.<ul class="help-list"><li><strong>Oda Sahibi:</strong> “Oda Oluştur” → Kodu Al</li><li><strong>Katılımcı (Misafir):</strong> “Odaya Katıl” → Kodu Gir</li><li>Oda sahibi dâhil en fazla <strong>100 cihaz</strong> bağlanabilir.</li></ul>',
   'player.play_speakers_html':
     'Her katılımcı bir <strong>rol (çıkış kanalı)</strong> seçer.<ul class="help-list"><li><strong>Merkez Hoparlör:</strong> Stereo çıkış (varsayılan)</li><li><strong>Sol Hoparlör:</strong> L kanalı çıkışı</li><li><strong>Sağ Hoparlör:</strong> R kanalı çıkışı</li><li><strong>Subwoofer:</strong> Düşük frekans mix çıkışı</li></ul>Rolleri dilediğiniz zaman <strong>Ayarlar</strong> bölümünden değiştirebilirsiniz.',
   'player.play_media_action_html':
@@ -657,8 +647,6 @@ const tr: Record<I18nKey, string> = {
   'system_audio.started':
     'Sistem sesinde hafif gecikme yaşanabilir.\nMümkünse kaynak sesini azaltın.',
   'system_audio.stopped': 'Sistem sesi paylaşımı sona erdi.\nÇalma listesinden devam ediliyor.',
-  'system_audio.many_devices_warning':
-    'Sistem sesi paylaşımını yaklaşık 4 misafire kadar kullanmanız önerilir.\nDaha fazla cihaz gecikmeye veya takılmaya yol açabilir.',
   'system_audio.host_channel_locked': 'Sistem sesi paylaşımı sırasında roller değiştirilemez.',
   'system_audio.effects_guest_only':
     'Sistem sesi paylaşımı aktif.\nSes efektleri yalnızca misafirlere uygulanır.',
@@ -667,12 +655,12 @@ const tr: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Sistem sesi alınamadı.\nOda sahibinden paylaşıma yeniden başlamasını isteyin.',
   'system_audio.remote_receive_limit':
-    'Uzaktan sistem sesi alımı 2 saat sonra otomatik olarak sonlandırıldı.\nDinlemeye devam etmek için odaya yeniden girin.',
+    'Sistem sesi alımı 2 saat sonra otomatik olarak sonlandırıldı.\nDinlemeye devam etmek için odaya yeniden girin.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Hizmet notları',
   'legal.content_html':
-    '<strong>Gizlilik Politikası</strong><br><span data-legal-standard-storage>Aynı yerel ağ üzerinde oturum verileri doğrudan cihazlar arasında aktarılır; sinyalleşme sunucusundan yalnızca IP adresi ve bağlantı detayları geçer. Uzaktan dosya ve sistem sesi paylaşımında veriler Cloudflare üzerinden yönlendirilir. Uzaktan paylaşılan dosyalar şifrelenir ve en fazla 24 saat geçici olarak saklanır; şifre çözme anahtarı depoda tutulmaz. MUSIXQUARE, özellikleri sağlamanın ötesinde verileri görüntülemez, analiz etmez veya saklamaz.</span><span data-legal-pro-storage>PRO odalarında oturumu kurmak için gereken IP adresleri ve bağlantı bilgileri sinyal sunucusundan geçer. Oynatma listesine eklenen özgün dosyalar, odanın kullanılmaya devam edebilmesi için özel Cloudflare R2 depolamasında saklanır. Dosyalar oynatma listesinde artık kullanılmadığında veya işletmeci oda verilerini sildiğinde kaldırılır; yalnızca odaya katılmış kullanıcılar bunları kısa süre geçerli URL’ler üzerinden indirebilir. MUSIXQUARE, hizmeti sunmak dışında bir amaçla verileri görüntülemez veya analiz etmez.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Telif Hakkı Uyarısı</strong><br>MUSIXQUARE üzerinden paylaşılan içeriklerin telif hakları ilgili hak sahiplerine aittir. Sistem sesi ve dosya paylaşımı özellikleri kişisel kullanım içindir. Telif hakkıyla korunan içeriklerin yetkisiz dağıtımından ve kamuya açık iletiminden kullanıcı sorumludur. YouTube birlikte izleme özelliği resmî oynatma yöntemini kullanır; izlenmeler ve hak işlemleri hizmetin politikalarına ve hak sahiplerinin ayarlarına göre yürütülür. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Sorumluluk Reddi</strong><br>MUSIXQUARE ücretsiz bir hizmettir. Bazı özellikler YouTube veya Cloudflare gibi harici üçüncü taraf servislerine dayandığından, bu servislerdeki değişiklikler veya kesintiler geçici işlevsel sınırlamalara yol açabilir. Gerçek zamanlı ses senkronizasyonu ve uzaktan paylaşım kalitesi; ağ koşullarına, tarayıcı politikalarına ve cihaz performansına bağlı olarak büyük ölçüde değişiklik gösterebilir. Wi-Fi ağına bağlı olunmadığında mobil veri kullanım ücretleri geçerli olabilir. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hakkında</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tarihçe</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tasarım Sistemi</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Gizlilik Politikası</strong><br><span data-legal-standard-storage>Aynı ağda oturum verileri normalde doğrudan cihazlar arasında aktarılır; yalnızca IP adresleri ve bağlantı bilgileri sinyal sunucusundan geçer. Ancak uzaktan iletim ile büyük odalarda dosya ve sistem sesi dağıtımı Cloudflare üzerinden yönlendirilebilir. Cloudflare üzerinden aktarılan normal odalara ait geçici dosyalar şifrelenir, en fazla 24 saat saklanır ve şifre çözme anahtarı tutulmaz. MUSIXQUARE, özelliklerini sunmak için gerekli olmadıkça verileri görüntülemez, analiz etmez veya saklamaz.</span><span data-legal-pro-storage>PRO odalarında oturumu kurmak için gereken IP adresleri ve bağlantı bilgileri sinyal sunucusundan geçer. Oynatma listesine eklenen özgün dosyalar, odanın kullanılmaya devam edebilmesi için özel Cloudflare R2 depolamasında saklanır. Dosyalar oynatma listesinde artık kullanılmadığında veya işletmeci oda verilerini sildiğinde kaldırılır; yalnızca odaya katılmış kullanıcılar bunları kısa süre geçerli URL’ler üzerinden indirebilir. MUSIXQUARE, hizmeti sunmak dışında bir amaçla verileri görüntülemez veya analiz etmez.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Telif Hakkı Uyarısı</strong><br>MUSIXQUARE üzerinden paylaşılan içeriklerin telif hakları ilgili hak sahiplerine aittir. Sistem sesi ve dosya paylaşımı özellikleri kişisel kullanım içindir. Telif hakkıyla korunan içeriklerin yetkisiz dağıtımından ve kamuya açık iletiminden kullanıcı sorumludur. YouTube birlikte izleme özelliği resmî oynatma yöntemini kullanır; izlenmeler ve hak işlemleri hizmetin politikalarına ve hak sahiplerinin ayarlarına göre yürütülür. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>Sorumluluk Reddi</strong><br>MUSIXQUARE ücretsiz bir hizmettir. Bazı özellikler YouTube veya Cloudflare gibi harici üçüncü taraf servislerine dayandığından, bu servislerdeki değişiklikler veya kesintiler geçici işlevsel sınırlamalara yol açabilir. Gerçek zamanlı ses senkronizasyonu ve uzaktan paylaşım kalitesi; ağ koşullarına, tarayıcı politikalarına ve cihaz performansına bağlı olarak büyük ölçüde değişiklik gösterebilir. Wi-Fi ağına bağlı olunmadığında mobil veri kullanım ücretleri geçerli olabilir. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Daha fazla bilgi edinin</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hakkında</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tarihçe</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tasarım Sistemi</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default tr;

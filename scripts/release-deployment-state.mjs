@@ -18,9 +18,13 @@ const TARGETS = {
     config: 'cloudflare/wrangler.signaling.toml',
     rollbackOrder: 2,
   },
+  'pro-room': {
+    config: 'cloudflare/wrangler.pro-room.toml',
+    rollbackOrder: 3,
+  },
   app: {
     config: 'cloudflare/wrangler.app.toml',
-    rollbackOrder: 3,
+    rollbackOrder: 4,
   },
 };
 

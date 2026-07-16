@@ -7,6 +7,11 @@ import { bus } from '../../core/events.ts';
 import { MSG, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection } from '../../types/index.ts';
+import {
+  freezeFileDeliveryMode,
+  markLocalFileR2Capable,
+  resetFileDeliveryPolicies,
+} from '../../share/file-delivery-policy.ts';
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
@@ -30,6 +35,7 @@ function publishHostFile(file: File | Blob, queueItemId = Q0, sessionId = 1): vo
 
 beforeEach(() => {
   resetState();
+  resetFileDeliveryPolicies();
   bus.clear();
 });
 
@@ -102,6 +108,151 @@ describe('transfer state reset', () => {
 });
 
 describe('host outgoing transfer routing', () => {
+  it('marks capable mixed-room peers for R2 and rejects legacy overflow explicitly', async () => {
+    const { sendFilePrepareByDelivery } = await import('../transfer.ts');
+    const peers = Array.from({ length: 10 }, (_, index) => {
+      const id = `mixed-peer-${index + 1}`;
+      const conn = { open: true, peer: id, send: vi.fn() } as unknown as DataConnection;
+      return {
+        id,
+        status: 'connected' as const,
+        conn,
+        isDataTarget: true,
+        connectionType: 'local' as const,
+        joinOrder: index + 1,
+      };
+    });
+    const capable = peers[9]!;
+    markLocalFileR2Capable(capable.id);
+    setState('network.connectedPeers', peers);
+
+    sendFilePrepareByDelivery(
+      {
+        type: MSG.FILE_PREPARE,
+        name: 'mixed.mp3',
+        queueItemId: Q0,
+        sessionId: 30,
+        mime: 'audio/mpeg',
+      },
+      30,
+    );
+
+    for (const peer of peers.slice(0, 8)) {
+      expect(peer.conn.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_PREPARE }),
+      );
+      expect(peer.conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ delivery: 'r2' }));
+    }
+    expect(peers[8]!.conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE, delivery: 'r2' }),
+    );
+    expect(peers[8]!.conn.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_PREPARE }),
+    );
+    expect(capable.conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_PREPARE, delivery: 'r2' }),
+    );
+  });
+
+  it('defers an unclassified legacy peer until ICE chooses remote R2 or local overflow', async () => {
+    const { sendFilePrepareByDelivery } = await import('../transfer.ts');
+    const conn = { open: true, peer: 'unknown-legacy', send: vi.fn() } as unknown as DataConnection;
+    const unknownPeer = {
+      id: conn.peer,
+      status: 'connected' as const,
+      conn,
+      isDataTarget: false,
+      connectionType: 'unknown' as const,
+      joinOrder: 1,
+    };
+    setState('network.connectedPeers', [unknownPeer]);
+    const prepare = {
+      type: MSG.FILE_PREPARE,
+      name: 'unknown.mp3',
+      queueItemId: Q0,
+      sessionId: 32,
+      mime: 'audio/mpeg',
+    } as const;
+
+    sendFilePrepareByDelivery(prepare, 32);
+    expect(conn.send).not.toHaveBeenCalled();
+
+    setState('network.connectedPeers', [{ ...unknownPeer, connectionType: 'remote' as const }]);
+    sendFilePrepareByDelivery(prepare, 32);
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_PREPARE, delivery: 'r2' }),
+    );
+  });
+
+  it('does not use capability alone to route an unknown small-room peer through R2', async () => {
+    const { sendFilePrepareByDelivery } = await import('../transfer.ts');
+    const conn = {
+      open: true,
+      peer: 'unknown-capable',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const peer = {
+      id: conn.peer,
+      status: 'connected' as const,
+      conn,
+      isDataTarget: false,
+      connectionType: 'unknown' as const,
+      joinOrder: 1,
+    };
+    setState('network.connectedPeers', [peer]);
+    markLocalFileR2Capable(peer.id);
+    const prepare = {
+      type: MSG.FILE_PREPARE,
+      name: 'capable.mp3',
+      queueItemId: Q0,
+      sessionId: 33,
+      mime: 'audio/mpeg',
+    } as const;
+
+    sendFilePrepareByDelivery(prepare, 33);
+    expect(conn.send).not.toHaveBeenCalled();
+
+    setState('network.connectedPeers', [
+      { ...peer, connectionType: 'local' as const, isDataTarget: true },
+    ]);
+    sendFilePrepareByDelivery(prepare, 33);
+    expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
+    expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ delivery: 'r2' }));
+  });
+
+  it('keeps sending on a frozen direct connection after an ICE label changes', async () => {
+    const { broadcastFile } = await import('../transfer.ts');
+    const file = new File(['frozen-direct'], 'direct.mp3', { type: 'audio/mpeg' });
+    const conn = {
+      open: true,
+      peer: 'frozen-direct-peer',
+      send: vi.fn(),
+      peerConnection: { connectionState: 'connected', iceConnectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    const localPeer = {
+      id: conn.peer,
+      status: 'connected' as const,
+      conn,
+      isDataTarget: true,
+      connectionType: 'local' as const,
+      joinOrder: 1,
+    };
+    setState('network.connectedPeers', [localPeer]);
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    publishHostFile(file, Q0, 31);
+    expect(freezeFileDeliveryMode(31)).toBe('direct-local');
+
+    setState('network.connectedPeers', [
+      { ...localPeer, connectionType: 'remote' as const, isDataTarget: false },
+    ]);
+    await broadcastFile(file, Q0, 31);
+
+    expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+    expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_CHUNK }));
+    expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
+  });
+
   it('stops sending chunks to a peer that disconnects after FILE_START', async () => {
     const { broadcastFile } = await import('../transfer.ts');
     const currentConn = {
@@ -493,6 +644,38 @@ describe('debounced broadcast cancellation', () => {
 
       expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
       expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+      expect(getState('transfer.activeBroadcastSession')).toBeNull();
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats a direct room-code switch as a full transfer boundary', async () => {
+    vi.useFakeTimers();
+    try {
+      const { broadcastFileDebounced, initTransfer } = await import('../transfer.ts');
+      initTransfer();
+      setState('network.sessionCode', '111111');
+      const send = installHealthyPeer('room-a-peer');
+      const file = new File(['abc'], 'room-a.mp3', { type: 'audio/mpeg' });
+      publishHostFile(file, Q0, 77);
+      setState('transfer.localSessionId', 77);
+      setState('transfer.currentSessionId', 77);
+
+      broadcastFileDebounced(file, Q0, 77, {
+        type: MSG.FILE_PREPARE,
+        name: file.name,
+        queueItemId: Q0,
+        sessionId: 77,
+        mime: file.type,
+      });
+      setState('network.sessionCode', '222222');
+      await vi.advanceTimersByTimeAsync(301);
+
+      expect(send).not.toHaveBeenCalled();
+      expect(getState('transfer.localSessionId')).toBe(0);
+      expect(getState('transfer.currentSessionId')).toBe(0);
       expect(getState('transfer.activeBroadcastSession')).toBeNull();
     } finally {
       clearAllManagedTimers();

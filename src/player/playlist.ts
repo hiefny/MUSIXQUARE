@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { DEFAULT_MAX_GUEST_SLOTS, MSG, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
+import { MSG, WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
@@ -49,6 +49,7 @@ import {
   cancelOutgoingFileTransfers,
   cancelPendingBroadcast,
   resetIncomingTransferAuthority,
+  sendFilePrepareByDelivery,
 } from '../storage/transfer.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
@@ -73,6 +74,7 @@ import {
   resolveProRoomPlaylistFile,
   type ProRoomLegacyPlaybackRestore,
 } from '../pro-room/legacy-media-hooks.ts';
+import { freezeFileDeliveryMode } from '../share/file-delivery-policy.ts';
 import {
   applyPlaylistSnapshot,
   commitPlaylistItems,
@@ -490,22 +492,26 @@ export async function playTrack(
     const file = item.file!;
     const sessionId =
       _resident?.sessionId || getState('transfer.currentSessionId') || nextSessionId();
+    freezeFileDeliveryMode(sessionId);
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
 
     // Tell guests via FILE_PREPARE → their same-file branch emits
     // playback:replay-current(delayMs), which defers play(0) accordingly.
-    broadcast({
-      type: MSG.FILE_PREPARE,
-      name: file.name,
-      queueItemId,
+    sendFilePrepareByDelivery(
+      {
+        type: MSG.FILE_PREPARE,
+        name: file.name,
+        queueItemId,
+        sessionId,
+        // Size is transport metadata only; receivers never treat name+size as
+        // media identity.
+        size: file.size,
+        mime: file.type,
+        autoPlayDelayMs,
+      },
       sessionId,
-      // Size is transport metadata only; receivers never treat name+size as
-      // media identity.
-      size: file.size,
-      mime: file.type,
-      autoPlayDelayMs,
-    });
+    );
     if (!isProRoomPersistentPlaylistFile(queueItemId)) {
       void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
     }
@@ -561,6 +567,16 @@ export async function playTrack(
     !hostConn
   ) {
     log.debug('[Host] Using preloaded queue item:', queueItemId);
+
+    // Keep the outgoing YouTube occurrence selected until its teardown has
+    // broadcast YOUTUBE_STOP. Selecting the file first would label that stop
+    // with the new file queueItemId, so guests still on the old video would
+    // reject it as stale and then reject the following FILE_PREPARE while
+    // YouTube still owns playback.
+    const stoppedYouTubeBeforePreloadSelection = isYouTubeOwner();
+    if (stoppedYouTubeBeforePreloadSelection) {
+      stopAllMedia({ silent: true });
+    }
     selectQueueItemById(queueItemId);
     setPlaybackTrackMeta(item);
 
@@ -570,8 +586,11 @@ export async function playTrack(
     } else {
       setState('transfer.currentSessionId', nextSessionId());
     }
+    freezeFileDeliveryMode(getState('transfer.currentSessionId'));
 
-    stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
+    if (!stoppedYouTubeBeforePreloadSelection) {
+      stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
+    }
 
     const fileName = item.file?.name || item.name;
     const isProDirect = isProRoomPersistentPlaylistFile(queueItemId);
@@ -586,6 +605,22 @@ export async function playTrack(
         autoPlayDelayMs: 0,
       });
     } else {
+      if (item.file) {
+        const preloadSessionId = getState('transfer.currentSessionId');
+        sendFilePrepareByDelivery(
+          {
+            type: MSG.FILE_PREPARE,
+            queueItemId,
+            name: fileName,
+            mime: item.file.type || 'application/octet-stream',
+            size: item.file.size,
+            sessionId: preloadSessionId,
+            autoPlayDelayMs: 0,
+          },
+          preloadSessionId,
+          { r2Only: true },
+        );
+      }
       broadcast({
         type: MSG.PLAY_PRELOADED,
         queueItemId,
@@ -627,6 +662,14 @@ export async function playTrack(
   }
 
   clearPreloadState();
+
+  // YOUTUBE_STOP is scoped to the queue occurrence currently owned by each
+  // guest. End an outgoing YouTube owner before publishing a file selection;
+  // otherwise the stop is stamped with the incoming file qid and ignored.
+  const stoppedYouTubeBeforeFileSelection = item.type !== 'youtube' && isYouTubeOwner();
+  if (stoppedYouTubeBeforeFileSelection) {
+    stopAllMedia({ silent: true });
+  }
   selectQueueItemById(queueItemId);
   setPlaybackTrackMeta(item);
 
@@ -744,7 +787,9 @@ export async function playTrack(
   }
 
   // Local file playback
-  stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows
+  if (!stoppedYouTubeBeforeFileSelection) {
+    stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows
+  }
 
   const file = item.file;
   if (!file) {
@@ -796,6 +841,7 @@ export async function playTrack(
 
   if (!hostConn) {
     const sessionId = nextSessionId();
+    freezeFileDeliveryMode(sessionId);
     setState('transfer.currentSessionId', sessionId);
 
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
@@ -1460,10 +1506,17 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
     return;
   }
 
-  // Large-room soft warning: only when the host has explicitly bumped the
-  // slot cap into "big party" territory, and only once per session.
-  const maxSlots = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
-  if (maxSlots >= WARN_WHEN_MAX_SLOTS_AT_LEAST && !hasFileShareWarned()) {
+  // The bounded direct-file budget counts LAN guests only. Remote guests
+  // already use R2 from the first recipient, so they must not make an
+  // otherwise-small local fanout look like a nine-device local room.
+  const connectedLocalGuestCount = getState('network.connectedPeers').filter(
+    (peer) =>
+      peer.status === 'connected' && peer.conn?.open === true && peer.connectionType === 'local',
+  ).length;
+  if (
+    connectedLocalGuestCount >= WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST &&
+    !hasFileShareWarned()
+  ) {
     const res = await showDialog({
       title: t('dialog.large_room_file.title'),
       message: t('dialog.large_room_file.message'),

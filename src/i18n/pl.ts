@@ -181,12 +181,9 @@ const pl: Record<I18nKey, string> = {
 
   // ─── Connect ───────────────────────────────────────────────────
   'connect.qr_title': 'Zaproś przez kod QR lub link',
-  'connect.max_devices': 'Pojemność pokoju',
   'connect.device_list': 'Połączone urządzenia: {{count}}',
   'connect.no_session': 'Najpierw utwórz pokój',
   'connect.generating_qr': 'Generowanie kodu QR...',
-  'connect.cannot_reduce':
-    'Nie można zmniejszyć pojemności poniżej liczby połączonych urządzeń ({{count}})',
   'connect.kick_title': 'Usuń urządzenie',
   'connect.kick_message': 'Czy chcesz usunąć to urządzenie z pokoju?',
   'connect.kick_yes': 'Usuń',
@@ -403,7 +400,7 @@ const pl: Record<I18nKey, string> = {
   'network.cant_join': 'Nie znaleziono pokoju.\nSprawdź połączenie sieciowe.',
   'network.session_full': 'Pokój jest pełny',
   'network.session_full_detail':
-    'Ten pokój osiągnął limit połączonych urządzeń.\nPoproś hosta o zwiększenie limitu w zakładce „Połączenie”.',
+    'W tym pokoju jest już połączone maksymalnie 100 urządzeń, wliczając hosta.',
   'network.op_granted': 'Nadano Ci uprawnienia administratora.',
   'network.op_revoked': 'Odebrano Ci uprawnienia administratora.',
 
@@ -446,15 +443,8 @@ const pl: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Brak obsługiwanych plików audio do dodania.',
   'dialog.large_room_file.title': 'Udostępnianie plików w dużym pokoju',
   'dialog.large_room_file.message':
-    'Lokalne udostępnianie plików działa stabilnie w tej samej sieci lokalnej dla około 8 gości lub mniej.\n\nCzy chcesz kontynuować mimo to?',
-  'dialog.large_room_sysaudio.title': 'Udostępnianie dźwięku systemowego w dużym pokoju',
-  'dialog.large_room_sysaudio.message':
-    'Udostępnianie dźwięku systemowego obsługuje zarówno gości lokalnych, jak i zdalnych. Zalecamy maksymalnie 4 gości, aby uniknąć przeciążeń lub opóźnień.\n\nCzy chcesz kontynuować mimo to?',
+    'W tej samej sieci bezpośrednie przesyłanie plików działa stabilnie dla maksymalnie 8 urządzeń gości, nie licząc hosta. W większych pokojach lokalnych pliki mogą być rozsyłane przez Cloudflare R2.\n\nCzy chcesz kontynuować?',
   'dialog.continue': 'Kontynuuj',
-  'connect.slot_guide.aria': 'Otwórz przewodnik po zalecanych limitach gości',
-  'connect.slot_guide.title': 'Zalecany limit gości',
-  'connect.slot_guide.body':
-    'Im więcej gości połączy się z pokojem, tym bardziej staje się on niestabilny.\n\n• Wspólne YouTube: do 32 gości\n• Lokalne pliki: do 8 gości\n• Dźwięk systemowy: zalecane maksymalnie 4 gości',
   'toast.sync_reset': 'Offset synchronizacji wyzerowany',
   'toast.stop_sent': 'Wysłano żądanie zatrzymania odtwarzania',
   'toast.auto_play_canceled': 'Automatyczne odtwarzanie anulowane',
@@ -626,7 +616,7 @@ const pl: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Udostępnianie dźwięku jest najbardziej stabilne w tej samej sieci.<ul class="help-list"><li>Goście zdalni również mogą korzystać z tych samych funkcji.</li><li>Goście zdalni korzystają z węzłów Cloudflare, co może zwiększyć opóźnienie lub przerwać przesył w zależności od sieci.</li><li>Używanie VPN lub zabezpieczonych sieci firmowych może destabilizować połączenie.</li></ul>',
   'setup.how_to_connect_html':
-    'Wprowadź <strong>6-cyfrowy kod</strong> od hosta, aby się połączyć.<ul class="help-list"><li><strong>Host (Gospodarz):</strong> „Utwórz pokój” → Sprawdź kod</li><li><strong>Gość (Uczestnik):</strong> „Dołącz do pokoju” → Wpisz kod</li><li>Limit połączonych urządzeń można zmienić w <strong>zakładce „Połączenie”</strong>.</li></ul>',
+    'Wprowadź <strong>6-cyfrowy kod</strong> od hosta, aby się połączyć.<ul class="help-list"><li><strong>Host (Gospodarz):</strong> „Utwórz pokój” → Sprawdź kod</li><li><strong>Gość (Uczestnik):</strong> „Dołącz do pokoju” → Wpisz kod</li><li>Może się połączyć maksymalnie <strong>100 urządzeń, wliczając hosta</strong>.</li></ul>',
   'player.play_speakers_html':
     'Każdy gość wybiera <strong>rolę (kanał wyjściowy)</strong>.<ul class="help-list"><li><strong>Głośnik centralny:</strong> wyjście stereo (domyślne)</li><li><strong>Głośnik lewy:</strong> wyjście kanału L</li><li><strong>Głośnik prawy:</strong> wyjście kanału R</li><li><strong>Subwoofer:</strong> wyjście miksu niskich częstotliwości</li></ul>Role możesz zmienić w dowolnym momencie w <strong>Ustawieniach</strong>.',
   'player.play_media_action_html':
@@ -661,8 +651,6 @@ const pl: Record<I18nKey, string> = {
     'Dźwięk systemowy może charakteryzować się niewielkim opóźnieniem.\nZalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
   'system_audio.stopped':
     'Udostępnianie dźwięku systemowego zostało zakończone.\nWznawianie playlisty.',
-  'system_audio.many_devices_warning':
-    'Dźwięk systemowy działa optymalnie przy maksymalnie 4 gościach.\nWiększa liczba może powodować opóźnienia lub zacinanie.',
   'system_audio.host_channel_locked':
     'Nie można zmienić ról głośników podczas udostępniania dźwięku systemowego.',
   'system_audio.effects_guest_only':
@@ -672,12 +660,12 @@ const pl: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Nie udało się odebrać dźwięku systemowego.\nPoproś hosta o ponowne uruchomienie udostępniania.',
   'system_audio.remote_receive_limit':
-    'Odbiór zdalnego dźwięku systemowego został automatycznie zakończony po 2 godzinach.\nWejdź ponownie do pokoju, aby kontynuować słuchanie.',
+    'Odbiór dźwięku systemowego został automatycznie zakończony po 2 godzinach.\nWejdź ponownie do pokoju, aby kontynuować słuchanie.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Informacje o usłudze',
   'legal.content_html':
-    '<strong>Polityka prywatności</strong><br><span data-legal-standard-storage>W tej samej sieci lokalnej dane sesji przesyłane są bezpośrednio między urządzeniami; tylko szczegóły adresu IP i parametry połączenia przechodzą przez serwer sygnalizacyjny. Zdalne udostępnianie plików i dźwięku systemowego przesyła dane przez Cloudflare; zdalne pliki są szyfrowane i tymczasowo przechowywane przez maksymalnie 24 godziny, a klucz deszyfrujący nie jest przechowywany w magazynie. MUSIXQUARE nie przegląda, nie analizuje ani nie przechowuje danych poza zakresem niezbędnym do świadczenia swoich funkcji.</span><span data-legal-pro-storage>W pokojach PRO adresy IP i informacje o połączeniu potrzebne do nawiązania sesji przechodzą przez serwer sygnalizacyjny. Oryginalne pliki dodane do playlisty są przechowywane w prywatnym zasobie Cloudflare R2, aby pokój pozostawał dostępny. Pliki są usuwane, gdy przestają być używane na playliście lub gdy operator usuwa dane pokoju, a pobrać je za pomocą krótkotrwałych adresów URL mogą wyłącznie użytkownicy, którzy dołączyli do pokoju. MUSIXQUARE nie przegląda ani nie analizuje danych w celach innych niż świadczenie usługi.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Ostrzeżenie o prawach autorskich</strong><br>Treści udostępniane za pośrednictwem MUSIXQUARE należą do ich odpowiednich właścicieli praw. Funkcje udostępniania dźwięku systemowego i plików są przeznaczone do użytku osobistego. Użytkownicy ponoszą odpowiedzialność za nieuprawnione rozpowszechnianie lub publiczne przesyłanie treści chronionych prawem autorskim. Udostępnianie z YouTube korzysta z oficjalnego sposobu odtwarzania, a wyświetlenia i obsługa praw podlegają zasadom usługi oraz ustawieniom właścicieli praw. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Wyłączenie odpowiedzialności</strong><br>MUSIXQUARE jest świadczony bezpłatnie. Niektóre funkcje opierają się na zewnętrznych usługach stron trzecich (takich jak YouTube lub Cloudflare), w związku z czym mogą wystąpić tymczasowe ograniczenia funkcjonalne w przypadku zmian lub przerw w tych usługach. Synchronizacja dźwięku w czasie rzeczywistym oraz jakość zdalnego udostępniania zależą w dużej mierze od stabilności sieci, polityki używanej przeglądarki oraz wydajności poszczególnych urządzeń. W przypadku braku połączenia z siecią Wi-Fi mogą obowiązywać opłaty za transmisję danych w sieci komórkowej zgodnie z taryfą operatora. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">O nas</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Historia</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Polityka prywatności</strong><br><span data-legal-standard-storage>W tej samej sieci dane sesji są zwykle przesyłane bezpośrednio między urządzeniami; przez serwer sygnalizacyjny przechodzą tylko adresy IP i informacje o połączeniu. Jednak zdalne dostarczanie oraz dystrybucja plików i dźwięku systemowego w dużych pokojach mogą odbywać się przez Cloudflare. Tymczasowe pliki ze standardowych pokojów przesyłane przez Cloudflare są szyfrowane, przechowywane maksymalnie przez 24 godziny i zapisywane bez klucza deszyfrującego. MUSIXQUARE nie przegląda, nie analizuje ani nie przechowuje danych poza zakresem niezbędnym do działania funkcji.</span><span data-legal-pro-storage>W pokojach PRO adresy IP i informacje o połączeniu potrzebne do nawiązania sesji przechodzą przez serwer sygnalizacyjny. Oryginalne pliki dodane do playlisty są przechowywane w prywatnym zasobie Cloudflare R2, aby pokój pozostawał dostępny. Pliki są usuwane, gdy przestają być używane na playliście lub gdy operator usuwa dane pokoju, a pobrać je za pomocą krótkotrwałych adresów URL mogą wyłącznie użytkownicy, którzy dołączyli do pokoju. MUSIXQUARE nie przegląda ani nie analizuje danych w celach innych niż świadczenie usługi.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Ostrzeżenie o prawach autorskich</strong><br>Treści udostępniane za pośrednictwem MUSIXQUARE należą do ich odpowiednich właścicieli praw. Funkcje udostępniania dźwięku systemowego i plików są przeznaczone do użytku osobistego. Użytkownicy ponoszą odpowiedzialność za nieuprawnione rozpowszechnianie lub publiczne przesyłanie treści chronionych prawem autorskim. Udostępnianie z YouTube korzysta z oficjalnego sposobu odtwarzania, a wyświetlenia i obsługa praw podlegają zasadom usługi oraz ustawieniom właścicieli praw. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>Wyłączenie odpowiedzialności</strong><br>MUSIXQUARE jest świadczony bezpłatnie. Niektóre funkcje opierają się na zewnętrznych usługach stron trzecich (takich jak YouTube lub Cloudflare), w związku z czym mogą wystąpić tymczasowe ograniczenia funkcjonalne w przypadku zmian lub przerw w tych usługach. Synchronizacja dźwięku w czasie rzeczywistym oraz jakość zdalnego udostępniania zależą w dużej mierze od stabilności sieci, polityki używanej przeglądarki oraz wydajności poszczególnych urządzeń. W przypadku braku połączenia z siecią Wi-Fi mogą obowiązywać opłaty za transmisję danych w sieci komórkowej zgodnie z taryfą operatora. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dowiedz się więcej</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">O nas</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Historia</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default pl;

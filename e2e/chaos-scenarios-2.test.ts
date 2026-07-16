@@ -135,14 +135,6 @@ async function sendChatMessage(page: Page, text: string): Promise<void> {
   }
 }
 
-async function allowExtraGuestSlots(page: Page, slots = 8): Promise<void> {
-  await page.evaluate((maxSlots) => {
-    const set = (window as any).__MUSIXQUARE_SET_STATE__;
-    if (!set) return;
-    set('network.maxGuestSlots', maxSlots);
-  }, slots);
-}
-
 /** Give hard-disconnect cleanup a brief chance, then continue with behavior checks. */
 async function waitForPeerCount(page: Page, count: number, timeout = 20_000): Promise<void> {
   try {
@@ -895,7 +887,6 @@ test.describe('Connection Flapping', () => {
     try {
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 1);
-      await allowExtraGuestSlots(hostPage);
 
       for (let i = 0; i < 3; i++) {
         const g = await joinAsLateGuest(browser, code);
@@ -2179,7 +2170,6 @@ test.describe('Nuclear Meltdown v2', () => {
 
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 4);
-      await allowExtraGuestSlots(hostPage);
 
       await hostPage.click('#btn-next');
       await hostPage.waitForTimeout(500); // intentional rapid-fire delay
@@ -2229,7 +2219,6 @@ test.describe('Session Code Stability', () => {
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
-    await allowExtraGuestSlots(hostPage);
     const allGuests: LateGuest[] = [];
 
     try {
@@ -2326,7 +2315,6 @@ test.describe('Full Cycle Stress', () => {
         await g.guestContext.close().catch(() => {});
       }
       await waitForPeerCount(hostPage, 0, 30_000);
-      await allowExtraGuestSlots(hostPage);
 
       const midState = await readPlaybackProjection(hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(midState);

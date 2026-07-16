@@ -181,11 +181,9 @@ const en: Record<I18nKey, string> = {
 
   // ─── Connect ───────────────────────────────────────────────────
   'connect.qr_title': 'Invite via QR or Link',
-  'connect.max_devices': 'Room Capacity',
   'connect.device_list': '{{count}} Connected Devices',
   'connect.no_session': 'Start a session first',
   'connect.generating_qr': 'Generating QR code...',
-  'connect.cannot_reduce': 'Cannot reduce capacity: {{count}} devices are already connected',
   'connect.kick_title': 'Kick device',
   'connect.kick_message': 'Remove this device from the session?',
   'connect.kick_yes': 'Kick',
@@ -395,7 +393,7 @@ const en: Record<I18nKey, string> = {
   'network.cant_join': "Couldn't find the session.\nPlease check your network.",
   'network.session_full': 'Room is full',
   'network.session_full_detail':
-    'This room has reached its device limit.\nAsk the host to raise it in their "Connect" tab.',
+    'This room already has the maximum of 100 connected devices, including the host.',
   'network.op_granted': 'Admin permission granted.',
   'network.op_revoked': 'Admin permission revoked.',
 
@@ -438,15 +436,8 @@ const en: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'No supported audio files to add.',
   'dialog.large_room_file.title': 'File sharing in a large room',
   'dialog.large_room_file.message':
-    'Local file sharing is stable with up to ~8 participants on a local network.\n\nContinue?',
-  'dialog.large_room_sysaudio.title': 'System audio in a large room',
-  'dialog.large_room_sysaudio.message':
-    'System audio sharing supports local and remote participants, but up to ~4 participants is recommended for host load and latency.\n\nContinue?',
+    'On the same network, direct file transfer is stable for up to 8 guest devices, excluding the host. In larger local rooms, files may be distributed through Cloudflare R2.\n\nContinue?',
   'dialog.continue': 'Continue',
-  'connect.slot_guide.aria': 'Open recommended participant count guide',
-  'connect.slot_guide.title': 'Number of Participants',
-  'connect.slot_guide.body':
-    'The more participants connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4 recommended',
   'toast.sync_reset': 'Sync offset reset',
   'toast.stop_sent': 'Stop request sent',
   'toast.auto_play_canceled': 'Auto-play canceled',
@@ -611,7 +602,7 @@ const en: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul>',
   'setup.how_to_connect_html':
-    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I\'ll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
+    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I\'ll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul>',
   'player.play_speakers_html':
     'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':
@@ -644,8 +635,6 @@ const en: Record<I18nKey, string> = {
   'system_audio.started':
     'System audio may have slight latency.\nLower the source volume if possible.',
   'system_audio.stopped': 'System audio sharing ended.\nResuming playlist.',
-  'system_audio.many_devices_warning':
-    'System audio is best with up to 4 participants.\nMore devices may add latency or stutter.',
   'system_audio.host_channel_locked': 'Cannot change roles during system audio sharing.',
   'system_audio.effects_guest_only':
     'System audio active.\nSound effects apply to guest devices only.',
@@ -654,12 +643,12 @@ const en: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Could not receive system audio.\nAsk the host to start sharing again.',
   'system_audio.remote_receive_limit':
-    'Remote system audio reception ended after 2 hours.\nRejoin the room to continue listening.',
+    'System audio reception ended after 2 hours.\nRejoin the room to continue listening.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Service notes',
   'legal.content_html':
-    '<strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, session data goes directly between devices; only IP and connection details pass through signaling. Remote file and system audio sharing route data through Cloudflare; remote files are encrypted, kept for up to 24 hours, and stored without the decryption key. MUSIXQUARE does not view, analyze, or store data beyond providing its features.</span><span data-legal-pro-storage>In PRO rooms, IP addresses and connection details used to establish sessions pass through the signaling server. Original files added to the playlist are stored in private Cloudflare R2 storage so the room remains available. Files are removed when they are no longer used in the playlist or when the operator deletes the room data, and only users who have joined the room can download them through short-lived URLs. MUSIXQUARE does not view or analyze data for purposes other than providing the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service\'s policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, session data is normally transferred directly between devices; only IP addresses and connection details pass through signaling. Remote delivery and large-room distribution of files and system audio may be routed through Cloudflare. Temporary standard-room files routed through Cloudflare are encrypted, retained for up to 24 hours, and stored without the decryption key. MUSIXQUARE does not view, analyze, or retain data except as needed to provide its features.</span><span data-legal-pro-storage>In PRO rooms, IP addresses and connection details used to establish sessions pass through the signaling server. Original files added to the playlist are stored in private Cloudflare R2 storage so the room remains available. Files are removed when they are no longer used in the playlist or when the operator deletes the room data, and only users who have joined the room can download them through short-lived URLs. MUSIXQUARE does not view or analyze data for purposes other than providing the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service\'s policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default en;

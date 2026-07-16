@@ -58,9 +58,9 @@ function authorityChanged(previous: RoomContext | null, next: RoomContext): bool
   return (
     previous === null ||
     previous.roomId !== next.roomId ||
-      previous.role !== next.role ||
-      previous.coordinatorId !== next.coordinatorId ||
-      previous.epoch !== next.epoch
+    previous.role !== next.role ||
+    previous.coordinatorId !== next.coordinatorId ||
+    previous.epoch !== next.epoch
   );
 }
 

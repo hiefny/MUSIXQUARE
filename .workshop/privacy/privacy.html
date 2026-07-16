@@ -84,18 +84,20 @@
             </dd>
           </div>
           <div>
-            <dt>Remote system audio</dt>
+            <dt>System audio</dt>
             <dd>
-              When participants connect remotely, system audio may be relayed through Cloudflare infrastructure for
-              real-time delivery. MUSIXQUARE does not intentionally record or store this audio.
+              System audio is usually exchanged directly when participants are on the same network, but it may be
+              relayed through Cloudflare infrastructure for remote participants or in large rooms. MUSIXQUARE does not
+              intentionally record or store this audio.
             </dd>
           </div>
           <div>
-            <dt>Remote file data</dt>
+            <dt>Ordinary-room file data</dt>
             <dd>
-              For ordinary remote file sharing, files needed by remote participants are encrypted in the host's
-              browser before upload. Cloudflare R2 temporarily stores the encrypted object; the decryption key is not
-              stored with the object.
+              Ordinary-room files are usually transferred directly when participants are on the same network. For
+              remote participants or in large rooms, files may be encrypted in the sharing browser and temporarily
+              stored in Cloudflare R2. MUSIXQUARE does not store the decryption key, and these objects are automatically
+              deleted within an intended maximum of 24 hours.
             </dd>
           </div>
           <div>
@@ -131,6 +133,10 @@
         <p>
           Data is processed to establish and protect rooms, synchronize playback, deliver requested sharing features,
           diagnose failures, prevent abuse, and understand aggregate service reliability.
+        </p>
+        <p>
+          MUSIXQUARE does not access, analyze, or retain ordinary-room shared content except as technically necessary
+          to provide the requested sharing feature.
         </p>
         <p>MUSIXQUARE does not sell user data or use shared content for advertising or profiling.</p>
       </section>

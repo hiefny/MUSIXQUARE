@@ -1,9 +1,9 @@
 /**
- * Cloudflare Realtime SFU bridge for remote system-audio guests.
+ * Cloudflare Realtime SFU bridge for remote and bounded-overflow system-audio guests.
  *
  * The active transport stays responsible for presence/control. This module only moves the
- * host's L/R system-audio MediaStreamTracks through Cloudflare Realtime when a
- * guest is remote, leaving local guests on the existing direct media-call path.
+ * host's L/R system-audio MediaStreamTracks through Cloudflare Realtime. Small
+ * LAN rooms keep direct calls; overflow LAN guests and large rooms use SFU.
  */
 
 import { log } from '../core/log.ts';
@@ -21,6 +21,19 @@ import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
 import { cleanupGuestSystemAudio } from './system-audio-guest.ts';
 import {
+  beginSystemAudioShareDelivery,
+  claimGuestDirectSystemAudioRoute,
+  endSystemAudioShareDelivery,
+  freezeGuestSystemAudioSfuRoute,
+  getFrozenSystemAudioSfuAudience,
+  getGuestSystemAudioShareRoute,
+  getSystemAudioShareDeliverySnapshot,
+  markLocalSystemAudioSfuCapable,
+  resolveSystemAudioPeerDelivery,
+  resetGuestSystemAudioShareRoute,
+  unmarkLocalSystemAudioSfuCapable,
+} from './system-audio-delivery.ts';
+import {
   cleanupWebRtcAudioDecoderPrimer,
   getAudioTrackStreamKey,
   primeWebRtcAudioDecoder,
@@ -29,8 +42,11 @@ import {
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
-const REMOTE_GUEST_SFU_LIMIT_MS = 2 * 60 * 60 * 1000;
-const REMOTE_GUEST_SFU_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
+const GUEST_SFU_RECEIVE_LIMIT_MS = 2 * 60 * 60 * 1000;
+const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
+const HOST_SFU_RETRY_TIMER = 'system-audio-sfu-host-retry';
+const HOST_SFU_RETRY_DELAY_MS = 2500;
+const HOST_SFU_MAX_RETRIES = 1;
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 type Channel = 'L' | 'R';
@@ -73,6 +89,7 @@ interface SfuReadyTrack {
 
 interface SfuReadyPayload {
   version: 1;
+  audience: 'remote' | 'all';
   sessionId: string;
   tracks: SfuReadyTrack[];
 }
@@ -92,16 +109,22 @@ let hostPublishedTracks: SfuReadyTrack[] = [];
 let hostPublishPromise: Promise<HostPublication | null> | null = null;
 let hostSfuUnavailable = false;
 let hostPublishEpoch = 0;
+let hostRetryCount = 0;
+let hostRetryPending = false;
 
 let guestPc: RTCPeerConnection | null = null;
 let guestSessionId: string | null = null;
 let guestSessionOwnerToken: string | null = null;
 let guestSubscriptionKey: string | null = null;
 let guestConnectPromise: Promise<void> | null = null;
+let guestPendingReadyPayload: SfuReadyPayload | null = null;
+let guestSubscribedTrackMids: string[] = [];
+let guestSubscriptionEpoch = 0;
 let guestSourceL: MediaStreamAudioSourceNode | null = null;
 let guestSourceR: MediaStreamAudioSourceNode | null = null;
 let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
+let guestAllowsLocalAudience = false;
 let guestLimitTimerActive = false;
 let guestLimitBlockedHostConn: DataConnection | null = null;
 const guestDecoderPrimers = new Map<Channel, WebRtcAudioDecoderPrimer>();
@@ -121,6 +144,9 @@ export function getSystemAudioSfuDebugSnapshot() {
       publishInFlight: !!hostPublishPromise,
       unavailable: hostSfuUnavailable,
       publishEpoch: hostPublishEpoch,
+      retryCount: hostRetryCount,
+      retryPending: hostRetryPending,
+      delivery: getSystemAudioShareDeliverySnapshot(),
     },
     guest: {
       pcState: guestPc
@@ -132,13 +158,17 @@ export function getSystemAudioSfuDebugSnapshot() {
         : null,
       sessionId: guestSessionId,
       subscriptionKey: guestSubscriptionKey,
+      subscribedTrackCount: guestSubscribedTrackMids.length,
       connectInFlight: !!guestConnectPromise,
       sourceL: !!guestSourceL,
       sourceR: !!guestSourceR,
       merger: !!guestMerger,
       receiving: guestReceiving,
+      allowsLocalAudience: guestAllowsLocalAudience,
       limitTimerActive: guestLimitTimerActive,
       limitBlocked: !!guestLimitBlockedHostConn,
+      shareRoute: getGuestSystemAudioShareRoute(),
+      directRouteFrozen: getGuestSystemAudioShareRoute() === 'direct',
       decoderPrimerCount: guestDecoderPrimers.size,
     },
     peerConnections: [
@@ -188,7 +218,7 @@ function primeWindowsSfuAudioDecoder(channel: Channel, track: MediaStreamTrack):
 }
 
 function clearGuestLimitTimer(): void {
-  clearManagedTimer(REMOTE_GUEST_SFU_LIMIT_TIMER);
+  clearManagedTimer(GUEST_SFU_RECEIVE_LIMIT_TIMER);
   guestLimitTimerActive = false;
 }
 
@@ -196,15 +226,15 @@ function startGuestLimitTimer(): void {
   if (guestLimitTimerActive) return;
   guestLimitTimerActive = true;
   setManagedTimer(
-    REMOTE_GUEST_SFU_LIMIT_TIMER,
+    GUEST_SFU_RECEIVE_LIMIT_TIMER,
     () => {
       guestLimitTimerActive = false;
       guestLimitBlockedHostConn = getState('network.hostConn');
-      log.info('[SysAudioSFU] Remote guest receive limit reached; pausing SFU until rejoin');
+      log.info('[SysAudioSFU] Guest receive limit reached; pausing SFU until rejoin');
       bus.emit('ui:show-toast', t('system_audio.remote_receive_limit'));
       cleanupGuestSfu();
     },
-    REMOTE_GUEST_SFU_LIMIT_MS,
+    GUEST_SFU_RECEIVE_LIMIT_MS,
   );
 }
 
@@ -394,43 +424,91 @@ function applyAudioSenderTuning(sender: RTCRtpSender): void {
 
 function makeReadyMessage(
   publication: HostPublication,
+  audience: 'remote' | 'all',
 ): ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY> {
   return {
     type: MSG.SYSTEM_AUDIO_SFU_READY,
     version: 1,
+    audience,
     sessionId: publication.sessionId,
     tracks: publication.tracks,
   };
 }
 
-function isRemoteHostPeer(peerId: string): boolean {
+function getSfuAudienceForPeer(peerId: string): 'remote' | 'all' | null {
+  const delivery = getSystemAudioShareDeliverySnapshot();
+  if (delivery.fallbackDirectPeerIds.includes(peerId)) return null;
   const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
-  return !!peer && peer.status === 'connected' && peer.connectionType === 'remote';
+  if (!peer || resolveSystemAudioPeerDelivery(peer) !== 'sfu') return null;
+  return getFrozenSystemAudioSfuAudience(peerId);
 }
 
-function getRemoteHostPeers(): DataConnection[] {
-  return getState('network.connectedPeers')
-    .filter((peer) => peer.status === 'connected' && peer.connectionType === 'remote')
-    .map((peer) => peer.conn)
-    .filter((conn): conn is DataConnection => !!conn?.open);
+function getSfuHostPeers(): Array<{
+  id: string;
+  conn: DataConnection;
+  audience: 'remote' | 'all';
+}> {
+  const result: Array<{ id: string; conn: DataConnection; audience: 'remote' | 'all' }> = [];
+  for (const peer of getState('network.connectedPeers')) {
+    const audience = getSfuAudienceForPeer(peer.id);
+    if (!audience || !peer.conn?.open) continue;
+    result.push({ id: peer.id, conn: peer.conn, audience });
+  }
+  return result;
 }
 
-function hasRemoteHostPeers(): boolean {
-  return getRemoteHostPeers().length > 0;
+function hasSfuHostPeers(): boolean {
+  return getSfuHostPeers().length > 0;
+}
+
+function hasLocalSfuHostPeers(): boolean {
+  return getSfuHostPeers().some((peer) => peer.audience === 'all');
 }
 
 function broadcastSfuReady(publication: HostPublication): void {
-  const msg = makeReadyMessage(publication);
-  for (const conn of getRemoteHostPeers()) {
-    safeSend(conn, msg);
+  for (const peer of getSfuHostPeers()) {
+    safeSend(peer.conn, makeReadyMessage(publication, peer.audience));
+  }
+}
+
+function broadcastSfuReadyToLocalPeers(publication: HostPublication): void {
+  for (const peer of getSfuHostPeers()) {
+    if (peer.audience === 'all') {
+      safeSend(peer.conn, makeReadyMessage(publication, peer.audience));
+    }
+  }
+}
+
+function stopPendingSfuPeers(): void {
+  for (const peer of getSfuHostPeers()) {
+    safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_STOP });
   }
 }
 
 function sendSfuReadyToPeer(peerId: string, publication: HostPublication): void {
-  if (!isRemoteHostPeer(peerId)) return;
+  const audience = getSfuAudienceForPeer(peerId);
+  if (!audience) return;
   const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
   if (!peer) return;
-  safeSend(peer.conn, makeReadyMessage(publication));
+  safeSend(peer.conn, makeReadyMessage(publication, audience));
+}
+
+function closeOwnedRealtimeTracks(
+  sessionId: string | null,
+  sessionOwnerToken: string | null,
+  mids: readonly (string | undefined)[],
+  failureLabel: string,
+): void {
+  const uniqueMids = [...new Set(mids.filter((mid): mid is string => !!mid))];
+  if (!sessionId || !sessionOwnerToken || uniqueMids.length === 0) return;
+  callRealtime('tracks-close', {
+    sessionId,
+    sessionOwnerToken,
+    payload: {
+      tracks: uniqueMids.map((mid) => ({ mid })),
+      force: true,
+    },
+  }).catch((error) => log.debug(`[SysAudioSFU] ${failureLabel}:`, error));
 }
 
 async function publishHostTracks(publishEpoch: number): Promise<HostPublication | null> {
@@ -452,7 +530,7 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
   pc.addEventListener('connectionstatechange', () => {
     log.info(`[SysAudioSFU] Host SFU connection: ${pc.connectionState}`);
     // A runtime 'failed' state is terminal. Mirror the publish-time throw path:
-    // mark SFU unavailable, degrade to direct media calls,
+    // mark SFU unavailable and use the share's bounded failure policy,
     // and clear the stale publication so late joiners stop getting a dead
     // session. Setting hostSfuUnavailable (NOT auto-republish) is what prevents
     // a re-subscribe storm under a persistent fault — ensureHostPublication
@@ -461,10 +539,8 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
     // local pc const). Only 'failed' is terminal: 'closed' is reached solely via
     // our own cleanupHostSfu (which nulls hostPc first), so it never matches.
     if (pc.connectionState === 'failed' && hostPc === pc) {
-      log.warn('[SysAudioSFU] Host SFU connection failed at runtime; degrading to direct media');
-      hostSfuUnavailable = true;
-      bus.emit('system-audio:sfu-fallback', 'HOST_SFU_CONNECTION_FAILED');
-      cleanupHostSfu(false);
+      log.warn('[SysAudioSFU] Host SFU connection failed at runtime');
+      handleCurrentHostSfuFailure('HOST_SFU_CONNECTION_FAILED');
     }
   });
 
@@ -501,19 +577,28 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
     { location: 'local', mid: txR.mid || '1', trackName: trackNameR },
   ];
 
-  const tracksResponse = await callRealtime('tracks-new', {
-    sessionId: session.sessionId,
-    sessionOwnerToken,
-    payload: {
-      sessionDescription: offerDescription,
-      tracks: requestedTracks,
-    },
-  });
-  assertRealtimeOk(tracksResponse, requestedTracks.length);
-
-  const answer = tracksResponse.sessionDescription;
-  if (!answer || answer.type !== 'answer') throw new Error('Realtime API did not return an answer');
-  await pc.setRemoteDescription(answer);
+  let tracksResponse: RealtimeResponse;
+  try {
+    tracksResponse = await callRealtime('tracks-new', {
+      sessionId: session.sessionId,
+      sessionOwnerToken,
+      payload: {
+        sessionDescription: offerDescription,
+        tracks: requestedTracks,
+      },
+    });
+  } catch (error) {
+    // The edge response can be lost after Cloudflare accepted the tracks. The
+    // sender mids were part of that request, so they are sufficient for a
+    // best-effort close instead of waiting for inactive-track GC.
+    closeOwnedRealtimeTracks(
+      session.sessionId,
+      sessionOwnerToken,
+      requestedTracks.map((track) => track.mid),
+      'Failed publish tracks-close failed',
+    );
+    throw error;
+  }
 
   const responseTracks = tracksResponse.tracks || [];
   const publishedTracks: SfuReadyTrack[] = [
@@ -529,6 +614,23 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
     },
   ];
 
+  try {
+    assertRealtimeOk(tracksResponse, requestedTracks.length);
+    const answer = tracksResponse.sessionDescription;
+    if (!answer || answer.type !== 'answer') {
+      throw new Error('Realtime API did not return an answer');
+    }
+    await pc.setRemoteDescription(answer);
+  } catch (error) {
+    closeOwnedRealtimeTracks(
+      session.sessionId,
+      sessionOwnerToken,
+      publishedTracks.map((track) => track.mid),
+      'Failed publish tracks-close failed',
+    );
+    throw error;
+  }
+
   if (publishEpoch !== hostPublishEpoch) {
     // Superseded mid-publish (the Realtime calls take seconds; the share may
     // have been stopped or restarted meanwhile). Undo OUR server session
@@ -540,16 +642,12 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
       /* already closed by the supersession cleanup */
     }
     if (hostPc === pc) hostPc = null;
-    const staleTracks = publishedTracks
-      .filter((track) => track.mid)
-      .map((track) => ({ mid: track.mid }));
-    if (staleTracks.length > 0) {
-      callRealtime('tracks-close', {
-        sessionId: session.sessionId,
-        sessionOwnerToken,
-        payload: { tracks: staleTracks, force: true },
-      }).catch((error) => log.debug('[SysAudioSFU] Stale publish tracks-close failed:', error));
-    }
+    closeOwnedRealtimeTracks(
+      session.sessionId,
+      sessionOwnerToken,
+      publishedTracks.map((track) => track.mid),
+      'Stale publish tracks-close failed',
+    );
     return null;
   }
 
@@ -561,9 +659,9 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
 }
 
 async function ensureHostPublication(): Promise<HostPublication | null> {
-  if (!hasRemoteHostPeers()) {
+  if (!hasSfuHostPeers()) {
     if (hostSessionId || hostPublishPromise) {
-      log.info('[SysAudioSFU] No remote peers remain; closing host SFU publication');
+      log.info('[SysAudioSFU] No SFU peers remain; closing host SFU publication');
       cleanupHostSfu();
     }
     return null;
@@ -582,7 +680,7 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
       // needs no cleanup here.
       if (!publication) return null;
       if (publishEpoch !== hostPublishEpoch) return null; // belt — never adopt a stale publication
-      if (!hasRemoteHostPeers()) {
+      if (!hasSfuHostPeers()) {
         // Same epoch: the module slots hold THIS publication, so the full
         // cleanup (server tracks-close included) is operating on our own state.
         cleanupHostSfu();
@@ -602,14 +700,12 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
         log.debug('[SysAudioSFU] Stale host publish failed after supersession (ignored):', message);
         return null;
       }
-      hostSfuUnavailable = true;
       if (message.includes('REALTIME_SFU_UNAVAILABLE')) {
-        log.info('[SysAudioSFU] Cloudflare Realtime SFU env not configured; using P2P paths only');
+        log.info('[SysAudioSFU] Cloudflare Realtime SFU env not configured');
       } else {
         log.warn('[SysAudioSFU] Host publish failed:', error);
       }
-      bus.emit('system-audio:sfu-fallback', message);
-      cleanupHostSfu(false);
+      handleCurrentHostSfuFailure(message);
       return null;
     })
     .finally(() => {
@@ -621,20 +717,78 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
   return hostPublishPromise;
 }
 
-function cleanupHostSfu(closeRemoteTracks = true): void {
+function runBoundedHostRetry(localOnly: boolean): void {
+  if (!isSystemAudioActive() || getState('network.appRole') !== 'host') return;
+  if (!hasSfuHostPeers()) return;
+  hostSfuUnavailable = false;
+  ensureHostPublication()
+    .then((publication) => {
+      if (!publication) return;
+      if (localOnly) broadcastSfuReadyToLocalPeers(publication);
+      else broadcastSfuReady(publication);
+    })
+    .catch((error) => log.warn('[SysAudioSFU] Bounded host retry failed:', error));
+}
+
+function beginBoundedHostRetry(delayMs: number, localOnly = false): boolean {
+  if (
+    hostRetryCount >= HOST_SFU_MAX_RETRIES ||
+    !isSystemAudioActive() ||
+    getState('network.appRole') !== 'host' ||
+    !hasLocalSfuHostPeers()
+  ) {
+    return false;
+  }
+
+  hostRetryCount += 1;
+  if (delayMs <= 0) {
+    hostRetryPending = false;
+    runBoundedHostRetry(localOnly);
+    return true;
+  }
+
+  hostRetryPending = true;
+  setManagedTimer(
+    HOST_SFU_RETRY_TIMER,
+    () => {
+      hostRetryPending = false;
+      runBoundedHostRetry(localOnly);
+    },
+    delayMs,
+  );
+  return true;
+}
+
+function handleCurrentHostSfuFailure(reason: string): void {
+  if (hostSfuUnavailable) return;
+
+  const hadLocalSfuTargets = hasLocalSfuHostPeers();
+  hostSfuUnavailable = true;
+  bus.emit('system-audio:sfu-fallback', reason);
+  cleanupHostSfu({ resetFailureState: false });
+
+  if (hadLocalSfuTargets && beginBoundedHostRetry(HOST_SFU_RETRY_DELAY_MS)) return;
+
+  // The room-wide START was already delivered before SFU setup. Once the one
+  // bounded retry is exhausted, explicitly release every participant still
+  // waiting on SFU. Remote peers reserved for the bounded P2P fallback are
+  // excluded by getSfuAudienceForPeer, so their live direct calls continue.
+  stopPendingSfuPeers();
+}
+
+function cleanupHostSfu(
+  options: { closeRemoteTracks?: boolean; resetFailureState?: boolean } = {},
+): void {
+  const { closeRemoteTracks = true, resetFailureState = true } = options;
   hostPublishEpoch += 1;
 
   if (closeRemoteTracks && hostSessionId && hostPublishedTracks.length > 0) {
-    const tracks = hostPublishedTracks
-      .filter((track) => track.mid)
-      .map((track) => ({ mid: track.mid }));
-    if (tracks.length > 0) {
-      callRealtime('tracks-close', {
-        sessionId: hostSessionId,
-        sessionOwnerToken: hostSessionOwnerToken || undefined,
-        payload: { tracks, force: true },
-      }).catch((error) => log.debug('[SysAudioSFU] tracks-close failed:', error));
-    }
+    closeOwnedRealtimeTracks(
+      hostSessionId,
+      hostSessionOwnerToken,
+      hostPublishedTracks.map((track) => track.mid),
+      'Host tracks-close failed',
+    );
   }
 
   if (hostPc) {
@@ -645,7 +799,12 @@ function cleanupHostSfu(closeRemoteTracks = true): void {
   hostSessionOwnerToken = null;
   hostPublishedTracks = [];
   hostPublishPromise = null;
-  if (closeRemoteTracks) hostSfuUnavailable = false;
+  if (resetFailureState) {
+    hostSfuUnavailable = false;
+    hostRetryCount = 0;
+    hostRetryPending = false;
+    clearManagedTimer(HOST_SFU_RETRY_TIMER);
+  }
 }
 
 function setReceiverDelay(receiver: RTCRtpReceiver): void {
@@ -664,8 +823,8 @@ async function connectGuestTrack(
   // fire-and-forget, so a teardown (cleanupGuestSfu → guestPc=null) or a new
   // subscription (guestPc=newPc) landing during initAudio() would otherwise let
   // this late attach recreate guestMerger + the source and flip
-  // guestReceiving=true — resurrecting a torn-down receive (leaked merger/limit
-  // timer, double audio, masked playback mode). The host publisher guards the
+  // guestReceiving=true — resurrecting a torn-down receive (leaked merger,
+  // double audio, masked playback mode). The host publisher guards the
   // same window with an epoch; pc-identity is the right key here since each
   // subscription owns exactly one pc. Must run BEFORE any node is created.
   if (guestPc !== pc) {
@@ -714,12 +873,25 @@ async function connectGuestTrack(
 }
 
 function cleanupGuestSfu(updateState = true): void {
+  guestSubscriptionEpoch += 1;
   const shouldCleanupGuestReceiveState = guestReceiving && updateState;
   const pc = guestPc;
+  const sessionId = guestSessionId;
+  const sessionOwnerToken = guestSessionOwnerToken;
+  const subscribedTrackMids = guestSubscribedTrackMids;
   guestPc = null;
   guestReceiving = false;
+  guestAllowsLocalAudience = false;
+  guestSessionId = null;
+  guestSessionOwnerToken = null;
+  guestSubscriptionKey = null;
+  guestConnectPromise = null;
+  guestPendingReadyPayload = null;
+  guestSubscribedTrackMids = [];
 
   clearGuestLimitTimer();
+  closeGuestSessionTracks(sessionId, sessionOwnerToken, subscribedTrackMids);
+
   if (guestSourceL) {
     try {
       guestSourceL.disconnect();
@@ -749,17 +921,29 @@ function cleanupGuestSfu(updateState = true): void {
     pc.close();
   }
 
-  guestSessionId = null;
-  guestSessionOwnerToken = null;
-  guestSubscriptionKey = null;
-  guestConnectPromise = null;
   if (shouldCleanupGuestReceiveState) {
     cleanupGuestSystemAudio();
   }
 }
 
+function closeGuestSessionTracks(
+  sessionId: string | null,
+  sessionOwnerToken: string | null,
+  mids: readonly string[],
+): void {
+  closeOwnedRealtimeTracks(sessionId, sessionOwnerToken, mids, 'Guest tracks-close failed');
+}
+
 function buildSubscriptionKey(payload: SfuReadyPayload): string {
-  return `${payload.sessionId}:${payload.tracks.map((track) => track.trackName).join(',')}`;
+  return `${payload.audience}:${payload.sessionId}:${payload.tracks
+    .map((track) => track.trackName)
+    .join(',')}`;
+}
+
+function isPayloadOnFrozenGuestRoute(payload: SfuReadyPayload): boolean {
+  return (
+    getGuestSystemAudioShareRoute() === (payload.audience === 'all' ? 'sfu-all' : 'sfu-remote')
+  );
 }
 
 function normalizeSfuReadyPayload(
@@ -773,16 +957,26 @@ function normalizeSfuReadyPayload(
       (track.channel === 'L' || track.channel === 'R'),
   );
   if (tracks.length === 0) return null;
-  return { version: 1, sessionId: data.sessionId, tracks };
+  return {
+    version: 1,
+    audience: data.audience === 'all' ? 'all' : 'remote',
+    sessionId: data.sessionId,
+    tracks,
+  };
 }
 
 async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
+  if (!isPayloadOnFrozenGuestRoute(payload)) return;
   const subscriptionKey = buildSubscriptionKey(payload);
   if (guestSubscriptionKey === subscriptionKey && guestPc) return;
   cleanupGuestSfu(false);
+  const subscriptionEpoch = guestSubscriptionEpoch;
 
-  const pc = new RTCPeerConnection(await loadSfuRtcConfig());
+  const rtcConfig = await loadSfuRtcConfig();
+  if (subscriptionEpoch !== guestSubscriptionEpoch) return;
+  const pc = new RTCPeerConnection(rtcConfig);
   guestPc = pc;
+  guestAllowsLocalAudience = payload.audience === 'all';
   guestSubscriptionKey = subscriptionKey;
 
   const channelByTrackName = new Map<string, Channel>();
@@ -848,13 +1042,16 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
   const session = await callRealtime('new-session', {
     correlationId: buildCorrelationId('guest-system-audio'),
   });
+  if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a guest sessionId');
   if (!session.sessionOwnerToken) {
     throw new Error('Realtime API did not return a guest session owner capability');
   }
-  guestSessionId = session.sessionId;
-  guestSessionOwnerToken = session.sessionOwnerToken;
+  const sessionId = session.sessionId;
+  const sessionOwnerToken = session.sessionOwnerToken;
+  guestSessionId = sessionId;
+  guestSessionOwnerToken = sessionOwnerToken;
 
   const trackRequests: RealtimeTrack[] = payload.tracks.map((track) => ({
     location: 'remote',
@@ -863,10 +1060,22 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
   }));
 
   const tracksResponse = await callRealtime('tracks-new', {
-    sessionId: guestSessionId,
-    sessionOwnerToken: guestSessionOwnerToken,
+    sessionId,
+    sessionOwnerToken,
     payload: { tracks: trackRequests },
   });
+  const subscribedTrackMids = (tracksResponse.tracks || [])
+    .map((track) => track.mid)
+    .filter((mid): mid is string => typeof mid === 'string' && mid.length > 0);
+  if (subscriptionEpoch !== guestSubscriptionEpoch) {
+    closeGuestSessionTracks(sessionId, sessionOwnerToken, subscribedTrackMids);
+    return;
+  }
+  // Preserve every exact mid returned by Cloudflare before validating the
+  // aggregate response. Partial/error responses may still allocate tracks;
+  // the shared failure cleanup can then close those owned tracks instead of
+  // leaving them for the server-side orphan TTL.
+  guestSubscribedTrackMids = subscribedTrackMids;
   assertRealtimeOk(tracksResponse, trackRequests.length);
 
   for (const track of tracksResponse.tracks || []) {
@@ -874,27 +1083,76 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
     const channel = channelByTrackName.get(track.trackName);
     if (channel) channelByMid.set(track.mid, channel);
   }
-
   const offer = tracksResponse.sessionDescription;
   if (!offer || offer.type !== 'offer') {
     throw new Error('Realtime API did not return a remote-track offer');
   }
 
   await pc.setRemoteDescription(offer);
+  if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   attachExistingReceiverTracks('remote-description');
   const answer = await pc.createAnswer();
+  if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   const answerDescription = sessionDescriptionFromInit(answer);
   await pc.setLocalDescription(answerDescription);
+  if (subscriptionEpoch !== guestSubscriptionEpoch) return;
 
   const renegotiate = await callRealtime('renegotiate', {
-    sessionId: guestSessionId,
-    sessionOwnerToken: guestSessionOwnerToken,
+    sessionId,
+    sessionOwnerToken,
     payload: { sessionDescription: answerDescription },
   });
+  if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   assertRealtimeOk(renegotiate);
   attachExistingReceiverTracks('renegotiate');
 
-  log.info(`[SysAudioSFU] Subscribed to host system audio via Cloudflare SFU (${guestSessionId})`);
+  log.info(`[SysAudioSFU] Subscribed to host system audio via Cloudflare SFU (${sessionId})`);
+}
+
+function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
+  if (!isPayloadOnFrozenGuestRoute(payload)) return;
+  const connectPromise = subscribeGuestToSfu(payload);
+  guestConnectPromise = connectPromise;
+  connectPromise
+    .catch((error) => {
+      if (guestConnectPromise !== connectPromise) {
+        log.debug('[SysAudioSFU] Stale guest subscribe failed after supersession:', error);
+        return;
+      }
+      log.warn('[SysAudioSFU] Guest subscribe failed:', error);
+      const pendingPayload = guestPendingReadyPayload;
+      const canHandoffToPending =
+        !!pendingPayload &&
+        isPayloadOnFrozenGuestRoute(pendingPayload) &&
+        !!getState('network.hostConn');
+      if (canHandoffToPending) {
+        // Keep the system-audio placeholder while replacing only the failed
+        // adapter. The guest receiver re-arms its watchdog so a second failed
+        // publication cannot leave a permanent silent "receiving" state.
+        cleanupGuestSfu(false);
+        bus.emit('system-audio:delivery-handoff');
+        beginGuestSfuSubscription(pendingPayload);
+      } else {
+        cleanupGuestSfu();
+      }
+    })
+    .finally(() => {
+      // A teardown can allow a successor subscription to begin before this
+      // attempt settles. Never let the stale finally clear that successor's
+      // in-flight ownership marker.
+      if (guestConnectPromise !== connectPromise) return;
+      guestConnectPromise = null;
+      const pendingPayload = guestPendingReadyPayload;
+      guestPendingReadyPayload = null;
+      if (
+        pendingPayload &&
+        isPayloadOnFrozenGuestRoute(pendingPayload) &&
+        buildSubscriptionKey(pendingPayload) !== guestSubscriptionKey &&
+        getState('network.hostConn')
+      ) {
+        beginGuestSfuSubscription(pendingPayload);
+      }
+    });
 }
 
 function handleSfuReady(
@@ -905,7 +1163,6 @@ function handleSfuReady(
 
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
-  if (getState('network.connectionType') === 'local') return;
   if (isGuestLimitedForHost(hostConn)) {
     log.debug('[SysAudioSFU] Ignoring SFU ready until the guest rejoins the room');
     return;
@@ -913,26 +1170,82 @@ function handleSfuReady(
 
   const payload = normalizeSfuReadyPayload(data);
   if (!payload) return;
+  if (getGuestSystemAudioShareRoute() === 'direct') return;
+  if (getGuestSystemAudioShareRoute() === 'unselected') {
+    if (getState('network.connectionType') === 'local' && payload.audience !== 'all') return;
+    // Freeze synchronously, before TURN config or RTCPeerConnection creation.
+    // Otherwise a stale direct call can win the await window and cancel the
+    // correct all-audience subscription.
+  }
+  if (!freezeGuestSystemAudioSfuRoute(payload.audience)) {
+    return;
+  }
 
-  if (guestConnectPromise) return;
-  guestConnectPromise = subscribeGuestToSfu(payload)
-    .catch((error) => {
-      log.warn('[SysAudioSFU] Guest subscribe failed:', error);
-      cleanupGuestSfu();
+  if (guestConnectPromise) {
+    guestPendingReadyPayload = payload;
+    return;
+  }
+  beginGuestSfuSubscription(payload);
+}
+
+function handleSfuCapability(
+  data: ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_CAPABILITY>,
+  conn?: DataConnection,
+): void {
+  if (data.version !== 1 || data.localAudience !== true) return;
+  if (getState('network.appRole') !== 'host' || !conn?.peer) return;
+  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
+
+  markLocalSystemAudioSfuCapable(conn.peer);
+  if (!isSystemAudioActive()) return;
+  const peer = getState('network.connectedPeers').find((item) => item.id === conn.peer);
+  if (resolveSystemAudioPeerDelivery(peer) === 'sfu') {
+    // The host may have already released this late peer as unsupported before
+    // its feature frame arrived. Re-arm the room-wide receive placeholder;
+    // current receivers treat duplicate START as an idempotent no-op.
+    safeSend(conn, { type: MSG.SYSTEM_AUDIO_START });
+  }
+  publishToEligiblePeer(conn.peer);
+}
+
+function publishToEligiblePeer(peerId: string): void {
+  if (!shouldUseRealtimeSfu()) return;
+  if (!isSystemAudioActive()) return;
+  if (getState('network.appRole') !== 'host') return;
+  const peer = getState('network.connectedPeers').find((item) => item.id === peerId);
+  if (resolveSystemAudioPeerDelivery(peer) !== 'sfu') {
+    if (!hasSfuHostPeers()) cleanupHostSfu();
+    return;
+  }
+
+  // A remote-only SFU outage may already have consumed the eight direct
+  // fallback slots. If a capable LAN participant then joins, spend the same
+  // single bounded retry on an all-audience publication instead of leaving
+  // that participant behind the receive watchdog. Existing fallback calls are
+  // route-frozen and excluded from the publication.
+  if (hostSfuUnavailable && getFrozenSystemAudioSfuAudience(peerId) === 'all') {
+    if (hostRetryPending) return;
+    if (!beginBoundedHostRetry(0, true)) stopPendingSfuPeers();
+    return;
+  }
+
+  ensureHostPublication()
+    .then((publication) => {
+      if (publication) sendSfuReadyToPeer(peerId, publication);
     })
-    .finally(() => {
-      guestConnectPromise = null;
-    });
+    .catch((error) => log.warn('[SysAudioSFU] Late-join SFU send failed:', error));
 }
 
 export function registerSystemAudioSfuListeners(): void {
   registerHandler(MSG.SYSTEM_AUDIO_SFU_READY, handleSfuReady);
+  registerHandler(MSG.SYSTEM_AUDIO_SFU_CAPABILITY, handleSfuCapability);
 
   bus.on('system-audio:streams-ready', () => {
     if (!shouldUseRealtimeSfu()) return;
     if (getState('network.appRole') !== 'host') return;
-    if (!hasRemoteHostPeers()) {
-      log.info('[SysAudioSFU] No remote peers; deferring SFU publish');
+    beginSystemAudioShareDelivery(getState('network.connectedPeers'));
+    if (!hasSfuHostPeers()) {
+      log.info('[SysAudioSFU] No SFU peers; deferring SFU publish');
       return;
     }
 
@@ -944,31 +1257,28 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   bus.on('orchestrator:peer-joined', (peerId: string) => {
-    if (!shouldUseRealtimeSfu()) return;
-    if (!isSystemAudioActive()) return;
-    if (getState('network.appRole') !== 'host') return;
-    if (!isRemoteHostPeer(peerId)) {
-      if (!hasRemoteHostPeers()) cleanupHostSfu();
-      return;
-    }
-
-    ensureHostPublication()
-      .then((publication) => {
-        if (publication) sendSfuReadyToPeer(peerId, publication);
-      })
-      .catch((error) => log.warn('[SysAudioSFU] Late-join SFU send failed:', error));
+    publishToEligiblePeer(peerId);
   });
 
-  bus.on('orchestrator:peer-evaluated', () => {
-    if (!shouldUseRealtimeSfu()) return;
-    if (!isSystemAudioActive()) return;
-    if (getState('network.appRole') !== 'host') return;
-    if (!hasRemoteHostPeers()) cleanupHostSfu();
+  bus.on('orchestrator:peer-evaluated', (peerId: string) => {
+    publishToEligiblePeer(peerId);
   });
 
-  bus.on('network:peer-disconnected', () => {
+  bus.on('network:peer-connected', (conn: DataConnection) => {
+    if (getState('network.appRole') !== 'guest') return;
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || conn !== hostConn) return;
+    safeSend(hostConn, {
+      type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY,
+      version: 1,
+      localAudience: true,
+    });
+  });
+
+  bus.on('network:peer-disconnected', (peerId: string) => {
     if (getState('network.appRole') === 'host') {
-      if (!hasRemoteHostPeers()) cleanupHostSfu();
+      unmarkLocalSystemAudioSfuCapable(peerId);
+      if (!hasSfuHostPeers()) cleanupHostSfu();
       return;
     }
     if (getState('network.appRole') === 'guest' && !getState('network.hostConn')) {
@@ -977,21 +1287,28 @@ export function registerSystemAudioSfuListeners(): void {
     }
   });
 
-  bus.on('state:network.connectionType', (value: unknown) => {
-    if (getState('network.appRole') !== 'guest') return;
-    if (value !== 'local' || !guestPc) return;
-    log.info('[SysAudioSFU] Guest reclassified as local; switching away from SFU');
-    cleanupGuestSfu(false);
+  bus.on('network:peer-connection-replaced', (peerId: string) => {
+    if (getState('network.appRole') !== 'host') return;
+    unmarkLocalSystemAudioSfuCapable(peerId);
+    if (!hasSfuHostPeers()) cleanupHostSfu();
   });
 
   bus.on('system-audio:incoming-call', () => {
     if (getState('network.appRole') !== 'guest') return;
-    if (!guestPc) return;
+    if (!claimGuestDirectSystemAudioRoute()) return;
+    if (!guestPc && !guestConnectPromise) return;
     log.info('[SysAudioSFU] Local P2P system audio arrived; switching away from SFU');
     cleanupGuestSfu(false);
+    bus.emit('system-audio:delivery-handoff');
   });
 
-  bus.on('system-audio:host-stopped', () => cleanupGuestSfu());
+  bus.on('system-audio:host-started', () => {
+    resetGuestSystemAudioShareRoute();
+  });
+  bus.on('system-audio:host-stopped', () => {
+    cleanupGuestSfu();
+    resetGuestSystemAudioShareRoute();
+  });
   bus.on('system-audio:receive-timeout', () => {
     if (getState('network.appRole') !== 'guest') return;
     cleanupGuestSfu();
@@ -999,9 +1316,13 @@ export function registerSystemAudioSfuListeners(): void {
   bus.on('system-audio:force-stop', () => {
     cleanupHostSfu();
     cleanupGuestSfu();
+    resetGuestSystemAudioShareRoute();
+    endSystemAudioShareDelivery();
   });
   bus.on('system-audio:stop', () => {
     cleanupHostSfu();
     cleanupGuestSfu();
+    resetGuestSystemAudioShareRoute();
+    endSystemAudioShareDelivery();
   });
 }

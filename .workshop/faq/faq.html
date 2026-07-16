@@ -96,7 +96,7 @@
         <dl>
           <div>
             <dt>How many people can join?</dt>
-            <dd>The default room capacity is 4 guests, and the host can adjust it up to 32 guests in the Connection tab. Larger rooms may be less stable, especially for file sharing and system audio.</dd>
+            <dd>A room supports up to 100 connected devices, including the host. The capacity is fixed; actual performance still depends on each device and network.</dd>
           </div>
           <div>
             <dt>How can I keep outsiders from joining?</dt>
@@ -104,7 +104,7 @@
           </div>
           <div>
             <dt>Do all devices have to be on the same Wi-Fi?</dt>
-            <dd>The same network is the most stable option. Remote participation is possible, but quality can vary greatly depending on the network, VPN, firewall, and browser policies.</dd>
+            <dd>The same network is the most stable option, and file and system audio sharing is usually exchanged directly there. For remote participants or in large rooms, this data may route through Cloudflare. Quality can vary depending on the network, VPN, firewall, and browser policies.</dd>
           </div>
         </dl>
       </section>
@@ -122,7 +122,7 @@
           </div>
           <div>
             <dt>Are shared files stored on a server?</dt>
-            <dd>Files for participants on the same local network are transferred directly. For remote participants, the host encrypts the file before temporary Cloudflare R2 storage. Access normally expires after one hour, and a storage lifecycle rule automatically deletes remote-share objects within the intended 24-hour maximum.</dd>
+            <dd>Ordinary-room files are usually transferred directly on the same network. For remote participants or in large rooms, the sharing browser encrypts files before temporary Cloudflare R2 storage. MUSIXQUARE does not store the decryption key, and the objects are automatically deleted within an intended maximum of 24 hours. MUSIXQUARE does not access, analyze, or retain the content except as technically necessary to provide file sharing.</dd>
           </div>
           <div>
             <dt>Can I upload video files directly?</dt>

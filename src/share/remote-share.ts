@@ -22,7 +22,6 @@ import { t } from '../i18n/index.ts';
 import { sendSystemMessage } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
-  broadcast,
   isRemoteGuest,
   safeSend,
   sendToHost,
@@ -57,6 +56,7 @@ import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import type {
   AnyProtocolMsg,
   DataConnection,
+  ProtocolMsg,
   QueueItemId,
   RemoteFileSharePayload,
   ResidentFile,
@@ -68,6 +68,15 @@ import {
 } from '../player/queue-model.ts';
 import { isPeerConnectionCurrent } from '../storage/chunk-pump.ts';
 import { completeFileRequest } from '../network/file-request-authority.ts';
+import {
+  getR2FileTargets,
+  markLocalFileR2Capable,
+  markLateLocalPeerForR2,
+  recordGuestFileDelivery,
+  releaseFileDeliveryPeer,
+  resetFileDeliveryPolicies,
+  shouldConnectionUseR2,
+} from './file-delivery-policy.ts';
 
 const REMOTE_WAIT_TIMER = 'remote-share-wait-timeout';
 const REMOTE_WAIT_MS = 5 * 60_000 + 15_000;
@@ -78,6 +87,7 @@ const EXPIRY_SAFETY_MARGIN_MS = 30_000;
 
 interface UploadEntry {
   key: string;
+  sessionId: number;
   promise: Promise<RemoteFileSharePayload>;
   abort: AbortController;
 }
@@ -115,6 +125,7 @@ let _lastAdoptedRemoteContext: {
   sessionId: number;
 } | null = null;
 let _remoteDescriptorGeneration = 0;
+let _observedHostConn: DataConnection | null = null;
 
 interface RemoteDescriptorOwnerSnapshot {
   generation: number;
@@ -237,7 +248,7 @@ function clearStaleRemotePlayback(reason: string): void {
 }
 
 function toRemoteShareMessage(descriptor: RemoteFileSharePayload): AnyProtocolMsg {
-  return { type: MSG.REMOTE_FILE_SHARE, ...descriptor } as AnyProtocolMsg;
+  return { type: MSG.REMOTE_FILE_SHARE, ...descriptor, delivery: 'r2' } as AnyProtocolMsg;
 }
 
 function toRemoteFileUnavailableMessage(
@@ -252,17 +263,12 @@ function toRemoteFileUnavailableMessage(
     queueItemId,
     sessionId,
     limited,
+    delivery: 'r2',
   } as AnyProtocolMsg;
 }
 
-function hasRemoteTargets(): boolean {
-  const peers = getState('network.connectedPeers') || [];
-  return peers.some(
-    (peer) =>
-      peer.status === 'connected' &&
-      peer.conn?.open &&
-      (peer.connectionType === 'remote' || peer.connectionType === 'unknown'),
-  );
+function hasR2Targets(sessionId: number): boolean {
+  return getR2FileTargets(sessionId).length > 0;
 }
 
 function isDescriptorFresh(descriptor: RemoteFileSharePayload | null): boolean {
@@ -302,13 +308,14 @@ function withPlaybackContext(
 }
 
 function isHostActiveFile(file: File, queueItemId: QueueItemId): boolean {
+  if (getState('playlist.currentQueueItemId') !== queueItemId) return false;
+
   const resident = getState('files.current');
   if (resident?.queueItemId === queueItemId && resident.blob === file) return true;
 
   // A caller can begin while the selected playlist item is current but before
   // its blob publication becomes observable. Exact File identity on the same
   // queue occurrence is the only safe fallback.
-  if (getState('playlist.currentQueueItemId') !== queueItemId) return false;
   const item = getQueueItemById(queueItemId);
   return item?.file === file;
 }
@@ -380,18 +387,11 @@ function isUploadLimitError(error: unknown): boolean {
   );
 }
 
-function getRemoteMessageTargets(targetConn?: DataConnection): DataConnection[] {
-  if (targetConn?.open) return [targetConn];
-
-  const peers = getState('network.connectedPeers') || [];
-  return peers
-    .filter(
-      (peer) =>
-        peer.status === 'connected' &&
-        peer.conn?.open &&
-        (peer.connectionType === 'remote' || peer.connectionType === 'unknown'),
-    )
-    .map((peer) => peer.conn as DataConnection);
+function getR2MessageTargets(sessionId: number, targetConn?: DataConnection): DataConnection[] {
+  if (targetConn?.open) {
+    return shouldConnectionUseR2(targetConn, sessionId) ? [targetConn] : [];
+  }
+  return getR2FileTargets(sessionId);
 }
 
 function maybeNotifyRemoteUploadFailure(
@@ -402,7 +402,7 @@ function maybeNotifyRemoteUploadFailure(
   targetConn?: DataConnection,
 ): void {
   const now = Date.now();
-  const targets = getRemoteMessageTargets(targetConn);
+  const targets = getR2MessageTargets(sessionId, targetConn);
   if (targets.length === 0) return;
 
   const limited = isUploadLimitError(error);
@@ -483,15 +483,16 @@ function resetRemoteUploadState(message: string | null = null): void {
   });
 }
 
-function abortActiveUploadsIfNoRemoteTargets(reason: string): void {
+function abortActiveUploadsWithoutTargets(reason: string): void {
   if (getState('network.hostConn')) return;
-  if (hasRemoteTargets()) return;
   if (_activeUploads.size === 0) return;
 
-  for (const entry of _activeUploads.values()) {
+  for (const [key, entry] of _activeUploads) {
+    if (hasR2Targets(entry.sessionId)) continue;
     entry.abort.abort();
+    _activeUploads.delete(key);
   }
-  _activeUploads.clear();
+  if (_activeUploads.size > 0) return;
   resetRemoteUploadState();
   showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
   log.info(`[RemoteShare] Active upload cancelled (${reason})`);
@@ -547,7 +548,8 @@ export async function shareRemoteFileIfNeeded(
   if (getState('room.context').kind === 'pro') return;
   if (!isRemoteShareConfigured()) return;
   if (sessionId === null) return;
-  if (!targetConn && !hasRemoteTargets()) return;
+  if (!targetConn && !hasR2Targets(sessionId)) return;
+  if (targetConn && !shouldConnectionUseR2(targetConn, sessionId)) return;
 
   const currentResident = getState('files.current');
   const queueItemId =
@@ -586,7 +588,7 @@ export async function shareRemoteFileIfNeeded(
           },
         });
 
-        const entry: UploadEntry = { key: uploadKey, promise, abort };
+        const entry: UploadEntry = { key: uploadKey, sessionId, promise, abort };
         _activeUploads.set(uploadKey, entry);
 
         showToast(t('share.remote.encrypting'));
@@ -621,7 +623,7 @@ export async function shareRemoteFileIfNeeded(
       return;
     }
 
-    if (!targetConn && !hasRemoteTargets()) {
+    if (!targetConn && !hasR2Targets(sessionId)) {
       log.debug(
         '[RemoteShare] Upload completed but no remote targets remain; descriptor not broadcast',
       );
@@ -636,11 +638,9 @@ export async function shareRemoteFileIfNeeded(
 
     const outboundDescriptor = withPlaybackContext(descriptor, sessionId, queueItemId);
     const msg = toRemoteShareMessage(outboundDescriptor);
-    if (targetConn) {
-      safeSend(targetConn, msg);
-    } else {
-      broadcast(msg);
-    }
+    const targets = getR2MessageTargets(sessionId, targetConn);
+    if (targets.length === 0) return;
+    for (const conn of targets) safeSend(conn, msg);
     log.info(`[RemoteShare] Shared encrypted descriptor for ${outboundDescriptor.name}`);
     showToast(t('share.remote.upload_ready'));
   } catch (error) {
@@ -899,12 +899,18 @@ async function handleRemoteFileShare(
   ) {
     return;
   }
+  const expectedRoomId = getState('network.sessionCode') || getState('network.lastJoinCode');
+  if (expectedRoomId && descriptor.roomId !== expectedRoomId) {
+    log.warn('[RemoteShare] Ignoring descriptor issued for a different room');
+    return;
+  }
   const ownerSnapshot = captureRemoteDescriptorOwner();
 
+  const explicitR2Delivery = descriptor.delivery === 'r2';
   if (getState('network.connectionType') === 'unknown') {
     const resolved = await waitForGuestConnectionType(3000);
-    if (resolved === 'local') return;
-  } else if (!isRemoteGuest()) {
+    if (resolved === 'local' && !explicitR2Delivery) return;
+  } else if (!isRemoteGuest() && !explicitR2Delivery) {
     return;
   }
 
@@ -912,6 +918,8 @@ async function handleRemoteFileShare(
     log.debug('[RemoteShare] Descriptor superseded during connection classification');
     return;
   }
+
+  recordGuestFileDelivery(descriptor.queueItemId, descriptor.sessionId, 'r2');
 
   if (isCurrentRemoteFileLoaded(descriptor)) {
     log.debug('[RemoteShare] Active descriptor already loaded, ignoring duplicate');
@@ -1248,7 +1256,14 @@ async function handleRemoteFileShare(
 function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
-  if (!isRemoteGuest() && getState('network.connectionType') !== 'unknown') return;
+  if (
+    data.delivery !== 'r2' &&
+    !isRemoteGuest() &&
+    getState('network.connectionType') !== 'unknown'
+  ) {
+    return;
+  }
+  recordGuestFileDelivery(data.queueItemId as QueueItemId, Number(data.sessionId), 'r2');
 
   const queueItemId = data.queueItemId;
   const sessionId = data.sessionId;
@@ -1299,65 +1314,143 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
 }
 
+function handleFileR2Capability(
+  data: ProtocolMsg<typeof MSG.FILE_R2_CAPABILITY>,
+  conn?: DataConnection,
+): void {
+  if (data.version !== 1 || data.localAudience !== true) return;
+  if (getState('network.appRole') !== 'host' || !conn?.peer) return;
+  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
+
+  const recoveredSessionIds = markLocalFileR2Capable(conn.peer);
+  if (recoveredSessionIds.length === 0) return;
+
+  const current = getState('files.current');
+  if (!(current?.blob instanceof File) || !current.queueItemId) return;
+  if (getState('playlist.currentQueueItemId') !== current.queueItemId) return;
+  if (!recoveredSessionIds.includes(current.sessionId)) return;
+  if (!shouldConnectionUseR2(conn, current.sessionId)) return;
+
+  safeSend(conn, {
+    type: MSG.FILE_PREPARE,
+    name: current.name,
+    queueItemId: current.queueItemId,
+    sessionId: current.sessionId,
+    size: current.blob.size,
+    mime: current.mime || current.blob.type || 'application/octet-stream',
+    autoPlayDelayMs: 0,
+    delivery: 'r2',
+  });
+  void shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {
+    queueItemId: current.queueItemId,
+  });
+}
+
+function resetRemoteShareAuthorityBoundary(): void {
+  _remoteDescriptorGeneration++;
+  _lastAdoptedRemoteContext = null;
+  resetFileDeliveryPolicies();
+
+  for (const entry of _activeUploads.values()) entry.abort.abort();
+  _activeUploads.clear();
+  _descriptorCache.clear();
+  _fileIds = new WeakMap<File, number>();
+
+  _activeDownload?.abort.abort();
+  _activeDownload = null;
+  clearManagedTimer(REMOTE_WAIT_TIMER);
+  setState('share.remote', {
+    upload: {
+      status: 'idle',
+      progress: 0,
+      objectId: null,
+      expiresAt: null,
+      error: null,
+    },
+    download: {
+      status: 'idle',
+      progress: 0,
+      error: null,
+    },
+  });
+}
+
 export function initRemoteShare(): void {
   registerHandlers({
+    [MSG.FILE_R2_CAPABILITY]: handleFileR2Capability,
     [MSG.REMOTE_FILE_SHARE]: handleRemoteFileShare,
     [MSG.REMOTE_FILE_UNAVAILABLE]: handleRemoteFileUnavailable,
   });
+
+  _observedHostConn = getState('network.hostConn');
 
   bus.on('orchestrator:peer-joined', (peerId) => {
     const hostConn = getState('network.hostConn');
     if (hostConn || !isRemoteShareConfigured()) return;
 
+    markLateLocalPeerForR2(peerId);
     const peers = getState('network.connectedPeers') || [];
     const peer = peers.find((item) => item.id === peerId);
     if (!peer?.conn?.open) return;
-    if (peer.connectionType === 'local') return;
 
     const current = getState('files.current');
     const currentBlob = current?.blob;
     if (!(currentBlob instanceof File) || !current?.queueItemId) return;
-    const sessionId = getState('transfer.currentSessionId') || getState('transfer.localSessionId');
+    if (getState('playlist.currentQueueItemId') !== current.queueItemId) return;
+    const sessionId = current.sessionId;
+    if (!sessionId || !shouldConnectionUseR2(peer.conn, sessionId)) return;
     void shareRemoteFileIfNeeded(currentBlob, sessionId || null, peer.conn, {
       queueItemId: current.queueItemId,
     });
   });
 
   bus.on('orchestrator:peer-evaluated', () => {
-    abortActiveUploadsIfNoRemoteTargets('all-peers-local');
+    abortActiveUploadsWithoutTargets('no-r2-targets');
   });
 
-  bus.on('state:network.sessionCode', (code) => {
+  bus.on('network:peer-connected', (conn: DataConnection) => {
+    if (getState('network.appRole') !== 'guest') return;
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || conn !== hostConn) return;
+    safeSend(hostConn, {
+      type: MSG.FILE_R2_CAPABILITY,
+      version: 1,
+      localAudience: true,
+    });
+  });
+
+  bus.on('network:peer-disconnected', (peerId: string) => {
+    if (getState('network.appRole') !== 'host') return;
+    releaseFileDeliveryPeer(peerId);
+    abortActiveUploadsWithoutTargets('peer-disconnected');
+  });
+
+  bus.on('network:peer-connection-replaced', (peerId: string) => {
+    if (getState('network.appRole') !== 'host') return;
+    releaseFileDeliveryPeer(peerId);
+    abortActiveUploadsWithoutTargets('peer-connection-replaced');
+  });
+
+  bus.on('state:network.hostConn', (value) => {
+    const hostConn = (value as DataConnection | null) ?? null;
+    const previousHostConn = _observedHostConn;
+    _observedHostConn = hostConn;
+    if (hostConn === previousHostConn) return;
+    if (!hostConn && !previousHostConn) return;
+
+    // The exact host connection authenticates every guest-side transfer. A
+    // reconnect can replace it without changing the room code, so old route
+    // markers and an in-flight R2 download must not survive this boundary.
+    resetRemoteShareAuthorityBoundary();
+  });
+
+  bus.on('state:network.sessionCode', () => {
     // A new host owns a new sessionId ordering, including truthy-to-truthy
     // session-code changes, so reset the adopted-context gate unconditionally.
-    _remoteDescriptorGeneration++;
-    _lastAdoptedRemoteContext = null;
-    if (!code) {
-      // Tear down any in-flight uploads/downloads so a new session starts clean.
-      for (const entry of _activeUploads.values()) entry.abort.abort();
-      _activeUploads.clear();
-      _descriptorCache.clear();
-      _fileIds = new WeakMap<File, number>();
-      // Keep IDs monotonic across session teardown. A late completion from the
-      // previous session must never collide with a newly assigned File ID.
-      _activeDownload?.abort.abort();
-      _activeDownload = null;
-      clearManagedTimer(REMOTE_WAIT_TIMER);
-      setState('share.remote', {
-        upload: {
-          status: 'idle',
-          progress: 0,
-          objectId: null,
-          expiresAt: null,
-          error: null,
-        },
-        download: {
-          status: 'idle',
-          progress: 0,
-          error: null,
-        },
-      });
-    }
+    // Room changes are security boundaries even when both codes are truthy.
+    // Never carry encrypted objects, cached descriptors, or download
+    // ownership from room A into room B.
+    resetRemoteShareAuthorityBoundary();
   });
 
   log.info('[RemoteShare] Handlers registered');

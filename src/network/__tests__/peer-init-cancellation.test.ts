@@ -40,6 +40,12 @@ vi.mock('../../ui/toast.ts', () => ({ showToast: mocks.showToast }));
 
 import { getPeer, setPeer } from '../peer-state.ts';
 import {
+  claimGuestDirectSystemAudioRoute,
+  getGuestSystemAudioShareRoute,
+  getSystemAudioShareDeliverySnapshot,
+  markLocalSystemAudioSfuCapable,
+} from '../system-audio-delivery.ts';
+import {
   cancelPendingSessionSetup,
   connectProRoomTransport,
   createHostSessionWithShortCode,
@@ -339,7 +345,6 @@ describe('network initialization ownership', () => {
     expect(getState('network.appRole')).toBe('host');
     expect(getState('network.myDeviceLabel')).toBe('Peer 0');
     expect(getState('network.sessionCode')).toBe('000001');
-    expect(getState('network.maxGuestSlots')).toBe(32);
     expect(deviceLists).toEqual([
       [
         {
@@ -407,11 +412,15 @@ describe('network initialization ownership', () => {
     await waitForTransportCalls(1);
     await vi.waitFor(() => expect(getPeer()).toBe(pendingPeer));
 
+    markLocalSystemAudioSfuCapable('stale-capability');
+    claimGuestDirectSystemAudioRoute();
     cancelPendingSessionSetup();
 
     await expect(init).rejects.toThrow('NETWORK_INIT_CANCELLED');
     expect(pendingPeer.destroy).toHaveBeenCalled();
     expect(getPeer()).toBeNull();
+    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toEqual([]);
+    expect(getGuestSystemAudioShareRoute()).toBe('unselected');
   });
 
   it('invalidates a pending peer-open when the session is left', async () => {
@@ -422,12 +431,16 @@ describe('network initialization ownership', () => {
     await waitForTransportCalls(1);
     await vi.waitFor(() => expect(getPeer()).toBe(pendingPeer));
 
+    markLocalSystemAudioSfuCapable('stale-capability');
+    claimGuestDirectSystemAudioRoute();
     leaveSession();
 
     await expect(init).rejects.toThrow('NETWORK_INIT_CANCELLED');
     expect(pendingPeer.destroy).toHaveBeenCalled();
     expect(getPeer()).toBeNull();
     expect(getState('network.appRole')).toBe('idle');
+    expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toEqual([]);
+    expect(getGuestSystemAudioShareRoute()).toBe('unselected');
   });
 
   it('lets a new host init supersede an older peer-open without an explicit cancel', async () => {

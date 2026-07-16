@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
+  PRO_ROOM_MAX_PRESENCE_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   proRoomRoleCanForTests as proRoomRoleCan,
   type ProRoomCapability,
@@ -294,6 +295,32 @@ describe('PRO room snapshot validation', () => {
     overQuota.quota.usedBytes = PRO_ROOM_QUOTA_BYTES;
     overQuota.quota.reservedBytes = 1;
     expect(parseProRoomSnapshot(overQuota)).toBeNull();
+  });
+
+  it('accepts at most 100 connected devices in a PRO presence snapshot', () => {
+    const atCapacity = activeSnapshot();
+    const coordinator = atCapacity.presence.participants[0]!;
+    atCapacity.presence.participants = Array.from(
+      { length: PRO_ROOM_MAX_PRESENCE_ITEMS },
+      (_, index) =>
+        index === 0
+          ? coordinator
+          : {
+              participantId: `capacity_participant_${String(index).padStart(5, '0')}`,
+              displayName: `Member ${index}`,
+              role: 'controller' as const,
+              joinedAtMs: coordinator.joinedAtMs + index,
+            },
+    );
+    expect(parseProRoomSnapshot(atCapacity)).not.toBeNull();
+
+    atCapacity.presence.participants.push({
+      participantId: 'capacity_participant_00100',
+      displayName: 'Over capacity',
+      role: 'controller',
+      joinedAtMs: coordinator.joinedAtMs + PRO_ROOM_MAX_PRESENCE_ITEMS,
+    });
+    expect(parseProRoomSnapshot(atCapacity)).toBeNull();
   });
 
   it('pairs a YouTube checkpoint with its exact video and sub-item index only', () => {

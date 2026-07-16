@@ -9,13 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import {
-  DEFAULT_MAX_GUEST_SLOTS,
-  MSG,
-  WARN_WHEN_MAX_SLOTS_AT_LEAST,
-  type PlaybackActivityValue,
-  type PlaybackModeValue,
-} from '../core/constants.ts';
+import { MSG, type PlaybackActivityValue, type PlaybackModeValue } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
@@ -30,8 +24,6 @@ import {
 } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
-import { showDialog } from '../ui/dialog.ts';
-import { hasSysAudioWarned, markSysAudioWarned } from '../ui/large-room-warnings.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import type { QueueItemId, TrackMeta } from '../types/index.ts';
 
@@ -128,27 +120,6 @@ export async function startSystemAudioCapture(): Promise<void> {
   if (isSystemAudioActive()) {
     log.warn('[SystemAudio] Already capturing');
     return;
-  }
-
-  // 0.5 Warn if many devices connected
-  const connectedPeers = getState('network.connectedPeers');
-  if (connectedPeers.length >= 4) {
-    bus.emit('ui:show-toast', t('system_audio.many_devices_warning'));
-  }
-
-  // 0.6 Large-room soft warning: only when the host has opted into a bigger
-  // slot cap (≥6). Once per session. The dialog's confirm click re-asserts
-  // user activation so the getDisplayMedia call below still works.
-  const maxSlots = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
-  if (maxSlots >= WARN_WHEN_MAX_SLOTS_AT_LEAST && !hasSysAudioWarned()) {
-    const res = await showDialog({
-      title: t('dialog.large_room_sysaudio.title'),
-      message: t('dialog.large_room_sysaudio.message'),
-      buttonText: t('dialog.continue'),
-      secondaryText: t('common.cancel'),
-    });
-    if (res.action !== 'ok') return;
-    markSysAudioWarned();
   }
 
   // 1. Capture FIRST (user gesture must be synchronous call stack)
@@ -286,7 +257,10 @@ export async function startSystemAudioCapture(): Promise<void> {
   const onTrackEnded = (): void => {
     audioTracks[0].removeEventListener('ended', onTrackEnded);
     log.info('[SystemAudio] Audio track ended (user stopped sharing)');
-    stopSystemAudioCapture();
+    // Enter the same room-wide lifecycle as the in-app Stop button. Calling
+    // stopSystemAudioCapture() directly would leave host media calls, the SFU
+    // publication, retry timers, and the frozen delivery policy alive.
+    bus.emit('system-audio:stop');
   };
   audioTracks[0].addEventListener('ended', onTrackEnded);
 
@@ -301,7 +275,7 @@ export async function startSystemAudioCapture(): Promise<void> {
  * teardown callers pass `restore:false` because another playback flow already
  * owns the target state; restoring the snapshot would overwrite that flow.
  */
-export function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
+function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
   if (!isSystemAudioActive() && !_capturedStream) return;
   const shouldRestore = opts?.restore ?? true;
 
@@ -452,7 +426,10 @@ export function registerSystemCaptureListeners(): void {
   bus.on('system-audio:start', () => {
     startSystemAudioCapture().catch((e) => {
       log.error('[SystemAudio] Unhandled error in startSystemAudioCapture:', e);
-      stopSystemAudioCapture(); // Best-effort cleanup of half-initialized state
+      // A late setup failure can happen after streams-ready. Route every
+      // failure through the shared stop lifecycle so direct/SFU resources and
+      // the frozen delivery policy are not left behind.
+      bus.emit('system-audio:stop');
     });
   });
   bus.on('system-audio:stop', () => {

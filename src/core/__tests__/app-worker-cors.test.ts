@@ -757,6 +757,185 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(blocked.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
     expect(await blocked.json()).toEqual({ error: 'Too Many Requests' });
   });
+
+  it('allows separate 100-device TURN and realtime capability bursts without raising unrelated scope limits', async () => {
+    installRateLimitCache();
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+    };
+    const challengeRequest = (scopes: string[], ip: string) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/capability-challenge', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': ip,
+          },
+          body: JSON.stringify({ scopes }),
+        }),
+        env,
+      );
+    const tokenRequest = (scopes: string[], ip: string) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/capability-token', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': ip,
+          },
+          // An absent proof is intentionally rejected after the rate gate. We
+          // only assert that the room-sized burst is not rejected as 429.
+          body: JSON.stringify({ scopes }),
+        }),
+        env,
+      );
+
+    for (const scope of ['turn', 'realtime']) {
+      for (let index = 0; index < 100; index += 1) {
+        expect((await challengeRequest([scope], '203.0.113.110')).status).toBe(200);
+        expect((await tokenRequest([scope], '203.0.113.110')).status).toBe(403);
+      }
+    }
+
+    for (let index = 0; index < 30; index += 1) {
+      expect((await challengeRequest(['remote-share'], '203.0.113.111')).status).toBe(200);
+    }
+    expect((await challengeRequest(['remote-share'], '203.0.113.111')).status).toBe(429);
+  });
+
+  it('admits 100 same-NAT clients through TURN plus one full SFU recovery cycle', async () => {
+    installRateLimitCache();
+    const ip = '203.0.113.120';
+    const capabilitySecret = 'same-nat-capability-secret';
+    const env = {
+      MXQR_CAPABILITY_SECRET: capabilitySecret,
+      MXQR_TURNSTILE_DISABLED: 'true',
+      CLOUDFLARE_TURN_KEY_ID: 'turn-key',
+      CLOUDFLARE_TURN_API_TOKEN: 'turn-token',
+      CLOUDFLARE_REALTIME_APP_ID: 'test-app',
+      CLOUDFLARE_REALTIME_APP_SECRET: 'test-realtime-secret',
+    };
+    let nextSession = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/turn/keys/')) {
+          return Response.json({
+            iceServers: [
+              {
+                urls: ['turn:turn.cloudflare.com:3478?transport=udp'],
+                username: 'turn-user',
+                credential: 'turn-credential',
+              },
+            ],
+          });
+        }
+        if (url.includes('/sessions/new')) {
+          nextSession += 1;
+          return Response.json({ sessionId: `same-nat-session-${nextSession}` });
+        }
+        return Response.json({});
+      }),
+    );
+
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(capabilitySecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const sign = async (value: string) => {
+      const signature = new Uint8Array(
+        await crypto.subtle.sign('HMAC', key, encoder.encode(value)),
+      );
+      let binary = '';
+      for (const byte of signature) binary += String.fromCharCode(byte);
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    };
+    const encodePayload = (value: unknown) => {
+      const bytes = encoder.encode(JSON.stringify(value));
+      let binary = '';
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    };
+    const now = Math.floor(Date.now() / 1000);
+    const ipHash = await sign(`ip:${ip}`);
+    const capabilityTokens = await Promise.all(
+      Array.from({ length: 100 }, async (_, index) => {
+        const payloadPart = encodePayload({
+          v: 1,
+          scopes: ['realtime', 'turn'],
+          iat: now,
+          exp: now + 600,
+          ip: ipHash,
+          jti: `same-nat-${index}`,
+        });
+        return `${payloadPart}.${await sign(payloadPart)}`;
+      }),
+    );
+    const request = (url: string, token: string, body?: Record<string, unknown>) =>
+      appWorker.fetch(
+        new Request(url, {
+          method: body ? 'POST' : 'GET',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': ip,
+            'X-MXQR-Capability': token,
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        }),
+        env,
+      );
+
+    for (const token of capabilityTokens) {
+      expect((await request('https://musixquare.com/api/get-turn-config', token)).status).toBe(200);
+    }
+
+    const sessions: Array<{ token: string; sessionId: string; sessionOwnerToken: string }> = [];
+    // Every browser creates an initial subscription/publication session and
+    // one successor for the single bounded host retry: 200 sessions behind
+    // the same venue IP, still individually bounded by capability.
+    for (let generation = 0; generation < 2; generation += 1) {
+      for (const token of capabilityTokens) {
+        const response = await request('https://musixquare.com/api/cloudflare-realtime', token, {
+          action: 'new-session',
+        });
+        expect(response.status).toBe(200);
+        const session = (await response.json()) as {
+          sessionId: string;
+          sessionOwnerToken: string;
+        };
+        sessions.push({ token, ...session });
+      }
+    }
+
+    // Each initial/successor session performs tracks-new, renegotiate, and
+    // explicit tracks-close. 600 mutations leave deliberate operating
+    // headroom below the 650/IP recovery ceiling.
+    for (let round = 0; round < 3; round += 1) {
+      for (const session of sessions) {
+        const response = await request(
+          'https://musixquare.com/api/cloudflare-realtime',
+          session.token,
+          {
+            action: 'renegotiate',
+            sessionId: session.sessionId,
+            sessionOwnerToken: session.sessionOwnerToken,
+            payload: {},
+          },
+        );
+        expect(response.status).toBe(200);
+      }
+    }
+  }, 20_000);
 });
 
 describe('Cloudflare app worker JSON body limits', () => {
@@ -861,6 +1040,81 @@ describe('Cloudflare Realtime session ownership boundary', () => {
       env,
     );
   }
+
+  function installRealtimeRateLimitCache() {
+    const store = new Map<string, string>();
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn(async (request: Request) => {
+          const value = store.get(request.url);
+          return value === undefined ? undefined : new Response(value);
+        }),
+        put: vi.fn(async (request: Request, response: Response) => {
+          store.set(request.url, await response.text());
+        }),
+      },
+    });
+  }
+
+  it('keeps the same-IP room burst bounded per browser capability', async () => {
+    installRealtimeRateLimitCache();
+    let nextSession = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        nextSession += 1;
+        return Response.json({ sessionId: `rate-session-${nextSession}` });
+      }),
+    );
+    const mint = await mintWithProofOfWork(env, ['realtime'], ip);
+    const capabilityToken = ((await mint.json()) as { token: string }).token;
+
+    for (let index = 0; index < 4; index += 1) {
+      expect((await realtimeRequest(capabilityToken, { action: 'new-session' })).status).toBe(200);
+    }
+    const blocked = await realtimeRequest(capabilityToken, { action: 'new-session' });
+    expect(blocked.status).toBe(429);
+    expect(await blocked.json()).toEqual({ error: 'Too Many Requests' });
+  });
+
+  it('bounds mutations per issued session without restoring the old 30-request IP ceiling', async () => {
+    installRealtimeRateLimitCache();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith('/sessions/new')
+          ? Response.json({ sessionId: 'mutation-rate-session' })
+          : Response.json({}),
+      ),
+    );
+    const mint = await mintWithProofOfWork(env, ['realtime'], ip);
+    const capabilityToken = ((await mint.json()) as { token: string }).token;
+    const created = await realtimeRequest(capabilityToken, { action: 'new-session' });
+    const publication = (await created.json()) as {
+      sessionId: string;
+      sessionOwnerToken: string;
+    };
+
+    for (let index = 0; index < 8; index += 1) {
+      expect(
+        (
+          await realtimeRequest(capabilityToken, {
+            action: 'renegotiate',
+            sessionId: publication.sessionId,
+            sessionOwnerToken: publication.sessionOwnerToken,
+            payload: {},
+          })
+        ).status,
+      ).toBe(200);
+    }
+    const blocked = await realtimeRequest(capabilityToken, {
+      action: 'renegotiate',
+      sessionId: publication.sessionId,
+      sessionOwnerToken: publication.sessionOwnerToken,
+      payload: {},
+    });
+    expect(blocked.status).toBe(429);
+  });
 
   it('does not let a generic PoW capability mutate a disclosed publication session', async () => {
     let nextSession = 0;

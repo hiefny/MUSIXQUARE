@@ -10,7 +10,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
+import { MAX_GUEST_SLOTS, MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import type {
   DataConnection,
@@ -18,6 +18,7 @@ import type {
   AnyProtocolMsg,
   ConnectedPeer,
 } from '../types/index.ts';
+import { getDirectFilePeers, shouldConnectionUseDirect } from '../share/file-delivery-policy.ts';
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;
@@ -174,13 +175,12 @@ export function getAvailablePeerSlot(
   peerId: string | null,
 ): number | null {
   const peerSlots = getState('network.peerSlots');
-  const maxSlots = getState('network.maxGuestSlots');
   const pref = Number(preferredSlot);
-  if (Number.isInteger(pref) && pref >= 1 && pref <= maxSlots) {
+  if (Number.isInteger(pref) && pref >= 1 && pref <= MAX_GUEST_SLOTS) {
     const occupant = peerSlots[pref];
     if (!occupant || occupant === peerId) return pref;
   }
-  for (let i = 1; i <= maxSlots; i++) {
+  for (let i = 1; i <= MAX_GUEST_SLOTS; i++) {
     if (!peerSlots[i]) return i;
   }
   return null;
@@ -189,8 +189,7 @@ export function getAvailablePeerSlot(
 export function assignPeerSlot(peerId: string, slot: number): void {
   if (!peerId) return;
   const s = Number(slot);
-  const maxSlots = getState('network.maxGuestSlots');
-  if (!Number.isInteger(s) || s < 1 || s > maxSlots) return;
+  if (!Number.isInteger(s) || s < 1 || s > MAX_GUEST_SLOTS) return;
   const peerSlots = [...getState('network.peerSlots')];
   peerSlots[s] = peerId;
   setState('network.peerSlots', peerSlots);
@@ -383,23 +382,30 @@ function waitForPeerConnectionType(peerObj: ConnectedPeer, timeout: number): Pro
 /**
  * Host-side transport guard: can we send file data to this peer?
  *
- * TURN cost policy: file data NEVER flows through TURN.
- * Only local (LAN) peers with isDataTarget=true receive file data from host.
- * Remote peers use the encrypted remote-share path instead of direct file data.
+ * New direct assignments are never created for TURN/remote peers. Once a
+ * session has frozen an exact direct DataConnection, a later ICE relabel does
+ * not switch engines or drop that in-flight recipient mid-file.
  */
-export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
+export async function canSendFileTo(conn: DataConnection, sessionId?: number): Promise<boolean> {
   if (!conn || !conn.open) return false;
   const connectedPeers = getState('network.connectedPeers');
   const peerObj = connectedPeers.find((p) => p.conn === conn);
   if (!peerObj) return false;
+
+  // A transfer-session assignment is immutable. ICE stats may be relabeled
+  // while the same ordered DataConnection is carrying chunks; use the frozen
+  // route instead of making direct recipients disappear mid-file.
+  if (sessionId !== undefined) return shouldConnectionUseDirect(conn, sessionId);
 
   // Orchestrator controls isDataTarget: false = no direct file data, true = host-direct
   if (peerObj.isDataTarget === false) return false;
 
   const type = peerObj.connectionType as string | undefined;
 
-  // Only local peers can receive file data directly from host (no TURN)
-  if (type === 'local') return true;
+  // Without a frozen session, only local peers receive file data directly.
+  if (type === 'local') {
+    return true;
+  }
 
   // Remote peers: blocked — file data must not flow through TURN
   if (type === 'remote') return false;
@@ -414,12 +420,11 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
 /**
  * Host-side: filter connectedPeers to only those eligible for file data.
  *
- * TURN cost policy: double-gated by isDataTarget AND connectionType.
- * - isDataTarget must be true (set by orchestrator after ICE detection)
- * - connectionType must be 'local' (defense-in-depth against TURN leaks)
- * Remote peers NEVER appear here; they use the encrypted remote-share path.
+ * New transfers without a session still use isDataTarget + local ICE guards.
+ * Session-aware callers use the frozen delivery policy instead.
  */
-export function filterEligiblePeers(): ConnectedPeer[] {
+export function filterEligiblePeers(sessionId?: number): ConnectedPeer[] {
+  if (sessionId !== undefined) return getDirectFilePeers(sessionId);
   const connectedPeers = getState('network.connectedPeers');
   return connectedPeers.filter(
     (p) =>

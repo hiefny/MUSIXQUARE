@@ -2,7 +2,7 @@
  * MUSIXQUARE — Host-Side Peer Connection Logic
  *
  * Manages: incoming guest connections, welcome messages, device list,
- * operator toggle, kick, max-guests resize.
+ * operator toggle, kick, and the fixed room-capacity guard.
  *
  * Avoids importing from peer.ts; host-side helpers stay on peer-state.ts.
  */
@@ -11,7 +11,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
+import { MAX_GUEST_SLOTS, MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import type { ConnectedPeer, DataConnection, DeviceInfo } from '../types/index.ts';
 import { broadcastSystemMessage, sendLatestPinnedNotice } from '../chat/protocol.ts';
@@ -40,6 +40,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   // Duplicate connection handling
   const existingActiveConn = activeHostConnByPeerId.get(peerId);
+  const connectionReplaced = !!existingActiveConn && existingActiveConn !== conn;
   if (existingActiveConn && existingActiveConn !== conn) {
     const updatedConns = new Map(activeHostConnByPeerId);
     updatedConns.set(peerId, conn);
@@ -61,10 +62,15 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   // Remove lingering peer object with same id
   const filtered = connectedPeers.filter((p) => p.id !== peerId);
   setState('network.connectedPeers', filtered);
+  if (connectionReplaced) {
+    // Capability advertisements, frozen delivery routes, and in-flight media
+    // belong to the exact authenticated DataConnection, not merely peerId.
+    // This is intentionally distinct from a user-visible leave event.
+    bus.emit('network:peer-connection-replaced', peerId);
+  }
 
   // Enforce max guests
-  const maxGuestSlots = getState('network.maxGuestSlots');
-  if (filtered.length >= maxGuestSlots) {
+  if (filtered.length >= MAX_GUEST_SLOTS) {
     // Clean up activeHostConnByPeerId entry set during duplicate handling above
     const cleanupConns = new Map(getState('network.activeHostConnByPeerId'));
     cleanupConns.delete(peerId);
@@ -160,7 +166,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   // Re-check max guests before adding (guards against TOCTOU race with concurrent connections)
   const currentPeers = getState('network.connectedPeers');
-  if (currentPeers.length >= getState('network.maxGuestSlots')) {
+  if (currentPeers.length >= MAX_GUEST_SLOTS) {
     log.warn(`[Host] Max guests reached during slot allocation for ${peerId}, rejecting`);
     releasePeerSlot(peerId);
     // Clean up activeHostConnByPeerId to prevent stale entry + spurious close handler
@@ -538,49 +544,6 @@ bus.on('network:kick-device', (peerId) => {
 
   log.info(`[Host] Kicked peer ${target.label || peerId}`);
   showToast(t('toast.device_kicked', { name: target.label || peerId }));
-});
-
-// Host: resize peer slots when max guests changes
-bus.on('network:max-guests-changed', (max: number) => {
-  setState('network.maxGuestSlots', max);
-  const oldSlots = getState('network.peerSlots');
-  const newSlots = Array(max + 1).fill(null) as (string | null)[];
-  // Preserve in-range assignments; collect occupants of truncated slots.
-  // Slots can be sparse (mid-session departures leave holes), so a peer in a
-  // high slot index may still FIT within the new count — relocate them into a
-  // freed low slot instead of kicking. Kick only genuine overflow.
-  const displacedPeerIds: string[] = [];
-  for (let i = 1; i < oldSlots.length; i++) {
-    if (i < newSlots.length) {
-      newSlots[i] = oldSlots[i];
-    } else if (oldSlots[i]) {
-      displacedPeerIds.push(oldSlots[i]!);
-    }
-  }
-  setState('network.peerSlots', newSlots);
-  for (const peerId of displacedPeerIds) {
-    const free = getAvailablePeerSlot(null, peerId);
-    if (free) {
-      // assignPeerSlot overwrites the peerSlotByPeerId entry; do NOT call
-      // releasePeerSlot first (the old out-of-range index no longer exists
-      // in the truncated array).
-      assignPeerSlot(peerId, free);
-      // Keep the ConnectedPeer record aligned with the canonical slot map.
-      // label/joinOrder stay as-is
-      // on purpose: label is join-time identity (rename semantics) and
-      // joinOrder is join order, not slot. The device list exposes neither
-      // slot nor anything relocation changes, so no re-broadcast needed.
-      setState(
-        'network.connectedPeers',
-        getState('network.connectedPeers').map((p) => (p.id === peerId ? { ...p, slot: free } : p)),
-      );
-      log.info(`[Peer] Relocated ${peerId} to freed slot ${free} after max-guests resize`);
-    } else {
-      releasePeerSlot(peerId);
-      bus.emit('network:kick-device', peerId);
-    }
-  }
-  log.info(`[Peer] Max guest slots changed to ${max}`);
 });
 
 bus.on('network:room-password-changed', (password: string | null) => {

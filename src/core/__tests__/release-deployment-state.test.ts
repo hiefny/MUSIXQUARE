@@ -51,7 +51,7 @@ afterEach(() => {
 describe('release deployment rollback state', () => {
   it('runs a production-state preflight immediately before every Worker deploy', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    for (const target of ['remote-share', 'signaling', 'app']) {
+    for (const target of ['remote-share', 'signaling', 'pro-room', 'app']) {
       expect(workflow).toMatch(
         new RegExp(
           `preflight ${target}\\s+node scripts/release-deployment-state\\.mjs attempt ${target}` +
@@ -437,7 +437,7 @@ describe('release deployment rollback state', () => {
 
   it('orders attempted deployments in reverse release order', () => {
     const directory = createDirectory();
-    for (const target of ['remote-share', 'signaling', 'app']) {
+    for (const target of ['remote-share', 'signaling', 'pro-room', 'app']) {
       writeFileSync(
         resolve(directory, `${target}-state.json`),
         JSON.stringify({ schemaVersion: 1, target, attempted: true }),
@@ -446,6 +446,7 @@ describe('release deployment rollback state', () => {
 
     expect(attemptedStates(directory).map((state: { target: string }) => state.target)).toEqual([
       'app',
+      'pro-room',
       'signaling',
       'remote-share',
     ]);

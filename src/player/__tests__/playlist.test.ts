@@ -12,8 +12,9 @@ import {
   consumePendingAutoSyncOnReady,
   getPendingAutoSyncOnReadyForTests as getPendingAutoSyncOnReady,
   setPendingAutoSyncOnReady,
+  stopYouTubeMode,
 } from '../../youtube/player.ts';
-import { setPlaybackYouTubePlaying } from '../ownership.ts';
+import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../ownership.ts';
 import {
   setRepeatMode,
   setShuffle,
@@ -664,6 +665,60 @@ describe('clearPreloadState', () => {
 });
 
 describe('playTrack YouTube auto-rendezvous', () => {
+  it('stops the outgoing YouTube occurrence before selecting a persistent PRO file', async () => {
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', true), conn }]);
+    setState('player.isFirstTrackLoad', false);
+
+    const oldVideo = youtubeItem('Old Video', 'OLD_VIDEO_01');
+    const file = new File(['persistent'], 'persistent.flac', { type: 'audio/flac' });
+    const persistentFile = fileItem(file.name, file);
+    setState('playlist.items', [oldVideo, persistentFile]);
+    selectIndex(0);
+    setPlaybackTrackMeta(oldVideo);
+    setPlaybackYouTubePlaying();
+    registerProRoomLegacyMediaHooks(
+      proMediaHooks({
+        handlesPersistentFile: (queueItemId) => queueItemId === persistentFile.queueItemId,
+      }),
+    );
+
+    const order: string[] = [];
+    bus.on('youtube:stop-mode', (options) => {
+      order.push(`stop:${getState('playlist.currentQueueItemId')}`);
+      stopYouTubeMode(options);
+    });
+    decodeMocks.loadAndBroadcastFile.mockImplementation(
+      async (_file, queueItemId, _sessionId, _loadEpoch, prepareMsg) => {
+        order.push(`prepare:${queueItemId}`);
+        expect(prepareMsg).toEqual(
+          expect.objectContaining({
+            type: MSG.FILE_PREPARE,
+            queueItemId: persistentFile.queueItemId,
+          }),
+        );
+        return false;
+      },
+    );
+
+    await playTrack(persistentFile.queueItemId);
+
+    expect(order).toEqual([
+      `stop:${oldVideo.queueItemId}`,
+      `prepare:${persistentFile.queueItemId}`,
+    ]);
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.YOUTUBE_STOP,
+      queueItemId: oldVideo.queueItemId,
+    });
+    expect(send).not.toHaveBeenCalledWith({
+      type: MSG.YOUTUBE_STOP,
+      queueItemId: persistentFile.queueItemId,
+    });
+    expect(getState('playlist.currentQueueItemId')).toBe(persistentFile.queueItemId);
+  });
+
   it('keeps pending auto-sync armed after fresh non-YouTube -> YouTube load cleanup', async () => {
     setState('player.isFirstTrackLoad', false);
     const local = fileItem('local.mp3');

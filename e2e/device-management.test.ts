@@ -4,7 +4,6 @@
  * Tests host device management features:
  * - Device list display
  * - Kick guest
- * - Session full when max guests reached
  */
 import { test, expect } from '@playwright/test';
 import {
@@ -12,12 +11,8 @@ import {
   cleanupContexts,
   type HostGuestPair,
 } from './helpers/context-factory.ts';
-import { connectHostAndGuest, setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
-import {
-  isVisible,
-  waitForDeviceCount,
-} from './helpers/wait.ts';
-import { injectPeerServer } from './helpers/peer-server.ts';
+import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { isVisible, waitForDeviceCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -87,63 +82,6 @@ test.describe('Device Management', () => {
         },
         { timeout: 15_000 },
       );
-    }
-  });
-
-  test('session full rejects extra guest', async ({ browser }) => {
-    const code = await setupHostAndStart(pair.hostPage);
-
-    // Restrict to 1 guest slot immediately (before any guest connects)
-    await pair.hostPage.evaluate(() => {
-      const setState = (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ as
-        | ((path: string, value: unknown) => void)
-        | undefined;
-      if (setState) {
-        setState('network.maxGuestSlots', 1);
-      }
-    });
-
-    await setupGuest(pair.guestPage, code);
-
-    await waitForDeviceCount(pair.hostPage, 2);
-
-    const guest2Context = await browser.newContext();
-    const guest2Page = await guest2Context.newPage();
-    await injectPeerServer(guest2Page);
-
-    try {
-      await guest2Page.goto('/');
-      await guest2Page.waitForLoadState('networkidle');
-      await guest2Page.waitForSelector('#btn-setup-guest', { state: 'visible', timeout: 15_000 });
-      await guest2Page.click('#btn-setup-guest');
-      await guest2Page.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
-      await guest2Page.fill('#setup-join-code', code);
-      await guest2Page.click('#btn-setup-confirm');
-
-      await guest2Page.waitForFunction(
-        () => {
-          const overlay = document.getElementById('setup-overlay');
-          const dialog = document.querySelector(
-            '.dialog-overlay.active, .dialog-backdrop.active, .dialog-container',
-          );
-          return overlay?.classList.contains('active') || !!dialog;
-        },
-        { timeout: 20_000 },
-      );
-
-      const overlayActive = await guest2Page.evaluate(() =>
-        document.getElementById('setup-overlay')?.classList.contains('active'),
-      );
-      const dialogVisible = await guest2Page.evaluate(
-        () =>
-          !!document.querySelector(
-            '.dialog-overlay.active, .dialog-backdrop.active, .dialog-container',
-          ),
-      );
-
-      expect(overlayActive || dialogVisible).toBe(true);
-    } finally {
-      await guest2Context.close();
     }
   });
 });

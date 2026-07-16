@@ -10,7 +10,11 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import { registerSystemCaptureListeners, startSystemAudioCapture } from '../system-capture.ts';
+import {
+  isSystemAudioActive,
+  registerSystemCaptureListeners,
+  startSystemAudioCapture,
+} from '../system-capture.ts';
 import type { TrackMeta } from '../../types/index.ts';
 
 const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
@@ -66,15 +70,25 @@ function fileMeta(name: string): TrackMeta {
   return { type: 'file', name, title: name, videoId: null, playlistId: null };
 }
 
+let lastDisplayCapture: {
+  track: MediaStreamTrack;
+  dispatchEnded: () => void;
+} | null = null;
+
 function stubDisplayMedia(): void {
+  const endedListeners = new Set<() => void>();
   const track = {
     id: 'cap-track-1',
     kind: 'audio',
     readyState: 'live',
     muted: false,
     stop: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
+    addEventListener: vi.fn((type: string, listener: () => void) => {
+      if (type === 'ended') endedListeners.add(listener);
+    }),
+    removeEventListener: vi.fn((type: string, listener: () => void) => {
+      if (type === 'ended') endedListeners.delete(listener);
+    }),
   } as unknown as MediaStreamTrack;
   const stream = {
     active: true,
@@ -86,6 +100,12 @@ function stubDisplayMedia(): void {
     configurable: true,
     value: { getDisplayMedia: vi.fn(async () => stream) },
   });
+  lastDisplayCapture = {
+    track,
+    dispatchEnded: () => {
+      for (const listener of [...endedListeners]) listener();
+    },
+  };
 }
 
 async function startShareWithPriorYouTube(): Promise<ReturnType<typeof vi.fn>> {
@@ -118,6 +138,7 @@ beforeEach(() => {
   bus.clear();
   clearAllManagedTimers();
   vi.clearAllMocks();
+  lastDisplayCapture = null;
   registerSystemCaptureListeners();
 });
 
@@ -167,5 +188,21 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
 
     // Restores the SECOND session's (idle) snapshot — not the first one's YouTube.
     expect(restoreSpy).not.toHaveBeenCalled();
+  });
+
+  it('routes the browser-native sharing stop through the common stop lifecycle exactly once', async () => {
+    const restoreSpy = await startShareWithPriorYouTube();
+    const capture = lastDisplayCapture;
+    expect(capture).not.toBeNull();
+    const commonStopSpy = vi.fn();
+    bus.on('system-audio:stop', commonStopSpy);
+
+    capture!.dispatchEnded();
+    capture!.dispatchEnded();
+
+    expect(commonStopSpy).toHaveBeenCalledTimes(1);
+    expect(capture!.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+    expect(restoreSpy).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
   });
 });

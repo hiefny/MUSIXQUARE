@@ -11,6 +11,7 @@ on:
         options:
           - app
           - signaling
+          - pro-room
           - remote-share
           - all
 
@@ -211,6 +212,49 @@ jobs:
         env:
           MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}
         run: npm run smoke:live:signaling
+
+      - name: Record current PRO room deployment
+        if: inputs.target == 'all' || inputs.target == 'pro-room'
+        shell: bash
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.pro-room.toml --json \
+            > release-artifacts/deployments/pro-room-before.json
+          node scripts/release-deployment-state.mjs prepare pro-room
+
+      - name: Deploy and record PRO room Worker
+        id: pro_room_deployment
+        if: inputs.target == 'all' || inputs.target == 'pro-room'
+        shell: bash
+        run: |
+          node scripts/release-deployment-state.mjs preflight pro-room
+          node scripts/release-deployment-state.mjs attempt pro-room
+          set +e
+          npm run --silent wrangler -- deploy \
+            --config cloudflare/wrangler.pro-room.toml \
+            --message "$RELEASE_MESSAGE"
+          deploy_exit=$?
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.pro-room.toml --json \
+            > release-artifacts/deployments/pro-room.json
+          status_exit=$?
+          record_exit=0
+          if (( status_exit == 0 )); then
+            node scripts/release-deployment-state.mjs record pro-room
+            record_exit=$?
+          fi
+          set -e
+          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
+          if (( status_exit != 0 )); then exit "$status_exit"; fi
+          if (( record_exit != 0 )); then exit "$record_exit"; fi
+          version_id="$(node scripts/release-deployment-state.mjs version pro-room)"
+          echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke PRO room Worker
+        if: inputs.target == 'all' || inputs.target == 'pro-room'
+        env:
+          MXQR_EXPECTED_PRO_ROOM_VERSION: ${{ steps.pro_room_deployment.outputs.version_id }}
+        run: npm run smoke:live:pro-room
 
       - name: Record current app deployment
         if: inputs.target == 'all' || inputs.target == 'app'

@@ -37,7 +37,7 @@ import {
   isBulkTransferWritablePeer,
   isPeerConnectionCurrent,
 } from './chunk-pump.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, QueueItemId } from '../types/index.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { transition } from '../player/lifecycle.ts';
@@ -48,6 +48,11 @@ import {
 } from '../player/_state.ts';
 import { isSystemAudioOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 import { resolveDecodeMemoryBudget } from '../player/decode-admission.ts';
+import {
+  freezeFileDeliveryMode,
+  isGuestR2FileDelivery,
+  recordGuestFileDelivery,
+} from '../share/file-delivery-policy.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -264,7 +269,7 @@ export function cancelPreloadTransfer(): void {
   // the current preload sid. Send ABORT to all of them — handler is a
   // no-op if a peer never had a session for this sid.
   if (sid && queueItemId) {
-    const broadcastTargets = filterEligiblePeers();
+    const broadcastTargets = filterEligiblePeers(sid);
     broadcastTargets.forEach((p) => {
       const conn = p.conn as DataConnection;
       safeSend(conn, { type: MSG.PRELOAD_ABORT, queueItemId, sessionId: sid });
@@ -533,6 +538,7 @@ async function preloadNextTrack(): Promise<void> {
   // the SAME session — the host's fast path in playTrack will only ever
   // observe them as a consistent snapshot.
   const currentSession = nextSessionId();
+  freezeFileDeliveryMode(currentSession);
   setState('preload.sessionId', currentSession);
   setState('preload.nextQueueItemId', queueItemId);
   setState('preload.isPreloading', true);
@@ -610,7 +616,7 @@ async function backgroundTransfer(
   // get no PRELOAD_START header at all instead of a header for a stream
   // that can never reach them. Receiver-safe: a guest that never sees the
   // header simply has no sessionState entry for this sid.
-  const targets = filterEligiblePeers().filter(isBulkTransferWritablePeer);
+  const targets = filterEligiblePeers(sessionId).filter(isBulkTransferWritablePeer);
 
   if (targets.length === 0) return;
 
@@ -720,7 +726,7 @@ export async function unicastPreload(
   try {
     // Transport guard: block remote/unknown peers. Revalidate the frozen
     // source and connection after the await before emitting PRELOAD_START.
-    if (!(await canSendFileTo(conn))) {
+    if (!(await canSendFileTo(conn, sessionId))) {
       log.info('[Preload Unicast] Skipped — remote/unknown peer');
       return;
     }
@@ -792,7 +798,10 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   if (!isHostBroadcast(conn)) return;
 
   // Remote guests receive preloads through the encrypted remote-share path.
-  if (isRemoteGuest()) {
+  const routeQueueItemId =
+    typeof data.queueItemId === 'string' ? (data.queueItemId as QueueItemId) : null;
+  const incomingSessionId = Number(data.sessionId);
+  if (isRemoteGuest() || isGuestR2FileDelivery(routeQueueItemId, incomingSessionId)) {
     log.info('[Preload] Skipped direct preload for remote guest');
     return;
   }
@@ -810,6 +819,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     return;
   }
   const { sessionId: sid, queueItemId: incomingQueueItemId } = incomingIdentity;
+  recordGuestFileDelivery(incomingQueueItemId, sid, 'direct-local');
   const incomingName = data.name as string;
   const incomingIndexHint = getState('playlist.items').findIndex(
     (item) => item.queueItemId === incomingQueueItemId,
@@ -1494,7 +1504,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   // configured the incoming descriptor self-heals the detour, but without it
   // the loader spun forever. Mirror handlePlayMsg's remote branch instead;
   // prepareRemoteShareWait owns the lifecycle transition.
-  if (isRemoteGuest()) {
+  if (isRemoteGuest() || isGuestR2FileDelivery(queueItemId)) {
     _activePlayPreloadedQueueItemId = undefined;
     if (shouldWaitForRemoteShare()) {
       setPendingRecoveryTarget({ queueItemId, indexHint, name });
@@ -1775,18 +1785,11 @@ export function initPreload(): void {
   });
 
   // Clean up module-local variables when the session is left
-  bus.on('state:network.sessionCode', (code: unknown) => {
-    _awaitedPreloadIdentity = null;
-    if (!code) {
-      latestPreloadSessionId = 0;
-      preloadReorderBuffer.clear();
-      preloadQueueItemBySid.clear();
-      _activePlayPreloadedQueueItemId = undefined;
-      _preloadScope?.dispose();
-      _preloadScope = null;
-      _activePreloadUnicasts.forEach((e) => e.scope.dispose());
-      _activePreloadUnicasts.clear();
-    }
+  bus.on('state:network.sessionCode', () => {
+    // Preload SIDs, reorder buffers, and transfer scopes belong to exactly one
+    // room. Reset on every actual room-code change, including A -> B without
+    // an intermediate empty value.
+    resetPreloadReceiveAuthority();
   });
 
   log.info('[Preload] Handlers registered');

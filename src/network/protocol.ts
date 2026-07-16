@@ -308,13 +308,16 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isPositiveSafeInt(d.sessionId) &&
     typeof d.mime === 'string' &&
     (d.size === undefined || isPositiveSafeInt(d.size)) &&
-    (d.autoPlayDelayMs === undefined || isNonNegSafeInt(d.autoPlayDelayMs)),
+    (d.autoPlayDelayMs === undefined || isNonNegSafeInt(d.autoPlayDelayMs)) &&
+    (d.delivery === undefined || d.delivery === 'r2'),
+  [MSG.FILE_R2_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
     typeof d.name === 'string' &&
     d.name.length > 0 &&
     isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
-    (d.limited === undefined || typeof d.limited === 'boolean'),
+    (d.limited === undefined || typeof d.limited === 'boolean') &&
+    (d.delivery === undefined || d.delivery === 'r2'),
   [MSG.REMOTE_FILE_SHARE]: (d) =>
     typeof d.roomId === 'string' &&
     d.roomId.length > 0 &&
@@ -340,6 +343,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     Number.isSafeInteger(d.encryptedSize) &&
     (d.encryptedSize as number) === (d.size as number) + REMOTE_SHARE_AES_GCM_TAG_BYTES &&
     isFiniteNumber(d.expiresAt) &&
+    (d.delivery === undefined || d.delivery === 'r2') &&
     d.preload === undefined,
   // Without `name`, a malicious peer can send file-resume with no name to
   // poison the host's transfer.localSessionId (the transfer-receive handler
@@ -427,6 +431,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
 
   [MSG.SYSTEM_AUDIO_SFU_READY]: (d) =>
     d.version === 1 &&
+    (d.audience === undefined || d.audience === 'remote' || d.audience === 'all') &&
     typeof d.sessionId === 'string' &&
     d.sessionId.length > 0 &&
     d.sessionId.length <= 128 &&
@@ -444,6 +449,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
         (item.mid === undefined || typeof item.mid === 'string')
       );
     }),
+  [MSG.SYSTEM_AUDIO_SFU_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
 
   // Playlist snapshots are validated atomically, including unique IDs/current.
   [MSG.PLAYLIST_UPDATE]: (d) => parsePlaylistSnapshot(d) !== null,

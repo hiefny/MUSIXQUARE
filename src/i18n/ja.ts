@@ -183,11 +183,9 @@ const ja: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': 'QRまたはリンクで招待',
-  'connect.max_devices': '最大収容デバイス数',
   'connect.device_list': '{{count}}台の接続中デバイス',
   'connect.no_session': '先にルームを作成してください',
   'connect.generating_qr': 'QRコードを生成中...',
-  'connect.cannot_reduce': '接続中のデバイスが{{count}}台あるため、収容数を減らせません',
   'connect.kick_title': 'デバイスを退出させる',
   'connect.kick_message': 'このデバイスをルームから削除しますか？',
   'connect.kick_yes': '退出させる',
@@ -312,8 +310,7 @@ const ja: Record<I18nKey, string> = {
   'network.disconnected': '切断されました',
   'network.cant_join': 'ルームが見つかりませんでした。\nネットワークを確認してください。',
   'network.session_full': 'ルームが満員です',
-  'network.session_full_detail':
-    'このルームはデバイス数の上限に達しています。\nホストに「接続」タブから上限を上げてもらってください。',
+  'network.session_full_detail': 'このルームには、ホストを含む上限100台がすでに接続しています。',
   'network.op_granted': '管理者権限が付与されました。',
   'network.op_revoked': '管理者権限が解除されました。',
 
@@ -362,8 +359,6 @@ const ja: Record<I18nKey, string> = {
   'system_audio.started':
     'システムオーディオには少し遅延が出る場合があります。\n元の音量はできるだけ下げてください。',
   'system_audio.stopped': 'システムオーディオ共有を終了しました。\nプレイリストを再開します。',
-  'system_audio.many_devices_warning':
-    'システムオーディオは最大4人程度がおすすめです。\n人数が増えると遅延や途切れが出る場合があります。',
   'system_audio.host_channel_locked': 'システムオーディオ共有中は役割を変更できません。',
   'system_audio.effects_guest_only':
     'システムオーディオ共有中です。\n効果は参加者側にのみ適用されます。',
@@ -372,7 +367,7 @@ const ja: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'システムオーディオを受信できませんでした。\nホストに共有を再開してもらってください。',
   'system_audio.remote_receive_limit':
-    'リモートのシステムオーディオ受信は2時間で停止しました。\n続けるにはルームに再参加してください。',
+    'システムオーディオ受信は2時間で停止しました。\n続けるにはルームに再参加してください。',
 
   // Toast
   'toast.device_connected': '{{name}} が接続しました',
@@ -477,10 +472,7 @@ const ja: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': '大人数ルームでのファイル共有',
   'dialog.large_room_file.message':
-    'ローカルファイル共有は、同じネットワーク上で最大約8人まで安定します。\n\n続行しますか？',
-  'dialog.large_room_sysaudio.title': '大人数ルームでのシステムオーディオ',
-  'dialog.large_room_sysaudio.message':
-    'システムオーディオ共有はローカル/リモートの参加者に対応していますが、ホスト負荷と遅延のため最大約4人を推奨します。\n\n続行しますか？',
+    '同じネットワークでは、ホストを除くゲスト端末8台まで直接ファイル転送が安定します。より大規模なローカルルームでは、ファイルがCloudflare R2経由で分散される場合があります。\n\n続行しますか？',
   'dialog.continue': '続行',
   'dialog.file_drop.title': 'ローカルファイルを追加',
   'dialog.file_drop.message': '{{count}}曲を追加しますか？',
@@ -630,16 +622,12 @@ const ja: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': '一番下へスクロール',
 
   // Final help and legal blocks
-  'connect.slot_guide.aria': '推奨参加者数ガイドを開く',
-  'connect.slot_guide.title': '参加者数',
-  'connect.slot_guide.body':
-    '参加者が増えるほどシステムは不安定になりやすくなります。\n\n• YouTubeを一緒に視聴: 最大32人\n• ローカルファイル共有: 最大8人\n• システムオーディオ共有: 最大4人推奨',
   'help.install_app_html':
     'MUSIXQUAREが気に入りましたか？アプリとしてインストールできます。<ul class="help-list"><li><strong>iOS:</strong> 共有 → ホーム画面に追加</li><li><strong>Android:</strong> メニュー → アプリをインストール</li><li><strong>Windows:</strong> アドレスバーのインストールアイコン</li><li><strong>macOS:</strong> 共有 → Dockに追加</li></ul>',
   'help.local_recommended_html':
     'オーディオ共有は同じネットワーク上で最も安定します。<ul class="help-list"><li>リモート参加者も同じ機能を利用できます。</li><li>リモート参加者はCloudflare経路を使用するため、ネットワーク状況によって遅延や受信失敗が発生する場合があります。</li><li>VPNや制限されたネットワークでは接続が不安定になることがあります。</li></ul>',
   'setup.how_to_connect_html':
-    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ホストとして開始」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>接続できるデバイス数は<strong>「接続」タブ</strong>で設定できます。</li></ul>',
+    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ホストとして開始」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>ホストを含む<strong>最大100台</strong>まで接続できます。</li></ul>',
   'player.play_speakers_html':
     '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>中央:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> Lチャンネル出力</li><li><strong>右:</strong> Rチャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
   'player.play_media_action_html':
@@ -658,7 +646,7 @@ const ja: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': '公開されている動画またはプレイリストのみ再生できます。',
   'legal.title': 'サービス利用に関する注意',
   'legal.content_html':
-    '<strong>プライバシーポリシー</strong><br><span data-legal-standard-storage>同じネットワーク上では、セッションデータはデバイス間で直接送受信され、シグナリングにはIPアドレスと接続情報のみが通ります。リモートファイル共有とシステムオーディオ共有ではデータがCloudflareを経由します。リモートファイルは暗号化され、最大24時間保持されますが、復号キーは保存されません。MUSIXQUAREは機能提供以外の目的でデータを閲覧、分析、保存しません。</span><span data-legal-pro-storage>PROルームでは、セッション接続に必要なIPアドレスと接続情報がシグナリングサーバーを経由します。プレイリストに追加された元のファイルは、ルームを継続して利用できるよう、非公開のCloudflare R2に保存されます。ファイルはプレイリストで使用されなくなった場合、または運営者がルームデータを削除した場合に整理され、ルームに参加したユーザーのみが短時間有効なURLからダウンロードできます。MUSIXQUAREは、機能提供以外の目的でデータを閲覧または分析しません。</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>著作権に関する注意</strong><br>MUSIXQUAREを通じて共有されるコンテンツの権利は、それぞれの権利者に帰属します。システムオーディオ共有とファイル共有は個人的な利用を目的としています。著作権のあるコンテンツの無断配布や公衆送信に関する責任はユーザーにあります。YouTube共有は公式の再生方式を使用し、視聴回数や権利処理は同サービスの方針と権利者設定に従います。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>免責事項</strong><br>MUSIXQUAREは無料で提供されます。一部の機能はYouTubeやCloudflareなど外部サービスに依存するため、それらの変更や停止により一時的な制限が発生する場合があります。リアルタイムのオーディオ同期とリモート共有品質は、ネットワーク、ブラウザポリシー、デバイス性能によって大きく変わることがあります。Wi-Fi以外で利用する場合、モバイルデータ通信料が発生する場合があります。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>プライバシーポリシー</strong><br><span data-legal-standard-storage>同じネットワーク上では、セッションデータは通常デバイス間で直接送受信され、IPアドレスと接続情報のみがシグナリングを経由します。リモート参加者への配信や大規模なルームでのファイルとシステムオーディオの配信には、Cloudflareを経由する場合があります。Cloudflareを経由する通常ルームの一時ファイルは暗号化され、最大24時間保持されますが、復号キーは保存されません。MUSIXQUAREは、機能提供に必要な場合を除き、データを閲覧、分析、保存しません。</span><span data-legal-pro-storage>PROルームでは、セッション接続に必要なIPアドレスと接続情報がシグナリングサーバーを経由します。プレイリストに追加された元のファイルは、ルームを継続して利用できるよう、非公開のCloudflare R2に保存されます。ファイルはプレイリストで使用されなくなった場合、または運営者がルームデータを削除した場合に整理され、ルームに参加したユーザーのみが短時間有効なURLからダウンロードできます。MUSIXQUAREは、機能提供以外の目的でデータを閲覧または分析しません。</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>著作権に関する注意</strong><br>MUSIXQUAREを通じて共有されるコンテンツの権利は、それぞれの権利者に帰属します。システムオーディオ共有とファイル共有は個人的な利用を目的としています。著作権のあるコンテンツの無断配布や公衆送信に関する責任はユーザーにあります。YouTube共有は公式の再生方式を使用し、視聴回数や権利処理は同サービスの方針と権利者設定に従います。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>免責事項</strong><br>MUSIXQUAREは無料で提供されます。一部の機能はYouTubeやCloudflareなど外部サービスに依存するため、それらの変更や停止により一時的な制限が発生する場合があります。リアルタイムのオーディオ同期とリモート共有品質は、ネットワーク、ブラウザポリシー、デバイス性能によって大きく変わることがあります。Wi-Fi以外で利用する場合、モバイルデータ通信料が発生する場合があります。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default ja;

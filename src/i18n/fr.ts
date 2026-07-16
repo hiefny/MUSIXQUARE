@@ -183,12 +183,9 @@ const fr: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': 'Inviter par QR ou lien',
-  'connect.max_devices': 'Capacité de la salle',
   'connect.device_list': '{{count}} appareils connectés',
   'connect.no_session': 'Créez d’abord une salle',
   'connect.generating_qr': 'Génération du code QR...',
-  'connect.cannot_reduce':
-    'Impossible de réduire la capacité : {{count}} appareils sont déjà connectés',
   'connect.kick_title': 'Expulser un appareil',
   'connect.kick_message': 'Retirer cet appareil de la salle ?',
   'connect.kick_yes': 'Expulser',
@@ -320,7 +317,7 @@ const fr: Record<I18nKey, string> = {
   'network.cant_join': 'Salle introuvable.\nVérifiez votre réseau.',
   'network.session_full': 'La salle est complète',
   'network.session_full_detail':
-    'Cette salle a atteint sa limite d’appareils.\nDemandez à l’hôte de l’augmenter depuis son onglet « Connexion ».',
+    'Cette salle compte déjà le maximum de 100 appareils connectés, hôte compris.',
   'network.op_granted': 'Permission administrateur accordée.',
   'network.op_revoked': 'Permission administrateur révoquée.',
 
@@ -370,8 +367,6 @@ const fr: Record<I18nKey, string> = {
   'system_audio.started':
     'L’audio système peut avoir une légère latence.\nBaissez le volume source si possible.',
   'system_audio.stopped': 'Partage de l’audio système terminé.\nReprise de la playlist.',
-  'system_audio.many_devices_warning':
-    'L’audio système fonctionne mieux avec 4 participants maximum.\nAu-delà, de la latence ou des coupures peuvent survenir.',
   'system_audio.host_channel_locked':
     'Impossible de changer de rôle pendant le partage audio système.',
   'system_audio.effects_guest_only':
@@ -381,7 +376,7 @@ const fr: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Impossible de recevoir l’audio système.\nDemandez à l’hôte de relancer le partage.',
   'system_audio.remote_receive_limit':
-    'La réception audio système distante s’est arrêtée après 2 heures.\nRejoignez de nouveau la salle pour continuer.',
+    'La réception de l’audio système s’est arrêtée après 2 heures.\nRejoignez de nouveau la salle pour continuer.',
 
   // Toast
   'toast.device_connected': '{{name}} connecté',
@@ -488,10 +483,7 @@ const fr: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Partage de fichier dans une grande salle',
   'dialog.large_room_file.message':
-    'Le partage local de fichiers est stable jusqu’à ~8 participants sur un réseau local.\n\nContinuer ?',
-  'dialog.large_room_sysaudio.title': 'Audio système dans une grande salle',
-  'dialog.large_room_sysaudio.message':
-    'Le partage audio système prend en charge les participants locaux et distants, mais il est recommandé de se limiter à ~4 participants pour réduire la charge de l’hôte et la latence.\n\nContinuer ?',
+    'Sur le même réseau, le transfert direct de fichiers est stable jusqu’à 8 appareils d’invités, sans compter celui de l’hôte. Dans les grands salons locaux, les fichiers peuvent être distribués via Cloudflare R2.\n\nContinuer ?',
   'dialog.continue': 'Continuer',
   'dialog.file_drop.title': 'Ajouter des fichiers locaux',
   'dialog.file_drop.message': 'Ajouter {{count}} morceaux ?',
@@ -641,16 +633,12 @@ const fr: Record<I18nKey, string> = {
   'chat.empty_html': 'Aucun message pour l’instant.<br>Envoyez le premier !',
   'chat.msg_truncated': 'Message tronqué à {{max}} caractères',
   'chat.scroll_to_bottom': 'Faire défiler vers le bas',
-  'connect.slot_guide.aria': 'Ouvrir le guide du nombre de participants recommandé',
-  'connect.slot_guide.title': 'Nombre de participants',
-  'connect.slot_guide.body':
-    'Plus il y a de participants connectés, moins le système est stable.\n\n• YouTube ensemble : jusqu’à 32\n• Partage de fichier local : jusqu’à 8\n• Partage audio système : jusqu’à 4 participants recommandés',
   'help.install_app_html':
     'Vous aimez MUSIXQUARE ? Vous pouvez l’installer comme une app.<ul class="help-list"><li><strong>iOS :</strong> Partager → Ajouter à l’écran d’accueil</li><li><strong>Android :</strong> Menu → Installer l’application</li><li><strong>Windows :</strong> Icône d’installation dans la barre d’adresse</li><li><strong>macOS :</strong> Partager → Ajouter au Dock</li></ul>',
   'help.local_recommended_html':
     'Le partage audio est plus stable sur le même réseau.<ul class="help-list"><li>Les participants distants peuvent utiliser les mêmes fonctionnalités.</li><li>Les participants distants utilisent des chemins Cloudflare ; la latence peut donc augmenter ou la réception échouer selon le réseau.</li><li>Un VPN ou un réseau restreint peut rendre la connexion instable.</li></ul>',
   'setup.how_to_connect_html':
-    'Saisissez le <strong>code à 6 chiffres</strong> de l’hôte pour vous connecter.<ul class="help-list"><li><strong>Hôte :</strong> « Créer une salle » → vérifier le code</li><li><strong>Participant :</strong> « Rejoindre une salle » → saisir le code</li><li>Le nombre d’appareils connectables se règle dans l’<strong>onglet « Connexion »</strong>.</li></ul>',
+    'Saisissez le <strong>code à 6 chiffres</strong> de l’hôte pour vous connecter.<ul class="help-list"><li><strong>Hôte :</strong> « Créer une salle » → vérifier le code</li><li><strong>Participant :</strong> « Rejoindre une salle » → saisir le code</li><li>Jusqu’à <strong>100 appareils, hôte compris</strong>, peuvent se connecter.</li></ul>',
   'player.play_speakers_html':
     'Chaque participant sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie canal G</li><li><strong>Droite :</strong> sortie canal D</li><li><strong>Subwoofer :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Réglages</strong>.',
   'player.play_media_action_html':
@@ -669,7 +657,7 @@ const fr: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Seules les vidéos ou playlists publiques peuvent être lues.',
   'legal.title': 'Mentions légales',
   'legal.content_html':
-    '<strong>Politique de confidentialité</strong><br><span data-legal-standard-storage>Sur le même réseau, les données de session passent directement entre les appareils ; seuls l’adresse IP et les détails de connexion passent par la signalisation. Le partage de fichiers distants et d’audio système route les données via Cloudflare ; les fichiers distants sont chiffrés, conservés jusqu’à 24 heures et stockés sans clé de déchiffrement. MUSIXQUARE ne consulte, n’analyse ni ne stocke les données au-delà de ce qui est nécessaire à ses fonctions.</span><span data-legal-pro-storage>Dans les salons PRO, les adresses IP et les informations de connexion nécessaires à l’établissement de la session passent par le serveur de signalisation. Les fichiers originaux ajoutés à la playlist sont conservés dans un stockage Cloudflare R2 privé afin que le salon reste disponible. Ils sont supprimés lorsqu’ils ne sont plus utilisés dans la playlist ou lorsque l’opérateur efface les données du salon, et seuls les utilisateurs ayant rejoint le salon peuvent les télécharger au moyen d’URL à courte durée de validité. MUSIXQUARE ne consulte ni n’analyse les données à d’autres fins que la fourniture du service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Avis de droit d’auteur</strong><br>Le contenu partagé via MUSIXQUARE appartient à ses ayants droit respectifs. Le partage audio système et le partage de fichiers sont destinés à un usage personnel. Les utilisateurs sont responsables de toute distribution non autorisée ou transmission publique de contenu protégé. Le partage YouTube utilise la méthode de lecture officielle, et les vues et la gestion des droits suivent les politiques de ce service et les paramètres des ayants droit. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Clause de non-responsabilité</strong><br>MUSIXQUARE est fourni gratuitement. Certaines fonctions dépendent de services externes comme YouTube ou Cloudflare ; des limitations temporaires peuvent donc survenir si ces services changent ou deviennent indisponibles. La synchronisation audio en temps réel et la qualité du partage distant peuvent varier fortement selon le réseau, les règles du navigateur et les performances de l’appareil. Des frais de données mobiles peuvent s’appliquer hors Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">À propos</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Histoire</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Système de design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Politique de confidentialité</strong><br><span data-legal-standard-storage>Sur le même réseau, les données de session sont normalement transférées directement entre les appareils ; seules les adresses IP et les informations de connexion passent par la signalisation. Toutefois, la transmission à distance et la distribution des fichiers et de l’audio système dans les grands salons peuvent transiter par Cloudflare. Les fichiers temporaires des salons standard qui transitent par Cloudflare sont chiffrés, conservés jusqu’à 24 heures et stockés sans la clé de déchiffrement. MUSIXQUARE ne consulte, n’analyse ni ne conserve les données, sauf lorsque cela est nécessaire pour fournir ses fonctionnalités.</span><span data-legal-pro-storage>Dans les salons PRO, les adresses IP et les informations de connexion nécessaires à l’établissement de la session passent par le serveur de signalisation. Les fichiers originaux ajoutés à la playlist sont conservés dans un stockage Cloudflare R2 privé afin que le salon reste disponible. Ils sont supprimés lorsqu’ils ne sont plus utilisés dans la playlist ou lorsque l’opérateur efface les données du salon, et seuls les utilisateurs ayant rejoint le salon peuvent les télécharger au moyen d’URL à courte durée de validité. MUSIXQUARE ne consulte ni n’analyse les données à d’autres fins que la fourniture du service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Avis de droit d’auteur</strong><br>Le contenu partagé via MUSIXQUARE appartient à ses ayants droit respectifs. Le partage audio système et le partage de fichiers sont destinés à un usage personnel. Les utilisateurs sont responsables de toute distribution non autorisée ou transmission publique de contenu protégé. Le partage YouTube utilise la méthode de lecture officielle, et les vues et la gestion des droits suivent les politiques de ce service et les paramètres des ayants droit. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>Clause de non-responsabilité</strong><br>MUSIXQUARE est fourni gratuitement. Certaines fonctions dépendent de services externes comme YouTube ou Cloudflare ; des limitations temporaires peuvent donc survenir si ces services changent ou deviennent indisponibles. La synchronisation audio en temps réel et la qualité du partage distant peuvent varier fortement selon le réseau, les règles du navigateur et les performances de l’appareil. Des frais de données mobiles peuvent s’appliquer hors Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">En savoir plus</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">À propos</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Histoire</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Système de design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default fr;

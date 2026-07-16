@@ -184,11 +184,9 @@ const nl: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': 'Uitnodigen via QR of link',
-  'connect.max_devices': 'Sessielimiet',
   'connect.device_list': '{{count}} verbonden apparaten',
   'connect.no_session': 'Start eerst een sessie',
   'connect.generating_qr': 'QR-code maken...',
-  'connect.cannot_reduce': 'Limiet kan niet omlaag: er zijn al {{count}} apparaten verbonden',
   'connect.kick_title': 'Apparaat verwijderen',
   'connect.kick_message': 'Dit apparaat uit de sessie verwijderen?',
   'connect.kick_yes': 'Verwijderen',
@@ -402,7 +400,7 @@ const nl: Record<I18nKey, string> = {
   'network.cant_join': 'Sessie niet gevonden.\nControleer je netwerk.',
   'network.session_full': 'Sessie is vol',
   'network.session_full_detail':
-    'Deze sessie heeft de apparaatlimiet bereikt.\nVraag de host om die te verhogen in de tab Verbinden.',
+    'Deze sessie heeft al het maximum van 100 verbonden apparaten, inclusief de host.',
   'network.op_granted': 'Beheerdersrechten toegekend.',
   'network.op_revoked': 'Beheerdersrechten ingetrokken.',
 
@@ -544,15 +542,8 @@ const nl: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Bestanden delen in een grote sessie',
   'dialog.large_room_file.message':
-    'Lokaal bestanden delen is stabiel met maximaal ongeveer 8 deelnemers op een lokaal netwerk.\n\nDoorgaan?',
-  'dialog.large_room_sysaudio.title': 'Systeem-audio in een grote sessie',
-  'dialog.large_room_sysaudio.message':
-    'Systeem-audio delen ondersteunt lokale en externe deelnemers, maar tot ongeveer 4 deelnemers wordt aanbevolen vanwege hostbelasting en vertraging.\n\nDoorgaan?',
+    'Op hetzelfde netwerk is directe bestandsoverdracht stabiel voor maximaal 8 gastapparaten, exclusief de host. In grotere lokale sessies kunnen bestanden via Cloudflare R2 worden verdeeld.\n\nDoorgaan?',
   'dialog.continue': 'Doorgaan',
-  'connect.slot_guide.aria': 'Aanbevolen limiet voor deelnemers bekijken',
-  'connect.slot_guide.title': 'Aantal deelnemers',
-  'connect.slot_guide.body':
-    'Hoe meer deelnemers er verbinden, hoe minder stabiel het systeem wordt.\n\n• Samen YouTube: tot 32\n• Lokaal bestanden delen: tot 8\n• Systeem-audio delen: tot 4 aanbevolen',
   'dialog.file_drop.title': 'Lokale bestanden toevoegen',
   'dialog.file_drop.message': '{{count}} nummers toevoegen?',
   'dialog.file_drop.unsupported_notice':
@@ -619,7 +610,7 @@ const nl: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Audio delen is het stabielst op hetzelfde netwerk.<ul class="help-list"><li>Externe deelnemers kunnen dezelfde functies gebruiken.</li><li>Externe deelnemers gebruiken Cloudflare-routes, waardoor vertraging kan toenemen of ontvangst kan mislukken afhankelijk van het netwerk.</li><li>Een VPN of beperkt netwerk kan de verbinding instabiel maken.</li></ul>',
   'setup.how_to_connect_html':
-    'Voer de <strong>6-cijferige code</strong> van de host in om te verbinden.<ul class="help-list"><li><strong>Host:</strong> Sessie hosten -&gt; code bekijken</li><li><strong>Deelnemer:</strong> Deelnemen aan sessie -&gt; code invoeren</li><li>Het aantal apparaten kan worden ingesteld in de <strong>tab Verbinden</strong>.</li></ul>',
+    'Voer de <strong>6-cijferige code</strong> van de host in om te verbinden.<ul class="help-list"><li><strong>Host:</strong> Sessie hosten -&gt; code bekijken</li><li><strong>Deelnemer:</strong> Deelnemen aan sessie -&gt; code invoeren</li><li>Er kunnen maximaal <strong>100 apparaten, inclusief de host</strong>, verbinden.</li></ul>',
   'player.play_speakers_html':
     'Elke deelnemer kiest een <strong>rol (uitvoerkanaal)</strong>.<ul class="help-list"><li><strong>Center:</strong> stereo-uitvoer (standaard)</li><li><strong>Links:</strong> uitvoer van het L-kanaal</li><li><strong>Rechts:</strong> uitvoer van het R-kanaal</li><li><strong>Subwoofer:</strong> lagefrequentiemix</li></ul>Je kunt rollen altijd wijzigen in <strong>Instellingen</strong>.',
   'player.play_media_action_html':
@@ -647,8 +638,6 @@ const nl: Record<I18nKey, string> = {
   'system_audio.started':
     'Systeem-audio kan een kleine vertraging hebben.\nZet het bronvolume lager indien mogelijk.',
   'system_audio.stopped': 'Systeem-audio delen gestopt.\nAfspeellijst wordt hervat.',
-  'system_audio.many_devices_warning':
-    'Systeem-audio werkt het best met maximaal 4 deelnemers.\nMeer apparaten kunnen vertraging of haperingen geven.',
   'system_audio.host_channel_locked': 'Rollen wijzigen kan niet tijdens systeem-audio delen.',
   'system_audio.effects_guest_only':
     'Systeem-audio is actief.\nGeluidseffecten gelden alleen voor gastapparaten.',
@@ -657,12 +646,12 @@ const nl: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Systeem-audio kon niet worden ontvangen.\nVraag de host om opnieuw te delen.',
   'system_audio.remote_receive_limit':
-    'De ontvangst van externe systeem-audio is na 2 uur beëindigd.\nNeem opnieuw deel aan de sessie om verder te luisteren.',
+    'De ontvangst van systeem-audio is na 2 uur beëindigd.\nNeem opnieuw deel aan de sessie om verder te luisteren.',
 
   // Legal
   'legal.title': 'Servicenotities',
   'legal.content_html':
-    '<strong>Privacybeleid</strong><br><span data-legal-standard-storage>Op hetzelfde netwerk gaat sessiedata rechtstreeks tussen apparaten; alleen IP- en verbindingsgegevens lopen via signaling. Extern bestanden delen en systeem-audio delen sturen data via Cloudflare; externe bestanden worden versleuteld, maximaal 24 uur bewaard en opgeslagen zonder decryptiesleutel. MUSIXQUARE bekijkt, analyseert of bewaart geen data buiten wat nodig is om de functies te leveren.</span><span data-legal-pro-storage>In PRO-ruimtes lopen de IP-adressen en verbindingsgegevens die nodig zijn om de sessie op te zetten via de signaleringsserver. Originele bestanden die aan de afspeellijst worden toegevoegd, worden in privéopslag van Cloudflare R2 bewaard zodat de ruimte beschikbaar blijft. Bestanden worden verwijderd wanneer ze niet meer in de afspeellijst worden gebruikt of wanneer de beheerder de ruimtegegevens verwijdert; alleen gebruikers die de ruimte zijn binnengekomen kunnen ze via kort geldige URL’s downloaden. MUSIXQUARE bekijkt of analyseert gegevens niet voor andere doeleinden dan het leveren van de dienst.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Auteursrecht</strong><br>Content die via MUSIXQUARE wordt gedeeld, blijft eigendom van de betreffende rechthebbenden. Systeem-audio delen en bestanden delen zijn bedoeld voor persoonlijk gebruik. Gebruikers zijn verantwoordelijk voor ongeautoriseerde verspreiding of openbare doorgifte van auteursrechtelijk beschermde content. YouTube-delen gebruikt de officiële afspeelmethode; weergaven en rechtenafhandeling volgen het beleid van die dienst en de instellingen van rechthebbenden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE wordt gratis aangeboden. Sommige functies zijn afhankelijk van externe diensten zoals YouTube of Cloudflare, dus tijdelijke beperkingen kunnen optreden als die diensten wijzigen of offline gaan. Realtime audiosync en de kwaliteit van extern delen kunnen sterk verschillen per netwerk, browserbeleid en apparaatprestaties. Buiten Wi-Fi kunnen kosten voor mobiele data gelden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>&copy; 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Over ons</a> &middot; <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Geschiedenis</a> &middot; <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Designsysteem</a> &middot; <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> &middot; <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Privacybeleid</strong><br><span data-legal-standard-storage>Op hetzelfde netwerk worden sessiegegevens normaal gesproken rechtstreeks tussen apparaten overgedragen; alleen IP-adressen en verbindingsgegevens lopen via signaling. Levering op afstand en de distributie van bestanden en systeemaudio in grote ruimtes kunnen echter via Cloudflare worden geleid. Tijdelijke bestanden uit standaardruimtes die via Cloudflare worden verstuurd, worden versleuteld, maximaal 24 uur bewaard en zonder decryptiesleutel opgeslagen. MUSIXQUARE bekijkt, analyseert of bewaart gegevens alleen wanneer dat nodig is om de functies te leveren.</span><span data-legal-pro-storage>In PRO-ruimtes lopen de IP-adressen en verbindingsgegevens die nodig zijn om de sessie op te zetten via de signaleringsserver. Originele bestanden die aan de afspeellijst worden toegevoegd, worden in privéopslag van Cloudflare R2 bewaard zodat de ruimte beschikbaar blijft. Bestanden worden verwijderd wanneer ze niet meer in de afspeellijst worden gebruikt of wanneer de beheerder de ruimtegegevens verwijdert; alleen gebruikers die de ruimte zijn binnengekomen kunnen ze via kort geldige URL’s downloaden. MUSIXQUARE bekijkt of analyseert gegevens niet voor andere doeleinden dan het leveren van de dienst.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Auteursrecht</strong><br>Content die via MUSIXQUARE wordt gedeeld, blijft eigendom van de betreffende rechthebbenden. Systeem-audio delen en bestanden delen zijn bedoeld voor persoonlijk gebruik. Gebruikers zijn verantwoordelijk voor ongeautoriseerde verspreiding of openbare doorgifte van auteursrechtelijk beschermde content. YouTube-delen gebruikt de officiële afspeelmethode; weergaven en rechtenafhandeling volgen het beleid van die dienst en de instellingen van rechthebbenden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE wordt gratis aangeboden. Sommige functies zijn afhankelijk van externe diensten zoals YouTube of Cloudflare, dus tijdelijke beperkingen kunnen optreden als die diensten wijzigen of offline gaan. Realtime audiosync en de kwaliteit van extern delen kunnen sterk verschillen per netwerk, browserbeleid en apparaatprestaties. Buiten Wi-Fi kunnen kosten voor mobiele data gelden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>&copy; 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Over ons</a> &middot; <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Geschiedenis</a> &middot; <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Designsysteem</a> &middot; <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> &middot; <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default nl;

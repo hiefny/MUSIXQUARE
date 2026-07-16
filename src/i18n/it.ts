@@ -181,12 +181,9 @@ const it: Record<I18nKey, string> = {
 
   // ─── Connect ───────────────────────────────────────────────────
   'connect.qr_title': 'Invita tramite QR o link',
-  'connect.max_devices': 'Capacità stanza',
   'connect.device_list': '{{count}} dispositivi connessi',
   'connect.no_session': 'Avvia prima una sessione',
   'connect.generating_qr': 'Generazione codice QR...',
-  'connect.cannot_reduce':
-    'Impossibile ridurre la capacità: ci sono già {{count}} dispositivi connessi',
   'connect.kick_title': 'Espelli dispositivo',
   'connect.kick_message': 'Vuoi espellere questo dispositivo?',
   'connect.kick_yes': 'Espelli',
@@ -407,7 +404,7 @@ const it: Record<I18nKey, string> = {
   'network.cant_join': 'Stanza non trovata.\nVerifica la connessione di rete.',
   'network.session_full': 'La stanza è piena',
   'network.session_full_detail':
-    'Questa stanza ha raggiunto il limite di dispositivi.\nChiedi al gestore di aumentarlo dalla scheda "Connessione".',
+    'Questa stanza ha già raggiunto il massimo di 100 dispositivi connessi, gestore incluso.',
   'network.op_granted': 'Ti sono stati concessi i permessi di amministratore.',
   'network.op_revoked': 'I permessi di amministratore sono stati revocati.',
 
@@ -450,15 +447,8 @@ const it: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Nessun file audio supportato da aggiungere.',
   'dialog.large_room_file.title': 'Condividi file in una stanza grande',
   'dialog.large_room_file.message':
-    'La condivisione locale di file è ottimale con al massimo 8 partecipanti sulla stessa rete locale.\n\nVuoi continuare comunque?',
-  'dialog.large_room_sysaudio.title': 'Condividi audio di sistema in una stanza grande',
-  'dialog.large_room_sysaudio.message':
-    "La condivisione dell'audio di sistema supporta sia partecipanti locali che remoti. Consigliamo al massimo 4 partecipanti per evitare sovraccarichi o latenza.\n\nVuoi continuare comunque?",
+    'Sulla stessa rete, il trasferimento diretto dei file è stabile fino a 8 dispositivi degli ospiti, escluso quello del gestore. Nelle stanze locali più grandi, i file possono essere distribuiti tramite Cloudflare R2.\n\nVuoi continuare?',
   'dialog.continue': 'Continua',
-  'connect.slot_guide.aria': 'Apri la guida sul numero consigliato di partecipanti',
-  'connect.slot_guide.title': 'Numero di partecipanti',
-  'connect.slot_guide.body':
-    "All'aumentare dei partecipanti connessi, la stabilità del sistema potrebbe risentirne.\n\n• YouTube insieme: fino a 32 partecipanti\n• Condivisione file locale: fino a 8 partecipanti\n• Condivisione audio di sistema: max 4 partecipanti consigliati",
   'toast.sync_reset': 'Offset di sincronizzazione azzerato',
   'toast.stop_sent': 'Richiesta di arresto inviata',
   'toast.auto_play_canceled': 'Riproduzione automatica annullata',
@@ -617,8 +607,7 @@ const it: Record<I18nKey, string> = {
   'pro.owner_only': 'Solo il proprietario può farlo.',
   'pro.connect_failed': 'Impossibile connettersi alla stanza PRO.',
   'pro.active_tab_title': 'Questa stanza PRO è già aperta in un’altra scheda',
-  'pro.active_tab_message':
-    'L’altra scheda resterà connessa. Se continui qui, verrà disconnessa.',
+  'pro.active_tab_message': 'L’altra scheda resterà connessa. Se continui qui, verrà disconnessa.',
   'pro.use_this_tab': 'Continua in questa scheda',
   'pro.uploading': 'Salvataggio nella stanza PRO...',
   'pro.downloading': 'Caricamento dalla stanza PRO...',
@@ -631,7 +620,7 @@ const it: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'La condivisione audio è più stabile sulla stessa rete.<ul class="help-list"><li>Anche i partecipanti remoti possono utilizzare le stesse funzionalità.</li><li>I partecipanti remoti passano attraverso i nodi Cloudflare, quindi la latenza potrebbe aumentare o lo streaming potrebbe interrompersi a seconda della rete.</li><li>L\'uso di VPN o reti aziendali protette potrebbe rendere instabile la connessione.</li></ul>',
   'setup.how_to_connect_html':
-    'Inserisci il <strong>codice a 6 cifre</strong> fornito dal gestore per connetterti.<ul class="help-list"><li><strong>Gestore (Host):</strong> “Crea una stanza” → Controlla il codice</li><li><strong>Ospite (Guest):</strong> “Entra in una stanza” → Inserisci il codice</li><li>Il limite di dispositivi connessi può essere modificato nella <strong>scheda "Connessione"</strong>.</li></ul>',
+    'Inserisci il <strong>codice a 6 cifre</strong> fornito dal gestore per connetterti.<ul class="help-list"><li><strong>Gestore (Host):</strong> “Crea una stanza” → Controlla il codice</li><li><strong>Ospite (Guest):</strong> “Entra in una stanza” → Inserisci il codice</li><li>Possono connettersi fino a <strong>100 dispositivi, gestore incluso</strong>.</li></ul>',
   'player.play_speakers_html':
     'Ogni partecipante sceglie un <strong>ruolo (canale di uscita)</strong>.<ul class="help-list"><li><strong>Altoparlante centrale:</strong> uscita stereo (predefinita)</li><li><strong>Altoparlante sinistro:</strong> uscita canale L</li><li><strong>Altoparlante destro:</strong> uscita canale R</li><li><strong>Subwoofer:</strong> uscita mix a bassa frequenza</li></ul>Puoi cambiare ruolo in qualsiasi momento dalle <strong>Impostazioni</strong>.',
   'player.play_media_action_html':
@@ -665,8 +654,6 @@ const it: Record<I18nKey, string> = {
     "L'audio di sistema potrebbe presentare una leggera latenza.\nConsigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.",
   'system_audio.stopped':
     "La condivisione dell'audio di sistema è terminata.\nRipresa della playlist.",
-  'system_audio.many_devices_warning':
-    "La condivisione dell'audio di sistema è ottimale con al massimo 4 partecipanti.\nUn numero maggiore potrebbe causare latenza o stuttering.",
   'system_audio.host_channel_locked':
     "Non è possibile modificare i ruoli durante la condivisione dell'audio di sistema.",
   'system_audio.effects_guest_only':
@@ -676,12 +663,12 @@ const it: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     "Impossibile ricevere l'audio di sistema.\nChiedi al gestore di riavviare la condivisione.",
   'system_audio.remote_receive_limit':
-    "La ricezione dell'audio di sistema remoto si è interrotta dopo 2 ore.\nRientra nella stanza per continuare l'ascolto.",
+    "La ricezione dell'audio di sistema si è interrotta dopo 2 ore.\nRientra nella stanza per continuare l'ascolto.",
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Note sul servizio',
   'legal.content_html':
-    '<strong>Informativa sulla privacy</strong><br><span data-legal-standard-storage>Sulla stessa rete, i dati della sessione vengono scambiati direttamente tra i dispositivi; solo l’indirizzo IP e i dettagli di connessione transitano attraverso il servizio di segnalazione. La condivisione remota di file e audio di sistema instrada i dati tramite Cloudflare; i file remoti vengono cifrati, conservati fino a 24 ore e archiviati senza la chiave di decifratura. MUSIXQUARE non visualizza, analizza né conserva dati oltre quanto necessario a fornire le sue funzionalità.</span><span data-legal-pro-storage>Nelle stanze PRO, gli indirizzi IP e le informazioni di connessione necessari a stabilire la sessione passano attraverso il server di segnalazione. I file originali aggiunti alla playlist vengono conservati in uno spazio Cloudflare R2 privato per mantenere disponibile la stanza. I file vengono rimossi quando non sono più utilizzati nella playlist o quando l’operatore elimina i dati della stanza, e solo gli utenti entrati nella stanza possono scaricarli tramite URL di breve durata. MUSIXQUARE non consulta né analizza i dati per finalità diverse dalla fornitura del servizio.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Scopri di più</a><br><br><strong>Avviso sul diritto d’autore</strong><br>I contenuti condivisi tramite MUSIXQUARE appartengono ai rispettivi titolari dei diritti. La condivisione dell’audio di sistema e dei file è destinata all’uso personale. Gli utenti sono responsabili della distribuzione non autorizzata o della trasmissione pubblica di contenuti protetti dal diritto d’autore. La condivisione di YouTube utilizza il metodo di riproduzione ufficiale; le visualizzazioni e la gestione dei diritti seguono le politiche del servizio e le impostazioni dei titolari dei diritti. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Scopri di più</a><br><br><strong>Limitazione di responsabilità</strong><br>MUSIXQUARE è fornito gratuitamente. Alcune funzionalità dipendono da servizi esterni come YouTube o Cloudflare; potrebbero quindi verificarsi limitazioni temporanee se tali servizi cambiano o non sono disponibili. La qualità della sincronizzazione audio in tempo reale e della condivisione remota può variare notevolmente in base alla rete, alle politiche del browser e alle prestazioni del dispositivo. Fuori da una rete Wi-Fi potrebbero essere applicati costi per il traffico dati mobile. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Scopri di più</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Chi siamo</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Storia</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Informativa sulla privacy</strong><br><span data-legal-standard-storage>Sulla stessa rete, i dati della sessione vengono normalmente trasferiti direttamente tra i dispositivi; solo gli indirizzi IP e i dettagli di connessione passano attraverso la segnalazione. Tuttavia, la trasmissione remota e la distribuzione di file e audio di sistema nelle stanze di grandi dimensioni possono essere instradate tramite Cloudflare. I file temporanei delle stanze standard instradati tramite Cloudflare vengono crittografati, conservati per un massimo di 24 ore e archiviati senza la chiave di decrittazione. MUSIXQUARE non visualizza, analizza o conserva i dati se non quando necessario per fornire le proprie funzioni.</span><span data-legal-pro-storage>Nelle stanze PRO, gli indirizzi IP e le informazioni di connessione necessari a stabilire la sessione passano attraverso il server di segnalazione. I file originali aggiunti alla playlist vengono conservati in uno spazio Cloudflare R2 privato per mantenere disponibile la stanza. I file vengono rimossi quando non sono più utilizzati nella playlist o quando l’operatore elimina i dati della stanza, e solo gli utenti entrati nella stanza possono scaricarli tramite URL di breve durata. MUSIXQUARE non consulta né analizza i dati per finalità diverse dalla fornitura del servizio.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Scopri di più</a><br><br><strong>Avviso sul diritto d’autore</strong><br>I contenuti condivisi tramite MUSIXQUARE appartengono ai rispettivi titolari dei diritti. La condivisione dell’audio di sistema e dei file è destinata all’uso personale. Gli utenti sono responsabili della distribuzione non autorizzata o della trasmissione pubblica di contenuti protetti dal diritto d’autore. La condivisione di YouTube utilizza il metodo di riproduzione ufficiale; le visualizzazioni e la gestione dei diritti seguono le politiche del servizio e le impostazioni dei titolari dei diritti. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Scopri di più</a><br><br><strong>Limitazione di responsabilità</strong><br>MUSIXQUARE è fornito gratuitamente. Alcune funzionalità dipendono da servizi esterni come YouTube o Cloudflare; potrebbero quindi verificarsi limitazioni temporanee se tali servizi cambiano o non sono disponibili. La qualità della sincronizzazione audio in tempo reale e della condivisione remota può variare notevolmente in base alla rete, alle politiche del browser e alle prestazioni del dispositivo. Fuori da una rete Wi-Fi potrebbero essere applicati costi per il traffico dati mobile. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Scopri di più</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Chi siamo</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Storia</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default it;

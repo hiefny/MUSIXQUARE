@@ -183,11 +183,9 @@ const id: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': 'Undang lewat QR atau tautan',
-  'connect.max_devices': 'Kapasitas Ruang',
   'connect.device_list': '{{count}} perangkat tersambung',
   'connect.no_session': 'Buat ruang terlebih dahulu',
   'connect.generating_qr': 'Membuat kode QR...',
-  'connect.cannot_reduce': 'Tidak dapat mengurangi kapasitas: {{count}} perangkat sudah terhubung',
   'connect.kick_title': 'Keluarkan perangkat',
   'connect.kick_message': 'Hapus perangkat ini dari ruang?',
   'connect.kick_yes': 'Keluarkan',
@@ -315,7 +313,7 @@ const id: Record<I18nKey, string> = {
   'network.cant_join': 'Ruang tidak ditemukan.\nPeriksa jaringan Anda.',
   'network.session_full': 'Ruang penuh',
   'network.session_full_detail':
-    'Ruang ini sudah mencapai batas perangkat.\nMinta host menaikkannya di tab "Hubungkan".',
+    'Ruang ini sudah memiliki maksimum 100 perangkat yang terhubung, termasuk host.',
   'network.op_granted': 'Izin admin diberikan.',
   'network.op_revoked': 'Izin admin dicabut.',
 
@@ -364,8 +362,6 @@ const id: Record<I18nKey, string> = {
   'system_audio.started':
     'Audio sistem mungkin memiliki sedikit latensi.\nTurunkan volume sumber jika memungkinkan.',
   'system_audio.stopped': 'Berbagi audio sistem berakhir.\nMelanjutkan playlist.',
-  'system_audio.many_devices_warning':
-    'Audio sistem paling baik untuk hingga 4 peserta.\nLebih banyak perangkat dapat menambah latensi atau putus-putus.',
   'system_audio.host_channel_locked': 'Tidak dapat mengubah peran saat berbagi audio sistem.',
   'system_audio.effects_guest_only':
     'Sedang berbagi audio sistem.\nEfek audio hanya berlaku pada perangkat peserta.',
@@ -374,7 +370,7 @@ const id: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Tidak dapat menerima audio sistem.\nMinta host memulai berbagi lagi.',
   'system_audio.remote_receive_limit':
-    'Penerimaan audio sistem jarak jauh dihentikan setelah 2 jam.\nMasuk kembali ke ruang untuk lanjut mendengar.',
+    'Penerimaan audio sistem dihentikan setelah 2 jam.\nMasuk kembali ke ruang untuk lanjut mendengar.',
 
   // Toast
   'toast.device_connected': '{{name}} tersambung',
@@ -478,10 +474,7 @@ const id: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Berbagi file di ruang besar',
   'dialog.large_room_file.message':
-    'Berbagi file lokal stabil hingga sekitar 8 peserta di jaringan lokal.\n\nLanjutkan?',
-  'dialog.large_room_sysaudio.title': 'Audio sistem di ruang besar',
-  'dialog.large_room_sysaudio.message':
-    'Berbagi audio sistem mendukung peserta lokal dan jarak jauh, tetapi hingga sekitar 4 peserta disarankan untuk beban host dan latensi.\n\nLanjutkan?',
+    'Di jaringan yang sama, transfer file langsung stabil untuk hingga 8 perangkat peserta, tidak termasuk perangkat host. Di ruang lokal yang lebih besar, file dapat didistribusikan melalui Cloudflare R2.\n\nLanjutkan?',
   'dialog.continue': 'Lanjutkan',
   'dialog.file_drop.title': 'Tambahkan file lokal',
   'dialog.file_drop.message': 'Tambahkan {{count}} lagu?',
@@ -627,16 +620,12 @@ const id: Record<I18nKey, string> = {
   'chat.empty_html': 'Belum ada pesan.<br>Kirim pesan pertama!',
   'chat.msg_truncated': 'Pesan dipotong menjadi {{max}} karakter',
   'chat.scroll_to_bottom': 'Gulir ke bawah',
-  'connect.slot_guide.aria': 'Buka panduan jumlah peserta yang disarankan',
-  'connect.slot_guide.title': 'Jumlah peserta',
-  'connect.slot_guide.body':
-    'Semakin banyak peserta terhubung, sistem menjadi kurang stabil.\n\n• YouTube bersama: hingga 32\n• Berbagi file lokal: hingga 8\n• Berbagi audio sistem: hingga 4 disarankan',
   'help.install_app_html':
     'Suka MUSIXQUARE? Anda bisa memasangnya sebagai aplikasi.<ul class="help-list"><li><strong>iOS:</strong> Bagikan → Tambah ke Layar Utama</li><li><strong>Android:</strong> Menu → Instal aplikasi</li><li><strong>Windows:</strong> Ikon instal di bilah alamat</li><li><strong>macOS:</strong> Bagikan → Tambah ke Dock</li></ul>',
   'help.local_recommended_html':
     'Berbagi audio paling stabil di jaringan yang sama.<ul class="help-list"><li>Peserta jarak jauh dapat menggunakan fitur yang sama.</li><li>Peserta jarak jauh menggunakan jalur Cloudflare, sehingga latensi dapat meningkat atau penerimaan dapat gagal tergantung kondisi jaringan.</li><li>VPN atau jaringan terbatas dapat membuat koneksi tidak stabil.</li></ul>',
   'setup.how_to_connect_html':
-    'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Buat ruang” → cek kode</li><li><strong>Peserta:</strong> “Gabung ke ruang” → masukkan kode</li><li>Jumlah perangkat yang dapat tersambung dapat diatur di <strong>tab "Hubungkan"</strong>.</li></ul>',
+    'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Buat ruang” → cek kode</li><li><strong>Peserta:</strong> “Gabung ke ruang” → masukkan kode</li><li>Hingga <strong>100 perangkat, termasuk host</strong>, dapat terhubung.</li></ul>',
   'player.play_speakers_html':
     'Setiap peserta memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (default)</li><li><strong>Kiri:</strong> Keluaran kanal L</li><li><strong>Kanan:</strong> Keluaran kanal R</li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
   'player.play_media_action_html':
@@ -655,7 +644,7 @@ const id: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Hanya video atau playlist publik yang dapat diputar.',
   'legal.title': 'Catatan layanan',
   'legal.content_html':
-    '<strong>Kebijakan Privasi</strong><br><span data-legal-standard-storage>Di jaringan yang sama, data sesi berjalan langsung antarperangkat; hanya IP dan detail koneksi yang melewati signaling. Berbagi file jarak jauh dan audio sistem merutekan data melalui Cloudflare; file jarak jauh dienkripsi dan disimpan sementara hingga 24 jam, sedangkan kunci dekripsinya tidak disimpan. MUSIXQUARE tidak melihat, menganalisis, atau menyimpan data di luar yang diperlukan untuk menyediakan fiturnya.</span><span data-legal-pro-storage>Di ruang PRO, alamat IP dan informasi koneksi yang diperlukan untuk membuat sesi melewati server signaling. File asli yang ditambahkan ke daftar putar disimpan di penyimpanan Cloudflare R2 privat agar ruang tetap dapat digunakan. File dihapus saat tidak lagi digunakan dalam daftar putar atau ketika operator menghapus data ruang, dan hanya pengguna yang telah bergabung ke ruang yang dapat mengunduhnya melalui URL berumur pendek. MUSIXQUARE tidak melihat atau menganalisis data untuk tujuan selain menyediakan layanan.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Pemberitahuan Hak Cipta</strong><br>Konten yang dibagikan melalui MUSIXQUARE adalah milik pemegang hak masing-masing. Berbagi audio sistem dan berbagi file ditujukan untuk penggunaan pribadi. Pengguna bertanggung jawab atas distribusi tanpa izin atau transmisi publik atas konten berhak cipta. Berbagi YouTube menggunakan metode pemutaran resmi, dan penayangan serta penanganan hak mengikuti kebijakan layanan tersebut dan pengaturan pemegang hak. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Sanggahan</strong><br>MUSIXQUARE disediakan secara gratis. Beberapa fitur bergantung pada layanan eksternal seperti YouTube atau Cloudflare, sehingga pembatasan sementara dapat terjadi jika layanan tersebut berubah atau offline. Sinkronisasi audio real-time dan kualitas berbagi jarak jauh dapat sangat bervariasi tergantung jaringan, kebijakan browser, dan performa perangkat. Biaya data seluler dapat berlaku saat tidak memakai Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tentang</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Riwayat</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sistem Desain</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Kebijakan Privasi</strong><br><span data-legal-standard-storage>Di jaringan yang sama, data sesi biasanya ditransfer langsung antarperangkat; hanya alamat IP dan detail koneksi yang melewati signaling. Namun, pengiriman jarak jauh serta distribusi file dan audio sistem di ruang besar dapat dirutekan melalui Cloudflare. File sementara dari ruang standar yang melalui Cloudflare dienkripsi, disimpan hingga 24 jam, dan disimpan tanpa kunci dekripsi. MUSIXQUARE tidak melihat, menganalisis, atau menyimpan data kecuali jika diperlukan untuk menyediakan fiturnya.</span><span data-legal-pro-storage>Di ruang PRO, alamat IP dan informasi koneksi yang diperlukan untuk membuat sesi melewati server signaling. File asli yang ditambahkan ke daftar putar disimpan di penyimpanan Cloudflare R2 privat agar ruang tetap dapat digunakan. File dihapus saat tidak lagi digunakan dalam daftar putar atau ketika operator menghapus data ruang, dan hanya pengguna yang telah bergabung ke ruang yang dapat mengunduhnya melalui URL berumur pendek. MUSIXQUARE tidak melihat atau menganalisis data untuk tujuan selain menyediakan layanan.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Pemberitahuan Hak Cipta</strong><br>Konten yang dibagikan melalui MUSIXQUARE adalah milik pemegang hak masing-masing. Berbagi audio sistem dan berbagi file ditujukan untuk penggunaan pribadi. Pengguna bertanggung jawab atas distribusi tanpa izin atau transmisi publik atas konten berhak cipta. Berbagi YouTube menggunakan metode pemutaran resmi, dan penayangan serta penanganan hak mengikuti kebijakan layanan tersebut dan pengaturan pemegang hak. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Sanggahan</strong><br>MUSIXQUARE disediakan secara gratis. Beberapa fitur bergantung pada layanan eksternal seperti YouTube atau Cloudflare, sehingga pembatasan sementara dapat terjadi jika layanan tersebut berubah atau offline. Sinkronisasi audio real-time dan kualitas berbagi jarak jauh dapat sangat bervariasi tergantung jaringan, kebijakan browser, dan performa perangkat. Biaya data seluler dapat berlaku saat tidak memakai Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tentang</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Riwayat</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sistem Desain</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default id;

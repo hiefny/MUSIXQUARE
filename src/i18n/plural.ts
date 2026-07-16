@@ -6,7 +6,6 @@ export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
 export const PLURAL_PARAM_BY_KEY = {
   'playlist.delete_selected': 'count',
   'connect.device_list': 'count',
-  'connect.cannot_reduce': 'count',
   'demo.session_body_connected': 'count',
   'chat.cmd_slowmode_on': 'sec',
   'chat.cmd_slowmode_wait': 'sec',
@@ -29,9 +28,6 @@ export const PLURAL_MESSAGES = {
   en: {
     'playlist.delete_selected': { one: 'Delete {{count}} selected track' },
     'connect.device_list': { one: '{{count}} Connected Device' },
-    'connect.cannot_reduce': {
-      one: 'Cannot reduce capacity: {{count}} device is already connected',
-    },
     'demo.session_body_connected': {
       one: '{{count}} device is connected right now.\nSet a role for this device.',
     },
@@ -47,9 +43,6 @@ export const PLURAL_MESSAGES = {
   de: {
     'playlist.delete_selected': { one: '{{count}} ausgewählten Titel löschen' },
     'connect.device_list': { one: '{{count}} verbundenes Gerät' },
-    'connect.cannot_reduce': {
-      one: 'Kapazität kann nicht reduziert werden: {{count}} Gerät ist bereits verbunden',
-    },
     'demo.session_body_connected': {
       one: '{{count}} Gerät ist gerade verbunden.\nLege für dieses Gerät eine Rolle fest.',
     },
@@ -67,9 +60,6 @@ export const PLURAL_MESSAGES = {
   es: {
     'playlist.delete_selected': { one: 'Eliminar {{count}} pista seleccionada' },
     'connect.device_list': { one: '{{count}} dispositivo conectado' },
-    'connect.cannot_reduce': {
-      one: 'No se puede reducir la capacidad: ya hay {{count}} dispositivo conectado',
-    },
     'demo.session_body_connected': {
       one: '{{count}} dispositivo está conectado ahora.\nConfigura un rol para este dispositivo.',
     },
@@ -87,9 +77,6 @@ export const PLURAL_MESSAGES = {
   fr: {
     'playlist.delete_selected': { one: 'Supprimer {{count}} titre sélectionné' },
     'connect.device_list': { one: '{{count}} appareil connecté' },
-    'connect.cannot_reduce': {
-      one: 'Impossible de réduire la capacité : {{count}} appareil est déjà connecté',
-    },
     'demo.session_body_connected': {
       one: '{{count}} appareil est connecté actuellement.\nDéfinissez un rôle pour cet appareil.',
     },
@@ -107,9 +94,6 @@ export const PLURAL_MESSAGES = {
   it: {
     'playlist.delete_selected': { one: 'Elimina {{count}} brano selezionato' },
     'connect.device_list': { one: '{{count}} dispositivo connesso' },
-    'connect.cannot_reduce': {
-      one: 'Impossibile ridurre la capacità: c’è già {{count}} dispositivo connesso',
-    },
     'demo.session_body_connected': {
       one: 'Attualmente c’è {{count}} dispositivo connesso.\nAssegna un ruolo a questo dispositivo.',
     },
@@ -129,9 +113,6 @@ export const PLURAL_MESSAGES = {
   nl: {
     'playlist.delete_selected': { one: '{{count}} geselecteerd nummer verwijderen' },
     'connect.device_list': { one: '{{count}} verbonden apparaat' },
-    'connect.cannot_reduce': {
-      one: 'Limiet kan niet omlaag: er is al {{count}} apparaat verbonden',
-    },
     'demo.session_body_connected': {
       one: 'Er is nu {{count}} apparaat verbonden.\nStel voor dit apparaat een rol in.',
     },
@@ -149,9 +130,6 @@ export const PLURAL_MESSAGES = {
   'pt-br': {
     'playlist.delete_selected': { one: 'Excluir {{count}} faixa selecionada' },
     'connect.device_list': { one: '{{count}} dispositivo conectado' },
-    'connect.cannot_reduce': {
-      one: 'Não é possível reduzir a capacidade: {{count}} dispositivo já está conectado',
-    },
     'demo.session_body_connected': {
       one: '{{count}} dispositivo está conectado agora.\nDefina um papel para este dispositivo.',
     },
@@ -176,11 +154,6 @@ export const PLURAL_MESSAGES = {
       one: '{{count}} połączone urządzenie',
       few: '{{count}} połączone urządzenia',
       many: '{{count}} połączonych urządzeń',
-    },
-    'connect.cannot_reduce': {
-      one: 'Nie można zmniejszyć pojemności: połączone jest już {{count}} urządzenie',
-      few: 'Nie można zmniejszyć pojemności: połączone są już {{count}} urządzenia',
-      many: 'Nie można zmniejszyć pojemności: połączonych jest już {{count}} urządzeń',
     },
     'demo.session_body_connected': {
       one: 'Połączone jest teraz {{count}} urządzenie.\nPrzypisz rolę do tego urządzenia.',
@@ -228,11 +201,6 @@ export const PLURAL_MESSAGES = {
       one: 'Подключено {{count}} устройство',
       few: 'Подключено {{count}} устройства',
       many: 'Подключено {{count}} устройств',
-    },
-    'connect.cannot_reduce': {
-      one: 'Невозможно уменьшить лимит: уже подключено {{count}} устройство',
-      few: 'Невозможно уменьшить лимит: уже подключено {{count}} устройства',
-      many: 'Невозможно уменьшить лимит: уже подключено {{count}} устройств',
     },
     'demo.session_body_connected': {
       one: 'Сейчас подключено {{count}} устройство.\nНазначьте роль этому устройству.',

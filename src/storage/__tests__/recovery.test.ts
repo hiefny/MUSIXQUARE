@@ -18,6 +18,11 @@ import {
   registerProRoomLegacyMediaHooks,
   type ProRoomLegacyMediaHooks,
 } from '../../pro-room/legacy-media-hooks.ts';
+import {
+  freezeFileDeliveryMode,
+  markLocalFileR2Capable,
+  resetFileDeliveryPolicies,
+} from '../../share/file-delivery-policy.ts';
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
@@ -50,6 +55,7 @@ vi.mock('../storage.ts', () => ({
 }));
 
 vi.mock('../transfer.ts', () => ({
+  sendFileDeliveryUnavailable: vi.fn(),
   unicastFile: vi.fn(async () => {}),
 }));
 
@@ -93,6 +99,7 @@ vi.mock('../../core/timers.ts', () => ({
 
 beforeEach(() => {
   resetState();
+  resetFileDeliveryPolicies();
   bus.clear();
   vi.clearAllMocks();
   registeredHandlers.clear();
@@ -751,6 +758,80 @@ describe('host cached-blob recovery identity', () => {
       9,
       conn,
       { queueItemId: Q2 },
+    );
+  });
+
+  it('routes a local guest recovery through R2 when the session froze at nine locals', async () => {
+    const currentBlob = new Blob(['large-room-current'], { type: 'audio/mpeg' });
+    setResident(Q2, 'large-room.mp3', currentBlob, 11);
+    remoteShareMocks.isConfigured.mockReturnValue(true);
+
+    const conn = makeGuestConn('local');
+    const [first] = getState('network.connectedPeers');
+    const peers = [
+      first,
+      ...Array.from({ length: 8 }, (_, index) => ({
+        ...first,
+        id: `local-${index + 2}`,
+        conn: { open: true, peer: `local-${index + 2}`, send: vi.fn() },
+        joinOrder: index + 2,
+      })),
+    ];
+    for (const peer of peers) markLocalFileR2Capable(peer.id);
+    setState('network.connectedPeers', peers);
+    expect(freezeFileDeliveryMode(11)).toBe('r2-fanout');
+
+    await invokeRecoveryHandler(
+      MSG.REQUEST_DATA_RECOVERY,
+      { queueItemId: Q2, sessionId: 11, nextChunk: 3 },
+      conn,
+    );
+
+    const { unicastFile } = await import('../transfer.ts');
+    expect(unicastFile).not.toHaveBeenCalled();
+    expect(remoteShareMocks.shareRemoteFileIfNeeded).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'large-room.mp3' }),
+      11,
+      conn,
+      { queueItemId: Q2 },
+    );
+  });
+
+  it('reports unavailable instead of exceeding eight direct legacy recovery targets', async () => {
+    const currentBlob = new Blob(['legacy-overflow'], { type: 'audio/mpeg' });
+    setResident(Q2, 'legacy-overflow.mp3', currentBlob, 12);
+    remoteShareMocks.isConfigured.mockReturnValue(true);
+
+    const conn = makeGuestConn('local');
+    const target = {
+      ...getState('network.connectedPeers')[0]!,
+      joinOrder: 9,
+    };
+    const earlierLegacy = Array.from({ length: 8 }, (_, index) => {
+      const id = `legacy-${index + 1}`;
+      return {
+        ...target,
+        id,
+        conn: { open: true, peer: id, send: vi.fn() },
+        joinOrder: index + 1,
+      };
+    });
+    setState('network.connectedPeers', [...earlierLegacy, target]);
+    expect(freezeFileDeliveryMode(12)).toBe('mixed');
+
+    await invokeRecoveryHandler(
+      MSG.REQUEST_DATA_RECOVERY,
+      { queueItemId: Q2, sessionId: 12, nextChunk: 0 },
+      conn,
+    );
+
+    const { sendFileDeliveryUnavailable, unicastFile } = await import('../transfer.ts');
+    expect(unicastFile).not.toHaveBeenCalled();
+    expect(remoteShareMocks.shareRemoteFileIfNeeded).not.toHaveBeenCalled();
+    expect(sendFileDeliveryUnavailable).toHaveBeenCalledWith(
+      conn,
+      { name: 'legacy-overflow.mp3', queueItemId: Q2 },
+      12,
     );
   });
 

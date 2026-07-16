@@ -179,11 +179,9 @@ const ko = {
 
   // ─── Connect ───────────────────────────────────────────────────
   'connect.qr_title': 'QR 또는 링크로 초대',
-  'connect.max_devices': '접속 가능한 기기 수',
   'connect.device_list': '연결된 기기 {{count}}대',
   'connect.no_session': '세션을 먼저 시작하세요',
   'connect.generating_qr': 'QR 코드 생성 중...',
-  'connect.cannot_reduce': '현재 이미 {{count}}대의 기기가 연결되어 있어 더 줄일 수 없어요.',
   'connect.kick_title': '강제퇴장 시키기',
   'connect.kick_message': '이 기기를 내보낼까요?',
   'connect.kick_yes': '내보내기',
@@ -392,8 +390,7 @@ const ko = {
   'network.disconnected': '연결이 끊어졌어요',
   'network.cant_join': '세션을 찾을 수 없어요.\n네트워크를 확인해 주세요.',
   'network.session_full': '세션이 가득 찼어요',
-  'network.session_full_detail':
-    '연결 가능한 기기 한도에 도달했어요.\n방장에게 증원 요청을 해주세요.\n연결할 수 있는 기기 수는 "연결"탭에서 설정할 수 있어요.',
+  'network.session_full_detail': '이 방에는 이미 방장 포함 최대 100대가 연결되어 있어요.',
   'network.op_granted': '관리자 권한이 부여되었어요.',
   'network.op_revoked': '관리자 권한이 해제되었어요.',
 
@@ -436,15 +433,8 @@ const ko = {
   'toast.no_supported_audio_files': '추가할 수 있는 오디오 파일이 없어요.',
   'dialog.large_room_file.title': '대규모 모임에서 파일 공유',
   'dialog.large_room_file.message':
-    '로컬 파일 공유는 로컬 네트워크에서 최대 8명 정도까지 안정적이에요.\n\n계속 진행할까요?',
-  'dialog.large_room_sysaudio.title': '대규모 모임에서 시스템 오디오 공유',
-  'dialog.large_room_sysaudio.message':
-    '시스템 오디오 공유는 로컬/원격 모두 사용할 수 있지만, 호스트 부하와 지연을 고려해 최대 4명 정도를 권장해요.\n\n계속 진행할까요?',
+    '같은 네트워크에서는 방장을 제외한 참여자 기기 8대까지 직접 전송이 안정적이에요. 더 큰 로컬 방에서는 Cloudflare R2로 분산될 수 있어요.\n\n계속 진행할까요?',
   'dialog.continue': '계속하기',
-  'connect.slot_guide.aria': '모드별 권장 인원 안내 열기',
-  'connect.slot_guide.title': '모드별 권장 인원',
-  'connect.slot_guide.body':
-    '연결된 참여자가 많으면 시스템이 불안정해져요.\n\n• 유튜브 같이보기: 최대 32명 권장\n• 로컬 파일 공유: 최대 8명 권장\n• 시스템 오디오 공유: 최대 4명 권장',
   'toast.sync_reset': '싱크 오프셋 초기화 완료',
   'toast.stop_sent': '정지 요청을 보냈어요',
   'toast.auto_play_canceled': '자동 재생을 취소했어요',
@@ -607,7 +597,7 @@ const ko = {
   'help.local_recommended_html':
     '같은 네트워크에서 오디오 공유가 가장 안정적이에요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':
-    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정할 수 있어요</strong>.</li></ul>',
+    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력</li><li>방장 포함, 연결할 수 있는 기기 수는 <strong>최대 100대예요</strong>.</li></ul>',
   'player.play_speakers_html':
     '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':
@@ -640,20 +630,18 @@ const ko = {
   'system_audio.started':
     '시스템 오디오 공유는 약간 지연될 수 있어요\n방장은 원본 기기 볼륨을 최대한 낮춰주세요',
   'system_audio.stopped': '시스템 오디오 공유가 중단됐어요.\n재생목록 항목이 재생돼요.',
-  'system_audio.many_devices_warning':
-    '시스템 오디오 공유는 최대 4명 정도를 권장해요.\n인원이 많으면 지연이나 끊김이 늘 수 있어요.',
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
   'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 참여자에게만 적용돼요',
   'system_audio.desktop_only':
     '컴퓨터의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
   'system_audio.receive_failed': '시스템 오디오를 수신하지 못했어요.\n공유를 다시 시작해 주세요.',
   'system_audio.remote_receive_limit':
-    '원격 시스템 오디오 수신이 2시간 후 자동 종료되었어요.\n계속 들으려면 방에 다시 입장해주세요.',
+    '시스템 오디오 수신이 2시간 후 자동 종료되었어요.\n계속 들으려면 방에 다시 입장해주세요.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': '서비스 이용 안내',
   'legal.content_html':
-    '<strong>개인정보 처리방침</strong><br><span data-legal-standard-storage>같은 네트워크에서는 세션 데이터가 기기 간에 직접 전송되며, 연결 수립을 위한 IP 주소와 연결 정보만 시그널링 서버를 경유해요. 다만 원격 파일 공유와 원격 시스템 오디오 공유는 실제 데이터가 Cloudflare를 경유해요. 원격 파일 공유의 경우 암호화된 데이터가 서버에 최대 24시간 임시 저장되며, 복호화 키는 저장소에 보관되지 않아요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람, 분석, 보관하지 않아요.</span><span data-legal-pro-storage>PRO 방에서는 세션 연결을 위한 IP 주소와 연결 정보가 시그널링 서버를 경유해요. 재생목록에 추가한 원본 파일은 방을 계속 이용할 수 있도록 비공개 Cloudflare R2에 보관돼요. 파일은 재생목록에서 더 이상 사용되지 않거나 운영자가 방 데이터를 삭제하면 정리되며, 방에 입장한 사용자만 짧은 시간 동안 유효한 주소로 내려받을 수 있어요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람하거나 분석하지 않아요.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요. YouTube 공유는 공식 재생 방식을 사용하며, 조회 및 권리 처리는 해당 서비스의 정책과 권리자 설정을 따르게 되어있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube나 Cloudflare 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 실시간 오디오 동기화와 원격 공유 품질은 네트워크 환경, 브라우저 정책, 기기 성능에 따라 크게 달라질 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>개인정보 처리방침</strong><br><span data-legal-standard-storage>같은 네트워크에서는 세션 데이터가 보통 기기 간에 직접 전송되며, 연결 수립을 위한 IP 주소와 연결 정보만 시그널링 서버를 경유해요. 원격 참여자에게 전달하거나 대규모 방에 파일과 시스템 오디오를 분산할 때는 Cloudflare를 경유할 수 있어요. Cloudflare를 경유하는 일반방의 임시 파일은 암호화되어 최대 24시간 보관되며, 복호화 키는 저장되지 않아요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람, 분석, 보관하지 않아요.</span><span data-legal-pro-storage>PRO 방에서는 세션 연결을 위한 IP 주소와 연결 정보가 시그널링 서버를 경유해요. 재생목록에 추가한 원본 파일은 방을 계속 이용할 수 있도록 비공개 Cloudflare R2에 보관돼요. 파일은 재생목록에서 더 이상 사용되지 않거나 운영자가 방 데이터를 삭제하면 정리되며, 방에 입장한 사용자만 짧은 시간 동안 유효한 주소로 내려받을 수 있어요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람하거나 분석하지 않아요.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요. YouTube 공유는 공식 재생 방식을 사용하며, 조회 및 권리 처리는 해당 서비스의 정책과 권리자 설정을 따르게 되어있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube나 Cloudflare 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 실시간 오디오 동기화와 원격 공유 품질은 네트워크 환경, 브라우저 정책, 기기 성능에 따라 크게 달라질 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 } as const;
 
 export default ko;

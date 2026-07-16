@@ -183,12 +183,9 @@ const ptBr: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': 'Convidar por QR ou link',
-  'connect.max_devices': 'Capacidade da sala',
   'connect.device_list': '{{count}} dispositivos conectados',
   'connect.no_session': 'Crie uma sala primeiro',
   'connect.generating_qr': 'Gerando código QR...',
-  'connect.cannot_reduce':
-    'Não é possível reduzir a capacidade: {{count}} dispositivos já estão conectados',
   'connect.kick_title': 'Expulsar dispositivo',
   'connect.kick_message': 'Remover este dispositivo da sala?',
   'connect.kick_yes': 'Expulsar',
@@ -316,7 +313,7 @@ const ptBr: Record<I18nKey, string> = {
   'network.cant_join': 'Sala não encontrada.\nVerifique sua rede.',
   'network.session_full': 'A sala está cheia',
   'network.session_full_detail':
-    'Esta sala atingiu o limite de dispositivos.\nPeça ao host para aumentar o limite na aba "Conectar".',
+    'Esta sala já atingiu o máximo de 100 dispositivos conectados, incluindo o host.',
   'network.op_granted': 'Permissão de administrador concedida.',
   'network.op_revoked': 'Permissão de administrador revogada.',
 
@@ -366,8 +363,6 @@ const ptBr: Record<I18nKey, string> = {
   'system_audio.started':
     'O áudio do sistema pode ter um pouco de latência.\nReduza o volume da origem se possível.',
   'system_audio.stopped': 'Compartilhamento de áudio do sistema encerrado.\nRetomando playlist.',
-  'system_audio.many_devices_warning':
-    'Áudio do sistema é melhor com até 4 participantes.\nMais dispositivos podem adicionar latência ou cortes.',
   'system_audio.host_channel_locked':
     'Não é possível mudar papéis durante o compartilhamento de áudio do sistema.',
   'system_audio.effects_guest_only':
@@ -377,7 +372,7 @@ const ptBr: Record<I18nKey, string> = {
   'system_audio.receive_failed':
     'Não foi possível receber o áudio do sistema.\nPeça ao host para compartilhar de novo.',
   'system_audio.remote_receive_limit':
-    'A recepção do áudio remoto do sistema terminou após 2 horas.\nEntre novamente na sala para continuar ouvindo.',
+    'A recepção do áudio do sistema terminou após 2 horas.\nEntre novamente na sala para continuar ouvindo.',
 
   // Toast
   'toast.device_connected': '{{name}} conectado',
@@ -484,10 +479,7 @@ const ptBr: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Compartilhamento de arquivo em sala grande',
   'dialog.large_room_file.message':
-    'O compartilhamento local de arquivos é estável com até ~8 participantes na rede local.\n\nContinuar?',
-  'dialog.large_room_sysaudio.title': 'Áudio do sistema em sala grande',
-  'dialog.large_room_sysaudio.message':
-    'O compartilhamento de áudio do sistema aceita participantes locais e remotos, mas recomenda-se até ~4 participantes devido à carga do host e à latência.\n\nContinuar?',
+    'Na mesma rede, a transferência direta de arquivos é estável para até 8 dispositivos de participantes, sem contar o do host. Em salas locais maiores, os arquivos podem ser distribuídos pelo Cloudflare R2.\n\nContinuar?',
   'dialog.continue': 'Continuar',
   'dialog.file_drop.title': 'Adicionar arquivos locais',
   'dialog.file_drop.message': 'Adicionar {{count}} faixas?',
@@ -637,16 +629,12 @@ const ptBr: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': 'Rolar para o fim',
 
   // Final help and legal blocks
-  'connect.slot_guide.aria': 'Abrir guia de quantidade recomendada de participantes',
-  'connect.slot_guide.title': 'Número de participantes',
-  'connect.slot_guide.body':
-    'Quanto mais participantes se conectam, menos estável o sistema fica.\n\n• YouTube juntos: até 32\n• Compartilhamento de arquivo local: até 8\n• Compartilhamento de áudio do sistema: até 4 participantes (recomendado)',
   'help.install_app_html':
     'Gostou do MUSIXQUARE? Você pode instalá-lo como app.<ul class="help-list"><li><strong>iOS:</strong> Compartilhar → Adicionar à Tela de Início</li><li><strong>Android:</strong> Menu → Instalar app</li><li><strong>Windows:</strong> Ícone de instalação na barra de endereços</li><li><strong>macOS:</strong> Compartilhar → Adicionar ao Dock</li></ul>',
   'help.local_recommended_html':
     'Compartilhar áudio é mais estável na mesma rede.<ul class="help-list"><li>Participantes remotos podem usar os mesmos recursos.</li><li>Participantes remotos usam rotas da Cloudflare, então a latência pode aumentar ou a recepção pode falhar conforme a rede.</li><li>VPN ou rede restrita pode deixar a conexão instável.</li></ul>',
   'setup.how_to_connect_html':
-    'Digite o <strong>código de 6 dígitos</strong> do host para conectar.<ul class="help-list"><li><strong>Host:</strong> “Criar sala” → conferir o código</li><li><strong>Participante:</strong> “Entrar em uma sala” → digitar o código</li><li>A quantidade de dispositivos pode ser configurada na <strong>aba "Conectar"</strong>.</li></ul>',
+    'Digite o <strong>código de 6 dígitos</strong> do host para conectar.<ul class="help-list"><li><strong>Host:</strong> “Criar sala” → conferir o código</li><li><strong>Participante:</strong> “Entrar em uma sala” → digitar o código</li><li>Até <strong>100 dispositivos, incluindo o host</strong>, podem se conectar.</li></ul>',
   'player.play_speakers_html':
     'Cada participante seleciona um <strong>papel (canal de saída)</strong>.<ul class="help-list"><li><strong>Centro:</strong> saída estéreo padrão</li><li><strong>Esquerda:</strong> saída do canal L</li><li><strong>Direita:</strong> saída do canal R</li><li><strong>Subwoofer:</strong> saída de mix de graves</li></ul>Você pode mudar papéis quando quiser em <strong>Configurações</strong>.',
   'player.play_media_action_html':
@@ -665,7 +653,7 @@ const ptBr: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Apenas vídeos ou playlists públicos podem ser reproduzidos.',
   'legal.title': 'Notas do serviço',
   'legal.content_html':
-    '<strong>Política de Privacidade</strong><br><span data-legal-standard-storage>Na mesma rede, os dados da sessão passam diretamente entre dispositivos; apenas IP e detalhes de conexão passam pela sinalização. O compartilhamento remoto de arquivos e o compartilhamento de áudio do sistema encaminham dados pela Cloudflare; arquivos remotos são criptografados, mantidos por até 24 horas e armazenados sem a chave de descriptografia. O MUSIXQUARE não visualiza, analisa ou armazena dados além do necessário para fornecer seus recursos.</span><span data-legal-pro-storage>Nas salas PRO, os endereços IP e as informações de conexão necessários para estabelecer a sessão passam pelo servidor de sinalização. Os arquivos originais adicionados à playlist são mantidos em um armazenamento privado do Cloudflare R2 para que a sala continue disponível. Os arquivos são removidos quando deixam de ser usados na playlist ou quando o operador exclui os dados da sala, e somente usuários que entraram na sala podem baixá-los por URLs de curta duração. O MUSIXQUARE não visualiza nem analisa dados para fins diferentes da prestação do serviço.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Saiba mais</a><br><br><strong>Aviso de direitos autorais</strong><br>O conteúdo compartilhado pelo MUSIXQUARE pertence aos respectivos titulares. O compartilhamento de áudio do sistema e o compartilhamento de arquivos são destinados ao uso pessoal. Usuários são responsáveis por distribuição não autorizada ou transmissão pública de conteúdo protegido. O compartilhamento do YouTube usa o método oficial de reprodução, e as visualizações e a gestão de direitos seguem as políticas desse serviço e as configurações dos titulares. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Saiba mais</a><br><br><strong>Isenção de responsabilidade</strong><br>O MUSIXQUARE é fornecido gratuitamente. Alguns recursos dependem de serviços externos como YouTube ou Cloudflare, então limitações temporárias podem ocorrer se esses serviços mudarem ou ficarem indisponíveis. A sincronização de áudio em tempo real e a qualidade do compartilhamento remoto podem variar muito conforme rede, política do navegador e desempenho do dispositivo. Tarifas de dados móveis podem ser aplicadas fora do Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Saiba mais</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sobre</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">História</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sistema de design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Política de Privacidade</strong><br><span data-legal-standard-storage>Na mesma rede, os dados da sessão normalmente são transferidos diretamente entre os dispositivos; apenas os endereços IP e os dados de conexão passam pela sinalização. No entanto, a entrega remota e a distribuição de arquivos e áudio do sistema em salas grandes podem ser encaminhadas pela Cloudflare. Os arquivos temporários de salas padrão encaminhados pela Cloudflare são criptografados, mantidos por até 24 horas e armazenados sem a chave de descriptografia. O MUSIXQUARE não visualiza, analisa nem mantém dados, exceto quando necessário para fornecer seus recursos.</span><span data-legal-pro-storage>Nas salas PRO, os endereços IP e as informações de conexão necessários para estabelecer a sessão passam pelo servidor de sinalização. Os arquivos originais adicionados à playlist são mantidos em um armazenamento privado do Cloudflare R2 para que a sala continue disponível. Os arquivos são removidos quando deixam de ser usados na playlist ou quando o operador exclui os dados da sala, e somente usuários que entraram na sala podem baixá-los por URLs de curta duração. O MUSIXQUARE não visualiza nem analisa dados para fins diferentes da prestação do serviço.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Saiba mais</a><br><br><strong>Aviso de direitos autorais</strong><br>O conteúdo compartilhado pelo MUSIXQUARE pertence aos respectivos titulares. O compartilhamento de áudio do sistema e o compartilhamento de arquivos são destinados ao uso pessoal. Usuários são responsáveis por distribuição não autorizada ou transmissão pública de conteúdo protegido. O compartilhamento do YouTube usa o método oficial de reprodução, e as visualizações e a gestão de direitos seguem as políticas desse serviço e as configurações dos titulares. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Saiba mais</a><br><br><strong>Isenção de responsabilidade</strong><br>O MUSIXQUARE é fornecido gratuitamente. Alguns recursos dependem de serviços externos como YouTube ou Cloudflare, então limitações temporárias podem ocorrer se esses serviços mudarem ou ficarem indisponíveis. A sincronização de áudio em tempo real e a qualidade do compartilhamento remoto podem variar muito conforme rede, política do navegador e desempenho do dispositivo. Tarifas de dados móveis podem ser aplicadas fora do Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Saiba mais</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sobre</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">História</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sistema de design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default ptBr;

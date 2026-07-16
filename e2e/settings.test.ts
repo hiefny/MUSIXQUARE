@@ -6,17 +6,18 @@
  * - Language switching (ko/en)
  * - Battery saver toggle
  * - Settings subtab navigation
- * - Max guest slots stepper
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import {
   clickAndWaitActive,
   navigateToSubtab,
   navigateToTab,
-  readState,
-  waitForState,
   waitForTheme,
 } from './helpers/wait.ts';
 
@@ -72,7 +73,9 @@ test.describe('Settings Panel', () => {
 
     await clickAndWaitActive(pair.hostPage, '.ch-opt[data-theme="dark"]');
 
-    const hasActive = await pair.hostPage.locator('.ch-opt[data-theme="dark"]').evaluate(el => el.classList.contains('active'));
+    const hasActive = await pair.hostPage
+      .locator('.ch-opt[data-theme="dark"]')
+      .evaluate((el) => el.classList.contains('active'));
     expect(hasActive).toBe(true);
   });
 
@@ -87,8 +90,7 @@ test.describe('Settings Panel', () => {
   async function openLanguageDialog(page: import('@playwright/test').Page): Promise<void> {
     await page.locator('#btn-language-select').click();
     await page.waitForFunction(
-      () =>
-        document.getElementById('language-dialog-overlay')?.classList.contains('show') ?? false,
+      () => document.getElementById('language-dialog-overlay')?.classList.contains('show') ?? false,
       undefined,
       { timeout: 5_000 },
     );
@@ -199,7 +201,9 @@ test.describe('Settings Panel', () => {
     // Use #grid-surround as the on/off toggle.
     await clickAndWaitActive(pair.hostPage, '#grid-surround .ch-opt[data-toggle="on"]');
 
-    const hasActive = await pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]').evaluate(el => el.classList.contains('active'));
+    const hasActive = await pair.hostPage
+      .locator('#grid-surround .ch-opt[data-toggle="on"]')
+      .evaluate((el) => el.classList.contains('active'));
     expect(hasActive).toBe(true);
   });
 
@@ -213,13 +217,17 @@ test.describe('Settings Panel', () => {
     // Click audio subtab
     await navigateToSubtab(pair.hostPage, 'audio');
 
-    const audioActive = await pair.hostPage.locator('.subtab-pill[data-subtab="audio"]').evaluate(el => el.classList.contains('active'));
+    const audioActive = await pair.hostPage
+      .locator('.subtab-pill[data-subtab="audio"]')
+      .evaluate((el) => el.classList.contains('active'));
     expect(audioActive).toBe(true);
 
     // Click back to general
     await navigateToSubtab(pair.hostPage, 'general');
 
-    const generalActive = await pair.hostPage.locator('.subtab-pill[data-subtab="general"]').evaluate(el => el.classList.contains('active'));
+    const generalActive = await pair.hostPage
+      .locator('.subtab-pill[data-subtab="general"]')
+      .evaluate((el) => el.classList.contains('active'));
     expect(generalActive).toBe(true);
   });
 
@@ -232,36 +240,7 @@ test.describe('Settings Panel', () => {
 
     // Should show device list or connect panel
     const connectPanel = pair.hostPage.locator('.settings-subtab-panel[data-panel="connect"]');
-    const isActive = await connectPanel.evaluate(el => el.classList.contains('active'));
+    const isActive = await connectPanel.evaluate((el) => el.classList.contains('active'));
     expect(isActive).toBe(true);
-  });
-
-  // ── Max Guest Slots Tests ────────────────────────────────────
-
-  test('max guest slots stepper changes value', async () => {
-    test.setTimeout(90_000);
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
-
-    // Try connect tab first (mobile layout), fall back to settings > connect subtab (desktop)
-    await navigateToTab(pair.hostPage, 'connect', 15_000).catch(async () => {
-      await navigateToTab(pair.hostPage, 'settings', 15_000);
-      await navigateToSubtab(pair.hostPage, 'connect');
-    });
-
-    // Read current value
-    const initialSlots = await readState(pair.hostPage, 'network.maxGuestSlots') as number;
-
-    // Click plus button via JS fallback (stepper may be CSS-hidden)
-    await pair.hostPage.evaluate(() => {
-      const stepper = document.getElementById('max-device-stepper')
-        || document.getElementById('desktop-max-device-stepper');
-      if (!stepper) return;
-      const plusBtn = stepper.querySelector('.stepper-btn[data-dir="1"]') as HTMLElement;
-      plusBtn?.click();
-    });
-    await waitForState(pair.hostPage, 'network.maxGuestSlots', initialSlots + 1, 10_000);
-
-    const newSlots = await readState(pair.hostPage, 'network.maxGuestSlots') as number;
-    expect(newSlots).toBe(initialSlots + 1);
   });
 });

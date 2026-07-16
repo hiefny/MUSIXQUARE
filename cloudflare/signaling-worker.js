@@ -9,8 +9,15 @@ const WS_RATE_LIMIT_PER_MINUTE = 120;
 const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 const SDP_MAX_BYTES = 48 * 1024;
 const ICE_CANDIDATE_MAX_BYTES = 4 * 1024;
-const MAX_ROOM_GUESTS = 32;
-const MAX_PENDING_GUEST_SOCKETS = 64;
+// One host/coordinator plus 99 guests/members keeps the public room ceiling at
+// 100 connected devices. Pending sockets use a separate, short-lived budget
+// for simultaneous unauthenticated handshakes.
+const MAX_ROOM_GUESTS = 99;
+// Every guest briefly occupies this unauthenticated state while proving its
+// reconnect secret, including passwordless rooms. Keep the burst budget equal
+// to the public guest capacity so a legitimate 100-device venue is not
+// rejected merely because many devices scan the invite at once.
+const MAX_PENDING_GUEST_SOCKETS = MAX_ROOM_GUESTS;
 const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';

@@ -30,8 +30,9 @@ const STORAGE_KEY = 'pro-room:v1';
 const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYLIST_MAX_ITEMS = 1000;
-// One coordinator plus the same 32-member ceiling enforced by signaling.
-const PRESENCE_MAX_ITEMS = 33;
+// The elected coordinator is one of the 100 connected devices. Signaling
+// separately admits at most 99 non-coordinator members for the same ceiling.
+const PRESENCE_MAX_ITEMS = 100;
 const SESSION_MAX_ITEMS = 128;
 const ASSET_MAX_ITEMS = 1024;
 const RESERVED_ASSET_MAX_ITEMS = 32;
@@ -442,11 +443,7 @@ async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
 }
 
 async function derivePinHash(pin, salt, pepper, iterations = PBKDF2_ITERATIONS) {
-  if (
-    !Number.isSafeInteger(iterations) ||
-    iterations < 1 ||
-    iterations > PBKDF2_MAX_ITERATIONS
-  ) {
+  if (!Number.isSafeInteger(iterations) || iterations < 1 || iterations > PBKDF2_MAX_ITERATIONS) {
     throw new RangeError('Invalid PBKDF2 iteration count');
   }
   const material = await crypto.subtle.importKey(
@@ -978,7 +975,12 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/health' && request.method === 'GET') {
-      return jsonResponse({ ok: true, service: 'musixquare-pro-room' });
+      const workerVersionId = env?.CF_VERSION_METADATA?.id;
+      return jsonResponse({
+        ok: true,
+        service: 'musixquare-pro-room',
+        ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
+      });
     }
     const origin = allowedOrigin(request, env);
     if (request.method === 'OPTIONS') {

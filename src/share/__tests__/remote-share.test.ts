@@ -167,6 +167,138 @@ describe('remote file share policy', () => {
     });
   });
 
+  it('accepts only an explicitly R2-routed descriptor on a physically local guest', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { isRemoteGuest } = await import('../../network/peer.ts');
+    vi.mocked(isRemoteGuest).mockReturnValue(false);
+    setState('network.connectionType', 'local');
+
+    await handleData({ type: MSG.REMOTE_FILE_SHARE, ...descriptor() }, conn);
+    expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
+
+    await handleData({ type: MSG.REMOTE_FILE_SHARE, ...descriptor({ delivery: 'r2' }) }, conn);
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a descriptor issued for a different room', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    setState('network.sessionCode', '654321');
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ roomId: '123456', delivery: 'r2' }),
+      },
+      conn,
+    );
+
+    expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
+  });
+
+  it('clears guest delivery markers when switching directly between room codes', async () => {
+    const { bus } = await import('../../core/events.ts');
+    const { isGuestR2FileDelivery, recordGuestFileDelivery } =
+      await import('../file-delivery-policy.ts');
+    recordGuestFileDelivery(Q0, 7, 'r2');
+    expect(isGuestR2FileDelivery(Q0, 7)).toBe(true);
+
+    bus.emit('state:network.sessionCode', '654321');
+
+    expect(isGuestR2FileDelivery(Q0, 7)).toBe(false);
+  });
+
+  it('clears guest R2 authority and aborts its download when the host connection is replaced', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { isGuestR2FileDelivery, recordGuestFileDelivery } =
+      await import('../file-delivery-policy.ts');
+    let observedSignal: AbortSignal | null = null;
+    mocks.downloadRemoteFile.mockImplementationOnce(
+      async (_descriptor, _onProgress, signal: AbortSignal) => {
+        observedSignal = signal;
+        return await new Promise<File>((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Replaced host connection', 'AbortError')),
+            { once: true },
+          );
+        });
+      },
+    );
+    recordGuestFileDelivery(Q0, 7, 'r2');
+
+    const pending = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ delivery: 'r2' }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    const replacement = { open: true, peer: 'host-2' } as DataConnection;
+    setState('network.hostConn', replacement);
+
+    expect(isGuestR2FileDelivery(Q0, 7)).toBe(false);
+    expect(observedSignal?.aborted).toBe(true);
+    await pending;
+    expect(getState('share.remote').download.status).toBe('idle');
+  });
+
+  it('advertises local-audience R2 support only over the current guest host connection', async () => {
+    const { bus } = await import('../../core/events.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+
+    bus.emit('network:peer-connected', conn);
+
+    expect(safeSend).toHaveBeenCalledWith(conn, {
+      type: MSG.FILE_R2_CAPABILITY,
+      version: 1,
+      localAudience: true,
+    });
+  });
+
+  it('recovers only an authenticated legacy-overflow connection after capability arrives', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const {
+      freezeFileDeliveryMode,
+      getDirectFilePeers,
+      getR2FileTargets,
+      getUnsupportedFileTargetsForTests,
+      isLocalFileR2CapableForTests,
+    } = await import('../file-delivery-policy.ts');
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+
+    const peers = Array.from({ length: 9 }, (_, index) => {
+      const id = `local-legacy-${index + 1}`;
+      return {
+        id,
+        status: 'connected' as const,
+        conn: { open: true, peer: id, send: vi.fn() } as DataConnection,
+        isDataTarget: true,
+        connectionType: 'local' as const,
+        joinOrder: index + 1,
+      } as ConnectedPeer;
+    });
+    const target = peers[8]!;
+    setState('network.connectedPeers', peers);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map(peers.map((peer) => [peer.id, peer.conn as DataConnection])),
+    );
+    expect(freezeFileDeliveryMode(11)).toBe('mixed');
+    expect(getUnsupportedFileTargetsForTests(11).map((item) => item.peer)).toEqual([target.id]);
+
+    await handleData(
+      { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: true },
+      target.conn as DataConnection,
+    );
+
+    expect(isLocalFileR2CapableForTests(target.id)).toBe(true);
+    expect(getDirectFilePeers(11)).toHaveLength(8);
+    expect(getR2FileTargets(11).map((item) => item.peer)).toEqual([target.id]);
+    expect(getUnsupportedFileTargetsForTests(11)).toHaveLength(0);
+  });
+
   it('does not let a suspended stale descriptor replace a newer transfer owner', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { waitForGuestConnectionType } = await import('../../network/peer.ts');
@@ -1204,9 +1336,9 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     expect(safeSend).toHaveBeenCalledOnce();
   });
 
-  it('broadcasts once per share and rebases a cached descriptor onto the current context', async () => {
+  it('sends once per R2 target and rebases a cached descriptor onto the current context', async () => {
     const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
-    const { broadcast } = await import('../../network/peer.ts');
+    const { safeSend } = await import('../../network/peer.ts');
 
     const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
     setState('playlist.items', [fileItem(fileA, Q0)]);
@@ -1218,13 +1350,15 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     resolveUpload(descriptor({ name: 'track-a.mp3', sessionId: 7, queueItemId: Q0 }));
     await first;
 
-    expect(broadcast).toHaveBeenCalledOnce();
-    expect(broadcast).toHaveBeenCalledWith(
+    expect(safeSend).toHaveBeenCalledOnce();
+    expect(safeSend).toHaveBeenCalledWith(
+      expect.objectContaining({ peer: 'guest-remote-1' }),
       expect.objectContaining({
         type: MSG.REMOTE_FILE_SHARE,
         objectId: OBJECT_1,
         sessionId: 7,
         queueItemId: Q0,
+        delivery: 'r2',
       }),
     );
 
@@ -1235,8 +1369,9 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     await shareRemoteFileIfNeeded(fileA, 9, undefined, { queueItemId: Q0 });
 
     expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce();
-    expect(broadcast).toHaveBeenCalledTimes(2);
-    expect(broadcast).toHaveBeenLastCalledWith(
+    expect(safeSend).toHaveBeenCalledTimes(2);
+    expect(safeSend).toHaveBeenLastCalledWith(
+      expect.objectContaining({ peer: 'guest-remote-1' }),
       expect.objectContaining({
         type: MSG.REMOTE_FILE_SHARE,
         objectId: OBJECT_1,

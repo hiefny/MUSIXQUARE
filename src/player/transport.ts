@@ -13,7 +13,7 @@ import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/const
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { IS_WINDOWS } from '../core/platform.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
-import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
+import { isSystemAudioActive } from '../audio/system-capture.ts';
 import {
   getPlaybackOwnership,
   getPlaybackModeActivity,
@@ -805,7 +805,7 @@ export function stopPlayback(): void {
   if (isCompatIdle()) return; // Nothing to stop
 
   if (isSystemAudioPlaying()) {
-    stopSystemAudioCapture();
+    bus.emit('system-audio:stop');
     return;
   }
 

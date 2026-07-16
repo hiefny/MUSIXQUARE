@@ -705,9 +705,9 @@ describe('storage:file-ready transfer identity', () => {
   });
 
   it('finalizes after chunk metadata recovers a lost FILE_START without losing the track index', async () => {
-    const { clearReceiveState, handleFileChunk } =
+    const { resetIncomingTransferAuthority, handleFileChunk } =
       await import('../../storage/transfer-receive.ts');
-    clearReceiveState();
+    resetIncomingTransferAuthority();
 
     const file = makeFile('t4.mp3');
     setState('network.hostConn', hostConn);
@@ -744,9 +744,9 @@ describe('storage:file-ready transfer identity', () => {
   });
 
   it('carries authoritative PLAY identity through a newer chunk-only session and preserves play time', async () => {
-    const { clearReceiveState, handleFileChunk } =
+    const { resetIncomingTransferAuthority, handleFileChunk } =
       await import('../../storage/transfer-receive.ts');
-    clearReceiveState();
+    resetIncomingTransferAuthority();
 
     const file = makeFile('t4.mp3');
     setState('network.hostConn', hostConn);

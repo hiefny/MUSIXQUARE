@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MSG } from '../../core/constants.ts';
+import { MAX_GUEST_SLOTS, MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -58,6 +58,11 @@ beforeEach(() => {
   setState('network.myId', 'host-1');
 });
 
+it('uses a fixed 100-device room ceiling including the host', () => {
+  expect(MAX_GUEST_SLOTS).toBe(99);
+  expect(getState('network.peerSlots')).toHaveLength(100);
+});
+
 function makeSlottedPeer(id: string, slot: number, send: ReturnType<typeof vi.fn>): ConnectedPeer {
   return {
     id,
@@ -73,76 +78,6 @@ function makeSlottedPeer(id: string, slot: number, send: ReturnType<typeof vi.fn
     lastHeartbeat: 0,
   };
 }
-
-// The reduction guard is count-based but enforcement is slot-index-based. With
-// sparse slots, a peer in a high slot must not be kicked while capacity remains.
-// Displaced occupants move into freed low slots; only genuine overflow kicks.
-describe('max-guests reduction with sparse slots', () => {
-  it('relocates a high-slot peer into a freed hole instead of kicking', () => {
-    const sendG1 = vi.fn();
-    const sendG3 = vi.fn();
-    const sendG4 = vi.fn();
-    setState('network.maxGuestSlots', 4);
-    setState('network.peerSlots', [null, 'g1', null, 'g3', 'g4']);
-    setState(
-      'network.peerSlotByPeerId',
-      new Map([
-        ['g1', 1],
-        ['g3', 3],
-        ['g4', 4],
-      ]),
-    );
-    setState('network.connectedPeers', [
-      makeSlottedPeer('g1', 1, sendG1),
-      makeSlottedPeer('g3', 3, sendG3),
-      makeSlottedPeer('g4', 4, sendG4),
-    ]);
-
-    bus.emit('network:max-guests-changed', 3);
-
-    expect(sendG1).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
-    expect(sendG3).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
-    expect(sendG4).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
-    expect(getState('network.peerSlots')).toEqual([null, 'g1', 'g4', 'g3']);
-    expect(getState('network.peerSlotByPeerId').get('g4')).toBe(2);
-    // The ConnectedPeer record must follow (stale-field hygiene); label and
-    // joinOrder intentionally keep their join-time values.
-    const relocated = getState('network.connectedPeers').find((p) => p.id === 'g4');
-    expect(relocated?.slot).toBe(2);
-    expect(relocated?.joinOrder).toBe(4);
-    expect(getState('network.maxGuestSlots')).toBe(3);
-  });
-
-  it('still kicks exactly the overflow peer when all remaining slots are dense', () => {
-    const sends = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
-    setState('network.maxGuestSlots', 4);
-    setState('network.peerSlots', [null, 'g1', 'g2', 'g3', 'g4']);
-    setState(
-      'network.peerSlotByPeerId',
-      new Map([
-        ['g1', 1],
-        ['g2', 2],
-        ['g3', 3],
-        ['g4', 4],
-      ]),
-    );
-    setState('network.connectedPeers', [
-      makeSlottedPeer('g1', 1, sends[0]),
-      makeSlottedPeer('g2', 2, sends[1]),
-      makeSlottedPeer('g3', 3, sends[2]),
-      makeSlottedPeer('g4', 4, sends[3]),
-    ]);
-
-    bus.emit('network:max-guests-changed', 3);
-
-    expect(sends[0]).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
-    expect(sends[1]).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
-    expect(sends[2]).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
-    expect(sends[3]).toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
-    expect(getState('network.peerSlots')).toEqual([null, 'g1', 'g2', 'g3']);
-    expect(getState('network.peerSlotByPeerId').has('g4')).toBe(false);
-  });
-});
 
 type FiringConn = DataConnection & { fire: (event: string, ...args: unknown[]) => void };
 
@@ -176,7 +111,9 @@ describe('duplicate guest connection handoff', () => {
 
   it('replaces the active connection through a reconnect storm and ignores stale closes', () => {
     const disconnected = vi.fn();
+    const replaced = vi.fn();
     bus.on('network:peer-disconnected', disconnected);
+    bus.on('network:peer-connection-replaced', replaced);
 
     const first = makeIncomingConn('guest-re');
     const second = makeIncomingConn('guest-re');
@@ -196,6 +133,8 @@ describe('duplicate guest connection handoff', () => {
     second.fire('close');
 
     expect(disconnected).not.toHaveBeenCalled();
+    expect(replaced).toHaveBeenNthCalledWith(1, 'guest-re');
+    expect(replaced).toHaveBeenNthCalledWith(2, 'guest-re');
     const records = getState('network.connectedPeers').filter((p) => p.id === 'guest-re');
     expect(records).toHaveLength(1);
     expect(records[0].conn).toBe(third);
@@ -232,10 +171,13 @@ describe('duplicate guest connection handoff', () => {
   });
 
   it('rejects a connection over capacity with SESSION_FULL and a deferred close, leaving no record', () => {
-    setState('network.maxGuestSlots', 1);
-    setState('network.peerSlots', [null, 'g1']);
-    setState('network.peerSlotByPeerId', new Map([['g1', 1]]));
-    setState('network.connectedPeers', [makeSlottedPeer('g1', 1, vi.fn())]);
+    const ids = Array.from({ length: MAX_GUEST_SLOTS }, (_, index) => `g${index + 1}`);
+    setState('network.peerSlots', [null, ...ids]);
+    setState('network.peerSlotByPeerId', new Map(ids.map((id, index) => [id, index + 1])));
+    setState(
+      'network.connectedPeers',
+      ids.map((id, index) => makeSlottedPeer(id, index + 1, vi.fn())),
+    );
 
     const overflow = makeIncomingConn('guest-overflow');
     handleHostIncomingConnection(overflow);
@@ -248,7 +190,7 @@ describe('duplicate guest connection handoff', () => {
     vi.advanceTimersByTime(500);
     expect(overflow.close).toHaveBeenCalledTimes(1);
 
-    expect(getState('network.connectedPeers').map((p) => p.id)).toEqual(['g1']);
+    expect(getState('network.connectedPeers')).toHaveLength(MAX_GUEST_SLOTS);
     expect(getState('network.activeHostConnByPeerId').has('guest-overflow')).toBe(false);
     expect(getState('network.peerLabels')['guest-overflow']).toBeUndefined();
   });

@@ -8,7 +8,7 @@ import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { delay, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { filterEligiblePeers, canSendFileTo, broadcast } from '../network/peer.ts';
+import { filterEligiblePeers, canSendFileTo, safeSend } from '../network/peer.ts';
 import { SessionScope } from '../core/session-scope.ts';
 import {
   pumpChunksToPeers,
@@ -16,6 +16,7 @@ import {
   isBulkTransferWritablePeer,
 } from './chunk-pump.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
+import { freezeFileDeliveryMode, resolvePeerFileDelivery } from '../share/file-delivery-policy.ts';
 
 // ─── Send-side Module State ──────────────────────────────────────────
 
@@ -53,6 +54,7 @@ export function broadcastFileDebounced(
   prepareMsg?: AnyProtocolMsg,
 ): void {
   if (!queueItemId) return;
+  if (sessionId !== null) freezeFileDeliveryMode(sessionId);
   _pendingBroadcast = { file, queueItemId, sessionId, prepareMsg };
   setManagedTimer(
     BROADCAST_DEBOUNCE_KEY,
@@ -65,7 +67,7 @@ export function broadcastFileDebounced(
       // debounce, so guests see exactly one announce + one transfer per
       // settled track.
       if (p.prepareMsg) {
-        broadcast(p.prepareMsg);
+        sendFilePrepareByDelivery(p.prepareMsg, p.sessionId);
       }
       broadcastFile(p.file, p.queueItemId, p.sessionId).catch((e) =>
         log.error('[Host] broadcastFile (debounced) failed:', e),
@@ -73,6 +75,62 @@ export function broadcastFileDebounced(
     },
     BROADCAST_DEBOUNCE_MS,
   );
+}
+
+/**
+ * FILE_PREPARE is control-plane metadata, but it also tells a local guest
+ * whether bytes will follow on the data channel. Send a per-target copy so
+ * only R2-routed peers enter the remote wait path.
+ */
+export function sendFilePrepareByDelivery(
+  prepareMsg: AnyProtocolMsg,
+  sessionId: number | null,
+  options: { r2Only?: boolean } = {},
+): void {
+  if (sessionId === null || !Number.isSafeInteger(sessionId) || sessionId <= 0) return;
+  freezeFileDeliveryMode(sessionId);
+  const peers = getState('network.connectedPeers') || [];
+  for (const peer of peers) {
+    const conn = peer.conn as DataConnection | null;
+    if (peer.status !== 'connected' || !conn?.open) continue;
+    const delivery = resolvePeerFileDelivery(peer, sessionId);
+    if (delivery === 'pending') continue;
+    if (delivery === 'unsupported') {
+      sendFileDeliveryUnavailable(conn, prepareMsg, sessionId);
+      continue;
+    }
+    const useR2 = delivery === 'r2';
+    if (options.r2Only && !useR2) continue;
+    safeSend(
+      conn,
+      useR2 ? ({ ...prepareMsg, delivery: 'r2' } as unknown as AnyProtocolMsg) : prepareMsg,
+    );
+  }
+}
+
+/**
+ * A legacy LAN peer beyond the eight direct slots cannot understand local R2
+ * delivery. Fail explicitly instead of sending FILE_PREPARE and leaving it
+ * waiting forever for chunks which must never be fanned out directly.
+ */
+export function sendFileDeliveryUnavailable(
+  conn: DataConnection,
+  source: AnyProtocolMsg | Record<string, unknown>,
+  sessionId: number,
+): void {
+  const data = source as Record<string, unknown>;
+  const name = typeof data.name === 'string' ? data.name : '';
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
+  if (!conn.open || !name || !queueItemId || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
+    return;
+  }
+  safeSend(conn, {
+    type: MSG.REMOTE_FILE_UNAVAILABLE,
+    name,
+    queueItemId,
+    sessionId,
+    delivery: 'r2',
+  } as AnyProtocolMsg);
 }
 
 /**
@@ -105,6 +163,7 @@ export async function broadcastFile(
     sessionId = currentTransferSessionId + 1;
     setState('transfer.currentSessionId', sessionId);
   }
+  freezeFileDeliveryMode(sessionId);
 
   const activeBroadcast = getState('transfer.activeBroadcastSession');
   if (activeBroadcast === sessionId) return;
@@ -141,7 +200,7 @@ export async function broadcastFile(
       sessionId,
     };
 
-    const eligiblePeers = filterEligiblePeers().filter(isBulkTransferWritablePeer);
+    const eligiblePeers = filterEligiblePeers(sessionId).filter(isBulkTransferWritablePeer);
 
     // The ownership-conditional finally block clears this session.
     if (eligiblePeers.length === 0) return;
@@ -256,10 +315,10 @@ export async function unicastFile(
     getState('playlist.currentQueueItemId') === queueItemId &&
     (options.isSourceCurrent?.() ?? true);
 
-  // Transport guard: block remote/unknown peers.
-  // Internal recovery callers can opt out when they already validated the connection.
-  if (!options.skipTransportGuard && !(await canSendFileTo(conn))) {
-    log.info('[Unicast] Skipped — remote/unknown peer');
+  // Transport guard: require this connection's frozen direct assignment.
+  // Internal recovery callers can opt out after validating the same policy.
+  if (!options.skipTransportGuard && !(await canSendFileTo(conn, effectiveSessionId))) {
+    log.info('[Unicast] Skipped — connection has no frozen direct assignment');
     return;
   }
 

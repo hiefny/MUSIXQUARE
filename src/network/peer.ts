@@ -14,8 +14,7 @@ import { getState, setState, batchSetState } from '../core/state.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { showDialog } from '../ui/dialog.ts';
 import {
-  DEFAULT_MAX_GUEST_SLOTS,
-  MAX_GUEST_SLOTS_LIMIT,
+  MAX_GUEST_SLOTS,
   PEER_NAME_PREFIX,
   TRANSFER_STATE,
   PLAYBACK_STATE,
@@ -39,6 +38,10 @@ import {
   markProRoomTransportRecovered,
   requestProRoomTransportRecovery,
 } from '../pro-room/transport-recovery.ts';
+import {
+  resetGuestSystemAudioShareRoute,
+  resetLocalSystemAudioSfuCapabilities,
+} from './system-audio-delivery.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -339,6 +342,11 @@ async function initNetwork(
   requestedId: string | null = null,
   proSignaling?: ProSignalingOptions,
 ): Promise<string> {
+  // Client feature advertisements are authenticated by the exact live data
+  // connection. A newly-created transport must negotiate them again even if
+  // the room code or peer IDs happen to be reused.
+  resetLocalSystemAudioSfuCapabilities();
+  resetGuestSystemAudioShareRoute();
   const owner = beginNetworkInit(requestedId);
   let ownedPeer: PeerInstance | null = null;
 
@@ -453,6 +461,8 @@ async function initNetwork(
 }
 
 function closeCurrentTransportResources(): void {
+  resetLocalSystemAudioSfuCapabilities();
+  resetGuestSystemAudioShareRoute();
   const hostConn = getState('network.hostConn');
   const connectedPeers = getState('network.connectedPeers');
   const peer = getPeer();
@@ -482,7 +492,7 @@ function closeCurrentTransportResources(): void {
     'network.connectedPeers': [],
     'network.lastKnownDeviceList': null,
     'network.peerLabels': {},
-    'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
+    'network.peerSlots': Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.peerSlotByPeerId': new Map<string, number>(),
     'network.activeHostConnByPeerId': new Map<string, DataConnection>(),
     'network.connectionType': 'unknown',
@@ -551,7 +561,6 @@ export async function connectProRoomTransport(access: ProSignalingOptions): Prom
     'network.isOperator': !coordinator,
     'network.isConnecting': true,
     'network.isIntentionalDisconnect': false,
-    'network.maxGuestSlots': coordinator ? MAX_GUEST_SLOTS_LIMIT : DEFAULT_MAX_GUEST_SLOTS,
   });
 
   try {
@@ -905,6 +914,8 @@ const PENDING_SETUP_TIMER_KEYS = [
  */
 export function cancelPendingSessionSetup(): void {
   if (getState('setup.sessionStarted')) return;
+  resetLocalSystemAudioSfuCapabilities();
+  resetGuestSystemAudioShareRoute();
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.lastJoinCode'))) {
     requestProRoomLeave();
   }
@@ -959,7 +970,7 @@ export function cancelPendingSessionSetup(): void {
     'network.connectionType': 'unknown',
     'network.lastKnownDeviceList': null,
     'network.peerLabels': {},
-    'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
+    'network.peerSlots': Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.peerSlotByPeerId': new Map<string, number>(),
     'network.activeHostConnByPeerId': new Map<string, DataConnection>(),
   });
@@ -983,6 +994,8 @@ export function cancelPendingSessionSetup(): void {
  * Leave the current session and clean up all network state.
  */
 export function leaveSession(): void {
+  resetLocalSystemAudioSfuCapabilities();
+  resetGuestSystemAudioShareRoute();
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'))) {
     requestProRoomLeave();
   }
@@ -1042,7 +1055,7 @@ export function leaveSession(): void {
   // ── 4. Clear peer slots and maps ──
   setState('network.activeHostConnByPeerId', new Map());
   setState('network.peerSlotByPeerId', new Map());
-  setState('network.peerSlots', Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[]);
+  setState('network.peerSlots', Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[]);
 
   // ── 5. Clear transfer state ──
   // Note: file/preload reorder buffers are module-local in transfer.ts/preload.ts
@@ -1082,8 +1095,7 @@ export function leaveSession(): void {
     'network.lastJoinCode': '',
     'network.roomPasswordRequired': false,
     'network.roomPassword': '',
-    'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
-    'network.maxGuestSlots': DEFAULT_MAX_GUEST_SLOTS,
+    'network.peerSlots': Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.mutedPeers': new Set<string>(),
     'network.chatFrozen': false,
     'network.slowmodeSeconds': 0,

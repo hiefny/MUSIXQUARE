@@ -180,11 +180,9 @@ const th: Record<I18nKey, string> = {
 
   // ─── Connect ───────────────────────────────────────────────────
   'connect.qr_title': 'เชิญด้วย QR หรือลิงก์',
-  'connect.max_devices': 'ความจุห้อง',
   'connect.device_list': 'อุปกรณ์เชื่อมต่อ {{count}} เครื่อง',
   'connect.no_session': 'โปรดสร้างห้องก่อน',
   'connect.generating_qr': 'กำลังสร้างรหัส QR...',
-  'connect.cannot_reduce': 'ไม่สามารถลดความจุได้: มีอุปกรณ์เชื่อมต่ออยู่แล้ว {{count}} เครื่อง',
   'connect.kick_title': 'นำอุปกรณ์ออก',
   'connect.kick_message': 'ต้องการนำอุปกรณ์นี้ออกจากห้องหรือไม่?',
   'connect.kick_yes': 'นำออก',
@@ -396,8 +394,7 @@ const th: Record<I18nKey, string> = {
   'network.disconnected': 'ตัดการเชื่อมต่อแล้ว',
   'network.cant_join': 'ไม่พบห้อง\nโปรดตรวจสอบเครือข่าย',
   'network.session_full': 'ห้องเต็มแล้ว',
-  'network.session_full_detail':
-    'ห้องนี้ถึงขีดจำกัดจำนวนอุปกรณ์แล้ว\nโปรดขอให้โฮสต์เพิ่มความจุห้องในแท็บ "เชื่อมต่อ"',
+  'network.session_full_detail': 'ห้องนี้มีอุปกรณ์เชื่อมต่อครบสูงสุด 100 เครื่องแล้ว รวมโฮสต์',
   'network.op_granted': 'ให้สิทธิ์ผู้ดูแลแล้ว',
   'network.op_revoked': 'ถอนสิทธิ์ผู้ดูแลแล้ว',
 
@@ -440,15 +437,8 @@ const th: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'ไม่มีไฟล์เสียงที่เพิ่มได้',
   'dialog.large_room_file.title': 'แชร์ไฟล์ในห้องขนาดใหญ่',
   'dialog.large_room_file.message':
-    'การแชร์ไฟล์ในเครื่องจะเสถียรเมื่อมีผู้เข้าร่วมไม่เกินประมาณ 8 คนบนเครือข่ายท้องถิ่น\n\nดำเนินการต่อ?',
-  'dialog.large_room_sysaudio.title': 'เสียงระบบในห้องขนาดใหญ่',
-  'dialog.large_room_sysaudio.message':
-    'การแชร์เสียงระบบรองรับผู้เข้าร่วมทั้งในเครื่องและระยะไกล แต่แนะนำไม่เกินประมาณ 4 คนเพื่อลดภาระโฮสต์และความหน่วง\n\nดำเนินการต่อ?',
+    'บนเครือข่ายเดียวกัน การส่งไฟล์โดยตรงจะเสถียรสำหรับอุปกรณ์ผู้เข้าร่วมสูงสุด 8 เครื่อง โดยไม่นับอุปกรณ์ของโฮสต์ ในห้องภายในเครือข่ายที่ใหญ่กว่านี้ ไฟล์อาจกระจายผ่าน Cloudflare R2\n\nดำเนินการต่อ?',
   'dialog.continue': 'ดำเนินการต่อ',
-  'connect.slot_guide.aria': 'เปิดคำแนะนำจำนวนผู้เข้าร่วมที่แนะนำ',
-  'connect.slot_guide.title': 'จำนวนผู้เข้าร่วม',
-  'connect.slot_guide.body':
-    'ยิ่งมีผู้เข้าร่วมมาก ระบบยิ่งเสถียรน้อยลง\n\n• ดู YouTube ด้วยกัน: สูงสุด 32\n• แชร์ไฟล์ในเครื่อง: สูงสุด 8\n• แชร์เสียงระบบ: แนะนำสูงสุด 4',
   'toast.sync_reset': 'รีเซ็ตออฟเซ็ตซิงค์แล้ว',
   'toast.stop_sent': 'ส่งคำขอหยุดแล้ว',
   'toast.auto_play_canceled': 'ยกเลิกเล่นอัตโนมัติแล้ว',
@@ -608,7 +598,7 @@ const th: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'การแชร์เสียงจะเสถียรที่สุดเมื่ออยู่บนเครือข่ายเดียวกัน<ul class="help-list"><li>ผู้เข้าร่วมระยะไกลสามารถใช้ฟีเจอร์เดียวกันได้</li><li>ผู้เข้าร่วมระยะไกลใช้เส้นทาง Cloudflare จึงอาจมีความหน่วงเพิ่มขึ้นหรือรับข้อมูลไม่สำเร็จตามสภาพเครือข่าย</li><li>VPN หรือเครือข่ายที่จำกัดอาจทำให้การเชื่อมต่อไม่เสถียร</li></ul>',
   'setup.how_to_connect_html':
-    'ใส่ <strong>รหัส 6 หลัก</strong> จากโฮสต์เพื่อเชื่อมต่อ<ul class="help-list"><li><strong>โฮสต์:</strong> “สร้างห้อง” → ตรวจสอบรหัส</li><li><strong>ผู้เข้าร่วม:</strong> “เข้าร่วมห้อง” → ใส่รหัส</li><li>จำนวนอุปกรณ์ที่เชื่อมต่อได้สามารถตั้งค่าได้ใน <strong>แท็บ "เชื่อมต่อ"</strong></li></ul>',
+    'ใส่ <strong>รหัส 6 หลัก</strong> จากโฮสต์เพื่อเชื่อมต่อ<ul class="help-list"><li><strong>โฮสต์:</strong> “สร้างห้อง” → ตรวจสอบรหัส</li><li><strong>ผู้เข้าร่วม:</strong> “เข้าร่วมห้อง” → ใส่รหัส</li><li>เชื่อมต่อได้สูงสุด <strong>100 เครื่อง รวมโฮสต์</strong></li></ul>',
   'player.play_speakers_html':
     'ผู้เข้าร่วมแต่ละคนเลือก <strong>บทบาท (ช่องสัญญาณเอาต์พุต)</strong><ul class="help-list"><li><strong>กลาง:</strong> เอาต์พุตสเตอริโอ (ค่าเริ่มต้น)</li><li><strong>ซ้าย:</strong> เอาต์พุตช่อง L</li><li><strong>ขวา:</strong> เอาต์พุตช่อง R</li><li><strong>ซับวูฟเฟอร์:</strong> เอาต์พุตผสมย่านความถี่ต่ำ</li></ul>เปลี่ยนบทบาทได้ทุกเมื่อใน <strong>การตั้งค่า</strong>',
   'player.play_media_action_html':
@@ -640,20 +630,18 @@ const th: Record<I18nKey, string> = {
   'system_audio.stop': 'หยุดแชร์',
   'system_audio.started': 'เสียงระบบอาจมีความหน่วงเล็กน้อย\nลดระดับเสียงต้นทางถ้าทำได้',
   'system_audio.stopped': 'สิ้นสุดการแชร์เสียงระบบแล้ว\nกำลังเล่นเพลย์ลิสต์ต่อ',
-  'system_audio.many_devices_warning':
-    'เสียงระบบเหมาะกับผู้เข้าร่วมสูงสุดประมาณ 4 คน\nอุปกรณ์มากขึ้นอาจเพิ่มความหน่วงหรือสะดุด',
   'system_audio.host_channel_locked': 'เปลี่ยนบทบาทไม่ได้ระหว่างแชร์เสียงระบบ',
   'system_audio.effects_guest_only': 'กำลังแชร์เสียงระบบ\nเอฟเฟกต์ใช้กับผู้เข้าร่วมเท่านั้น',
   'system_audio.desktop_only':
     'ใช้ได้เฉพาะบนคอมพิวเตอร์ที่ใช้เบราว์เซอร์ Chromium (เช่น Chrome, Edge)',
   'system_audio.receive_failed': 'รับเสียงระบบไม่ได้\nขอให้โฮสต์เริ่มแชร์อีกครั้ง',
   'system_audio.remote_receive_limit':
-    'การรับเสียงระบบระยะไกลหยุดหลังจาก 2 ชั่วโมง\nเข้าร่วมห้องอีกครั้งเพื่อฟังต่อ',
+    'การรับเสียงระบบหยุดหลังจาก 2 ชั่วโมง\nเข้าร่วมห้องอีกครั้งเพื่อฟังต่อ',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'หมายเหตุการใช้บริการ',
   'legal.content_html':
-    '<strong>นโยบายความเป็นส่วนตัว</strong><br><span data-legal-standard-storage>เมื่ออยู่บนเครือข่ายเดียวกัน ข้อมูลเซสชันจะส่งตรงระหว่างอุปกรณ์ มีเพียง IP และรายละเอียดการเชื่อมต่อเท่านั้นที่ผ่านระบบ signaling การแชร์ไฟล์ระยะไกลและการแชร์เสียงระบบจะส่งข้อมูลผ่าน Cloudflare ไฟล์ระยะไกลจะถูกเข้ารหัส เก็บไว้สูงสุด 24 ชั่วโมง และจัดเก็บโดยไม่มีคีย์ถอดรหัส MUSIXQUARE ไม่ดู วิเคราะห์ หรือจัดเก็บข้อมูลเกินกว่าที่จำเป็นต่อการให้บริการฟีเจอร์</span><span data-legal-pro-storage>ในห้อง PRO ที่อยู่ IP และข้อมูลการเชื่อมต่อที่ใช้สร้างเซสชันจะผ่านเซิร์ฟเวอร์ส่งสัญญาณ ไฟล์ต้นฉบับที่เพิ่มลงในเพลย์ลิสต์จะถูกเก็บไว้ในพื้นที่จัดเก็บ Cloudflare R2 แบบส่วนตัว เพื่อให้ใช้งานห้องได้อย่างต่อเนื่อง ไฟล์จะถูกลบเมื่อไม่ได้ใช้ในเพลย์ลิสต์แล้วหรือเมื่อผู้ดูแลลบข้อมูลห้อง และเฉพาะผู้ใช้ที่เข้าร่วมห้องเท่านั้นที่ดาวน์โหลดได้ผ่าน URL ที่มีอายุสั้น MUSIXQUARE จะไม่ดูหรือวิเคราะห์ข้อมูลเพื่อวัตถุประสงค์อื่นนอกเหนือจากการให้บริการ</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ประกาศลิขสิทธิ์</strong><br>เนื้อหาที่แชร์ผ่าน MUSIXQUARE เป็นของผู้ถือสิทธิ์ที่เกี่ยวข้อง การแชร์เสียงระบบและการแชร์ไฟล์มีไว้สำหรับการใช้งานส่วนตัว ผู้ใช้ต้องรับผิดชอบต่อการเผยแพร่โดยไม่ได้รับอนุญาตหรือการส่งต่อสาธารณะของเนื้อหาที่มีลิขสิทธิ์ การแชร์ YouTube ใช้วิธีการเล่นอย่างเป็นทางการ และยอดรับชมกับการจัดการสิทธิ์เป็นไปตามนโยบายของบริการนั้นและการตั้งค่าของผู้ถือสิทธิ์ <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ข้อจำกัดความรับผิด</strong><br>MUSIXQUARE ให้บริการฟรี ฟีเจอร์บางอย่างพึ่งพาบริการภายนอก เช่น YouTube หรือ Cloudflare จึงอาจมีข้อจำกัดชั่วคราวหากบริการเหล่านั้นเปลี่ยนแปลงหรือออฟไลน์ การซิงค์เสียงแบบเรียลไทม์และคุณภาพการแชร์ระยะไกลอาจแตกต่างมากตามเครือข่าย นโยบายเบราว์เซอร์ และประสิทธิภาพของอุปกรณ์ อาจมีค่าบริการข้อมูลมือถือเมื่อไม่ได้ใช้ Wi-Fi <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">เกี่ยวกับ</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ประวัติ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ระบบดีไซน์</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>นโยบายความเป็นส่วนตัว</strong><br><span data-legal-standard-storage>เมื่ออยู่บนเครือข่ายเดียวกัน โดยปกติข้อมูลเซสชันจะส่งตรงระหว่างอุปกรณ์ โดยมีเพียงที่อยู่ IP และข้อมูลการเชื่อมต่อที่ผ่านระบบ signaling อย่างไรก็ตาม การส่งให้ผู้เข้าร่วมจากระยะไกล รวมถึงการกระจายไฟล์และเสียงระบบในห้องขนาดใหญ่ อาจดำเนินการผ่าน Cloudflare ไฟล์ชั่วคราวของห้องทั่วไปที่ส่งผ่าน Cloudflare จะถูกเข้ารหัส เก็บไว้ไม่เกิน 24 ชั่วโมง และจัดเก็บโดยไม่มีคีย์ถอดรหัส MUSIXQUARE จะไม่ดู วิเคราะห์ หรือเก็บรักษาข้อมูล เว้นแต่จำเป็นต่อการให้บริการฟีเจอร์</span><span data-legal-pro-storage>ในห้อง PRO ที่อยู่ IP และข้อมูลการเชื่อมต่อที่ใช้สร้างเซสชันจะผ่านเซิร์ฟเวอร์ส่งสัญญาณ ไฟล์ต้นฉบับที่เพิ่มลงในเพลย์ลิสต์จะถูกเก็บไว้ในพื้นที่จัดเก็บ Cloudflare R2 แบบส่วนตัว เพื่อให้ใช้งานห้องได้อย่างต่อเนื่อง ไฟล์จะถูกลบเมื่อไม่ได้ใช้ในเพลย์ลิสต์แล้วหรือเมื่อผู้ดูแลลบข้อมูลห้อง และเฉพาะผู้ใช้ที่เข้าร่วมห้องเท่านั้นที่ดาวน์โหลดได้ผ่าน URL ที่มีอายุสั้น MUSIXQUARE จะไม่ดูหรือวิเคราะห์ข้อมูลเพื่อวัตถุประสงค์อื่นนอกเหนือจากการให้บริการ</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ประกาศลิขสิทธิ์</strong><br>เนื้อหาที่แชร์ผ่าน MUSIXQUARE เป็นของผู้ถือสิทธิ์ที่เกี่ยวข้อง การแชร์เสียงระบบและการแชร์ไฟล์มีไว้สำหรับการใช้งานส่วนตัว ผู้ใช้ต้องรับผิดชอบต่อการเผยแพร่โดยไม่ได้รับอนุญาตหรือการส่งต่อสาธารณะของเนื้อหาที่มีลิขสิทธิ์ การแชร์ YouTube ใช้วิธีการเล่นอย่างเป็นทางการ และยอดรับชมกับการจัดการสิทธิ์เป็นไปตามนโยบายของบริการนั้นและการตั้งค่าของผู้ถือสิทธิ์ <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ข้อจำกัดความรับผิด</strong><br>MUSIXQUARE ให้บริการฟรี ฟีเจอร์บางอย่างพึ่งพาบริการภายนอก เช่น YouTube หรือ Cloudflare จึงอาจมีข้อจำกัดชั่วคราวหากบริการเหล่านั้นเปลี่ยนแปลงหรือออฟไลน์ การซิงค์เสียงแบบเรียลไทม์และคุณภาพการแชร์ระยะไกลอาจแตกต่างมากตามเครือข่าย นโยบายเบราว์เซอร์ และประสิทธิภาพของอุปกรณ์ อาจมีค่าบริการข้อมูลมือถือเมื่อไม่ได้ใช้ Wi-Fi <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">เกี่ยวกับ</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ประวัติ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ระบบดีไซน์</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default th;

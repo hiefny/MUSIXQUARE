@@ -12,7 +12,7 @@ import {
   EQ_FREQUENCIES,
   REVERB_DEFAULT_DECAY,
   REVERB_DEFAULT_PREDELAY,
-  DEFAULT_MAX_GUEST_SLOTS,
+  MAX_GUEST_SLOTS,
 } from './constants.ts';
 import { log } from './log.ts';
 
@@ -168,14 +168,13 @@ function createInitialState(): StateTree {
       connectedPeers: [],
       isOperator: false,
       pendingTrackChangeQueueItemId: null,
-      maxGuestSlots: DEFAULT_MAX_GUEST_SLOTS,
       roomPasswordRequired: false,
       roomPassword: '',
       isConnecting: false,
       isIntentionalDisconnect: false,
       lastKnownDeviceList: null,
       peerLabels: {},
-      peerSlots: Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[], // index 0 unused, 1-N for guests
+      peerSlots: Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[], // index 0 unused, 1-99 for guests
       peerSlotByPeerId: new Map(),
       activeHostConnByPeerId: new Map(),
       connectionType: 'unknown' as const,

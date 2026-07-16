@@ -86,8 +86,8 @@ describe('remote-share to local direct transfer promotion', () => {
     const { isRemoteGuest, waitForGuestConnectionType } = await import('../../network/peer.ts');
     vi.mocked(isRemoteGuest).mockReturnValue(false);
     vi.mocked(waitForGuestConnectionType).mockReset();
-    const { clearReceiveState } = await import('../transfer-receive.ts');
-    clearReceiveState();
+    const { resetIncomingTransferAuthority } = await import('../transfer-receive.ts');
+    resetIncomingTransferAuthority();
     setState('network.hostConn', conn);
     setState('network.connectionType', 'local');
     setState('playlist.items', [fileItem(Q0, 'song.mp3'), fileItem(Q1, 'song.mp3')]);

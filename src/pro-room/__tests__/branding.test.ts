@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
@@ -15,6 +16,19 @@ beforeEach(() => {
 });
 
 describe('PRO room branding', () => {
+  it('shares the feature badge component with both BETA badges', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const proBadge = parsed.getElementById('header-pro-badge');
+    const betaBadges = parsed.querySelectorAll('.media-source-beta-badge');
+
+    expect(proBadge?.classList.contains('feature-badge')).toBe(true);
+    expect(betaBadges).toHaveLength(2);
+    for (const badge of betaBadges) {
+      expect(badge.classList.contains('feature-badge')).toBe(true);
+    }
+  });
+
   it('stays hidden for standard and idle sessions', () => {
     const badge = document.getElementById('header-pro-badge') as HTMLElement;
 

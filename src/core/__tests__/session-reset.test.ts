@@ -70,6 +70,8 @@ describe('session reset coordinator', () => {
     expect(document.getElementById('session-reset-message')?.textContent).toBe(
       'Refreshing session...',
     );
+    expect(overlay.querySelector('.session-reset-spinner')).toBeNull();
+    expect(overlay.children).toHaveLength(1);
     expect((document.getElementById('app') as HTMLElement).inert).toBe(true);
     expect(document.documentElement.classList.contains('session-reset-pending')).toBe(true);
     expect(action).not.toHaveBeenCalled();

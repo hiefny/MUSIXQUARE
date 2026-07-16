@@ -3573,7 +3573,6 @@
     padding: 24px;
     background: var(--bg);
     color: var(--text-main);
-    cursor: wait;
     touch-action: none;
     overscroll-behavior: none;
     opacity: 0;
@@ -3587,47 +3586,18 @@
     pointer-events: auto;
   }
 
-  .session-reset-status {
-    display: grid;
-    justify-items: center;
-    gap: 16px;
-    text-align: center;
-  }
-
-  .session-reset-spinner {
-    width: 28px;
-    height: 28px;
-    border: 3px solid color-mix(in srgb, var(--text-main) 16%, transparent);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: session-reset-spin 700ms linear infinite;
-  }
-
   .session-reset-message {
     margin: 0;
     color: var(--text-main);
     font-size: 15px;
     font-weight: 700;
     line-height: 1.5;
+    text-align: center;
   }
 
   html.session-reset-pending,
   html.session-reset-pending body {
     overflow: hidden !important;
-  }
-
-  @keyframes session-reset-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .session-reset-spinner {
-      animation: none;
-      border-color: color-mix(in srgb, var(--text-main) 16%, transparent);
-      border-top-color: var(--primary);
-    }
   }
 
   .dialog-overlay {

@@ -80,19 +80,11 @@ function ensureOverlay(): HTMLElement {
   overlay.setAttribute('aria-atomic', 'true');
   overlay.setAttribute('aria-hidden', 'true');
 
-  const status = document.createElement('div');
-  status.className = 'session-reset-status';
-
-  const spinner = document.createElement('span');
-  spinner.className = 'session-reset-spinner';
-  spinner.setAttribute('aria-hidden', 'true');
-
   const message = document.createElement('p');
   message.id = MESSAGE_ID;
   message.className = 'session-reset-message';
 
-  status.append(spinner, message);
-  overlay.append(status);
+  overlay.append(message);
   document.body.append(overlay);
   return overlay;
 }

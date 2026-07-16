@@ -114,6 +114,24 @@
     pointer-events: none !important;
   }
 
+  /* The privacy summary changes as a whole with the canonical room type so
+     ordinary remote-sharing details never lengthen the PRO-room disclosure. */
+  [data-legal-standard-storage] {
+    display: inline;
+  }
+
+  [data-legal-pro-storage] {
+    display: none;
+  }
+
+  html[data-pro-room] [data-legal-standard-storage] {
+    display: none;
+  }
+
+  html[data-pro-room] [data-legal-pro-storage] {
+    display: inline;
+  }
+
   .file-drop-feedback {
     position: fixed;
     inset: 0;

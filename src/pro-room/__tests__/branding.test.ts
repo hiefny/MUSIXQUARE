@@ -11,6 +11,7 @@ import {
 
 beforeEach(() => {
   document.body.innerHTML = '<span id="header-pro-badge" hidden>PRO</span>';
+  document.documentElement.removeAttribute('data-pro-room');
   bus.clear();
   resetState();
 });
@@ -29,14 +30,29 @@ describe('PRO room branding', () => {
     }
   });
 
+  it('keeps the persistent-storage disclosure contextual to PRO rooms', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+
+    expect(stylesheet).toMatch(/\[data-legal-standard-storage\]\s*{\s*display:\s*inline;/);
+    expect(stylesheet).toMatch(/\[data-legal-pro-storage\]\s*{\s*display:\s*none;/);
+    expect(stylesheet).toMatch(
+      /html\[data-pro-room\]\s+\[data-legal-standard-storage\]\s*{\s*display:\s*none;/,
+    );
+    expect(stylesheet).toMatch(
+      /html\[data-pro-room\]\s+\[data-legal-pro-storage\]\s*{\s*display:\s*inline;/,
+    );
+  });
+
   it('stays hidden for standard and idle sessions', () => {
     const badge = document.getElementById('header-pro-badge') as HTMLElement;
 
     syncProRoomBranding('');
     expect(badge.hidden).toBe(true);
+    expect(document.documentElement.hasAttribute('data-pro-room')).toBe(false);
 
     syncProRoomBranding('123456');
     expect(badge.hidden).toBe(true);
+    expect(document.documentElement.hasAttribute('data-pro-room')).toBe(false);
   });
 
   it('shows only inside the reserved PRO namespace', () => {
@@ -44,6 +60,7 @@ describe('PRO room branding', () => {
 
     syncProRoomBranding('000001');
     expect(badge.hidden).toBe(false);
+    expect(document.documentElement.hasAttribute('data-pro-room')).toBe(true);
   });
 
   it('reacts to the canonical session-code state', () => {
@@ -52,8 +69,10 @@ describe('PRO room branding', () => {
 
     setState('network.sessionCode', '000000');
     expect(badge.hidden).toBe(false);
+    expect(document.documentElement.hasAttribute('data-pro-room')).toBe(true);
 
     setState('network.sessionCode', '654321');
     expect(badge.hidden).toBe(true);
+    expect(document.documentElement.hasAttribute('data-pro-room')).toBe(false);
   });
 });

@@ -262,22 +262,39 @@ describe('Translation key integrity', () => {
 
     for (const [locale, dict] of Object.entries(locales)) {
       const legal = dict['legal.content_html' as keyof typeof dict] || '';
-      const markerCount = legal.match(/data-legal-pro-storage/g)?.length ?? 0;
-      const markerIndex = legal.indexOf('<span data-legal-pro-storage>');
+      const standardMarker = '<span data-legal-standard-storage>';
+      const proMarker = '<span data-legal-pro-storage>';
+      const standardMarkerCount = legal.match(/data-legal-standard-storage/g)?.length ?? 0;
+      const proMarkerCount = legal.match(/data-legal-pro-storage/g)?.length ?? 0;
+      const standardStart = legal.indexOf(standardMarker);
+      const standardEnd = legal.indexOf('</span>', standardStart);
+      const proStart = legal.indexOf(proMarker);
+      const proEnd = legal.indexOf('</span>', proStart);
       const privacyLinkIndex = legal.indexOf('<a href="/privacy"');
+      const standardCopy = legal.slice(standardStart + standardMarker.length, standardEnd);
+      const proCopy = legal.slice(proStart + proMarker.length, proEnd);
 
       if (
-        markerCount !== 1 ||
-        markerIndex < 0 ||
-        privacyLinkIndex <= markerIndex ||
-        !legal.includes('Cloudflare R2') ||
-        !legal.includes('PRO') ||
-        !legal.slice(0, markerIndex).includes('24')
+        standardMarkerCount !== 1 ||
+        proMarkerCount !== 1 ||
+        standardStart < 0 ||
+        standardEnd <= standardStart ||
+        proStart <= standardEnd ||
+        proEnd <= proStart ||
+        privacyLinkIndex <= proEnd ||
+        !standardCopy.includes('24') ||
+        standardCopy.includes('Cloudflare R2') ||
+        !proCopy.includes('Cloudflare R2') ||
+        !proCopy.includes('PRO') ||
+        proCopy.includes('24')
       ) {
         badLegalCopy.push(locale);
       }
     }
 
     expect(badLegalCopy).toEqual([]);
+    expect(ko['legal.content_html']).toContain(
+      '<span data-legal-pro-storage>PRO 방에서는 세션 연결을 위한 IP 주소와 연결 정보가 시그널링 서버를 경유해요. 재생목록에 추가한 원본 파일은 방을 계속 이용할 수 있도록 비공개 Cloudflare R2에 보관돼요. 파일은 재생목록에서 더 이상 사용되지 않거나 운영자가 방 데이터를 삭제하면 정리되며, 방에 입장한 사용자만 짧은 시간 동안 유효한 주소로 내려받을 수 있어요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람하거나 분석하지 않아요.</span>',
+    );
   });
 });

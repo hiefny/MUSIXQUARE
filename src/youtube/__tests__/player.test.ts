@@ -1198,6 +1198,152 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('PRO iframe title persistence', () => {
+    it('persists a coordinator placeholder with bounded retries', async () => {
+      const updateTrackMetadata = vi.fn(() => true);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ updateTrackMetadata }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['queue.mutate'],
+      });
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'VIDEO_ID_01',
+          videoId: 'VIDEO_ID_01',
+          playlistId: null,
+        },
+      ]);
+      const { persistResolvedProYouTubeTitleForTests } = await import('../iframe.ts');
+
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(true);
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(false);
+      expect(updateTrackMetadata).toHaveBeenCalledTimes(1);
+      expect(updateTrackMetadata).toHaveBeenCalledWith(QUEUE_ITEM_ID, {
+        name: 'Resolved title',
+        title: 'Resolved title',
+      });
+
+      // A transient metadata mutation failure must not suppress retries for
+      // the rest of the tab lifetime. The authoritative snapshot normally
+      // replaces the placeholder before this bounded retry window expires.
+      vi.advanceTimersByTime(5_001);
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(true);
+      expect(updateTrackMetadata).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(5_001);
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(true);
+      vi.advanceTimersByTime(5_001);
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(false);
+      expect(updateTrackMetadata).toHaveBeenCalledTimes(3);
+
+      setState('room.context', {
+        ...getState('room.context'),
+        coordinatorId: 'coordinator-2',
+        epoch: 2,
+      });
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(true);
+      expect(updateTrackMetadata).toHaveBeenCalledTimes(4);
+
+      setState('playlist.items', []);
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(false);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'VIDEO_ID_01',
+          videoId: 'VIDEO_ID_01',
+          playlistId: null,
+        },
+      ]);
+      expect(
+        persistResolvedProYouTubeTitleForTests(QUEUE_ITEM_ID, 'VIDEO_ID_01', 'Resolved title'),
+      ).toBe(true);
+      expect(updateTrackMetadata).toHaveBeenCalledTimes(5);
+    });
+
+    it('protects explicit titles and ignores members or mismatched sources', async () => {
+      const updateTrackMetadata = vi.fn(() => true);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ updateTrackMetadata }));
+      const { persistResolvedProYouTubeTitleForTests } = await import('../iframe.ts');
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['queue.mutate'],
+      });
+      setState('playlist.items', [
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'VIDEO_ID_02',
+          title: 'API supplied title',
+          videoId: 'VIDEO_ID_02',
+          playlistId: null,
+        },
+      ]);
+
+      expect(
+        persistResolvedProYouTubeTitleForTests(
+          SECOND_QUEUE_ITEM_ID,
+          'VIDEO_ID_02',
+          'Iframe title',
+        ),
+      ).toBe(false);
+      expect(
+        persistResolvedProYouTubeTitleForTests(
+          SECOND_QUEUE_ITEM_ID,
+          'WRONG_VIDEO',
+          'Iframe title',
+        ),
+      ).toBe(false);
+      setState('playlist.items', [
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'VIDEO_ID_02',
+          videoId: 'VIDEO_ID_02',
+          playlistId: null,
+        },
+      ]);
+      setState('room.context', {
+        ...getState('room.context'),
+        role: 'member',
+      });
+      expect(
+        persistResolvedProYouTubeTitleForTests(
+          SECOND_QUEUE_ITEM_ID,
+          'VIDEO_ID_02',
+          'Iframe title',
+        ),
+      ).toBe(false);
+      expect(updateTrackMetadata).not.toHaveBeenCalled();
+    });
+  });
+
   describe('System audio restore bootstrap', () => {
     it('rebroadcasts YouTube playback when restoring the room after system audio', async () => {
       const { consumePendingAutoSyncOnReady, initYouTube } = await import('../player.ts');

@@ -17,6 +17,8 @@ import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
+import { isCoordinator } from '../rooms/authority.ts';
+import { handleProRoomTrackMetadata } from '../pro-room/legacy-media-hooks.ts';
 import {
   isPlaybackModeYouTube,
   setPlaybackIdle,
@@ -86,6 +88,7 @@ import {
   DURATION_CACHE_EPSILON,
 } from './constants.ts';
 
+import type { QueueItemId } from '../types/index.ts';
 import type { YTNamespace, YTPlayerConfig, YtIndexingSession } from './_state.ts';
 declare const YT: YTNamespace;
 declare global {
@@ -95,6 +98,77 @@ declare global {
     isYouTubeAPIReady?: boolean;
   }
 }
+
+const PRO_TITLE_PERSIST_RETRY_MS = 5_000;
+const PRO_TITLE_PERSIST_MAX_ATTEMPTS = 3;
+const persistedResolvedTitleByQueueItem = new Map<
+  QueueItemId,
+  {
+    authorityIdentity: string;
+    writeIdentity: string;
+    attemptedAtMs: number;
+    attempts: number;
+  }
+>();
+
+function persistResolvedProYouTubeTitle(
+  queueItemId: QueueItemId | null,
+  videoId: string,
+  resolvedTitle: string,
+): boolean {
+  if (!queueItemId) return false;
+
+  const roomContext = getState('room.context');
+  if (roomContext.kind !== 'pro' || !isCoordinator()) return false;
+
+  const item = getQueueItemById(queueItemId);
+  if (!item || item.type !== 'youtube' || item.videoId !== videoId) {
+    persistedResolvedTitleByQueueItem.delete(queueItemId);
+    return false;
+  }
+
+  const name = item.name.trim();
+  const title = item.title?.trim();
+  if (name !== videoId || (title !== undefined && title !== videoId)) {
+    persistedResolvedTitleByQueueItem.delete(queueItemId);
+    return false;
+  }
+
+  const nextTitle = resolvedTitle.trim();
+  if (!nextTitle || nextTitle === videoId) return false;
+  const authorityIdentity = `${roomContext.roomId ?? ''}\n${roomContext.epoch}\n${roomContext.coordinatorId ?? ''}`;
+  const writeIdentity = `${videoId}\n${nextTitle}`;
+  const nowMs = Date.now();
+  const previousAttempt = persistedResolvedTitleByQueueItem.get(queueItemId);
+  const isSameAttemptSeries =
+    previousAttempt?.authorityIdentity === authorityIdentity &&
+    previousAttempt.writeIdentity === writeIdentity;
+  if (isSameAttemptSeries) {
+    if (previousAttempt.attempts >= PRO_TITLE_PERSIST_MAX_ATTEMPTS) return false;
+    if (
+      nowMs >= previousAttempt.attemptedAtMs &&
+      nowMs - previousAttempt.attemptedAtMs < PRO_TITLE_PERSIST_RETRY_MS
+    ) {
+      return false;
+    }
+  }
+
+  const accepted = handleProRoomTrackMetadata(queueItemId, {
+    name: nextTitle,
+    title: nextTitle,
+  });
+  if (accepted) {
+    persistedResolvedTitleByQueueItem.set(queueItemId, {
+      authorityIdentity,
+      writeIdentity,
+      attemptedAtMs: nowMs,
+      attempts: isSameAttemptSeries ? previousAttempt.attempts + 1 : 1,
+    });
+  }
+  return accepted;
+}
+
+export const persistResolvedProYouTubeTitleForTests = persistResolvedProYouTubeTitle;
 
 function resetYouTubePlayerHost(container: HTMLElement): void {
   const playerHost = document.createElement('div');
@@ -1614,8 +1688,16 @@ function updateYouTubeUI(): void {
     // outgoing broadcast just below in broadcastYouTubeSync. The setState
     // call is a no-op when nothing changed (same-ref check inside).
     if (!getState('network.hostConn')) {
-      const vTitle = player.getVideoData?.()?.title;
-      if (vTitle) updatePlaybackTrackTitle(vTitle);
+      const videoData = player.getVideoData?.();
+      const vTitle = videoData?.title;
+      if (vTitle) {
+        updatePlaybackTrackTitle(vTitle);
+        persistResolvedProYouTubeTitle(
+          getCurrentQueueItemId(),
+          videoData?.video_id || '',
+          vTitle,
+        );
+      }
     }
 
     // ── Unavailable-video heuristic (host-only) ────────────────────
@@ -1760,6 +1842,11 @@ function updateYouTubeUI(): void {
       if (vData?.title && vData.title !== _ifr.lastVideoTitle) {
         _ifr.lastVideoTitle = vData.title;
         updatePlaybackTrackTitle(vData.title);
+        persistResolvedProYouTubeTitle(
+          getCurrentQueueItemId(),
+          vData.video_id || '',
+          vData.title,
+        );
       }
       currentVideoId = vData?.video_id || '';
 

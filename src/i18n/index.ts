@@ -105,6 +105,22 @@ const _loadingFonts = new Map<LanguageCode, Promise<void>>();
 
 type TranslationParams = Record<string, string | number>;
 
+/**
+ * Return the browser's primary system language when MUSIXQUARE supports it.
+ *
+ * Unlike the resolved UI language, this deliberately returns `null` when the
+ * primary system language is unsupported instead of applying the English
+ * fallback. Callers can therefore distinguish "English is preferred" from
+ * "no system preference can be represented in the language picker".
+ */
+export function getSupportedSystemLanguage(): LanguageCode | null {
+  try {
+    return _matchLanguage(navigator.language || navigator.languages?.[0] || '');
+  } catch {
+    return null;
+  }
+}
+
 function _pluralCategory(value: number): PluralCategory {
   try {
     let rules = _pluralRules.get(_resolved);

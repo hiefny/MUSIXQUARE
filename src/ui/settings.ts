@@ -22,6 +22,7 @@ import { isPlaybackModeSystemAudio } from '../player/ownership.ts';
 import {
   getLanguageMode,
   getResolvedLanguage,
+  getSupportedSystemLanguage,
   LANGUAGE_OPTIONS,
   setLanguageMode,
   t,
@@ -645,8 +646,16 @@ function renderLanguageOptions(): void {
   const list = document.getElementById('language-list');
   if (!list || list.dataset.rendered === 'true') return;
 
+  const systemLanguage = getSupportedSystemLanguage();
+  const systemOption = systemLanguage
+    ? LANGUAGE_OPTIONS.find((language) => language.code === systemLanguage)
+    : undefined;
+  const languageOptions = systemOption
+    ? [systemOption, ...LANGUAGE_OPTIONS.filter((language) => language.code !== systemLanguage)]
+    : LANGUAGE_OPTIONS;
+
   const fragment = document.createDocumentFragment();
-  for (const lang of LANGUAGE_OPTIONS) {
+  for (const lang of languageOptions) {
     const option = document.createElement('button');
     option.type = 'button';
     option.className = 'language-option';

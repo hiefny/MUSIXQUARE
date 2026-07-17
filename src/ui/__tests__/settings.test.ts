@@ -308,6 +308,37 @@ describe('initSettings PRO device authority', () => {
 });
 
 describe('initSettings language controls', () => {
+  it('moves a supported system language to the top of the language list', () => {
+    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ja-JP');
+    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['ja-JP', 'en-US']);
+    setLanguageMode('ko');
+    installLanguageSettingsDom();
+    initSettings();
+
+    const options = Array.from(document.querySelectorAll<HTMLElement>('.language-option'));
+
+    expect(options[0]?.dataset.lang).toBe('ja');
+    expect(options).toHaveLength(LANGUAGE_OPTIONS.length);
+    expect(new Set(options.map((option) => option.dataset.lang)).size).toBe(
+      LANGUAGE_OPTIONS.length,
+    );
+    expect(document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang).toBe('ko');
+  });
+
+  it('keeps the default order when no system language is supported', () => {
+    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ar-SA');
+    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['ar-SA', 'ja-JP']);
+    installLanguageSettingsDom();
+    initSettings();
+
+    const optionCodes = Array.from(
+      document.querySelectorAll<HTMLElement>('.language-option'),
+      (option) => option.dataset.lang,
+    );
+
+    expect(optionCodes).toEqual(LANGUAGE_OPTIONS.map((language) => language.code));
+  });
+
   it('opens the language dialog with all supported languages and a custom scrollbar', () => {
     setLanguageMode('ko');
     installLanguageSettingsDom();

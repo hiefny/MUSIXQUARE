@@ -15,6 +15,7 @@ import {
 } from '../contracts.ts';
 
 const ROOM_CODE = '000001';
+const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
 const CLAIM_TOKEN = `v1.${'a'.repeat(32)}.${'B'.repeat(43)}`;
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 const ASSET_ID = 'asset_00000000001';
@@ -142,6 +143,12 @@ describe('PRO room endpoint boundary', () => {
     expect(resolveProRoomEndpoint('https://pro-staging.musixquare.com/')).toBe(
       'https://pro-staging.musixquare.com',
     );
+    expect(resolveProRoomEndpoint('https://musixquare.com/api/pro-room/')).toBe(
+      'https://musixquare.com/api/pro-room',
+    );
+    expect(resolveProRoomEndpoint('https://www.musixquare.com/api/pro-room')).toBe(
+      'https://www.musixquare.com/api/pro-room',
+    );
     expect(resolveProRoomEndpoint('http://127.0.0.1:8789')).toBe('http://127.0.0.1:8789');
     expect(resolveProRoomEndpoint('https://localhost:8789')).toBe('https://localhost:8789');
 
@@ -151,6 +158,9 @@ describe('PRO room endpoint boundary', () => {
       PRO_ROOM_PRODUCTION_ENDPOINT,
     );
     expect(resolveProRoomEndpoint('https://pro.musixquare.com/path')).toBe(
+      PRO_ROOM_PRODUCTION_ENDPOINT,
+    );
+    expect(resolveProRoomEndpoint('https://musixquare.com/api/pro-room/other')).toBe(
       PRO_ROOM_PRODUCTION_ENDPOINT,
     );
     expect(resolveProRoomEndpoint('javascript:alert(1)')).toBe(PRO_ROOM_PRODUCTION_ENDPOINT);
@@ -258,7 +268,7 @@ describe('PRO room cookie session API', () => {
     ).resolves.toEqual(activeSnapshot());
 
     const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe('/v1/rooms/000001/owner-recovery');
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/owner-recovery`);
     expect(url.search).toBe('');
     expect(init.method).toBe('POST');
     expect(init.credentials).toBe('include');
@@ -302,7 +312,7 @@ describe('PRO room cookie session API', () => {
     ).resolves.toEqual(activeSnapshot());
 
     const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe('/v1/rooms/000001/sessions');
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/sessions`);
     expect(JSON.parse(String(init.body))).toEqual({ pin: '12345678', displayName: 'Friend' });
     expect(String(init.body)).not.toContain('token');
   });
@@ -329,10 +339,10 @@ describe('PRO room cookie session API', () => {
     ).resolves.toBeUndefined();
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
-      '/v1/rooms/000001/snapshot',
-      '/v1/rooms/000001/presence/heartbeat',
-      '/v1/rooms/000001/pin',
-      '/v1/rooms/000001/sessions/current/close',
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/snapshot`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/heartbeat`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/pin`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/sessions/current/close`,
     ]);
     const activeHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
     expect(activeHeaders.get('x-mxqr-pro-participant-id')).toBe(
@@ -456,8 +466,8 @@ describe('PRO room cookie session API', () => {
     await expect(client.leavePresence(ROOM_CODE)).resolves.toEqual(activeSnapshot());
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
-      '/v1/rooms/000001/signaling-tickets',
-      '/v1/rooms/000001/presence/current',
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/signaling-tickets`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/current`,
     ]);
     expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST', 'DELETE']);
   });
@@ -516,7 +526,9 @@ describe('PRO room cookie session API', () => {
     await client.ackDeveloperCommand({ code: ROOM_CODE, commandId, resultCode: 'applied' });
 
     const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe(`/v1/rooms/000001/developer-commands/${commandId}/ack`);
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/developer-commands/${commandId}/ack`,
+    );
     expect(init).toMatchObject({
       method: 'POST',
       credentials: 'include',
@@ -568,7 +580,7 @@ describe('PRO room cookie session API', () => {
     });
 
     const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe('/v1/rooms/000001/presence/close');
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/close`);
     expect(init).toMatchObject({
       method: 'POST',
       credentials: 'include',
@@ -678,7 +690,7 @@ describe('PRO room cookie session API', () => {
     });
 
     const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe('/v1/rooms/000001/snapshot');
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/snapshot`);
     expect(init.method).toBe('PUT');
     expect(new Headers(init.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
     expect(JSON.parse(String(init.body))).toEqual({
@@ -776,11 +788,11 @@ describe('PRO room system-audio lease API', () => {
     ).resolves.toEqual({ ...idle, generation: 2 });
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
-      '/v1/rooms/000001/system-audio',
-      '/v1/rooms/000001/system-audio/acquire',
-      '/v1/rooms/000001/system-audio/commit',
-      '/v1/rooms/000001/system-audio/heartbeat',
-      '/v1/rooms/000001/system-audio/release',
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/system-audio`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/system-audio/acquire`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/system-audio/commit`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/system-audio/heartbeat`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/system-audio/release`,
     ]);
     for (const call of fetchMock.mock.calls) {
       const headers = new Headers(call[1]?.headers);
@@ -868,7 +880,7 @@ describe('PRO room private media API', () => {
     });
 
     const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe('/v1/rooms/000001/media/reservations');
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/media/reservations`);
     expect(new Headers(init.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
     expect(JSON.parse(String(init.body))).toMatchObject({
       byteLength: 1024,
@@ -943,9 +955,9 @@ describe('PRO room private media API', () => {
     ).resolves.toEqual({ assetId: ASSET_ID, quota: quota() });
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
-      `/v1/rooms/000001/media/${ASSET_ID}/complete`,
-      `/v1/rooms/000001/media/${ASSET_ID}/download`,
-      `/v1/rooms/000001/media/${ASSET_ID}`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/media/${ASSET_ID}/complete`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/media/${ASSET_ID}/download`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/media/${ASSET_ID}`,
     ]);
     expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('idempotency-key')).toBe(
       IDEMPOTENCY_KEY,

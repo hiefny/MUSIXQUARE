@@ -25,7 +25,7 @@ import {
 } from './snapshot.ts';
 import type { DeveloperCommandResultCode } from '../network/transport/types.ts';
 
-const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://pro.musixquare.com';
+const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
 
 const MAX_REQUEST_JSON_BYTES = 4 * 1024 * 1024;
@@ -254,14 +254,22 @@ function parseEndpoint(value: unknown): string | null {
   } catch {
     return null;
   }
-  const isMusixquare = url.protocol === 'https:' && url.hostname.endsWith('.musixquare.com');
+  const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
+  const isMusixquareService =
+    url.protocol === 'https:' &&
+    url.hostname.endsWith('.musixquare.com') &&
+    normalizedPath === '/';
+  const isProductionFacade =
+    url.protocol === 'https:' &&
+    (url.hostname === 'musixquare.com' || url.hostname === 'www.musixquare.com') &&
+    normalizedPath === '/api/pro-room';
   const isLocal =
     (url.protocol === 'http:' || url.protocol === 'https:') &&
     (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
-  if (!isMusixquare && !isLocal) return null;
+  if (!isMusixquareService && !isProductionFacade && !isLocal) return null;
   if (url.username || url.password || url.search || url.hash) return null;
-  if (url.pathname !== '/' && url.pathname !== '') return null;
-  return url.origin;
+  if (isLocal && normalizedPath !== '/') return null;
+  return normalizedPath === '/' ? url.origin : `${url.origin}${normalizedPath}`;
 }
 
 function readEndpointOverride(): unknown {
@@ -629,8 +637,11 @@ export class ProRoomApiClient {
 
   async #request<T>(path: string, options: RequestOptions<T>): Promise<T> {
     if (options.signal?.aborted) throw new ProRoomApiError('ABORTED');
-    const url = new URL(path, this.endpoint);
-    if (url.origin !== this.endpoint) throw new ProRoomApiError('INVALID_REQUEST');
+    const endpoint = new URL(`${this.endpoint}/`);
+    const url = new URL(path.replace(/^\/+/, ''), endpoint);
+    if (url.origin !== endpoint.origin || !url.pathname.startsWith(endpoint.pathname)) {
+      throw new ProRoomApiError('INVALID_REQUEST');
+    }
 
     const headers = new Headers({ Accept: 'application/json' });
     let body: string | undefined;

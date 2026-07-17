@@ -950,7 +950,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(rejectedHeartbeat.status).toBe(409);
     expect(await responseJson(rejectedHeartbeat)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
-    const awake = await worker.fetch(request('/presence/enter', { method: 'POST' }, ownerCookie));
+    // Cloudflare can expose an application-level empty POST as a non-null body
+    // stream. Treat the zero-byte transport body exactly like an absent body.
+    const awake = await worker.fetch(
+      request('/presence/enter', { method: 'POST', body: '' }, ownerCookie),
+    );
     const awakeEnvelope = await responseJson(awake);
     bindCookiePresence(ownerCookie, awakeEnvelope);
     expect(Object.keys(awakeEnvelope)).toEqual(['snapshot']);
@@ -1032,6 +1036,27 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(blockedResponse.status).toBe(409);
     expect(await responseJson(blockedResponse)).toEqual({
       error: 'PRESENCE_ACTIVE_ELSEWHERE',
+    });
+    const blockedEmptyStreamResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST', body: '' }, ownerCookie),
+    );
+    expect(blockedEmptyStreamResponse.status).toBe(409);
+    expect(await responseJson(blockedEmptyStreamResponse)).toEqual({
+      error: 'PRESENCE_ACTIVE_ELSEWHERE',
+    });
+    const rejectedUnconfirmedTakeover = await worker.fetch(
+      jsonRequest('/presence/enter', 'POST', { takeover: false }, ownerCookie),
+    );
+    expect(rejectedUnconfirmedTakeover.status).toBe(400);
+    expect(await responseJson(rejectedUnconfirmedTakeover)).toEqual({
+      error: 'INVALID_REQUEST',
+    });
+    const rejectedNonJsonTakeover = await worker.fetch(
+      request('/presence/enter', { method: 'POST', body: '{}' }, ownerCookie),
+    );
+    expect(rejectedNonJsonTakeover.status).toBe(400);
+    expect(await responseJson(rejectedNonJsonTakeover)).toEqual({
+      error: 'INVALID_REQUEST',
     });
     const unchanged = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
     expect(unchanged.snapshot.viewer.presenceIncarnationId).toBe(

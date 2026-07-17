@@ -498,17 +498,22 @@ async function verifyPin(pin, record, pepper) {
   }
 }
 
-async function readJsonBody(request, maxBytes, allowSimpleText = false) {
+async function readJsonBody(request, maxBytes, allowSimpleText = false, allowEmpty = false) {
   const contentType = request.headers.get('content-type') || '';
   const acceptedContentType = allowSimpleText
     ? /^text\/plain(?:\s*;|$)/i.test(contentType)
     : /^application\/json(?:\s*;|$)/i.test(contentType);
-  if (!acceptedContentType) return { error: 'INVALID_REQUEST' };
+  if (!acceptedContentType && !allowEmpty) return { error: 'INVALID_REQUEST' };
   const declared = request.headers.get('content-length');
   if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
     return { error: 'REQUEST_TOO_LARGE', status: 413 };
   }
-  if (!request.body) return { error: 'INVALID_REQUEST' };
+  const declaredLength = declared === null ? null : Number(declared);
+  if (!request.body) {
+    return allowEmpty && (declaredLength === null || declaredLength === 0)
+      ? { empty: true }
+      : { error: 'INVALID_REQUEST' };
+  }
   const reader = request.body.getReader();
   const chunks = [];
   let length = 0;
@@ -529,6 +534,10 @@ async function readJsonBody(request, maxBytes, allowSimpleText = false) {
   } finally {
     reader.releaseLock();
   }
+  if (length === 0 && allowEmpty && (declaredLength === null || declaredLength === 0)) {
+    return { empty: true };
+  }
+  if (!acceptedContentType) return { error: 'INVALID_REQUEST' };
   const bytes = new Uint8Array(length);
   let offset = 0;
   for (const chunk of chunks) {
@@ -1528,11 +1537,16 @@ export class MusixquareProRoom {
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(update);
   }
 
-  async parseBody(request, maxBytes = SMALL_REQUEST_MAX_BYTES, allowSimpleText = false) {
-    const parsed = await readJsonBody(request, maxBytes, allowSimpleText);
+  async parseBody(
+    request,
+    maxBytes = SMALL_REQUEST_MAX_BYTES,
+    allowSimpleText = false,
+    allowEmpty = false,
+  ) {
+    const parsed = await readJsonBody(request, maxBytes, allowSimpleText, allowEmpty);
     return parsed.error
       ? { response: errorResponse(parsed.error, parsed.status || 400) }
-      : { value: parsed.value };
+      : { value: parsed.value, empty: parsed.empty === true };
   }
 
   rateLimitKey(request, kind) {
@@ -2139,9 +2153,9 @@ export class MusixquareProRoom {
     const auth = await this.requireSession(request);
     if (auth.response) return auth.response;
     let takeover = false;
-    if (request.body) {
-      const parsed = await this.parseBody(request);
-      if (parsed.response) return parsed.response;
+    const parsed = await this.parseBody(request, SMALL_REQUEST_MAX_BYTES, false, true);
+    if (parsed.response) return parsed.response;
+    if (!parsed.empty) {
       if (!hasExactKeys(parsed.value, ['takeover']) || parsed.value.takeover !== true) {
         return errorResponse('INVALID_REQUEST', 400);
       }

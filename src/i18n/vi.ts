@@ -339,6 +339,7 @@ const vi: Record<I18nKey, string> = {
   'share.remote.too_large': 'Tệp quá lớn (tối đa 200 MB)',
   'share.remote.network_error': 'Lỗi mạng khi chia sẻ từ xa',
   'share.remote.rate_limited': 'Quá nhiều lượt tải lên từ xa.\nVui lòng thử lại sau',
+  'share.remote.quota_reached': 'Đã đạt giới hạn chia sẻ từ xa',
   'share.remote.auth_failed': 'Ủy quyền chia sẻ từ xa thất bại.\nKiểm tra cài đặt Worker',
   'share.remote.expired': 'Liên kết tệp từ xa đã hết hạn.\nVui lòng chia sẻ lại.',
   'share.remote.unavailable': 'Chia sẻ từ xa thất bại.\nVui lòng thử lại sau.',
@@ -574,6 +575,8 @@ const vi: Record<I18nKey, string> = {
     'Chia sẻ âm thanh hệ thống đã kết thúc. Host hãy tăng lại âm lượng để làm loa của phòng.',
   'chat.remote_upload_limited_system_message':
     'Đã đạt giới hạn tải tệp lên.\nNgười tham gia từ xa nên thử lại sau.',
+  'chat.remote_storage_quota_system_message':
+    'Đã đạt giới hạn chia sẻ từ xa.\nBạn vẫn có thể chia sẻ tệp cục bộ.',
   'chat.remote_upload_failed_system_message':
     'Tải tệp từ xa lên thất bại.\nNgười tham gia từ xa nên thử lại sớm.',
   'chat.pinned_close': 'Đóng thông báo',

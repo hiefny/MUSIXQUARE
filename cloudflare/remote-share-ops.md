@@ -5,13 +5,17 @@ file sharing. It is intentionally practical: what to watch, when to upgrade,
 and which guardrails are meant to solve which problem.
 
 Cloudflare plan limits were last checked against the official Workers, Workers
-KV, and WAF documentation on 2026-07-11. Recheck those sources before making a
-cost or upgrade decision.
+KV, R2, and WAF documentation on 2026-07-18. Recheck those sources before
+making a cost or upgrade decision. R2 Standard currently includes 10 GB-month
+of storage per month in its free usage allowance; this is an allowance rather
+than a hard account storage cap.
 
 ## Current Decision
 
 - Start on Cloudflare Workers Free.
 - Keep the existing KV-backed per-IP upload-session rate limit.
+- Cap each standard room's active encrypted R2 objects at 1 GiB
+  (`ROOM_STORAGE_QUOTA_BYTES`).
 - Upgrade to Workers Paid only when real usage starts hitting Free-plan limits.
 - Keep the active Cloudflare WAF burst guard on `POST /session`.
 
@@ -23,9 +27,11 @@ remote uploads still consume one KV write for the upload-session rate counter.
 
 One remote file upload attempt roughly means:
 
-- `POST /session`: Worker request, KV read, KV write, presigned R2 PUT URL issued.
+- `POST /session`: Worker request, KV read/write, room-prefix R2 usage check,
+  and presigned R2 PUT URL issued.
 - Direct `PUT` to R2: R2 Class A operation, no Worker body upload.
-- `POST /complete`: Worker request, R2 HEAD validation.
+- `POST /complete`: Worker request, R2 HEAD validation, and an authoritative
+  room-prefix usage recheck. A racing excess object is deleted before publish.
 - `GET /download/...`: one Worker request and one R2 read per remote guest.
 
 Downloads do not write to KV.
@@ -36,6 +42,14 @@ Downloads do not write to KV.
 - Signed upload session and completion tokens.
 - Direct-to-R2 presigned PUT upload path.
 - R2 object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour by default.
+- Standard-room temporary R2 quota: 1 GiB per six-digit room code, counting all
+  active encrypted objects under that room's R2 prefix. Session creation checks
+  capacity early; completion checks it again so concurrent uploads cannot
+  publish an over-quota object. Failed uploads issue best-effort authenticated
+  cleanup, while expiry and the bucket lifecycle remain cleanup backstops. A
+  direct PUT that finishes after an interrupted client has already attempted
+  cleanup can temporarily occupy physical R2 storage until expiry, so this is
+  a published-object guard rather than an atomic billing hard cap.
 - The production R2 bucket also has a bucket-level lifecycle rule that automatically
   expires remote-share objects. This setting lives in R2 rather than this repository
   and must remain configured for a maximum intended retention of 24 hours. Wrangler
@@ -49,6 +63,15 @@ Downloads do not write to KV.
 - KV rate limit:
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.
   - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
+- `ROOM_STORAGE_QUOTA_BYTES`: production is `1073741824` (1 GiB). Setting it
+  to `0` disables this storage guard. Reaching it stops only the R2 route;
+  same-network direct file delivery remains available. This per-room guard
+  does not replace account-wide R2 usage monitoring or billing alerts. The
+  six-digit room code is client-supplied rather than a server-issued storage
+  entitlement, so this is an operational normal-client limit, not an
+  abuse-resistant account cost ceiling. Capability, IP throttling, and WAF
+  remain the abuse controls; a future hard entitlement requires a
+  signaling-issued room upload capability.
 - App-issued capability token required on `POST /session` in production. With
   Turnstile disabled, the app Worker issues it only after a signed,
   IP/scope-bound proof-of-work challenge; Origin/Host headers are not proof.
@@ -74,6 +97,7 @@ WAF after that is abuse control, not normal-cost optimization.
 
 References: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 [Workers KV pricing](https://developers.cloudflare.com/kv/platform/pricing/),
+[R2 pricing](https://developers.cloudflare.com/r2/pricing/),
 and [WAF rate-limiting availability](https://developers.cloudflare.com/waf/rate-limiting-rules/).
 
 ## Active WAF Rate Limit

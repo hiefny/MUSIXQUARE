@@ -310,6 +310,8 @@ const tr: Record<I18nKey, string> = {
     'Sistem sesi paylaşımı sona erdi. Oda sahibi, hoparlör rolüne dönmek için sesi tekrar açabilir.',
   'chat.remote_upload_limited_system_message':
     'Dosya yükleme sınırına ulaşıldı.\nUzaktaki misafirler daha sonra tekrar deneyebilir.',
+  'chat.remote_storage_quota_system_message':
+    'Uzaktan paylaşım sınırına ulaşıldı.\nYerel dosya paylaşımını kullanmaya devam edebilirsiniz.',
   'chat.remote_upload_failed_system_message':
     'Dosya uzaktan yüklenemedi.\nUzaktaki misafirler kısa süre sonra tekrar deneyebilir.',
   'chat.pinned_close': 'Bildirimi Kapat',
@@ -500,6 +502,7 @@ const tr: Record<I18nKey, string> = {
   'share.remote.network_error': 'Uzak paylaşım sırasında ağ hatası oluştu',
   'share.remote.rate_limited':
     'Çok fazla uzaktan paylaşım isteği var.\nLütfen birazdan tekrar deneyin',
+  'share.remote.quota_reached': 'Uzaktan paylaşım sınırına ulaşıldı',
   'share.remote.auth_failed':
     'Uzaktan paylaşım yetkilendirmesi başarısız oldu.\nLütfen Worker ayarlarını kontrol edin',
   'share.remote.expired': 'Uzak dosya linkinin süresi doldu.\nLütfen tekrar paylaşın.',

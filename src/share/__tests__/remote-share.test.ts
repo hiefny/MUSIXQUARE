@@ -50,6 +50,7 @@ vi.mock('../../ui/toast.ts', () => ({
 }));
 
 vi.mock('../../chat/protocol.ts', () => ({
+  broadcastSystemMessage: vi.fn(),
   sendSystemMessage: vi.fn(),
 }));
 
@@ -1856,6 +1857,22 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     };
   }
 
+  function localPeer(): ConnectedPeer {
+    return {
+      id: 'guest-local-1',
+      slot: 2,
+      label: 'Guest 2',
+      conn: { open: true, peer: 'guest-local-1' } as DataConnection,
+      isOp: false,
+      preloadedQueueItemIds: new Set<string>(),
+      status: 'connected',
+      isDataTarget: true,
+      joinOrder: 2,
+      connectionType: 'local',
+      lastHeartbeat: Date.now(),
+    };
+  }
+
   function fileItem(file: File, queueItemId = Q0): PlaylistItem {
     return { queueItemId, type: 'file', file, name: file.name, videoId: null, playlistId: null };
   }
@@ -1918,6 +1935,44 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
 
     expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
+  });
+
+  it('announces room storage exhaustion as a gray system message', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { broadcastSystemMessage, sendSystemMessage } = await import('../../chat/protocol.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+    const directLocalPeer = localPeer();
+    setState('network.connectedPeers', [remotePeer(), directLocalPeer]);
+    mocks.uploadRemoteFile.mockRejectedValueOnce(new Error('REMOTE_SHARE_SESSION_HTTP_409'));
+
+    await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+
+    expect(broadcastSystemMessage).toHaveBeenCalledWith('chat.remote_storage_quota_system_message');
+    expect(sendSystemMessage).not.toHaveBeenCalled();
+    expect(safeSend).toHaveBeenCalledWith(
+      expect.objectContaining({ peer: 'guest-remote-1' }),
+      expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE, limited: true }),
+    );
+    expect(safeSend).not.toHaveBeenCalledWith(
+      directLocalPeer.conn,
+      expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE }),
+    );
+    expect(getState('share.remote').upload.error).toBe('share.remote.quota_reached');
+  });
+
+  it('shows a friendly network error when the room quota check is temporarily unavailable', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+    mocks.uploadRemoteFile.mockRejectedValueOnce(new Error('REMOTE_SHARE_SESSION_HTTP_503'));
+
+    await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+
+    expect(getState('share.remote').upload.error).toBe('share.remote.network_error');
   });
 
   it('uploads the next R2 file silently and reuses that object when it becomes current', async () => {

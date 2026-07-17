@@ -337,6 +337,7 @@ const zhHant: Record<I18nKey, string> = {
   'share.remote.too_large': '檔案太大（最大 200 MB）',
   'share.remote.network_error': '遠端分享期間發生網路錯誤',
   'share.remote.rate_limited': '遠端分享上傳過多。\n請稍後再試',
+  'share.remote.quota_reached': '已達遠端分享上限',
   'share.remote.auth_failed': '遠端分享授權失敗。\n請檢查 Worker 設定',
   'share.remote.expired': '遠端檔案連結已過期。\n請重新分享。',
   'share.remote.unavailable': '遠端分享失敗。\n請稍後再試。',
@@ -557,6 +558,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.system_audio_stopped_system_message':
     '系統音訊分享已結束。主持人可以恢復裝置音量，繼續作為喇叭播放。',
   'chat.remote_upload_limited_system_message': '檔案上傳已達限制。\n遠端參與者請稍後再試。',
+  'chat.remote_storage_quota_system_message': '已達遠端分享上限。\n仍可繼續使用本機檔案分享。',
   'chat.remote_upload_failed_system_message': '遠端檔案上傳失敗。\n遠端參與者請稍後重試。',
   'chat.pinned_close': '關閉公告',
   'chat.cmd_whisper_from': '來自 {{name}} 的私訊',

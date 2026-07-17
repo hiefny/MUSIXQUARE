@@ -305,6 +305,8 @@ const ko = {
     '시스템 오디오 공유가 종료됐어요. 방장은 다시 소리를 키워서 스피커 역할을 해주세요.',
   'chat.remote_upload_limited_system_message':
     '파일 업로드 제한에 걸렸어요.\n원격 참여자는 나중에 다시 시도해주세요.',
+  'chat.remote_storage_quota_system_message':
+    '원격 공유 한도에 도달했어요.\n로컬 파일 공유는 계속 사용할 수 있어요.',
   'chat.remote_upload_failed_system_message':
     '원격 파일 업로드에 실패했어요.\n원격 참여자는 잠시 후 다시 시도해주세요.',
   'chat.pinned_close': '공지 닫기',
@@ -491,6 +493,7 @@ const ko = {
   'share.remote.too_large': '파일이 너무 커요 (200MB 이하만 가능)',
   'share.remote.network_error': '네트워크 오류로 원격 공유에 실패했어요',
   'share.remote.rate_limited': '원격 공유 요청이 잠시 많아요.\n잠깐 뒤 다시 시도해주세요',
+  'share.remote.quota_reached': '원격 공유 한도에 도달했어요',
   'share.remote.auth_failed': '원격 공유 인증에 실패했어요.\nWorker 설정을 확인해주세요',
   'share.remote.expired': '원격 파일 링크가 만료됐어요.\n다시 공유해주세요',
   'share.remote.unavailable': '원격 공유에 실패했어요.\n잠시 후 다시 시도해주세요.',

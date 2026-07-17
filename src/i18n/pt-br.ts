@@ -343,6 +343,7 @@ const ptBr: Record<I18nKey, string> = {
   'share.remote.network_error': 'Erro de rede durante o compartilhamento remoto',
   'share.remote.rate_limited':
     'Muitos uploads de compartilhamento remoto.\nTente novamente em instantes',
+  'share.remote.quota_reached': 'Limite de compartilhamento remoto atingido',
   'share.remote.auth_failed':
     'Falha na autorização do compartilhamento remoto.\nVerifique as configurações do Worker',
   'share.remote.expired': 'O link do arquivo remoto expirou.\nCompartilhe novamente.',
@@ -590,6 +591,8 @@ const ptBr: Record<I18nKey, string> = {
     'Compartilhamento de áudio do sistema encerrado. Host, aumente o volume novamente para ser o alto-falante da sala.',
   'chat.remote_upload_limited_system_message':
     'Limite de upload de arquivo atingido.\nParticipantes remotos devem tentar novamente depois.',
+  'chat.remote_storage_quota_system_message':
+    'O limite de compartilhamento remoto foi atingido.\nO compartilhamento de arquivos locais continua disponível.',
   'chat.remote_upload_failed_system_message':
     'Falha no upload de arquivo remoto.\nParticipantes remotos devem tentar novamente em breve.',
   'chat.pinned_close': 'Dispensar aviso',

@@ -341,6 +341,7 @@ const ja: Record<I18nKey, string> = {
   'share.remote.network_error': 'リモート共有中にネットワークエラーが発生しました',
   'share.remote.rate_limited':
     'リモート共有のアップロードが多すぎます。\nしばらくしてからお試しください',
+  'share.remote.quota_reached': 'リモート共有の上限に達しました',
   'share.remote.auth_failed': 'リモート共有の認証に失敗しました。\nWorker設定を確認してください',
   'share.remote.expired': 'リモートファイルリンクの有効期限が切れました。\n再共有してください。',
   'share.remote.unavailable': 'リモート共有に失敗しました。\nしばらくしてからお試しください。',
@@ -580,6 +581,8 @@ const ja: Record<I18nKey, string> = {
     'システムオーディオの共有を終了しました。ホストデバイスの音量を戻して、スピーカーとして再生してください。',
   'chat.remote_upload_limited_system_message':
     'ファイルアップロード制限に達しました。\nリモート参加者は後でもう一度お試しください。',
+  'chat.remote_storage_quota_system_message':
+    'リモート共有の上限に達しました。\nローカルファイルの共有は引き続き利用できます。',
   'chat.remote_upload_failed_system_message':
     'リモートファイルのアップロードに失敗しました。\nリモート参加者は少し後で再試行してください。',
   'chat.pinned_close': 'お知らせを閉じる',

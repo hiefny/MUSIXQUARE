@@ -307,6 +307,8 @@ const en: Record<I18nKey, string> = {
     'System audio sharing has ended. Host, feel free to turn your volume back up so this device can act as a speaker again.',
   'chat.remote_upload_limited_system_message':
     'File upload limit reached.\nRemote participants should try again later.',
+  'chat.remote_storage_quota_system_message':
+    'Remote sharing limit reached.\nLocal file sharing is still available.',
   'chat.remote_upload_failed_system_message':
     'Remote file upload failed.\nRemote participants should try again shortly.',
   'chat.pinned_close': 'Dismiss notice',
@@ -493,6 +495,7 @@ const en: Record<I18nKey, string> = {
   'share.remote.too_large': 'File too large (200 MB max)',
   'share.remote.network_error': 'Network error during remote share',
   'share.remote.rate_limited': 'Too many remote share uploads.\nPlease try again in a moment',
+  'share.remote.quota_reached': 'Remote sharing storage limit reached',
   'share.remote.auth_failed':
     'Remote share authorization failed.\nPlease check the Worker settings',
   'share.remote.expired': 'Remote file link expired.\nPlease re-share.',

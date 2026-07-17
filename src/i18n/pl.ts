@@ -312,6 +312,8 @@ const pl: Record<I18nKey, string> = {
     'Udostępnianie dźwięku systemowego zostało zakończone. Host może ponownie podgłośnić swoje urządzenie, aby powrócić do roli głośnika.',
   'chat.remote_upload_limited_system_message':
     'Osiągnięto limit przesyłania plików.\nGoście zdalni mogą spróbować ponownie później.',
+  'chat.remote_storage_quota_system_message':
+    'Osiągnięto limit udostępniania zdalnego.\nNadal możesz udostępniać pliki lokalnie.',
   'chat.remote_upload_failed_system_message':
     'Nie udało się przesłać pliku zdalnego.\nZdalni goście mogą spróbować ponownie za chwilę.',
   'chat.pinned_close': 'Zamknij ogłoszenie',
@@ -505,6 +507,7 @@ const pl: Record<I18nKey, string> = {
   'share.remote.network_error': 'Błąd sieci podczas udostępniania zdalnego',
   'share.remote.rate_limited':
     'Zbyt wiele żądań udostępniania zdalnego.\nSpróbuj ponownie za chwilę',
+  'share.remote.quota_reached': 'Osiągnięto limit udostępniania zdalnego',
   'share.remote.auth_failed':
     'Autoryzacja udostępniania zdalnego nie powiodła się.\nSprawdź ustawienia Workera.',
   'share.remote.expired': 'Link do pliku zdalnego wygasł.\nUdostępnij go ponownie.',

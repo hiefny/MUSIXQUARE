@@ -343,6 +343,7 @@ const id: Record<I18nKey, string> = {
   'share.remote.network_error': 'Kesalahan jaringan saat berbagi jarak jauh',
   'share.remote.rate_limited':
     'Terlalu banyak unggahan berbagi jarak jauh.\nCoba lagi sebentar lagi',
+  'share.remote.quota_reached': 'Batas penyimpanan berbagi jarak jauh tercapai',
   'share.remote.auth_failed': 'Otorisasi berbagi jarak jauh gagal.\nPeriksa pengaturan Worker',
   'share.remote.expired': 'Tautan file jarak jauh kedaluwarsa.\nBagikan ulang.',
   'share.remote.unavailable': 'Berbagi jarak jauh gagal.\nCoba lagi sebentar lagi.',
@@ -581,6 +582,8 @@ const id: Record<I18nKey, string> = {
     'Berbagi audio sistem berakhir. Host, naikkan kembali volume untuk menjadi speaker ruang.',
   'chat.remote_upload_limited_system_message':
     'Batas unggahan file tercapai.\nPeserta jarak jauh sebaiknya mencoba lagi nanti.',
+  'chat.remote_storage_quota_system_message':
+    'Batas berbagi jarak jauh tercapai.\nBerbagi file lokal tetap dapat digunakan.',
   'chat.remote_upload_failed_system_message':
     'Unggahan file jarak jauh gagal.\nPeserta jarak jauh sebaiknya mencoba lagi sebentar lagi.',
   'chat.pinned_close': 'Tutup pemberitahuan',

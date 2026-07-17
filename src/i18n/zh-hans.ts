@@ -337,6 +337,7 @@ const zhHans: Record<I18nKey, string> = {
   'share.remote.too_large': '文件太大（最大 200 MB）',
   'share.remote.network_error': '远程共享过程中发生网络错误',
   'share.remote.rate_limited': '远程共享上传请求过多。\n请稍后再试',
+  'share.remote.quota_reached': '已达到远程共享限额',
   'share.remote.auth_failed': '远程共享授权失败。\n请检查 Worker 设置',
   'share.remote.expired': '远程文件链接已过期。\n请重新共享。',
   'share.remote.unavailable': '远程共享失败。\n请稍后再试。',
@@ -556,6 +557,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.system_audio_stopped_system_message':
     '系统音频共享已结束。主持人可以恢复设备音量，继续作为音箱播放。',
   'chat.remote_upload_limited_system_message': '文件上传已达到限制。\n远程参与者请稍后再试。',
+  'chat.remote_storage_quota_system_message': '已达到远程共享限额。\n本地文件共享仍可继续使用。',
   'chat.remote_upload_failed_system_message': '远程文件上传失败。\n远程参与者请稍后重试。',
   'chat.pinned_close': '关闭公告',
   'chat.cmd_whisper_from': '来自 {{name}} 的私聊',

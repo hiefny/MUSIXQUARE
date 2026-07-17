@@ -346,6 +346,7 @@ const es: Record<I18nKey, string> = {
   'share.remote.too_large': 'Archivo demasiado grande (máximo 200 MB)',
   'share.remote.network_error': 'Error de red durante la compartición remota',
   'share.remote.rate_limited': 'Demasiadas subidas remotas.\nInténtalo de nuevo en un momento',
+  'share.remote.quota_reached': 'Se alcanzó el límite de uso compartido remoto',
   'share.remote.auth_failed': 'Falló la autorización remota.\nRevisa la configuración del Worker',
   'share.remote.expired': 'El enlace del archivo remoto expiró.\nCompártelo de nuevo.',
   'share.remote.unavailable': 'Falló la compartición remota.\nInténtalo de nuevo en un momento.',
@@ -591,6 +592,8 @@ const es: Record<I18nKey, string> = {
     'Terminó la compartición de audio del sistema. Host, vuelve a subir el volumen para ser el altavoz de la sala.',
   'chat.remote_upload_limited_system_message':
     'Se alcanzó el límite de subida de archivos.\nLos participantes remotos deberían intentarlo más tarde.',
+  'chat.remote_storage_quota_system_message':
+    'Se alcanzó el límite de uso compartido remoto.\nAún puedes compartir archivos localmente.',
   'chat.remote_upload_failed_system_message':
     'Falló la subida de archivo remoto.\nLos participantes remotos deberían intentarlo pronto.',
   'chat.pinned_close': 'Descartar aviso',

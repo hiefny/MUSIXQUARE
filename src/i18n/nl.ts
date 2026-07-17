@@ -310,6 +310,8 @@ const nl: Record<I18nKey, string> = {
     'Systeem-audio delen is gestopt. Host, zet je volume gerust weer hoger om weer als luidspreker te fungeren.',
   'chat.remote_upload_limited_system_message':
     'Uploadlimiet voor bestanden bereikt.\nExterne deelnemers moeten het later opnieuw proberen.',
+  'chat.remote_storage_quota_system_message':
+    'Limiet voor extern delen bereikt.\nLokaal delen van bestanden blijft beschikbaar.',
   'chat.remote_upload_failed_system_message':
     'Upload van extern bestand mislukt.\nExterne deelnemers moeten het zo opnieuw proberen.',
   'chat.pinned_close': 'Melding sluiten',
@@ -497,6 +499,7 @@ const nl: Record<I18nKey, string> = {
   'share.remote.too_large': 'Bestand te groot (max. 200 MB)',
   'share.remote.network_error': 'Netwerkfout tijdens extern delen',
   'share.remote.rate_limited': 'Te veel uploads voor extern delen.\nProbeer het zo opnieuw',
+  'share.remote.quota_reached': 'Limiet voor extern delen bereikt',
   'share.remote.auth_failed':
     'Autorisatie voor extern delen mislukt.\nControleer de Worker-instellingen',
   'share.remote.expired': 'Link naar extern bestand is verlopen.\nDeel het opnieuw.',

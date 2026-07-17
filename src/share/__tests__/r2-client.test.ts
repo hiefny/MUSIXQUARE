@@ -154,9 +154,10 @@ describe('R2 download boundary', () => {
 describe('R2 upload progress watchdog', () => {
   it('stalls on no new uploaded bytes and ignores duplicate progress events', async () => {
     vi.useFakeTimers();
+    let cleanupCalls = 0;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.endsWith('/security-config')) {
           return Response.json({ capabilityRequired: false });
@@ -169,7 +170,14 @@ describe('R2 upload progress watchdog', () => {
             completeToken: 'complete-token',
             objectId,
             expiresAt: Date.now() + 300_000,
+            cleanupToken: 'cleanup-token',
           });
+        }
+        if (url.includes('/object/')) {
+          cleanupCalls += 1;
+          expect(init?.method).toBe('DELETE');
+          expect(new Headers(init?.headers).get('x-mxqr-cleanup-token')).toBe('cleanup-token');
+          return Response.json({ ok: true });
         }
         return new Response('unexpected', { status: 500 });
       }),
@@ -203,6 +211,7 @@ describe('R2 upload progress watchdog', () => {
 
     await rejected;
     expect(xhr.abortCalls).toBe(1);
+    await vi.waitFor(() => expect(cleanupCalls).toBe(1));
   });
 
   it('completes a steadily progressing PUT after its ten-minute start URL expires', async () => {
@@ -210,6 +219,7 @@ describe('R2 upload progress watchdog', () => {
     const startedAt = new Date('2026-07-11T00:00:00.000Z');
     vi.setSystemTime(startedAt);
     let completeCalls = 0;
+    let cleanupCalls = 0;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -225,6 +235,7 @@ describe('R2 upload progress watchdog', () => {
             completeToken: 'complete-token',
             objectId,
             expiresAt: startedAt.getTime() + 60 * 60_000,
+            cleanupToken: 'cleanup-token',
           });
         }
         if (url.endsWith('/complete')) {
@@ -234,6 +245,10 @@ describe('R2 upload progress watchdog', () => {
             downloadUrl: expectedUrl,
             expiresAt: startedAt.getTime() + 60 * 60_000,
           });
+        }
+        if (url.includes('/object/')) {
+          cleanupCalls += 1;
+          return Response.json({ ok: true });
         }
         return new Response('unexpected', { status: 500 });
       }),
@@ -270,5 +285,6 @@ describe('R2 upload progress watchdog', () => {
     xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
     await expect(pending).resolves.toMatchObject({ objectId, downloadUrl: expectedUrl });
     expect(completeCalls).toBe(1);
+    expect(cleanupCalls).toBe(0);
   });
 });

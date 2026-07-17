@@ -15,7 +15,7 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
-import { sendSystemMessage } from '../chat/protocol.ts';
+import { broadcastSystemMessage, sendSystemMessage } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
   isRemoteGuest,
@@ -263,6 +263,7 @@ function adoptRemoteContext(descriptor: RemoteFileSharePayload): void {
   };
 }
 let _lastUploadFailureMessageAt = 0;
+let _lastStorageQuotaMessageAt = 0;
 
 function rawRemoteShareError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -386,7 +387,9 @@ function friendlyErrorMessage(error: unknown): string {
     raw === 'REMOTE_SHARE_UPLOAD_STALLED' ||
     raw === 'REMOTE_SHARE_DOWNLOAD_STALLED' ||
     raw === 'REMOTE_SHARE_SESSION_NETWORK' ||
-    raw === 'REMOTE_SHARE_COMPLETE_NETWORK'
+    raw === 'REMOTE_SHARE_COMPLETE_NETWORK' ||
+    raw === 'REMOTE_SHARE_SESSION_HTTP_503' ||
+    raw === 'REMOTE_SHARE_COMPLETE_HTTP_503'
   ) {
     return t('share.remote.network_error');
   }
@@ -397,6 +400,9 @@ function friendlyErrorMessage(error: unknown): string {
     raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
   ) {
     return t('share.remote.rate_limited');
+  }
+  if (raw === 'REMOTE_SHARE_SESSION_HTTP_409' || raw === 'REMOTE_SHARE_COMPLETE_HTTP_409') {
+    return t('share.remote.quota_reached');
   }
   if (
     raw === 'REMOTE_SHARE_BAD_SESSION_RESPONSE' ||
@@ -434,6 +440,11 @@ function isUploadLimitError(error: unknown): boolean {
   );
 }
 
+function isStorageQuotaError(error: unknown): boolean {
+  const raw = rawRemoteShareError(error);
+  return raw === 'REMOTE_SHARE_SESSION_HTTP_409' || raw === 'REMOTE_SHARE_COMPLETE_HTTP_409';
+}
+
 function getR2MessageTargets(sessionId: number, targetConn?: DataConnection): DataConnection[] {
   if (targetConn?.open) {
     return shouldConnectionUseR2(targetConn, sessionId) ? [targetConn] : [];
@@ -452,12 +463,19 @@ function maybeNotifyRemoteUploadFailure(
   const targets = getR2MessageTargets(sessionId, targetConn);
   if (targets.length === 0) return;
 
-  const limited = isUploadLimitError(error);
+  const quotaReached = isStorageQuotaError(error);
+  const limited = quotaReached || isUploadLimitError(error);
   const unavailable = toRemoteFileUnavailableMessage(file, sessionId, queueItemId, limited);
   for (const conn of targets) {
     safeSend(conn, unavailable);
   }
 
+  if (quotaReached) {
+    if (now - _lastStorageQuotaMessageAt < 60_000) return;
+    _lastStorageQuotaMessageAt = now;
+    broadcastSystemMessage('chat.remote_storage_quota_system_message');
+    return;
+  }
   if (now - _lastUploadFailureMessageAt < 60_000) return;
   _lastUploadFailureMessageAt = now;
   const key = limited
@@ -2131,6 +2149,8 @@ function resetRemoteShareAuthorityBoundary(): void {
   _activeUploads.clear();
   _descriptorCache.clear();
   _fileIds = new WeakMap<File, number>();
+  _lastUploadFailureMessageAt = 0;
+  _lastStorageQuotaMessageAt = 0;
 
   _activeDownload?.abort.abort();
   _activeDownload = null;

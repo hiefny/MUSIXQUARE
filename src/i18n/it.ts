@@ -315,6 +315,8 @@ const it: Record<I18nKey, string> = {
     "La condivisione dell'audio di sistema è terminata. Il gestore può rialzare il volume per riprendere il ruolo di altoparlante.",
   'chat.remote_upload_limited_system_message':
     'Limite di caricamento raggiunto.\nI partecipanti remoti possono riprovare più tardi.',
+  'chat.remote_storage_quota_system_message':
+    'Limite di condivisione remota raggiunto.\nPuoi continuare a condividere file in locale.',
   'chat.remote_upload_failed_system_message':
     'Impossibile caricare il file remoto.\nI partecipanti remoti possono riprovare tra qualche istante.',
   'chat.pinned_close': 'Chiudi avviso',
@@ -510,6 +512,7 @@ const it: Record<I18nKey, string> = {
   'share.remote.network_error': 'Errore di rete durante la condivisione remota',
   'share.remote.rate_limited':
     'Troppe richieste di condivisione remota.\nRiprova tra qualche istante',
+  'share.remote.quota_reached': 'Limite di condivisione remota raggiunto',
   'share.remote.auth_failed':
     'Autenticazione condivisione remota fallita.\nVerifica le impostazioni del Worker.',
   'share.remote.expired': 'Il link del file remoto è scaduto.\nCondividilo di nuovo.',

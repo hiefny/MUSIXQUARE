@@ -206,6 +206,7 @@ describe('remote upload contract', () => {
 
       resolveFirstEncryption({ encryptedBlob, keyB64: 'a2V5', ivB64: 'aXY=' });
       await expect(first).resolves.toMatchObject({ name: 'a.wav', sessionId: 1 });
+      expect(mocks.uploadEncryptedBlob).toHaveBeenCalledTimes(2);
     } finally {
       if (originalUserAgent) Object.defineProperty(navigator, 'userAgent', originalUserAgent);
     }

@@ -347,6 +347,7 @@ const fr: Record<I18nKey, string> = {
   'share.remote.network_error': 'Erreur réseau pendant le partage distant',
   'share.remote.rate_limited':
     'Trop d’envois de partage distant.\nVeuillez réessayer dans un instant',
+  'share.remote.quota_reached': 'Limite de partage distant atteinte',
   'share.remote.auth_failed':
     'Échec de l’autorisation du partage distant.\nVérifiez les réglages du Worker',
   'share.remote.expired': 'Le lien du fichier distant a expiré.\nPartagez-le à nouveau.',
@@ -593,6 +594,8 @@ const fr: Record<I18nKey, string> = {
     'Le partage audio système est terminé. Hôte, vous pouvez remonter le volume pour reprendre votre rôle d’enceinte.',
   'chat.remote_upload_limited_system_message':
     'Limite d’envoi de fichier atteinte.\nLes participants distants devraient réessayer plus tard.',
+  'chat.remote_storage_quota_system_message':
+    'La limite de partage distant est atteinte.\nLe partage de fichiers en local reste disponible.',
   'chat.remote_upload_failed_system_message':
     'Échec de l’envoi du fichier distant.\nLes participants distants devraient réessayer bientôt.',
   'chat.pinned_close': 'Fermer l’annonce',

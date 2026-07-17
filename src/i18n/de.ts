@@ -343,6 +343,7 @@ const de: Record<I18nKey, string> = {
   'share.remote.too_large': 'Datei zu groß (max. 200 MB)',
   'share.remote.network_error': 'Netzwerkfehler während der Remote-Freigabe',
   'share.remote.rate_limited': 'Zu viele Remote-Uploads.\nBitte gleich erneut versuchen',
+  'share.remote.quota_reached': 'Limit für die Remote-Freigabe erreicht',
   'share.remote.auth_failed':
     'Remote-Freigabeautorisierung fehlgeschlagen.\nWorker-Einstellungen prüfen',
   'share.remote.expired': 'Remote-Dateilink ist abgelaufen.\nBitte erneut freigeben.',
@@ -585,6 +586,8 @@ const de: Record<I18nKey, string> = {
     'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um als Lautsprecher zu fungieren.',
   'chat.remote_upload_limited_system_message':
     'Datei-Upload-Limit erreicht.\nRemote-Teilnehmer sollten es später erneut versuchen.',
+  'chat.remote_storage_quota_system_message':
+    'Limit für die Remote-Freigabe erreicht.\nLokale Dateien können weiterhin geteilt werden.',
   'chat.remote_upload_failed_system_message':
     'Remote-Datei-Upload fehlgeschlagen.\nRemote-Teilnehmer sollten es gleich erneut versuchen.',
   'chat.pinned_close': 'Hinweis schließen',

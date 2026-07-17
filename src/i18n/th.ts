@@ -309,6 +309,8 @@ const th: Record<I18nKey, string> = {
     'สิ้นสุดการแชร์เสียงระบบแล้ว โฮสต์สามารถเพิ่มระดับเสียงกลับเพื่อทำหน้าที่เป็นลำโพงได้เลย',
   'chat.remote_upload_limited_system_message':
     'ถึงขีดจำกัดการอัปโหลดไฟล์แล้ว\nผู้เข้าร่วมระยะไกลควรลองใหม่ภายหลัง',
+  'chat.remote_storage_quota_system_message':
+    'ถึงขีดจำกัดการแชร์ระยะไกลแล้ว\nการแชร์ไฟล์ภายในเครือข่ายยังใช้งานได้',
   'chat.remote_upload_failed_system_message':
     'อัปโหลดไฟล์ระยะไกลไม่สำเร็จ\nผู้เข้าร่วมระยะไกลควรลองใหม่อีกครั้งเร็ว ๆ นี้',
   'chat.pinned_close': 'ปิดประกาศ',
@@ -493,6 +495,7 @@ const th: Record<I18nKey, string> = {
   'share.remote.too_large': 'ไฟล์ใหญ่เกินไป (สูงสุด 200 MB)',
   'share.remote.network_error': 'เกิดข้อผิดพลาดเครือข่ายระหว่างแชร์ระยะไกล',
   'share.remote.rate_limited': 'มีการอัปโหลดระยะไกลมากเกินไป\nโปรดลองอีกครั้งภายหลัง',
+  'share.remote.quota_reached': 'ถึงขีดจำกัดการแชร์ระยะไกลแล้ว',
   'share.remote.auth_failed': 'ยืนยันสิทธิ์แชร์ระยะไกลไม่สำเร็จ\nโปรดตรวจสอบการตั้งค่า Worker',
   'share.remote.expired': 'ลิงก์ไฟล์ระยะไกลหมดอายุแล้ว\nโปรดแชร์ใหม่',
   'share.remote.unavailable': 'แชร์ระยะไกลไม่สำเร็จ\nโปรดลองอีกครั้งภายหลัง',

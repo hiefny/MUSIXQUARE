@@ -363,6 +363,28 @@ async function completeDirectUpload(
   }
 }
 
+async function cleanupUploadSession(
+  endpoint: string,
+  session: RemoteUploadSessionResponse,
+  meta: RemoteUploadMeta,
+): Promise<void> {
+  if (!session.cleanupToken) return;
+  try {
+    await fetch(
+      `${endpoint}/object/${encodeURIComponent(meta.roomId)}/${encodeURIComponent(session.objectId)}`,
+      {
+        method: 'DELETE',
+        headers: { 'x-mxqr-cleanup-token': session.cleanupToken },
+        keepalive: true,
+      },
+    );
+  } catch {
+    // The object expires server-side even when this best-effort cleanup loses
+    // a race with the direct PUT or the browser closes before it completes.
+    // Cleanup is best effort and must never replace the original upload error.
+  }
+}
+
 export async function uploadEncryptedBlob(
   encryptedBlob: Blob,
   meta: RemoteUploadMeta,
@@ -376,13 +398,25 @@ export async function uploadEncryptedBlob(
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', session.uploadUrl, true);
-    for (const [header, value] of Object.entries(session.uploadHeaders)) {
-      xhr.setRequestHeader(header, value);
+    let settled = false;
+    const rejectWithCleanup = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      void cleanupUploadSession(endpoint, session, meta);
+      reject(error);
+    };
+    try {
+      xhr.open('PUT', session.uploadUrl, true);
+      for (const [header, value] of Object.entries(session.uploadHeaders)) {
+        xhr.setRequestHeader(header, value);
+      }
+    } catch (error) {
+      rejectWithCleanup(new Error('REMOTE_SHARE_UPLOAD_NETWORK', { cause: error }));
+      return;
     }
 
-    const stall = createXhrStallWatchdog(xhr, reject, 'REMOTE_SHARE_UPLOAD_STALLED');
-    const detachAbort = wireAbort(xhr, reject, signal, stall.clear);
+    const stall = createXhrStallWatchdog(xhr, rejectWithCleanup, 'REMOTE_SHARE_UPLOAD_STALLED');
+    const detachAbort = wireAbort(xhr, rejectWithCleanup, signal, stall.clear);
     if (detachAbort === null) {
       stall.clear();
       return;
@@ -403,24 +437,26 @@ export async function uploadEncryptedBlob(
       detachAbort?.();
       if (xhr.status >= 200 && xhr.status < 300) {
         void completeDirectUpload(endpoint, session, meta, signal).then((body) => {
+          if (settled) return;
+          settled = true;
           onProgress?.(1);
           resolve(body);
-        }, reject);
+        }, rejectWithCleanup);
         return;
       }
-      reject(new Error(`REMOTE_SHARE_DIRECT_UPLOAD_HTTP_${xhr.status}`));
+      rejectWithCleanup(new Error(`REMOTE_SHARE_DIRECT_UPLOAD_HTTP_${xhr.status}`));
     };
     xhr.onerror = () => {
       stall.clear();
       detachAbort?.();
-      reject(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+      rejectWithCleanup(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
     };
     try {
       xhr.send(encryptedBlob);
     } catch (error) {
       stall.clear();
       detachAbort?.();
-      reject(
+      rejectWithCleanup(
         signal?.aborted
           ? new Error('REMOTE_SHARE_ABORTED', { cause: error })
           : new Error('REMOTE_SHARE_UPLOAD_NETWORK', { cause: error }),

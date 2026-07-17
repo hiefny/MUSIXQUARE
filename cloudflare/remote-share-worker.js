@@ -16,6 +16,7 @@
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
  * - IP_UPLOADS_PER_WINDOW: default 60
  * - ROOM_UPLOADS_PER_WINDOW: default 0 (disabled)
+ * - ROOM_STORAGE_QUOTA_BYTES: default 0 (disabled). Production uses 1 GiB.
  * - ALLOWED_ORIGINS: comma-separated origins
  * - MXQR_CAPABILITY_SECRET: required for /session in production. When unset
  *     /session returns 503 CAPABILITY_NOT_CONFIGURED unless the dangerous
@@ -37,6 +38,9 @@ const DEFAULT_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const DEFAULT_IP_UPLOADS_PER_WINDOW = 60;
 const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 0;
+const DEFAULT_ROOM_STORAGE_QUOTA_BYTES = 0;
+const ROOM_STORAGE_LIST_PAGE_SIZE = 1000;
+const ROOM_STORAGE_SCAN_MAX_OBJECTS = 2000;
 const DEFAULT_R2_BUCKET_NAME = 'musixquare-remote-share';
 const CAPABILITY_SCOPE = 'remote-share';
 const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
@@ -517,6 +521,82 @@ async function consumeLimit(env, key, limit, ttlSeconds) {
   }
 }
 
+function roomStorageQuotaBytes(env) {
+  return parseOptionalLimit(env.ROOM_STORAGE_QUOTA_BYTES, DEFAULT_ROOM_STORAGE_QUOTA_BYTES);
+}
+
+async function deleteBucketKeysInChunks(bucket, keys) {
+  for (let offset = 0; offset < keys.length; offset += ROOM_STORAGE_LIST_PAGE_SIZE) {
+    const chunk = keys.slice(offset, offset + ROOM_STORAGE_LIST_PAGE_SIZE);
+    try {
+      await bucket.delete(chunk);
+    } catch (error) {
+      console.warn('remote share stale object cleanup failed', error);
+      // Do not admit another upload while expired objects still consume real
+      // R2 storage. The caller converts this into a temporary 503 response.
+      throw error;
+    }
+  }
+}
+
+async function calculateRoomStorageBytes(bucket, roomId, now) {
+  const prefix = `room/${roomId}/`;
+  const staleKeys = [];
+  let cursor;
+  let scannedObjects = 0;
+  let totalBytes = 0;
+  let saturated = false;
+
+  do {
+    const page = await bucket.list({
+      prefix,
+      limit: ROOM_STORAGE_LIST_PAGE_SIZE,
+      ...(cursor ? { cursor } : {}),
+      include: ['customMetadata'],
+    });
+    for (const object of page?.objects || []) {
+      scannedObjects += 1;
+      if (scannedObjects > ROOM_STORAGE_SCAN_MAX_OBJECTS) {
+        saturated = true;
+        break;
+      }
+      const expiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat'));
+      if (Number.isFinite(expiresAt) && expiresAt <= now) {
+        staleKeys.push(object.key);
+        continue;
+      }
+      const size = Number(object?.size);
+      if (Number.isSafeInteger(size) && size > 0) totalBytes += size;
+    }
+    if (saturated) break;
+    cursor = page?.truncated ? page.cursor : undefined;
+  } while (cursor);
+
+  if (staleKeys.length > 0) await deleteBucketKeysInChunks(bucket, staleKeys);
+  return saturated ? Number.POSITIVE_INFINITY : totalBytes;
+}
+
+async function roomHasStorageCapacity(env, roomId, additionalBytes) {
+  const quotaBytes = roomStorageQuotaBytes(env);
+  if (quotaBytes <= 0) return true;
+  if (!env.REMOTE_SHARE_BUCKET) throw new Error('room storage quota bucket missing');
+  const storedBytes = await calculateRoomStorageBytes(env.REMOTE_SHARE_BUCKET, roomId, Date.now());
+  return storedBytes + additionalBytes <= quotaBytes;
+}
+
+function roomStorageQuotaExceeded(request, env) {
+  return json(
+    request,
+    env,
+    {
+      error: 'room storage quota exceeded',
+      code: 'ROOM_STORAGE_QUOTA_EXCEEDED',
+      maxBytes: roomStorageQuotaBytes(env),
+    },
+    409,
+  );
+}
+
 function rateLimited(request, env, message, retryAfterSeconds) {
   return json(request, env, { error: message, retryAfterSeconds }, 429, {
     'retry-after': String(retryAfterSeconds),
@@ -581,6 +661,15 @@ async function handleSession(request, env) {
       rateWindowSeconds,
     );
     if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
+  }
+
+  try {
+    if (!(await roomHasStorageCapacity(env, roomId, encryptedSize))) {
+      return roomStorageQuotaExceeded(request, env);
+    }
+  } catch (error) {
+    console.warn('remote share room storage quota unavailable', error);
+    return json(request, env, { error: 'room storage quota unavailable' }, 503);
   }
 
   const ttlSeconds = parseLimit(env.UPLOAD_TOKEN_TTL_SECONDS, DEFAULT_UPLOAD_TOKEN_TTL_SECONDS);
@@ -740,7 +829,25 @@ async function handleComplete(request, env) {
   // HEAD is an awaited network boundary. Re-read the clock so a completion
   // that crossed object expiry while R2 was responding cannot publish an
   // already-stale descriptor.
-  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    await env.REMOTE_SHARE_BUCKET.delete(key);
+    return json(request, env, { error: 'expired' }, 404);
+  }
+
+  try {
+    if (!(await roomHasStorageCapacity(env, roomId, 0))) {
+      await env.REMOTE_SHARE_BUCKET.delete(key);
+      return roomStorageQuotaExceeded(request, env);
+    }
+  } catch (error) {
+    console.warn('remote share completed-object quota validation unavailable', error);
+    await env.REMOTE_SHARE_BUCKET.delete(key);
+    return json(request, env, { error: 'room storage quota unavailable' }, 503);
+  }
+
+  // The quota LIST is another network boundary and may cross object expiry.
+  // Never publish a descriptor for an object that cleanup just expired.
+  if (expiresAt <= Date.now()) {
     await env.REMOTE_SHARE_BUCKET.delete(key);
     return json(request, env, { error: 'expired' }, 404);
   }

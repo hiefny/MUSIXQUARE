@@ -55,14 +55,15 @@ Browsers use the app Worker's same-origin `/api/pro-room/*` facade. The facade
 strips only that prefix and calls the PRO Worker's public router through a
 service binding, so origin checks, front-door provisioning checks, IP rate
 limits, path limits, and Durable Object routing stay centralized in the PRO
-Worker. The direct `pro.musixquare.com` custom domain remains available for
-older clients and operator diagnostics, but it is not the primary browser
-transport. Facade cookies use host-only `__Secure-` names and a room-specific
-Path; the facade maps them to the backend's `__Host-` names only for the bound
-request. This prevents admin and unrelated-room cookies from crossing the
-service boundary or accumulating on ordinary app requests.
+Worker. The browser-facing `pro.musixquare.com` custom domain is retired; the
+service binding is the only production ingress for this Worker. Health checks
+use `/api/pro-room/health` on the app origin. Facade cookies use host-only
+`__Secure-` names and a room-specific Path; the facade maps them to the
+backend's `__Host-` names only for the bound request. This prevents admin and
+unrelated-room cookies from crossing the service boundary or accumulating on
+ordinary app requests.
 
-The old custom-domain cookies are host-only and cannot migrate to the facade.
+The former custom-domain cookies are host-only and cannot migrate to the facade.
 On the first facade visit, an existing participant therefore enters the PIN
 once more. Existing room owners must redeem a one-time owner-recovery claim
 after the cutover to receive the new room-scoped owner cookie. Active rooms do
@@ -370,9 +371,7 @@ run either deploy command from tests or local validation.
 After deployment but before activation:
 
 ```powershell
-curl.exe https://pro.musixquare.com/health
-curl.exe -H "Origin: https://musixquare.com" https://pro.musixquare.com/v1/rooms/000000/bootstrap
-curl.exe -H "Origin: https://musixquare.com" https://pro.musixquare.com/v1/rooms/000001/bootstrap
+curl.exe https://musixquare.com/api/pro-room/health
 curl.exe https://musixquare.com/api/pro-room/v1/rooms/000000/bootstrap
 curl.exe https://musixquare.com/api/pro-room/v1/rooms/000001/bootstrap
 ```

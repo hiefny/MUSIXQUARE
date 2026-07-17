@@ -71,6 +71,7 @@ const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
 const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
 const PRO_ROOM_FACADE_PREFIX = '/api/pro-room';
+const PRO_ROOM_FACADE_HEALTH_PATH = `${PRO_ROOM_FACADE_PREFIX}/health`;
 const PRO_ROOM_FACADE_PATH_RE = /^\/api\/pro-room(\/v1\/rooms\/(0\d{5})(?:\/|$).*)$/;
 const PRO_ROOM_UPSTREAM_ORIGIN = 'https://pro-room.internal';
 const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
@@ -197,10 +198,51 @@ function withFacadeProRoomCookies(response, roomCode) {
 }
 
 async function handleProRoomFacade(request, env, url) {
+  const isHealth = url.pathname === PRO_ROOM_FACADE_HEALTH_PATH;
   const route = url.pathname.match(PRO_ROOM_FACADE_PATH_RE);
-  if (!route) {
+  if (!isHealth && !route) {
     return json({ error: 'PRO_ROOM_ROUTE_NOT_FOUND' }, 404, { 'Cache-Control': 'no-store' });
   }
+
+  if (isHealth) {
+    if (url.search) {
+      return json({ error: 'INVALID_REQUEST' }, 400, { 'Cache-Control': 'no-store' });
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return json({ error: 'METHOD_NOT_ALLOWED' }, 405, {
+        Allow: 'GET, HEAD',
+        'Cache-Control': 'no-store',
+      });
+    }
+    if (!env.PRO_ROOM_PUBLIC_API || typeof env.PRO_ROOM_PUBLIC_API.fetch !== 'function') {
+      return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 503, { 'Cache-Control': 'no-store' });
+    }
+    const headers = new Headers({ Accept: 'application/json' });
+    let response;
+    try {
+      response = await env.PRO_ROOM_PUBLIC_API.fetch(
+        new Request(new URL('/health', PRO_ROOM_UPSTREAM_ORIGIN), {
+          method: 'GET',
+          headers,
+          redirect: 'manual',
+        }),
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
+    }
+    return withSecurityHeaders(
+      new Response(request.method === 'HEAD' ? null : response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store, max-age=0',
+          'X-Robots-Tag': 'noindex, nofollow',
+        },
+      }),
+    );
+  }
+
   if (!env.PRO_ROOM_PUBLIC_API || typeof env.PRO_ROOM_PUBLIC_API.fetch !== 'function') {
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 503, { 'Cache-Control': 'no-store' });
   }

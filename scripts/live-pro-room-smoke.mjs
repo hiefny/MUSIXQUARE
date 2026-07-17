@@ -2,7 +2,7 @@
 
 import { pathToFileURL } from 'node:url';
 
-const PRO_ROOM_ORIGIN = 'https://pro.musixquare.com';
+const PRO_ROOM_HEALTH_URL = 'https://musixquare.com/api/pro-room/health';
 const RETRY_DELAYS_MS = Object.freeze([0, 1_000, 2_000, 4_000, 8_000, 8_000]);
 
 function delay(milliseconds) {
@@ -10,7 +10,7 @@ function delay(milliseconds) {
 }
 
 async function readHealth() {
-  const response = await fetch(`${PRO_ROOM_ORIGIN}/health?smoke=${Date.now()}`, {
+  const response = await fetch(PRO_ROOM_HEALTH_URL, {
     cache: 'no-store',
     headers: { Accept: 'application/json' },
   });

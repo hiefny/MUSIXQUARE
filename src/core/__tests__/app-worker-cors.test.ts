@@ -2219,6 +2219,73 @@ describe('Cloudflare app worker admin dashboard', () => {
 });
 
 describe('Cloudflare app worker PRO room facade', () => {
+  it('exposes a cookie-free same-origin health check through the service binding', async () => {
+    const upstreamFetch = vi.fn(async (request: Request) => {
+      expect(request.url).toBe('https://pro-room.internal/health');
+      expect(request.method).toBe('GET');
+      expect(request.headers.get('Accept')).toBe('application/json');
+      expect(request.headers.get('Cookie')).toBeNull();
+      expect(request.headers.get('Origin')).toBeNull();
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          service: 'musixquare-pro-room',
+          workerVersionId: 'version-123',
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=60',
+            'Set-Cookie': '__Host-must-not-escape=secret; Path=/; HttpOnly; Secure',
+          },
+        },
+      );
+    });
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/health', {
+        headers: {
+          Cookie: '__Host-mxqr_admin=must-not-leak',
+          Origin: 'https://evil.example',
+          'X-MXQR-Pro-IP-Hash': 'spoofed',
+        },
+      }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(response.headers.get('Set-Cookie')).toBeNull();
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      service: 'musixquare-pro-room',
+      workerVersionId: 'version-123',
+    });
+
+    const rejectedMethod = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/health', { method: 'POST' }),
+      {},
+    );
+    expect(rejectedMethod.status).toBe(405);
+    expect(rejectedMethod.headers.get('Allow')).toBe('GET, HEAD');
+
+    const rejectedQuery = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/health?cache-bust=1'),
+      {},
+    );
+    expect(rejectedQuery.status).toBe(400);
+
+    const headResponse = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/health', { method: 'HEAD' }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+    expect(headResponse.status).toBe(200);
+    expect(await headResponse.text()).toBe('');
+    expect(headResponse.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('forwards the public route through the PRO Worker and scopes its cookies to one room', async () => {
     let forwarded: Request | null = null;
     const upstreamFetch = vi.fn(async (request: Request) => {

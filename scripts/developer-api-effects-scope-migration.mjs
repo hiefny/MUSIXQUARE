@@ -20,14 +20,23 @@ const LEGACY_SCOPE_LIMIT = 63;
 const EFFECTS_SCOPE_LIMIT = 255;
 const RELEASE_JOURNAL_VERSION = 1;
 
-function npmExecutable() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+function npmInvocation() {
+  const npmCli = process.env.npm_execpath;
+  return npmCli
+    ? { executable: process.execPath, prefix: [npmCli], shell: false }
+    : {
+        executable: process.platform === 'win32' ? 'npm.cmd' : 'npm',
+        prefix: [],
+        shell: process.platform === 'win32',
+      };
 }
 
 function runWrangler(args, { capture = false } = {}) {
+  const npm = npmInvocation();
   return execFileSync(
-    npmExecutable(),
+    npm.executable,
     [
+      ...npm.prefix,
       'run',
       '--silent',
       'wrangler',
@@ -44,6 +53,7 @@ function runWrangler(args, { capture = false } = {}) {
     {
       cwd: resolve(import.meta.dirname, '..'),
       encoding: 'utf8',
+      shell: npm.shell,
       stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
     },
   );

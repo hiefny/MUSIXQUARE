@@ -159,9 +159,33 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
+    delete:
+      operationId: clearQueue
+      description: |
+        Atomically stops current playback, clears the current selection, and removes every item from the
+        persistent playlist. This collection operation has no request body and returns one updated sanitized
+        queue snapshot with currentQueueItemId set to null and items set to an empty array. Media references
+        released by the clear become eligible for later cleanup.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The current sanitized queue after the accepted clear or an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/queue/items/{queueItemId}:
     delete:
       operationId: deleteQueueItem
+      description: Removes only the queue item identified by queueItemId without stopping unrelated playback.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/QueueItemId'

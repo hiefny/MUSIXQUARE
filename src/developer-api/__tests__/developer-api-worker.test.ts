@@ -686,6 +686,136 @@ describe('Developer API read-only public Worker', () => {
     ]);
   });
 
+  it('clears the queue atomically with queue-write scope, idempotency, rate, and audit controls', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const waits: Promise<unknown>[] = [];
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.queue-clear-0001' },
+      }),
+      setup.env,
+      { waitUntil: (promise: Promise<unknown>) => waits.push(promise) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(queuePayload());
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-queue-write',
+    ]);
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(1);
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/queue/mutate');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      idempotencyKey: 'request.queue-clear-0001',
+      mutation: { type: 'clear' },
+    });
+
+    await Promise.all(waits);
+    const auditIndex = setup.database.prepare.mock.calls.findIndex(([sql]) =>
+      String(sql).includes('INSERT INTO mxqr_developer_api_audit'),
+    );
+    expect(auditIndex).toBeGreaterThanOrEqual(0);
+    const auditStatement = setup.database.prepare.mock.results[auditIndex]?.value;
+    expect(auditStatement.bind).toHaveBeenCalledWith(
+      expect.stringMatching(/^req_/),
+      KEY_ID,
+      ROOM_CODE,
+      'queue.clear',
+      'applied',
+      200,
+      expect.any(Number),
+    );
+  });
+
+  it('rejects queue clear without queue-write scope, idempotency, or an empty body', async () => {
+    const noScope = await createEnvironment({ scopeMask: developerApiScopes['queue:read'] });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.queue-clear-0002' },
+      }),
+      noScope.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(await errorCode(forbidden)).toBe('FORBIDDEN');
+    expect(noScope.facadeFetch).not.toHaveBeenCalled();
+
+    const missingIdempotency = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+    });
+    const missing = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, { method: 'DELETE' }),
+      missingIdempotency.env,
+    );
+    expect(missing.status).toBe(400);
+    expect(await errorCode(missing)).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect(missingIdempotency.facadeFetch).not.toHaveBeenCalled();
+
+    const withBody = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const invalidBody = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'DELETE',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-clear-0003',
+        },
+        body: '{}',
+      }),
+      withBody.env,
+    );
+    expect(invalidBody.status).toBe(400);
+    expect(await errorCode(invalidBody)).toBe('INVALID_REQUEST');
+    expect(withBody.database.first).not.toHaveBeenCalled();
+    expect(withBody.facadeFetch).not.toHaveBeenCalled();
+
+    const forgedLength = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+    });
+    const forgedLengthBody = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'DELETE',
+        headers: {
+          'content-length': '0',
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-clear-0004',
+        },
+        body: '{}',
+      }),
+      forgedLength.env,
+    );
+    expect(forgedLengthBody.status).toBe(400);
+    expect(await errorCode(forgedLengthBody)).toBe('INVALID_REQUEST');
+    expect(forgedLength.database.first).not.toHaveBeenCalled();
+    expect(forgedLength.facadeFetch).not.toHaveBeenCalled();
+
+    const emptyStream = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+    });
+    const zeroByteStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const emptyStreamResponse = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'DELETE',
+        headers: {
+          'content-length': '0',
+          'idempotency-key': 'request.queue-clear-0005',
+        },
+        body: zeroByteStream,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      emptyStream.env,
+    );
+    expect(emptyStreamResponse.status).toBe(200);
+    expect(emptyStream.facadeFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('reserves and completes direct uploads through media and queue scopes without proxying bytes', async () => {
     const setup = await createEnvironment({
       scopeMask: developerApiScopes['media:upload'] | developerApiScopes['queue:write'],

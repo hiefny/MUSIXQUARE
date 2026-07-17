@@ -426,6 +426,33 @@ async function readRequestJsonLimited(request, maxBytes) {
   }
 }
 
+async function hasNonEmptyRequestBody(request) {
+  const declared = request.headers.get('content-length');
+  if (declared !== null) {
+    const normalized = declared.trim();
+    if (!/^\d+$/.test(normalized) || Number(normalized) !== 0) return true;
+  }
+  if (!request.body) return false;
+
+  let reader;
+  try {
+    reader = request.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return false;
+      if (value?.byteLength) {
+        await reader.cancel().catch(() => {});
+        return true;
+      }
+    }
+  } catch {
+    // A bodyless endpoint cannot safely treat an unreadable stream as empty.
+    return true;
+  } finally {
+    reader?.releaseLock();
+  }
+}
+
 function parseDeveloperCommand(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   if (value.type === 'play' || value.type === 'pause') {
@@ -916,6 +943,14 @@ function parseRoute(method, url) {
     return null;
   }
   if (method === 'DELETE') {
+    const clearMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue\/items$/);
+    if (clearMatch) {
+      return {
+        kind: 'queue-clear',
+        roomCode: clearMatch[1],
+        requiredScope: SCOPE_QUEUE_WRITE,
+      };
+    }
     const removeMatch = url.pathname.match(
       /^\/v1\/rooms\/(0\d{5})\/queue\/items\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
     );
@@ -1245,6 +1280,7 @@ async function handleApiRequest(request, env, context, requestId) {
   const writeRoute = [
     'command-create',
     'queue-add',
+    'queue-clear',
     'queue-remove',
     'queue-reorder',
     'media-create',
@@ -1255,9 +1291,10 @@ async function handleApiRequest(request, env, context, requestId) {
   }
   if (request.method === 'GET' && request.body) return errorResponse('NOT_FOUND', 404, requestId);
   if (
-    (route.kind === 'queue-remove' || route.kind === 'media-complete') &&
-    request.body &&
-    (request.headers.get('content-length') || '') !== '0'
+    (route.kind === 'queue-clear' ||
+      route.kind === 'queue-remove' ||
+      route.kind === 'media-complete') &&
+    (await hasNonEmptyRequestBody(request))
   ) {
     return errorResponse('INVALID_REQUEST', 400, requestId);
   }
@@ -1288,6 +1325,7 @@ async function handleApiRequest(request, env, context, requestId) {
     route.kind === 'command-create'
       ? await authenticatedCommandLimit(env, principal)
       : route.kind === 'queue-add' ||
+          route.kind === 'queue-clear' ||
           route.kind === 'queue-remove' ||
           route.kind === 'queue-reorder'
         ? await authenticatedQueueWriteLimit(env, principal)
@@ -1317,6 +1355,7 @@ async function handleApiRequest(request, env, context, requestId) {
 
   if (
     route.kind === 'queue-add' ||
+    route.kind === 'queue-clear' ||
     route.kind === 'queue-remove' ||
     route.kind === 'queue-reorder' ||
     route.kind === 'media-create' ||
@@ -1344,6 +1383,17 @@ async function handleApiRequest(request, env, context, requestId) {
       expectedStatus = 201;
       validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
       auditAction = 'queue.add_youtube';
+    } else if (route.kind === 'queue-clear') {
+      path = '/internal/v1/queue/mutate';
+      body = {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        idempotencyKey,
+        mutation: { type: 'clear' },
+      };
+      expectedStatus = 200;
+      validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
+      auditAction = 'queue.clear';
     } else if (route.kind === 'queue-remove') {
       path = '/internal/v1/queue/mutate';
       body = {

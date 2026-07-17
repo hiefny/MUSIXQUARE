@@ -75,6 +75,30 @@ describe('Developer API public documentation', () => {
     expect(spec).not.toContain('/internal/');
   });
 
+  it('distinguishes atomic collection clear from deleting one queue item', async () => {
+    const [html, spec] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+    ]);
+
+    expect(html).toContain(
+      '<span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items</span>',
+    );
+    expect(html).toContain(
+      '<span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items/{queueItemId}</span>',
+    );
+    expect(html).toContain("method: 'DELETE'");
+    expect(html).toContain("'Idempotency-Key': crypto.randomUUID()");
+    expect(html).toContain('clearedQueue.currentQueueItemId); // null');
+    expect(html).toContain('clearedQueue.items.length); // 0');
+
+    expect(spec).toContain('operationId: clearQueue');
+    expect(spec).toContain('operationId: deleteQueueItem');
+    expect(spec).toContain('Atomically stops current playback');
+    expect(spec).toContain('currentQueueItemId set to null');
+    expect(spec).toContain("- $ref: '#/components/parameters/IdempotencyKey'");
+  });
+
   it('links to the Developer API page from each shared document footer', async () => {
     const files = [
       '.workshop/privacy/privacy.html',

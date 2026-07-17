@@ -250,6 +250,67 @@ describe('private Developer API facade', () => {
     });
   });
 
+  it('forwards only the exact atomic queue-clear mutation', async () => {
+    const rooms = namespace(() =>
+      Response.json({
+        schemaVersion: 1,
+        view: 'queue',
+        roomCode: ROOM_CODE,
+        playlistRevision: 6,
+        currentQueueItemId: null,
+        items: [],
+      }),
+    );
+    const response = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: 'request.queue-clear-0001',
+          mutation: { type: 'clear' },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: 6,
+      currentQueueItemId: null,
+      items: [],
+    });
+    expect(rooms.seen).toHaveLength(1);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      idempotencyKey: 'request.queue-clear-0001',
+      mutation: { type: 'clear' },
+    });
+
+    const invalidRooms = namespace(() => Response.json({}));
+    const invalid = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: 'request.queue-clear-0002',
+          mutation: { type: 'clear', unexpected: true },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: invalidRooms },
+    );
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(invalidRooms.seen).toHaveLength(0);
+  });
+
   it('sanitizes direct-upload reservations and completions across fixed internal paths', async () => {
     const quota = {
       limitBytes: 1_073_741_824,

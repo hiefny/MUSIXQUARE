@@ -371,6 +371,9 @@ function parseMetadata(value) {
 
 function parseQueueMutation(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value.type === 'clear') {
+    return hasExactKeys(value, ['type']) ? { type: 'clear' } : null;
+  }
   if (value.type === 'add_youtube') {
     if (
       !hasExactKeys(

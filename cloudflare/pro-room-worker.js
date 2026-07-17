@@ -1047,6 +1047,9 @@ function parseDeveloperQueueMutation(value) {
       ? { type: 'remove', queueItemId: value.queueItemId }
       : null;
   }
+  if (value.type === 'clear') {
+    return hasExactKeys(value, ['type']) ? { type: 'clear' } : null;
+  }
   if (value.type === 'reorder') {
     if (
       !hasExactKeys(value, ['type', 'basePlaylistRevision', 'queueItemIds']) ||
@@ -2087,6 +2090,40 @@ export class MusixquareProRoom {
           youtubeVideoId: null,
           youtubeSubIndex: null,
         };
+      }
+    } else if (mutation.type === 'clear') {
+      if (this.room.playlist.length > 0) {
+        if (
+          this.room.playlistRevision >= Number.MAX_SAFE_INTEGER ||
+          this.room.revision >= Number.MAX_SAFE_INTEGER
+        ) {
+          return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+        }
+        const clearCurrentPlayback =
+          this.room.currentQueueItemId !== null ||
+          this.room.playback.queueItemId !== null ||
+          this.room.playback.state !== 'idle';
+        if (
+          clearCurrentPlayback &&
+          this.room.playback.revision >= Number.MAX_SAFE_INTEGER
+        ) {
+          return errorResponse('PLAYBACK_REVISION_EXHAUSTED', 409);
+        }
+        this.room.playlist = [];
+        playlistChanged = true;
+        if (clearCurrentPlayback) {
+          this.room.currentQueueItemId = null;
+          this.room.playback = {
+            coordinatorEpoch: this.room.playback.coordinatorEpoch,
+            revision: this.room.playback.revision + 1,
+            state: 'idle',
+            queueItemId: null,
+            positionSeconds: 0,
+            updatedAtMs: Math.max(this.room.playback.updatedAtMs, nowMs),
+            youtubeVideoId: null,
+            youtubeSubIndex: null,
+          };
+        }
       }
     } else {
       if (mutation.basePlaylistRevision !== this.room.playlistRevision) {

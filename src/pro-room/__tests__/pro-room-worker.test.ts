@@ -900,6 +900,195 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.playlist).toHaveLength(1);
   });
 
+  it('atomically clears the queue, current playback, and R2 references with one revision step', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T04:00:00.000Z'));
+    const context = await activatedRoom();
+    const { worker, state, ownerCookie } = context;
+    const internal = worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    const { asset } = await completeReadyAsset(context, 'developer-clear');
+    const audioQueueItemId = '55555555-5555-4555-8555-555555555555';
+    const replace = await replacePlaylist(
+      context,
+      [playlistItem(audioQueueItemId, asset)],
+      'developer-clear',
+    );
+    expect(replace.status).toBe(200);
+    const add = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-seed',
+      { type: 'add_youtube', videoId: 'dQw4w9WgXcQ', name: 'Clear with audio' },
+    );
+    expect(add.status).toBe(201);
+    expect(asset.gcAfterMs).toBeUndefined();
+
+    internal.room.currentQueueItemId = audioQueueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: 7,
+      state: 'playing',
+      queueItemId: audioQueueItemId,
+      positionSeconds: 12,
+      updatedAtMs: Date.now() - 1_000,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    };
+    const capability = await worker.fetch(
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+    );
+    expect(capability.status).toBe(200);
+    const dispatchedBodies: Array<Record<string, any>> = [];
+    const dispatchFetch = vi.fn(async (request: Request) => {
+      dispatchedBodies.push((await request.json()) as Record<string, any>);
+      return Response.json({ dispatched: true });
+    });
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+      playbackRevision: internal.room.playback.revision,
+    };
+    const clearMutation = { type: 'clear' };
+    const clear = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-0001',
+      clearMutation,
+    );
+
+    expect(clear.status).toBe(200);
+    const clearedQueue = await responseJson(clear);
+    expect(clearedQueue).toEqual({
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: before.playlistRevision + 1,
+      currentQueueItemId: null,
+      items: [],
+    });
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+    expect(internal.room.playlist).toEqual([]);
+    expect(internal.room.playback).toMatchObject({
+      revision: before.playbackRevision + 1,
+      state: 'idle',
+      queueItemId: null,
+      positionSeconds: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    });
+    expect(asset.gcAfterMs).toBe(Date.now() + 15 * 60 * 1_000);
+    expect((state.storage.data.get('pro-room:v1') as Record<string, any>).playlist).toEqual([]);
+    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(1));
+    expect(dispatchedBodies[0]).toMatchObject({
+      roomCode: ROOM_CODE,
+      frame: {
+        type: 'developer-invalidation',
+        revision: before.revision + 1,
+        playlistRevision: before.playlistRevision + 1,
+      },
+    });
+
+    const replay = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-0001',
+      clearMutation,
+    );
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual(clearedQueue);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+    expect(internal.room.playback.revision).toBe(before.playbackRevision + 1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+
+    const emptyNoOp = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-0002',
+      clearMutation,
+    );
+    expect(emptyNoOp.status).toBe(200);
+    expect(await responseJson(emptyNoOp)).toEqual(clearedQueue);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed or unsafe queue clears without partially mutating room state', async () => {
+    const { worker, internal } = await preparedDeveloperCommandRoom();
+    const before = structuredClone(internal.room);
+    const malformed = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-invalid',
+      { type: 'clear', basePlaylistRevision: internal.room.playlistRevision },
+    );
+    expect(malformed.status).toBe(400);
+    expect(await responseJson(malformed)).toEqual({ error: 'INVALID_REQUEST' });
+    expect(internal.room.playlist).toEqual(before.playlist);
+    expect(internal.room.currentQueueItemId).toBe(before.currentQueueItemId);
+
+    internal.room.playback.revision = Number.MAX_SAFE_INTEGER;
+    const exhausted = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-exhausted',
+      { type: 'clear' },
+    );
+    expect(exhausted.status).toBe(409);
+    expect(await responseJson(exhausted)).toEqual({ error: 'PLAYBACK_REVISION_EXHAUSTED' });
+    expect(internal.room.playlist).toEqual(before.playlist);
+    expect(internal.room.currentQueueItemId).toBe(before.currentQueueItemId);
+    expect(internal.room.playback).toMatchObject({
+      revision: Number.MAX_SAFE_INTEGER,
+      state: before.playback.state,
+      queueItemId: before.playback.queueItemId,
+    });
+
+    internal.room.playback.revision = before.playback.revision;
+    internal.room.playlistRevision = Number.MAX_SAFE_INTEGER;
+    const playlistRevisionExhausted = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-playlist-revision-exhausted',
+      { type: 'clear' },
+    );
+    expect(playlistRevisionExhausted.status).toBe(409);
+    expect(await responseJson(playlistRevisionExhausted)).toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
+    expect(internal.room.playlist).toEqual(before.playlist);
+    expect(internal.room.currentQueueItemId).toBe(before.currentQueueItemId);
+    expect(internal.room.playlistRevision).toBe(Number.MAX_SAFE_INTEGER);
+    expect(internal.room.playback).toEqual(before.playback);
+
+    internal.room.playlistRevision = before.playlistRevision;
+    internal.room.revision = Number.MAX_SAFE_INTEGER;
+    const roomRevisionExhausted = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-room-revision-exhausted',
+      { type: 'clear' },
+    );
+    expect(roomRevisionExhausted.status).toBe(409);
+    expect(await responseJson(roomRevisionExhausted)).toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
+    expect(internal.room.playlist).toEqual(before.playlist);
+    expect(internal.room.currentQueueItemId).toBe(before.currentQueueItemId);
+    expect(internal.room.revision).toBe(Number.MAX_SAFE_INTEGER);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision);
+    expect(internal.room.playback).toEqual(before.playback);
+  });
+
   it('fences stale or non-permutation Developer API reorders by playlist revision', async () => {
     const { worker } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };

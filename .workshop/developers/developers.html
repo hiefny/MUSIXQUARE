@@ -178,8 +178,18 @@ console.log(command.commandId, command.status);</code></pre>
             <dd>Add one YouTube item using a canonical video ID and display metadata.</dd>
           </div>
           <div>
+            <dt class="api-endpoint"><span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items</span></dt>
+            <dd>
+              Clear the entire playlist atomically with no request body. This stops current playback, clears the
+              current selection, and returns one updated queue with no items.
+            </dd>
+          </div>
+          <div>
             <dt class="api-endpoint"><span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items/{queueItemId}</span></dt>
-            <dd>Remove one queue item with no request body. Removing media also releases its playlist reference for later cleanup.</dd>
+            <dd>
+              Remove only the identified queue item with no request body. Removing media also releases its playlist
+              reference for later cleanup.
+            </dd>
           </div>
           <div>
             <dt class="api-endpoint"><span class="api-method">PUT</span><span class="api-path">/rooms/{roomCode}/queue/order</span></dt>
@@ -203,6 +213,19 @@ console.log(command.commandId, command.status);</code></pre>
     artist: 'Example artist',
   }),
 });</code></pre>
+        <pre class="policy-code"><code>const clearResponse = await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
+  method: 'DELETE',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+});
+
+if (!clearResponse.ok) throw new Error(await clearResponse.text());
+
+const clearedQueue = await clearResponse.json();
+console.log(clearedQueue.currentQueueItemId); // null
+console.log(clearedQueue.items.length); // 0</code></pre>
         <pre class="policy-code"><code>const queue = await fetch(`${baseUrl}/rooms/${roomCode}/queue`, {
   headers: { Authorization: `Bearer ${apiKey}` },
 }).then((response) => response.json());
@@ -220,9 +243,12 @@ await fetch(`${baseUrl}/rooms/${roomCode}/queue/order`, {
   }),
 });</code></pre>
         <p>
-          Queue mutations return the updated sanitized queue. Reordering rejects a stale playlist revision; fetch the
-          queue again instead of retrying an old order blindly. Queue writes remain available while the room is
-          sleeping and do not start playback automatically.
+          Collection <code>DELETE /queue/items</code> clears every item; item
+          <code>DELETE /queue/items/{queueItemId}</code> removes exactly one. Both require a unique
+          <code>Idempotency-Key</code> for each new intent. Replaying a key returns the current sanitized queue without
+          applying that mutation again. Reordering rejects a stale playlist revision; fetch the queue again instead
+          of retrying an old order blindly. Queue writes remain available while the room is sleeping and do not start
+          playback automatically, except that clearing the queue stops any current playback.
         </p>
       </section>
 

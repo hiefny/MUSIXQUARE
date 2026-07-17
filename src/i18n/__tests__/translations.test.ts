@@ -294,7 +294,7 @@ describe('Translation key integrity', () => {
 
     expect(badLegalCopy).toEqual([]);
     expect(ko['legal.content_html']).toContain(
-      '<span data-legal-pro-storage>PRO 방에서는 세션 연결을 위한 IP 주소와 연결 정보가 시그널링 서버를 경유해요. 재생목록에 추가한 원본 파일은 방을 계속 이용할 수 있도록 비공개 Cloudflare R2에 보관돼요. 파일은 재생목록에서 더 이상 사용되지 않거나 운영자가 방 데이터를 삭제하면 정리되며, 방에 입장한 사용자만 짧은 시간 동안 유효한 주소로 내려받을 수 있어요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람하거나 분석하지 않아요.</span>',
+      '<span data-legal-pro-storage>PRO 방에서는 세션 연결을 위한 IP 주소와 연결 정보가 시그널링 서버를 경유해요. 재생목록에 추가한 원본 파일은 서비스 제공을 위해 비공개 Cloudflare R2에 보관되며, 방에 입장한 사용자만 내려받을 수 있어요. 파일은 더 이상 사용되지 않거나 운영자가 세션 데이터를 삭제하면 정리돼요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람하거나 분석하지 않아요.</span>',
     );
   });
 });

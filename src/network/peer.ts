@@ -733,6 +733,11 @@ function attemptPeerReconnect(): void {
 }
 
 function setupPeerEvents(peer: PeerInstance): void {
+  peer.on('developer-command', (frame) => {
+    if (getPeer() !== peer) return;
+    bus.emit('network:developer-command', frame);
+  });
+
   peer.on('pro-epoch-advanced', () => {
     if (getPeer() !== peer) return;
     log.info('[Transport] PRO coordinator epoch advanced; rebuilding transport');

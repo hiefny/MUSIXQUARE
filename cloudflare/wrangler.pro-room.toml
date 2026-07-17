@@ -32,6 +32,11 @@ PRESIGN_TTL_SECONDS = "600"
 name = "PRO_ROOMS"
 class_name = "MusixquareProRoom"
 
+[[durable_objects.bindings]]
+name = "PRO_SIGNALING_ROOMS"
+class_name = "MusixquareRoom"
+script_name = "musixquare-signaling"
+
 [[r2_buckets]]
 binding = "PRO_MEDIA_BUCKET"
 bucket_name = "musixquare-pro-media"

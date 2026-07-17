@@ -1,13 +1,16 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
+import { getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { transition } from '../../player/lifecycle.ts';
 import type { ConnectedPeer, PlaylistItem, QueueItemId, RoomContext } from '../../types/index.ts';
 import {
   captureLocalPlaybackCheckpointForTests,
+  cancelPendingDeveloperFileTransitionsForTests,
+  beginDeveloperPlayItemIntentForTests,
   reconcileRemovedProRoomQueueStateForTests,
   shouldRetainPendingProDownloadForTests,
 } from '../runtime.ts';
@@ -48,6 +51,41 @@ describe('PRO room periodic playback checkpoint', () => {
       youtubeSubIndex: null,
       updatedAtMs: expect.any(Number),
     });
+  });
+});
+
+describe('PRO developer file transport control', () => {
+  it('cancels delayed autoplay and ended-advance ownership before applying a command', () => {
+    setManagedTimer('autoPlayTimer', () => {}, 60_000);
+    setManagedTimer('ended-advance-retry', () => {}, 60_000);
+    setManagedTimer('ended-advance-next', () => {}, 60_000);
+
+    cancelPendingDeveloperFileTransitionsForTests();
+
+    expect(getManagedTimer('autoPlayTimer')).toBeNull();
+    expect(getManagedTimer('ended-advance-retry')).toBeNull();
+    expect(getManagedTimer('ended-advance-next')).toBeNull();
+  });
+
+  it('accepts play-item after synchronous selection without awaiting a long media pipeline', () => {
+    let finish!: () => void;
+    const background = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const starter = vi.fn((queueItemId: QueueItemId) => {
+      setState('playlist.currentQueueItemId', queueItemId);
+      return background;
+    });
+
+    expect(beginDeveloperPlayItemIntentForTests(QUEUE_ITEM_ID, starter)).toBe(true);
+    expect(starter).toHaveBeenCalledWith(QUEUE_ITEM_ID);
+
+    finish();
+  });
+
+  it('rejects play-item when the player cannot synchronously claim its target', () => {
+    const starter = vi.fn(async () => undefined);
+    expect(beginDeveloperPlayItemIntentForTests(QUEUE_ITEM_ID, starter)).toBe(false);
   });
 });
 

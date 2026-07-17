@@ -2,6 +2,7 @@ import { log } from '../../core/log.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../../core/timers.ts';
 import { TinyEmitter } from './emitter.ts';
 import type {
+  DeveloperCommandFrame,
   ProSignalingOptions,
   TransportConnectOptions,
   TransportDataConnection,
@@ -9,6 +10,7 @@ import type {
   TransportPeer,
   TransportPeerOptions,
 } from './types.ts';
+import { parseDeveloperCommandFrame } from './types.ts';
 
 type SignalingMessage =
   | { type: 'peer-open'; peerId: string; roomId: string; workerVersionId?: string }
@@ -31,7 +33,8 @@ type SignalingMessage =
     }
   | { type: 'media-answer'; from: string; callId: string; sdp: RTCSessionDescriptionInit }
   | { type: 'media-close'; from: string; callId: string }
-  | { type: 'peer-left'; peerId: string };
+  | { type: 'peer-left'; peerId: string }
+  | DeveloperCommandFrame;
 
 type OutgoingSignal =
   | { type: 'room-password-set'; password: string }
@@ -888,11 +891,34 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private async parseSignal(raw: unknown): Promise<SignalingMessage> {
     if (typeof raw !== 'string') throw createTransportError('server-error', 'INVALID_SIGNAL');
-    return JSON.parse(raw) as SignalingMessage;
+    let value: unknown;
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch {
+      throw createTransportError('server-error', 'INVALID_SIGNAL');
+    }
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).type === 'developer-command'
+    ) {
+      const command = parseDeveloperCommandFrame(value);
+      if (!command) throw createTransportError('server-error', 'INVALID_DEVELOPER_COMMAND');
+      return command;
+    }
+    return value as SignalingMessage;
   }
 
   private async handleHostMessage(raw: unknown): Promise<void> {
     const message = await this.parseSignal(raw);
+    if (message.type === 'developer-command') {
+      if (this.proSignalingAccess?.role !== 'coordinator') {
+        throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
+      }
+      this.emit('developer-command', message);
+      return;
+    }
     if (message.type === 'peer-open') {
       this.open = true;
       this.disconnected = false;
@@ -953,6 +979,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     raw: unknown,
   ): Promise<void> {
     const message = await this.parseSignal(raw);
+    if (message.type === 'developer-command') {
+      throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
+    }
     if (message.type === 'peer-open') {
       this.disconnected = false;
       await this.startGuestOffer(roomId, socket, conn, metadata);

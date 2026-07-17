@@ -446,6 +446,98 @@ describe('Cloudflare PRO signaling client contract', () => {
     peer.destroy();
   });
 
+  it('emits a strictly parsed developer command only on a PRO coordinator socket', async () => {
+    installFakeWebSocket();
+    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket,
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    await Promise.resolve();
+    const received = vi.fn();
+    peer.on('developer-command', received);
+    const command = {
+      type: 'developer-command',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      commandId: 'cmd_1234567890123456789012',
+      expiresAtMs: 1_900_000_000_000,
+      expected: {
+        queueItemId: '11111111-1111-4111-8111-111111111111',
+        playlistRevision: 4,
+        playbackRevision: 9,
+      },
+      command: { type: 'seek', positionSeconds: 12.5 },
+    };
+
+    FakeWebSocket.instances[0].dispatch('message', JSON.stringify(command));
+    await flushAsync();
+
+    expect(received).toHaveBeenCalledOnce();
+    expect(received).toHaveBeenCalledWith(command);
+    peer.destroy();
+  });
+
+  it('rejects a malformed developer command without forwarding it', async () => {
+    installFakeWebSocket();
+    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket,
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    await Promise.resolve();
+    const received = vi.fn();
+    const errors = vi.fn();
+    peer.on('developer-command', received);
+    peer.on('error', errors);
+
+    FakeWebSocket.instances[0].dispatch(
+      'message',
+      JSON.stringify({
+        type: 'developer-command',
+        version: 1,
+        roomCode: '000001',
+        coordinatorEpoch: 7,
+        commandId: 'cmd_1234567890123456789012',
+        expiresAtMs: 1_900_000_000_000,
+        expected: {
+          queueItemId: null,
+          playlistRevision: 4,
+          playbackRevision: 9,
+        },
+        command: { type: 'play', unexpected: true },
+      }),
+    );
+    await flushAsync();
+
+    expect(received).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledOnce();
+    expect(errors.mock.calls[0]?.[0]).toMatchObject({
+      type: 'server-error',
+      message: 'INVALID_DEVELOPER_COMMAND',
+    });
+    peer.destroy();
+  });
+
   it('rebuilds RTC only for an epoch-advanced close and preserves it for an ordinary signaling blip', async () => {
     installFakeWebSocket();
     const makePeer = (sequence: number) => {

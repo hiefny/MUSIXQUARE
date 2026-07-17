@@ -294,9 +294,12 @@ export function scheduleYtAutoSync(
   // host's manual Sync button (also isManual=true) bypasses this path
   // entirely — it calls broadcastYouTubeSync directly — so guests still
   // get the rendezvous toast on user-initiated syncs.
+  // A PAUSE must also cancel a previously armed PLAY rendezvous. Leaving the
+  // old stage-2 timer alive would make guests receive a delayed PLAY snapshot
+  // after the coordinator had already paused (notably through Developer API).
+  clearManagedTimer('yt-auto-sync');
   if (targetState !== 1) return;
   const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
-  clearManagedTimer('yt-auto-sync');
   setManagedTimer(
     'yt-auto-sync',
     () => {

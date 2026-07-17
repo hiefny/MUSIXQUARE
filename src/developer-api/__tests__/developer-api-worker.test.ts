@@ -14,6 +14,9 @@ const API_KEY = `mxqr_live_${KEY_ID}.${KEY_SECRET}`;
 const KEY_PEPPER = 'p'.repeat(32);
 const RATE_SECRET = 'r'.repeat(32);
 const OBSERVED_AT_MS = 1_784_262_910_000;
+const COMMAND_ID = `cmd_${'C'.repeat(22)}`;
+const IDEMPOTENCY_KEY = 'request.command-0001';
+const QUEUE_ITEM_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -83,6 +86,27 @@ function queuePayload() {
     currentQueueItemId: 'queue_item_000001',
     items: [playbackPayload().item],
   };
+}
+
+function commandPayload(
+  status: 'pending' | 'dispatched' | 'applied' | 'rejected' | 'expired' = 'pending',
+) {
+  const createdAtMs = OBSERVED_AT_MS;
+  const base = {
+    schemaVersion: 1,
+    roomCode: ROOM_CODE,
+    commandId: COMMAND_ID,
+    status,
+    createdAtMs,
+    expiresAtMs: createdAtMs + 30_000,
+  };
+  return status === 'applied'
+    ? {
+        ...base,
+        completedAtMs: createdAtMs + 100,
+        resultCode: 'applied',
+      }
+    : base;
 }
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -159,16 +183,22 @@ async function createEnvironment(
   const row = options.row === undefined ? defaultRow : options.row;
   const database = fakeDatabase(row, { fail: options.dbFail });
   const limiter = options.limiter ?? limiterNamespace();
-  const facadeFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+  const facadeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(typeof input === 'string' ? input : input.toString()).pathname;
     const body = JSON.parse(String(init?.body || '{}')) as { projection?: string };
     const payload =
       options.facadePayload ??
-      (body.projection === 'playback'
-        ? playbackPayload()
-        : body.projection === 'queue'
-          ? queuePayload()
-          : roomPayload());
-    return jsonResponse(payload, options.facadeStatus ?? 200);
+      (path === '/internal/v1/commands/create'
+        ? commandPayload()
+        : path === '/internal/v1/commands/status'
+          ? commandPayload('applied')
+          : body.projection === 'playback'
+            ? playbackPayload()
+            : body.projection === 'queue'
+              ? queuePayload()
+              : roomPayload());
+    const defaultStatus = path === '/internal/v1/commands/create' ? 202 : 200;
+    return jsonResponse(payload, options.facadeStatus ?? defaultStatus);
   });
   return {
     env: {
@@ -423,8 +453,8 @@ describe('Developer API read-only public Worker', () => {
     expect(noQueueScope.facadeFetch).not.toHaveBeenCalled();
   });
 
-  it('keeps write routes closed even when mode is enabled', async () => {
-    const { env, database, facadeFetch } = await createEnvironment({ mode: 'enabled' });
+  it('keeps write routes closed in read-only mode before authentication', async () => {
+    const { env, database, facadeFetch } = await createEnvironment({ mode: 'read-only' });
     const response = await developerApiWorker.fetch(
       apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, { method: 'POST' }),
       env,
@@ -432,6 +462,177 @@ describe('Developer API read-only public Worker', () => {
     expect(response.status).toBe(404);
     expect(database.first).not.toHaveBeenCalled();
     expect(facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('creates an allowlisted playback command with idempotency, rate, and audit controls', async () => {
+    const setup = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const waits: Promise<unknown>[] = [];
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify({ type: 'seek', positionSeconds: 42.5 }),
+      }),
+      setup.env,
+      { waitUntil: (promise: Promise<unknown>) => waits.push(promise) },
+    );
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual(commandPayload());
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-command',
+    ]);
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(1);
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/commands/create');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      command: { type: 'seek', positionSeconds: 42.5 },
+    });
+    expect(JSON.stringify(init)).not.toContain(API_KEY);
+    await Promise.all(waits);
+    expect(setup.database.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns the canonical terminal result when an accepted command response was lost', async () => {
+    const setup = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+      facadePayload: commandPayload('applied'),
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify({ type: 'play' }),
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual(commandPayload('applied'));
+  });
+
+  it('accepts only exact public command bodies and UUID v4 queue item identities', async () => {
+    const invalidCommands = [
+      { type: 'play', expectedQueueItemId: QUEUE_ITEM_ID },
+      { type: 'pause', extra: true },
+      { type: 'seek' },
+      { type: 'seek', positionSeconds: 604_801 },
+      { type: 'play_item', queueItemId: 'queue_item_000001' },
+    ];
+    for (const command of invalidCommands) {
+      const setup = await createEnvironment({
+        mode: 'enabled',
+        scopeMask: developerApiScopes['playback:control'],
+      });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': IDEMPOTENCY_KEY,
+          },
+          body: JSON.stringify(command),
+        }),
+        setup.env,
+      );
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe('INVALID_REQUEST');
+      expect(setup.facadeFetch).not.toHaveBeenCalled();
+    }
+
+    const valid = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const accepted = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify({ type: 'play_item', queueItemId: QUEUE_ITEM_ID }),
+      }),
+      valid.env,
+    );
+    expect(accepted.status).toBe(202);
+  });
+
+  it('requires a bounded Idempotency-Key and a body no larger than 1 KiB', async () => {
+    for (const headers of [
+      { 'content-type': 'application/json' },
+      { 'content-type': 'application/json', 'idempotency-key': 'short' },
+    ]) {
+      const setup = await createEnvironment({
+        mode: 'enabled',
+        scopeMask: developerApiScopes['playback:control'],
+      });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ type: 'play' }),
+        }),
+        setup.env,
+      );
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe(
+        'idempotency-key' in headers ? 'INVALID_REQUEST' : 'IDEMPOTENCY_KEY_REQUIRED',
+      );
+    }
+
+    const oversized = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify({ type: 'play', padding: 'x'.repeat(1_100) }),
+      }),
+      oversized.env,
+    );
+    expect(response.status).toBe(400);
+    expect(await errorCode(response)).toBe('INVALID_REQUEST');
+    expect(oversized.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('delegates command ownership to the facade and permits status reads in read-only mode', async () => {
+    const setup = await createEnvironment({
+      mode: 'read-only',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands/${COMMAND_ID}`),
+      setup.env,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(commandPayload('applied'));
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/commands/status');
+    await expect(Promise.resolve(JSON.parse(String(init?.body)))).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      commandId: COMMAND_ID,
+    });
+    expect(setup.limiter.calls[1]?.body.operation).toBe('authenticated-read');
   });
 
   it('rejects arbitrary browser origins without emitting CORS headers', async () => {
@@ -551,6 +752,33 @@ describe('Developer API atomic room limiter', () => {
       }),
     );
     expect(response.status).toBe(400);
+  });
+
+  it('applies atomic playback-control limits per key and room', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
+    const storage = new FakeStorage();
+    const limiter = new DeveloperApiRateLimiter({ storage } as never);
+    const request = () =>
+      new Request('https://developer-api-rate.internal/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operation: 'authenticated-command', keyId: KEY_ID }),
+      });
+
+    for (let index = 0; index < 30; index += 1) {
+      const allowed = await limiter.fetch(request());
+      expect(await allowed.json()).toMatchObject({ allowed: true });
+    }
+    const blocked = await limiter.fetch(request());
+    expect(await blocked.json()).toMatchObject({
+      allowed: false,
+      limit: 30,
+      retryAfterSeconds: 60,
+    });
+    const stored = storage.values.get('buckets') as Record<string, { count: number }>;
+    expect(stored[`key:${KEY_ID}:playback-control`]?.count).toBe(30);
+    expect(stored['room:playback-control']?.count).toBe(30);
   });
 
   it('deletes expired per-IP limiter storage on its alarm', async () => {

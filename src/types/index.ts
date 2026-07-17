@@ -16,9 +16,15 @@ import type {
 // ─── Peer / Network ────────────────────────────────────────────────
 
 import type {
+  DeveloperCommandFrame,
   TransportDataConnection,
   TransportMediaConnection,
   TransportPeer,
+} from '../network/transport/types.ts';
+
+export type {
+  DeveloperCommandFrame,
+  DeveloperCommandResultCode,
 } from '../network/transport/types.ts';
 
 /** App data channel connection. PeerJS is only one possible provider. */
@@ -1142,6 +1148,8 @@ interface BaseEventMap {
   'network:peer-connection-replaced': [peerId: string];
   'network:data': [data: unknown, conn: DataConnection];
   'network:error': [error: unknown];
+  /** Authenticated server-to-coordinator command; never accepted from peers. */
+  'network:developer-command': [frame: DeveloperCommandFrame];
   'network:broadcast': [data: unknown];
   'network:broadcast-except': [peerId: string, data: unknown];
   'network:toggle-operator': [peerId: string];

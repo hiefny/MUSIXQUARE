@@ -407,6 +407,63 @@ function internalDeveloperRead(
   );
 }
 
+async function preparedDeveloperCommandRoom(
+  dispatchFetch = vi.fn(async () => Response.json({ dispatched: true })),
+) {
+  const context = await activatedRoom();
+  const internal = context.worker as unknown as {
+    env: Record<string, any>;
+    room: Record<string, any>;
+  };
+  internal.env.PRO_SIGNALING_ROOMS = {
+    idFromName: vi.fn((value: string) => value),
+    get: vi.fn(() => ({ fetch: dispatchFetch })),
+  };
+  const queueItemId = '44444444-4444-4444-8444-444444444444';
+  internal.room.playlistRevision = 2;
+  internal.room.playlist = [
+    {
+      queueItemId,
+      name: 'Developer API test',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    },
+  ];
+  internal.room.currentQueueItemId = queueItemId;
+  internal.room.playback = {
+    coordinatorEpoch: context.activationEnvelope.snapshot.presence.coordinatorEpoch,
+    revision: 4,
+    state: 'paused',
+    queueItemId,
+    positionSeconds: 8,
+    updatedAtMs: Date.now(),
+    youtubeVideoId: 'dQw4w9WgXcQ',
+    youtubeSubIndex: 0,
+  };
+  const capability = await context.worker.fetch(
+    jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, context.ownerCookie),
+  );
+  expect(capability.status).toBe(200);
+  return { ...context, dispatchFetch, internal, queueItemId };
+}
+
+function createInternalDeveloperCommand(
+  worker: MusixquareProRoom,
+  keyId: string,
+  idempotencyKey: string,
+  command: Record<string, unknown>,
+): Promise<Response> {
+  return worker.fetch(
+    new Request('https://pro-room.internal/internal/developer/v1/commands/create', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+      },
+      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, command }),
+    }),
+  );
+}
+
 describe('PRO room private Developer API projections', () => {
   it('exposes only bounded room, playback, and queue fields', async () => {
     vi.useFakeTimers();
@@ -733,6 +790,315 @@ describe('PRO room private Developer API projections', () => {
       environment(),
     );
     expect(response.status).toBe(404);
+  });
+
+  it('persists, dispatches, deduplicates, acknowledges, and fences Developer API commands', async () => {
+    const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+    const dispatchFetch = vi.fn(async () => Response.json({ dispatched: true }));
+    const internal = worker as unknown as {
+      env: Record<string, any>;
+      room: {
+        playlistRevision: number;
+        playlist: Array<Record<string, any>>;
+        currentQueueItemId: string | null;
+        playback: Record<string, any>;
+      };
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+    const queueItemId = '44444444-4444-4444-8444-444444444444';
+    internal.room.playlistRevision = 2;
+    internal.room.playlist = [
+      {
+        queueItemId,
+        name: 'Developer API test',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ];
+    internal.room.currentQueueItemId = queueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+      revision: 4,
+      state: 'paused',
+      queueItemId,
+      positionSeconds: 8,
+      updatedAtMs: Date.now(),
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+
+    const capability = await worker.fetch(
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+    );
+    expect(capability.status).toBe(200);
+    expect((await responseJson(await internalDeveloperRead(worker, 'room'))).controlAvailable).toBe(
+      true,
+    );
+
+    const keyId = 'ApiKeyId12345678';
+    const idempotencyKey = 'developer-command-0001';
+    const createRequest = (command: Record<string, unknown>) =>
+      worker.fetch(
+        new Request('https://pro-room.internal/internal/developer/v1/commands/create', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+          },
+          body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, command }),
+        }),
+      );
+    const persistedSizes: number[] = [];
+    const originalPut = state.storage.put.bind(state.storage);
+    const putSpy = vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+      if (key === 'pro-room:v1') {
+        persistedSizes.push(new TextEncoder().encode(JSON.stringify(value)).byteLength);
+      }
+      await originalPut(key, value);
+    });
+    const createdResponse = await createRequest({ type: 'play' });
+    putSpy.mockRestore();
+    expect(createdResponse.status).toBe(202);
+    const created = await responseJson(createdResponse);
+    expect(created).toMatchObject({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      status: 'dispatched',
+    });
+    expect(created.commandId).toMatch(/^cmd_[A-Za-z0-9_-]{22}$/);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+    expect(persistedSizes).toHaveLength(2);
+    // The persisted pre-dispatch capacity reserve is consumed before the
+    // cross-DO send, so the post-send write can never be the larger state.
+    expect(persistedSizes[1]).toBeLessThanOrEqual(persistedSizes[0]!);
+    const dispatchedRequest = dispatchFetch.mock.calls[0]?.[0] as Request;
+    await expect(dispatchedRequest.json()).resolves.toMatchObject({
+      roomCode: ROOM_CODE,
+      coordinatorParticipantId: activationEnvelope.snapshot.viewer.participantId,
+      developerControlVersion: 1,
+      frame: {
+        commandId: created.commandId,
+        expected: { queueItemId, playlistRevision: 2, playbackRevision: 4 },
+        command: { type: 'play' },
+      },
+    });
+
+    const replay = await responseJson(await createRequest({ type: 'play' }));
+    expect(replay).toEqual(created);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+    const conflict = await createRequest({ type: 'pause' });
+    expect(conflict.status).toBe(409);
+    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+
+    const ack = await worker.fetch(
+      jsonRequest(
+        `/developer-commands/${created.commandId}/ack`,
+        'POST',
+        { resultCode: 'applied' },
+        ownerCookie,
+      ),
+    );
+    expect(ack.status).toBe(200);
+    expect(await responseJson(ack)).toEqual({ ok: true });
+    const duplicateAck = await worker.fetch(
+      jsonRequest(
+        `/developer-commands/${created.commandId}/ack`,
+        'POST',
+        { resultCode: 'applied' },
+        ownerCookie,
+      ),
+    );
+    expect(duplicateAck.status).toBe(200);
+
+    const status = await worker.fetch(
+      new Request('https://pro-room.internal/internal/developer/v1/commands/status', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({ roomCode: ROOM_CODE, keyId, commandId: created.commandId }),
+      }),
+    );
+    expect(await responseJson(status)).toMatchObject({ status: 'applied', resultCode: 'applied' });
+  });
+
+  it('keeps command idempotency isolated from a saturated browser ledger and exact after terminal eviction', async () => {
+    const { worker, ownerCookie, dispatchFetch, internal } = await preparedDeveloperCommandRoom();
+    const keyId = 'ApiKeyId12345678';
+    const idempotencyKey = 'developer-command-1001';
+    const nowMs = Date.now();
+    for (let index = 0; index < 256; index += 1) {
+      internal.room.idempotency[`browser-checkpoint:${index}`] = {
+        fingerprint: 'f'.repeat(43),
+        body: { snapshot: true },
+        status: 200,
+        expiresAtMs: nowMs + 24 * 60 * 60 * 1000 + index,
+      };
+    }
+
+    const first = await responseJson(
+      await createInternalDeveloperCommand(worker, keyId, idempotencyKey, { type: 'play' }),
+    );
+    const replayWhileLive = await responseJson(
+      await createInternalDeveloperCommand(worker, keyId, idempotencyKey, { type: 'play' }),
+    );
+    expect(replayWhileLive).toEqual(first);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+    expect(Object.keys(internal.room.idempotency)).toHaveLength(256);
+    expect(Object.keys(internal.room.developerCommandIdempotency)).toHaveLength(1);
+
+    const ack = await worker.fetch(
+      jsonRequest(
+        `/developer-commands/${first.commandId}/ack`,
+        'POST',
+        { resultCode: 'applied' },
+        ownerCookie,
+      ),
+    );
+    expect(ack.status).toBe(200);
+
+    // Fill the bounded command-status ledger with newer terminal entries. The
+    // oldest command may be evicted, but its dedicated idempotency record must
+    // retain the terminal body rather than the original pending response.
+    for (let index = 0; index < 63; index += 1) {
+      const commandId = `cmd_${String(index).padStart(22, '0')}`;
+      internal.room.developerCommands[commandId] = {
+        roomCode: ROOM_CODE,
+        commandId,
+        keyId,
+        idempotencyKey: `terminal-command-${String(index).padStart(3, '0')}`,
+        command: { type: 'pause' },
+        createdAtMs: nowMs + 1_000 + index,
+        expiresAtMs: nowMs + 30_000,
+        retainUntilMs: nowMs + 10 * 60 * 1000,
+        coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+        coordinatorParticipantId: internal.room.presence.coordinatorParticipantId,
+        coordinatorPresenceIncarnationId:
+          internal.room.presence.participants[internal.room.presence.coordinatorParticipantId]
+            .presenceIncarnationId,
+        expected: {
+          queueItemId: internal.room.currentQueueItemId,
+          playlistRevision: internal.room.playlistRevision,
+          playbackRevision: internal.room.playback.revision,
+        },
+        status: 'rejected',
+        attempts: 1,
+        resultCode: 'busy',
+        completedAtMs: nowMs + 1_000 + index,
+      };
+    }
+    expect(Object.keys(internal.room.developerCommands)).toHaveLength(64);
+
+    await createInternalDeveloperCommand(worker, keyId, 'developer-command-1002', {
+      type: 'pause',
+    });
+    expect(internal.room.developerCommands[first.commandId]).toBeUndefined();
+    const terminalReplay = await responseJson(
+      await createInternalDeveloperCommand(worker, keyId, idempotencyKey, { type: 'play' }),
+    );
+    expect(terminalReplay).toMatchObject({
+      commandId: first.commandId,
+      status: 'applied',
+      resultCode: 'applied',
+    });
+    expect(dispatchFetch).toHaveBeenCalledTimes(2);
+
+    const retainedStatusRequest = (requestedKeyId: string) =>
+      worker.fetch(
+        new Request('https://pro-room.internal/internal/developer/v1/commands/status', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+          },
+          body: JSON.stringify({
+            roomCode: ROOM_CODE,
+            keyId: requestedKeyId,
+            commandId: first.commandId,
+          }),
+        }),
+      );
+    const retainedStatus = await retainedStatusRequest(keyId);
+    expect(retainedStatus.status).toBe(200);
+    expect(await responseJson(retainedStatus)).toMatchObject({
+      commandId: first.commandId,
+      status: 'applied',
+      resultCode: 'applied',
+    });
+    const otherKeyStatus = await retainedStatusRequest('B'.repeat(16));
+    expect(otherKeyStatus.status).toBe(404);
+  });
+
+  it('bounds a stalled signaling dispatch and leaves a retryable tracked command', async () => {
+    const stalledDispatch = vi.fn(
+      (request: Request) =>
+        new Promise<Response>((_resolve, reject) => {
+          request.signal.addEventListener('abort', () => reject(new Error('aborted')), {
+            once: true,
+          });
+        }),
+    );
+    const { worker, internal } = await preparedDeveloperCommandRoom(stalledDispatch);
+    const startedAt = Date.now();
+    const create = createInternalDeveloperCommand(
+      worker,
+      'ApiKeyId12345678',
+      'developer-command-timeout',
+      { type: 'play' },
+    );
+    const response = await create;
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(response.status).toBe(202);
+    const body = await responseJson(response);
+    expect(body).toMatchObject({ status: 'pending' });
+    expect(stalledDispatch).toHaveBeenCalledTimes(1);
+    expect(internal.room.developerCommands[body.commandId]).toMatchObject({
+      status: 'pending',
+      attempts: 1,
+    });
+  });
+
+  it('accepts only an exact coordinator expired ACK after server-side expiry', async () => {
+    const { worker, ownerCookie, internal } = await preparedDeveloperCommandRoom();
+    const created = await responseJson(
+      await createInternalDeveloperCommand(
+        worker,
+        'ApiKeyId12345678',
+        'developer-command-expired',
+        { type: 'play' },
+      ),
+    );
+    internal.room.developerCommands[created.commandId].expiresAtMs = Date.now() - 1;
+
+    const expiredAck = await worker.fetch(
+      jsonRequest(
+        `/developer-commands/${created.commandId}/ack`,
+        'POST',
+        { resultCode: 'expired' },
+        ownerCookie,
+      ),
+    );
+    expect(expiredAck.status).toBe(200);
+    expect(internal.room.developerCommands[created.commandId]).toMatchObject({
+      status: 'expired',
+      resultCode: 'expired',
+    });
+    expect(
+      Number.isSafeInteger(internal.room.developerCommands[created.commandId].acknowledgedAtMs),
+    ).toBe(true);
+
+    const conflictingAck = await worker.fetch(
+      jsonRequest(
+        `/developer-commands/${created.commandId}/ack`,
+        'POST',
+        { resultCode: 'applied' },
+        ownerCookie,
+      ),
+    );
+    expect(conflictingAck.status).toBe(409);
   });
 });
 
@@ -1344,6 +1710,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       'coordinatorEpoch',
       'presenceIncarnationId',
       'ticketSequence',
+      'developerControlVersion',
       'jti',
       'iat',
       'exp',
@@ -1356,6 +1723,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       coordinatorEpoch: 3,
       presenceIncarnationId: awakeSnapshot.viewer.presenceIncarnationId,
       ticketSequence: 1,
+      developerControlVersion: 0,
     });
     expect((decoded.exp as number) - (decoded.iat as number)).toBe(90);
   });

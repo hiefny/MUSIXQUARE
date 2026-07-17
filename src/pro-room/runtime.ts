@@ -7,17 +7,34 @@ import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
+import { getHostNow } from '../network/shared-clock.ts';
 import { registerHandler } from '../network/protocol.ts';
 import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
-import { liveAudioBufferPcmBytes, setPendingRecoveryTarget } from '../player/_state.ts';
+import {
+  getCurrentAudioBuffer,
+  isPlayLocked,
+  liveAudioBufferPcmBytes,
+  setPendingRecoveryTarget,
+} from '../player/_state.ts';
 import {
   isAudioDecodeAdmissionError,
   reserveEncodedReceiveMemoryWithinBudget,
 } from '../player/decode-admission.ts';
-import { clearPreloadState, getShuffleNextPlayableQueueItemId } from '../player/playlist.ts';
+import {
+  clearPreloadState,
+  getShuffleNextPlayableQueueItemId,
+  playTrack,
+} from '../player/playlist.ts';
 import { schedulePreload } from '../storage/preload.ts';
-import { getTrackPosition } from '../player/transport.ts';
-import { getYouTubePlayer } from '../youtube/_state.ts';
+import {
+  getTrackPosition,
+  isFilePipelineBusyForPlay,
+  pause,
+  play,
+  seekTo,
+} from '../player/transport.ts';
+import { getPlaybackModeActivity } from '../player/ownership.ts';
+import { getYouTubePlayer, isYtLoadInProgress } from '../youtube/_state.ts';
 import {
   isCoordinator,
   resetRoomContext,
@@ -26,6 +43,8 @@ import {
 } from '../rooms/authority.ts';
 import type {
   DataConnection,
+  DeveloperCommandFrame,
+  DeveloperCommandResultCode,
   PlaylistItem,
   PlaylistWireItem,
   QueueItemId,
@@ -49,6 +68,7 @@ import {
 import { ProRoomInvalidationHighWater } from './invalidation-high-water.ts';
 import { buildProRoomUnloadCheckpoint, waitForProRoomPresenceClose } from './hard-close.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
+import { DeveloperControlExecutor } from './developer-control.ts';
 import {
   registerProRoomHardCloseHandler,
   registerProRoomLeaveHandler,
@@ -92,6 +112,8 @@ const PLAYBACK_RESTORE_TIMEOUT_TIMER = 'pro-room-playback-restore-timeout';
 const INVALIDATION_REFRESH_MIN_INTERVAL_MS = 5_000;
 const INVALIDATION_REFRESH_TIMER = 'pro-room-invalidation-refresh';
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
+/** Must match the local-file coordinator lead used by player/transport.ts. */
+const DEVELOPER_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 
 const api = new ProRoomApiClient();
 configureProSystemAudioService(api);
@@ -1277,6 +1299,7 @@ function applyAuthority(context: RoomContext): void {
 
 function stopLifecycle(): void {
   active = false;
+  developerControl.reset();
   heartbeatSingleFlight.reset();
   refreshInFlight = false;
   topologyRecoveryAttempt = 0;
@@ -1310,6 +1333,173 @@ const observer: ProRoomSessionObserver = {
 };
 
 const controller = new ProRoomSessionController(api, bridge, observer);
+
+function isDeveloperControlBusy(): boolean {
+  return (
+    pendingFileDownload !== null ||
+    isFilePipelineBusyForPlay() ||
+    isPlayLocked() ||
+    isYtLoadInProgress() ||
+    getState('player.isSeeking')
+  );
+}
+
+function cancelPendingDeveloperFileTransitions(): void {
+  // Mirror the coordinator's ordinary play/pause controls without surfacing
+  // their user-initiated "auto play canceled" toast. Otherwise a file that
+  // is waiting in the standard 3-second start window can overwrite an API
+  // pause, or replay from zero shortly after an API play/seek succeeded.
+  clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
+}
+
+/** Exact timer-cancellation seam for the developer-control regression test. */
+export function cancelPendingDeveloperFileTransitionsForTests(): void {
+  cancelPendingDeveloperFileTransitions();
+}
+
+type DeveloperPlayItemStarter = (queueItemId: QueueItemId) => Promise<void>;
+
+function beginDeveloperPlayItemIntent(
+  queueItemId: QueueItemId,
+  starter: DeveloperPlayItemStarter = playTrack,
+): boolean {
+  // playTrack synchronously commits the queue selection before its first
+  // await. That selection is the bounded API contract; R2 download/decode may
+  // legitimately continue for minutes and must not keep a short-lived command
+  // open past its epoch/TTL. The existing player pipeline owns all later UX,
+  // retry, and failure transitions.
+  const completion = starter(queueItemId);
+  void completion.catch((error) => {
+    log.warn('[PRO] Developer play-item background pipeline failed', error);
+  });
+  return getState('playlist.currentQueueItemId') === queueItemId;
+}
+
+/** Exact synchronous-intent seam for long-running play-item regression tests. */
+export function beginDeveloperPlayItemIntentForTests(
+  queueItemId: QueueItemId,
+  starter: DeveloperPlayItemStarter,
+): boolean {
+  return beginDeveloperPlayItemIntent(queueItemId, starter);
+}
+
+async function executeDeveloperCommand(
+  command: DeveloperCommandFrame['command'],
+  snapshot: ProRoomSnapshot,
+): Promise<Exclude<DeveloperCommandResultCode, 'already_applied' | 'expired'>> {
+  if (isDeveloperControlBusy()) return 'busy';
+
+  if (command.type === 'play_item') {
+    const localItem = getState('playlist.items').find(
+      (item) => item.queueItemId === command.queueItemId,
+    );
+    if (!localItem) return 'stale_queue';
+    return beginDeveloperPlayItemIntent(command.queueItemId) ? 'applied' : 'execution_failed';
+  }
+
+  const queueItemId = snapshot.currentQueueItemId;
+  if (!queueItemId || getState('playlist.currentQueueItemId') !== queueItemId) {
+    return queueItemId ? 'stale_queue' : 'no_media';
+  }
+  const item = snapshot.playlist.find((candidate) => candidate.queueItemId === queueItemId);
+  if (!item) return 'stale_queue';
+
+  const playback = getPlaybackModeActivity();
+  if (playback.mode === 'system-audio') return 'unsupported_mode';
+
+  if (item.source.kind === 'youtube') {
+    const player = getYouTubePlayer();
+    if (!player || playback.mode !== 'youtube') return 'no_media';
+    const playerState = player.getPlayerState();
+    const currentTime = Math.max(0, Number(player.getCurrentTime()) || 0);
+
+    if (command.type === 'play') {
+      if (playerState === 1 && playback.activity === 'playing') return 'applied';
+      bus.emit('youtube:auto-play', {
+        targetTime: currentTime,
+        skipSeek: true,
+        state: 1,
+      });
+      return 'applied';
+    }
+    if (command.type === 'pause') {
+      if (playerState === 2 && playback.activity === 'paused') return 'applied';
+      bus.emit('youtube:auto-play', {
+        targetTime: currentTime,
+        skipSeek: true,
+        state: 2,
+      });
+      return 'applied';
+    }
+    seekTo(command.positionSeconds);
+    return 'applied';
+  }
+
+  if (playback.mode !== 'file') return 'no_media';
+  const resident = getState('files.current');
+  if (!getCurrentAudioBuffer() || resident?.queueItemId !== queueItemId) return 'no_media';
+  cancelPendingDeveloperFileTransitions();
+
+  if (command.type === 'play') {
+    if (playback.activity === 'playing') return 'applied';
+    if (playback.activity !== 'paused') return 'no_media';
+    const position = Math.max(0, Number(getState('player.pausedAt')) || 0);
+    await play(position);
+    if (
+      getState('playlist.currentQueueItemId') !== queueItemId ||
+      getPlaybackModeActivity().activity !== 'playing'
+    ) {
+      return 'execution_failed';
+    }
+    broadcast({
+      type: MSG.PLAY,
+      time: position,
+      queueItemId,
+      hostPlayAt: getHostNow() + DEVELOPER_FILE_PLAY_SCHEDULE_AHEAD_MS,
+    });
+    return 'applied';
+  }
+
+  if (command.type === 'pause') {
+    if (playback.activity === 'paused') return 'applied';
+    if (playback.activity !== 'playing') return 'no_media';
+    const position = getTrackPosition();
+    pause(position, { showToast: false });
+    broadcast({
+      type: MSG.PAUSE,
+      time: position,
+      queueItemId,
+      reason: 'pause',
+    });
+    return 'applied';
+  }
+
+  seekTo(command.positionSeconds);
+  return 'applied';
+}
+
+async function refreshDeveloperControlSnapshot(): Promise<ProRoomSnapshot | null> {
+  const lease = playlistRuntimeLease;
+  if (!active || !lease || !isCoordinator()) return null;
+  const incoming = await controller.refresh();
+  if (!active || !isPlaylistLeaseCurrent(lease) || !isCoordinator()) return null;
+  await acceptPlaylistSnapshot(incoming);
+  if (!active || !isPlaylistLeaseCurrent(lease) || !isCoordinator()) return null;
+  return playlistManager?.snapshot ?? incoming;
+}
+
+const developerControl = new DeveloperControlExecutor({
+  now: () => Date.now(),
+  isActive: () => active,
+  isCoordinator,
+  snapshot: () => playlistManager?.snapshot ?? controller.snapshot,
+  refreshSnapshot: refreshDeveloperControlSnapshot,
+  execute: executeDeveloperCommand,
+  acknowledge: (frame, resultCode) =>
+    api.ackDeveloperCommand({ code: frame.roomCode, commandId: frame.commandId, resultCode }),
+});
 
 onProRoomTabTakeover((roomCode) => {
   if (!active || controller.snapshot?.roomCode !== roomCode) return;
@@ -1470,6 +1660,7 @@ function bindVisibilityRefresh(): void {
 }
 
 function startLifecycle(): void {
+  developerControl.reset();
   active = true;
   terminalRecoveryInFlight = false;
   bindVisibilityRefresh();
@@ -1750,6 +1941,15 @@ registerHandler(MSG.PRO_ROOM_INVALIDATED, (data, conn: DataConnection) => {
 
   if (!invalidationHighWater.offer(data, current ?? { revision: -1, playlistRevision: -1 })) return;
   scheduleCoordinatorInvalidationRefresh();
+});
+
+bus.on('network:developer-command', (frame) => {
+  void developerControl.handle(frame).catch((error) => {
+    // A failed authoritative refresh is deliberately left unacknowledged;
+    // after execution, the RAM dedupe entry remains even when only the ACK
+    // failed, so bounded redelivery cannot repeat an applied side effect.
+    log.warn('[PRO] Developer command delivery was not acknowledged', error);
+  });
 });
 
 registerProRoomHardCloseHandler(() => hardCloseActiveProRoom());

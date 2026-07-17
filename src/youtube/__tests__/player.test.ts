@@ -191,6 +191,30 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('synchronized pause ownership', () => {
+    it('cancels an older delayed PLAY rendezvous before broadcasting PAUSE', async () => {
+      const stateMod = await import('../_state.ts');
+      const timers = await import('../../core/timers.ts');
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const player = {
+        seekTo: vi.fn(),
+        playVideo: vi.fn(),
+        pauseVideo: vi.fn(),
+        getDuration: vi.fn(() => 300),
+        getVideoData: vi.fn(() => ({ video_id: 'VIDEO_ID_01', title: 'Video' })),
+      };
+      stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+
+      scheduleYtAutoSync(12, { state: 1 });
+      vi.mocked(timers.clearManagedTimer).mockClear();
+      scheduleYtAutoSync(12, { state: 2 });
+
+      expect(timers.clearManagedTimer).toHaveBeenCalledWith('yt-auto-sync');
+      expect(player.pauseVideo).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('PRO coordinator canonical controls', () => {
     it('keeps displayed position and paused seek messages on room time', async () => {
       const { initYouTube } = await import('../player.ts');

@@ -443,6 +443,16 @@ describe('PRO room cookie session API', () => {
       presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
       ticketSequence: 7,
     });
+    const ticketRequest = fetchMock.mock.calls[0]?.[1];
+    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 1 }));
+    const ticketHeaders = new Headers(ticketRequest?.headers);
+    expect(ticketHeaders.get('content-type')).toBe('application/json');
+    expect(ticketHeaders.get('x-mxqr-pro-participant-id')).toBe(
+      activeSnapshot().viewer!.participantId,
+    );
+    expect(ticketHeaders.get('x-mxqr-pro-presence-incarnation')).toBe(
+      activeSnapshot().viewer!.presenceIncarnationId,
+    );
     await expect(client.leavePresence(ROOM_CODE)).resolves.toEqual(activeSnapshot());
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
@@ -450,6 +460,96 @@ describe('PRO room cookie session API', () => {
       '/v1/rooms/000001/presence/current',
     ]);
     expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST', 'DELETE']);
+  });
+
+  it('falls back to a capability-free ticket only for the legacy empty-body contract', async () => {
+    const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
+    const envelope = {
+      ticket,
+      expiresAtMs: 1_900_000_000_000,
+      role: 'coordinator',
+      coordinatorEpoch: 4,
+      presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
+      ticketSequence: 7,
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
+      .mockResolvedValueOnce(jsonResponse(envelope));
+
+    await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual(envelope);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const advertised = fetchMock.mock.calls[0]?.[1];
+    const fallback = fetchMock.mock.calls[1]?.[1];
+    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 1 }));
+    expect(new Headers(advertised?.headers).get('content-type')).toBe('application/json');
+    expect(fallback?.body).toBeUndefined();
+    expect(new Headers(fallback?.headers).has('content-type')).toBe(false);
+    expect(new Headers(fallback?.headers).get('x-mxqr-pro-participant-id')).toBe(
+      activeSnapshot().viewer!.participantId,
+    );
+  });
+
+  it('does not downgrade signaling capability for any other ticket error', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'ROOM_SUSPENDED' }, { status: 423 }));
+
+    await expect(client.createSignalingTicket(ROOM_CODE)).rejects.toMatchObject({
+      code: 'ROOM_SUSPENDED',
+      status: 423,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('ACKs a developer command with the current tab presence fence', async () => {
+    const commandId = 'cmd_1234567890123456789012';
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    await client.ackDeveloperCommand({ code: ROOM_CODE, commandId, resultCode: 'applied' });
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(`/v1/rooms/000001/developer-commands/${commandId}/ack`);
+    expect(init).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({ resultCode: 'applied' }),
+    });
+    const headers = new Headers(init.headers);
+    expect(headers.get('content-type')).toBe('application/json');
+    expect(headers.get('x-mxqr-pro-participant-id')).toBe(activeSnapshot().viewer!.participantId);
+    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe(
+      activeSnapshot().viewer!.presenceIncarnationId,
+    );
+  });
+
+  it('rejects malformed developer command ACK input before fetch', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(
+      client.ackDeveloperCommand({
+        code: ROOM_CODE,
+        commandId: 'not-a-command',
+        resultCode: 'applied',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_DEVELOPER_COMMAND_ID' });
+    await expect(
+      client.ackDeveloperCommand({
+        code: ROOM_CODE,
+        commandId: 'cmd_1234567890123456789012',
+        resultCode: 'not-valid' as 'applied',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_DEVELOPER_COMMAND_RESULT' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('uses one small credentialed keepalive request for a confirmed unload close', async () => {

@@ -23,6 +23,7 @@ import {
   parseProRoomSystemAudioPublication,
   parseProRoomSystemAudioState,
 } from './snapshot.ts';
+import type { DeveloperCommandResultCode } from '../network/transport/types.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://pro.musixquare.com';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -37,6 +38,7 @@ const MAX_URL_LENGTH = 8192;
 const MAX_UPLOAD_HEADERS = 16;
 const MAX_UPLOAD_HEADER_VALUE_LENGTH = 2048;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
@@ -50,6 +52,16 @@ const FORBIDDEN_UPLOAD_HEADERS = new Set([
   'origin',
   'referer',
   'content-length',
+]);
+const DEVELOPER_COMMAND_RESULT_CODES = new Set<DeveloperCommandResultCode>([
+  'applied',
+  'already_applied',
+  'busy',
+  'no_media',
+  'stale_queue',
+  'unsupported_mode',
+  'expired',
+  'execution_failed',
 ]);
 
 type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'suspended';
@@ -149,6 +161,12 @@ export interface UpdateProRoomSnapshotInput {
   currentQueueItemId: string | null;
   playback: ProRoomPlaybackCheckpoint;
   idempotencyKey: string;
+}
+
+interface AckProRoomDeveloperCommandInput {
+  code: string;
+  commandId: string;
+  resultCode: DeveloperCommandResultCode;
 }
 
 /**
@@ -279,6 +297,13 @@ function validateIdempotencyKey(value: string): string {
 
 function validateOpaqueId(value: string, errorCode: string): string {
   if (!OPAQUE_ID_RE.test(value)) throw new ProRoomApiError(errorCode);
+  return value;
+}
+
+function validateDeveloperCommandResultCode(value: DeveloperCommandResultCode): string {
+  if (!DEVELOPER_COMMAND_RESULT_CODES.has(value)) {
+    throw new ProRoomApiError('INVALID_DEVELOPER_COMMAND_RESULT');
+  }
   return value;
 }
 
@@ -973,49 +998,90 @@ export class ProRoomApiClient {
     });
   }
 
-  createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess> {
+  async createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess> {
     const path = roomPath(code);
-    return this.#request(`${path}/signaling-tickets`, {
+    const parser = (value: unknown): ProRoomSignalingAccess | null => {
+      if (
+        !isRecord(value) ||
+        !hasExactKeys(value, [
+          'ticket',
+          'expiresAtMs',
+          'role',
+          'coordinatorEpoch',
+          'presenceIncarnationId',
+          'ticketSequence',
+        ])
+      ) {
+        return null;
+      }
+      const ticket = parseProRoomSignalingTicket(value.ticket);
+      if (
+        !ticket ||
+        !isSafeNonNegativeInteger(value.expiresAtMs) ||
+        (value.role !== 'coordinator' && value.role !== 'member') ||
+        !isSafeNonNegativeInteger(value.coordinatorEpoch) ||
+        typeof value.presenceIncarnationId !== 'string' ||
+        !OPAQUE_ID_RE.test(value.presenceIncarnationId) ||
+        !Number.isSafeInteger(value.ticketSequence) ||
+        (value.ticketSequence as number) < 1
+      ) {
+        return null;
+      }
+      return {
+        ticket,
+        expiresAtMs: value.expiresAtMs,
+        role: value.role,
+        coordinatorEpoch: value.coordinatorEpoch,
+        presenceIncarnationId: value.presenceIncarnationId,
+        ticketSequence: value.ticketSequence as number,
+      };
+    };
+    const requestTicket = (advertiseDeveloperControl: boolean) =>
+      this.#request(`${path}/signaling-tickets`, {
+        method: 'POST',
+        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 1 } } : {}),
+        signal,
+        activeRoomCode: code,
+        maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+        parser,
+      });
+
+    try {
+      return await requestTicket(true);
+    } catch (error) {
+      // A cached/new app can briefly meet the previous PRO Worker during an
+      // operational rollback. That Worker rejects any non-empty ticket body.
+      // Retry only its exact legacy response and deliberately omit the
+      // capability: room entry survives, while Developer API commands remain
+      // fail-closed until both sides are on the new protocol.
+      if (
+        signal?.aborted ||
+        !(error instanceof ProRoomApiError) ||
+        error.status !== 400 ||
+        error.code !== 'INVALID_REQUEST'
+      ) {
+        throw error;
+      }
+      return requestTicket(false);
+    }
+  }
+
+  async ackDeveloperCommand(
+    input: AckProRoomDeveloperCommandInput,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const path = roomPath(input.code);
+    if (!DEVELOPER_COMMAND_ID_RE.test(input.commandId)) {
+      throw new ProRoomApiError('INVALID_DEVELOPER_COMMAND_ID');
+    }
+    const commandId = input.commandId;
+    await this.#request(`${path}/developer-commands/${encodeURIComponent(commandId)}/ack`, {
       method: 'POST',
+      body: { resultCode: validateDeveloperCommandResultCode(input.resultCode) },
       signal,
-      activeRoomCode: code,
+      activeRoomCode: input.code,
+      parser: parseOk,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-      parser: (value) => {
-        if (
-          !isRecord(value) ||
-          !hasExactKeys(value, [
-            'ticket',
-            'expiresAtMs',
-            'role',
-            'coordinatorEpoch',
-            'presenceIncarnationId',
-            'ticketSequence',
-          ])
-        ) {
-          return null;
-        }
-        const ticket = parseProRoomSignalingTicket(value.ticket);
-        if (
-          !ticket ||
-          !isSafeNonNegativeInteger(value.expiresAtMs) ||
-          (value.role !== 'coordinator' && value.role !== 'member') ||
-          !isSafeNonNegativeInteger(value.coordinatorEpoch) ||
-          typeof value.presenceIncarnationId !== 'string' ||
-          !OPAQUE_ID_RE.test(value.presenceIncarnationId) ||
-          !Number.isSafeInteger(value.ticketSequence) ||
-          (value.ticketSequence as number) < 1
-        ) {
-          return null;
-        }
-        return {
-          ticket,
-          expiresAtMs: value.expiresAtMs,
-          role: value.role,
-          coordinatorEpoch: value.coordinatorEpoch,
-          presenceIncarnationId: value.presenceIncarnationId,
-          ticketSequence: value.ticketSequence as number,
-        };
-      },
     });
   }
 

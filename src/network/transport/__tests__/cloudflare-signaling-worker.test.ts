@@ -34,6 +34,7 @@ type ProTicketPayload = {
   coordinatorEpoch: number;
   presenceIncarnationId: string;
   ticketSequence: number;
+  developerControlVersion?: 0 | 1;
   jti: string;
   iat: number;
   exp: number;
@@ -546,6 +547,18 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(roomFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('never exposes the private signaling dispatch route through the public Worker', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/internal/developer/v1/dispatch'),
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(roomFetch).not.toHaveBeenCalled();
+  });
+
   it('accepts a dynamically provisioned leading-zero room through its signed ticket proof', async () => {
     const { env, idFromName, roomFetch } = workerEnv();
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
@@ -669,6 +682,59 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       coordinatorEpoch: 1,
       coordinatorParticipantId: 'coordinator-device',
     });
+  });
+
+  it('dispatches a bounded server-only developer command only to the exact capable coordinator', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-device',
+        presenceIncarnationId: 'presence-incarnation-0001',
+        jti: 'coordinator-ticket-0001',
+        developerControlVersion: 1,
+      }),
+    );
+    const coordinator = lastServer();
+    const frame = {
+      type: 'developer-command',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 1,
+      commandId: 'cmd_1234567890123456789012',
+      expiresAtMs: Date.now() + 30_000,
+      expected: {
+        queueItemId: '11111111-1111-4111-8111-111111111111',
+        playlistRevision: 3,
+        playbackRevision: 7,
+      },
+      command: { type: 'pause' },
+    };
+    const dispatch = (presenceIncarnationId: string) =>
+      room.fetch(
+        new Request('https://signaling.internal/internal/developer/v1/dispatch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: '000001',
+            coordinatorEpoch: 1,
+            coordinatorParticipantId: 'coordinator-device',
+            coordinatorPresenceIncarnationId: presenceIncarnationId,
+            developerControlVersion: 1,
+            frame,
+          }),
+        }),
+      );
+
+    const accepted = await dispatch('presence-incarnation-0001');
+    expect(accepted.status).toBe(200);
+    expect(sent(coordinator).at(-1)).toEqual(frame);
+
+    const sentCount = coordinator.sent.length;
+    const rejected = await dispatch('presence-incarnation-stale');
+    expect(rejected.status).toBe(409);
+    expect(coordinator.sent).toHaveLength(sentCount);
   });
 
   it('advancing a PRO coordinator epoch closes every prior-epoch socket and rejects stale tickets', async () => {

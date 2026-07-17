@@ -25,6 +25,8 @@ const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
+const DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
+const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 
 const SCHEMA_VERSION = 1;
 const STORAGE_KEY = 'pro-room:v1';
@@ -42,6 +44,15 @@ const IDEMPOTENCY_MAX_ITEMS = 256;
 const RATE_LIMIT_MAX_ITEMS = 512;
 const RECOVERY_NONCE_MAX_ITEMS = 128;
 const STAGING_TOMBSTONE_MAX_ITEMS = ASSET_MAX_ITEMS;
+const DEVELOPER_COMMAND_MAX_ITEMS = 64;
+const DEVELOPER_COMMAND_MAX_ACTIVE_ITEMS = 8;
+// The command ledger is intentionally separate from the browser mutation
+// idempotency ledger. A long-lived coordinator writes a fresh playback
+// checkpoint key every 10 seconds, so sharing the 256-slot browser ledger can
+// evict a new API key immediately and turn a retry into a duplicate command.
+// One room-bound API key may issue 30 commands/minute; 384 entries preserve a
+// full ten-minute window even across a fixed-window rate-limit boundary.
+const DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS = 384;
 // Durable Object KV rejects a single key + value above 2 MiB. Keep enough
 // headroom for storage encoding overhead and future schema additions.
 const STATE_MAX_BYTES = 1200 * 1024;
@@ -76,6 +87,28 @@ const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 const PLAYBACK_CLOCK_SKEW_MS = 60_000;
 const RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
+const DEVELOPER_CONTROL_VERSION = 1;
+const DEVELOPER_COMMAND_TTL_MS = 30 * 1000;
+const DEVELOPER_COMMAND_RETRY_MS = 5 * 1000;
+const DEVELOPER_COMMAND_MAX_ATTEMPTS = 3;
+const DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS = 900;
+const DEVELOPER_COMMAND_RETENTION_MS = 10 * 60 * 1000;
+// A command is persisted before its first cross-Worker WebSocket dispatch.
+// Keep explicit serialized headroom in that first record, then consume it as
+// dispatch/terminal fields are added. This makes a successful send incapable
+// of being followed by a capacity rollback that erases the command ledger.
+const DEVELOPER_COMMAND_DISPATCH_RESERVE_BYTES = 192;
+const DEVELOPER_COMMAND_TERMINAL_RESERVE_BYTES = 256;
+const DEVELOPER_COMMAND_RESULT_CODES = new Set([
+  'applied',
+  'already_applied',
+  'busy',
+  'no_media',
+  'stale_queue',
+  'unsupported_mode',
+  'expired',
+  'execution_failed',
+]);
 
 const CONTROLLER_CAPABILITIES = [
   'queue.mutate',
@@ -632,6 +665,8 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
     rateLimits: {},
     consumedRecoveryNonces: {},
     stagingTombstones: {},
+    developerCommands: {},
+    developerCommandIdempotency: {},
   };
 }
 
@@ -861,6 +896,9 @@ function developerQueueItem(item) {
 
 function developerProjection(room, projection, nowMs) {
   if (projection === 'room') {
+    const coordinator = room.presence.coordinatorParticipantId
+      ? room.presence.participants[room.presence.coordinatorParticipantId]
+      : null;
     return {
       schemaVersion: 1,
       view: 'room',
@@ -869,9 +907,10 @@ function developerProjection(room, projection, nowMs) {
       runtime: room.runtime,
       revision: room.revision,
       participantCount: Object.keys(room.presence.participants).length,
-      // Playback commands are introduced in a later, capability-negotiated
-      // phase. Read-only clients must not infer support from an awake room.
-      controlAvailable: false,
+      controlAvailable:
+        room.runtime === 'awake' &&
+        room.status === 'active' &&
+        coordinator?.developerControlVersion === DEVELOPER_CONTROL_VERSION,
       quota: { ...room.quota },
     };
   }
@@ -917,6 +956,58 @@ function developerProjection(room, projection, nowMs) {
     };
   }
   return null;
+}
+
+function parseDeveloperCommand(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value.type === 'play' || value.type === 'pause') {
+    return hasExactKeys(value, ['type']) ? { type: value.type } : null;
+  }
+  if (value.type === 'seek') {
+    return hasExactKeys(value, ['type', 'positionSeconds']) &&
+      Number.isFinite(value.positionSeconds) &&
+      value.positionSeconds >= 0 &&
+      value.positionSeconds <= PLAYBACK_MAX_POSITION_SECONDS
+      ? { type: 'seek', positionSeconds: value.positionSeconds }
+      : null;
+  }
+  if (value.type === 'play_item') {
+    return hasExactKeys(value, ['type', 'queueItemId']) &&
+      QUEUE_ITEM_ID_RE.test(value.queueItemId || '')
+      ? { type: 'play_item', queueItemId: value.queueItemId }
+      : null;
+  }
+  return null;
+}
+
+function publicDeveloperCommand(record) {
+  return {
+    schemaVersion: 1,
+    roomCode: record.roomCode,
+    commandId: record.commandId,
+    status: record.status,
+    createdAtMs: record.createdAtMs,
+    expiresAtMs: record.expiresAtMs,
+    ...(Number.isSafeInteger(record.completedAtMs) ? { completedAtMs: record.completedAtMs } : {}),
+    ...(typeof record.resultCode === 'string' ? { resultCode: record.resultCode } : {}),
+  };
+}
+
+async function fetchWithDeadline(fetcher, request, timeoutMs) {
+  const controller = new AbortController();
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error('DEVELOPER_COMMAND_DISPATCH_TIMEOUT'));
+    }, timeoutMs);
+  });
+  try {
+    const boundedRequest = new Request(request, { signal: controller.signal });
+    return await Promise.race([fetcher(boundedRequest), timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function parsePlaylistItem(value) {
@@ -1204,6 +1295,9 @@ function assertBoundedRoomState(room) {
     Object.keys(room.rateLimits).length > RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.consumedRecoveryNonces || {}).length > RECOVERY_NONCE_MAX_ITEMS ||
     Object.keys(room.stagingTombstones || {}).length > STAGING_TOMBSTONE_MAX_ITEMS ||
+    Object.keys(room.developerCommands || {}).length > DEVELOPER_COMMAND_MAX_ITEMS ||
+    Object.keys(room.developerCommandIdempotency || {}).length >
+      DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS ||
     serializedStateByteLength(room) > STATE_MAX_BYTES
   ) {
     throw new RoomStateCapacityError();
@@ -1275,9 +1369,11 @@ export class MusixquareProRoom {
     this.room = null;
     this.mutationTail = Promise.resolve();
     this.systemAudioMigrationPending = false;
+    this.developerCommandMigrationPending = false;
     const load = async () => {
       this.room = (await this.storage.get(STORAGE_KEY)) || null;
       this.normalizeLoadedSystemAudio();
+      this.normalizeLoadedDeveloperCommands();
     };
     if (typeof state.blockConcurrencyWhile === 'function') state.blockConcurrencyWhile(load);
     else this.ready = load();
@@ -1302,6 +1398,7 @@ export class MusixquareProRoom {
     if (!this.room.consumedRecoveryNonces) this.room.consumedRecoveryNonces = {};
     if (!this.room.stagingTombstones) this.room.stagingTombstones = {};
     this.normalizeLoadedSystemAudio();
+    this.normalizeLoadedDeveloperCommands();
     if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
       this.room.playback.youtubeVideoId = null;
       this.room.playback.youtubeSubIndex = null;
@@ -1331,6 +1428,35 @@ export class MusixquareProRoom {
           : storedGeneration,
       );
       this.systemAudioMigrationPending = true;
+    }
+  }
+
+  normalizeLoadedDeveloperCommands() {
+    if (!this.room) return;
+    if (
+      !this.room.developerCommands ||
+      typeof this.room.developerCommands !== 'object' ||
+      Array.isArray(this.room.developerCommands)
+    ) {
+      this.room.developerCommands = {};
+      this.developerCommandMigrationPending = true;
+    }
+    if (
+      !this.room.developerCommandIdempotency ||
+      typeof this.room.developerCommandIdempotency !== 'object' ||
+      Array.isArray(this.room.developerCommandIdempotency)
+    ) {
+      this.room.developerCommandIdempotency = {};
+      this.developerCommandMigrationPending = true;
+    }
+    for (const participant of Object.values(this.room.presence?.participants || {})) {
+      if (
+        participant.developerControlVersion !== 0 &&
+        participant.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+      ) {
+        participant.developerControlVersion = 0;
+        this.developerCommandMigrationPending = true;
+      }
     }
   }
 
@@ -1393,6 +1519,22 @@ export class MusixquareProRoom {
     }
     for (const tombstone of Object.values(this.room.stagingTombstones || {})) {
       candidates.push(tombstone.cleanupAfterMs);
+    }
+    for (const command of Object.values(this.room.developerCommands || {})) {
+      if (command.status === 'pending' || command.status === 'dispatched') {
+        candidates.push(command.expiresAtMs);
+        if (
+          command.attempts < DEVELOPER_COMMAND_MAX_ATTEMPTS &&
+          Number.isSafeInteger(command.nextAttemptAtMs)
+        ) {
+          candidates.push(command.nextAttemptAtMs);
+        }
+      } else {
+        candidates.push(command.retainUntilMs);
+      }
+    }
+    for (const record of Object.values(this.room.developerCommandIdempotency || {})) {
+      candidates.push(record.expiresAtMs);
     }
     const next = candidates
       .filter((value) => Number.isSafeInteger(value) && value > Date.now())
@@ -1494,12 +1636,23 @@ export class MusixquareProRoom {
       return errorResponse('NOT_FOUND', 404);
     }
     if (url.pathname.startsWith('/internal/developer/')) {
-      if (request.method !== 'POST' || url.pathname !== '/internal/developer/v1/read') {
+      if (request.method !== 'POST') {
         return errorResponse('NOT_FOUND', 404);
       }
       return this.withMutation(async () => {
         await this.prune(Date.now());
-        return this.handleInternalDeveloperRead(request);
+        return this.withStateCapacityRollback(async () => {
+          if (url.pathname === '/internal/developer/v1/read') {
+            return this.handleInternalDeveloperRead(request);
+          }
+          if (url.pathname === '/internal/developer/v1/commands/create') {
+            return this.handleInternalDeveloperCommandCreate(request);
+          }
+          if (url.pathname === '/internal/developer/v1/commands/status') {
+            return this.handleInternalDeveloperCommandStatus(request);
+          }
+          return errorResponse('NOT_FOUND', 404);
+        });
       });
     }
     const prefix = `/v1/rooms/${this.room.roomCode}`;
@@ -1535,6 +1688,12 @@ export class MusixquareProRoom {
           return this.handleLeavePresence(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
           return this.handleSignalingTicket(request);
+        const developerCommandAck = url.pathname.match(
+          new RegExp(`^${prefix}/developer-commands/(cmd_[A-Za-z0-9_-]{22})/ack$`),
+        );
+        if (request.method === 'POST' && developerCommandAck) {
+          return this.handleDeveloperCommandAck(request, developerCommandAck[1]);
+        }
         if (request.method === 'GET' && url.pathname === `${prefix}/system-audio`)
           return this.handleGetSystemAudio(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
@@ -1589,9 +1748,375 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const projection = developerProjection(this.room, parsed.value.projection, Date.now());
-    return projection
-      ? jsonResponse(projection)
-      : errorResponse('ROOM_STATE_INVALID', 503);
+    return projection ? jsonResponse(projection) : errorResponse('ROOM_STATE_INVALID', 503);
+  }
+
+  async handleInternalDeveloperCommandCreate(request) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'command']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
+      !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const command = parseDeveloperCommand(parsed.value.command);
+    if (!command) return errorResponse('INVALID_REQUEST', 400);
+
+    const scope = `developer:${parsed.value.keyId}:playback`;
+    const fingerprint = await this.idempotencyFingerprint(scope, command);
+    const replay = this.replayDeveloperCommandIdempotency(
+      scope,
+      parsed.value.idempotencyKey,
+      fingerprint,
+    );
+    if (replay) return replay;
+
+    const coordinatorId = this.room.presence.coordinatorParticipantId;
+    const coordinator = coordinatorId ? this.room.presence.participants[coordinatorId] : null;
+    if (this.room.runtime !== 'awake' || !coordinator) {
+      return errorResponse('ROOM_SLEEPING', 409);
+    }
+    if (coordinator.developerControlVersion !== DEVELOPER_CONTROL_VERSION) {
+      return errorResponse('COORDINATOR_INCOMPATIBLE', 409);
+    }
+    if (command.type === 'play_item') {
+      if (!this.room.playlist.some((item) => item.queueItemId === command.queueItemId)) {
+        return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
+      }
+    } else if (!this.room.currentQueueItemId || !this.room.playback.queueItemId) {
+      return errorResponse('NO_MEDIA', 409);
+    }
+
+    const activeCount = Object.values(this.room.developerCommands).filter(
+      (record) => record.status === 'pending' || record.status === 'dispatched',
+    ).length;
+    if (activeCount >= DEVELOPER_COMMAND_MAX_ACTIVE_ITEMS) {
+      return errorResponse('COMMAND_CAPACITY_EXCEEDED', 409);
+    }
+    const idempotencyStorageKey = this.developerCommandIdempotencyStorageKey(
+      scope,
+      parsed.value.idempotencyKey,
+    );
+    if (!this.reserveDeveloperCommandIdempotencySlot(idempotencyStorageKey)) {
+      return errorResponse('COMMAND_CAPACITY_EXCEEDED', 409);
+    }
+    if (!this.reserveDeveloperCommandSlot()) {
+      return errorResponse('COMMAND_CAPACITY_EXCEEDED', 409);
+    }
+
+    const nowMs = Date.now();
+    const commandId = `cmd_${randomToken(16)}`;
+    const record = {
+      roomCode: this.room.roomCode,
+      commandId,
+      keyId: parsed.value.keyId,
+      idempotencyKey: parsed.value.idempotencyKey,
+      command,
+      createdAtMs: nowMs,
+      expiresAtMs: nowMs + DEVELOPER_COMMAND_TTL_MS,
+      retainUntilMs: nowMs + DEVELOPER_COMMAND_RETENTION_MS,
+      coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      coordinatorParticipantId: coordinator.participantId,
+      coordinatorPresenceIncarnationId: coordinator.presenceIncarnationId,
+      expected: {
+        queueItemId: this.room.currentQueueItemId,
+        playlistRevision: this.room.playlistRevision,
+        playbackRevision: this.room.playback.revision,
+      },
+      status: 'pending',
+      attempts: 0,
+      nextAttemptAtMs: nowMs,
+      dispatchCapacityReserve: 'd'.repeat(DEVELOPER_COMMAND_DISPATCH_RESERVE_BYTES),
+      terminalCapacityReserve: 't'.repeat(DEVELOPER_COMMAND_TERMINAL_RESERVE_BYTES),
+    };
+    this.room.developerCommands[commandId] = record;
+    const responseBody = publicDeveloperCommand(record);
+    this.room.developerCommandIdempotency[idempotencyStorageKey] = {
+      idempotencyKey: parsed.value.idempotencyKey,
+      fingerprint,
+      commandId,
+      body: responseBody,
+      status: 202,
+      expiresAtMs: nowMs + DEVELOPER_COMMAND_RETENTION_MS,
+    };
+
+    // Persist before dispatch so a successful WebSocket send can never leave
+    // an untracked command after a Worker interruption or response loss.
+    await this.persist();
+    if (await this.processDeveloperCommands(nowMs, commandId)) await this.persist();
+    return jsonResponse(publicDeveloperCommand(record), 202);
+  }
+
+  async handleInternalDeveloperCommandStatus(request) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'commandId']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
+      !DEVELOPER_COMMAND_ID_RE.test(parsed.value.commandId || '')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const record = this.room.developerCommands[parsed.value.commandId];
+    // A command created by another API key is deliberately indistinguishable
+    // from an unknown ID.
+    if (record && !constantTimeEqual(record.keyId, parsed.value.keyId)) {
+      return errorResponse('COMMAND_NOT_FOUND', 404);
+    }
+    if (record) return jsonResponse(publicDeveloperCommand(record));
+
+    // Terminal command records may leave the 64-slot polling ledger before
+    // their ten-minute contract window under sustained use. The separate,
+    // larger idempotency ledger retains the sanitized terminal body and is
+    // still strictly key-bound.
+    const prefix = `developer:${parsed.value.keyId}:playback:`;
+    const retained = Object.entries(this.room.developerCommandIdempotency).find(
+      ([storageKey, candidate]) =>
+        storageKey.startsWith(prefix) &&
+        candidate.commandId === parsed.value.commandId &&
+        candidate.body?.commandId === parsed.value.commandId &&
+        (candidate.body.status === 'applied' ||
+          candidate.body.status === 'rejected' ||
+          candidate.body.status === 'expired'),
+    )?.[1];
+    return retained ? jsonResponse(retained.body) : errorResponse('COMMAND_NOT_FOUND', 404);
+  }
+
+  reserveDeveloperCommandSlot() {
+    const records = this.room.developerCommands;
+    const ids = Object.keys(records);
+    if (ids.length < DEVELOPER_COMMAND_MAX_ITEMS) return true;
+    const evictable = ids
+      .filter((id) => records[id].status !== 'pending' && records[id].status !== 'dispatched')
+      .sort(
+        (left, right) =>
+          (records[left].completedAtMs || records[left].createdAtMs) -
+          (records[right].completedAtMs || records[right].createdAtMs),
+      )[0];
+    if (!evictable) return false;
+    // Status polling may lose an old terminal record under the strict 64-item
+    // state bound, but an Idempotency-Key replay must still return the exact
+    // terminal result for its full retention window.
+    this.syncDeveloperCommandIdempotency(records[evictable]);
+    delete records[evictable];
+    return true;
+  }
+
+  developerCommandIdempotencyStorageKey(scope, key) {
+    return `${scope}:${key}`;
+  }
+
+  reserveDeveloperCommandIdempotencySlot(storageKey, nowMs = Date.now()) {
+    const records = this.room.developerCommandIdempotency;
+    if (records[storageKey]) return true;
+    for (const [key, record] of Object.entries(records)) {
+      if (record.expiresAtMs <= nowMs) delete records[key];
+    }
+    // Never evict an unexpired record to admit a new command: doing so would
+    // silently weaken exactly-once intent into best-effort deduplication.
+    return Object.keys(records).length < DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS;
+  }
+
+  syncDeveloperCommandIdempotency(command) {
+    if (
+      !command ||
+      !DEVELOPER_API_KEY_ID_RE.test(command.keyId || '') ||
+      !IDEMPOTENCY_KEY_RE.test(command.idempotencyKey || '')
+    ) {
+      return false;
+    }
+    const scope = `developer:${command.keyId}:playback`;
+    const storageKey = this.developerCommandIdempotencyStorageKey(scope, command.idempotencyKey);
+    const record = this.room.developerCommandIdempotency[storageKey];
+    if (!record || record.commandId !== command.commandId) return false;
+    record.body = publicDeveloperCommand(command);
+    return true;
+  }
+
+  replayDeveloperCommandIdempotency(scope, key, fingerprint) {
+    const storageKey = this.developerCommandIdempotencyStorageKey(scope, key);
+    const record = this.room.developerCommandIdempotency[storageKey];
+    if (!record) return null;
+    if (!constantTimeEqual(record.fingerprint, fingerprint)) {
+      return errorResponse('IDEMPOTENCY_CONFLICT', 409);
+    }
+    const commandId = record.body?.commandId;
+    const command = DEVELOPER_COMMAND_ID_RE.test(commandId || '')
+      ? this.room.developerCommands[commandId]
+      : null;
+    return command
+      ? jsonResponse(publicDeveloperCommand(command), 202)
+      : jsonResponse(record.body, record.status);
+  }
+
+  completeDeveloperCommand(record, status, resultCode, nowMs, acknowledged = false) {
+    delete record.dispatchCapacityReserve;
+    delete record.terminalCapacityReserve;
+    delete record.nextAttemptAtMs;
+    record.status = status;
+    record.resultCode = resultCode;
+    record.completedAtMs = nowMs;
+    record.retainUntilMs = nowMs + DEVELOPER_COMMAND_RETENTION_MS;
+    if (acknowledged) record.acknowledgedAtMs = nowMs;
+    this.syncDeveloperCommandIdempotency(record);
+  }
+
+  async dispatchDeveloperCommand(record) {
+    const namespace = this.env.PRO_SIGNALING_ROOMS;
+    if (!namespace || typeof namespace.idFromName !== 'function') return false;
+    const frame = {
+      type: 'developer-command',
+      version: DEVELOPER_CONTROL_VERSION,
+      roomCode: this.room.roomCode,
+      coordinatorEpoch: record.coordinatorEpoch,
+      commandId: record.commandId,
+      expiresAtMs: record.expiresAtMs,
+      expected: structuredClone(record.expected),
+      command: structuredClone(record.command),
+    };
+    try {
+      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
+      const response = await fetchWithDeadline(
+        (boundedRequest) => stub.fetch(boundedRequest),
+        new Request('https://signaling.internal/internal/developer/v1/dispatch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: this.room.roomCode,
+            coordinatorEpoch: record.coordinatorEpoch,
+            coordinatorParticipantId: record.coordinatorParticipantId,
+            coordinatorPresenceIncarnationId: record.coordinatorPresenceIncarnationId,
+            developerControlVersion: DEVELOPER_CONTROL_VERSION,
+            frame,
+          }),
+        }),
+        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
+      );
+      return response.status === 200;
+    } catch {
+      return false;
+    }
+  }
+
+  async processDeveloperCommands(nowMs = Date.now(), onlyCommandId = null) {
+    let changed = false;
+    const records = onlyCommandId
+      ? [this.room.developerCommands[onlyCommandId]].filter(Boolean)
+      : Object.values(this.room.developerCommands);
+    for (const record of records) {
+      if (record.status !== 'pending' && record.status !== 'dispatched') continue;
+      if (record.expiresAtMs <= nowMs) {
+        this.completeDeveloperCommand(record, 'expired', 'expired', nowMs);
+        changed = true;
+        continue;
+      }
+      const coordinator = this.room.presence.participants[record.coordinatorParticipantId];
+      if (
+        this.room.runtime !== 'awake' ||
+        this.room.presence.coordinatorEpoch !== record.coordinatorEpoch ||
+        this.room.presence.coordinatorParticipantId !== record.coordinatorParticipantId ||
+        coordinator?.presenceIncarnationId !== record.coordinatorPresenceIncarnationId
+      ) {
+        this.completeDeveloperCommand(record, 'rejected', 'coordinator_changed', nowMs);
+        changed = true;
+        continue;
+      }
+      if (coordinator.developerControlVersion !== DEVELOPER_CONTROL_VERSION) {
+        this.completeDeveloperCommand(record, 'rejected', 'coordinator_incompatible', nowMs);
+        changed = true;
+        continue;
+      }
+      if (record.attempts >= DEVELOPER_COMMAND_MAX_ATTEMPTS || record.nextAttemptAtMs > nowMs) {
+        continue;
+      }
+      // The persisted pre-dispatch record carried enough serialized padding
+      // for every field added below. Consume it before the external send so a
+      // successful WebSocket side effect cannot be erased by capacity rollback.
+      delete record.dispatchCapacityReserve;
+      const dispatched = await this.dispatchDeveloperCommand(record);
+      record.attempts += 1;
+      record.lastDispatchedAtMs = nowMs;
+      record.nextAttemptAtMs = nowMs + DEVELOPER_COMMAND_RETRY_MS;
+      if (dispatched) record.status = 'dispatched';
+      if (!dispatched && record.attempts >= DEVELOPER_COMMAND_MAX_ATTEMPTS) {
+        this.completeDeveloperCommand(record, 'rejected', 'coordinator_unavailable', nowMs);
+      }
+      changed = true;
+    }
+    return changed;
+  }
+
+  async handleDeveloperCommandAck(request, commandId) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !DEVELOPER_COMMAND_ID_RE.test(commandId) ||
+      !hasExactKeys(parsed.value, ['resultCode']) ||
+      !DEVELOPER_COMMAND_RESULT_CODES.has(parsed.value.resultCode)
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const record = this.room.developerCommands[commandId];
+    if (!record) return errorResponse('COMMAND_NOT_FOUND', 404);
+    const nowMs = Date.now();
+    if (
+      this.room.presence.coordinatorEpoch !== record.coordinatorEpoch ||
+      this.room.presence.coordinatorParticipantId !== auth.session.participantId ||
+      record.coordinatorParticipantId !== auth.session.participantId ||
+      record.coordinatorPresenceIncarnationId !== auth.participant.presenceIncarnationId
+    ) {
+      return errorResponse('COORDINATOR_MISMATCH', 409);
+    }
+    const equivalentSuccessfulAck =
+      (record.resultCode === 'applied' || record.resultCode === 'already_applied') &&
+      (parsed.value.resultCode === 'applied' || parsed.value.resultCode === 'already_applied');
+    if (
+      (record.resultCode === parsed.value.resultCode || equivalentSuccessfulAck) &&
+      Number.isSafeInteger(record.acknowledgedAtMs)
+    ) {
+      return jsonResponse({ ok: true });
+    }
+    if (record.status === 'expired' && parsed.value.resultCode === 'expired') {
+      // prune() runs before this route and may already have made expiry
+      // authoritative. The exact coordinator's matching late ACK is still a
+      // valid confirmation that the frame was discarded, not executed.
+      record.acknowledgedAtMs = nowMs;
+      this.syncDeveloperCommandIdempotency(record);
+      await this.persist();
+      return jsonResponse({ ok: true });
+    }
+    if (record.status !== 'pending' && record.status !== 'dispatched') {
+      return errorResponse('COMMAND_ALREADY_COMPLETED', 409);
+    }
+    if (record.expiresAtMs <= nowMs) {
+      if (parsed.value.resultCode !== 'expired') {
+        return errorResponse('COMMAND_EXPIRED', 409);
+      }
+      this.completeDeveloperCommand(record, 'expired', 'expired', nowMs, true);
+      await this.persist();
+      return jsonResponse({ ok: true });
+    }
+    const status =
+      parsed.value.resultCode === 'applied' || parsed.value.resultCode === 'already_applied'
+        ? 'applied'
+        : parsed.value.resultCode === 'expired'
+          ? 'expired'
+          : 'rejected';
+    this.completeDeveloperCommand(record, status, parsed.value.resultCode, nowMs, true);
+    await this.persist();
+    return jsonResponse({ ok: true });
   }
 
   async handleInternalActivationClaim() {
@@ -1991,6 +2516,7 @@ export class MusixquareProRoom {
       role: session.role,
       joinedAtMs: nowMs,
       lastSeenAtMs: nowMs,
+      developerControlVersion: 0,
     };
     this.room.runtime = 'awake';
     this.room.presence.revision += 1;
@@ -2027,6 +2553,7 @@ export class MusixquareProRoom {
     const presenceIncarnationId = `presence_${randomToken(18)}`;
     session.presenceIncarnationId = presenceIncarnationId;
     existing.presenceIncarnationId = presenceIncarnationId;
+    existing.developerControlVersion = 0;
     existing.joinedAtMs = nowMs;
     existing.lastSeenAtMs = nowMs;
     if (this.room.presence.coordinatorParticipantId === session.participantId) {
@@ -2038,7 +2565,18 @@ export class MusixquareProRoom {
     return 'entered';
   }
 
+  fenceDeveloperCommands(resultCode, nowMs = Date.now()) {
+    let changed = false;
+    for (const command of Object.values(this.room.developerCommands || {})) {
+      if (command.status !== 'pending' && command.status !== 'dispatched') continue;
+      this.completeDeveloperCommand(command, 'rejected', resultCode, nowMs);
+      changed = true;
+    }
+    return changed;
+  }
+
   bumpCoordinatorEpoch(nowMs, waking = false) {
+    this.fenceDeveloperCommands('coordinator_changed', nowMs);
     this.room.presence.coordinatorEpoch += 1;
     this.room.playback.coordinatorEpoch = this.room.presence.coordinatorEpoch;
     this.room.playback.revision += 1;
@@ -2383,6 +2921,7 @@ export class MusixquareProRoom {
     if (auth.response) return auth.response;
     const nowMs = Date.now();
     auth.participant.lastSeenAtMs = nowMs;
+    await this.processDeveloperCommands(nowMs);
     await this.persist();
     return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
   }
@@ -2536,8 +3075,24 @@ export class MusixquareProRoom {
   async handleSignalingTicket(request) {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
-    if (request.body && (request.headers.get('content-length') || '') !== '0')
-      return errorResponse('INVALID_REQUEST', 400);
+    const parsed = await this.parseBody(request, 1024, false, true);
+    if (parsed.response) return parsed.response;
+    const developerControlVersion = parsed.empty
+      ? 0
+      : hasExactKeys(parsed.value, ['developerControlVersion']) &&
+          parsed.value.developerControlVersion === DEVELOPER_CONTROL_VERSION
+        ? DEVELOPER_CONTROL_VERSION
+        : null;
+    if (developerControlVersion === null) return errorResponse('INVALID_REQUEST', 400);
+    const previousControlVersion = auth.participant.developerControlVersion;
+    auth.participant.developerControlVersion = developerControlVersion;
+    if (
+      previousControlVersion === DEVELOPER_CONTROL_VERSION &&
+      developerControlVersion !== DEVELOPER_CONTROL_VERSION &&
+      this.room.presence.coordinatorParticipantId === auth.session.participantId
+    ) {
+      this.fenceDeveloperCommands('coordinator_incompatible', Date.now());
+    }
     const secret = String(this.env.PRO_SIGNALING_SECRET || '');
     if (secret.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     const nowMs = Date.now();
@@ -2567,6 +3122,7 @@ export class MusixquareProRoom {
         coordinatorEpoch: this.room.presence.coordinatorEpoch,
         presenceIncarnationId,
         ticketSequence,
+        developerControlVersion,
         jti: randomToken(18),
         iat: issuedAtSeconds,
         exp: expiresAtSeconds,
@@ -3013,7 +3569,10 @@ export class MusixquareProRoom {
   async prune(nowMs) {
     // This also migrates ready assets written before gcAfterMs existed and
     // repairs stale markers on assets that are referenced by the playlist.
-    let changed = this.systemAudioMigrationPending || this.reconcileSystemAudio(nowMs);
+    let changed =
+      this.systemAudioMigrationPending ||
+      this.developerCommandMigrationPending ||
+      this.reconcileSystemAudio(nowMs);
     changed = this.reconcileAssetGarbageCollection(nowMs) || changed;
     for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
       if (session.expiresAtMs <= nowMs || session.authEpoch !== this.room.authEpoch) {
@@ -3025,6 +3584,24 @@ export class MusixquareProRoom {
     for (const participant of Object.values(this.room.presence.participants)) {
       if (participant.lastSeenAtMs + this.presenceTtlMs() <= nowMs) {
         changed = this.removePresence(participant.participantId, nowMs) || changed;
+      }
+    }
+    changed = (await this.processDeveloperCommands(nowMs)) || changed;
+    for (const [commandId, command] of Object.entries(this.room.developerCommands)) {
+      if (
+        command.status !== 'pending' &&
+        command.status !== 'dispatched' &&
+        command.retainUntilMs <= nowMs
+      ) {
+        this.syncDeveloperCommandIdempotency(command);
+        delete this.room.developerCommands[commandId];
+        changed = true;
+      }
+    }
+    for (const [key, record] of Object.entries(this.room.developerCommandIdempotency)) {
+      if (record.expiresAtMs <= nowMs) {
+        delete this.room.developerCommandIdempotency[key];
+        changed = true;
       }
     }
     for (const [key, record] of Object.entries(this.room.idempotency)) {
@@ -3142,6 +3719,7 @@ export class MusixquareProRoom {
     if (changed) {
       await this.persist();
       this.systemAudioMigrationPending = false;
+      this.developerCommandMigrationPending = false;
     }
     return changed;
   }
@@ -3152,6 +3730,7 @@ export class MusixquareProRoom {
       if (!this.room) this.room = (await this.storage.get(STORAGE_KEY)) || null;
       if (!this.room) return;
       this.normalizeLoadedSystemAudio();
+      this.normalizeLoadedDeveloperCommands();
       await this.prune(Date.now());
       await this.scheduleAlarm();
     });

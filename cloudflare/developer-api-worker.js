@@ -14,6 +14,13 @@ const DIGEST_RE = /^[A-Za-z0-9_-]{43}$/;
 const AUTHORIZATION_MAX_BYTES = 128;
 const URL_MAX_BYTES = 2_048;
 const ETAG_HEADER_MAX_BYTES = 128;
+const COMMAND_REQUEST_MAX_BYTES = 1_024;
+const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
+const QUEUE_ITEM_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
+const QUEUE_ITEM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 // PRO room state is itself capped at 1.2 MiB. Leave bounded framing room for
 // the projection envelope so every valid 1,000-item queue remains readable.
 const FACADE_RESPONSE_MAX_BYTES = 1_500 * 1024;
@@ -22,6 +29,8 @@ const RATE_STATE_MAX_ITEMS = 256;
 const INGRESS_LIMIT_PER_MINUTE = 120;
 const KEY_READ_LIMIT_PER_MINUTE = 60;
 const ROOM_READ_LIMIT_PER_MINUTE = 180;
+const KEY_COMMAND_LIMIT_PER_MINUTE = 30;
+const ROOM_COMMAND_LIMIT_PER_MINUTE = 90;
 const SCOPE_ROOM_READ = 1;
 const SCOPE_PLAYBACK_READ = 2;
 const SCOPE_PLAYBACK_CONTROL = 4;
@@ -49,9 +58,16 @@ const ERROR_MESSAGES = Object.freeze({
   BACKEND_UNAVAILABLE: 'The Developer API backend is temporarily unavailable.',
   BROWSER_ORIGIN_FORBIDDEN: 'Browser-origin requests are not accepted.',
   FORBIDDEN: 'This API key does not have the required scope.',
+  IDEMPOTENCY_CONFLICT: 'This idempotency key was already used for another command.',
+  IDEMPOTENCY_KEY_REQUIRED: 'A valid Idempotency-Key header is required.',
   INTERNAL_RESPONSE_INVALID: 'The Developer API backend returned an invalid response.',
+  INVALID_REQUEST: 'The request is invalid.',
+  COMMAND_CAPACITY_EXCEEDED: 'The room cannot accept another playback command right now.',
+  COORDINATOR_INCOMPATIBLE: 'The active room coordinator cannot accept API commands.',
+  NO_MEDIA: 'The room has no playable media.',
   NOT_FOUND: 'The requested resource was not found.',
   RATE_LIMITED: 'Too many requests. Try again later.',
+  ROOM_SLEEPING: 'The room is sleeping and cannot accept playback commands.',
   UNAUTHORIZED: 'A valid Developer API key is required.',
 });
 
@@ -229,9 +245,9 @@ function normalizeKeyRow(value) {
     value.updated_at < value.created_at ||
     !isSafeNonNegativeInteger(value.expires_at) ||
     value.expires_at <= value.created_at ||
-    ((value.status === 'active' && value.revoked_at !== null) ||
-      (value.status === 'revoked' &&
-        (!isSafeNonNegativeInteger(value.revoked_at) || value.revoked_at < value.created_at)))
+    (value.status === 'active' && value.revoked_at !== null) ||
+    (value.status === 'revoked' &&
+      (!isSafeNonNegativeInteger(value.revoked_at) || value.revoked_at < value.created_at))
   ) {
     return null;
   }
@@ -345,14 +361,142 @@ async function readJsonLimited(response, maxBytes) {
   }
 }
 
+async function readRequestJsonLimited(request, maxBytes) {
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
+    return null;
+  }
+  const declared = request.headers.get('content-length');
+  if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
+    return null;
+  }
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      length += value.byteLength;
+      if (length > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+  if (length === 0) return null;
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(decoder.decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function parseDeveloperCommand(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value.type === 'play' || value.type === 'pause') {
+    return hasExactKeys(value, ['type']) ? { type: value.type } : null;
+  }
+  if (value.type === 'seek') {
+    return hasExactKeys(value, ['type', 'positionSeconds']) &&
+      typeof value.positionSeconds === 'number' &&
+      Number.isFinite(value.positionSeconds) &&
+      value.positionSeconds >= 0 &&
+      value.positionSeconds <= PLAYBACK_MAX_POSITION_SECONDS
+      ? { type: 'seek', positionSeconds: value.positionSeconds }
+      : null;
+  }
+  if (value.type === 'play_item') {
+    return hasExactKeys(value, ['type', 'queueItemId']) &&
+      typeof value.queueItemId === 'string' &&
+      QUEUE_ITEM_UUID_RE.test(value.queueItemId)
+      ? { type: 'play_item', queueItemId: value.queueItemId }
+      : null;
+  }
+  return null;
+}
+
+const COMMAND_STATUSES = new Set(['pending', 'dispatched', 'applied', 'rejected', 'expired']);
+const COMMAND_RESULT_CODES = new Set([
+  'applied',
+  'already_applied',
+  'busy',
+  'no_media',
+  'stale_queue',
+  'unsupported_mode',
+  'expired',
+  'execution_failed',
+  'coordinator_changed',
+  'coordinator_incompatible',
+  'coordinator_unavailable',
+]);
+
+function validateCommandPayload(value, roomCode) {
+  if (
+    !hasExactKeys(
+      value,
+      ['schemaVersion', 'roomCode', 'commandId', 'status', 'createdAtMs', 'expiresAtMs'],
+      ['completedAtMs', 'resultCode'],
+    ) ||
+    value.schemaVersion !== 1 ||
+    value.roomCode !== roomCode ||
+    !COMMAND_ID_RE.test(value.commandId || '') ||
+    !COMMAND_STATUSES.has(value.status) ||
+    !isSafeNonNegativeInteger(value.createdAtMs) ||
+    !isSafeNonNegativeInteger(value.expiresAtMs) ||
+    value.expiresAtMs <= value.createdAtMs
+  ) {
+    return null;
+  }
+  const terminal =
+    value.status === 'applied' || value.status === 'rejected' || value.status === 'expired';
+  if (terminal) {
+    if (
+      !isSafeNonNegativeInteger(value.completedAtMs) ||
+      value.completedAtMs < value.createdAtMs ||
+      !COMMAND_RESULT_CODES.has(value.resultCode)
+    ) {
+      return null;
+    }
+  } else if (value.completedAtMs !== undefined || value.resultCode !== undefined) {
+    return null;
+  }
+  if (
+    value.status === 'applied' &&
+    value.resultCode !== 'applied' &&
+    value.resultCode !== 'already_applied'
+  ) {
+    return null;
+  }
+  if (value.status === 'expired' && value.resultCode !== 'expired') return null;
+  if (
+    value.status === 'rejected' &&
+    ['applied', 'already_applied', 'expired'].includes(value.resultCode)
+  ) {
+    return null;
+  }
+  return value;
+}
+
 function validQueueItem(value) {
   if (
-    !hasExactKeys(value, ['queueItemId', 'kind', 'name'], [
-      'title',
-      'artist',
-      'thumbnail',
-      'byteLength',
-    ]) ||
+    !hasExactKeys(
+      value,
+      ['queueItemId', 'kind', 'name'],
+      ['title', 'artist', 'thumbnail', 'byteLength'],
+    ) ||
     typeof value.queueItemId !== 'string' ||
     !/^[A-Za-z0-9_-]{16,128}$/.test(value.queueItemId) ||
     (value.kind !== 'youtube' && value.kind !== 'audio') ||
@@ -464,20 +608,47 @@ function validateFacadePayload(value, expectedView, roomCode) {
   return null;
 }
 
-function parseRoute(url) {
-  const match = url.pathname.match(/^\/v1\/rooms\/(0\d{5})(?:\/(playback|queue))?$/);
-  if (!match) return null;
-  const view = match[2] || 'room';
-  return {
-    roomCode: match[1],
-    view,
-    requiredScope:
-      view === 'room'
-        ? SCOPE_ROOM_READ
-        : view === 'playback'
-          ? SCOPE_PLAYBACK_READ
-          : SCOPE_QUEUE_READ,
-  };
+function parseRoute(method, url) {
+  if (method === 'GET') {
+    const readMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})(?:\/(playback|queue))?$/);
+    if (readMatch) {
+      const view = readMatch[2] || 'room';
+      return {
+        kind: 'read',
+        roomCode: readMatch[1],
+        view,
+        requiredScope:
+          view === 'room'
+            ? SCOPE_ROOM_READ
+            : view === 'playback'
+              ? SCOPE_PLAYBACK_READ
+              : SCOPE_QUEUE_READ,
+      };
+    }
+    const statusMatch = url.pathname.match(
+      /^\/v1\/rooms\/(0\d{5})\/commands\/(cmd_[A-Za-z0-9_-]{22})$/,
+    );
+    if (statusMatch) {
+      return {
+        kind: 'command-status',
+        roomCode: statusMatch[1],
+        commandId: statusMatch[2],
+        requiredScope: SCOPE_PLAYBACK_CONTROL,
+      };
+    }
+    return null;
+  }
+  if (method === 'POST') {
+    const createMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/commands$/);
+    return createMatch
+      ? {
+          kind: 'command-create',
+          roomCode: createMatch[1],
+          requiredScope: SCOPE_PLAYBACK_CONTROL,
+        }
+      : null;
+  }
+  return null;
 }
 
 async function callLimiter(env, objectName, operation, keyId = null) {
@@ -525,12 +696,11 @@ async function ingressLimit(request, env) {
 }
 
 async function authenticatedReadLimit(env, principal) {
-  return callLimiter(
-    env,
-    `room:${principal.roomCode}`,
-    'authenticated-read',
-    principal.keyId,
-  );
+  return callLimiter(env, `room:${principal.roomCode}`, 'authenticated-read', principal.keyId);
+}
+
+async function authenticatedCommandLimit(env, principal) {
+  return callLimiter(env, `room:${principal.roomCode}`, 'authenticated-command', principal.keyId);
 }
 
 async function facadeRead(env, route) {
@@ -556,6 +726,78 @@ async function facadeRead(env, route) {
   return payload ? { payload } : { invalidResponse: true };
 }
 
+const COMMAND_ERROR_STATUSES = Object.freeze({
+  INVALID_REQUEST: 400,
+  NOT_FOUND: 404,
+  ROOM_SLEEPING: 409,
+  COORDINATOR_INCOMPATIBLE: 409,
+  NO_MEDIA: 409,
+  IDEMPOTENCY_CONFLICT: 409,
+  COMMAND_CAPACITY_EXCEEDED: 409,
+  RATE_LIMITED: 429,
+  BACKEND_UNAVAILABLE: 503,
+});
+
+async function facadeCommand(env, path, body, roomCode) {
+  if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
+  let response;
+  try {
+    response = await env.DEVELOPER_API_FACADE.fetch(
+      `https://developer-api-facade.internal${path}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+  } catch {
+    return { backendError: true };
+  }
+  const value = await readJsonLimited(response, COMMAND_RESPONSE_MAX_BYTES);
+  if (!response.ok) {
+    if (
+      hasExactKeys(value, ['error']) &&
+      typeof value.error === 'string' &&
+      COMMAND_ERROR_STATUSES[value.error] === response.status
+    ) {
+      return { errorCode: value.error, status: response.status };
+    }
+    return { backendError: true };
+  }
+  const payload = validateCommandPayload(value, roomCode);
+  return payload ? { payload, status: response.status } : { invalidResponse: true };
+}
+
+function auditCommandBestEffort(
+  env,
+  context,
+  requestId,
+  principal,
+  commandType,
+  result,
+  statusCode,
+  nowMs,
+) {
+  if (!context?.waitUntil || !env.DEVELOPER_API_DB?.prepare) return;
+  const audit = env.DEVELOPER_API_DB.prepare(
+    `INSERT INTO mxqr_developer_api_audit
+       (request_id, key_id, room_code, action, result, status_code, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  )
+    .bind(
+      requestId,
+      principal.keyId,
+      principal.roomCode,
+      `playback.command.${commandType}`,
+      result,
+      statusCode,
+      nowMs,
+    )
+    .run()
+    .catch(() => {});
+  context.waitUntil(audit);
+}
+
 async function etagFor(view, payload) {
   const digest = new Uint8Array(
     await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify(payload))),
@@ -569,18 +811,16 @@ async function handleApiRequest(request, env, context, requestId) {
   if (request.headers.has('origin')) {
     return errorResponse('BROWSER_ORIGIN_FORBIDDEN', 403, requestId);
   }
-  if (request.method !== 'GET') return errorResponse('NOT_FOUND', 404, requestId);
   const url = new URL(request.url);
-  if (
-    encoder.encode(request.url).byteLength > URL_MAX_BYTES ||
-    url.search ||
-    url.hash ||
-    request.body
-  ) {
+  if (encoder.encode(request.url).byteLength > URL_MAX_BYTES || url.search || url.hash) {
     return errorResponse('NOT_FOUND', 404, requestId);
   }
-  const route = parseRoute(url);
+  const route = parseRoute(request.method, url);
   if (!route) return errorResponse('NOT_FOUND', 404, requestId);
+  if (route.kind === 'command-create' && mode === 'read-only') {
+    return errorResponse('NOT_FOUND', 404, requestId);
+  }
+  if (request.method === 'GET' && request.body) return errorResponse('NOT_FOUND', 404, requestId);
 
   const ingress = await ingressLimit(request, env);
   if (!ingress) return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
@@ -604,7 +844,10 @@ async function handleApiRequest(request, env, context, requestId) {
   }
   if (!authentication.principal) return errorResponse('UNAUTHORIZED', 401, requestId);
   const principal = authentication.principal;
-  const limiter = await authenticatedReadLimit(env, principal);
+  const limiter =
+    route.kind === 'command-create'
+      ? await authenticatedCommandLimit(env, principal)
+      : await authenticatedReadLimit(env, principal);
   if (!limiter) return errorResponse('BACKEND_UNAVAILABLE', 503, requestId, { retryable: true });
   const limiterHeaders = rateHeaders(limiter);
   if (!limiter.allowed) {
@@ -622,6 +865,117 @@ async function handleApiRequest(request, env, context, requestId) {
   }
   if ((principal.scopeMask & route.requiredScope) !== route.requiredScope) {
     return errorResponse('FORBIDDEN', 403, requestId);
+  }
+
+  if (route.kind === 'command-create') {
+    const idempotencyKey = request.headers.get('idempotency-key');
+    if (idempotencyKey === null || idempotencyKey.length === 0) {
+      return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400, requestId);
+    }
+    if (!IDEMPOTENCY_KEY_RE.test(idempotencyKey)) {
+      return errorResponse('INVALID_REQUEST', 400, requestId);
+    }
+    const command = parseDeveloperCommand(
+      await readRequestJsonLimited(request, COMMAND_REQUEST_MAX_BYTES),
+    );
+    if (!command) return errorResponse('INVALID_REQUEST', 400, requestId);
+    const facade = await facadeCommand(
+      env,
+      '/internal/v1/commands/create',
+      {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        idempotencyKey,
+        command,
+      },
+      route.roomCode,
+    );
+    const auditAtMs = Date.now();
+    if (facade.configurationError) {
+      auditCommandBestEffort(
+        env,
+        context,
+        requestId,
+        principal,
+        command.type,
+        'api_not_configured',
+        503,
+        auditAtMs,
+      );
+      return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
+    }
+    if (facade.errorCode) {
+      auditCommandBestEffort(
+        env,
+        context,
+        requestId,
+        principal,
+        command.type,
+        facade.errorCode.toLowerCase(),
+        facade.status,
+        auditAtMs,
+      );
+      return errorResponse(facade.errorCode, facade.status, requestId, {
+        retryable: facade.status === 429 || facade.status === 503,
+      });
+    }
+    const invalidCommandResponse =
+      !facade.backendError && (facade.invalidResponse || facade.status !== 202);
+    if (facade.backendError || invalidCommandResponse) {
+      auditCommandBestEffort(
+        env,
+        context,
+        requestId,
+        principal,
+        command.type,
+        invalidCommandResponse ? 'invalid_backend_response' : 'backend_unavailable',
+        503,
+        auditAtMs,
+      );
+      return errorResponse(
+        invalidCommandResponse ? 'INTERNAL_RESPONSE_INVALID' : 'BACKEND_UNAVAILABLE',
+        503,
+        requestId,
+        { retryable: true },
+      );
+    }
+    auditCommandBestEffort(
+      env,
+      context,
+      requestId,
+      principal,
+      command.type,
+      'accepted',
+      202,
+      auditAtMs,
+    );
+    return jsonResponse(facade.payload, 202, requestId, limiterHeaders);
+  }
+
+  if (route.kind === 'command-status') {
+    const facade = await facadeCommand(
+      env,
+      '/internal/v1/commands/status',
+      { roomCode: route.roomCode, keyId: principal.keyId, commandId: route.commandId },
+      route.roomCode,
+    );
+    if (facade.configurationError) {
+      return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
+    }
+    if (facade.errorCode) {
+      return errorResponse(facade.errorCode, facade.status, requestId, {
+        retryable: facade.status === 429 || facade.status === 503,
+      });
+    }
+    if (facade.backendError || facade.invalidResponse || facade.status !== 200) {
+      return errorResponse(
+        facade.invalidResponse ? 'INTERNAL_RESPONSE_INVALID' : 'BACKEND_UNAVAILABLE',
+        503,
+        requestId,
+        { retryable: true },
+      );
+    }
+    return jsonResponse(facade.payload, 200, requestId, limiterHeaders, 'private, no-cache');
   }
 
   const facade = await facadeRead(env, route);
@@ -663,9 +1017,7 @@ export default {
         {
           ok: true,
           service: 'musixquare-developer-api',
-          ...(typeof workerVersionId === 'string' && workerVersionId
-            ? { workerVersionId }
-            : {}),
+          ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
         },
         200,
         requestId,
@@ -689,7 +1041,10 @@ async function readRateRequest(request) {
     return null;
   }
   const declared = request.headers.get('content-length');
-  if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > RATE_REQUEST_MAX_BYTES)) {
+  if (
+    declared !== null &&
+    (!/^\d+$/.test(declared.trim()) || Number(declared) > RATE_REQUEST_MAX_BYTES)
+  ) {
     return null;
   }
   const reader = request.body.getReader();
@@ -728,9 +1083,7 @@ async function readRateRequest(request) {
 
 function rateBucketsForRequest(value) {
   if (hasExactKeys(value, ['operation']) && value.operation === 'ingress-read') {
-    return [
-      { id: 'ingress', limit: INGRESS_LIMIT_PER_MINUTE, windowMs: 60_000, cost: 1 },
-    ];
+    return [{ id: 'ingress', limit: INGRESS_LIMIT_PER_MINUTE, windowMs: 60_000, cost: 1 }];
   }
   if (
     hasExactKeys(value, ['operation', 'keyId']) &&
@@ -746,6 +1099,27 @@ function rateBucketsForRequest(value) {
         cost: 1,
       },
       { id: 'room:read', limit: ROOM_READ_LIMIT_PER_MINUTE, windowMs: 60_000, cost: 1 },
+    ];
+  }
+  if (
+    hasExactKeys(value, ['operation', 'keyId']) &&
+    value.operation === 'authenticated-command' &&
+    typeof value.keyId === 'string' &&
+    /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
+  ) {
+    return [
+      {
+        id: `key:${value.keyId}:playback-control`,
+        limit: KEY_COMMAND_LIMIT_PER_MINUTE,
+        windowMs: 60_000,
+        cost: 1,
+      },
+      {
+        id: 'room:playback-control',
+        limit: ROOM_COMMAND_LIMIT_PER_MINUTE,
+        windowMs: 60_000,
+        cost: 1,
+      },
     ];
   }
   return null;

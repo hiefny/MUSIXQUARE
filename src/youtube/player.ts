@@ -30,6 +30,11 @@ import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../rooms/authority.ts';
 import {
+  broadcastTracksAdded,
+  localQueueActorName,
+  queueActorNameForConnection,
+} from '../chat/queue-events.ts';
+import {
   acceptStandardQueueMutationRequest,
   sendStandardQueueMutationRequest,
   settleStandardQueueMutationRequest,
@@ -730,7 +735,18 @@ export function initYouTube(): void {
       return;
     }
     try {
-      _addYouTubeToPlaylist(resolved.videoId, resolved.playlistId, resolved.title, data.sourceUrl);
+      const actorName = queueActorNameForConnection(conn);
+      if (!actorName) {
+        sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'unauthorized');
+        return;
+      }
+      _addYouTubeToPlaylist(
+        resolved.videoId,
+        resolved.playlistId,
+        resolved.title,
+        data.sourceUrl,
+        actorName,
+      );
       if (!isLiveStandardOperatorConnection(conn, roomCode)) return;
       settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
     } catch (error) {
@@ -1439,6 +1455,7 @@ export function initYouTube(): void {
     playlistId: string | null,
     title: string,
     url: string,
+    actorName = localQueueActorName(),
   ): QueueItemId {
     const playlist = getState('playlist.items') || [];
 
@@ -1548,6 +1565,7 @@ export function initYouTube(): void {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       broadcast({ type: MSG.PLAYLIST_UPDATE, ...playlistSnapshot });
+      broadcastTracksAdded(actorName, 1);
 
       if (isIdle) {
         broadcast({

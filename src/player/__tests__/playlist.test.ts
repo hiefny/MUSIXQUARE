@@ -257,8 +257,11 @@ describe('local file admission', () => {
 
   it('adds only audio candidates from a mixed selection', async () => {
     setState('network.appRole', 'host');
+    setState('network.myDeviceLabel', 'Studio Host');
     initPlaylist();
     const toastMessage = mountToastMessage();
+    const systemMessages: string[] = [];
+    bus.on('chat:system-message', (text) => systemMessages.push(text));
     const declaredAudio = new File(['a'], 'track.unknown', { type: 'audio/opus' });
     const extensionFallback = new File(['b'], 'archive.caf', {
       type: 'application/octet-stream',
@@ -281,6 +284,7 @@ describe('local file admission', () => {
         count: 1,
       })}`,
     );
+    expect(systemMessages).toEqual([t('chat.tracks_added', { name: 'Studio Host', count: 2 })]);
   });
 
   it('delegates filtered PRO uploads without mutating the legacy queue', async () => {
@@ -1985,11 +1989,11 @@ describe('standard operator queue mutation requests', () => {
   });
 
   it('appends only a fully received supported operator file on the host', () => {
-    setupOperator();
+    const { conn } = setupOperator();
     const file = new File(['audio'], 'operator.mp3', { type: 'audio/mpeg' });
     const acknowledge = vi.fn();
 
-    bus.emit('standard-room:operator-file-received', file, acknowledge);
+    bus.emit('standard-room:operator-file-received', file, acknowledge, conn);
 
     expect(getState('playlist.items')).toEqual([
       expect.objectContaining({ type: 'file', file, name: 'operator.mp3' }),

@@ -183,6 +183,35 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/queue/items/batch:
+    post:
+      operationId: addYouTubeQueueItemsBatch
+      description: |
+        Atomically appends between 1 and 100 canonical YouTube items in the supplied order without starting
+        playback. Validation and playlist-capacity checks cover the entire batch: if any item is invalid or the
+        full batch does not fit, no item is appended. One successful batch advances the playlist revision once.
+        The effective limit is whichever is reached first: 100 items or a 64 KiB complete public JSON request.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/YouTubeQueueItemBatchCreate' }
+      responses:
+        '201':
+          description: The full batch was appended, including an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/queue/items/owned:
     delete:
       operationId: deleteQueueItemsOwnedByCurrentApiKey
@@ -497,6 +526,16 @@ components:
         title: { type: string, minLength: 1, maxLength: 512 }
         artist: { type: string, minLength: 1, maxLength: 512 }
         thumbnail: { type: string, minLength: 1, maxLength: 512 }
+    YouTubeQueueItemBatchCreate:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: '#/components/schemas/YouTubeQueueItemCreate' }
     QueueOrderReplace:
       type: object
       additionalProperties: false

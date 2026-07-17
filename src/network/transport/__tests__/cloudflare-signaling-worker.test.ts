@@ -758,7 +758,21 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       revision: 9,
       playlistRevision: 4,
     };
-    const invalidate = (presenceIncarnationId: string, nextFrame: unknown = frame) =>
+    const addition = {
+      type: 'pro-queue-addition',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 1,
+      playlistRevision: 4,
+      eventId: 'qa_000001_4_9',
+      actorName: 'Studio bot',
+      count: 25,
+    };
+    const invalidate = (
+      presenceIncarnationId: string,
+      nextFrame: unknown = frame,
+      nextAddition: unknown = undefined,
+    ) =>
       room.fetch(
         new Request('https://signaling.internal/internal/developer/v1/invalidate', {
           method: 'POST',
@@ -770,6 +784,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
             coordinatorPresenceIncarnationId: presenceIncarnationId,
             developerControlVersion: 1,
             frame: nextFrame,
+            ...(nextAddition === undefined ? {} : { addition: nextAddition }),
           }),
         }),
       );
@@ -777,6 +792,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const accepted = await invalidate('presence-incarnation-0001');
     expect(accepted.status).toBe(200);
     expect(sent(coordinator).at(-1)).toEqual(frame);
+
+    const withAddition = await invalidate('presence-incarnation-0001', frame, addition);
+    expect(withAddition.status).toBe(200);
+    expect(sent(coordinator).slice(-2)).toEqual([frame, addition]);
 
     const sentCount = coordinator.sent.length;
     const stale = await invalidate('presence-incarnation-stale');
@@ -789,6 +808,24 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
     expect(malformed.status).toBe(400);
     expect(coordinator.sent).toHaveLength(sentCount);
+
+    const malformedAddition = await invalidate('presence-incarnation-0001', frame, {
+      ...addition,
+      actorName: 'x'.repeat(31),
+    });
+    expect(malformedAddition.status).toBe(400);
+    expect(coordinator.sent).toHaveLength(sentCount);
+
+    const sendAttempts: unknown[] = [];
+    const originalSend = coordinator.send.bind(coordinator);
+    coordinator.send = (raw: string) => {
+      sendAttempts.push(JSON.parse(raw));
+      throw new Error('socket send failed');
+    };
+    const failedInvalidation = await invalidate('presence-incarnation-0001', frame, addition);
+    expect(failedInvalidation.status).toBe(409);
+    expect(sendAttempts).toEqual([frame]);
+    coordinator.send = originalSend;
   });
 
   it('advancing a PRO coordinator epoch closes every prior-epoch socket and rejects stale tickets', async () => {

@@ -626,6 +626,7 @@ const vi: Record<I18nKey, string> = {
     'Thông tin debug đã được sao chép.\nHãy gửi cho nhà phát triển nếu bạn tìm thấy lỗi.',
   'chat.seek_to': 'Chuyển đến {{time}}',
   'chat.peer_connected': '{{name}} đã tham gia',
+  'chat.tracks_added': '{{name}} đã thêm {{count}} bài',
   'chat.peer_disconnected': '{{name}} đã rời',
   'chat.empty_html': 'Chưa có tin nhắn.<br>Hãy gửi tin nhắn đầu tiên!',
   'chat.msg_truncated': 'Tin nhắn đã bị cắt còn {{max}} ký tự',

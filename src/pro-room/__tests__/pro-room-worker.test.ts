@@ -471,6 +471,7 @@ function mutateInternalDeveloperQueue(
   keyId: string,
   idempotencyKey: string,
   mutation: Record<string, unknown>,
+  actorName?: string,
 ): Promise<Response> {
   return worker.fetch(
     new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
@@ -479,7 +480,13 @@ function mutateInternalDeveloperQueue(
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
       },
-      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, mutation }),
+      body: JSON.stringify({
+        roomCode: ROOM_CODE,
+        keyId,
+        ...(actorName === undefined ? {} : { actorName }),
+        idempotencyKey,
+        mutation,
+      }),
     }),
   );
 }
@@ -507,6 +514,7 @@ function completeInternalDeveloperUpload(
   keyId: string,
   idempotencyKey: string,
   assetId: string,
+  actorName?: string,
 ): Promise<Response> {
   return worker.fetch(
     new Request('https://pro-room.internal/internal/developer/v1/media/uploads/complete', {
@@ -515,7 +523,13 @@ function completeInternalDeveloperUpload(
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
       },
-      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, assetId }),
+      body: JSON.stringify({
+        roomCode: ROOM_CODE,
+        keyId,
+        idempotencyKey,
+        assetId,
+        ...(actorName === undefined ? {} : { actorName }),
+      }),
     }),
   );
 }
@@ -680,6 +694,7 @@ describe('PRO room private Developer API projections', () => {
           first: vi.fn(async () => ({
             key_id: keyId,
             room_code: ROOM_CODE,
+            label: 'Composed API',
             secret_digest: secretDigest,
             digest_version: 1,
             scope_mask:
@@ -920,6 +935,332 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.playlist).toHaveLength(1);
   });
 
+  it('atomically appends one ordered YouTube batch with one revision and caller ownership', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    internal.room.runtime = 'sleeping';
+    internal.room.presence.coordinatorParticipantId = null;
+    internal.room.presence.participants = {};
+    const keyId = 'B'.repeat(16);
+    const mutation = {
+      type: 'add_youtube_batch',
+      items: [
+        { videoId: 'dQw4w9WgXcQ', name: 'First', title: 'First title' },
+        {
+          videoId: 'M7lc1UVf-VE',
+          playlistId: 'PL1234567890',
+          name: 'Second',
+          artist: 'Second artist',
+        },
+      ],
+    };
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+    };
+
+    const firstResponse = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-0001',
+      mutation,
+      'Friend integration',
+    );
+    expect(firstResponse.status).toBe(201);
+    const first = await responseJson(firstResponse);
+    expect(first).toMatchObject({
+      playlistRevision: before.playlistRevision + 1,
+      currentQueueItemId: null,
+      items: [
+        {
+          kind: 'youtube',
+          name: 'First',
+          title: 'First title',
+          addedBy: 'current_api_key',
+        },
+        {
+          kind: 'youtube',
+          name: 'Second',
+          artist: 'Second artist',
+          addedBy: 'current_api_key',
+        },
+      ],
+    });
+    expect(new Set(first.items.map((item: any) => item.queueItemId)).size).toBe(2);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+    expect(internal.room.playlist.map((item: any) => item.source.videoId)).toEqual([
+      'dQw4w9WgXcQ',
+      'M7lc1UVf-VE',
+    ]);
+    expect(internal.room.playlist.every((item: any) => item.developerOwnerKeyId === keyId)).toBe(
+      true,
+    );
+    expect(internal.room.runtime).toBe('sleeping');
+    expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
+
+    const replay = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-0001',
+      mutation,
+      'Friend integration',
+    );
+    expect(replay.status).toBe(201);
+    expect(await responseJson(replay)).toEqual(first);
+    expect(internal.room.playlist).toHaveLength(2);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+
+    const conflict = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-0001',
+      {
+        ...mutation,
+        items: [{ videoId: '9bZkp7q19f0', name: 'Different intent' }],
+      },
+      'Friend integration',
+    );
+    expect(conflict.status).toBe(409);
+    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(internal.room.playlist).toHaveLength(2);
+  });
+
+  it('rejects invalid or over-capacity YouTube batches without a partial append', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const keyId = 'B'.repeat(16);
+    const invalidMutations = [
+      { type: 'add_youtube_batch', items: [] },
+      {
+        type: 'add_youtube_batch',
+        items: Array.from({ length: 101 }, (_, index) => ({
+          videoId: 'dQw4w9WgXcQ',
+          name: `Track ${index}`,
+        })),
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          { videoId: 'dQw4w9WgXcQ', name: 'Valid' },
+          { videoId: 'invalid', name: 'Invalid' },
+        ],
+      },
+    ];
+    for (const [index, mutation] of invalidMutations.entries()) {
+      const before = structuredClone(internal.room.playlist);
+      const response = await mutateInternalDeveloperQueue(
+        worker,
+        keyId,
+        `developer-queue-batch-invalid-${index}`,
+        mutation,
+      );
+      expect(response.status).toBe(400);
+      expect(await responseJson(response)).toEqual({ error: 'INVALID_REQUEST' });
+      expect(internal.room.playlist).toEqual(before);
+    }
+
+    internal.room.playlist = Array.from({ length: 999 }, (_, index) => ({
+      queueItemId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+      name: `Existing ${index}`,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    }));
+    const playlistBeforeCapacity = structuredClone(internal.room.playlist);
+    const revisionBeforeCapacity = internal.room.revision;
+    const playlistRevisionBeforeCapacity = internal.room.playlistRevision;
+    const overCapacity = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-over-capacity',
+      {
+        type: 'add_youtube_batch',
+        items: [
+          { videoId: 'M7lc1UVf-VE', name: 'Would fit alone' },
+          { videoId: '9bZkp7q19f0', name: 'Makes batch overflow' },
+        ],
+      },
+    );
+    expect(overCapacity.status).toBe(409);
+    expect(await responseJson(overCapacity)).toEqual({ error: 'PLAYLIST_CAPACITY_EXCEEDED' });
+    expect(internal.room.playlist).toEqual(playlistBeforeCapacity);
+    expect(internal.room.revision).toBe(revisionBeforeCapacity);
+    expect(internal.room.playlistRevision).toBe(playlistRevisionBeforeCapacity);
+
+    internal.room.playlist = [];
+    internal.room.playlistRevision = Number.MAX_SAFE_INTEGER;
+    const revisionOverflow = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-revision-overflow',
+      {
+        type: 'add_youtube_batch',
+        items: [{ videoId: 'M7lc1UVf-VE', name: 'Must remain absent' }],
+      },
+    );
+    expect(revisionOverflow.status).toBe(409);
+    expect(await responseJson(revisionOverflow)).toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
+    expect(internal.room.playlist).toEqual([]);
+  });
+
+  it('rolls back the entire batch when the bounded room-state persist rejects it', async () => {
+    const { worker, state } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const stateLimitBytes = 1_200 * 1024;
+    const paddingKey = 'batch-capacity-padding';
+    internal.room.rateLimits[paddingKey] = {
+      count: 0,
+      resetAtMs: Date.now() + 60 * 60 * 1_000,
+      padding: '',
+    };
+    const bytesBeforePadding = new TextEncoder().encode(JSON.stringify(internal.room)).byteLength;
+    const paddingLength = stateLimitBytes - 256 - bytesBeforePadding;
+    expect(paddingLength).toBeGreaterThan(4_096);
+    internal.room.rateLimits[paddingKey].padding = 'P'.repeat(paddingLength);
+    expect(new TextEncoder().encode(JSON.stringify(internal.room)).byteLength).toBeLessThan(
+      stateLimitBytes,
+    );
+    await state.storage.put('pro-room:v1', structuredClone(internal.room));
+
+    const before = {
+      playlist: structuredClone(internal.room.playlist),
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+      idempotency: structuredClone(internal.room.idempotency),
+    };
+    const response = await mutateInternalDeveloperQueue(
+      worker,
+      'B'.repeat(16),
+      'developer-queue-batch-state-capacity',
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            name: 'N'.repeat(512),
+            title: 'T'.repeat(512),
+            artist: 'A'.repeat(512),
+            thumbnail: 'H'.repeat(512),
+          },
+          {
+            videoId: 'M7lc1UVf-VE',
+            name: 'M'.repeat(512),
+            title: 'U'.repeat(512),
+            artist: 'B'.repeat(512),
+            thumbnail: 'I'.repeat(512),
+          },
+        ],
+      },
+      'State capacity test',
+    );
+
+    expect(response.status).toBe(409);
+    expect(await responseJson(response)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internal.room.playlist).toEqual(before.playlist);
+    expect(internal.room.revision).toBe(before.revision);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision);
+    expect(internal.room.idempotency).toEqual(before.idempotency);
+    expect(
+      Object.keys(internal.room.idempotency).some((key) =>
+        key.includes('developer-queue-batch-state-capacity'),
+      ),
+    ).toBe(false);
+
+    const persisted = state.storage.data.get('pro-room:v1') as Record<string, any>;
+    expect(persisted.playlist).toEqual(before.playlist);
+    expect(persisted.revision).toBe(before.revision);
+    expect(persisted.playlistRevision).toBe(before.playlistRevision);
+    expect(persisted.idempotency).toEqual(before.idempotency);
+  });
+
+  it('accepts the authenticated envelope around a near-64-KiB public batch', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      videoId: 'dQw4w9WgXcQ',
+      name: `${index}`.padEnd(304, 'N'),
+      title: 'T'.repeat(304),
+    }));
+    const response = await mutateInternalDeveloperQueue(
+      worker,
+      'B'.repeat(16),
+      'developer-queue-batch-boundary',
+      { type: 'add_youtube_batch', items },
+      'A'.repeat(64),
+    );
+
+    expect(response.status).toBe(201);
+    expect(internal.room.playlist).toHaveLength(100);
+    expect(internal.room.playlistRevision).toBe(1);
+    expect(internal.room.revision).toBe(2);
+  });
+
+  it('returns and replays a committed batch when the full queue projection exceeds 64 KiB', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    internal.room.playlist = Array.from({ length: 100 }, (_, index) => ({
+      queueItemId: `10000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+      name: `${index}`.padEnd(512, 'N'),
+      title: 'T'.repeat(512),
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    }));
+    internal.room.playlistRevision = 7;
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+    };
+    const rooms = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({ fetch: (request: Request) => worker.fetch(request) })),
+    };
+    const facadeBody = {
+      roomCode: ROOM_CODE,
+      keyId: 'B'.repeat(16),
+      actorName: 'Large response bot',
+      idempotencyKey: 'developer-queue-batch-large-response',
+      mutation: {
+        type: 'add_youtube_batch',
+        items: [
+          { videoId: 'M7lc1UVf-VE', name: 'Batch item one' },
+          { videoId: '9bZkp7q19f0', name: 'Batch item two' },
+        ],
+      },
+    };
+    const callFacade = () =>
+      developerApiFacadeWorker.fetch(
+        new Request('https://developer-api-facade.internal/internal/v1/queue/mutate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(facadeBody),
+        }),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+
+    const first = await callFacade();
+    expect(first.status).toBe(201);
+    const firstText = await first.text();
+    expect(new TextEncoder().encode(firstText).byteLength).toBeGreaterThan(64 * 1024);
+    expect(JSON.parse(firstText)).toMatchObject({
+      playlistRevision: before.playlistRevision + 1,
+      items: expect.arrayContaining([
+        expect.objectContaining({ name: 'Batch item one', addedBy: 'current_api_key' }),
+        expect.objectContaining({ name: 'Batch item two', addedBy: 'current_api_key' }),
+      ]),
+    });
+    expect(internal.room.playlist).toHaveLength(102);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+
+    const replay = await callFacade();
+    expect(replay.status).toBe(201);
+    expect(await replay.text()).toBe(firstText);
+    expect(internal.room.playlist).toHaveLength(102);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+  });
+
   it('keeps API ownership private while classifying legacy, participant, and per-key additions', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };
@@ -1056,8 +1397,7 @@ describe('PRO room private Developer API projections', () => {
     );
     expect(
       rollingCompatibleView.items.every(
-        (item: Record<string, unknown>) =>
-          !Object.prototype.hasOwnProperty.call(item, 'addedBy'),
+        (item: Record<string, unknown>) => !Object.prototype.hasOwnProperty.call(item, 'addedBy'),
       ),
     ).toBe(true);
 
@@ -1724,6 +2064,7 @@ describe('PRO room private Developer API projections', () => {
       'H'.repeat(16),
       'developer-invalidation-queue-0001',
       { type: 'add_youtube', videoId: 'dQw4w9WgXcQ', name: 'Queue hint' },
+      '🎧'.repeat(32),
     );
     expect(queueResponse.status).toBe(201);
     await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(1));
@@ -1744,10 +2085,32 @@ describe('PRO room private Developer API projections', () => {
         revision: internal.room.revision,
         playlistRevision: internal.room.playlistRevision,
       },
+      addition: {
+        type: 'pro-queue-addition',
+        version: 1,
+        roomCode: ROOM_CODE,
+        coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+        playlistRevision: internal.room.playlistRevision,
+        actorName: '🎧'.repeat(15),
+        count: 1,
+      },
     });
+    expect(firstBody.addition.actorName.length).toBe(30);
+    expect(firstBody.addition.eventId).toMatch(/^qa_000001_\d+_\d+$/);
     expect(firstBody.coordinatorPresenceIncarnationId).toBe(
       internal.room.presence.participants[firstBody.coordinatorParticipantId].presenceIncarnationId,
     );
+
+    const queueReplay = await mutateInternalDeveloperQueue(
+      worker,
+      'H'.repeat(16),
+      'developer-invalidation-queue-0001',
+      { type: 'add_youtube', videoId: 'dQw4w9WgXcQ', name: 'Queue hint' },
+      '🎧'.repeat(32),
+    );
+    expect(queueReplay.status).toBe(201);
+    await Promise.resolve();
+    expect(dispatchedBodies).toHaveLength(1);
 
     const media = { name: 'Hint.wav', byteLength: 44, mime: 'audio/wav' };
     const reservation = await responseJson(
@@ -1776,6 +2139,7 @@ describe('PRO room private Developer API projections', () => {
       'H'.repeat(16),
       'developer-invalidation-upload-complete',
       reservation.assetId,
+      'Uploader bot',
     );
     expect(completion.status).toBe(201);
     await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(2));
@@ -1783,6 +2147,66 @@ describe('PRO room private Developer API projections', () => {
     expect(secondBody.frame).toMatchObject({
       type: 'developer-invalidation',
       revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+    });
+    expect(secondBody.addition).toMatchObject({
+      type: 'pro-queue-addition',
+      actorName: 'Uploader bot',
+      count: 1,
+      playlistRevision: internal.room.playlistRevision,
+    });
+
+    const batchResponse = await mutateInternalDeveloperQueue(
+      worker,
+      'H'.repeat(16),
+      'developer-invalidation-batch-0001',
+      {
+        type: 'add_youtube_batch',
+        items: [
+          { videoId: 'M7lc1UVf-VE', name: 'Batch one' },
+          { videoId: '9bZkp7q19f0', name: 'Batch two' },
+        ],
+      },
+      'Batch bot',
+    );
+    expect(batchResponse.status).toBe(201);
+    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(3));
+    expect(dispatchedBodies[2]?.addition).toMatchObject({
+      type: 'pro-queue-addition',
+      actorName: 'Batch bot',
+      count: 2,
+      playlistRevision: internal.room.playlistRevision,
+    });
+
+    const current = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const participantQueueItemId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const participantMutation = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: current.snapshot.revision,
+          playlist: [
+            ...current.snapshot.playlist,
+            {
+              queueItemId: participantQueueItemId,
+              name: 'Owner addition',
+              source: { kind: 'youtube', videoId: 'aqz-KE-bpKQ' },
+            },
+          ],
+          currentQueueItemId: current.snapshot.currentQueueItemId,
+          playback: current.snapshot.playback,
+        },
+        ownerCookie,
+        'participant-invalidation-addition-0001',
+      ),
+    );
+    expect(participantMutation.status).toBe(200);
+    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(4));
+    expect(dispatchedBodies[3]?.addition).toMatchObject({
+      type: 'pro-queue-addition',
+      actorName: 'Owner',
+      count: 1,
       playlistRevision: internal.room.playlistRevision,
     });
   });

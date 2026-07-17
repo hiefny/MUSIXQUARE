@@ -228,4 +228,69 @@ describe.sequential('PRO room runtime preload adoption', () => {
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledWith(ROOM_CODE, undefined));
     refresh.mockRestore();
   });
+
+  it('fans out accepted queue additions once in authoritative revision order', async () => {
+    const messages: string[] = [];
+    const off = bus.on('chat:system-message', (text) => messages.push(text));
+    const later = {
+      type: 'pro-queue-addition' as const,
+      version: 1 as const,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 1,
+      playlistRevision: 4,
+      eventId: 'qa_000001_4_6',
+      actorName: 'Later bot',
+      count: 2,
+    };
+    const earlier = {
+      ...later,
+      playlistRevision: 3,
+      eventId: 'qa_000001_3_5',
+      actorName: 'Earlier bot',
+      count: 1,
+    };
+
+    bus.emit('network:pro-queue-addition', later);
+    bus.emit('network:pro-queue-addition', earlier);
+    bus.emit('network:pro-queue-addition', later);
+    bus.emit('network:pro-queue-addition', {
+      ...later,
+      coordinatorEpoch: 2,
+      eventId: 'qa_000001_5_7',
+    });
+
+    // Neither addition exists in the currently accepted snapshot, so a
+    // signaling hint alone cannot create a visible system row.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(messages).toEqual([]);
+
+    const accepted = { ...roomSnapshot(), revision: 6, playlistRevision: 4 };
+    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'getSnapshot').mockResolvedValue(accepted);
+    vi.useFakeTimers();
+    bus.emit('network:developer-invalidation', {
+      type: 'developer-invalidation',
+      version: 1,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 1,
+      revision: 6,
+      playlistRevision: 4,
+    });
+    await vi.advanceTimersByTimeAsync(5_200);
+    expect(refresh).toHaveBeenCalledWith(ROOM_CODE, undefined);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toContain('Earlier bot');
+    expect(messages[1]).toContain('Later bot');
+
+    bus.emit('network:pro-queue-addition', {
+      ...earlier,
+      playlistRevision: 2,
+      eventId: 'qa_000001_2_4',
+      actorName: 'Late old bot',
+    });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(messages).toHaveLength(2);
+    vi.useRealTimers();
+    refresh.mockRestore();
+    off();
+  });
 });

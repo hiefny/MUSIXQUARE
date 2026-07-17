@@ -189,6 +189,14 @@ console.log(command.commandId, command.status);</code></pre>
             <dd>Add one YouTube item using a canonical video ID and display metadata.</dd>
           </div>
           <div>
+            <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/queue/items/batch</span></dt>
+            <dd>
+              Atomically add 1&ndash;100 YouTube items in order. If one item is invalid or the complete batch does
+              not fit, none are added. The effective limit is whichever comes first: 100 items or a 64 KiB
+              complete JSON request.
+            </dd>
+          </div>
+          <div>
             <dt class="api-endpoint"><span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items</span></dt>
             <dd>
               Clear the entire playlist atomically with no request body. Warning: this removes tracks added by
@@ -233,6 +241,28 @@ console.log(command.commandId, command.status);</code></pre>
     artist: 'Example artist',
   }),
 });</code></pre>
+        <pre class="policy-code"><code>const batchResponse = await fetch(
+  `${baseUrl}/rooms/${roomCode}/queue/items/batch`,
+  {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      items: videos.map(({ videoId, title, artist }) =&gt; ({
+        videoId,
+        name: title,
+        title,
+        artist,
+      })),
+    }),
+  },
+);
+
+if (!batchResponse.ok) throw new Error(await batchResponse.text());
+const queueAfterBatch = await batchResponse.json();</code></pre>
         <pre class="policy-code"><code>const clearResponse = await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
   method: 'DELETE',
   headers: {
@@ -357,6 +387,28 @@ await fetch(
           Treat the signed upload URL as a temporary credential. Do not log it, follow redirects, alter its query
           string, omit returned headers, or send a different content length. Completing an upload appends the item but
           never starts playback automatically.
+        </p>
+        <p>
+          Audio files deliberately do not use a binary-in-JSON batch endpoint. Each file keeps its own reservation,
+          direct R2 upload, completion, checksum, quota check, and idempotency key. Multiple files can use the same
+          three-step helper with at most two in flight per API key:
+        </p>
+        <pre class="policy-code"><code>const pending = [...audioFiles];
+const workers = Array.from(
+  { length: Math.min(2, pending.length) },
+  async () =&gt; {
+    while (pending.length &gt; 0) {
+      const file = pending.shift();
+      await reservePutAndComplete(file); // the three-step flow above
+    }
+  },
+);
+
+await Promise.all(workers);</code></pre>
+        <p class="api-note">
+          Multi-file audio upload is intentionally not atomic: a file that completes remains in the playlist if a
+          later file fails. Record each returned asset and queue item so your integration can retry or remove it
+          explicitly.
         </p>
       </section>
 

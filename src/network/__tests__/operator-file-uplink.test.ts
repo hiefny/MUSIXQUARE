@@ -149,6 +149,97 @@ describe('standard operator file uplink host receiver', () => {
     off();
   });
 
+  it('summarizes a negotiated multi-file batch once at its terminal frame', async () => {
+    const { conn } = makeConnection('admin-batch');
+    enterHost([{ conn }]);
+    const additions: Array<{ conn: DataConnection; count: number }> = [];
+    const offReceived = bus.on('standard-room:operator-file-received', (_file, acknowledge) => {
+      acknowledge(true);
+    });
+    const offAdded = bus.on('standard-room:operator-files-added', (source, count) => {
+      additions.push({ conn: source, count });
+    });
+
+    await handleData(
+      {
+        type: MSG.OPERATOR_FILE_UPLOAD_BATCH_START,
+        requestId: REQUEST_ID,
+        fileCount: 2,
+      },
+      conn,
+    );
+    for (const [index, sessionId] of [
+      SESSION_ID,
+      '20000000-0000-4000-8000-000000000002',
+    ].entries()) {
+      await handleData(
+        startMessage(1, {
+          sessionId,
+          name: `track-${index + 1}.mp3`,
+        }),
+        conn,
+      );
+      await handleData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_CHUNK,
+          requestId: REQUEST_ID,
+          sessionId,
+          chunkIndex: 0,
+          chunk: new Uint8Array([index + 1]),
+        },
+        conn,
+      );
+      await handleData(
+        { type: MSG.OPERATOR_FILE_UPLOAD_FINISH, requestId: REQUEST_ID, sessionId },
+        conn,
+      );
+    }
+
+    expect(additions).toEqual([]);
+    const terminal = {
+      type: MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE,
+      requestId: REQUEST_ID,
+      committedCount: 2,
+    } as const;
+    await handleData(terminal, conn);
+    await handleData(terminal, conn);
+    expect(additions).toEqual([{ conn, count: 2 }]);
+    offAdded();
+    offReceived();
+  });
+
+  it('keeps pre-batch clients compatible with one notice per committed file', async () => {
+    const { conn } = makeConnection('admin-legacy');
+    enterHost([{ conn }]);
+    const additions: number[] = [];
+    const offReceived = bus.on('standard-room:operator-file-received', (_file, acknowledge) => {
+      acknowledge(true);
+    });
+    const offAdded = bus.on('standard-room:operator-files-added', (_source, count) => {
+      additions.push(count);
+    });
+
+    await handleData(startMessage(1), conn);
+    await handleData(
+      {
+        type: MSG.OPERATOR_FILE_UPLOAD_CHUNK,
+        requestId: REQUEST_ID,
+        sessionId: SESSION_ID,
+        chunkIndex: 0,
+        chunk: new Uint8Array([1]),
+      },
+      conn,
+    );
+    await handleData(
+      { type: MSG.OPERATOR_FILE_UPLOAD_FINISH, requestId: REQUEST_ID, sessionId: SESSION_ID },
+      conn,
+    );
+
+    expect(additions).toEqual([1]);
+    offAdded();
+    offReceived();
+  });
+
   it('rejects instead of reporting success when the playlist does not acknowledge commit', async () => {
     const { conn, send } = makeConnection('admin-2');
     enterHost([{ conn }]);
@@ -498,6 +589,15 @@ describe('standard operator file uplink sender', () => {
       new File([new Uint8Array([1, 2])], 'one.mp3', { type: 'audio/mpeg' }),
       new File([new Uint8Array([3, 4, 5])], 'two.flac', { type: 'audio/flac' }),
     ]);
+
+    expect(messages[0]).toMatchObject({
+      type: MSG.OPERATOR_FILE_UPLOAD_BATCH_START,
+      fileCount: 2,
+    });
+    expect(messages.at(-1)).toMatchObject({
+      type: MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE,
+      committedCount: 2,
+    });
 
     const wirePhases = messages
       .filter((message) =>

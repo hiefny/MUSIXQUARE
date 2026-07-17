@@ -4,6 +4,7 @@ import { TinyEmitter } from './emitter.ts';
 import type {
   DeveloperCommandFrame,
   DeveloperInvalidationFrame,
+  ProQueueAdditionFrame,
   ProSignalingOptions,
   TransportConnectOptions,
   TransportDataConnection,
@@ -11,7 +12,11 @@ import type {
   TransportPeer,
   TransportPeerOptions,
 } from './types.ts';
-import { parseDeveloperCommandFrame, parseDeveloperInvalidationFrame } from './types.ts';
+import {
+  parseDeveloperCommandFrame,
+  parseDeveloperInvalidationFrame,
+  parseProQueueAdditionFrame,
+} from './types.ts';
 
 type SignalingMessage =
   | { type: 'peer-open'; peerId: string; roomId: string; workerVersionId?: string }
@@ -36,7 +41,8 @@ type SignalingMessage =
   | { type: 'media-close'; from: string; callId: string }
   | { type: 'peer-left'; peerId: string }
   | DeveloperCommandFrame
-  | DeveloperInvalidationFrame;
+  | DeveloperInvalidationFrame
+  | ProQueueAdditionFrame;
 
 type OutgoingSignal =
   | { type: 'room-password-set'; password: string }
@@ -921,6 +927,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       }
       return invalidation;
     }
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).type === 'pro-queue-addition'
+    ) {
+      const addition = parseProQueueAdditionFrame(value);
+      if (!addition) {
+        throw createTransportError('server-error', 'INVALID_DEVELOPER_QUEUE_ADDITION');
+      }
+      return addition;
+    }
     return value as SignalingMessage;
   }
 
@@ -943,6 +961,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_INVALIDATION');
       }
       this.emit('developer-invalidation', message);
+      return;
+    }
+    if (message.type === 'pro-queue-addition') {
+      const access = this.proSignalingAccess;
+      if (
+        access?.role !== 'coordinator' ||
+        message.roomCode !== access.roomCode ||
+        message.coordinatorEpoch !== access.coordinatorEpoch
+      ) {
+        throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
+      }
+      this.emit('pro-queue-addition', message);
       return;
     }
     if (message.type === 'peer-open') {
@@ -1010,6 +1040,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     if (message.type === 'developer-invalidation') {
       throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_INVALIDATION');
+    }
+    if (message.type === 'pro-queue-addition') {
+      throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
     }
     if (message.type === 'peer-open') {
       this.disconnected = false;

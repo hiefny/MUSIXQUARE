@@ -632,6 +632,7 @@ const ja: Record<I18nKey, string> = {
     'デバッグ情報をコピーしました。\nバグを見つけた場合は開発者に送ってください。',
   'chat.seek_to': '{{time}} へ移動',
   'chat.peer_connected': '{{name}} が参加しました',
+  'chat.tracks_added': '{{name}} が{{count}}曲追加しました',
   'chat.peer_disconnected': '{{name}} が退出しました',
   'chat.empty_html': 'まだメッセージはありません。<br>最初のメッセージを送ってみましょう！',
   'chat.msg_truncated': 'メッセージは {{max}} 文字に切り詰められました',

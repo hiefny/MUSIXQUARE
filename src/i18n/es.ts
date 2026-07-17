@@ -643,6 +643,7 @@ const es: Record<I18nKey, string> = {
     'Información de depuración copiada.\nEnvíala al desarrollador si encontraste un bug.',
   'chat.seek_to': 'Ir a {{time}}',
   'chat.peer_connected': '{{name}} se unió',
+  'chat.tracks_added': '{{name}} añadió {{count}} pistas',
   'chat.peer_disconnected': '{{name}} salió',
   'chat.empty_html': 'Aún no hay mensajes.<br>¡Envía el primero!',
   'chat.msg_truncated': 'Mensaje recortado a {{max}} caracteres',

@@ -607,6 +607,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.debug_copied': '除錯資訊已複製。\n如果發現錯誤，請傳給開發者。',
   'chat.seek_to': '跳至 {{time}}',
   'chat.peer_connected': '{{name}} 已加入',
+  'chat.tracks_added': '{{name}} 新增了 {{count}} 首歌曲',
   'chat.peer_disconnected': '{{name}} 已離開',
   'chat.empty_html': '還沒有訊息。<br>傳送第一則訊息吧！',
   'chat.msg_truncated': '訊息已截斷為 {{max}} 個字元',

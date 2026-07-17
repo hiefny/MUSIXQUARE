@@ -362,6 +362,7 @@ const nl: Record<I18nKey, string> = {
     'Debug-info gekopieerd.\nStuur dit naar de ontwikkelaar als je een bug vond.',
   'chat.seek_to': 'Spoel naar {{time}}',
   'chat.peer_connected': '{{name}} neemt nu deel',
+  'chat.tracks_added': '{{name}} heeft {{count}} nummers toegevoegd',
   'chat.peer_disconnected': '{{name}} is vertrokken',
   'chat.empty_html': 'Nog geen berichten.<br>Stuur het eerste bericht!',
   'chat.msg_truncated': 'Bericht ingekort tot {{max}} tekens',

@@ -642,6 +642,7 @@ const ptBr: Record<I18nKey, string> = {
     'Informações de debug copiadas.\nEnvie ao desenvolvedor se encontrou um bug.',
   'chat.seek_to': 'Ir para {{time}}',
   'chat.peer_connected': '{{name}} entrou',
+  'chat.tracks_added': '{{name}} adicionou {{count}} faixas',
   'chat.peer_disconnected': '{{name}} saiu',
   'chat.empty_html': 'Ainda não há mensagens.<br>Envie a primeira!',
   'chat.msg_truncated': 'Mensagem cortada para {{max}} caracteres',

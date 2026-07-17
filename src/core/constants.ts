@@ -117,6 +117,8 @@ export const MSG = {
   FILE_START: 'file-start',
   FILE_WAIT: 'file-wait',
   OPERATOR_FILE_UPLOAD_ABORT: 'operator-file-upload-abort',
+  OPERATOR_FILE_UPLOAD_BATCH_START: 'operator-file-upload-batch-start',
+  OPERATOR_FILE_UPLOAD_BATCH_COMPLETE: 'operator-file-upload-batch-complete',
   OPERATOR_FILE_UPLOAD_CHUNK: 'operator-file-upload-chunk',
   OPERATOR_FILE_UPLOAD_FINISH: 'operator-file-upload-finish',
   OPERATOR_FILE_UPLOAD_START: 'operator-file-upload-start',

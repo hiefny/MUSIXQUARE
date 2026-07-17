@@ -83,6 +83,7 @@ interface Deferred {
 
 interface OutgoingBatch {
   readonly requestId: string;
+  readonly summaryNegotiated: boolean;
   cancelled: boolean;
   cancelCode: UplinkTerminalCode | null;
 }
@@ -133,6 +134,17 @@ let outgoingUpload: OutgoingUpload | null = null;
 let waitTimerSequence = 0;
 const hostUploads = new Map<string, HostUpload>();
 const settledHostSessions = new Map<string, SettledHostSession>();
+const hostBatchCommits = new Map<
+  string,
+  {
+    conn: DataConnection;
+    roomCode: string;
+    fileCount: number;
+    committedCount: number;
+    updatedAt: number;
+  }
+>();
+const announcedHostBatches = new Map<string, number>();
 
 function createDeferred(): Deferred {
   let resolve!: () => void;
@@ -348,6 +360,107 @@ function pruneSettledSessions(now = Date.now()): void {
 
 function hostSessionKey(peerId: string, sessionId: string): string {
   return `${peerId}:${sessionId}`;
+}
+
+function hostBatchKey(peerId: string, requestId: string): string {
+  return `${peerId}:${requestId}`;
+}
+
+function recordHostBatchCommit(upload: HostUpload): void {
+  const key = hostBatchKey(upload.peerId, upload.requestId);
+  const existing = hostBatchCommits.get(key);
+  if (existing) {
+    if (existing.conn !== upload.conn || existing.roomCode !== upload.roomCode) return;
+    existing.committedCount += 1;
+    existing.updatedAt = Date.now();
+    return;
+  }
+  // A pre-batch client has no additive BATCH_START terminal. Preserve rolling
+  // compatibility by announcing each authoritative file commit immediately.
+  bus.emit('standard-room:operator-files-added', upload.conn, 1);
+}
+
+function pruneHostBatchLedgers(now = Date.now()): void {
+  const cutoff = now - 10 * 60 * 1000;
+  for (const [key, batch] of hostBatchCommits) {
+    if (batch.updatedAt < cutoff) hostBatchCommits.delete(key);
+  }
+  while (hostBatchCommits.size > 256) {
+    const oldest = hostBatchCommits.keys().next().value as string | undefined;
+    if (!oldest) break;
+    hostBatchCommits.delete(oldest);
+  }
+  for (const [key, announcedAt] of announcedHostBatches) {
+    if (announcedAt < cutoff) announcedHostBatches.delete(key);
+  }
+  while (announcedHostBatches.size > 256) {
+    const oldest = announcedHostBatches.keys().next().value as string | undefined;
+    if (!oldest) break;
+    announcedHostBatches.delete(oldest);
+  }
+}
+
+function handleUploadBatchStart(
+  data: ProtocolMsg<typeof MSG.OPERATOR_FILE_UPLOAD_BATCH_START>,
+  conn: DataConnection,
+): void {
+  if (!isExactAuthorizedHostConnection(conn)) return;
+  const roomCode = currentRoomCode();
+  if (!roomCode) return;
+  pruneHostBatchLedgers();
+  const key = hostBatchKey(conn.peer, data.requestId);
+  if (announcedHostBatches.has(key)) return;
+  const existing = hostBatchCommits.get(key);
+  if (existing) {
+    if (
+      existing.conn === conn &&
+      existing.roomCode === roomCode &&
+      existing.fileCount === data.fileCount
+    ) {
+      existing.updatedAt = Date.now();
+    }
+    return;
+  }
+  hostBatchCommits.set(key, {
+    conn,
+    roomCode,
+    fileCount: data.fileCount,
+    committedCount: 0,
+    updatedAt: Date.now(),
+  });
+  pruneHostBatchLedgers();
+}
+
+function clearHostBatchLedgersForPeer(peerId: string): void {
+  const prefix = `${peerId}:`;
+  for (const key of hostBatchCommits.keys()) {
+    if (key.startsWith(prefix)) hostBatchCommits.delete(key);
+  }
+}
+
+function handleUploadBatchComplete(
+  data: ProtocolMsg<typeof MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE>,
+  conn: DataConnection,
+): void {
+  if (!isExactAuthorizedHostConnection(conn)) return;
+  const roomCode = currentRoomCode();
+  if (!roomCode) return;
+  const key = hostBatchKey(conn.peer, data.requestId);
+  pruneHostBatchLedgers();
+  if (announcedHostBatches.has(key)) return;
+  const batch = hostBatchCommits.get(key);
+  if (
+    !batch ||
+    batch.conn !== conn ||
+    batch.roomCode !== roomCode ||
+    batch.committedCount !== data.committedCount ||
+    data.committedCount > batch.fileCount
+  ) {
+    return;
+  }
+  hostBatchCommits.delete(key);
+  announcedHostBatches.set(key, Date.now());
+  bus.emit('standard-room:operator-files-added', conn, batch.committedCount);
 }
 
 function rememberSettledHostSession(
@@ -689,9 +802,14 @@ function handleUploadFinish(
     // so a missing listener, a full queue, or an exception swallowed by
     // EventBus can never become a false-positive completion ACK.
     const commit = { outcome: false as true | false | 'queue-full' };
-    bus.emit('standard-room:operator-file-received', file, (outcome) => {
-      commit.outcome = outcome;
-    });
+    bus.emit(
+      'standard-room:operator-file-received',
+      file,
+      (outcome) => {
+        commit.outcome = outcome;
+      },
+      conn,
+    );
     if (commit.outcome !== true) {
       clearHostUpload(
         upload,
@@ -711,6 +829,8 @@ function handleUploadFinish(
       clearHostUpload(upload, 'operator-revoked', true);
       return;
     }
+
+    recordHostBatchCommit(upload);
 
     hostUploads.delete(upload.peerId);
     if (upload.timeoutKey !== null) clearManagedTimer(upload.timeoutKey);
@@ -1020,12 +1140,35 @@ export async function uploadStandardOperatorFiles(files: readonly File[]): Promi
   const conn = getState('network.hostConn');
   if (!conn || !isCurrentOutgoingAuthority(conn)) return;
 
+  const requestId = createId();
+  const hasUploadCandidate = files.some((file) => {
+    const mime = resolveAudioMime(file.name, file.type);
+    return (
+      file.size > 0 &&
+      file.size <= MAX_FILE_BYTES &&
+      isValidFileName(file.name) &&
+      isValidMime(mime) &&
+      isValidAudioFile(file)
+    );
+  });
+  const summaryNegotiated =
+    hasUploadCandidate &&
+    files.length <= 1000 &&
+    safeSend(conn, {
+      type: MSG.OPERATOR_FILE_UPLOAD_BATCH_START,
+      requestId,
+      fileCount: files.length,
+    });
   const batch: OutgoingBatch = {
-    requestId: createId(),
+    requestId,
+    summaryNegotiated,
     cancelled: false,
     cancelCode: null,
   };
   outgoingBatch = batch;
+  // BATCH_START is additive negotiation: an older host ignores it and keeps
+  // accepting the unchanged per-file START/CHUNK/FINISH protocol.
+  let committedCount = 0;
   try {
     for (let index = 0; index < files.length; index++) {
       if (batch.cancelled || outgoingBatch !== batch) break;
@@ -1033,6 +1176,7 @@ export async function uploadStandardOperatorFiles(files: readonly File[]): Promi
       if (!file) continue;
       try {
         await uploadOne(batch, conn, file, index, files.length);
+        committedCount += 1;
       } catch (error) {
         log.warn('[OperatorFileUplink] File upload failed', error);
         // A stale/unsupported authority cannot accept any later file. Other
@@ -1052,6 +1196,13 @@ export async function uploadStandardOperatorFiles(files: readonly File[]): Promi
       }
     }
   } finally {
+    if (batch.summaryNegotiated && committedCount > 0 && isCurrentOutgoingAuthority(conn)) {
+      safeSend(conn, {
+        type: MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE,
+        requestId: batch.requestId,
+        committedCount,
+      });
+    }
     if (outgoingUpload?.batch === batch) outgoingUpload = null;
     if (outgoingBatch === batch) outgoingBatch = null;
   }
@@ -1068,7 +1219,9 @@ export function initStandardOperatorFileUplink(): void {
   );
 
   registerHandlers({
+    [MSG.OPERATOR_FILE_UPLOAD_BATCH_START]: handleUploadBatchStart,
     [MSG.OPERATOR_FILE_UPLOAD_START]: handleUploadStart,
+    [MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE]: handleUploadBatchComplete,
     [MSG.OPERATOR_FILE_UPLOAD_CHUNK]: handleUploadChunk,
     [MSG.OPERATOR_FILE_UPLOAD_FINISH]: handleUploadFinish,
     [MSG.OPERATOR_FILE_UPLOAD_ABORT]: handleUploadAbort,
@@ -1077,9 +1230,11 @@ export function initStandardOperatorFileUplink(): void {
 
   bus.on('network:peer-disconnected', (peerId) => {
     abortHostUploadForPeer(peerId, 'connection-lost', false);
+    clearHostBatchLedgersForPeer(peerId);
   });
   bus.on('network:peer-connection-replaced', (peerId) => {
     abortHostUploadForPeer(peerId, 'superseded', false);
+    clearHostBatchLedgersForPeer(peerId);
   });
   bus.on('state:network.connectedPeers', () => {
     for (const upload of [...hostUploads.values()]) {
@@ -1102,18 +1257,24 @@ export function initStandardOperatorFileUplink(): void {
     if (getState('network.appRole') === 'idle') {
       cancelOutgoing('session-reset', false);
       abortAllHostUploads('session-reset');
+      hostBatchCommits.clear();
+      announcedHostBatches.clear();
     }
   });
   bus.on('state:network.sessionCode', () => {
-    if (outgoingUpload || hostUploads.size > 0) {
+    if (outgoingUpload || hostUploads.size > 0 || hostBatchCommits.size > 0) {
       cancelOutgoing('session-reset', false);
       abortAllHostUploads('session-reset');
+      hostBatchCommits.clear();
+      announcedHostBatches.clear();
     }
   });
   bus.on('state:room.context', () => {
     if (getRoomContext().kind !== 'standard') {
       cancelOutgoing('session-reset', false);
       abortAllHostUploads('session-reset');
+      hostBatchCommits.clear();
+      announcedHostBatches.clear();
     }
   });
 }

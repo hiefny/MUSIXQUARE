@@ -637,6 +637,7 @@ const de: Record<I18nKey, string> = {
     'Debug-Info kopiert.\nSende sie an den Entwickler, wenn du einen Fehler gefunden hast.',
   'chat.seek_to': 'Zu {{time}} springen',
   'chat.peer_connected': '{{name}} ist beigetreten',
+  'chat.tracks_added': '{{name}} hat {{count}} Titel hinzugefügt',
   'chat.peer_disconnected': '{{name}} ist gegangen',
   'chat.empty_html': 'Noch keine Nachrichten.<br>Sende die erste Nachricht!',
   'chat.msg_truncated': 'Nachricht auf {{max}} Zeichen gekürzt',

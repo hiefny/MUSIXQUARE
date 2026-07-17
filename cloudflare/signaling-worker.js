@@ -381,6 +381,47 @@ function normalizeDeveloperInvalidationFrame(value) {
   };
 }
 
+function normalizeProQueueAdditionFrame(value) {
+  if (
+    !hasExactKeys(value, [
+      'type',
+      'version',
+      'roomCode',
+      'coordinatorEpoch',
+      'playlistRevision',
+      'eventId',
+      'actorName',
+      'count',
+    ]) ||
+    value.type !== 'pro-queue-addition' ||
+    value.version !== DEVELOPER_CONTROL_VERSION ||
+    !isProNamespaceRoomCode(value.roomCode) ||
+    !isValidProEpoch(value.coordinatorEpoch) ||
+    !Number.isSafeInteger(value.playlistRevision) ||
+    value.playlistRevision < 1 ||
+    typeof value.eventId !== 'string' ||
+    !/^qa_0\d{5}_\d+_\d+$/.test(value.eventId) ||
+    typeof value.actorName !== 'string' ||
+    value.actorName.length < 1 ||
+    value.actorName.length > 30 ||
+    !Number.isSafeInteger(value.count) ||
+    value.count < 1 ||
+    value.count > 1000
+  ) {
+    return null;
+  }
+  return {
+    type: 'pro-queue-addition',
+    version: DEVELOPER_CONTROL_VERSION,
+    roomCode: value.roomCode,
+    coordinatorEpoch: value.coordinatorEpoch,
+    playlistRevision: value.playlistRevision,
+    eventId: value.eventId,
+    actorName: value.actorName,
+    count: value.count,
+  };
+}
+
 async function readBoundedJson(request, maxBytes) {
   const contentType = request.headers.get('content-type') || '';
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) return null;
@@ -1408,14 +1449,18 @@ export class MusixquareRoom {
   async handleInternalDeveloperInvalidation(request) {
     const value = await readBoundedJson(request, DEVELOPER_COMMAND_BODY_MAX_BYTES);
     if (
-      !hasExactKeys(value, [
-        'roomCode',
-        'coordinatorEpoch',
-        'coordinatorParticipantId',
-        'coordinatorPresenceIncarnationId',
-        'developerControlVersion',
-        'frame',
-      ]) ||
+      !hasExactKeys(
+        value,
+        [
+          'roomCode',
+          'coordinatorEpoch',
+          'coordinatorParticipantId',
+          'coordinatorPresenceIncarnationId',
+          'developerControlVersion',
+          'frame',
+        ],
+        ['addition'],
+      ) ||
       !isProNamespaceRoomCode(value.roomCode) ||
       !isValidProEpoch(value.coordinatorEpoch) ||
       !isValidPeerId(value.coordinatorParticipantId) ||
@@ -1426,10 +1471,18 @@ export class MusixquareRoom {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
     const frame = normalizeDeveloperInvalidationFrame(value.frame);
+    const addition = value.addition === undefined
+      ? null
+      : normalizeProQueueAdditionFrame(value.addition);
     if (
       !frame ||
+      (value.addition !== undefined && !addition) ||
       frame.roomCode !== value.roomCode ||
-      frame.coordinatorEpoch !== value.coordinatorEpoch
+      frame.coordinatorEpoch !== value.coordinatorEpoch ||
+      (addition !== null &&
+        (addition.roomCode !== value.roomCode ||
+          addition.coordinatorEpoch !== value.coordinatorEpoch ||
+          addition.playlistRevision !== frame.playlistRevision))
     ) {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
@@ -1454,9 +1507,17 @@ export class MusixquareRoom {
     ) {
       return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
     }
-    return sendChecked(this.host, frame)
-      ? json({ dispatched: true })
-      : json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
+    // The addition is meaningful only after the coordinator has been told to
+    // refresh the authoritative snapshot. Never emit it when that first send
+    // failed; doing so could create a system row for state the client never
+    // accepted.
+    if (!sendChecked(this.host, frame)) {
+      return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
+    }
+    if (addition !== null && !sendChecked(this.host, addition)) {
+      return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
+    }
+    return json({ dispatched: true });
   }
 
   async resetForProEpoch(ticket) {

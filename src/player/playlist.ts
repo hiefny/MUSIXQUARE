@@ -66,6 +66,11 @@ import { hasQueueAuthority, markQueueAuthorityReady } from '../network/queue-aut
 import { resetRecoveryAuthority } from '../storage/recovery.ts';
 import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
 import {
+  broadcastTracksAdded,
+  localQueueActorName,
+  queueActorNameForConnection,
+} from '../chat/queue-events.ts';
+import {
   acceptStandardQueueMutationRequest,
   sendStandardQueueMutationRequest,
   settleStandardQueueMutationRequest,
@@ -1585,7 +1590,12 @@ function broadcastPlaylistSnapshot(): void {
   broadcast({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot() });
 }
 
-function appendStandardHostFiles(files: readonly File[], rejectedCount = 0): boolean {
+function appendStandardHostFiles(
+  files: readonly File[],
+  rejectedCount = 0,
+  actorName = localQueueActorName(),
+  announceAddition = true,
+): boolean {
   if (
     files.length === 0 ||
     getState('network.appRole') !== 'host' ||
@@ -1622,6 +1632,7 @@ function appendStandardHostFiles(files: readonly File[], rejectedCount = 0): boo
   if (getState('playlist.isShuffle')) generateShuffleOrder();
   broadcastPlaylistSnapshot();
   bus.emit('playlist:items-added', addedQueueItemIds);
+  if (announceAddition) broadcastTracksAdded(actorName, addedQueueItemIds.length);
 
   const addedMessage = t('toast.added_tracks', { count: addedQueueItemIds.length });
   showToast(
@@ -2089,7 +2100,7 @@ export function initPlaylist(): void {
   // The operator uplink emits only after the host has received and verified
   // the complete File. Re-run the shared media candidate filter, then append
   // directly without a second large-room confirmation dialog.
-  bus.on('standard-room:operator-file-received', (file, acknowledge) => {
+  bus.on('standard-room:operator-file-received', (file, acknowledge, sourceConnection) => {
     let outcome: true | false | 'queue-full' = false;
     try {
       const { accepted } = partitionAudioFileCandidates([file]);
@@ -2098,11 +2109,19 @@ export function initPlaylist(): void {
       } else if (!canAppendPlaylistItems(1)) {
         outcome = 'queue-full';
       } else {
-        outcome = appendStandardHostFiles(accepted);
+        const actorName = sourceConnection
+          ? queueActorNameForConnection(sourceConnection)
+          : localQueueActorName();
+        outcome = actorName ? appendStandardHostFiles(accepted, 0, actorName, false) : false;
       }
     } finally {
       acknowledge(outcome);
     }
+  });
+
+  bus.on('standard-room:operator-files-added', (sourceConnection, count) => {
+    const actorName = queueActorNameForConnection(sourceConnection);
+    if (actorName) broadcastTracksAdded(actorName, count);
   });
 
   // Play specific track from playlist view click

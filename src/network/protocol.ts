@@ -343,6 +343,18 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.size as number) <= REMOTE_SHARE_MAX_BYTES &&
     isPositiveSafeInt(d.total) &&
     (d.total as number) === Math.ceil((d.size as number) / CHUNK_SIZE),
+  [MSG.OPERATOR_FILE_UPLOAD_BATCH_START]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'fileCount']) &&
+    typeof d.requestId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.requestId) &&
+    isPositiveSafeInt(d.fileCount) &&
+    (d.fileCount as number) <= 1000,
+  [MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'committedCount']) &&
+    typeof d.requestId === 'string' &&
+    OPERATOR_FILE_UPLOAD_ID_RE.test(d.requestId) &&
+    isPositiveSafeInt(d.committedCount) &&
+    (d.committedCount as number) <= 1000,
   [MSG.OPERATOR_FILE_UPLOAD_CHUNK]: (d) =>
     hasExactKeys(d, ['type', 'requestId', 'sessionId', 'chunkIndex', 'chunk']) &&
     typeof d.requestId === 'string' &&

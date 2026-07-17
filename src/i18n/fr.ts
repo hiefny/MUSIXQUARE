@@ -645,6 +645,7 @@ const fr: Record<I18nKey, string> = {
     'Informations de débogage copiées.\nEnvoyez-les au développeur si vous avez trouvé un bug.',
   'chat.seek_to': 'Aller à {{time}}',
   'chat.peer_connected': '{{name}} a rejoint la salle',
+  'chat.tracks_added': '{{name}} a ajouté {{count}} titres',
   'chat.peer_disconnected': '{{name}} est parti',
   'chat.empty_html': 'Aucun message pour l’instant.<br>Envoyez le premier !',
   'chat.msg_truncated': 'Message tronqué à {{max}} caractères',

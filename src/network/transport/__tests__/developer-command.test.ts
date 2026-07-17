@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   parseDeveloperCommandFrame,
   parseDeveloperInvalidationFrame,
+  parseProQueueAdditionFrame,
   type DeveloperCommandFrame,
   type DeveloperInvalidationFrame,
+  type ProQueueAdditionFrame,
 } from '../types.ts';
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
@@ -107,5 +109,36 @@ describe('developer signaling invalidation parser', () => {
     ['unsafe revision', { ...valid(), revision: Number.MAX_SAFE_INTEGER + 1 }],
   ])('rejects %s', (_label, frame) => {
     expect(parseDeveloperInvalidationFrame(frame)).toBeNull();
+  });
+});
+
+describe('PRO queue-addition parser', () => {
+  const valid = (): ProQueueAdditionFrame => ({
+    type: 'pro-queue-addition',
+    version: 1,
+    roomCode: '000001',
+    coordinatorEpoch: 3,
+    playlistRevision: 8,
+    eventId: 'qa_000001_8_14',
+    actorName: 'Studio bot',
+    count: 42,
+  });
+
+  it('accepts the exact bounded server event', () => {
+    expect(parseProQueueAdditionFrame(valid())).toEqual(valid());
+  });
+
+  it.each([
+    ['extra key', { ...valid(), extra: true }],
+    ['wrong room', { ...valid(), roomCode: '100001' }],
+    ['zero epoch', { ...valid(), coordinatorEpoch: 0 }],
+    ['invalid event id', { ...valid(), eventId: 'event-1' }],
+    ['empty actor', { ...valid(), actorName: '' }],
+    ['overlong actor', { ...valid(), actorName: 'x'.repeat(31) }],
+    ['zero count', { ...valid(), count: 0 }],
+    ['fractional count', { ...valid(), count: 1.5 }],
+    ['over-limit count', { ...valid(), count: 1001 }],
+  ])('rejects %s', (_label, frame) => {
+    expect(parseProQueueAdditionFrame(frame)).toBeNull();
   });
 });

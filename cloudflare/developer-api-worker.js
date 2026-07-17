@@ -30,6 +30,7 @@ const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
 const PLAYLIST_MAX_ITEMS = 1_000;
+const YOUTUBE_BATCH_MAX_ITEMS = 100;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 // PRO room state is itself capped at 1.2 MiB. Leave bounded framing room for
@@ -254,11 +255,19 @@ function validScopeMask(value) {
 }
 
 function normalizeKeyRow(value) {
+  const label =
+    typeof value?.label === 'string' &&
+    value.label.length >= 1 &&
+    value.label.length <= 64 &&
+    !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(value.label)
+      ? value.label
+      : null;
   if (
     !value ||
     typeof value !== 'object' ||
     !/^[A-Za-z0-9_-]{16}$/.test(String(value.key_id || '')) ||
     !ROOM_CODE_RE.test(String(value.room_code || '')) ||
+    label === null ||
     !DIGEST_RE.test(String(value.secret_digest || '')) ||
     value.digest_version !== 1 ||
     !validScopeMask(value.scope_mask) ||
@@ -277,6 +286,7 @@ function normalizeKeyRow(value) {
   return {
     keyId: value.key_id,
     roomCode: value.room_code,
+    label,
     digest: value.secret_digest,
     scopeMask: value.scope_mask,
     status: value.status,
@@ -287,7 +297,7 @@ function normalizeKeyRow(value) {
 async function lookupKey(env, keyId) {
   if (!env.DEVELOPER_API_DB?.prepare) throw new Error('Developer API D1 binding unavailable');
   return env.DEVELOPER_API_DB.prepare(
-    `SELECT key_id, room_code, secret_digest, digest_version, scope_mask,
+    `SELECT key_id, room_code, label, secret_digest, digest_version, scope_mask,
             status, created_at, updated_at, expires_at, revoked_at
      FROM mxqr_developer_api_keys
      WHERE key_id = ?1
@@ -508,6 +518,23 @@ function parseYouTubeQueueItem(value) {
         ...metadata,
       }
     : null;
+}
+
+function parseYouTubeQueueItemBatch(value) {
+  if (
+    !hasExactKeys(value, ['items']) ||
+    !Array.isArray(value.items) ||
+    value.items.length === 0 ||
+    value.items.length > YOUTUBE_BATCH_MAX_ITEMS
+  ) {
+    return null;
+  }
+  const items = value.items.map((item) => parseYouTubeQueueItem(item));
+  if (items.some((item) => item === null)) return null;
+  return {
+    type: 'add_youtube_batch',
+    items: items.map(({ type: _type, ...item }) => item),
+  };
 }
 
 function parseQueueOrder(value) {
@@ -923,6 +950,16 @@ function parseRoute(method, url) {
         requiredScope: SCOPE_QUEUE_WRITE,
       };
     }
+    const queueBatchMatch = url.pathname.match(
+      /^\/v1\/rooms\/(0\d{5})\/queue\/items\/batch$/,
+    );
+    if (queueBatchMatch) {
+      return {
+        kind: 'queue-add-batch',
+        roomCode: queueBatchMatch[1],
+        requiredScope: SCOPE_QUEUE_WRITE,
+      };
+    }
     const completeMatch = url.pathname.match(
       /^\/v1\/rooms\/(0\d{5})\/media\/uploads\/([A-Za-z0-9][A-Za-z0-9_-]{15,127})\/complete$/,
     );
@@ -1290,6 +1327,7 @@ async function handleApiRequest(request, env, context, requestId) {
   const writeRoute = [
     'command-create',
     'queue-add',
+    'queue-add-batch',
     'queue-clear',
     'queue-clear-owned',
     'queue-remove',
@@ -1337,6 +1375,7 @@ async function handleApiRequest(request, env, context, requestId) {
     route.kind === 'command-create'
       ? await authenticatedCommandLimit(env, principal)
       : route.kind === 'queue-add' ||
+          route.kind === 'queue-add-batch' ||
           route.kind === 'queue-clear' ||
           route.kind === 'queue-clear-owned' ||
           route.kind === 'queue-remove' ||
@@ -1368,6 +1407,7 @@ async function handleApiRequest(request, env, context, requestId) {
 
   if (
     route.kind === 'queue-add' ||
+    route.kind === 'queue-add-batch' ||
     route.kind === 'queue-clear' ||
     route.kind === 'queue-clear-owned' ||
     route.kind === 'queue-remove' ||
@@ -1393,10 +1433,32 @@ async function handleApiRequest(request, env, context, requestId) {
       );
       if (!mutation) return errorResponse('INVALID_REQUEST', 400, requestId);
       path = '/internal/v1/queue/mutate';
-      body = { keyId: principal.keyId, roomCode: route.roomCode, idempotencyKey, mutation };
+      body = {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        actorName: principal.label,
+        idempotencyKey,
+        mutation,
+      };
       expectedStatus = 201;
       validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
       auditAction = 'queue.add_youtube';
+    } else if (route.kind === 'queue-add-batch') {
+      const mutation = parseYouTubeQueueItemBatch(
+        await readRequestJsonLimited(request, QUEUE_MUTATION_REQUEST_MAX_BYTES),
+      );
+      if (!mutation) return errorResponse('INVALID_REQUEST', 400, requestId);
+      path = '/internal/v1/queue/mutate';
+      body = {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        actorName: principal.label,
+        idempotencyKey,
+        mutation,
+      };
+      expectedStatus = 201;
+      validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
+      auditAction = 'queue.add_youtube_batch';
     } else if (route.kind === 'queue-clear') {
       path = '/internal/v1/queue/mutate';
       body = {
@@ -1455,6 +1517,7 @@ async function handleApiRequest(request, env, context, requestId) {
       body = {
         keyId: principal.keyId,
         roomCode: route.roomCode,
+        actorName: principal.label,
         idempotencyKey,
         assetId: route.assetId,
       };

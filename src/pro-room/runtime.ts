@@ -5,6 +5,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { MSG } from '../core/constants.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
+import { broadcastTracksAdded } from '../chat/queue-events.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -51,6 +52,7 @@ import type {
   QueueItemId,
   RoomContext,
 } from '../types/index.ts';
+import type { ProQueueAdditionFrame } from '../network/transport/types.ts';
 import {
   ProRoomApiClient,
   ProRoomApiError,
@@ -112,6 +114,8 @@ const PLAYBACK_RESTORE_TIMEOUT_MS = 120_000;
 const PLAYBACK_RESTORE_TIMEOUT_TIMER = 'pro-room-playback-restore-timeout';
 const INVALIDATION_REFRESH_MIN_INTERVAL_MS = 5_000;
 const INVALIDATION_REFRESH_TIMER = 'pro-room-invalidation-refresh';
+const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
+const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 /** Must match the local-file coordinator lead used by player/transport.ts. */
 const DEVELOPER_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
@@ -145,6 +149,9 @@ let invalidationRefreshScheduled = false;
 let lastInvalidationRefreshAt = 0;
 const invalidationHighWater = new ProRoomInvalidationHighWater();
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
+const seenQueueAdditionEventIds = new Set<string>();
+const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
+let lastAnnouncedQueueAdditionOrder = 0;
 let pendingPlaybackRestore: {
   queueItemId: QueueItemId;
   state: 'playing' | 'paused';
@@ -986,6 +993,10 @@ function resetPlaylistRuntime(): void {
   coordinatorRefresh = null;
   invalidationRefreshScheduled = false;
   invalidationHighWater.reset();
+  seenQueueAdditionEventIds.clear();
+  pendingQueueAdditions.clear();
+  lastAnnouncedQueueAdditionOrder = 0;
+  clearManagedTimer(QUEUE_ADDITION_FLUSH_TIMER);
   lastInvalidationRefreshAt = 0;
   clearManagedTimer(INVALIDATION_REFRESH_TIMER);
   checkpointInFlight = false;
@@ -1042,10 +1053,67 @@ async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> 
   await manager.acceptSnapshot(snapshot);
   if (!isPlaylistLeaseCurrent(lease)) return;
   invalidationHighWater.acknowledge(snapshot);
+  // Coalesce signaling requests that completed out of order before rendering
+  // their rows. The accepted snapshot remains the authority fence.
+  scheduleAcceptedQueueAdditionFlush();
   if (!hasPendingCoordinatorInvalidation()) {
     invalidationRefreshScheduled = false;
     clearManagedTimer(INVALIDATION_REFRESH_TIMER);
   }
+}
+
+function queueAdditionOrder(frame: ProQueueAdditionFrame): number {
+  const revision = Number(frame.eventId.split('_').at(-1));
+  return Number.isSafeInteger(revision) ? revision : frame.playlistRevision;
+}
+
+function rememberSeenQueueAddition(eventId: string): void {
+  seenQueueAdditionEventIds.add(eventId);
+  while (seenQueueAdditionEventIds.size > 128) {
+    const oldest = seenQueueAdditionEventIds.values().next().value as string | undefined;
+    if (!oldest) break;
+    seenQueueAdditionEventIds.delete(oldest);
+  }
+}
+
+/**
+ * A signaling hint is not authoritative playlist state. Announce it only
+ * after the corresponding (or newer) snapshot has been accepted, and sort a
+ * concurrently delivered group by server revision before fanout.
+ */
+function flushAcceptedQueueAdditions(acceptedPlaylistRevision: number): void {
+  const ready = [...pendingQueueAdditions.values()]
+    .filter((frame) => frame.playlistRevision <= acceptedPlaylistRevision)
+    .sort(
+      (left, right) =>
+        left.playlistRevision - right.playlistRevision ||
+        queueAdditionOrder(left) - queueAdditionOrder(right) ||
+        left.eventId.localeCompare(right.eventId),
+    );
+  for (const frame of ready) {
+    pendingQueueAdditions.delete(frame.eventId);
+    rememberSeenQueueAddition(frame.eventId);
+    const order = queueAdditionOrder(frame);
+    // Internal invalidation requests may reach signaling out of order. A late
+    // older row is more misleading than omitting that stale notification.
+    if (order <= lastAnnouncedQueueAdditionOrder) continue;
+    lastAnnouncedQueueAdditionOrder = order;
+    broadcastTracksAdded(frame.actorName, frame.count);
+  }
+}
+
+function scheduleAcceptedQueueAdditionFlush(): void {
+  clearManagedTimer(QUEUE_ADDITION_FLUSH_TIMER);
+  setManagedTimer(
+    QUEUE_ADDITION_FLUSH_TIMER,
+    () => {
+      const acceptedPlaylistRevision = playlistManager?.snapshot?.playlistRevision;
+      if (acceptedPlaylistRevision !== undefined) {
+        flushAcceptedQueueAdditions(acceptedPlaylistRevision);
+      }
+    },
+    QUEUE_ADDITION_REORDER_WINDOW_MS,
+  );
 }
 
 function captureLocalPlaybackCheckpoint(): {
@@ -1965,6 +2033,27 @@ function acceptDeveloperInvalidation(frame: DeveloperInvalidationFrame): void {
 }
 
 bus.on('network:developer-invalidation', acceptDeveloperInvalidation);
+
+bus.on('network:pro-queue-addition', (frame) => {
+  const context = getState('room.context');
+  if (
+    context.kind !== 'pro' ||
+    !isCoordinator() ||
+    context.roomId !== frame.roomCode ||
+    context.epoch !== frame.coordinatorEpoch ||
+    seenQueueAdditionEventIds.has(frame.eventId) ||
+    pendingQueueAdditions.has(frame.eventId)
+  ) {
+    return;
+  }
+  pendingQueueAdditions.set(frame.eventId, frame);
+  while (pendingQueueAdditions.size > 128) {
+    const oldest = pendingQueueAdditions.keys().next().value as string | undefined;
+    if (!oldest) break;
+    pendingQueueAdditions.delete(oldest);
+  }
+  scheduleAcceptedQueueAdditionFlush();
+});
 
 bus.on('network:developer-command', (frame) => {
   void developerControl.handle(frame).catch((error) => {

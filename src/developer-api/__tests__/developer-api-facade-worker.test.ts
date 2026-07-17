@@ -283,6 +283,230 @@ describe('private Developer API facade', () => {
     expect(JSON.stringify(payload)).not.toContain('private-key-id');
   });
 
+  it('forwards one exact bounded YouTube batch and sanitizes its queue response', async () => {
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          view: 'queue',
+          roomCode: ROOM_CODE,
+          playlistRevision: 8,
+          currentQueueItemId: null,
+          items: [
+            {
+              queueItemId: QUEUE_ITEM_ID,
+              kind: 'youtube',
+              name: 'First API track',
+              addedBy: 'current_api_key',
+              developerOwnerKeyId: KEY_ID,
+            },
+          ],
+          privateRoomState: true,
+        },
+        { status: 201 },
+      ),
+    );
+    const mutation = {
+      type: 'add_youtube_batch',
+      items: [
+        { videoId: 'dQw4w9WgXcQ', name: 'First API track' },
+        {
+          videoId: 'M7lc1UVf-VE',
+          playlistId: 'PL1234567890',
+          name: 'Second API track',
+          artist: 'API artist',
+        },
+      ],
+    };
+    const response = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          actorName: 'Friend integration',
+          idempotencyKey: 'request.queue-batch-0001',
+          mutation,
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: 8,
+      currentQueueItemId: null,
+      items: [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          kind: 'youtube',
+          name: 'First API track',
+          addedBy: 'current_api_key',
+        },
+      ],
+    });
+    expect(rooms.seen).toHaveLength(1);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      actorName: 'Friend integration',
+      idempotencyKey: 'request.queue-batch-0001',
+      mutation,
+    });
+  });
+
+  it('rejects malformed, oversized, or untrusted-label YouTube batches before the room boundary', async () => {
+    const mutations = [
+      { type: 'add_youtube_batch', items: [] },
+      {
+        type: 'add_youtube_batch',
+        items: Array.from({ length: 101 }, (_, index) => ({
+          videoId: 'dQw4w9WgXcQ',
+          name: `Track ${index}`,
+        })),
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          { videoId: 'dQw4w9WgXcQ', name: 'Valid' },
+          { videoId: 'not-valid', name: 'Invalid' },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [{ videoId: 'dQw4w9WgXcQ', name: 'Unexpected', private: true }],
+      },
+    ];
+    for (const [index, mutation] of mutations.entries()) {
+      const rooms = namespace(() => Response.json({}));
+      const response = await facadeWorker.fetch(
+        request(
+          {
+            roomCode: ROOM_CODE,
+            keyId: KEY_ID,
+            idempotencyKey: `request.queue-batch-invalid-${index}`,
+            mutation,
+          },
+          {},
+          '/internal/v1/queue/mutate',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+      expect(rooms.seen).toHaveLength(0);
+    }
+
+    const rooms = namespace(() => Response.json({}));
+    const invalidActor = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          actorName: 'A'.repeat(65),
+          idempotencyKey: 'request.queue-batch-invalid-actor',
+          mutation: {
+            type: 'add_youtube_batch',
+            items: [{ videoId: 'dQw4w9WgXcQ', name: 'Valid' }],
+          },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(invalidActor.status).toBe(400);
+    await expect(invalidActor.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(rooms.seen).toHaveLength(0);
+  });
+
+  it('accepts a wrapped near-64-KiB public batch at the private boundary', async () => {
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          view: 'queue',
+          roomCode: ROOM_CODE,
+          playlistRevision: 1,
+          currentQueueItemId: null,
+          items: [],
+        },
+        { status: 201 },
+      ),
+    );
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      videoId: 'dQw4w9WgXcQ',
+      name: `${index}`.padEnd(304, 'N'),
+      title: 'T'.repeat(304),
+    }));
+    const body = {
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      actorName: 'A'.repeat(64),
+      idempotencyKey: 'request.queue-batch-boundary',
+      mutation: { type: 'add_youtube_batch', items },
+    };
+    expect(new TextEncoder().encode(JSON.stringify(body)).byteLength).toBeGreaterThan(64 * 1024);
+
+    const response = await facadeWorker.fetch(request(body, {}, '/internal/v1/queue/mutate'), {
+      PRO_ROOM_DEVELOPER_ROOMS: rooms,
+    });
+    expect(response.status).toBe(201);
+    expect(rooms.seen).toHaveLength(1);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual(body);
+  });
+
+  it('keeps the 128-KiB envelope allowance scoped to queue mutations only', async () => {
+    const queueRooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          view: 'queue',
+          roomCode: ROOM_CODE,
+          playlistRevision: 1,
+          currentQueueItemId: null,
+          items: [],
+        },
+        { status: 201 },
+      ),
+    );
+    const queueResponse = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: 'request.queue-declared-envelope',
+          mutation: {
+            type: 'add_youtube_batch',
+            items: [{ videoId: 'dQw4w9WgXcQ', name: 'Declared envelope' }],
+          },
+        },
+        { headers: { 'content-length': String(70 * 1024) } },
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: queueRooms },
+    );
+    expect(queueResponse.status).toBe(201);
+    expect(queueRooms.seen).toHaveLength(1);
+
+    const readRooms = namespace(() => Response.json({}));
+    const oversizedRead = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' },
+        { headers: { 'content-length': String(70 * 1024) } },
+        '/internal/v1/read',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: readRooms },
+    );
+    expect(oversizedRead.status).toBe(400);
+    await expect(oversizedRead.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(readRooms.seen).toHaveLength(0);
+  });
+
   it('forwards only the exact atomic queue-clear mutation', async () => {
     const rooms = namespace(() =>
       Response.json({

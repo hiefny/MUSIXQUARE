@@ -7,7 +7,10 @@
  */
 
 const REQUEST_MAX_BYTES = 64 * 1024;
-const RESPONSE_MAX_BYTES = 1_500 * 1024;
+// A valid public 64 KiB queue mutation gains a small authenticated envelope.
+const QUEUE_MUTATION_REQUEST_MAX_BYTES = 128 * 1024;
+// Room and queue projections can legally contain the bounded 1,000-item list.
+const PROJECTION_RESPONSE_MAX_BYTES = 1_500 * 1024;
 const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
 const MUTATION_RESPONSE_MAX_BYTES = 64 * 1024;
 const ROOM_CODE_RE = /^0\d{5}$/;
@@ -24,6 +27,7 @@ const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
 const PLAYLIST_MAX_ITEMS = 1_000;
+const YOUTUBE_BATCH_MAX_ITEMS = 100;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const COMMAND_STATUSES = new Set(['pending', 'dispatched', 'applied', 'rejected', 'expired']);
 const COMMAND_RESULT_CODES = new Set([
@@ -99,6 +103,13 @@ function isFiniteNonNegative(value) {
 
 function boundedString(value, maxLength) {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength ? value : null;
+}
+
+function validActorName(value) {
+  return (
+    boundedString(value, 64) !== null &&
+    !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(value)
+  );
 }
 
 function boundedMetadataString(value, maxLength) {
@@ -403,6 +414,41 @@ function parseQueueMutation(value) {
         }
       : null;
   }
+  if (value.type === 'add_youtube_batch') {
+    if (
+      !hasExactKeys(value, ['type', 'items']) ||
+      !Array.isArray(value.items) ||
+      value.items.length === 0 ||
+      value.items.length > YOUTUBE_BATCH_MAX_ITEMS
+    ) {
+      return null;
+    }
+    const items = value.items.map((item) => {
+      if (
+        !hasExactKeys(
+          item,
+          ['videoId', 'name'],
+          ['playlistId', 'title', 'artist', 'thumbnail'],
+        ) ||
+        !YOUTUBE_VIDEO_ID_RE.test(item.videoId || '') ||
+        (item.playlistId !== undefined &&
+          !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
+      ) {
+        return null;
+      }
+      const metadata = parseMetadata(item);
+      return metadata
+        ? {
+            videoId: item.videoId,
+            ...(item.playlistId === undefined ? {} : { playlistId: item.playlistId }),
+            ...metadata,
+          }
+        : null;
+    });
+    return items.some((item) => item === null)
+      ? null
+      : { type: 'add_youtube_batch', items };
+  }
   if (value.type === 'remove') {
     return hasExactKeys(value, ['type', 'queueItemId']) &&
       QUEUE_ITEM_UUID_RE.test(value.queueItemId || '')
@@ -702,7 +748,12 @@ export default {
     ) {
       return jsonResponse({ error: 'NOT_FOUND' }, 404);
     }
-    const body = await readJsonBody(request, REQUEST_MAX_BYTES);
+    const body = await readJsonBody(
+      request,
+      url.pathname === '/internal/v1/queue/mutate'
+        ? QUEUE_MUTATION_REQUEST_MAX_BYTES
+        : REQUEST_MAX_BYTES,
+    );
     const namespace = env.PRO_ROOM_DEVELOPER_ROOMS;
     if (!namespace?.idFromName || !namespace?.get) {
       return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
@@ -722,7 +773,7 @@ export default {
         projection: body.projection,
       });
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, RESPONSE_MAX_BYTES);
+      const value = await readJsonResponse(called.response, PROJECTION_RESPONSE_MAX_BYTES);
       if (called.response.status === 404) return jsonResponse({ error: 'NOT_FOUND' }, 404);
       if (!called.response.ok || !value) {
         return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
@@ -777,10 +828,15 @@ export default {
 
     if (url.pathname === '/internal/v1/queue/mutate') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'mutation']) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'idempotencyKey', 'mutation'],
+          ['actorName'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
-        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
+        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '') ||
+        (body.actorName !== undefined && !validActorName(body.actorName))
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
       }
@@ -793,19 +849,21 @@ export default {
         {
           roomCode: body.roomCode,
           keyId: body.keyId,
+          ...(body.actorName === undefined ? {} : { actorName: body.actorName }),
           idempotencyKey: body.idempotencyKey,
           mutation,
         },
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, RESPONSE_MAX_BYTES);
+      const value = await readJsonResponse(called.response, PROJECTION_RESPONSE_MAX_BYTES);
       if (!called.response.ok) {
         const mapped = backendError(value, called.response.status);
         return mapped
           ? jsonResponse({ error: mapped.error }, mapped.status)
           : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       }
-      const expectedStatus = mutation.type === 'add_youtube' ? 201 : 200;
+      const expectedStatus =
+        mutation.type === 'add_youtube' || mutation.type === 'add_youtube_batch' ? 201 : 200;
       const sanitized = sanitizeProjection(value, 'queue', body.roomCode);
       return called.response.status === expectedStatus && sanitized
         ? jsonResponse(sanitized, expectedStatus)
@@ -845,11 +903,12 @@ export default {
 
     if (url.pathname === '/internal/v1/media/uploads/complete') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'assetId']) ||
+        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'assetId'], ['actorName']) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '') ||
-        !ASSET_ID_RE.test(body.assetId || '')
+        !ASSET_ID_RE.test(body.assetId || '') ||
+        (body.actorName !== undefined && !validActorName(body.actorName))
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
       }
@@ -860,6 +919,7 @@ export default {
         {
           roomCode: body.roomCode,
           keyId: body.keyId,
+          ...(body.actorName === undefined ? {} : { actorName: body.actorName }),
           idempotencyKey: body.idempotencyKey,
           assetId: body.assetId,
         },

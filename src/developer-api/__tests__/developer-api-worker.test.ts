@@ -220,6 +220,7 @@ async function createEnvironment(
     facadePayload?: unknown;
     facadeStatus?: number;
     mode?: string;
+    label?: string;
   } = {},
 ) {
   const now = Date.now();
@@ -227,7 +228,7 @@ async function createEnvironment(
   const defaultRow: KeyRow = {
     key_id: KEY_ID,
     room_code: ROOM_CODE,
-    label: 'Friend integration',
+    label: options.label ?? 'Friend integration',
     secret_digest: digest,
     digest_version: 1,
     scope_mask:
@@ -273,7 +274,9 @@ async function createEnvironment(
         ? 202
         : path === '/internal/v1/media/uploads/create' ||
             path === '/internal/v1/media/uploads/complete' ||
-            (path === '/internal/v1/queue/mutate' && body.mutation?.type === 'add_youtube')
+            (path === '/internal/v1/queue/mutate' &&
+              (body.mutation?.type === 'add_youtube' ||
+                body.mutation?.type === 'add_youtube_batch'))
           ? 201
           : 200;
     return jsonResponse(payload, options.facadeStatus ?? defaultStatus);
@@ -318,6 +321,48 @@ describe('Developer API key credentials', () => {
     await expect(deriveDeveloperApiKeyDigest(KEY_PEPPER, KEY_ID, KEY_SECRET)).resolves.toBe(
       't-WvXWz3W0zg8BS5_vRbRl-hNe2ZlGHHq2vCek5CogE',
     );
+  });
+
+  it('accepts a 64-character key label as the private actor name and rejects unsafe labels', async () => {
+    const actorName = 'A'.repeat(64);
+    const accepted = await createEnvironment({
+      label: actorName,
+      scopeMask: developerApiScopes['queue:write'],
+    });
+    const acceptedResponse = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.actor-name-max',
+        },
+        body: JSON.stringify({ videoId: 'dQw4w9WgXcQ', name: 'Actor test' }),
+      }),
+      accepted.env,
+    );
+    expect(acceptedResponse.status).toBe(201);
+    expect(JSON.parse(String(accepted.facadeFetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      actorName,
+    });
+
+    const unsafe = await createEnvironment({
+      label: 'Unsafe\nlabel',
+      scopeMask: developerApiScopes['queue:write'],
+    });
+    const rejected = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.actor-name-unsafe',
+        },
+        body: JSON.stringify({ videoId: 'dQw4w9WgXcQ', name: 'Actor test' }),
+      }),
+      unsafe.env,
+    );
+    expect(rejected.status).toBe(401);
+    expect(await errorCode(rejected)).toBe('UNAUTHORIZED');
+    expect(unsafe.facadeFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -662,6 +707,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      actorName: 'Friend integration',
       idempotencyKey: 'request.queue-add-0001',
       mutation: { type: 'add_youtube', ...item },
     });
@@ -681,6 +727,153 @@ describe('Developer API read-only public Worker', () => {
     expect(forbidden.status).toBe(403);
     expect(await errorCode(forbidden)).toBe('FORBIDDEN');
     expect(readOnlyKey.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('atomically adds a bounded YouTube batch through one queue write and audit event', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const waits: Promise<unknown>[] = [];
+    const items = [
+      { videoId: 'dQw4w9WgXcQ', name: 'First', title: 'First title' },
+      {
+        videoId: 'M7lc1UVf-VE',
+        playlistId: 'PL1234567890',
+        name: 'Second',
+        artist: 'Second artist',
+      },
+    ];
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/batch`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-batch-0001',
+        },
+        body: JSON.stringify({ items }),
+      }),
+      setup.env,
+      { waitUntil: (promise: Promise<unknown>) => waits.push(promise) },
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual(queuePayload());
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-queue-write',
+    ]);
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/queue/mutate');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      actorName: 'Friend integration',
+      idempotencyKey: 'request.queue-batch-0001',
+      mutation: { type: 'add_youtube_batch', items },
+    });
+
+    await Promise.all(waits);
+    const auditIndex = setup.database.prepare.mock.calls.findIndex(([sql]) =>
+      String(sql).includes('INSERT INTO mxqr_developer_api_audit'),
+    );
+    const auditStatement = setup.database.prepare.mock.results[auditIndex]?.value;
+    expect(auditStatement.bind).toHaveBeenCalledWith(
+      expect.stringMatching(/^req_/),
+      KEY_ID,
+      ROOM_CODE,
+      'queue.add_youtube_batch',
+      'applied',
+      201,
+      expect.any(Number),
+    );
+  });
+
+  it('rejects an empty, oversized, malformed, or unscoped YouTube batch before forwarding', async () => {
+    const invalidBodies = [
+      { items: [] },
+      {
+        items: Array.from({ length: 101 }, (_, index) => ({
+          videoId: 'dQw4w9WgXcQ',
+          name: `Track ${index}`,
+        })),
+      },
+      {
+        items: Array.from({ length: 100 }, (_, index) => ({
+          videoId: 'dQw4w9WgXcQ',
+          name: `${index}`.padEnd(305, 'N'),
+          title: 'T'.repeat(305),
+        })),
+      },
+      {
+        items: [
+          { videoId: 'dQw4w9WgXcQ', name: 'Valid' },
+          { videoId: 'invalid', name: 'Invalid' },
+        ],
+      },
+      { items: [{ videoId: 'dQw4w9WgXcQ', name: 'Valid', unexpected: true }] },
+    ];
+    expect(new TextEncoder().encode(JSON.stringify(invalidBodies[2])).byteLength).toBeGreaterThan(
+      64 * 1024,
+    );
+    for (const [index, body] of invalidBodies.entries()) {
+      const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/batch`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': `request.queue-batch-invalid-${index}`,
+          },
+          body: JSON.stringify(body),
+        }),
+        setup.env,
+      );
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe('INVALID_REQUEST');
+      expect(setup.facadeFetch).not.toHaveBeenCalled();
+    }
+
+    const unscoped = await createEnvironment({ scopeMask: developerApiScopes['queue:read'] });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/batch`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-batch-unscoped',
+        },
+        body: JSON.stringify({
+          items: [{ videoId: 'dQw4w9WgXcQ', name: 'Forbidden' }],
+        }),
+      }),
+      unscoped.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(await errorCode(forbidden)).toBe('FORBIDDEN');
+    expect(unscoped.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('allows a valid near-64-KiB public batch to gain its private authentication envelope', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      videoId: 'dQw4w9WgXcQ',
+      name: `${index}`.padEnd(304, 'N'),
+      title: 'T'.repeat(304),
+    }));
+    const publicBody = JSON.stringify({ items });
+    expect(new TextEncoder().encode(publicBody).byteLength).toBeLessThanOrEqual(64 * 1024);
+
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/batch`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-batch-boundary',
+        },
+        body: publicBody,
+      }),
+      setup.env,
+    );
+    expect(response.status).toBe(201);
+    const forwarded = String(setup.facadeFetch.mock.calls[0]?.[1]?.body);
+    expect(new TextEncoder().encode(forwarded).byteLength).toBeGreaterThan(64 * 1024);
   });
 
   it('removes and reorders queue items through canonical mutation envelopes', async () => {
@@ -1076,6 +1269,7 @@ describe('Developer API read-only public Worker', () => {
         body: {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
+          actorName: 'Friend integration',
           idempotencyKey: 'request.upload-complete-0001',
           assetId: ASSET_ID,
         },

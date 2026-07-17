@@ -614,6 +614,7 @@ const en: Record<I18nKey, string> = {
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul>',
   'chat.peer_connected': '{{name}} joined',
+  'chat.tracks_added': '{{name}} added {{count}} tracks',
   'chat.peer_disconnected': '{{name}} left',
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
   'chat.msg_truncated': 'Message truncated to {{max}} characters',

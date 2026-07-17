@@ -45,6 +45,18 @@ export interface DeveloperInvalidationFrame {
   readonly playlistRevision: number;
 }
 
+/** Authenticated, server-originated description of one accepted PRO queue add. */
+export interface ProQueueAdditionFrame {
+  readonly type: 'pro-queue-addition';
+  readonly version: 1;
+  readonly roomCode: string;
+  readonly coordinatorEpoch: number;
+  readonly playlistRevision: number;
+  readonly eventId: string;
+  readonly actorName: string;
+  readonly count: number;
+}
+
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const DEVELOPER_COMMAND_QUEUE_ITEM_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -179,6 +191,50 @@ export function parseDeveloperInvalidationFrame(value: unknown): DeveloperInvali
   };
 }
 
+export function parseProQueueAdditionFrame(value: unknown): ProQueueAdditionFrame | null {
+  if (
+    !isPlainRecord(value) ||
+    !hasExactKeys(value, [
+      'type',
+      'version',
+      'roomCode',
+      'coordinatorEpoch',
+      'playlistRevision',
+      'eventId',
+      'actorName',
+      'count',
+    ]) ||
+    value.type !== 'pro-queue-addition' ||
+    value.version !== 1 ||
+    typeof value.roomCode !== 'string' ||
+    !/^0\d{5}$/.test(value.roomCode) ||
+    !isNonNegativeSafeInteger(value.coordinatorEpoch) ||
+    value.coordinatorEpoch < 1 ||
+    !isNonNegativeSafeInteger(value.playlistRevision) ||
+    value.playlistRevision < 1 ||
+    typeof value.eventId !== 'string' ||
+    !/^qa_0\d{5}_\d+_\d+$/.test(value.eventId) ||
+    typeof value.actorName !== 'string' ||
+    value.actorName.length < 1 ||
+    value.actorName.length > 30 ||
+    !isNonNegativeSafeInteger(value.count) ||
+    value.count < 1 ||
+    value.count > 1000
+  ) {
+    return null;
+  }
+  return {
+    type: 'pro-queue-addition',
+    version: 1,
+    roomCode: value.roomCode,
+    coordinatorEpoch: value.coordinatorEpoch,
+    playlistRevision: value.playlistRevision,
+    eventId: value.eventId,
+    actorName: value.actorName,
+    count: value.count,
+  };
+}
+
 export interface TransportConnectOptions {
   reliable?: boolean;
   metadata?: unknown;
@@ -246,6 +302,7 @@ export interface TransportPeer {
   on(event: 'pro-epoch-advanced', callback: () => void): void;
   on(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
   on(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
+  on(event: 'pro-queue-addition', callback: (frame: ProQueueAdditionFrame) => void): void;
   on(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   on(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
   off(event: 'open', callback: (id: string) => void): void;
@@ -254,6 +311,7 @@ export interface TransportPeer {
   off(event: 'pro-epoch-advanced', callback: () => void): void;
   off(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
   off(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
+  off(event: 'pro-queue-addition', callback: (frame: ProQueueAdditionFrame) => void): void;
   off(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   off(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
 }

@@ -29,10 +29,10 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(9);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(10);
   });
 
-  it('uses natural English singular and plural copy for all nine messages', async () => {
+  it('uses natural English singular and plural copy for all ten messages', async () => {
     const t = await loadTranslator('en-US');
 
     const cases = [
@@ -56,6 +56,8 @@ describe('count-sensitive translations', () => {
       ['chat.cmd_slowmode_wait', { sec: 2 }, 'Wait 2 seconds before sending'],
       ['toast.added_tracks', { count: 1 }, '1 track added'],
       ['toast.added_tracks', { count: 2 }, '2 tracks added'],
+      ['chat.tracks_added', { name: 'Alex', count: 1 }, 'Alex added 1 track'],
+      ['chat.tracks_added', { name: 'Alex', count: 2 }, 'Alex added 2 tracks'],
       ['toast.unsupported_files_excluded', { count: 1 }, 'Unsupported file skipped: 1'],
       ['toast.unsupported_files_excluded', { count: 2 }, 'Unsupported files skipped: 2'],
       ['dialog.file_drop.message', { count: 1 }, 'Add 1 track?'],
@@ -120,7 +122,13 @@ describe('count-sensitive translations', () => {
         const parameter = PLURAL_PARAM_BY_KEY[key as keyof typeof PLURAL_PARAM_BY_KEY];
         for (const [form, value] of Object.entries(variants || {})) {
           const placeholders = [...value.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1]);
-          expect(placeholders, `${locale}.${key}.${form}`).toEqual([parameter]);
+          expect(
+            placeholders.filter((placeholder) => placeholder === parameter),
+            `${locale}.${key}.${form}`,
+          ).toEqual([parameter]);
+          if (key === 'chat.tracks_added') {
+            expect(placeholders, `${locale}.${key}.${form}`).toContain('name');
+          }
         }
       }
     }

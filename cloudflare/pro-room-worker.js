@@ -47,6 +47,7 @@ const STORAGE_KEY = 'pro-room:v1';
 const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYLIST_MAX_ITEMS = 1000;
+const DEVELOPER_YOUTUBE_BATCH_MAX_ITEMS = 100;
 // The elected coordinator is one of the 100 connected devices. Signaling
 // separately admits at most 99 non-coordinator members for the same ceiling.
 const PRESENCE_MAX_ITEMS = 100;
@@ -287,6 +288,27 @@ function boundedString(value, maxLength, allowEmpty = false) {
   const result = value.trim();
   if ((!allowEmpty && result.length === 0) || result.length > maxLength) return null;
   return result;
+}
+
+function validDeveloperActorName(value) {
+  return (
+    boundedString(value, MAX_DISPLAY_NAME_LENGTH) !== null &&
+    !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(value)
+  );
+}
+
+function queueAdditionActorName(value, fallback = 'Peer') {
+  const normalized =
+    typeof value === 'string'
+      ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').trim()
+      : '';
+  const source = normalized || fallback;
+  let result = '';
+  for (const character of source) {
+    if (result.length + character.length > 30) break;
+    result += character;
+  }
+  return result || 'Peer';
 }
 
 function isSafeNonNegativeInteger(value) {
@@ -1078,6 +1100,41 @@ function parseDeveloperQueueMutation(value) {
       ...(value.playlistId === undefined ? {} : { playlistId: value.playlistId }),
       ...metadata,
     };
+  }
+  if (value.type === 'add_youtube_batch') {
+    if (
+      !hasExactKeys(value, ['type', 'items']) ||
+      !Array.isArray(value.items) ||
+      value.items.length === 0 ||
+      value.items.length > DEVELOPER_YOUTUBE_BATCH_MAX_ITEMS
+    ) {
+      return null;
+    }
+    const items = value.items.map((item) => {
+      if (
+        !hasExactKeys(
+          item,
+          ['videoId', 'name'],
+          ['playlistId', 'title', 'artist', 'thumbnail'],
+        ) ||
+        !YOUTUBE_VIDEO_ID_RE.test(item.videoId || '') ||
+        (item.playlistId !== undefined &&
+          !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
+      ) {
+        return null;
+      }
+      const metadata = parseDeveloperMetadata(item);
+      return metadata
+        ? {
+            videoId: item.videoId,
+            ...(item.playlistId === undefined ? {} : { playlistId: item.playlistId }),
+            ...metadata,
+          }
+        : null;
+    });
+    return items.some((item) => item === null)
+      ? null
+      : { type: 'add_youtube_batch', items };
   }
   if (value.type === 'remove') {
     return hasExactKeys(value, ['type', 'queueItemId']) &&
@@ -2077,13 +2134,19 @@ export class MusixquareProRoom {
     if (!this.room.provisioned || this.room.status !== 'active') {
       return errorResponse('ROOM_NOT_FOUND', 404);
     }
-    const parsed = await this.parseBody(request, 64 * 1024);
+    // The public 64 KiB batch body is wrapped in an authenticated envelope.
+    const parsed = await this.parseBody(request, 128 * 1024);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'mutation']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['roomCode', 'keyId', 'idempotencyKey', 'mutation'],
+        ['actorName'],
+      ) ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
-      !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '')
+      !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '') ||
+      (parsed.value.actorName !== undefined && !validDeveloperActorName(parsed.value.actorName))
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
@@ -2121,6 +2184,31 @@ export class MusixquareProRoom {
         developerOwnerKeyId: parsed.value.keyId,
       };
       this.room.playlist.push(item);
+      playlistChanged = true;
+    } else if (mutation.type === 'add_youtube_batch') {
+      if (this.room.playlist.length + mutation.items.length > PLAYLIST_MAX_ITEMS) {
+        return errorResponse('PLAYLIST_CAPACITY_EXCEEDED', 409);
+      }
+      if (
+        this.room.playlistRevision >= Number.MAX_SAFE_INTEGER ||
+        this.room.revision >= Number.MAX_SAFE_INTEGER
+      ) {
+        return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+      }
+      const items = mutation.items.map((candidate) => ({
+        queueItemId: randomQueueItemId(),
+        name: candidate.name,
+        ...(candidate.title === undefined ? {} : { title: candidate.title }),
+        ...(candidate.artist === undefined ? {} : { artist: candidate.artist }),
+        ...(candidate.thumbnail === undefined ? {} : { thumbnail: candidate.thumbnail }),
+        source: {
+          kind: 'youtube',
+          videoId: candidate.videoId,
+          ...(candidate.playlistId === undefined ? {} : { playlistId: candidate.playlistId }),
+        },
+        developerOwnerKeyId: parsed.value.keyId,
+      }));
+      this.room.playlist.push(...items);
       playlistChanged = true;
     } else if (mutation.type === 'remove') {
       const index = this.room.playlist.findIndex(
@@ -2243,7 +2331,8 @@ export class MusixquareProRoom {
       this.reconcileAssetGarbageCollection(nowMs);
     }
     const responseBody = developerProjection(this.room, 'queue', nowMs, parsed.value.keyId);
-    const responseStatus = mutation.type === 'add_youtube' ? 201 : 200;
+    const responseStatus =
+      mutation.type === 'add_youtube' || mutation.type === 'add_youtube_batch' ? 201 : 200;
     this.storeDeveloperQueueIdempotency(
       scope,
       parsed.value.idempotencyKey,
@@ -2251,7 +2340,19 @@ export class MusixquareProRoom {
       responseStatus,
     );
     await this.persist();
-    if (playlistChanged) this.scheduleDeveloperInvalidationHint();
+    if (playlistChanged) {
+      const addedCount =
+        mutation.type === 'add_youtube'
+          ? 1
+          : mutation.type === 'add_youtube_batch'
+            ? mutation.items.length
+            : 0;
+      this.scheduleDeveloperInvalidationHint(
+        addedCount > 0
+          ? { actorName: parsed.value.actorName, fallback: 'API', count: addedCount }
+          : null,
+      );
+    }
     return jsonResponse(responseBody, responseStatus);
   }
 
@@ -2393,11 +2494,16 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 4 * 1024);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'assetId']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['roomCode', 'keyId', 'idempotencyKey', 'assetId'],
+        ['actorName'],
+      ) ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
       !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '') ||
-      !OPAQUE_ID_RE.test(parsed.value.assetId || '')
+      !OPAQUE_ID_RE.test(parsed.value.assetId || '') ||
+      (parsed.value.actorName !== undefined && !validDeveloperActorName(parsed.value.actorName))
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
@@ -2524,7 +2630,11 @@ export class MusixquareProRoom {
     };
     this.storeIdempotency(scope, parsed.value.idempotencyKey, fingerprint, responseBody, 201);
     await this.persist();
-    this.scheduleDeveloperInvalidationHint();
+    this.scheduleDeveloperInvalidationHint({
+      actorName: parsed.value.actorName,
+      fallback: 'API',
+      count: 1,
+    });
     // State is authoritative once persisted. Staging cleanup is deliberately
     // after that commit, so interruption cannot strand a reserved asset whose
     // only recoverable upload object was already deleted. The normal alarm GC
@@ -2613,7 +2723,7 @@ export class MusixquareProRoom {
     this.syncDeveloperCommandIdempotency(record);
   }
 
-  scheduleDeveloperInvalidationHint() {
+  scheduleDeveloperInvalidationHint(addition = null) {
     const coordinatorId = this.room.presence.coordinatorParticipantId;
     const coordinator = coordinatorId ? this.room.presence.participants[coordinatorId] : null;
     if (
@@ -2627,6 +2737,19 @@ export class MusixquareProRoom {
     ) {
       return;
     }
+    const normalizedAddition =
+      addition && Number.isSafeInteger(addition.count) && addition.count >= 1 && addition.count <= 1000
+        ? {
+            type: 'pro-queue-addition',
+            version: DEVELOPER_CONTROL_VERSION,
+            roomCode: this.room.roomCode,
+            coordinatorEpoch: this.room.presence.coordinatorEpoch,
+            playlistRevision: this.room.playlistRevision,
+            eventId: `qa_${this.room.roomCode}_${this.room.playlistRevision}_${this.room.revision}`,
+            actorName: queueAdditionActorName(addition.actorName, addition.fallback),
+            count: addition.count,
+          }
+        : null;
     const dispatch = this.dispatchDeveloperInvalidationHint({
       roomCode: this.room.roomCode,
       coordinatorEpoch: this.room.presence.coordinatorEpoch,
@@ -2635,6 +2758,9 @@ export class MusixquareProRoom {
       developerControlVersion: DEVELOPER_CONTROL_VERSION,
       revision: this.room.revision,
       playlistRevision: this.room.playlistRevision,
+      ...(normalizedAddition
+        ? { addition: normalizedAddition }
+        : {}),
     });
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(dispatch);
   }
@@ -2664,6 +2790,7 @@ export class MusixquareProRoom {
             coordinatorPresenceIncarnationId: hint.coordinatorPresenceIncarnationId,
             developerControlVersion: hint.developerControlVersion,
             frame,
+            ...(hint.addition ? { addition: hint.addition } : {}),
           }),
         }),
         DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
@@ -3982,6 +4109,10 @@ export class MusixquareProRoom {
         ? { ...item, developerOwnerKeyId: existingOwnerKeyId }
         : item;
     });
+    const addedCount = playlist.reduce(
+      (count, item) => count + (previousPlaylistById.has(item.queueItemId) ? 0 : 1),
+      0,
+    );
     const playlistById = new Map(playlist.map((item) => [item.queueItemId, item]));
     if (
       body.currentQueueItemId !== null &&
@@ -4013,6 +4144,13 @@ export class MusixquareProRoom {
     const responseBody = { snapshot: publicSnapshot(this.room, auth.session) };
     this.storeSnapshotIdempotency(scope, key, fingerprint, this.room.revision);
     await this.persist();
+    if (addedCount > 0) {
+      this.scheduleDeveloperInvalidationHint({
+        actorName: auth.session.displayName,
+        fallback: 'Peer',
+        count: addedCount,
+      });
+    }
     return jsonResponse(responseBody);
   }
 

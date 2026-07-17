@@ -27,6 +27,7 @@ describe('Developer API public documentation', () => {
       '/rooms/{roomCode}/commands',
       '/rooms/{roomCode}/commands/{commandId}',
       '/rooms/{roomCode}/queue/items',
+      '/rooms/{roomCode}/queue/items/batch',
       '/rooms/{roomCode}/queue/items/owned',
       '/rooms/{roomCode}/queue/items/{queueItemId}',
       '/rooms/{roomCode}/queue/order',
@@ -60,6 +61,7 @@ describe('Developer API public documentation', () => {
       '/v1/rooms/{roomCode}/commands:',
       '/v1/rooms/{roomCode}/commands/{commandId}:',
       '/v1/rooms/{roomCode}/queue/items:',
+      '/v1/rooms/{roomCode}/queue/items/batch:',
       '/v1/rooms/{roomCode}/queue/items/owned:',
       '/v1/rooms/{roomCode}/queue/items/{queueItemId}:',
       '/v1/rooms/{roomCode}/queue/order:',
@@ -75,6 +77,23 @@ describe('Developer API public documentation', () => {
     expect(spec).toContain('sha256:');
     for (const path of expectedPaths) expect(spec).toContain(path);
     expect(spec).not.toContain('/internal/');
+  });
+
+  it('documents atomic YouTube batches and bounded non-atomic audio upload concurrency', async () => {
+    const [html, spec] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+    ]);
+
+    expect(html).toContain('/rooms/{roomCode}/queue/items/batch');
+    expect(html).toContain('Atomically add 1&ndash;100 YouTube items');
+    expect(html).toContain('whichever comes first: 100 items or a 64 KiB');
+    expect(html).toContain('Math.min(2, pending.length)');
+    expect(html).toContain('Multi-file audio upload is intentionally not atomic');
+    expect(spec).toContain('operationId: addYouTubeQueueItemsBatch');
+    expect(spec).toContain('YouTubeQueueItemBatchCreate:');
+    expect(spec).toContain('maxItems: 100');
+    expect(spec).toContain('whichever is reached first: 100 items or a 64 KiB');
   });
 
   it('distinguishes full clear, credential-owned cleanup, and one-item deletion', async () => {

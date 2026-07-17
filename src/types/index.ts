@@ -18,6 +18,7 @@ import type {
 import type {
   DeveloperCommandFrame,
   DeveloperInvalidationFrame,
+  ProQueueAdditionFrame,
   TransportDataConnection,
   TransportMediaConnection,
   TransportPeer,
@@ -423,6 +424,8 @@ export interface ProtocolMap {
     size: number;
     total: number;
   };
+  'operator-file-upload-batch-start': { requestId: string; fileCount: number };
+  'operator-file-upload-batch-complete': { requestId: string; committedCount: number };
   'operator-file-upload-chunk': {
     requestId: string;
     sessionId: string;
@@ -1154,6 +1157,7 @@ interface BaseEventMap {
   'network:developer-command': [frame: DeveloperCommandFrame];
   /** Authenticated server-to-coordinator snapshot hint; never accepted from peers. */
   'network:developer-invalidation': [frame: DeveloperInvalidationFrame];
+  'network:pro-queue-addition': [frame: ProQueueAdditionFrame];
   'network:broadcast': [data: unknown];
   'network:broadcast-except': [peerId: string, data: unknown];
   'network:toggle-operator': [peerId: string];
@@ -1183,8 +1187,10 @@ interface BaseEventMap {
   'standard-room:operator-file-received': [
     file: File,
     acknowledge: (outcome: true | false | 'queue-full') => void,
+    sourceConnection?: DataConnection,
   ];
   'standard-room:operator-file-uplink-progress': [progress: StandardOperatorFileUplinkProgress];
+  'standard-room:operator-files-added': [sourceConnection: DataConnection, count: number];
   'standard-room:queue-mutation-failed': [
     reason: 'send-failed' | 'accept-timeout' | 'settle-timeout' | 'rejected',
     code:

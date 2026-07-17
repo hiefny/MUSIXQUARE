@@ -632,6 +632,7 @@ const id: Record<I18nKey, string> = {
   'chat.debug_copied': 'Info debug disalin.\nKirimkan ke developer jika Anda menemukan bug.',
   'chat.seek_to': 'Pindah ke {{time}}',
   'chat.peer_connected': '{{name}} bergabung',
+  'chat.tracks_added': '{{name}} menambahkan {{count}} lagu',
   'chat.peer_disconnected': '{{name}} keluar',
   'chat.empty_html': 'Belum ada pesan.<br>Kirim pesan pertama!',
   'chat.msg_truncated': 'Pesan dipotong menjadi {{max}} karakter',

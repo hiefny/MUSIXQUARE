@@ -160,6 +160,34 @@ describe('playlist queue identity rendering and actions', () => {
     expect(youtubeEntry?.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(2);
   });
 
+  it('prefers resolved YouTube titles without replacing file-name labels', () => {
+    setState('playlist.items', [
+      {
+        queueItemId: FILE_A,
+        type: 'file',
+        name: 'original-file-name.flac',
+        title: 'Embedded track title',
+        videoId: null,
+        playlistId: null,
+      },
+      {
+        queueItemId: YT_B,
+        type: 'youtube',
+        name: 'abcdefghijk',
+        title: 'Resolved YouTube title',
+        videoId: 'abcdefghijk',
+        playlistId: null,
+      },
+    ]);
+
+    updatePlaylistUI();
+
+    const labels = [...document.querySelectorAll<HTMLElement>('.track-name-text')].map(
+      (element) => element.textContent,
+    );
+    expect(labels).toEqual(['original-file-name.flac', 'Resolved YouTube title']);
+  });
+
   it('shows reorder handles only to the host and keeps the same number slot', () => {
     setState('playlist.items', sampleItems());
     updatePlaylistUI();

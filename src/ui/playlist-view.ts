@@ -279,7 +279,9 @@ export function updatePlaylistUI(): void {
     const row = document.createElement('div');
     row.className = `track-item ${isCurrent ? 'active' : ''}`;
     row.dataset.queueItemId = item.queueItemId;
-    const displayName = item.name || item.title || t('common.unknown');
+    const displayName =
+      (item.type === 'youtube' ? item.title || item.name : item.name || item.title) ||
+      t('common.unknown');
     const expandButton = item.playlistId
       ? `<button type="button" class="expand-toggle ${isExpanded(item) ? 'active' : ''}"
           data-action="expand" data-queue-item-id="${escapeHtml(item.queueItemId)}"

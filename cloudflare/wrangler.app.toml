@@ -51,6 +51,13 @@ name = "PRO_ROOM_ADMIN_ROOMS"
 class_name = "MusixquareProRoom"
 script_name = "musixquare-pro-room"
 
+# Same-origin public facade for browser PRO-room requests. Keeping the browser
+# on musixquare.com avoids exposing room entry to a separate custom-domain
+# transport path while the backend Worker remains independently deployable.
+[[services]]
+binding = "PRO_ROOM_PUBLIC_API"
+service = "musixquare-pro-room"
+
 [vars]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"

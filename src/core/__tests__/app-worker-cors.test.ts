@@ -2218,6 +2218,154 @@ describe('Cloudflare app worker admin dashboard', () => {
   });
 });
 
+describe('Cloudflare app worker PRO room facade', () => {
+  it('forwards the public route through the PRO Worker and scopes its cookies to one room', async () => {
+    let forwarded: Request | null = null;
+    const upstreamFetch = vi.fn(async (request: Request) => {
+      forwarded = request;
+      const headers = new Headers({
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      headers.append(
+        'Set-Cookie',
+        '__Host-mxqr_pro_session_000001=session-token; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Strict',
+      );
+      headers.append(
+        'Set-Cookie',
+        '__Host-mxqr_pro_owner_000001=owner-token; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Strict',
+      );
+      return new Response(JSON.stringify({ ok: true }), { headers });
+    });
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          Cookie:
+            '__Host-mxqr_admin=must-not-leak; __Secure-mxqr_pro_session_000001=facade-session; __Secure-mxqr_pro_owner_000001=facade-owner; __Secure-mxqr_pro_session_000002=other-room',
+          'CF-Connecting-IP': '203.0.113.10',
+          'X-MXQR-Pro-Room-Code': '000999',
+          'X-MXQR-Pro-IP-Hash': 'spoofed',
+        },
+        body: JSON.stringify({ pin: '00000001', displayName: 'Peer 1' }),
+      }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+    expect(forwarded).not.toBeNull();
+    expect(forwarded!.url).toBe('https://pro-room.internal/v1/rooms/000001/sessions');
+    expect(forwarded!.headers.get('Origin')).toBe('https://musixquare.com');
+    expect(forwarded!.headers.get('CF-Connecting-IP')).toBe('203.0.113.10');
+    expect(forwarded!.headers.get('X-MXQR-Pro-Room-Code')).toBeNull();
+    expect(forwarded!.headers.get('X-MXQR-Pro-IP-Hash')).toBeNull();
+    expect(forwarded!.headers.get('Cookie')).toBe(
+      '__Host-mxqr_pro_session_000001=facade-session; __Host-mxqr_pro_owner_000001=facade-owner',
+    );
+    await expect(forwarded!.json()).resolves.toEqual({
+      pin: '00000001',
+      displayName: 'Peer 1',
+    });
+
+    const getSetCookie = (response.headers as Headers & { getSetCookie?: () => string[] })
+      .getSetCookie;
+    const setCookies = getSetCookie
+      ? getSetCookie.call(response.headers)
+      : [response.headers.get('Set-Cookie') || ''];
+    expect(setCookies.join('\n')).toContain(
+      '__Secure-mxqr_pro_session_000001=session-token; Path=/api/pro-room/v1/rooms/000001;',
+    );
+    expect(setCookies.join('\n')).toContain(
+      '__Secure-mxqr_pro_owner_000001=owner-token; Path=/api/pro-room/v1/rooms/000001;',
+    );
+    expect(setCookies.join('\n')).not.toContain('__Host-mxqr_pro_');
+  });
+
+  it('preserves a supplied Origin for the PRO Worker to reject and fails closed', async () => {
+    const upstreamFetch = vi.fn(async (request: Request) => {
+      expect(request.headers.get('Origin')).toBe('https://evil.example');
+      return new Response(JSON.stringify({ error: 'FORBIDDEN_ORIGIN' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    });
+    const rejected = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/bootstrap', {
+        headers: { Origin: 'https://evil.example' },
+      }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+    expect(rejected.status).toBe(403);
+
+    const unavailable = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/bootstrap'),
+      {},
+    );
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get('Cache-Control')).toBe('no-store');
+    await expect(unavailable.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
+
+    const malformed = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/internal/admin/status'),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+    expect(malformed.status).toBe(404);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the zero-byte presence entry used by an existing session', async () => {
+    const upstreamFetch = vi.fn(async (request: Request) => {
+      expect(request.method).toBe('POST');
+      expect(request.headers.get('Origin')).toBe('https://musixquare.com');
+      expect(request.headers.get('Cookie')).toBe(
+        '__Host-mxqr_pro_session_000001=session-token',
+      );
+      await expect(request.text()).resolves.toBe('');
+      return new Response(JSON.stringify({ snapshot: { roomCode: '000001' } }), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    });
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/presence/enter', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          Cookie: '__Secure-mxqr_pro_session_000001=session-token',
+        },
+      }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not manufacture an Origin for mutation requests that omit it', async () => {
+    const upstreamFetch = vi.fn(async (request: Request) => {
+      expect(request.method).toBe('POST');
+      expect(request.headers.get('Origin')).toBeNull();
+      return new Response(JSON.stringify({ error: 'FORBIDDEN_ORIGIN' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    });
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: '00000001', displayName: 'Peer 1' }),
+      }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+
+    expect(response.status).toBe(403);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('Cloudflare app worker invite route', () => {
   function createAssetEnv() {
     return {

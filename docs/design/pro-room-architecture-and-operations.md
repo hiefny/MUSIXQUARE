@@ -41,6 +41,7 @@ an authorization credential.
 | Browser                                  | RAM-only transfer, decode, preload, and playback working set                  |
 | Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state      |
 | App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint    |
+| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router        |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
 Durable Object lookup. `000000` and `000001` are seeded in the admin registry;
@@ -49,6 +50,24 @@ an idempotent provision bit into that room's Durable Object through a
 cross-script binding. An unprovisioned room rejects bootstrap, activation, and
 all authenticated APIs. No leading-zero code may ever fall through to a normal
 first-come host room.
+
+Browsers use the app Worker's same-origin `/api/pro-room/*` facade. The facade
+strips only that prefix and calls the PRO Worker's public router through a
+service binding, so origin checks, front-door provisioning checks, IP rate
+limits, path limits, and Durable Object routing stay centralized in the PRO
+Worker. The direct `pro.musixquare.com` custom domain remains available for
+older clients and operator diagnostics, but it is not the primary browser
+transport. Facade cookies use host-only `__Secure-` names and a room-specific
+Path; the facade maps them to the backend's `__Host-` names only for the bound
+request. This prevents admin and unrelated-room cookies from crossing the
+service boundary or accumulating on ordinary app requests.
+
+The old custom-domain cookies are host-only and cannot migrate to the facade.
+On the first facade visit, an existing participant therefore enters the PIN
+once more. Existing room owners must use the admin owner-recovery action once
+after the cutover to receive the new room-scoped owner cookie. The old cookies
+remain untouched, so rolling the client endpoint back restores the old session
+namespace.
 
 The public PRO front door keeps the two launch rooms on an immutable fast path.
 For dynamic rooms it cold-loads a bounded set of `registered` D1 rows and then
@@ -332,7 +351,7 @@ Use this order so the public app never advertises a dependency that is absent:
 1. Remote-share Worker (independent baseline service).
 2. Signaling Worker, reserving `0xxxxx` before any client can advertise PRO.
 3. PRO Worker and Durable Object/R2 bindings.
-4. App Worker/static build last.
+4. App Worker, same-origin PRO service binding, and static build last.
 
 The checked-in command performs all syntax/build checks before step 1 and then
 uses this order:
@@ -350,6 +369,8 @@ After deployment but before activation:
 curl.exe https://pro.musixquare.com/health
 curl.exe -H "Origin: https://musixquare.com" https://pro.musixquare.com/v1/rooms/000000/bootstrap
 curl.exe -H "Origin: https://musixquare.com" https://pro.musixquare.com/v1/rooms/000001/bootstrap
+curl.exe https://musixquare.com/api/pro-room/v1/rooms/000000/bootstrap
+curl.exe https://musixquare.com/api/pro-room/v1/rooms/000001/bootstrap
 ```
 
 The health response must identify `musixquare-pro-room`. A never-activated room

@@ -70,6 +70,9 @@ const ADMIN_PRO_ROOM_AUDIT_TABLE = 'mxqr_pro_room_admin_audit';
 const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
 const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
+const PRO_ROOM_FACADE_PREFIX = '/api/pro-room';
+const PRO_ROOM_FACADE_PATH_RE = /^\/api\/pro-room(\/v1\/rooms\/(0\d{5})(?:\/|$).*)$/;
+const PRO_ROOM_UPSTREAM_ORIGIN = 'https://pro-room.internal';
 const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
   Object.freeze({ roomCode: '000001', label: 'Friends & Family' }),
@@ -121,6 +124,122 @@ function json(body, status = 200, headers = {}) {
       },
     }),
   );
+}
+
+function proRoomCookieNames(roomCode) {
+  return {
+    upstreamSession: `__Host-mxqr_pro_session_${roomCode}`,
+    upstreamOwner: `__Host-mxqr_pro_owner_${roomCode}`,
+    facadeSession: `__Secure-mxqr_pro_session_${roomCode}`,
+    facadeOwner: `__Secure-mxqr_pro_owner_${roomCode}`,
+  };
+}
+
+function proRoomFacadeCookiePath(roomCode) {
+  return `${PRO_ROOM_FACADE_PREFIX}/v1/rooms/${roomCode}`;
+}
+
+function forwardedProRoomCookies(rawCookie, roomCode) {
+  if (!rawCookie) return '';
+  const names = proRoomCookieNames(roomCode);
+  const forwarded = [];
+  for (const part of rawCookie.split(';')) {
+    const cookie = part.trim();
+    const separator = cookie.indexOf('=');
+    if (separator <= 0) continue;
+    const name = cookie.slice(0, separator);
+    const value = cookie.slice(separator + 1);
+    if (name === names.facadeSession) {
+      forwarded.push(`${names.upstreamSession}=${value}`);
+    } else if (name === names.facadeOwner) {
+      forwarded.push(`${names.upstreamOwner}=${value}`);
+    }
+  }
+  return forwarded.join('; ');
+}
+
+function splitSetCookieHeader(headers) {
+  if (typeof headers.getAll === 'function') return headers.getAll('Set-Cookie');
+  if (typeof headers.getSetCookie === 'function') return headers.getSetCookie();
+  const combined = headers.get('Set-Cookie');
+  return combined ? combined.split(/,(?=\s*__Host-mxqr_pro_(?:session|owner)_)/) : [];
+}
+
+function facadeProRoomSetCookie(value, roomCode) {
+  const names = proRoomCookieNames(roomCode);
+  let rewritten = value;
+  if (rewritten.startsWith(`${names.upstreamSession}=`)) {
+    rewritten = `${names.facadeSession}=${rewritten.slice(names.upstreamSession.length + 1)}`;
+  } else if (rewritten.startsWith(`${names.upstreamOwner}=`)) {
+    rewritten = `${names.facadeOwner}=${rewritten.slice(names.upstreamOwner.length + 1)}`;
+  } else {
+    return null;
+  }
+  return rewritten.replace(
+    /;\s*Path=\/(?=;|$)/i,
+    `; Path=${proRoomFacadeCookiePath(roomCode)}`,
+  );
+}
+
+function withFacadeProRoomCookies(response, roomCode) {
+  const headers = new Headers(response.headers);
+  const setCookies = splitSetCookieHeader(response.headers);
+  headers.delete('Set-Cookie');
+  for (const value of setCookies) {
+    const rewritten = facadeProRoomSetCookie(value.trim(), roomCode);
+    if (rewritten) headers.append('Set-Cookie', rewritten);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function handleProRoomFacade(request, env, url) {
+  const route = url.pathname.match(PRO_ROOM_FACADE_PATH_RE);
+  if (!route) {
+    return json({ error: 'PRO_ROOM_ROUTE_NOT_FOUND' }, 404, { 'Cache-Control': 'no-store' });
+  }
+  if (!env.PRO_ROOM_PUBLIC_API || typeof env.PRO_ROOM_PUBLIC_API.fetch !== 'function') {
+    return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 503, { 'Cache-Control': 'no-store' });
+  }
+
+  const [, upstreamPath, roomCode] = route;
+  const headers = new Headers(request.headers);
+  // Preserve a browser-supplied Origin so the PRO Worker remains the single
+  // CSRF/CORS authority. Same-origin GET/HEAD requests commonly omit it, so
+  // synthesize only for those safe methods. A mutation without Origin must
+  // still fail closed in the PRO Worker.
+  if (!headers.has('Origin') && (request.method === 'GET' || request.method === 'HEAD')) {
+    headers.set('Origin', url.origin);
+  }
+  headers.delete('X-MXQR-Pro-Room-Code');
+  headers.delete('X-MXQR-Pro-IP-Hash');
+  const cookies = forwardedProRoomCookies(headers.get('Cookie'), roomCode);
+  if (cookies) headers.set('Cookie', cookies);
+  else headers.delete('Cookie');
+
+  const upstreamUrl = new URL(upstreamPath, PRO_ROOM_UPSTREAM_ORIGIN);
+  upstreamUrl.search = url.search;
+  const upstreamInit = {
+    method: request.method,
+    headers,
+    redirect: 'manual',
+  };
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    upstreamInit.body = request.body;
+    upstreamInit.duplex = 'half';
+  }
+  let response;
+  try {
+    response = await env.PRO_ROOM_PUBLIC_API.fetch(
+      new Request(upstreamUrl, upstreamInit),
+    );
+  } catch {
+    return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
+  }
+  return withFacadeProRoomCookies(response, roomCode);
 }
 
 async function readJsonBodyLimited(request, maxBytes) {
@@ -4256,6 +4375,10 @@ export default {
     if (url.protocol === 'http:' && !isLocalHttpRequest(request, url)) {
       url.protocol = 'https:';
       return withSecurityHeaders(Response.redirect(url, 308));
+    }
+
+    if (url.pathname.startsWith(`${PRO_ROOM_FACADE_PREFIX}/`)) {
+      return handleProRoomFacade(request, env, url);
     }
 
     if (

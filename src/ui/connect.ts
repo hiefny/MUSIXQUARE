@@ -17,6 +17,7 @@ import { containsProfanity } from '../chat/profanity.ts';
 import { showToast } from './toast.ts';
 import { copyTextToClipboard } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
+import { navigateToAppHome } from '../core/navigation.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 
@@ -554,7 +555,7 @@ export function initConnect(): void {
       secondaryText: t('common.cancel'),
     }).then((res) => {
       if (res && res.action === 'ok') {
-        scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
+        scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
       }
     });
   };

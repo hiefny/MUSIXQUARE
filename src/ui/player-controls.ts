@@ -36,6 +36,7 @@ import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
+import { navigateToAppHome } from '../core/navigation.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import {
   isPlaybackModeFile,
@@ -695,8 +696,9 @@ async function handleLogoReturnToMain(): Promise<void> {
       if (res.action !== 'ok') return;
     }
 
-    // Hard reload — clears all in-memory blobs, audio buffers, and stale state.
-    scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
+    // A hard same-origin replacement clears in-memory media without leaving an
+    // invite/PRO auto-join route behind in browser history.
+    scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
   } finally {
     _logoNavBusy = false;
   }

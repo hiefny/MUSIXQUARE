@@ -7150,6 +7150,19 @@
       align-items: center !important;
     }
 
+    /* Keep the compact sidebar wordmark centered as a group while placing
+       the room tier directly beneath its left edge. */
+    #app-logo {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .header-pro-badge {
+      align-self: flex-start;
+      margin-top: 6px;
+      margin-left: 0;
+    }
+
     /* Hide header behind setup overlay */
     body:has(#setup-overlay.active) header,
     body.overlay-open:has(#setup-overlay.active) header {

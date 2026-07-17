@@ -30,6 +30,22 @@ describe('PRO room branding', () => {
     }
   });
 
+  it('stacks the PRO badge below the wordmark in the compact sidebar', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
+    const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
+    expect(compactStart).toBeGreaterThanOrEqual(0);
+    expect(compactEnd).toBeGreaterThan(compactStart);
+    const compactSidebarStyles = stylesheet.slice(compactStart, compactEnd);
+
+    expect(compactSidebarStyles).toMatch(
+      /#app-logo\s*{\s*flex-direction:\s*column;\s*align-items:\s*flex-start;/,
+    );
+    expect(compactSidebarStyles).toMatch(
+      /\.header-pro-badge\s*{\s*align-self:\s*flex-start;\s*margin-top:\s*6px;\s*margin-left:\s*0;/,
+    );
+  });
+
   it('keeps the persistent-storage disclosure contextual to PRO rooms', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
 

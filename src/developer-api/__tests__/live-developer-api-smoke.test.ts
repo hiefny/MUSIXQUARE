@@ -101,6 +101,31 @@ describe('Developer API live canary smoke', () => {
         if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/queue`) {
           return json(queue());
         }
+        if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/effects`) {
+          return json(
+            {
+              schemaVersion: 1,
+              view: 'effects',
+              roomCode: ROOM,
+              revision: 1,
+              updatedAtMs: Date.now(),
+              effects: {
+                reverb: {
+                  mixPercent: 0,
+                  decaySeconds: 5,
+                  preDelaySeconds: 0.1,
+                  lowCutPercent: 0,
+                  highCutPercent: 0,
+                },
+                equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+                virtualBass: { strengthPercent: 0 },
+                virtualSurround: { widthPercent: 100 },
+              },
+            },
+            200,
+            { ETag: '"effects-etag"' },
+          );
+        }
         if (method === 'POST' && url.pathname === `/v1/rooms/${ROOM}/queue/items`) {
           youtubePresent = true;
           return json(
@@ -202,6 +227,7 @@ describe('Developer API live canary smoke', () => {
     expect(uploadBytes).toBe(46);
     expect(youtubePresent).toBe(false);
     expect(audioPresent).toBe(false);
+    expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`);
     expect(calls).toContain('PUT https://storage.example/upload');
     expect(calls.at(-1)).toBe(
       `DELETE https://api.musixquare.com/v1/rooms/${ROOM}/queue/items/${AUDIO_ITEM_ID}`,

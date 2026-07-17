@@ -45,6 +45,13 @@ function commandFingerprint(frame: DeveloperCommandFrame): string {
 }
 
 function isFrameCurrent(frame: DeveloperCommandFrame, snapshot: ProRoomSnapshot): boolean {
+  if (frame.command.type === 'set_effects') {
+    return (
+      frame.roomCode === snapshot.roomCode &&
+      frame.coordinatorEpoch === snapshot.presence.coordinatorEpoch &&
+      frame.coordinatorEpoch === snapshot.playback.coordinatorEpoch
+    );
+  }
   return (
     frame.roomCode === snapshot.roomCode &&
     frame.coordinatorEpoch === snapshot.presence.coordinatorEpoch &&
@@ -62,6 +69,9 @@ function isSnapshotBehindFrame(frame: DeveloperCommandFrame, snapshot: ProRoomSn
   const playbackEpoch = snapshot.playback.coordinatorEpoch;
   if (presenceEpoch > frame.coordinatorEpoch || playbackEpoch > frame.coordinatorEpoch) {
     return false;
+  }
+  if (frame.command.type === 'set_effects') {
+    return presenceEpoch < frame.coordinatorEpoch || playbackEpoch < frame.coordinatorEpoch;
   }
   return (
     presenceEpoch < frame.coordinatorEpoch ||

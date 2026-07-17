@@ -23,7 +23,7 @@ describe('Developer API key CLI', () => {
       roomCode: '000001',
       label: 'Friend API',
       days: 30,
-      scopes: ['room:read', 'playback:read', 'queue:read'],
+      scopes: ['room:read', 'playback:read', 'queue:read', 'effects:read'],
     });
     expect(
       parseDeveloperApiKeyCommand([
@@ -33,7 +33,7 @@ describe('Developer API key CLI', () => {
         '--label',
         'Friend full API',
         '--scopes',
-        'room:read,playback:read,playback:control,queue:read,queue:write,media:upload',
+        'room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control',
       ]),
     ).toMatchObject({
       roomCode: '000001',
@@ -44,6 +44,8 @@ describe('Developer API key CLI', () => {
         'queue:read',
         'queue:write',
         'media:upload',
+        'effects:read',
+        'effects:control',
       ],
     });
     expect(() =>
@@ -89,10 +91,10 @@ describe('Developer API key CLI', () => {
     expect(sql[0]).not.toContain(result.apiKey);
     expect(sql[0]).not.toContain(result.apiKey.split('.')[1] || 'missing-secret');
     expect(sql[0]).toContain("Friend''s API");
-    expect(sql[0]).toContain(', 11,');
+    expect(sql[0]).toContain(', 75,');
   });
 
-  it('stores the complete v1 permission set as scope mask 63', async () => {
+  it('stores the complete v1 permission set as scope mask 255', async () => {
     let insert = '';
     await runDeveloperApiKeyCli({
       argv: [
@@ -102,7 +104,7 @@ describe('Developer API key CLI', () => {
         '--label',
         'Friend full API',
         '--scopes',
-        'room:read,playback:read,playback:control,queue:read,queue:write,media:upload',
+        'room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control',
       ],
       env: { MXQR_DEVELOPER_API_KEY_PEPPER: 'p'.repeat(32) },
       randomBytes: (size: number) => Buffer.alloc(size, 7),
@@ -113,7 +115,7 @@ describe('Developer API key CLI', () => {
       },
       stdout: { write: () => true },
     });
-    expect(insert).toContain(', 63,');
+    expect(insert).toContain(', 255,');
   });
 
   it('requires the same key pepper before generating any credential', async () => {

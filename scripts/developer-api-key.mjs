@@ -12,7 +12,12 @@ const DATABASE_NAME = 'musixquare-developer-api';
 const WRANGLER_CONFIG = 'cloudflare/wrangler.developer-api.toml';
 const ROOM_CODE_RE = /^0\d{5}$/;
 const KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
-const READ_SCOPES = Object.freeze(['room:read', 'playback:read', 'queue:read']);
+const READ_SCOPES = Object.freeze([
+  'room:read',
+  'playback:read',
+  'queue:read',
+  'effects:read',
+]);
 const ISSUABLE_SCOPES = Object.freeze([
   'room:read',
   'playback:read',
@@ -20,12 +25,14 @@ const ISSUABLE_SCOPES = Object.freeze([
   'queue:read',
   'queue:write',
   'media:upload',
+  'effects:read',
+  'effects:control',
 ]);
 const DEFAULT_DAYS = 90;
 const MAX_DAYS = 365;
 const USAGE = [
   'Usage:',
-  '  npm run developer-api:key -- issue --room 000001 --label "Friend API" [--days 90] [--scopes room:read,playback:read,playback:control,queue:read,queue:write,media:upload]',
+  '  npm run developer-api:key -- issue --room 000001 --label "Friend API" [--days 90] [--scopes room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control]',
   '  npm run developer-api:key -- list [--room 000001]',
   '  npm run developer-api:key -- revoke --id <16-character-key-id>',
 ].join('\n');

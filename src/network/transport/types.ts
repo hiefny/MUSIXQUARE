@@ -1,3 +1,5 @@
+import { parseRoomEffectsPatch, type RoomEffectsPatch } from '../../core/room-effects.ts';
+
 export type TransportProvider = 'peerjs' | 'cloudflare';
 
 export type DeveloperCommandResultCode =
@@ -14,11 +16,12 @@ type DeveloperCommand =
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
   | { readonly type: 'seek'; readonly positionSeconds: number }
-  | { readonly type: 'play_item'; readonly queueItemId: string };
+  | { readonly type: 'play_item'; readonly queueItemId: string }
+  | { readonly type: 'set_effects'; readonly effects: RoomEffectsPatch };
 
 export interface DeveloperCommandFrame {
   readonly type: 'developer-command';
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly roomCode: string;
   readonly coordinatorEpoch: number;
   readonly commandId: string;
@@ -98,7 +101,7 @@ export function parseDeveloperCommandFrame(value: unknown): DeveloperCommandFram
       'command',
     ]) ||
     value.type !== 'developer-command' ||
-    value.version !== 1 ||
+    (value.version !== 1 && value.version !== 2) ||
     typeof value.roomCode !== 'string' ||
     !/^0\d{5}$/.test(value.roomCode) ||
     !isNonNegativeSafeInteger(value.coordinatorEpoch) ||
@@ -138,13 +141,23 @@ export function parseDeveloperCommandFrame(value: unknown): DeveloperCommandFram
     isDeveloperQueueItemId(value.command.queueItemId)
   ) {
     command = { type: 'play_item', queueItemId: value.command.queueItemId };
+  } else if (
+    value.command.type === 'set_effects' &&
+    hasExactKeys(value.command, ['type', 'effects'])
+  ) {
+    const effects = parseRoomEffectsPatch(value.command.effects);
+    if (!effects) return null;
+    command = { type: 'set_effects', effects };
   } else {
     return null;
   }
 
+  const requiredVersion = command.type === 'set_effects' ? 2 : 1;
+  if (value.version !== requiredVersion) return null;
+
   return {
     type: 'developer-command',
-    version: 1,
+    version: value.version,
     roomCode: value.roomCode,
     coordinatorEpoch: value.coordinatorEpoch,
     commandId: value.commandId,

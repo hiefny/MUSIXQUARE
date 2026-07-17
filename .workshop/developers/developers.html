@@ -11,7 +11,7 @@
 
   <title>Developer API · MUSIXQUARE</title>
   <meta name="description"
-    content="Server-to-server API documentation for reading and controlling a MUSIXQUARE PRO room, managing its playlist, and uploading audio.">
+    content="Server-to-server API documentation for reading and controlling a MUSIXQUARE PRO room, its audio effects, playlist, and media.">
 
   <meta property="og:title" content="Developer API · MUSIXQUARE">
   <meta property="og:description"
@@ -50,15 +50,16 @@
       <p class="policy-kicker">PRIVATE BETA</p>
       <h1>Developer API</h1>
       <p>Connect a server, bot, or integration to one MUSIXQUARE PRO room.</p>
-      <p class="policy-date">API version: v1 · Updated July 17, 2026</p>
+      <p class="policy-date">API version: v1 · Updated July 18, 2026</p>
     </section>
 
     <article class="policy-doc">
       <section>
         <h2>1. Overview</h2>
         <p>
-          The MUSIXQUARE Developer API reads room state, controls playback, manages the persistent playlist, and
-          uploads audio to a PRO room. Each key is bound to one room and only receives its assigned scopes.
+          The MUSIXQUARE Developer API reads room state, controls playback and room-wide audio effects, manages the
+          persistent playlist, and uploads audio to a PRO room. Each key is bound to one room and only receives its
+          assigned scopes.
         </p>
         <p>All versioned endpoints use this base URL:</p>
         <pre class="policy-code"><code>https://api.musixquare.com/v1</code></pre>
@@ -80,9 +81,11 @@
             <dt>Scopes</dt>
             <dd>
               Keys can receive <code>room:read</code>, <code>playback:read</code>,
-              <code>playback:control</code>, <code>queue:read</code>, <code>queue:write</code>, and
-              <code>media:upload</code>. Direct file additions require both <code>media:upload</code> and
-              <code>queue:write</code>, because completion also appends a playlist item.
+              <code>playback:control</code>, <code>effects:read</code>, <code>effects:control</code>,
+              <code>queue:read</code>, <code>queue:write</code>, and <code>media:upload</code>. Direct file additions
+              require both <code>media:upload</code> and <code>queue:write</code>, because completion also appends a
+              playlist item. Effect state reads require <code>effects:read</code>; effect commands require
+              <code>effects:control</code>.
             </dd>
           </div>
           <div>
@@ -128,6 +131,13 @@ console.log(await response.json());</code></pre>
             <dd>
               Persistent playlist, current item, playlist revision, and each item's optional <code>addedBy</code>
               provenance without private R2 identifiers, API key IDs, or URLs.
+            </dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/effects</span></dt>
+            <dd>
+              Canonical full room-wide effect state, its revision, and last update time. This state remains available
+              while the PRO room is sleeping.
             </dd>
           </div>
         </dl>
@@ -182,7 +192,90 @@ console.log(command.commandId, command.status);</code></pre>
       </section>
 
       <section>
-        <h2>6. Manage the Playlist</h2>
+        <h2>6. Control Audio Effects</h2>
+        <p>
+          Submit <code>set_effects</code> through the same command endpoint and poll the returned command ID through
+          <code>/commands/{commandId}</code>. The request is a partial update: omitted effects and omitted reverb
+          fields keep their current values. All supplied fields are validated and applied as one command. The
+          <code>effects</code> object and every supplied nested object must contain at least one field.
+        </p>
+        <pre class="policy-code"><code>const response = await fetch(`${baseUrl}/rooms/${roomCode}/commands`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+  body: JSON.stringify({
+    type: 'set_effects',
+    effects: {
+      reverb: {
+        mixPercent: 40,
+        decaySeconds: 1,
+        preDelaySeconds: 0.02,
+        lowCutPercent: 0,
+        highCutPercent: 0,
+      },
+      equalizer: { bandsDb: [5, 3, 0, -2, -3] },
+      virtualBass: { strengthPercent: 60 },
+      virtualSurround: { widthPercent: 120 },
+    },
+  }),
+});
+
+const command = await response.json();
+console.log(command.commandId, command.status);</code></pre>
+        <dl>
+          <div>
+            <dt>Reverb</dt>
+            <dd>
+              <code>mixPercent</code> 0&ndash;100, <code>decaySeconds</code> 0.1&ndash;30,
+              <code>preDelaySeconds</code> 0&ndash;1, and <code>lowCutPercent</code> /
+              <code>highCutPercent</code> 0&ndash;100. The app's Studio preset is
+              <code>{ mixPercent: 40, decaySeconds: 1, preDelaySeconds: 0.02, lowCutPercent: 0, highCutPercent: 0 }</code>.
+              Arena is
+              <code>{ mixPercent: 50, decaySeconds: 5, preDelaySeconds: 0.12, lowCutPercent: 0, highCutPercent: 40 }</code>.
+              Turn reverb off with <code>{ mixPercent: 0 }</code>.
+            </dd>
+          </div>
+          <div>
+            <dt>Equalizer</dt>
+            <dd>
+              <code>bandsDb</code> must contain exactly five values from -12 through 12 dB, ordered at 60, 230, 910,
+              3,600, and 14,000 Hz. Bright is <code>[0, -2, 0, 4, 6]</code>; Warm is
+              <code>[5, 3, 0, -2, -3]</code>; flat/off is <code>[0, 0, 0, 0, 0]</code>.
+            </dd>
+          </div>
+          <div>
+            <dt>Virtual bass</dt>
+            <dd>
+              <code>strengthPercent</code> accepts 0&ndash;100. The app's on value is <code>60</code>; off is
+              <code>0</code>.
+            </dd>
+          </div>
+          <div>
+            <dt>Virtual surround</dt>
+            <dd>
+              <code>widthPercent</code> accepts 0&ndash;200 and controls stereo width, not channel routing. The app's
+              on value is <code>120</code>; neutral/off is <code>100</code>.
+            </dd>
+          </div>
+        </dl>
+        <p>
+          Effect state is persisted across PRO room sleep/wake cycles and coordinator handoffs, and joining devices
+          receive the current state. A new effect command still requires an awake room with a compatible active
+          coordinator; read <code>/effects</code> after the command becomes <code>applied</code> to observe the
+          canonical result.
+        </p>
+        <p class="api-note">
+          These are room-wide Web Audio effects. They do not control device-local volume, channel roles, subwoofer
+          cutoff, or manual sync. YouTube playback is unaffected. During system-audio sharing, the sender hears the
+          original source while receivers hear the configured effects.
+        </p>
+      </section>
+
+      <section>
+        <h2>7. Manage the Playlist</h2>
         <dl>
           <div>
             <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/queue/items</span></dt>
@@ -318,7 +411,7 @@ await fetch(`${baseUrl}/rooms/${roomCode}/queue/order`, {
       </section>
 
       <section>
-        <h2>7. Upload Audio</h2>
+        <h2>8. Upload Audio</h2>
         <p>
           Uploads use a three-step flow. The audio body goes directly to a short-lived signed R2 URL and never passes
           through the Developer API Worker.
@@ -413,7 +506,7 @@ await Promise.all(workers);</code></pre>
       </section>
 
       <section>
-        <h2>8. Limits and Supported Media</h2>
+        <h2>9. Limits and Supported Media</h2>
         <dl>
           <div>
             <dt>Storage</dt>
@@ -441,7 +534,7 @@ await Promise.all(workers);</code></pre>
       </section>
 
       <section>
-        <h2>9. Responses and Errors</h2>
+        <h2>10. Responses and Errors</h2>
         <p>
           JSON responses include <code>X-Request-Id</code>. Keep that value when reporting a failure. Error responses
           use a stable code, human-readable message, request ID, and <code>retryable</code> flag.
@@ -463,7 +556,7 @@ await Promise.all(workers);</code></pre>
       </section>
 
       <section>
-        <h2>10. Compatibility and Contact</h2>
+        <h2>11. Compatibility and Contact</h2>
         <p>
           The URL major version is <code>v1</code>. New optional response fields may be added compatibly; clients should
           ignore fields they do not recognize. Removing a field or changing its meaning requires a new major version.

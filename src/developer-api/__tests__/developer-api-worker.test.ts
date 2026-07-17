@@ -92,6 +92,28 @@ function queuePayload() {
   };
 }
 
+function effectsPayload() {
+  return {
+    schemaVersion: 1,
+    view: 'effects',
+    roomCode: ROOM_CODE,
+    revision: 5,
+    updatedAtMs: OBSERVED_AT_MS,
+    effects: {
+      reverb: {
+        mixPercent: 20,
+        decaySeconds: 2.5,
+        preDelaySeconds: 0.04,
+        lowCutPercent: 5,
+        highCutPercent: 90,
+      },
+      equalizer: { bandsDb: [-6, -3, 0, 3, 6] },
+      virtualBass: { strengthPercent: 40 },
+      virtualSurround: { widthPercent: 125 },
+    },
+  };
+}
+
 function commandPayload(
   status: 'pending' | 'dispatched' | 'applied' | 'rejected' | 'expired' = 'pending',
 ) {
@@ -268,7 +290,9 @@ async function createEnvironment(
                   ? playbackPayload()
                   : body.projection === 'queue'
                     ? queuePayload()
-                    : roomPayload());
+                    : body.projection === 'effects'
+                      ? effectsPayload()
+                      : roomPayload());
     const defaultStatus =
       path === '/internal/v1/commands/create'
         ? 202
@@ -424,6 +448,58 @@ describe('Developer API read-only public Worker', () => {
     expect(queue.status).toBe(200);
     expect(queue.headers.get('etag')).toMatch(/^"mxqr-queue-[A-Za-z0-9_-]{43}"$/);
     await expect(queue.json()).resolves.toEqual(queuePayload());
+  });
+
+  it('returns a strictly bounded effects projection through effects:read', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['effects:read'] });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`),
+      setup.env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toMatch(/^"mxqr-effects-[A-Za-z0-9_-]{43}"$/);
+    await expect(response.json()).resolves.toEqual(effectsPayload());
+    expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      projection: 'effects',
+    });
+
+    const playbackOnly = await createEnvironment({
+      scopeMask: developerApiScopes['playback:read'],
+    });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`),
+      playbackOnly.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(playbackOnly.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the effects facade projection is partial or carries private fields', async () => {
+    for (const payload of [
+      {
+        ...effectsPayload(),
+        effects: { ...effectsPayload().effects, equalizer: { bandsDb: [0, 0, 0, 0] } },
+      },
+      {
+        ...effectsPayload(),
+        effects: { ...effectsPayload().effects, privatePresetId: 'secret' },
+      },
+      { ...effectsPayload(), revision: -1 },
+    ]) {
+      const setup = await createEnvironment({
+        scopeMask: developerApiScopes['effects:read'],
+        facadePayload: payload,
+      });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/effects`),
+        setup.env,
+      );
+      expect(response.status).toBe(503);
+      expect(await errorCode(response)).toBe('INTERNAL_RESPONSE_INVALID');
+    }
   });
 
   it.each(['participant', 'current_api_key', 'another_api_key'])(
@@ -630,7 +706,7 @@ describe('Developer API read-only public Worker', () => {
     expect(base).toEqual([]);
     for (const mutation of [
       { scope_mask: 0 },
-      { scope_mask: 64 },
+      { scope_mask: 256 },
       { scope_mask: 4_294_967_297 },
       { scope_mask: 1.5 },
       { expires_at: null },
@@ -1395,6 +1471,120 @@ describe('Developer API read-only public Worker', () => {
     expect(setup.database.run).toHaveBeenCalledTimes(2);
   });
 
+  it('creates a partial effects command with effects:control without granting playback control', async () => {
+    const setup = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['effects:control'],
+    });
+    const command = {
+      type: 'set_effects',
+      effects: {
+        reverb: { mixPercent: 35, preDelaySeconds: 0.2 },
+        equalizer: { bandsDb: [-12, -6, 0, 6, 12] },
+        virtualBass: { strengthPercent: 75 },
+        virtualSurround: { widthPercent: 200 },
+      },
+    };
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify(command),
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(202);
+    const [, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      command,
+    });
+
+    const playback = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.playback-with-effects-key',
+        },
+        body: JSON.stringify({ type: 'play' }),
+      }),
+      setup.env,
+    );
+    expect(playback.status).toBe(403);
+  });
+
+  it('keeps playback and effects command scopes independent', async () => {
+    const playbackOnly = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify({
+          type: 'set_effects',
+          effects: { virtualBass: { strengthPercent: 50 } },
+        }),
+      }),
+      playbackOnly.env,
+    );
+    expect(response.status).toBe(403);
+    expect(playbackOnly.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty, out-of-range, incomplete, and extra effects command fields', async () => {
+    const invalidCommands = [
+      { type: 'set_effects', effects: {} },
+      { type: 'set_effects', effects: { reverb: {} } },
+      { type: 'set_effects', effects: { reverb: { decaySeconds: 0.09 } } },
+      { type: 'set_effects', effects: { reverb: { preDelaySeconds: 1.01 } } },
+      { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0] } } },
+      { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0, 12.1] } } },
+      { type: 'set_effects', effects: { virtualBass: { strengthPercent: -1 } } },
+      { type: 'set_effects', effects: { virtualSurround: { widthPercent: 201 } } },
+      {
+        type: 'set_effects',
+        effects: { virtualBass: { strengthPercent: 50, privatePreset: true } },
+      },
+      {
+        type: 'set_effects',
+        effects: { virtualBass: { strengthPercent: 50 } },
+        unexpected: true,
+      },
+    ];
+    for (const command of invalidCommands) {
+      const setup = await createEnvironment({
+        mode: 'enabled',
+        scopeMask: developerApiScopes['effects:control'],
+      });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': IDEMPOTENCY_KEY,
+          },
+          body: JSON.stringify(command),
+        }),
+        setup.env,
+      );
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe('INVALID_REQUEST');
+      expect(setup.facadeFetch).not.toHaveBeenCalled();
+    }
+  });
+
   it('returns the canonical terminal result when an accepted command response was lost', async () => {
     const setup = await createEnvironment({
       mode: 'enabled',
@@ -1510,7 +1700,7 @@ describe('Developer API read-only public Worker', () => {
   it('delegates command ownership to the facade and permits status reads in read-only mode', async () => {
     const setup = await createEnvironment({
       mode: 'read-only',
-      scopeMask: developerApiScopes['playback:control'],
+      scopeMask: developerApiScopes['effects:read'],
     });
     const response = await developerApiWorker.fetch(
       apiRequest(`/v1/rooms/${ROOM_CODE}/commands/${COMMAND_ID}`),

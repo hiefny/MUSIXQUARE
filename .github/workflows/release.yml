@@ -328,6 +328,13 @@ jobs:
           version_id="$(node scripts/release-deployment-state.mjs version developer-api)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
+      - name: Expand Developer API effects scopes
+        id: developer_api_effects_scope_migration
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        env:
+          MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL: release-artifacts/deployments/developer-api-effects-scope.json
+        run: npm run developer-api:effects-scopes:remote
+
       - name: Smoke Developer API Worker
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         env:
@@ -374,11 +381,16 @@ jobs:
         if: inputs.target == 'all' || inputs.target == 'app'
         run: npm run smoke:live:app-session
 
-      - name: Restore deployments after a failed release
+      - name: Restore schema and deployments after a failed release
         id: rollback
         if: failure() || cancelled()
         continue-on-error: true
-        run: node scripts/release-deployment-state.mjs rollback
+        shell: bash
+        env:
+          MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL: release-artifacts/deployments/developer-api-effects-scope.json
+        run: |
+          npm run developer-api:effects-scopes:release-rollback
+          node scripts/release-deployment-state.mjs rollback
 
       - name: Upload deployment records
         if: always()
@@ -397,5 +409,6 @@ jobs:
           echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly/manual)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Developer API effects-scope schema changed: \`${{ steps.developer_api_effects_scope_migration.outputs.applied || 'false' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"
           node scripts/release-deployment-state.mjs summary

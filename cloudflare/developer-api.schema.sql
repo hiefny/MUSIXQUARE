@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_keys (
   secret_digest TEXT NOT NULL UNIQUE
     CHECK (length(secret_digest) = 43 AND secret_digest NOT GLOB '*[^A-Za-z0-9_-]*'),
   digest_version INTEGER NOT NULL DEFAULT 1 CHECK (digest_version = 1),
-  scope_mask INTEGER NOT NULL CHECK (scope_mask BETWEEN 1 AND 63),
+  scope_mask INTEGER NOT NULL CHECK (scope_mask BETWEEN 1 AND 255),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
   created_at INTEGER NOT NULL CHECK (created_at >= 0),
   updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),

@@ -29,6 +29,8 @@ const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
 const DEVELOPER_CONTROL_VERSION = 1;
+const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
+const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_EFFECTS_CONTROL_VERSION;
 const DEVELOPER_COMMAND_BODY_MAX_BYTES = 4 * 1024;
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -146,8 +148,9 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
   if (Object.keys(value).some((key) => !allowedTicketKeys.has(key))) return null;
   if (
     Object.prototype.hasOwnProperty.call(value, 'developerControlVersion') &&
-    value.developerControlVersion !== 0 &&
-    value.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+    (!Number.isSafeInteger(value.developerControlVersion) ||
+      value.developerControlVersion < 0 ||
+      value.developerControlVersion > DEVELOPER_CONTROL_MAX_VERSION)
   ) {
     return null;
   }
@@ -181,8 +184,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     coordinatorEpoch: value.coordinatorEpoch,
     presenceIncarnationId: value.presenceIncarnationId,
     ticketSequence: value.ticketSequence,
-    developerControlVersion:
-      value.developerControlVersion === DEVELOPER_CONTROL_VERSION ? DEVELOPER_CONTROL_VERSION : 0,
+    developerControlVersion: value.developerControlVersion || 0,
     jti: value.jti,
     iat: value.iat,
     exp: value.exp,
@@ -282,6 +284,83 @@ function hasExactKeys(value, required, optional = []) {
   );
 }
 
+function normalizeRoomEffectsPatch(value) {
+  if (!isRecord(value)) return null;
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
+  const keys = Object.keys(value);
+  if (keys.length === 0 || keys.some((key) => !allowed.includes(key))) return null;
+
+  const normalized = {};
+  if (value.reverb !== undefined) {
+    const reverb = value.reverb;
+    const fields = [
+      ['mixPercent', 0, 100],
+      ['decaySeconds', 0.1, 30],
+      ['preDelaySeconds', 0, 1],
+      ['lowCutPercent', 0, 100],
+      ['highCutPercent', 0, 100],
+    ];
+    if (
+      !isRecord(reverb) ||
+      Object.keys(reverb).length === 0 ||
+      !hasExactKeys(reverb, [], fields.map(([field]) => field))
+    ) {
+      return null;
+    }
+    const next = {};
+    for (const [field, min, max] of fields) {
+      if (reverb[field] === undefined) continue;
+      const number = reverb[field];
+      if (typeof number !== 'number' || !Number.isFinite(number) || number < min || number > max) {
+        return null;
+      }
+      next[field] = number;
+    }
+    normalized.reverb = next;
+  }
+  if (value.equalizer !== undefined) {
+    const equalizer = value.equalizer;
+    if (
+      !hasExactKeys(equalizer, ['bandsDb']) ||
+      !Array.isArray(equalizer.bandsDb) ||
+      equalizer.bandsDb.length !== 5 ||
+      equalizer.bandsDb.some(
+        (band) => typeof band !== 'number' || !Number.isFinite(band) || band < -12 || band > 12,
+      )
+    ) {
+      return null;
+    }
+    normalized.equalizer = { bandsDb: [...equalizer.bandsDb] };
+  }
+  if (value.virtualBass !== undefined) {
+    const virtualBass = value.virtualBass;
+    if (
+      !hasExactKeys(virtualBass, ['strengthPercent']) ||
+      typeof virtualBass.strengthPercent !== 'number' ||
+      !Number.isFinite(virtualBass.strengthPercent) ||
+      virtualBass.strengthPercent < 0 ||
+      virtualBass.strengthPercent > 100
+    ) {
+      return null;
+    }
+    normalized.virtualBass = { strengthPercent: virtualBass.strengthPercent };
+  }
+  if (value.virtualSurround !== undefined) {
+    const virtualSurround = value.virtualSurround;
+    if (
+      !hasExactKeys(virtualSurround, ['widthPercent']) ||
+      typeof virtualSurround.widthPercent !== 'number' ||
+      !Number.isFinite(virtualSurround.widthPercent) ||
+      virtualSurround.widthPercent < 0 ||
+      virtualSurround.widthPercent > 200
+    ) {
+      return null;
+    }
+    normalized.virtualSurround = { widthPercent: virtualSurround.widthPercent };
+  }
+  return normalized;
+}
+
 function normalizeDeveloperCommand(value) {
   if (!isRecord(value)) return null;
   if (value.type === 'play' || value.type === 'pause') {
@@ -301,6 +380,10 @@ function normalizeDeveloperCommand(value) {
       ? { type: 'play_item', queueItemId: value.queueItemId }
       : null;
   }
+  if (value.type === 'set_effects' && hasExactKeys(value, ['type', 'effects'])) {
+    const effects = normalizeRoomEffectsPatch(value.effects);
+    return effects ? { type: 'set_effects', effects } : null;
+  }
   return null;
 }
 
@@ -317,7 +400,8 @@ function normalizeDeveloperCommandFrame(value) {
       'command',
     ]) ||
     value.type !== 'developer-command' ||
-    value.version !== DEVELOPER_CONTROL_VERSION ||
+    (value.version !== DEVELOPER_CONTROL_VERSION &&
+      value.version !== DEVELOPER_EFFECTS_CONTROL_VERSION) ||
     !isProNamespaceRoomCode(value.roomCode) ||
     !isValidProEpoch(value.coordinatorEpoch) ||
     !DEVELOPER_COMMAND_ID_RE.test(value.commandId || '') ||
@@ -334,9 +418,14 @@ function normalizeDeveloperCommandFrame(value) {
   }
   const command = normalizeDeveloperCommand(value.command);
   if (!command) return null;
+  const requiredVersion =
+    command.type === 'set_effects'
+      ? DEVELOPER_EFFECTS_CONTROL_VERSION
+      : DEVELOPER_CONTROL_VERSION;
+  if (value.version !== requiredVersion) return null;
   return {
     type: 'developer-command',
-    version: DEVELOPER_CONTROL_VERSION,
+    version: requiredVersion,
     roomCode: value.roomCode,
     coordinatorEpoch: value.coordinatorEpoch,
     commandId: value.commandId,
@@ -780,7 +869,11 @@ function normalizeAttachment(value) {
           ? value.ticketSequence
           : 0,
       developerControlVersion:
-        value.developerControlVersion === DEVELOPER_CONTROL_VERSION ? DEVELOPER_CONTROL_VERSION : 0,
+        Number.isSafeInteger(value.developerControlVersion) &&
+        value.developerControlVersion >= 0 &&
+        value.developerControlVersion <= DEVELOPER_CONTROL_MAX_VERSION
+          ? value.developerControlVersion
+          : 0,
       auth: 'ok',
     };
     if (value.role === 'guest') {
@@ -1407,13 +1500,16 @@ export class MusixquareRoom {
       !isValidPeerId(value.coordinatorParticipantId) ||
       typeof value.coordinatorPresenceIncarnationId !== 'string' ||
       !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.coordinatorPresenceIncarnationId) ||
-      value.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+      !Number.isSafeInteger(value.developerControlVersion) ||
+      value.developerControlVersion < DEVELOPER_CONTROL_VERSION ||
+      value.developerControlVersion > DEVELOPER_CONTROL_MAX_VERSION
     ) {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
     const frame = normalizeDeveloperCommandFrame(value.frame);
     if (
       !frame ||
+      frame.version !== value.developerControlVersion ||
       frame.roomCode !== value.roomCode ||
       frame.coordinatorEpoch !== value.coordinatorEpoch ||
       frame.expiresAtMs <= Date.now()
@@ -1437,7 +1533,7 @@ export class MusixquareRoom {
       attachment.participantId !== value.coordinatorParticipantId ||
       attachment.coordinatorEpoch !== value.coordinatorEpoch ||
       attachment.presenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
-      attachment.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+      attachment.developerControlVersion < value.developerControlVersion
     ) {
       return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
     }
@@ -1503,7 +1599,7 @@ export class MusixquareRoom {
       attachment.participantId !== value.coordinatorParticipantId ||
       attachment.coordinatorEpoch !== value.coordinatorEpoch ||
       attachment.presenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
-      attachment.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+      attachment.developerControlVersion < DEVELOPER_CONTROL_VERSION
     ) {
       return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
     }

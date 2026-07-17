@@ -4,6 +4,7 @@ info:
   version: 1.0.0-beta
   description: |
     Server-to-server API for one room-bound MUSIXQUARE PRO room.
+    The API can read and control persistent room-wide audio effects as well as playback and the playlist.
     API keys must never be embedded in browser code or other public clients.
   contact:
     name: MUSIXQUARE
@@ -70,6 +71,29 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/effects:
+    get:
+      operationId: getEffects
+      description: |
+        Returns the canonical full room-wide audio-effect state. Requires effects:read. The state remains
+        readable while the PRO room is sleeping and persists across sleep/wake cycles and coordinator handoffs.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Canonical full room-wide audio-effect state.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EffectsState' }
+        '304': { description: Representation is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/queue:
     get:
       operationId: getQueue
@@ -92,10 +116,12 @@ paths:
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/commands:
     post:
-      operationId: createPlaybackCommand
+      operationId: createRoomCommand
       description: |
-        Creates one fenced playback intent. An applied play_item command means
-        the coordinator accepted the item; devices may still be loading it.
+        Creates one fenced playback or room-wide audio-effect intent. Playback commands require
+        playback:control; set_effects requires effects:control. An applied play_item command means the
+        coordinator accepted the item; devices may still be loading it. Effect commands require an awake room
+        with a compatible active coordinator even though the canonical effect state remains readable while asleep.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -103,7 +129,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PlaybackCommand' }
+            schema: { $ref: '#/components/schemas/RoomCommand' }
       responses:
         '202':
           description: Command accepted, including an idempotent replay.
@@ -119,7 +145,7 @@ paths:
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/commands/{commandId}:
     get:
-      operationId: getPlaybackCommand
+      operationId: getRoomCommand
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/CommandId'
@@ -377,6 +403,10 @@ components:
       required: true
       schema: { type: string, minLength: 16, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }
   schemas:
+    RoomCommand:
+      oneOf:
+        - $ref: '#/components/schemas/PlaybackCommand'
+        - $ref: '#/components/schemas/SetEffectsCommand'
     PlaybackCommand:
       oneOf:
         - type: object
@@ -399,6 +429,106 @@ components:
           properties:
             type: { const: play_item }
             queueItemId: { $ref: '#/components/schemas/QueueItemId' }
+    SetEffectsCommand:
+      type: object
+      additionalProperties: false
+      required: [type, effects]
+      properties:
+        type: { const: set_effects }
+        effects: { $ref: '#/components/schemas/EffectsPatch' }
+    EffectsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        reverb: { $ref: '#/components/schemas/ReverbEffectsPatch' }
+        equalizer: { $ref: '#/components/schemas/EqualizerEffectsPatch' }
+        virtualBass: { $ref: '#/components/schemas/VirtualBassEffectsPatch' }
+        virtualSurround: { $ref: '#/components/schemas/VirtualSurroundEffectsPatch' }
+    ReverbEffectsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        mixPercent: { type: number, minimum: 0, maximum: 100 }
+        decaySeconds: { type: number, minimum: 0.1, maximum: 30 }
+        preDelaySeconds: { type: number, minimum: 0, maximum: 1 }
+        lowCutPercent: { type: number, minimum: 0, maximum: 100 }
+        highCutPercent: { type: number, minimum: 0, maximum: 100 }
+    EqualizerEffectsPatch:
+      type: object
+      additionalProperties: false
+      required: [bandsDb]
+      properties:
+        bandsDb:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items: { type: number, minimum: -12, maximum: 12 }
+    VirtualBassEffectsPatch:
+      type: object
+      additionalProperties: false
+      required: [strengthPercent]
+      properties:
+        strengthPercent: { type: number, minimum: 0, maximum: 100 }
+    VirtualSurroundEffectsPatch:
+      type: object
+      additionalProperties: false
+      required: [widthPercent]
+      properties:
+        widthPercent: { type: number, minimum: 0, maximum: 200 }
+    EffectsState:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, view, roomCode, revision, updatedAtMs, effects]
+      properties:
+        schemaVersion: { const: 1 }
+        view: { const: effects }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        revision: { type: integer, minimum: 0 }
+        updatedAtMs: { type: integer, minimum: 0 }
+        effects: { $ref: '#/components/schemas/RoomEffects' }
+    RoomEffects:
+      type: object
+      additionalProperties: false
+      required: [reverb, equalizer, virtualBass, virtualSurround]
+      properties:
+        reverb: { $ref: '#/components/schemas/ReverbEffects' }
+        equalizer: { $ref: '#/components/schemas/EqualizerEffects' }
+        virtualBass: { $ref: '#/components/schemas/VirtualBassEffects' }
+        virtualSurround: { $ref: '#/components/schemas/VirtualSurroundEffects' }
+    ReverbEffects:
+      type: object
+      additionalProperties: false
+      required: [mixPercent, decaySeconds, preDelaySeconds, lowCutPercent, highCutPercent]
+      properties:
+        mixPercent: { type: number, minimum: 0, maximum: 100 }
+        decaySeconds: { type: number, minimum: 0.1, maximum: 30 }
+        preDelaySeconds: { type: number, minimum: 0, maximum: 1 }
+        lowCutPercent: { type: number, minimum: 0, maximum: 100 }
+        highCutPercent: { type: number, minimum: 0, maximum: 100 }
+    EqualizerEffects:
+      type: object
+      additionalProperties: false
+      required: [bandsDb]
+      properties:
+        bandsDb:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items: { type: number, minimum: -12, maximum: 12 }
+    VirtualBassEffects:
+      type: object
+      additionalProperties: false
+      required: [strengthPercent]
+      properties:
+        strengthPercent: { type: number, minimum: 0, maximum: 100 }
+    VirtualSurroundEffects:
+      type: object
+      additionalProperties: false
+      required: [widthPercent]
+      properties:
+        widthPercent: { type: number, minimum: 0, maximum: 200 }
     CommandStatus:
       type: object
       additionalProperties: false
@@ -465,7 +595,18 @@ components:
     Room:
       type: object
       additionalProperties: false
-      required: [schemaVersion, view, roomCode, status, runtime, revision, participantCount, controlAvailable, quota]
+      required:
+        [
+          schemaVersion,
+          view,
+          roomCode,
+          status,
+          runtime,
+          revision,
+          participantCount,
+          controlAvailable,
+          quota,
+        ]
       properties:
         schemaVersion: { const: 1 }
         view: { const: room }
@@ -480,7 +621,19 @@ components:
     Playback:
       type: object
       additionalProperties: false
-      required: [schemaVersion, view, roomCode, revision, playlistRevision, state, queueItemId, positionSeconds, observedAtMs, item]
+      required:
+        [
+          schemaVersion,
+          view,
+          roomCode,
+          revision,
+          playlistRevision,
+          state,
+          queueItemId,
+          positionSeconds,
+          observedAtMs,
+          item,
+        ]
       properties:
         schemaVersion: { const: 1 }
         view: { const: playback }
@@ -501,7 +654,8 @@ components:
         view: { const: queue }
         roomCode: { type: string, pattern: '^0[0-9]{5}$' }
         playlistRevision: { type: integer, minimum: 0 }
-        currentQueueItemId: { oneOf: [{ $ref: '#/components/schemas/QueueItemId' }, { type: 'null' }] }
+        currentQueueItemId:
+          { oneOf: [{ $ref: '#/components/schemas/QueueItemId' }, { type: 'null' }] }
         items:
           type: array
           maxItems: 1000
@@ -562,7 +716,18 @@ components:
     MediaUploadReservation:
       type: object
       additionalProperties: false
-      required: [schemaVersion, roomCode, assetId, queueItemId, byteLength, uploadExpiresAtMs, completionExpiresAtMs, upload, quota]
+      required:
+        [
+          schemaVersion,
+          roomCode,
+          assetId,
+          queueItemId,
+          byteLength,
+          uploadExpiresAtMs,
+          completionExpiresAtMs,
+          upload,
+          quota,
+        ]
       properties:
         schemaVersion: { const: 1 }
         roomCode: { type: string, pattern: '^0[0-9]{5}$' }

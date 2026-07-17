@@ -53,13 +53,17 @@ const SCOPE_PLAYBACK_CONTROL = 4;
 const SCOPE_QUEUE_READ = 8;
 const SCOPE_QUEUE_WRITE = 16;
 const SCOPE_MEDIA_UPLOAD = 32;
+const SCOPE_EFFECTS_READ = 64;
+const SCOPE_EFFECTS_CONTROL = 128;
 const ALL_SCOPE_BITS =
   SCOPE_ROOM_READ |
   SCOPE_PLAYBACK_READ |
   SCOPE_PLAYBACK_CONTROL |
   SCOPE_QUEUE_READ |
   SCOPE_QUEUE_WRITE |
-  SCOPE_MEDIA_UPLOAD;
+  SCOPE_MEDIA_UPLOAD |
+  SCOPE_EFFECTS_READ |
+  SCOPE_EFFECTS_CONTROL;
 const SECURITY_HEADERS = Object.freeze({
   'content-security-policy':
     "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
@@ -485,7 +489,106 @@ function parseDeveloperCommand(value) {
       ? { type: 'play_item', queueItemId: value.queueItemId }
       : null;
   }
+  if (value.type === 'set_effects') {
+    const effects = hasExactKeys(value, ['type', 'effects'])
+      ? parseEffectsPatch(value.effects)
+      : null;
+    return effects ? { type: 'set_effects', effects } : null;
+  }
   return null;
+}
+
+const EFFECT_REVERB_FIELDS = Object.freeze({
+  mixPercent: [0, 100],
+  decaySeconds: [0.1, 30],
+  preDelaySeconds: [0, 1],
+  lowCutPercent: [0, 100],
+  highCutPercent: [0, 100],
+});
+
+function boundedFiniteNumber(value, minimum, maximum) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
+function parseReverbPatch(value, requireComplete = false) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const keys = Object.keys(value);
+  const allowed = Object.keys(EFFECT_REVERB_FIELDS);
+  if (
+    keys.length === 0 ||
+    keys.some((key) => !allowed.includes(key)) ||
+    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+  ) {
+    return null;
+  }
+  const parsed = {};
+  for (const key of keys) {
+    const [minimum, maximum] = EFFECT_REVERB_FIELDS[key];
+    if (!boundedFiniteNumber(value[key], minimum, maximum)) return null;
+    parsed[key] = value[key];
+  }
+  return parsed;
+}
+
+function parseEqualizer(value) {
+  if (
+    !hasExactKeys(value, ['bandsDb']) ||
+    !Array.isArray(value.bandsDb) ||
+    value.bandsDb.length !== 5 ||
+    value.bandsDb.some((band) => !boundedFiniteNumber(band, -12, 12))
+  ) {
+    return null;
+  }
+  return { bandsDb: [...value.bandsDb] };
+}
+
+function parseVirtualBass(value) {
+  return hasExactKeys(value, ['strengthPercent']) &&
+    boundedFiniteNumber(value.strengthPercent, 0, 100)
+    ? { strengthPercent: value.strengthPercent }
+    : null;
+}
+
+function parseVirtualSurround(value) {
+  return hasExactKeys(value, ['widthPercent']) &&
+    boundedFiniteNumber(value.widthPercent, 0, 200)
+    ? { widthPercent: value.widthPercent }
+    : null;
+}
+
+function parseEffects(value, requireComplete) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
+  const keys = Object.keys(value);
+  if (
+    keys.length === 0 ||
+    keys.some((key) => !allowed.includes(key)) ||
+    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+  ) {
+    return null;
+  }
+  const effects = {};
+  for (const key of keys) {
+    const parsed =
+      key === 'reverb'
+        ? parseReverbPatch(value.reverb, requireComplete)
+        : key === 'equalizer'
+          ? parseEqualizer(value.equalizer)
+          : key === 'virtualBass'
+            ? parseVirtualBass(value.virtualBass)
+            : parseVirtualSurround(value.virtualSurround);
+    if (!parsed) return null;
+    effects[key] = parsed;
+  }
+  return effects;
+}
+
+function parseEffectsPatch(value) {
+  return parseEffects(value, false);
+}
+
+function parseEffectsState(value) {
+  return parseEffects(value, true);
 }
 
 function parseMetadata(value) {
@@ -781,6 +884,24 @@ function validateFacadePayload(value, expectedView, roomCode) {
     }
     return value;
   }
+  if (expectedView === 'effects') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'revision',
+        'updatedAtMs',
+        'effects',
+      ]) ||
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.updatedAtMs) ||
+      !parseEffectsState(value.effects)
+    ) {
+      return null;
+    }
+    return value;
+  }
   return null;
 }
 
@@ -905,7 +1026,7 @@ function validateUploadCompletionPayload(value, roomCode, expectedAssetId) {
 
 function parseRoute(method, url) {
   if (method === 'GET') {
-    const readMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})(?:\/(playback|queue))?$/);
+    const readMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})(?:\/(playback|queue|effects))?$/);
     if (readMatch) {
       const view = readMatch[2] || 'room';
       return {
@@ -917,7 +1038,9 @@ function parseRoute(method, url) {
             ? SCOPE_ROOM_READ
             : view === 'playback'
               ? SCOPE_PLAYBACK_READ
-              : SCOPE_QUEUE_READ,
+              : view === 'queue'
+                ? SCOPE_QUEUE_READ
+                : SCOPE_EFFECTS_READ,
       };
     }
     const statusMatch = url.pathname.match(
@@ -928,7 +1051,10 @@ function parseRoute(method, url) {
         kind: 'command-status',
         roomCode: statusMatch[1],
         commandId: statusMatch[2],
-        requiredScope: SCOPE_PLAYBACK_CONTROL,
+        // Status records are strictly key-bound by the PRO room service. A
+        // key must be able to poll its own effect command without also being
+        // granted unrelated playback control.
+        requiredScope: 0,
       };
     }
     return null;
@@ -939,7 +1065,10 @@ function parseRoute(method, url) {
       return {
         kind: 'command-create',
         roomCode: createMatch[1],
-        requiredScope: SCOPE_PLAYBACK_CONTROL,
+        // The command body selects playback:control or effects:control after
+        // strict parsing. Do not force effect-only credentials to inherit
+        // playback authority.
+        requiredScope: 0,
       };
     }
     const queueItemMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue\/items$/);
@@ -1217,7 +1346,7 @@ function auditCommandBestEffort(
     context,
     requestId,
     principal,
-    `playback.command.${commandType}`,
+    `${commandType === 'set_effects' ? 'effects' : 'playback'}.command.${commandType}`,
     result,
     statusCode,
     nowMs,
@@ -1614,6 +1743,11 @@ async function handleApiRequest(request, env, context, requestId) {
       await readRequestJsonLimited(request, COMMAND_REQUEST_MAX_BYTES),
     );
     if (!command) return errorResponse('INVALID_REQUEST', 400, requestId);
+    const commandScope =
+      command.type === 'set_effects' ? SCOPE_EFFECTS_CONTROL : SCOPE_PLAYBACK_CONTROL;
+    if ((principal.scopeMask & commandScope) !== commandScope) {
+      return errorResponse('FORBIDDEN', 403, requestId);
+    }
     const facade = await facadeCommand(
       env,
       '/internal/v1/commands/create',
@@ -2014,6 +2148,8 @@ export const developerApiScopes = Object.freeze({
   'queue:read': SCOPE_QUEUE_READ,
   'queue:write': SCOPE_QUEUE_WRITE,
   'media:upload': SCOPE_MEDIA_UPLOAD,
+  'effects:read': SCOPE_EFFECTS_READ,
+  'effects:control': SCOPE_EFFECTS_CONTROL,
 });
 
 export function isDeveloperApiRequestId(value) {

@@ -23,6 +23,7 @@ describe('Developer API public documentation', () => {
     const expectedRoutes = [
       '/rooms/{roomCode}',
       '/rooms/{roomCode}/playback',
+      '/rooms/{roomCode}/effects',
       '/rooms/{roomCode}/queue',
       '/rooms/{roomCode}/commands',
       '/rooms/{roomCode}/commands/{commandId}',
@@ -57,6 +58,7 @@ describe('Developer API public documentation', () => {
       '/health:',
       '/v1/rooms/{roomCode}:',
       '/v1/rooms/{roomCode}/playback:',
+      '/v1/rooms/{roomCode}/effects:',
       '/v1/rooms/{roomCode}/queue:',
       '/v1/rooms/{roomCode}/commands:',
       '/v1/rooms/{roomCode}/commands/{commandId}:',
@@ -77,6 +79,55 @@ describe('Developer API public documentation', () => {
     expect(spec).toContain('sha256:');
     for (const path of expectedPaths) expect(spec).toContain(path);
     expect(spec).not.toContain('/internal/');
+  });
+
+  it('documents persistent room-wide effects, scopes, ranges, and partial commands', async () => {
+    const [html, spec] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+    ]);
+
+    expect(html).toContain('<code>effects:read</code>');
+    expect(html).toContain('<code>effects:control</code>');
+    expect(html).toContain('/rooms/{roomCode}/effects');
+    expect(html).toContain("type: 'set_effects'");
+    expect(html).toContain('every supplied nested object must contain at least one field');
+    expect(html).toContain('persisted across PRO room sleep/wake cycles and coordinator handoffs');
+    expect(html).toMatch(/requires an awake room with a compatible active\s+coordinator/);
+
+    for (const example of [
+      'mixPercent: 40',
+      '{ mixPercent: 0 }',
+      '[0, -2, 0, 4, 6]',
+      '[0, 0, 0, 0, 0]',
+      'on value is <code>60</code>; off is\n              <code>0</code>',
+      'on value is <code>120</code>; neutral/off is <code>100</code>',
+    ]) {
+      expect(html).toContain(example);
+    }
+    expect(html).toContain('YouTube playback is unaffected');
+    expect(html).toContain('do not control device-local volume, channel roles');
+
+    expect(spec).toContain('operationId: getEffects');
+    expect(spec).toContain('EffectsState:');
+    expect(spec).toContain('RoomEffects:');
+    expect(spec).toContain('SetEffectsCommand:');
+    expect(spec).toContain('EffectsPatch:');
+    expect(spec).toContain('type: { const: set_effects }');
+    expect(spec).toContain('minProperties: 1');
+    expect(spec).toContain(
+      'required: [schemaVersion, view, roomCode, revision, updatedAtMs, effects]',
+    );
+    expect(spec).toContain('required: [reverb, equalizer, virtualBass, virtualSurround]');
+    expect(spec).toContain(
+      'required: [mixPercent, decaySeconds, preDelaySeconds, lowCutPercent, highCutPercent]',
+    );
+    expect(spec).toContain('items: { type: number, minimum: -12, maximum: 12 }');
+    expect(spec).toContain('strengthPercent: { type: number, minimum: 0, maximum: 100 }');
+    expect(spec).toContain('widthPercent: { type: number, minimum: 0, maximum: 200 }');
+
+    const numberedHeadings = [...html.matchAll(/<h2>(\d+)\./g)].map((match) => Number(match[1]));
+    expect(numberedHeadings).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
   it('documents atomic YouTube batches and bounded non-atomic audio upload concurrency', async () => {

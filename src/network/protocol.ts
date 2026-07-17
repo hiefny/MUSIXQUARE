@@ -926,9 +926,13 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
  * Check whether the peer behind `conn` has been granted Operator privileges.
  * Called by Host-side `request-*` handlers before executing commands.
  */
-export function verifyOperator(conn: DataConnection, _data?: Record<string, unknown>): boolean {
+export function verifyOperator(
+  conn: DataConnection,
+  _data?: Record<string, unknown>,
+  capability: 'playback.control' | 'effects.control' = 'playback.control',
+): boolean {
   if (getRoomContext().kind === 'pro') {
-    return verifyPeerCapability(conn, 'playback.control');
+    return verifyPeerCapability(conn, capability);
   }
 
   const peerId = conn?.peer;

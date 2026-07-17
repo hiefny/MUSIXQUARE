@@ -11,6 +11,28 @@ const UPLOAD_URL =
   'https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com/musixquare-pro-media/staging?X-Amz-Signature=' +
   'a'.repeat(64);
 
+function effectsPayload() {
+  return {
+    schemaVersion: 1,
+    view: 'effects',
+    roomCode: ROOM_CODE,
+    revision: 5,
+    updatedAtMs: 1_784_262_910_000,
+    effects: {
+      reverb: {
+        mixPercent: 20,
+        decaySeconds: 2.5,
+        preDelaySeconds: 0.04,
+        lowCutPercent: 5,
+        highCutPercent: 90,
+      },
+      equalizer: { bandsDb: [-6, -3, 0, 3, 6] },
+      virtualBass: { strengthPercent: 40 },
+      virtualSurround: { widthPercent: 125 },
+    },
+  };
+}
+
 function request(body: unknown, options: RequestInit = {}, path = '/internal/v1/read'): Request {
   const headers = new Headers(options.headers);
   if (!headers.has('content-type')) headers.set('content-type', 'application/json');
@@ -117,6 +139,31 @@ describe('private Developer API facade', () => {
     await expect(rooms.seen[0]!.json()).resolves.toEqual({ projection: 'room' });
   });
 
+  it('forwards and sanitizes the exact effects projection', async () => {
+    const rooms = namespace(() =>
+      Response.json({ ...effectsPayload(), privatePresetId: 'never-public' }),
+    );
+    const response = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'effects' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+
+    const validRooms = namespace(() => Response.json(effectsPayload()));
+    const valid = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'effects' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: validRooms },
+    );
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toEqual(effectsPayload());
+    await expect(validRooms.seen[0]!.json()).resolves.toEqual({
+      keyId: KEY_ID,
+      projection: 'effects',
+    });
+  });
+
   it('forwards a canonical command to one fixed PRO room path and strips private response fields', async () => {
     const createdAtMs = 1_784_262_910_000;
     const rooms = namespace(() =>
@@ -167,6 +214,74 @@ describe('private Developer API facade', () => {
       idempotencyKey: IDEMPOTENCY_KEY,
       command: { type: 'play_item', queueItemId: QUEUE_ITEM_ID },
     });
+  });
+
+  it('forwards a strictly validated partial effects command', async () => {
+    const createdAtMs = 1_784_262_910_000;
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          commandId: COMMAND_ID,
+          status: 'pending',
+          createdAtMs,
+          expiresAtMs: createdAtMs + 30_000,
+        },
+        { status: 202 },
+      ),
+    );
+    const command = {
+      type: 'set_effects',
+      effects: {
+        reverb: { mixPercent: 0, decaySeconds: 30, preDelaySeconds: 1 },
+        equalizer: { bandsDb: [-12, -6, 0, 6, 12] },
+        virtualBass: { strengthPercent: 100 },
+        virtualSurround: { widthPercent: 200 },
+      },
+    };
+    const response = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, command },
+        {},
+        '/internal/v1/commands/create',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(202);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      command,
+    });
+  });
+
+  it('rejects malformed effects commands before the PRO room boundary', async () => {
+    const invalidCommands = [
+      { type: 'set_effects', effects: {} },
+      { type: 'set_effects', effects: { reverb: {} } },
+      { type: 'set_effects', effects: { reverb: { lowCutPercent: 101 } } },
+      { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0] } } },
+      { type: 'set_effects', effects: { virtualBass: { strengthPercent: Number.NaN } } },
+      { type: 'set_effects', effects: { virtualSurround: { widthPercent: -1 } } },
+      { type: 'set_effects', effects: { preset: 'private' } },
+    ];
+    for (const command of invalidCommands) {
+      const rooms = namespace(() => Response.json({}));
+      const response = await facadeWorker.fetch(
+        request(
+          { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, command },
+          {},
+          '/internal/v1/commands/create',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+      expect(rooms.seen).toHaveLength(0);
+    }
   });
 
   it('preserves a terminal command when an accepted response is retried idempotently', async () => {

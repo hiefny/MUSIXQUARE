@@ -11,6 +11,11 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
+import {
+  createDefaultRoomEffectsState,
+  parseRoomEffectsState,
+  type RoomEffectsState,
+} from '../core/room-effects.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { broadcast } from '../network/peer.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
@@ -286,6 +291,106 @@ export function setVirtualBass(val: number): void {
 
 export function resetVirtualBass(): void {
   setVirtualBass(0);
+}
+
+function detectRoomReverbPreset(state: RoomEffectsState['reverb']): string {
+  if (state.mixPercent === 0 && state.lowCutPercent === 0 && state.highCutPercent === 0) {
+    return 'off';
+  }
+  const near = (left: number, right: number) => Math.abs(left - right) < 0.01;
+  for (const [name, preset] of Object.entries(REVERB_PRESETS)) {
+    if (
+      near(state.mixPercent, preset.mix * 100) &&
+      near(state.decaySeconds, preset.decay) &&
+      near(state.preDelaySeconds, preset.preDelay) &&
+      near(state.lowCutPercent, preset.lowCut) &&
+      near(state.highCutPercent, preset.highCut)
+    ) {
+      return name;
+    }
+  }
+  return 'advanced';
+}
+
+function detectRoomEqPreset(bands: readonly number[]): string {
+  if (bands.every((band) => band === 0)) return 'off';
+  const presets: Record<string, readonly number[]> = {
+    bright: [0, -2, 0, 4, 6],
+    warm: [5, 3, 0, -2, -3],
+  };
+  for (const [name, preset] of Object.entries(presets)) {
+    if (preset.every((band, index) => band === bands[index])) return name;
+  }
+  return 'advanced';
+}
+
+/** Capture only room-wide DSP values. Device-local routing and sync stay out. */
+export function captureRoomEffectsState(): RoomEffectsState {
+  const candidate = {
+    reverb: {
+      mixPercent: getState('audio.reverbMix') * 100,
+      decaySeconds: getState('audio.reverbDecay'),
+      preDelaySeconds: getState('audio.reverbPreDelay'),
+      lowCutPercent: getState('audio.reverbLowCut'),
+      highCutPercent: getState('audio.reverbHighCut'),
+    },
+    equalizer: { bandsDb: [...getState('audio.eqValues')] },
+    virtualBass: { strengthPercent: getState('audio.virtualBass') * 100 },
+    virtualSurround: { widthPercent: getState('audio.stereoWidth') * 100 },
+  };
+  return parseRoomEffectsState(candidate) ?? createDefaultRoomEffectsState();
+}
+
+function broadcastRoomEffectsState(state: RoomEffectsState): void {
+  broadcast({ type: MSG.REVERB, value: state.reverb.mixPercent } as AnyProtocolMsg);
+  broadcast({ type: MSG.REVERB_DECAY, value: state.reverb.decaySeconds } as AnyProtocolMsg);
+  broadcast({ type: MSG.REVERB_PREDELAY, value: state.reverb.preDelaySeconds } as AnyProtocolMsg);
+  broadcast({ type: MSG.REVERB_LOWCUT, value: state.reverb.lowCutPercent } as AnyProtocolMsg);
+  broadcast({ type: MSG.REVERB_HIGHCUT, value: state.reverb.highCutPercent } as AnyProtocolMsg);
+  state.equalizer.bandsDb.forEach((value, band) => {
+    broadcast({ type: MSG.EQ_UPDATE, band, value });
+  });
+  broadcast({
+    type: MSG.STEREO_WIDTH,
+    value: state.virtualSurround.widthPercent,
+  } as AnyProtocolMsg);
+  broadcast({ type: MSG.VBASS, value: state.virtualBass.strengthPercent } as AnyProtocolMsg);
+}
+
+/**
+ * Re-baseline the room-wide DSP graph and settings UI without a change toast.
+ * Persisted PRO state and Developer API commands both use this exact path.
+ */
+export function applyRoomEffectsState(
+  value: RoomEffectsState,
+  options: { broadcast?: boolean } = {},
+): boolean {
+  const state = parseRoomEffectsState(value);
+  if (!state) return false;
+
+  setState('audio.reverbMix', state.reverb.mixPercent / 100);
+  setState('audio.reverbDecay', state.reverb.decaySeconds);
+  setState('audio.reverbPreDelay', state.reverb.preDelaySeconds);
+  setState('audio.reverbLowCut', state.reverb.lowCutPercent);
+  setState('audio.reverbHighCut', state.reverb.highCutPercent);
+  setState('audio.eqValues', [...state.equalizer.bandsDb]);
+  setState('audio.stereoWidth', state.virtualSurround.widthPercent / 100);
+  setState('audio.virtualBass', state.virtualBass.strengthPercent / 100);
+  applySettingsAsync();
+
+  bus.emit('ui:sync-reverb-param', 'mix', state.reverb.mixPercent);
+  bus.emit('ui:sync-reverb-param', 'decay', state.reverb.decaySeconds);
+  bus.emit('ui:sync-reverb-param', 'predelay', state.reverb.preDelaySeconds);
+  bus.emit('ui:sync-reverb-param', 'lowcut', state.reverb.lowCutPercent);
+  bus.emit('ui:sync-reverb-param', 'highcut', state.reverb.highCutPercent);
+  bus.emit('ui:sync-reverb-preset', detectRoomReverbPreset(state.reverb));
+  state.equalizer.bandsDb.forEach((band, index) => bus.emit('ui:sync-eq-band', index, band));
+  bus.emit('ui:sync-eq-preset', detectRoomEqPreset(state.equalizer.bandsDb));
+  bus.emit('ui:sync-surround', state.virtualSurround.widthPercent > 100);
+  bus.emit('ui:sync-vbass', state.virtualBass.strengthPercent > 0);
+
+  if (options.broadcast) broadcastRoomEffectsState(state);
+  return true;
 }
 
 // ─── Harmonic Exciter ──────────────────────────────────────────────
@@ -689,7 +794,7 @@ function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnectio
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn, data)) {
+  if (!verifyOperator(conn, data, 'effects.control')) {
     log.warn(`[Effects] Rejected request-eq-reset from non-OP: ${conn?.peer}`);
     return;
   }

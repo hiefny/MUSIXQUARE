@@ -344,6 +344,32 @@ function sanitizeProjection(value, projection, roomCode) {
       items,
     };
   }
+  if (projection === 'effects') {
+    const effects = parseEffectsState(value.effects);
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'revision',
+        'updatedAtMs',
+        'effects',
+      ]) ||
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.updatedAtMs) ||
+      !effects
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      view: 'effects',
+      roomCode,
+      revision: value.revision,
+      updatedAtMs: value.updatedAtMs,
+      effects,
+    };
+  }
   return null;
 }
 
@@ -368,7 +394,106 @@ function parseDeveloperCommand(value) {
       ? { type: 'play_item', queueItemId: value.queueItemId }
       : null;
   }
+  if (value.type === 'set_effects') {
+    const effects = hasExactKeys(value, ['type', 'effects'])
+      ? parseEffectsPatch(value.effects)
+      : null;
+    return effects ? { type: 'set_effects', effects } : null;
+  }
   return null;
+}
+
+const EFFECT_REVERB_FIELDS = Object.freeze({
+  mixPercent: [0, 100],
+  decaySeconds: [0.1, 30],
+  preDelaySeconds: [0, 1],
+  lowCutPercent: [0, 100],
+  highCutPercent: [0, 100],
+});
+
+function boundedFiniteNumber(value, minimum, maximum) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
+function parseReverbPatch(value, requireComplete = false) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const keys = Object.keys(value);
+  const allowed = Object.keys(EFFECT_REVERB_FIELDS);
+  if (
+    keys.length === 0 ||
+    keys.some((key) => !allowed.includes(key)) ||
+    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+  ) {
+    return null;
+  }
+  const parsed = {};
+  for (const key of keys) {
+    const [minimum, maximum] = EFFECT_REVERB_FIELDS[key];
+    if (!boundedFiniteNumber(value[key], minimum, maximum)) return null;
+    parsed[key] = value[key];
+  }
+  return parsed;
+}
+
+function parseEqualizer(value) {
+  if (
+    !hasExactKeys(value, ['bandsDb']) ||
+    !Array.isArray(value.bandsDb) ||
+    value.bandsDb.length !== 5 ||
+    value.bandsDb.some((band) => !boundedFiniteNumber(band, -12, 12))
+  ) {
+    return null;
+  }
+  return { bandsDb: [...value.bandsDb] };
+}
+
+function parseVirtualBass(value) {
+  return hasExactKeys(value, ['strengthPercent']) &&
+    boundedFiniteNumber(value.strengthPercent, 0, 100)
+    ? { strengthPercent: value.strengthPercent }
+    : null;
+}
+
+function parseVirtualSurround(value) {
+  return hasExactKeys(value, ['widthPercent']) &&
+    boundedFiniteNumber(value.widthPercent, 0, 200)
+    ? { widthPercent: value.widthPercent }
+    : null;
+}
+
+function parseEffects(value, requireComplete) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
+  const keys = Object.keys(value);
+  if (
+    keys.length === 0 ||
+    keys.some((key) => !allowed.includes(key)) ||
+    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+  ) {
+    return null;
+  }
+  const effects = {};
+  for (const key of keys) {
+    const parsed =
+      key === 'reverb'
+        ? parseReverbPatch(value.reverb, requireComplete)
+        : key === 'equalizer'
+          ? parseEqualizer(value.equalizer)
+          : key === 'virtualBass'
+            ? parseVirtualBass(value.virtualBass)
+            : parseVirtualSurround(value.virtualSurround);
+    if (!parsed) return null;
+    effects[key] = parsed;
+  }
+  return effects;
+}
+
+function parseEffectsPatch(value) {
+  return parseEffects(value, false);
+}
+
+function parseEffectsState(value) {
+  return parseEffects(value, true);
 }
 
 function parseMetadata(value) {
@@ -764,7 +889,7 @@ export default {
         !hasExactKeys(body, ['roomCode', 'projection'], ['keyId']) ||
         !ROOM_CODE_RE.test(body.roomCode) ||
         (body.keyId !== undefined && !API_KEY_ID_RE.test(body.keyId || '')) ||
-        !['room', 'playback', 'queue'].includes(body.projection)
+        !['room', 'playback', 'queue', 'effects'].includes(body.projection)
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
       }

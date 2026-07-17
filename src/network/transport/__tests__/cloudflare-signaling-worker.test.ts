@@ -34,7 +34,7 @@ type ProTicketPayload = {
   coordinatorEpoch: number;
   presenceIncarnationId: string;
   ticketSequence: number;
-  developerControlVersion?: 0 | 1;
+  developerControlVersion?: 0 | 1 | 2;
   jti: string;
   iat: number;
   exp: number;
@@ -693,13 +693,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         participantId: 'coordinator-device',
         presenceIncarnationId: 'presence-incarnation-0001',
         jti: 'coordinator-ticket-0001',
-        developerControlVersion: 1,
+        developerControlVersion: 2,
       }),
     );
     const coordinator = lastServer();
     const frame = {
       type: 'developer-command',
-      version: 1,
+      version: 2,
       roomCode: '000001',
       coordinatorEpoch: 1,
       commandId: 'cmd_1234567890123456789012',
@@ -709,7 +709,15 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         playlistRevision: 3,
         playbackRevision: 7,
       },
-      command: { type: 'pause' },
+      command: {
+        type: 'set_effects',
+        effects: {
+          reverb: { mixPercent: 40, decaySeconds: 1 },
+          equalizer: { bandsDb: [0, -2, 0, 4, 6] },
+          virtualBass: { strengthPercent: 60 },
+          virtualSurround: { widthPercent: 120 },
+        },
+      },
     };
     const dispatch = (presenceIncarnationId: string) =>
       room.fetch(
@@ -721,7 +729,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
             coordinatorEpoch: 1,
             coordinatorParticipantId: 'coordinator-device',
             coordinatorPresenceIncarnationId: presenceIncarnationId,
-            developerControlVersion: 1,
+            developerControlVersion: 2,
             frame,
           }),
         }),

@@ -79,6 +79,33 @@ function assertQueueProjection(payload, roomCode, label) {
   return payload;
 }
 
+function assertEffectsProjection(payload, roomCode, label) {
+  const inRange = (value, minimum, maximum) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+  const effects = payload?.effects;
+  if (
+    payload?.schemaVersion !== 1 ||
+    payload?.view !== 'effects' ||
+    payload?.roomCode !== roomCode ||
+    !Number.isSafeInteger(payload?.revision) ||
+    !Number.isSafeInteger(payload?.updatedAtMs) ||
+    !inRange(effects?.reverb?.mixPercent, 0, 100) ||
+    !inRange(effects?.reverb?.decaySeconds, 0.1, 30) ||
+    !inRange(effects?.reverb?.preDelaySeconds, 0, 1) ||
+    !inRange(effects?.reverb?.lowCutPercent, 0, 100) ||
+    !inRange(effects?.reverb?.highCutPercent, 0, 100) ||
+    !Array.isArray(effects?.equalizer?.bandsDb) ||
+    effects.equalizer.bandsDb.length !== 5 ||
+    !effects.equalizer.bandsDb.every((value) => inRange(value, -12, 12)) ||
+    !inRange(effects?.virtualBass?.strengthPercent, 0, 100) ||
+    !inRange(effects?.virtualSurround?.widthPercent, 0, 200)
+  ) {
+    throw new Error(`${label} returned an invalid effects projection`);
+  }
+  assertNoPrivateFields(payload, label);
+  return payload;
+}
+
 async function deleteQueueItem(apiKey, roomCode, queueItemId, operation) {
   const { payload } = await apiJson(
     `/v1/rooms/${roomCode}/queue/items/${encodeURIComponent(queueItemId)}`,
@@ -164,7 +191,9 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   let room = null;
   let playback = null;
   let queue = null;
-  for (const suffix of ['', '/playback', '/queue']) {
+  let effects = null;
+  let effectsEtag = '';
+  for (const suffix of ['', '/playback', '/queue', '/effects']) {
     const response = await fetch(`${API_ORIGIN}/v1/rooms/${roomCode}${suffix}`, {
       cache: 'no-store',
       headers: { Accept: 'application/json', Authorization: authorization },
@@ -180,11 +209,15 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
       room = payload;
     } else if (suffix === '/playback') {
       playback = payload;
-    } else {
+    } else if (suffix === '/queue') {
       queue = assertQueueProjection(payload, roomCode, 'Developer API queue smoke');
+    } else {
+      effects = assertEffectsProjection(payload, roomCode, 'Developer API effects smoke');
+      effectsEtag = response.headers.get('etag') || '';
     }
   }
   if (!roomEtag) throw new Error('Developer API room response omitted ETag');
+  if (!effects || !effectsEtag) throw new Error('Developer API effects response omitted ETag');
   const notModified = await fetch(`${API_ORIGIN}/v1/rooms/${roomCode}`, {
     cache: 'no-store',
     headers: {

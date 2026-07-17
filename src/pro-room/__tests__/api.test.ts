@@ -454,7 +454,7 @@ describe('PRO room cookie session API', () => {
       ticketSequence: 7,
     });
     const ticketRequest = fetchMock.mock.calls[0]?.[1];
-    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 1 }));
+    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 2 }));
     const ticketHeaders = new Headers(ticketRequest?.headers);
     expect(ticketHeaders.get('content-type')).toBe('application/json');
     expect(ticketHeaders.get('x-mxqr-pro-participant-id')).toBe(
@@ -494,7 +494,7 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const advertised = fetchMock.mock.calls[0]?.[1];
     const fallback = fetchMock.mock.calls[1]?.[1];
-    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 1 }));
+    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 2 }));
     expect(new Headers(advertised?.headers).get('content-type')).toBe('application/json');
     expect(fallback?.body).toBeUndefined();
     expect(new Headers(fallback?.headers).has('content-type')).toBe(false);
@@ -723,6 +723,78 @@ describe('PRO room cookie session API', () => {
     expect(JSON.stringify(error)).not.toContain('12345678');
     expect(JSON.stringify(error)).not.toContain(CLAIM_TOKEN);
     expect(JSON.stringify(error)).not.toContain('private claim');
+  });
+});
+
+describe('PRO room effects API', () => {
+  const effects = {
+    reverb: {
+      mixPercent: 40,
+      decaySeconds: 1,
+      preDelaySeconds: 0.02,
+      lowCutPercent: 0,
+      highCutPercent: 0,
+    },
+    equalizer: { bandsDb: [0, -2, 0, 4, 6] as [number, number, number, number, number] },
+    virtualBass: { strengthPercent: 60 },
+    virtualSurround: { widthPercent: 120 },
+  };
+  const projection = {
+    schemaVersion: 1 as const,
+    view: 'effects' as const,
+    roomCode: ROOM_CODE,
+    revision: 2,
+    updatedAtMs: 1_800_000_000_000,
+    effects,
+  };
+
+  it('reads and coordinator-updates the dedicated authenticated resource', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(projection))
+      .mockResolvedValueOnce(jsonResponse({ ...projection, revision: 3 }));
+
+    await expect(client.getEffects(ROOM_CODE)).resolves.toEqual(projection);
+    await expect(
+      client.updateEffects({ code: ROOM_CODE, coordinatorEpoch: 1, effects }),
+    ).resolves.toEqual({ ...projection, revision: 3 });
+
+    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/effects`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/effects`,
+    ]);
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('PUT');
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      coordinatorEpoch: 1,
+      effects,
+    });
+  });
+
+  it('rejects malformed local state and non-canonical server projections', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+
+    expect(() =>
+      client.updateEffects({
+        code: ROOM_CODE,
+        coordinatorEpoch: 1,
+        effects: {
+          ...effects,
+          virtualBass: { strengthPercent: 101 },
+        },
+      }),
+    ).toThrow('PRO_ROOM_API_INVALID_EFFECTS');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ ...projection, effects: { ...effects, localVolume: 0.5 } }),
+    );
+    await expect(client.getEffects(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
   });
 });
 

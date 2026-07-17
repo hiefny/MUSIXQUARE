@@ -8,6 +8,8 @@ import { t } from '../i18n/index.ts';
 import { broadcastTracksAdded } from '../chat/queue-events.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
+import { applyRoomEffectsState, captureRoomEffectsState } from '../audio/effects.ts';
+import { roomEffectsEqual, type ProRoomEffectsSnapshot } from '../core/room-effects.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { registerHandler } from '../network/protocol.ts';
 import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
@@ -110,6 +112,8 @@ const PLAYBACK_CHECKPOINT_INTERVAL_MS = 10_000;
 const PLAYBACK_CHECKPOINT_DEBOUNCE_MS = 350;
 const PLAYBACK_CHECKPOINT_TIMER = 'pro-room-playback-checkpoint';
 const PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-playback-checkpoint-debounce';
+const EFFECTS_CHECKPOINT_DEBOUNCE_MS = 350;
+const EFFECTS_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-effects-checkpoint-debounce';
 const PLAYBACK_RESTORE_TIMEOUT_MS = 120_000;
 const PLAYBACK_RESTORE_TIMEOUT_TIMER = 'pro-room-playback-restore-timeout';
 const INVALIDATION_REFRESH_MIN_INTERVAL_MS = 5_000;
@@ -141,6 +145,14 @@ let playlistRuntimeLease: PlaylistRuntimeLease | null = null;
 let coordinatorRefresh: Promise<void> | null = null;
 let checkpointInFlight = false;
 let checkpointDirty = false;
+let effectsMutationTail: Promise<void> = Promise.resolve();
+let acceptedEffects: ProRoomEffectsSnapshot | null = null;
+let suppressEffectsCheckpoint = false;
+let lastEffectsCoordinatorEpoch = -1;
+let pendingEffectsBroadcast: {
+  commandId: string;
+  coordinatorEpoch: number;
+} | null = null;
 let suppressPlaybackCheckpoint = false;
 let lastPlaybackRestoreKey = '';
 let terminalRecoveryInFlight = false;
@@ -1001,6 +1013,11 @@ function resetPlaylistRuntime(): void {
   clearManagedTimer(INVALIDATION_REFRESH_TIMER);
   checkpointInFlight = false;
   checkpointDirty = false;
+  acceptedEffects = null;
+  suppressEffectsCheckpoint = false;
+  lastEffectsCoordinatorEpoch = -1;
+  pendingEffectsBroadcast = null;
+  clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   suppressPlaybackCheckpoint = false;
   lastPlaybackRestoreKey = '';
   pendingPlaybackRestore = null;
@@ -1244,6 +1261,103 @@ function schedulePlaybackCheckpointLoop(): void {
   );
 }
 
+function enqueueEffectsMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = effectsMutationTail.then(operation, operation);
+  effectsMutationTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function effectsRuntimeSnapshot(): ProRoomSnapshot | null {
+  return playlistManager?.snapshot ?? controller.snapshot;
+}
+
+async function persistRoomEffects(): Promise<void> {
+  const lease = playlistRuntimeLease;
+  if (!active || suppressEffectsCheckpoint || !lease || !isCoordinator()) return;
+  await enqueueEffectsMutation(async () => {
+    const snapshot = effectsRuntimeSnapshot();
+    if (
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      !isCoordinator() ||
+      snapshot?.roomCode !== lease.roomCode
+    ) {
+      return;
+    }
+    const effects = captureRoomEffectsState();
+    if (
+      acceptedEffects?.roomCode === snapshot.roomCode &&
+      roomEffectsEqual(acceptedEffects.effects, effects)
+    ) {
+      return;
+    }
+    try {
+      const accepted = await api.updateEffects({
+        code: snapshot.roomCode,
+        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+        effects,
+      });
+      if (active && isPlaylistLeaseCurrent(lease) && isCoordinator()) {
+        acceptedEffects = accepted;
+        lastEffectsCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
+      }
+    } catch (error) {
+      if (active && isPlaylistLeaseCurrent(lease)) {
+        log.warn('[PRO] Room effects checkpoint failed', error);
+      }
+    }
+  });
+}
+
+function scheduleEffectsCheckpoint(): void {
+  if (!active || suppressEffectsCheckpoint || !isCoordinator()) return;
+  clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
+  setManagedTimer(
+    EFFECTS_CHECKPOINT_DEBOUNCE_TIMER,
+    () => void persistRoomEffects(),
+    EFFECTS_CHECKPOINT_DEBOUNCE_MS,
+  );
+}
+
+async function refreshPersistedEffectsUnlocked(
+  snapshot: ProRoomSnapshot,
+  options: { broadcast?: boolean } = {},
+): Promise<boolean> {
+  const lease = playlistRuntimeLease;
+  if (!lease || !isPlaylistLeaseCurrent(lease) || lease.roomCode !== snapshot.roomCode)
+    return false;
+  const accepted = await api.getEffects(snapshot.roomCode);
+  const current = effectsRuntimeSnapshot();
+  if (!isPlaylistLeaseCurrent(lease) || current?.roomCode !== snapshot.roomCode) return false;
+  if (
+    options.broadcast &&
+    (!active ||
+      !isCoordinator() ||
+      current.presence.coordinatorEpoch !== snapshot.presence.coordinatorEpoch)
+  ) {
+    return false;
+  }
+  suppressEffectsCheckpoint = true;
+  try {
+    if (!applyRoomEffectsState(accepted.effects, { broadcast: options.broadcast })) return false;
+    acceptedEffects = accepted;
+    lastEffectsCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
+    return true;
+  } finally {
+    suppressEffectsCheckpoint = false;
+  }
+}
+
+async function refreshPersistedEffects(
+  snapshot: ProRoomSnapshot,
+  options: { broadcast?: boolean } = {},
+): Promise<boolean> {
+  return enqueueEffectsMutation(() => refreshPersistedEffectsUnlocked(snapshot, options));
+}
+
 function showPlaybackRestoreHint(): void {
   if (!pendingPlaybackRestore || !suppressPlaybackCheckpoint) return;
   bus.emit('ui:show-toast', t('pro.resume_tap'));
@@ -1458,6 +1572,19 @@ async function executeDeveloperCommand(
   command: DeveloperCommandFrame['command'],
   snapshot: ProRoomSnapshot,
 ): Promise<Exclude<DeveloperCommandResultCode, 'already_applied' | 'expired'>> {
+  if (command.type === 'set_effects') {
+    const lease = playlistRuntimeLease;
+    if (!lease || lease.roomCode !== snapshot.roomCode) return 'execution_failed';
+    const current = effectsRuntimeSnapshot();
+    return !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      !isCoordinator() ||
+      current?.roomCode !== snapshot.roomCode ||
+      current.presence.coordinatorEpoch !== snapshot.presence.coordinatorEpoch
+      ? 'execution_failed'
+      : 'applied';
+  }
+
   if (isDeveloperControlBusy()) return 'busy';
 
   if (command.type === 'play_item') {
@@ -1566,8 +1693,50 @@ const developerControl = new DeveloperControlExecutor({
   snapshot: () => playlistManager?.snapshot ?? controller.snapshot,
   refreshSnapshot: refreshDeveloperControlSnapshot,
   execute: executeDeveloperCommand,
-  acknowledge: (frame, resultCode) =>
-    api.ackDeveloperCommand({ code: frame.roomCode, commandId: frame.commandId, resultCode }),
+  acknowledge: async (frame, resultCode) => {
+    const committedEffects =
+      frame.command.type === 'set_effects' &&
+      (resultCode === 'applied' || resultCode === 'already_applied');
+    if (!committedEffects) {
+      await api.ackDeveloperCommand({
+        code: frame.roomCode,
+        commandId: frame.commandId,
+        resultCode,
+      });
+      return;
+    }
+
+    const pending = {
+      commandId: frame.commandId,
+      coordinatorEpoch: frame.coordinatorEpoch,
+    };
+    pendingEffectsBroadcast = pending;
+    await enqueueEffectsMutation(async () => {
+      await api.ackDeveloperCommand({
+        code: frame.roomCode,
+        commandId: frame.commandId,
+        resultCode,
+      });
+      const snapshot = effectsRuntimeSnapshot();
+      if (
+        snapshot?.roomCode === frame.roomCode &&
+        snapshot.presence.coordinatorEpoch === frame.coordinatorEpoch
+      ) {
+        try {
+          if (
+            (await refreshPersistedEffectsUnlocked(snapshot, { broadcast: true })) &&
+            pendingEffectsBroadcast?.commandId === pending.commandId
+          ) {
+            pendingEffectsBroadcast = null;
+          }
+        } catch (error) {
+          // The ACK may already be durable even when its response or the
+          // follow-up read is lost. Heartbeat retries the canonical broadcast.
+          log.warn('[PRO] Applied Developer API effects refresh failed', error);
+        }
+      }
+    });
+  },
 });
 
 onProRoomTabTakeover((roomCode) => {
@@ -1619,6 +1788,33 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
         const invalidationGeneration = invalidationHighWater.beginHeartbeat();
         const snapshot = await controller.heartbeat();
         await acceptPlaylistSnapshot(snapshot);
+        if (snapshot.presence.coordinatorEpoch !== lastEffectsCoordinatorEpoch) {
+          await refreshPersistedEffects(snapshot).catch((error) => {
+            // Effects are a dedicated rolling-deploy resource. A transient
+            // read failure must not tear down presence or media playback.
+            log.warn('[PRO] Room effects refresh failed', error);
+          });
+        }
+        if (
+          pendingEffectsBroadcast !== null &&
+          pendingEffectsBroadcast.coordinatorEpoch !== snapshot.presence.coordinatorEpoch
+        ) {
+          // A new coordinator causes every participant to refresh canonical
+          // effects above, so an old coordinator's pending broadcast is stale.
+          pendingEffectsBroadcast = null;
+        } else if (pendingEffectsBroadcast !== null && isCoordinator()) {
+          const pending = pendingEffectsBroadcast;
+          try {
+            if (
+              (await refreshPersistedEffects(snapshot, { broadcast: true })) &&
+              pendingEffectsBroadcast?.commandId === pending.commandId
+            ) {
+              pendingEffectsBroadcast = null;
+            }
+          } catch (error) {
+            log.warn('[PRO] Pending Developer API effects broadcast failed', error);
+          }
+        }
         if (isCoordinator()) {
           await refreshProSystemAudioState().catch((error) => {
             // The media lease is intentionally independent from presence.
@@ -1751,6 +1947,11 @@ export function getProRoomBootstrap(code: string, signal?: AbortSignal): Promise
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
   try {
     await acceptPlaylistSnapshot(snapshot);
+    await refreshPersistedEffects(snapshot).catch((error) => {
+      // Keep room entry compatible during a staggered Worker/app rollout.
+      // The next heartbeat retries the authoritative effects read.
+      log.warn('[PRO] Initial room effects refresh failed', error);
+    });
   } catch (error) {
     await controller.leave().catch(() => undefined);
     throw error;
@@ -1923,6 +2124,19 @@ for (const event of [
     reconcilePlaybackRestore();
     schedulePlaybackCheckpoint();
   });
+}
+
+for (const event of [
+  'state:audio.reverbMix',
+  'state:audio.reverbDecay',
+  'state:audio.reverbPreDelay',
+  'state:audio.reverbLowCut',
+  'state:audio.reverbHighCut',
+  'state:audio.eqValues',
+  'state:audio.stereoWidth',
+  'state:audio.virtualBass',
+] as const) {
+  bus.on(event, () => scheduleEffectsCheckpoint());
 }
 
 function hasPendingCoordinatorInvalidation(): boolean {

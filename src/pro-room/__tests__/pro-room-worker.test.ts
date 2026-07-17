@@ -394,7 +394,7 @@ function playlistItem(
 
 function internalDeveloperRead(
   worker: MusixquareProRoom,
-  projection: 'room' | 'playback' | 'queue',
+  projection: 'room' | 'playback' | 'queue' | 'effects',
   keyId = DEVELOPER_KEY_ID,
 ): Promise<Response> {
   return worker.fetch(
@@ -4953,5 +4953,262 @@ describe('persistent PRO room orphan asset garbage collection', () => {
 
     expect((await replacePlaylist(context, [], 'gc-shared-none')).status).toBe(200);
     expect(asset.gcAfterMs).toEqual(expect.any(Number));
+  });
+});
+
+describe('persistent PRO room audio effects', () => {
+  const defaultEffects = {
+    reverb: {
+      mixPercent: 0,
+      decaySeconds: 5,
+      preDelaySeconds: 0.1,
+      lowCutPercent: 0,
+      highCutPercent: 0,
+    },
+    equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+    virtualBass: { strengthPercent: 0 },
+    virtualSurround: { widthPercent: 100 },
+  };
+  const configuredEffects = {
+    reverb: {
+      mixPercent: 40,
+      decaySeconds: 1,
+      preDelaySeconds: 0.02,
+      lowCutPercent: 0,
+      highCutPercent: 0,
+    },
+    equalizer: { bandsDb: [0, -2, 0, 4, 6] },
+    virtualBass: { strengthPercent: 60 },
+    virtualSurround: { widthPercent: 120 },
+  };
+
+  it('persists one strict effects resource without changing snapshot v1', async () => {
+    const context = await activatedRoom();
+    const before = await responseJson(
+      await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
+    );
+    expect(before).toEqual({
+      schemaVersion: 1,
+      view: 'effects',
+      roomCode: ROOM_CODE,
+      revision: 0,
+      updatedAtMs: 0,
+      effects: defaultEffects,
+    });
+
+    const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+    const updatedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch, effects: configuredEffects },
+        context.ownerCookie,
+      ),
+    );
+    expect(updatedResponse.status).toBe(200);
+    const updated = await responseJson(updatedResponse);
+    expect(updated).toMatchObject({
+      schemaVersion: 1,
+      view: 'effects',
+      revision: 1,
+      effects: configuredEffects,
+    });
+    expect(updated.updatedAtMs).toBeGreaterThan(0);
+
+    const snapshot = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(parseProRoomSnapshot(snapshot.snapshot)).not.toBeNull();
+    expect(snapshot.snapshot).not.toHaveProperty('effects');
+
+    const developerRead = await internalDeveloperRead(context.worker, 'effects');
+    expect(developerRead.status).toBe(200);
+    await expect(developerRead.json()).resolves.toMatchObject({
+      view: 'effects',
+      revision: 1,
+      effects: configuredEffects,
+    });
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const afterRestart = await responseJson(
+      await restarted.fetch(request('/effects', {}, context.ownerCookie)),
+    );
+    expect(afterRestart).toMatchObject({ revision: 1, effects: configuredEffects });
+  });
+
+  it('fences updates to the active coordinator and rejects malformed full state', async () => {
+    const context = await activatedRoom();
+    const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+
+    const stale = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch + 1, effects: configuredEffects },
+        context.ownerCookie,
+      ),
+    );
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({ error: 'COORDINATOR_EPOCH_MISMATCH' });
+
+    const malformed = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        {
+          coordinatorEpoch: epoch,
+          effects: { ...configuredEffects, virtualBass: { strengthPercent: 101 } },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(malformed.status).toBe(400);
+    const unchanged = await responseJson(
+      await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
+    );
+    expect(unchanged).toMatchObject({ revision: 0, effects: defaultEffects });
+  });
+
+  it('migrates pre-effects rooms to a neutral dedicated resource', async () => {
+    const context = await activatedRoom();
+    const stored = structuredClone(context.state.storage.data.get('pro-room:v1')) as Record<
+      string,
+      unknown
+    >;
+    delete stored.effects;
+    context.state.storage.data.set('pro-room:v1', stored);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const response = await restarted.fetch(request('/effects', {}, context.ownerCookie));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      revision: 0,
+      effects: defaultEffects,
+    });
+    expect(
+      (context.state.storage.data.get('pro-room:v1') as Record<string, unknown>).effects,
+    ).toBeDefined();
+  });
+
+  it('accepts set_effects in an empty but awake compatible room', async () => {
+    const dispatchFetch = vi.fn(async () => Response.json({ dispatched: true }));
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+    const legacyCapability = await context.worker.fetch(
+      jsonRequest(
+        '/signaling-tickets',
+        'POST',
+        { developerControlVersion: 1 },
+        context.ownerCookie,
+      ),
+    );
+    expect(legacyCapability.status).toBe(200);
+    const legacyAttempt = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-effects-legacy-0001',
+      { type: 'set_effects', effects: { virtualBass: { strengthPercent: 60 } } },
+    );
+    expect(legacyAttempt.status).toBe(409);
+    await expect(legacyAttempt.json()).resolves.toEqual({ error: 'COORDINATOR_INCOMPATIBLE' });
+
+    const capability = await context.worker.fetch(
+      jsonRequest(
+        '/signaling-tickets',
+        'POST',
+        { developerControlVersion: 2 },
+        context.ownerCookie,
+      ),
+    );
+    expect(capability.status).toBe(200);
+
+    const created = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-effects-command-0001',
+      { type: 'set_effects', effects: { virtualBass: { strengthPercent: 60 } } },
+    );
+    expect(created.status).toBe(202);
+    const body = await responseJson(created);
+    expect(body).toMatchObject({
+      status: expect.stringMatching(/pending|dispatched/),
+    });
+    expect(internal.room.developerCommands[body.commandId].command).toEqual({
+      type: 'set_effects',
+      effects: { virtualBass: { strengthPercent: 60 } },
+    });
+    expect(internal.room.developerCommands[body.commandId].developerControlVersion).toBe(2);
+    expect(dispatchFetch).toHaveBeenCalledOnce();
+    await expect(
+      (dispatchFetch.mock.calls[0]?.[0] as Request).clone().json(),
+    ).resolves.toMatchObject({
+      developerControlVersion: 2,
+      frame: { version: 2, command: { type: 'set_effects' } },
+    });
+
+    const beforeAck = structuredClone(internal.room.effects);
+    expect(beforeAck.effects.virtualBass.strengthPercent).toBe(0);
+    const ack = await context.worker.fetch(
+      jsonRequest(
+        `/developer-commands/${body.commandId}/ack`,
+        'POST',
+        { resultCode: 'applied' },
+        context.ownerCookie,
+      ),
+    );
+    expect(ack.status).toBe(200);
+    expect(internal.room.developerCommands[body.commandId]).toMatchObject({
+      status: 'applied',
+      resultCode: 'applied',
+    });
+    expect(internal.room.effects).toMatchObject({
+      revision: beforeAck.revision + 1,
+      effects: { virtualBass: { strengthPercent: 60 } },
+    });
+    const duplicateAck = await context.worker.fetch(
+      jsonRequest(
+        `/developer-commands/${body.commandId}/ack`,
+        'POST',
+        { resultCode: 'already_applied' },
+        context.ownerCookie,
+      ),
+    );
+    expect(duplicateAck.status).toBe(200);
+    expect(internal.room.effects.revision).toBe(beforeAck.revision + 1);
+
+    const rejected = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-effects-command-0002',
+      { type: 'set_effects', effects: { reverb: { mixPercent: 40 } } },
+    );
+    expect(rejected.status).toBe(202);
+    const rejectedBody = await responseJson(rejected);
+    const rejectedAck = await context.worker.fetch(
+      jsonRequest(
+        `/developer-commands/${rejectedBody.commandId}/ack`,
+        'POST',
+        { resultCode: 'execution_failed' },
+        context.ownerCookie,
+      ),
+    );
+    expect(rejectedAck.status).toBe(200);
+    expect(internal.room.effects).toMatchObject({
+      revision: beforeAck.revision + 1,
+      effects: { reverb: { mixPercent: 0 }, virtualBass: { strengthPercent: 60 } },
+    });
   });
 });

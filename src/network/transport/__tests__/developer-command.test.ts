@@ -45,9 +45,19 @@ describe('developer signaling command parser', () => {
     expect(parseDeveloperCommandFrame(frame)).toEqual(frame);
   });
 
+  it('accepts set_effects only on the v2 command contract', () => {
+    const frame = {
+      ...validFrame(),
+      version: 2 as const,
+      command: { type: 'set_effects' as const, effects: { virtualBass: { strengthPercent: 60 } } },
+    };
+    expect(parseDeveloperCommandFrame(frame)).toEqual(frame);
+    expect(parseDeveloperCommandFrame({ ...frame, version: 1 })).toBeNull();
+  });
+
   it.each([
     ['root extra key', () => ({ ...validFrame(), extra: true })],
-    ['wrong version', () => ({ ...validFrame(), version: 2 })],
+    ['wrong version', () => ({ ...validFrame(), version: 3 })],
     ['standard room code', () => ({ ...validFrame(), roomCode: '100001' })],
     ['zero epoch', () => ({ ...validFrame(), coordinatorEpoch: 0 })],
     ['short command id', () => ({ ...validFrame(), commandId: 'short' })],

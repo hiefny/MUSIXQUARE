@@ -1467,7 +1467,24 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
   if (hostConn) return;
 
   const st = data.settingType as string;
-  const isOp = verifyOperator(conn, data);
+  const effectSettingTypes = new Set([
+    'eq',
+    MSG.PREAMP,
+    MSG.STEREO_WIDTH,
+    MSG.VBASS,
+    MSG.EXCITER,
+    MSG.REVERB,
+    MSG.REVERB_TYPE,
+    MSG.REVERB_DECAY,
+    MSG.REVERB_PREDELAY,
+    MSG.REVERB_LOWCUT,
+    MSG.REVERB_HIGHCUT,
+  ]);
+  const isOp = verifyOperator(
+    conn,
+    data,
+    effectSettingTypes.has(st) ? 'effects.control' : 'playback.control',
+  );
   const isDemoAllowed = getState('demo.active') && DEMO_ALLOWED_SETTING_TYPES.has(st);
   if (!isOp && !isDemoAllowed) {
     log.warn(`[Playlist] Rejected request-setting from non-OP: ${conn?.peer}`);

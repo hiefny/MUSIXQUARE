@@ -24,6 +24,12 @@ import {
   parseProRoomSystemAudioState,
 } from './snapshot.ts';
 import type { DeveloperCommandResultCode } from '../network/transport/types.ts';
+import {
+  parseProRoomEffectsSnapshot,
+  parseRoomEffectsState,
+  type ProRoomEffectsSnapshot,
+  type RoomEffectsState,
+} from '../core/room-effects.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -163,6 +169,12 @@ export interface UpdateProRoomSnapshotInput {
   idempotencyKey: string;
 }
 
+interface UpdateProRoomEffectsInput {
+  code: string;
+  coordinatorEpoch: number;
+  effects: RoomEffectsState;
+}
+
 interface AckProRoomDeveloperCommandInput {
   code: string;
   commandId: string;
@@ -256,9 +268,7 @@ function parseEndpoint(value: unknown): string | null {
   }
   const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
   const isMusixquareService =
-    url.protocol === 'https:' &&
-    url.hostname.endsWith('.musixquare.com') &&
-    normalizedPath === '/';
+    url.protocol === 'https:' && url.hostname.endsWith('.musixquare.com') && normalizedPath === '/';
   const isProductionFacade =
     url.protocol === 'https:' &&
     (url.hostname === 'musixquare.com' || url.hostname === 'www.musixquare.com') &&
@@ -879,6 +889,36 @@ export class ProRoomApiClient {
     });
   }
 
+  getEffects(code: string, signal?: AbortSignal): Promise<ProRoomEffectsSnapshot> {
+    const path = roomPath(code);
+    return this.#request(`${path}/effects`, {
+      signal,
+      activeRoomCode: code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: (value) => parseProRoomEffectsSnapshot(value, code),
+    });
+  }
+
+  updateEffects(
+    input: UpdateProRoomEffectsInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomEffectsSnapshot> {
+    const path = roomPath(input.code);
+    if (!Number.isSafeInteger(input.coordinatorEpoch) || input.coordinatorEpoch < 1) {
+      throw new ProRoomApiError('INVALID_COORDINATOR_EPOCH');
+    }
+    const effects = parseRoomEffectsState(input.effects);
+    if (!effects) throw new ProRoomApiError('INVALID_EFFECTS');
+    return this.#request(`${path}/effects`, {
+      method: 'PUT',
+      body: { coordinatorEpoch: input.coordinatorEpoch, effects },
+      signal,
+      activeRoomCode: input.code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: (value) => parseProRoomEffectsSnapshot(value, input.code),
+    });
+  }
+
   getSystemAudioState(code: string, signal?: AbortSignal): Promise<ProRoomSystemAudioState> {
     const path = roomPath(code);
     return this.#request(`${path}/system-audio`, {
@@ -1050,7 +1090,7 @@ export class ProRoomApiClient {
     const requestTicket = (advertiseDeveloperControl: boolean) =>
       this.#request(`${path}/signaling-tickets`, {
         method: 'POST',
-        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 1 } } : {}),
+        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 2 } } : {}),
         signal,
         activeRoomCode: code,
         maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,

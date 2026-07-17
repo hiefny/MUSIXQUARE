@@ -103,7 +103,11 @@ const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 const PLAYBACK_CLOCK_SKEW_MS = 60_000;
 const RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
+// v1 covers playback/queue invalidations. v2 adds set_effects while retaining
+// v1 frame support so a rolling deploy does not strand an already-open tab.
 const DEVELOPER_CONTROL_VERSION = 1;
+const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
+const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_EFFECTS_CONTROL_VERSION;
 const DEVELOPER_COMMAND_TTL_MS = 30 * 1000;
 const DEVELOPER_COMMAND_RETRY_MS = 5 * 1000;
 const DEVELOPER_COMMAND_MAX_ATTEMPTS = 3;
@@ -686,6 +690,7 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
       participants: {},
     },
     systemAudio: initialSystemAudioState(),
+    effects: initialEffectsState(),
     quota: {
       limitBytes: ROOM_QUOTA_BYTES,
       perAssetLimitBytes: ASSET_MAX_BYTES,
@@ -704,6 +709,142 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
     stagingTombstones: {},
     developerCommands: {},
     developerCommandIdempotency: {},
+  };
+}
+
+function initialEffectsState() {
+  return {
+    revision: 0,
+    updatedAtMs: 0,
+    effects: {
+      reverb: {
+        mixPercent: 0,
+        decaySeconds: 5,
+        preDelaySeconds: 0.1,
+        lowCutPercent: 0,
+        highCutPercent: 0,
+      },
+      equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+      virtualBass: { strengthPercent: 0 },
+      virtualSurround: { widthPercent: 100 },
+    },
+  };
+}
+
+const EFFECT_REVERB_FIELDS = Object.freeze({
+  mixPercent: [0, 100],
+  decaySeconds: [0.1, 30],
+  preDelaySeconds: [0, 1],
+  lowCutPercent: [0, 100],
+  highCutPercent: [0, 100],
+});
+
+function boundedEffectNumber(value, minimum, maximum) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
+function parseEffectsReverb(value, complete = true) {
+  const fields = Object.keys(EFFECT_REVERB_FIELDS);
+  if (!hasExactKeys(value, complete ? fields : [], complete ? [] : fields)) return null;
+  if (!complete && Object.keys(value).length === 0) return null;
+  const result = {};
+  for (const key of Object.keys(value)) {
+    const [minimum, maximum] = EFFECT_REVERB_FIELDS[key];
+    if (!boundedEffectNumber(value[key], minimum, maximum)) return null;
+    result[key] = value[key];
+  }
+  return result;
+}
+
+function parseEffectsEqualizer(value) {
+  if (
+    !hasExactKeys(value, ['bandsDb']) ||
+    !Array.isArray(value.bandsDb) ||
+    value.bandsDb.length !== 5 ||
+    value.bandsDb.some((band) => !boundedEffectNumber(band, -12, 12))
+  ) {
+    return null;
+  }
+  return { bandsDb: [...value.bandsDb] };
+}
+
+function parseEffectsVirtualBass(value) {
+  return hasExactKeys(value, ['strengthPercent']) &&
+    boundedEffectNumber(value.strengthPercent, 0, 100)
+    ? { strengthPercent: value.strengthPercent }
+    : null;
+}
+
+function parseEffectsVirtualSurround(value) {
+  return hasExactKeys(value, ['widthPercent']) &&
+    boundedEffectNumber(value.widthPercent, 0, 200)
+    ? { widthPercent: value.widthPercent }
+    : null;
+}
+
+function parseRoomEffects(value) {
+  if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) return null;
+  const reverb = parseEffectsReverb(value.reverb);
+  const equalizer = parseEffectsEqualizer(value.equalizer);
+  const virtualBass = parseEffectsVirtualBass(value.virtualBass);
+  const virtualSurround = parseEffectsVirtualSurround(value.virtualSurround);
+  return reverb && equalizer && virtualBass && virtualSurround
+    ? { reverb, equalizer, virtualBass, virtualSurround }
+    : null;
+}
+
+function parseRoomEffectsPatch(value) {
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
+  if (!hasExactKeys(value, [], allowed) || Object.keys(value).length === 0) return null;
+  const result = {};
+  for (const key of Object.keys(value)) {
+    const parsed =
+      key === 'reverb'
+        ? parseEffectsReverb(value.reverb, false)
+        : key === 'equalizer'
+          ? parseEffectsEqualizer(value.equalizer)
+          : key === 'virtualBass'
+            ? parseEffectsVirtualBass(value.virtualBass)
+            : parseEffectsVirtualSurround(value.virtualSurround);
+    if (!parsed) return null;
+    result[key] = parsed;
+  }
+  return result;
+}
+
+function mergeRoomEffectsPatch(current, patch) {
+  return {
+    reverb: { ...current.reverb, ...(patch.reverb || {}) },
+    equalizer: patch.equalizer
+      ? { bandsDb: [...patch.equalizer.bandsDb] }
+      : { bandsDb: [...current.equalizer.bandsDb] },
+    virtualBass: { ...(patch.virtualBass || current.virtualBass) },
+    virtualSurround: { ...(patch.virtualSurround || current.virtualSurround) },
+  };
+}
+
+function normalizeStoredEffects(value) {
+  if (
+    !hasExactKeys(value, ['revision', 'updatedAtMs', 'effects']) ||
+    !isSafeNonNegativeInteger(value.revision) ||
+    !isSafeNonNegativeInteger(value.updatedAtMs)
+  ) {
+    return null;
+  }
+  const effects = parseRoomEffects(value.effects);
+  return effects
+    ? { revision: value.revision, updatedAtMs: value.updatedAtMs, effects }
+    : null;
+}
+
+function publicEffects(room) {
+  return {
+    schemaVersion: 1,
+    view: 'effects',
+    roomCode: room.roomCode,
+    revision: room.effects.revision,
+    updatedAtMs: room.effects.updatedAtMs,
+    effects: structuredClone(room.effects.effects),
   };
 }
 
@@ -985,7 +1126,7 @@ function developerProjection(room, projection, nowMs, requesterKeyId) {
       controlAvailable:
         room.runtime === 'awake' &&
         room.status === 'active' &&
-        coordinator?.developerControlVersion === DEVELOPER_CONTROL_VERSION,
+        supportsDeveloperControl(coordinator),
       quota: { ...room.quota },
     };
   }
@@ -1030,6 +1171,7 @@ function developerProjection(room, projection, nowMs, requesterKeyId) {
       items: room.playlist.map((item) => developerQueueItem(item, requesterKeyId)),
     };
   }
+  if (projection === 'effects') return publicEffects(room);
   return null;
 }
 
@@ -1052,7 +1194,27 @@ function parseDeveloperCommand(value) {
       ? { type: 'play_item', queueItemId: value.queueItemId }
       : null;
   }
+  if (value.type === 'set_effects') {
+    const effects = hasExactKeys(value, ['type', 'effects'])
+      ? parseRoomEffectsPatch(value.effects)
+      : null;
+    return effects ? { type: 'set_effects', effects } : null;
+  }
   return null;
+}
+
+function requiredDeveloperControlVersion(command) {
+  return command?.type === 'set_effects'
+    ? DEVELOPER_EFFECTS_CONTROL_VERSION
+    : DEVELOPER_CONTROL_VERSION;
+}
+
+function supportsDeveloperControl(participant, requiredVersion = DEVELOPER_CONTROL_VERSION) {
+  return (
+    Number.isSafeInteger(participant?.developerControlVersion) &&
+    participant.developerControlVersion >= requiredVersion &&
+    participant.developerControlVersion <= DEVELOPER_CONTROL_MAX_VERSION
+  );
 }
 
 function randomQueueItemId() {
@@ -1591,10 +1753,12 @@ export class MusixquareProRoom {
     this.room = null;
     this.mutationTail = Promise.resolve();
     this.systemAudioMigrationPending = false;
+    this.effectsMigrationPending = false;
     this.developerCommandMigrationPending = false;
     const load = async () => {
       this.room = (await this.storage.get(STORAGE_KEY)) || null;
       this.normalizeLoadedSystemAudio();
+      this.normalizeLoadedEffects();
       this.normalizeLoadedDeveloperCommands();
     };
     if (typeof state.blockConcurrencyWhile === 'function') state.blockConcurrencyWhile(load);
@@ -1620,6 +1784,7 @@ export class MusixquareProRoom {
     if (!this.room.consumedRecoveryNonces) this.room.consumedRecoveryNonces = {};
     if (!this.room.stagingTombstones) this.room.stagingTombstones = {};
     this.normalizeLoadedSystemAudio();
+    this.normalizeLoadedEffects();
     this.normalizeLoadedDeveloperCommands();
     if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
       this.room.playback.youtubeVideoId = null;
@@ -1653,6 +1818,19 @@ export class MusixquareProRoom {
     }
   }
 
+  normalizeLoadedEffects() {
+    if (!this.room) return;
+    const normalized = normalizeStoredEffects(this.room.effects);
+    if (normalized) {
+      this.room.effects = normalized;
+      return;
+    }
+    // Effects predate this dedicated resource. An old room starts from the
+    // same neutral DSP state as a fresh client, without changing snapshot v1.
+    this.room.effects = initialEffectsState();
+    this.effectsMigrationPending = true;
+  }
+
   normalizeLoadedDeveloperCommands() {
     if (!this.room) return;
     if (
@@ -1673,10 +1851,18 @@ export class MusixquareProRoom {
     }
     for (const participant of Object.values(this.room.presence?.participants || {})) {
       if (
-        participant.developerControlVersion !== 0 &&
-        participant.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+        !Number.isSafeInteger(participant.developerControlVersion) ||
+        participant.developerControlVersion < 0 ||
+        participant.developerControlVersion > DEVELOPER_CONTROL_MAX_VERSION
       ) {
         participant.developerControlVersion = 0;
+        this.developerCommandMigrationPending = true;
+      }
+    }
+    for (const record of Object.values(this.room.developerCommands)) {
+      const requiredVersion = requiredDeveloperControlVersion(record?.command);
+      if (record?.developerControlVersion !== requiredVersion) {
+        record.developerControlVersion = requiredVersion;
         this.developerCommandMigrationPending = true;
       }
     }
@@ -1925,6 +2111,10 @@ export class MusixquareProRoom {
         if (request.method === 'POST' && developerCommandAck) {
           return this.handleDeveloperCommandAck(request, developerCommandAck[1]);
         }
+        if (request.method === 'GET' && url.pathname === `${prefix}/effects`)
+          return this.handleGetEffects(request);
+        if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
+          return this.handleUpdateEffects(request);
         if (request.method === 'GET' && url.pathname === `${prefix}/system-audio`)
           return this.handleGetSystemAudio(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
@@ -1976,7 +2166,7 @@ export class MusixquareProRoom {
       !hasExactKeys(parsed.value, ['projection'], ['keyId']) ||
       (parsed.value.keyId !== undefined &&
         !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '')) ||
-      !['room', 'playback', 'queue'].includes(parsed.value.projection)
+      !['room', 'playback', 'queue', 'effects'].includes(parsed.value.projection)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
@@ -2020,14 +2210,18 @@ export class MusixquareProRoom {
     if (this.room.runtime !== 'awake' || !coordinator) {
       return errorResponse('ROOM_SLEEPING', 409);
     }
-    if (coordinator.developerControlVersion !== DEVELOPER_CONTROL_VERSION) {
+    const requiredControlVersion = requiredDeveloperControlVersion(command);
+    if (!supportsDeveloperControl(coordinator, requiredControlVersion)) {
       return errorResponse('COORDINATOR_INCOMPATIBLE', 409);
     }
     if (command.type === 'play_item') {
       if (!this.room.playlist.some((item) => item.queueItemId === command.queueItemId)) {
         return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
       }
-    } else if (!this.room.currentQueueItemId || !this.room.playback.queueItemId) {
+    } else if (
+      command.type !== 'set_effects' &&
+      (!this.room.currentQueueItemId || !this.room.playback.queueItemId)
+    ) {
       return errorResponse('NO_MEDIA', 409);
     }
 
@@ -2062,6 +2256,7 @@ export class MusixquareProRoom {
       coordinatorEpoch: this.room.presence.coordinatorEpoch,
       coordinatorParticipantId: coordinator.participantId,
       coordinatorPresenceIncarnationId: coordinator.presenceIncarnationId,
+      developerControlVersion: requiredControlVersion,
       expected: {
         queueItemId: this.room.currentQueueItemId,
         playlistRevision: this.room.playlistRevision,
@@ -2729,7 +2924,7 @@ export class MusixquareProRoom {
     if (
       this.room.runtime !== 'awake' ||
       !coordinator ||
-      coordinator.developerControlVersion !== DEVELOPER_CONTROL_VERSION ||
+      !supportsDeveloperControl(coordinator) ||
       !Number.isSafeInteger(this.room.revision) ||
       this.room.revision < 0 ||
       !Number.isSafeInteger(this.room.playlistRevision) ||
@@ -2806,7 +3001,7 @@ export class MusixquareProRoom {
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     const frame = {
       type: 'developer-command',
-      version: DEVELOPER_CONTROL_VERSION,
+      version: record.developerControlVersion,
       roomCode: this.room.roomCode,
       coordinatorEpoch: record.coordinatorEpoch,
       commandId: record.commandId,
@@ -2826,7 +3021,7 @@ export class MusixquareProRoom {
             coordinatorEpoch: record.coordinatorEpoch,
             coordinatorParticipantId: record.coordinatorParticipantId,
             coordinatorPresenceIncarnationId: record.coordinatorPresenceIncarnationId,
-            developerControlVersion: DEVELOPER_CONTROL_VERSION,
+            developerControlVersion: record.developerControlVersion,
             frame,
           }),
         }),
@@ -2861,7 +3056,7 @@ export class MusixquareProRoom {
         changed = true;
         continue;
       }
-      if (coordinator.developerControlVersion !== DEVELOPER_CONTROL_VERSION) {
+      if (!supportsDeveloperControl(coordinator, record.developerControlVersion)) {
         this.completeDeveloperCommand(record, 'rejected', 'coordinator_incompatible', nowMs);
         changed = true;
         continue;
@@ -2938,13 +3133,30 @@ export class MusixquareProRoom {
       await this.persist();
       return jsonResponse({ ok: true });
     }
-    const status =
+    let resultCode = parsed.value.resultCode;
+    let status =
       parsed.value.resultCode === 'applied' || parsed.value.resultCode === 'already_applied'
         ? 'applied'
         : parsed.value.resultCode === 'expired'
           ? 'expired'
           : 'rejected';
-    this.completeDeveloperCommand(record, status, parsed.value.resultCode, nowMs, true);
+    if (status === 'applied' && record.command?.type === 'set_effects') {
+      const patch = parseRoomEffectsPatch(record.command.effects);
+      if (!patch || this.room.effects.revision >= Number.MAX_SAFE_INTEGER) {
+        status = 'rejected';
+        resultCode = 'execution_failed';
+      } else {
+        const effects = mergeRoomEffectsPatch(this.room.effects.effects, patch);
+        if (JSON.stringify(effects) !== JSON.stringify(this.room.effects.effects)) {
+          this.room.effects = {
+            revision: this.room.effects.revision + 1,
+            updatedAtMs: nowMs,
+            effects,
+          };
+        }
+      }
+    }
+    this.completeDeveloperCommand(record, status, resultCode, nowMs, true);
     await this.persist();
     return jsonResponse({ ok: true });
   }
@@ -3146,6 +3358,48 @@ export class MusixquareProRoom {
       auth.participant = participant;
     }
     return auth;
+  }
+
+  async handleGetEffects(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    if (request.body && (request.headers.get('content-length') || '') !== '0') {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    return jsonResponse(publicEffects(this.room));
+  }
+
+  async handleUpdateEffects(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    if (!hasExactKeys(parsed.value, ['coordinatorEpoch', 'effects'])) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const effects = parseRoomEffects(parsed.value.effects);
+    if (!isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) || !effects) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    if (
+      this.room.presence.coordinatorParticipantId !== auth.session.participantId ||
+      this.room.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch
+    ) {
+      return errorResponse('COORDINATOR_EPOCH_MISMATCH', 409);
+    }
+    if (JSON.stringify(effects) === JSON.stringify(this.room.effects.effects)) {
+      return jsonResponse(publicEffects(this.room));
+    }
+    if (this.room.effects.revision >= Number.MAX_SAFE_INTEGER) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+    this.room.effects = {
+      revision: this.room.effects.revision + 1,
+      updatedAtMs: Date.now(),
+      effects,
+    };
+    await this.persist();
+    return jsonResponse(publicEffects(this.room));
   }
 
   systemAudioResponse(extra = {}) {
@@ -3910,15 +4164,17 @@ export class MusixquareProRoom {
     const developerControlVersion = parsed.empty
       ? 0
       : hasExactKeys(parsed.value, ['developerControlVersion']) &&
-          parsed.value.developerControlVersion === DEVELOPER_CONTROL_VERSION
-        ? DEVELOPER_CONTROL_VERSION
+          Number.isSafeInteger(parsed.value.developerControlVersion) &&
+          parsed.value.developerControlVersion >= DEVELOPER_CONTROL_VERSION &&
+          parsed.value.developerControlVersion <= DEVELOPER_CONTROL_MAX_VERSION
+        ? parsed.value.developerControlVersion
         : null;
     if (developerControlVersion === null) return errorResponse('INVALID_REQUEST', 400);
     const previousControlVersion = auth.participant.developerControlVersion;
     auth.participant.developerControlVersion = developerControlVersion;
     if (
-      previousControlVersion === DEVELOPER_CONTROL_VERSION &&
-      developerControlVersion !== DEVELOPER_CONTROL_VERSION &&
+      previousControlVersion > developerControlVersion &&
+      supportsDeveloperControl({ developerControlVersion: previousControlVersion }) &&
       this.room.presence.coordinatorParticipantId === auth.session.participantId
     ) {
       this.fenceDeveloperCommands('coordinator_incompatible', Date.now());
@@ -4451,6 +4707,7 @@ export class MusixquareProRoom {
     // repairs stale markers on assets that are referenced by the playlist.
     let changed =
       this.systemAudioMigrationPending ||
+      this.effectsMigrationPending ||
       this.developerCommandMigrationPending ||
       this.reconcileSystemAudio(nowMs);
     changed = this.reconcileAssetGarbageCollection(nowMs) || changed;
@@ -4599,6 +4856,7 @@ export class MusixquareProRoom {
     if (changed) {
       await this.persist();
       this.systemAudioMigrationPending = false;
+      this.effectsMigrationPending = false;
       this.developerCommandMigrationPending = false;
     }
     return changed;
@@ -4610,6 +4868,7 @@ export class MusixquareProRoom {
       if (!this.room) this.room = (await this.storage.get(STORAGE_KEY)) || null;
       if (!this.room) return;
       this.normalizeLoadedSystemAudio();
+      this.normalizeLoadedEffects();
       this.normalizeLoadedDeveloperCommands();
       await this.prune(Date.now());
       await this.scheduleAlarm();

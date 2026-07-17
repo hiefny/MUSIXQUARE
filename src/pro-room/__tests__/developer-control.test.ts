@@ -89,7 +89,7 @@ function frame(
 ): DeveloperCommandFrame {
   return {
     type: 'developer-command',
-    version: 1,
+    version: command.type === 'set_effects' ? 2 : 1,
     roomCode: '000001',
     coordinatorEpoch: 3,
     commandId,
@@ -164,6 +164,25 @@ describe('PRO developer command executor', () => {
       command,
       expect.objectContaining({ roomCode: '000001' }),
     );
+    expect(f.acknowledge).toHaveBeenCalledWith(commandFrame, 'applied');
+  });
+
+  it('fences set_effects only to the room and coordinator epoch, not playlist churn', async () => {
+    const f = fixtures();
+    const commandFrame = frame({
+      type: 'set_effects',
+      effects: { virtualBass: { strengthPercent: 60 } },
+    });
+    commandFrame.expected = {
+      queueItemId: OTHER_QUEUE_ITEM_ID,
+      playlistRevision: 999,
+      playbackRevision: 999,
+    };
+
+    await f.executor.handle(commandFrame);
+
+    expect(f.refreshSnapshot).not.toHaveBeenCalled();
+    expect(f.execute).toHaveBeenCalledWith(commandFrame.command, expect.any(Object));
     expect(f.acknowledge).toHaveBeenCalledWith(commandFrame, 'applied');
   });
 

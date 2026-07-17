@@ -64,10 +64,14 @@ service boundary or accumulating on ordinary app requests.
 
 The old custom-domain cookies are host-only and cannot migrate to the facade.
 On the first facade visit, an existing participant therefore enters the PIN
-once more. Existing room owners must use the admin owner-recovery action once
-after the cutover to receive the new room-scoped owner cookie. The old cookies
-remain untouched, so rolling the client endpoint back restores the old session
-namespace.
+once more. Existing room owners must redeem a one-time owner-recovery claim
+after the cutover to receive the new room-scoped owner cookie. Active rooms do
+not expose this operation in the admin UI: issue a short-lived claim with
+`scripts/issue-pro-room-activation-claim.mjs --recovery <room-code>` and redeem
+it only in the intended owner browser. The old browser cookies remain
+untouched, but redemption revokes the previous server-side owner credential;
+rolling back the client endpoint would therefore require another recovery on
+the old origin.
 
 The public PRO front door keeps the two launch rooms on an immutable fast path.
 For dynamic rooms it cold-loads a bounded set of `registered` D1 rows and then

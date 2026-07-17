@@ -646,6 +646,21 @@ p {
   color: var(--warn);
 }
 
+.pro-room-state.is-decommissioning {
+  background: rgba(250, 204, 21, 0.12);
+  color: var(--warn);
+}
+
+.pro-room-state.is-decommissioned {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-muted);
+}
+
+.pro-room-terminal-copy {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .pro-room-actions {
   display: flex;
   flex-wrap: wrap;
@@ -683,6 +698,172 @@ p {
 .pro-room-api-head strong {
   font-size: 13px;
   font-weight: 900;
+}
+
+.pro-room-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid var(--divider);
+  padding-top: 18px;
+}
+
+.pro-room-danger-zone > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.pro-room-danger-zone strong {
+  color: var(--fail);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.pro-room-danger-zone p {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.pro-room-danger-zone button,
+.pro-room-destroy-actions button {
+  display: inline-flex;
+  min-height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  padding: 0 15px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pro-room-danger-zone button.is-danger {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+.pro-room-destroy-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  overflow: auto;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0;
+  background: var(--surface-1);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.48);
+}
+
+.pro-room-destroy-dialog:not([open]) {
+  display: none;
+}
+
+.pro-room-destroy-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.pro-room-destroy-form {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+}
+
+.pro-room-destroy-copy {
+  display: grid;
+  gap: 9px;
+}
+
+.pro-room-destroy-eyebrow {
+  color: var(--fail);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pro-room-destroy-copy h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.pro-room-destroy-copy p {
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.pro-room-destroy-field {
+  display: grid;
+  gap: 7px;
+}
+
+.pro-room-destroy-field span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.pro-room-destroy-field input {
+  width: 100%;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0 13px;
+  background: var(--surface-2);
+  color: var(--text-main);
+  outline: none;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.pro-room-destroy-field input:focus {
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
+}
+
+.pro-room-destroy-error {
+  min-height: 1.4em;
+  color: var(--fail);
+  font-size: 12px;
+}
+
+.pro-room-destroy-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pro-room-destroy-actions button.is-secondary {
+  background: var(--surface-2);
+  color: var(--text-sub);
+}
+
+.pro-room-destroy-actions button.is-danger {
+  background: var(--fail);
+  color: #121212;
+}
+
+.pro-room-danger-zone button:focus-visible,
+.pro-room-destroy-actions button:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.72);
+  outline-offset: 2px;
+}
+
+.pro-room-danger-zone button:disabled,
+.pro-room-destroy-actions button:disabled,
+.pro-room-destroy-field input:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .pro-room-api-panel {
@@ -1517,10 +1698,17 @@ p {
     padding: 14px;
   }
 
+  .pro-room-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
   .pro-room-register,
   .pro-room-claim-row button,
   .pro-room-actions a,
-  .pro-room-actions button {
+  .pro-room-actions button,
+  .pro-room-danger-zone button {
     width: 100%;
   }
 
@@ -1544,6 +1732,26 @@ p {
   .pro-room-api-key,
   .pro-room-api-secret-row {
     grid-template-columns: 1fr;
+  }
+
+  .pro-room-destroy-dialog {
+    width: min(100vw - 24px, 440px);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .pro-room-destroy-form {
+    gap: 18px;
+    padding: 20px;
+  }
+
+  .pro-room-destroy-actions {
+    flex-direction: column;
+  }
+
+  .pro-room-destroy-actions button {
+    width: 100%;
+    min-height: 44px;
   }
 
   .pro-room-api-form button,

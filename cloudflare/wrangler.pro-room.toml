@@ -33,16 +33,26 @@ name = "PRO_SIGNALING_ROOMS"
 class_name = "MusixquareRoom"
 script_name = "musixquare-signaling"
 
+[[durable_objects.bindings]]
+name = "DEVELOPER_API_LIMITERS"
+class_name = "DeveloperApiRateLimiter"
+script_name = "musixquare-developer-api"
+
 [[r2_buckets]]
 binding = "PRO_MEDIA_BUCKET"
 bucket_name = "musixquare-pro-media"
 
-# Shared with the admin Worker only for a best-effort activation-state index
-# update. No public PRO request reads D1 on its critical path.
+# Shared with the admin Worker for the bounded front-door registry and the
+# permanent-deletion completion tombstone.
 [[d1_databases]]
 binding = "MUSIXQUARE_ADMIN_DB"
 database_name = "musixquare-admin-metrics"
 database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
+
+[[d1_databases]]
+binding = "DEVELOPER_API_DB"
+database_name = "musixquare-developer-api"
+database_id = "237d63d2-6eea-4b01-b396-7784b5b8b6f0"
 
 [[migrations]]
 tag = "v1"

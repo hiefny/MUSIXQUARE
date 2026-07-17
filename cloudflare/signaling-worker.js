@@ -24,6 +24,7 @@ const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
 const PRO_ROOM_META_KEY = 'proRoomMeta';
 const PRO_TICKET_USES_KEY = 'proSignalingTicketUses';
 const PRO_PARTICIPANT_HIGH_WATER_KEY = 'proSignalingParticipantHighWater';
+const PRO_DECOMMISSIONED_KEY = 'proRoomDecommissioned';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
@@ -32,6 +33,8 @@ const DEVELOPER_CONTROL_VERSION = 1;
 const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
 const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_EFFECTS_CONTROL_VERSION;
 const DEVELOPER_COMMAND_BODY_MAX_BYTES = 4 * 1024;
+const INTERNAL_ADMIN_BODY_MAX_BYTES = 1024;
+const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_PRO_TICKET_USES = 1024;
@@ -1427,6 +1430,9 @@ export class MusixquareRoom {
       if (url.pathname === '/internal/developer/v1/invalidate') {
         return this.handleInternalDeveloperInvalidation(request);
       }
+      if (url.pathname === '/internal/admin/v1/decommission') {
+        return this.enqueueProAdmission(() => this.handleInternalAdminDecommission(request));
+      }
       return json({ error: 'NOT_FOUND' }, 404);
     }
     const upgrade = request.headers.get('Upgrade') || '';
@@ -1448,11 +1454,20 @@ export class MusixquareRoom {
       );
       if (!ticket) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
 
-      await this.validateRehydratedProSockets();
-      const pair = new WebSocketPair();
-      const [client, server] = Object.values(pair);
-      await this.enqueueProAdmission(() => this.acceptProSocket(server, ticket));
-      return new Response(null, { status: 101, webSocket: client });
+      return this.enqueueProAdmission(async () => {
+        // Keep the tombstone read in the same queue as ticket consumption and
+        // permanent decommission. A connection that passed an earlier check
+        // must never repopulate signaling storage after the deletion sweep.
+        const decommissioned = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
+        if (decommissioned?.roomCode === proRoomId) {
+          return json({ error: 'PRO_ROOM_DECOMMISSIONED' }, 410);
+        }
+        await this.validateRehydratedProSockets();
+        const pair = new WebSocketPair();
+        const [client, server] = Object.values(pair);
+        await this.acceptProSocket(server, ticket);
+        return new Response(null, { status: 101, webSocket: client });
+      });
     }
 
     const roomId = url.pathname.match(ROOM_PATH)?.[1];
@@ -1482,6 +1497,76 @@ export class MusixquareRoom {
     }
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async handleInternalAdminDecommission(request) {
+    const value = await readBoundedJson(request, INTERNAL_ADMIN_BODY_MAX_BYTES);
+    if (
+      !hasExactKeys(value, ['roomCode', 'requestId']) ||
+      !isProNamespaceRoomCode(value.roomCode) ||
+      request.headers.get('x-mxqr-pro-room-code') !== value.roomCode ||
+      !ADMIN_REQUEST_ID_RE.test(value.requestId)
+    ) {
+      return json({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    const existing = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
+    const changed = existing?.roomCode !== value.roomCode;
+    const tombstone = changed
+      ? {
+          v: 1,
+          roomCode: value.roomCode,
+          requestId: value.requestId,
+          decommissionedAtMs: Date.now(),
+        }
+      : existing;
+
+    // Persist the admission fence before deleting any other key. If cleanup is
+    // interrupted, old signaling tickets remain rejected and an idempotent
+    // retry repairs the residue without a deleteAll -> put crash window.
+    await this.state.storage.put(PRO_DECOMMISSIONED_KEY, tombstone);
+
+    for (const socket of typeof this.state.getWebSockets === 'function'
+      ? this.state.getWebSockets()
+      : []) {
+      closeSocket(socket, 1012, 'PRO_ROOM_DECOMMISSIONED');
+    }
+    this.host = null;
+    this.hostPeerId = null;
+    this.guests.clear();
+    this.pendingGuests.clear();
+    this.roomMeta = null;
+    this.proRoomMeta = null;
+    this.guestBindings = null;
+    this.proTicketUses = null;
+    this.proParticipantHighWater = null;
+    this.proSocketsValidated = true;
+
+    const stored =
+      typeof this.state.storage.list === 'function' ? await this.state.storage.list() : null;
+    const keys = stored
+      ? [...stored.keys()]
+      : [
+          ROOM_META_KEY,
+          GUEST_BINDINGS_KEY,
+          PRO_ROOM_META_KEY,
+          PRO_TICKET_USES_KEY,
+          PRO_PARTICIPANT_HIGH_WATER_KEY,
+        ];
+    for (const key of keys) {
+      if (key !== PRO_DECOMMISSIONED_KEY && typeof this.state.storage.delete === 'function') {
+        await this.state.storage.delete(key);
+      }
+    }
+    if (typeof this.state.storage.deleteAlarm === 'function') {
+      await this.state.storage.deleteAlarm();
+    }
+    return json({
+      ok: true,
+      roomCode: value.roomCode,
+      status: 'decommissioned',
+      changed,
+    });
   }
 
   async handleInternalDeveloperDispatch(request) {

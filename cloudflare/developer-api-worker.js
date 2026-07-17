@@ -2084,9 +2084,52 @@ function rateBucketsForRequest(value) {
 export class DeveloperApiRateLimiter {
   constructor(state) {
     this.storage = state.storage;
+    this.mutationTail = Promise.resolve();
   }
 
-  async fetch(request) {
+  enqueueMutation(task) {
+    const run = this.mutationTail.then(task, task);
+    this.mutationTail = run.catch(() => {});
+    return run;
+  }
+
+  fetch(request) {
+    return this.enqueueMutation(() => this.handleFetch(request));
+  }
+
+  async handleFetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === '/internal/admin/v1/decommission') {
+      const value = await readRequestJsonLimited(request, 1024);
+      if (
+        request.method !== 'POST' ||
+        !hasExactKeys(value, ['roomCode', 'requestId']) ||
+        !ROOM_CODE_RE.test(value.roomCode) ||
+        request.headers.get('x-mxqr-pro-room-code') !== value.roomCode ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          value.requestId,
+        )
+      ) {
+        return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
+      }
+      if (typeof this.storage.deleteAll === 'function') await this.storage.deleteAll();
+      else if (typeof this.storage.delete === 'function') await this.storage.delete('buckets');
+      await this.storage.put('decommissioned', {
+        v: 1,
+        roomCode: value.roomCode,
+        requestId: value.requestId,
+        decommissionedAtMs: Date.now(),
+      });
+      if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+      return Response.json({
+        ok: true,
+        roomCode: value.roomCode,
+        status: 'decommissioned',
+      });
+    }
+    if (await this.storage.get('decommissioned')) {
+      return Response.json({ error: 'PRO_ROOM_DECOMMISSIONED' }, { status: 410 });
+    }
     const body = await readRateRequest(request);
     const requested = rateBucketsForRequest(body);
     if (!requested) return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
@@ -2144,7 +2187,16 @@ export class DeveloperApiRateLimiter {
     });
   }
 
-  async alarm() {
+  alarm() {
+    return this.enqueueMutation(() => this.handleAlarm());
+  }
+
+  async handleAlarm() {
+    if (await this.storage.get('decommissioned')) {
+      if (typeof this.storage.delete === 'function') await this.storage.delete('buckets');
+      if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+      return;
+    }
     const nowMs = Date.now();
     const stored = (await this.storage.get('buckets')) || {};
     for (const [id, bucket] of Object.entries(stored)) {

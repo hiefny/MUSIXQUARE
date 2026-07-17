@@ -2,6 +2,17 @@
 -- tables into the admin metrics database: key revocation and audit retention
 -- are a separate security boundary.
 
+-- Permanent authorization fence for deleted PRO room numbers. The room code
+-- is intentionally never reusable, so this tiny tombstone outlives API keys
+-- and audit detail while preventing a late in-flight write from recreating
+-- either.
+CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_tombstones (
+  room_code TEXT PRIMARY KEY NOT NULL
+    CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+  request_id TEXT NOT NULL,
+  decommissioned_at INTEGER NOT NULL CHECK (decommissioned_at >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS mxqr_developer_api_keys (
   key_id TEXT PRIMARY KEY NOT NULL
     CHECK (length(key_id) = 16 AND key_id NOT GLOB '*[^A-Za-z0-9_-]*'),
@@ -31,6 +42,16 @@ CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_keys_room_status_expiry
 -- index above. Keep its active-and-expired lookup bounded as key volume grows.
 CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_keys_status_expiry
   ON mxqr_developer_api_keys (status, expires_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_decommissioned_room
+BEFORE INSERT ON mxqr_developer_api_keys
+WHEN EXISTS (
+  SELECT 1 FROM mxqr_developer_api_room_tombstones
+  WHERE room_code = NEW.room_code
+)
+BEGIN
+  SELECT RAISE(ABORT, 'PRO_ROOM_DECOMMISSIONED');
+END;
 
 -- The private beta intentionally caps credential fan-out. Rotation must
 -- revoke an old key before issuing a fourth active key for the same room.
@@ -70,6 +91,16 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_audit (
 CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_audit_created_at
   ON mxqr_developer_api_audit (created_at);
 
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_audit_decommissioned_room
+BEFORE INSERT ON mxqr_developer_api_audit
+WHEN EXISTS (
+  SELECT 1 FROM mxqr_developer_api_room_tombstones
+  WHERE room_code = NEW.room_code
+)
+BEGIN
+  SELECT RAISE(IGNORE);
+END;
+
 -- Access-gated operator actions use an HMAC pseudonym in actor_id. Raw Access
 -- identity and the one-time full API key are never persisted.
 CREATE TABLE IF NOT EXISTS mxqr_developer_api_admin_audit (
@@ -84,6 +115,16 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_admin_audit (
 
 CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_admin_audit_created_at
   ON mxqr_developer_api_admin_audit (created_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_admin_audit_decommissioned_room
+BEFORE INSERT ON mxqr_developer_api_admin_audit
+WHEN EXISTS (
+  SELECT 1 FROM mxqr_developer_api_room_tombstones
+  WHERE room_code = NEW.room_code
+)
+BEGIN
+  SELECT RAISE(IGNORE);
+END;
 
 -- A key ID is never reactivated or reused. Keep concurrent idempotent revoke
 -- requests from producing more than one operator audit row.

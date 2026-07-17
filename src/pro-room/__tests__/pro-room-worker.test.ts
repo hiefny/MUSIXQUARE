@@ -93,6 +93,17 @@ class FakeR2Bucket {
   readonly deleted: string[] = [];
   deleteError: Error | null = null;
 
+  async list(options: { prefix?: string; limit?: number } = {}): Promise<unknown> {
+    const prefix = options.prefix ?? '';
+    const limit = options.limit ?? 1000;
+    const objects = [...this.objects.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .sort()
+      .slice(0, limit)
+      .map((key) => ({ key }));
+    return { objects, truncated: objects.length === limit };
+  }
+
   async head(key: string): Promise<unknown> {
     return structuredClone(this.objects.get(key)) ?? null;
   }
@@ -114,10 +125,12 @@ class FakeR2Bucket {
     });
   }
 
-  async delete(key: string): Promise<void> {
+  async delete(key: string | string[]): Promise<void> {
     if (this.deleteError) throw this.deleteError;
-    this.deleted.push(key);
-    this.objects.delete(key);
+    for (const item of Array.isArray(key) ? key : [key]) {
+      this.deleted.push(item);
+      this.objects.delete(item);
+    }
   }
 }
 
@@ -2756,6 +2769,252 @@ describe('persistent PRO room bootstrap and activation', () => {
       runtime: 'awake',
       playback: { state: 'playing', positionSeconds: 47 },
       viewer: { role: 'owner', displayName: 'Fresh Owner' },
+    });
+  });
+
+  it('permanently decommissions a room, sweeps late R2 uploads, and preserves its tombstone', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.parse('2026-07-18T02:00:00.000Z');
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const ready = await completeReadyAsset(context, 'admin-decommission');
+    const queueItemId = '018f977e-5df5-4c8f-bb80-55d847ddec9f';
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [playlistItem(queueItemId, ready.asset)],
+          'admin-decommission-playlist',
+        )
+      ).status,
+    ).toBe(200);
+    const memberResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    expect(memberResponse.status).toBe(200);
+    bindCookiePresence(cookieFrom(memberResponse), await responseJson(memberResponse));
+
+    const orphanKey = `rooms/${ROOM_CODE}/assets/orphan/v1/staging_orphan`;
+    const otherRoomKey = 'rooms/000002/assets/keep/v1/object_keep';
+    context.bucket.objects.set(orphanKey, { size: 17 });
+    context.bucket.objects.set(otherRoomKey, { size: 23 });
+
+    let registryStatus = 'decommissioning';
+    const registryRun = vi.fn(async () => {
+      registryStatus = 'decommissioned';
+      return { meta: { changes: 1 } };
+    });
+    const adminDb = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          run: registryRun,
+          first: vi.fn(async () => ({ status: registryStatus })),
+          all: vi.fn(async () => ({ results: [{ status: registryStatus }] })),
+        })),
+      })),
+    };
+    const signalingFetch = vi.fn(async (request: Request) => {
+      expect(new URL(request.url).pathname).toBe('/internal/admin/v1/decommission');
+      await expect(request.json()).resolves.toEqual({
+        roomCode: ROOM_CODE,
+        requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9f',
+      });
+      return Response.json({ ok: true, roomCode: ROOM_CODE, status: 'decommissioned' });
+    });
+    const developerQueries: Array<{ sql: string; values: unknown[] }> = [];
+    const developerApiDb = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((...values: unknown[]) => ({
+          run: vi.fn(async () => {
+            developerQueries.push({ sql, values });
+            return { meta: { changes: 1 } };
+          }),
+        })),
+      })),
+    };
+    const limiterFetch = vi.fn(async (request: Request) => {
+      expect(new URL(request.url).pathname).toBe('/internal/admin/v1/decommission');
+      expect(request.headers.get('x-mxqr-pro-room-code')).toBe(ROOM_CODE);
+      await expect(request.json()).resolves.toEqual({
+        roomCode: ROOM_CODE,
+        requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9f',
+      });
+      return Response.json({ ok: true, roomCode: ROOM_CODE });
+    });
+    const limiterIdFromName = vi.fn((name: string) => name);
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+      alarm(): Promise<void>;
+    };
+    internal.env.MUSIXQUARE_ADMIN_DB = adminDb;
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((roomCode: string) => roomCode),
+      get: vi.fn(() => ({ fetch: signalingFetch })),
+    };
+    internal.env.DEVELOPER_API_DB = developerApiDb;
+    internal.env.DEVELOPER_API_LIMITERS = {
+      idFromName: limiterIdFromName,
+      get: vi.fn(() => ({ fetch: limiterFetch })),
+    };
+    internal.env.DECOMMISSION_FINAL_EMPTY_WINDOW_SECONDS = 60;
+
+    expect(internal.room).toMatchObject({
+      provisioned: true,
+      status: 'active',
+      pin: expect.any(Object),
+    });
+    expect(internal.room.playlist).toHaveLength(1);
+    expect(Object.keys(internal.room.sessions)).toHaveLength(2);
+    expect(Object.keys(internal.room.assets)).toHaveLength(1);
+
+    const decommissionRequest = () =>
+      new Request('https://pro-room.internal/internal/admin/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({
+          roomCode: ROOM_CODE,
+          requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9f',
+        }),
+      });
+    const decommissioned = await context.worker.fetch(decommissionRequest());
+    expect(decommissioned.status).toBe(202);
+    await expect(decommissioned.json()).resolves.toMatchObject({
+      ok: true,
+      roomCode: ROOM_CODE,
+      status: 'decommissioning',
+      changed: true,
+      purgeAfterMs: expect.any(Number),
+      completedAtMs: null,
+    });
+
+    expect(internal.room).toMatchObject({
+      provisioned: false,
+      status: 'decommissioning',
+      runtime: 'sleeping',
+      playlist: [],
+      pin: null,
+      ownerMemberId: null,
+      ownerCredentialHash: null,
+      sessions: {},
+      assets: {},
+      quota: { usedBytes: 0, reservedBytes: 0 },
+      decommission: {
+        signalingCleared: true,
+        initialSweepCompleted: true,
+        developerDataCleared: true,
+        developerLimiterCleared: true,
+        purgeAfterMs: expect.any(Number),
+      },
+    });
+    expect(context.bucket.objects.has(ready.asset.objectKey)).toBe(false);
+    expect(context.bucket.objects.has(orphanKey)).toBe(false);
+    expect(context.bucket.objects.has(otherRoomKey)).toBe(true);
+    expect(signalingFetch).toHaveBeenCalledTimes(1);
+    const initialDeveloperDeletes = developerQueries.filter(({ sql }) => /^DELETE FROM /.test(sql));
+    expect(initialDeveloperDeletes).toHaveLength(3);
+    expect(
+      developerQueries.filter(({ sql }) =>
+        /INSERT INTO mxqr_developer_api_room_tombstones/.test(sql),
+      ),
+    ).toHaveLength(1);
+    expect(
+      initialDeveloperDeletes.map(
+        ({ sql }) => sql.match(/^DELETE FROM (\S+) WHERE room_code = \?1$/)?.[1],
+      ),
+    ).toEqual([
+      'mxqr_developer_api_keys',
+      'mxqr_developer_api_audit',
+      'mxqr_developer_api_admin_audit',
+    ]);
+    expect(initialDeveloperDeletes.every(({ values }) => values[0] === ROOM_CODE)).toBe(true);
+    expect(limiterIdFromName).toHaveBeenCalledOnce();
+    expect(limiterIdFromName).toHaveBeenCalledWith(`room:${ROOM_CODE}`);
+    expect(limiterFetch).toHaveBeenCalledTimes(1);
+    expect(registryStatus).toBe('decommissioning');
+
+    const lateObjectKey = `rooms/${ROOM_CODE}/assets/late/v1/staging_late`;
+    context.bucket.objects.set(lateObjectKey, { size: 29 });
+    const purgeAfterMs = internal.room.decommission.purgeAfterMs as number;
+    expect(context.state.storage.alarm).toBe(purgeAfterMs);
+    vi.setSystemTime(purgeAfterMs + 1);
+    await internal.alarm();
+
+    expect(context.bucket.objects.has(lateObjectKey)).toBe(false);
+    expect(context.bucket.objects.has(otherRoomKey)).toBe(true);
+    expect(registryStatus).toBe('decommissioning');
+    expect(internal.room.status).toBe('decommissioning');
+
+    const quietWindowLateKey = `rooms/${ROOM_CODE}/assets/quiet-window/v1/staging_late`;
+    context.bucket.objects.set(quietWindowLateKey, { size: 31 });
+    vi.setSystemTime(purgeAfterMs + 60_001);
+    await internal.alarm();
+    expect(context.bucket.objects.has(quietWindowLateKey)).toBe(false);
+    expect(internal.room.status).toBe('decommissioning');
+
+    vi.setSystemTime(purgeAfterMs + 120_001);
+    await internal.alarm();
+    expect(registryStatus).toBe('decommissioned');
+    expect(registryRun).toHaveBeenCalledTimes(1);
+    expect(internal.room).toMatchObject({
+      provisioned: false,
+      status: 'decommissioned',
+      playlist: [],
+      pin: null,
+      sessions: {},
+      assets: {},
+      decommission: {
+        requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9f',
+        completedAtMs: purgeAfterMs + 120_001,
+        maintenanceAtMs: purgeAfterMs + 120_001 + 24 * 60 * 60 * 1000,
+      },
+    });
+
+    const postCompletionKey = `rooms/${ROOM_CODE}/assets/post-completion/v1/straggler`;
+    context.bucket.objects.set(postCompletionKey, { size: 37 });
+    const maintenanceAtMs = internal.room.decommission.maintenanceAtMs as number;
+    vi.setSystemTime(maintenanceAtMs);
+    await internal.alarm();
+    expect(context.bucket.objects.has(postCompletionKey)).toBe(false);
+    expect(internal.room).toMatchObject({
+      status: 'decommissioned',
+      decommission: {
+        completedAtMs: purgeAfterMs + 120_001,
+        maintenanceAtMs: maintenanceAtMs + 24 * 60 * 60 * 1000,
+      },
+    });
+
+    const repeated = await context.worker.fetch(decommissionRequest());
+    expect(repeated.status).toBe(200);
+    await expect(repeated.json()).resolves.toEqual({
+      ok: true,
+      roomCode: ROOM_CODE,
+      status: 'decommissioned',
+      changed: false,
+      completedAtMs: purgeAfterMs + 120_001,
+    });
+    expect(signalingFetch).toHaveBeenCalledTimes(5);
+    expect(
+      developerQueries.filter(({ sql }) =>
+        /INSERT INTO mxqr_developer_api_room_tombstones/.test(sql),
+      ),
+    ).toHaveLength(5);
+    expect(developerApiDb.prepare).toHaveBeenCalledTimes(20);
+    expect(limiterFetch).toHaveBeenCalledTimes(5);
+
+    const restarted = new MusixquareProRoom(context.state as never, internal.env as never);
+    const reprovision = await restarted.fetch(
+      new Request('https://pro-room.internal/internal/admin/provision', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(reprovision.status).toBe(410);
+    await expect(reprovision.json()).resolves.toEqual({
+      error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED',
     });
   });
 

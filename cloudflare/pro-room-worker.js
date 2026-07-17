@@ -20,6 +20,7 @@ const PIN_RE = /^\d{8}$/;
 const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
@@ -84,6 +85,9 @@ const RESERVATION_TTL_SECONDS = 15 * 60;
 const ASSET_GC_GRACE_SECONDS = 15 * 60;
 const ASSET_GC_RETRY_SECONDS = 60;
 const PRESIGN_TTL_SECONDS = 10 * 60;
+const DECOMMISSION_RETRY_MS = 60 * 1000;
+const DECOMMISSION_FINAL_EMPTY_WINDOW_SECONDS = 60 * 60;
+const DECOMMISSION_TOMBSTONE_MAINTENANCE_MS = 24 * 60 * 60 * 1000;
 const SIGNALING_TICKET_TTL_SECONDS = 90;
 const SYSTEM_AUDIO_MAX_PRESENCE_ITEMS = 4;
 const SYSTEM_AUDIO_CLAIM_TTL_MS = 45 * 1000;
@@ -177,7 +181,7 @@ function registryCacheFor(db) {
   let cache = registryCacheByDb.get(db);
   if (!cache) {
     cache = {
-      registered: new Set(INITIAL_PRO_ROOM_CODES),
+      registered: new Set(),
       refreshedAtMs: 0,
       refreshPromise: null,
     };
@@ -187,12 +191,15 @@ function registryCacheFor(db) {
 }
 
 async function isFrontProvisionedRoom(roomCode, env, nowMs = Date.now()) {
-  if (INITIAL_PRO_ROOM_CODES.has(roomCode)) return true;
   const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
-  if (!db?.prepare) return false;
+  // Local/test environments without the shared registry keep the two launch
+  // rooms. Production always binds D1 so a decommission tombstone can close
+  // those launch codes just like every dynamically provisioned room.
+  if (!db?.prepare) return INITIAL_PRO_ROOM_CODES.has(roomCode);
   const cache = registryCacheFor(db);
-  if (cache.registered.has(roomCode)) return true;
-  if (nowMs - cache.refreshedAtMs < PRO_ROOM_REGISTRY_REFRESH_MS) return false;
+  if (nowMs - cache.refreshedAtMs < PRO_ROOM_REGISTRY_REFRESH_MS) {
+    return cache.registered.has(roomCode);
+  }
   if (!cache.refreshPromise) {
     cache.refreshPromise = (async () => {
       const result = await db
@@ -207,9 +214,9 @@ async function isFrontProvisionedRoom(roomCode, env, nowMs = Date.now()) {
       if (rows.length > PRO_ROOM_REGISTRY_MAX_ITEMS) {
         throw new Error('PRO room registry exceeds its bounded cache capacity');
       }
-      for (const row of rows) {
-        if (isProRoomCode(row?.room_code)) cache.registered.add(row.room_code);
-      }
+      cache.registered = new Set(
+        rows.map((row) => row?.room_code).filter((value) => isProRoomCode(value)),
+      );
       cache.refreshedAtMs = Date.now();
     })().finally(() => {
       cache.refreshPromise = null;
@@ -218,9 +225,10 @@ async function isFrontProvisionedRoom(roomCode, env, nowMs = Date.now()) {
   try {
     await cache.refreshPromise;
   } catch (error) {
-    // Dynamic rooms fail closed while the registry is unavailable. The two
-    // launch rooms remain on the immutable fast path above.
+    // Fail closed once the registry is bound. A stale positive result must not
+    // keep a permanently deleted room open during a D1 incident.
     console.warn('[PRO registry] front-door refresh failed', error);
+    cache.registered = new Set();
     cache.refreshedAtMs = Date.now();
     return false;
   }
@@ -1904,6 +1912,11 @@ export class MusixquareProRoom {
   async scheduleAlarm() {
     if (typeof this.storage.setAlarm !== 'function') return;
     const candidates = [];
+    if (this.room.status === 'decommissioning') {
+      candidates.push(this.room.decommission?.retryAtMs, this.room.decommission?.purgeAfterMs);
+    } else if (this.room.status === 'decommissioned') {
+      candidates.push(this.room.decommission?.maintenanceAtMs);
+    }
     for (const session of Object.values(this.room.sessions)) candidates.push(session.expiresAtMs);
     for (const participant of Object.values(this.room.presence.participants)) {
       candidates.push(participant.lastSeenAtMs + this.presenceTtlMs());
@@ -2031,6 +2044,9 @@ export class MusixquareProRoom {
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/provision') {
         return this.withMutation(async () => {
+          if (this.room.status === 'decommissioning' || this.room.status === 'decommissioned') {
+            return errorResponse('PRO_ROOM_PERMANENTLY_DECOMMISSIONED', 410);
+          }
           if (!this.room.provisioned) {
             this.room.provisioned = true;
             await this.persist();
@@ -2046,6 +2062,9 @@ export class MusixquareProRoom {
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/resume') {
         return this.withMutation(() => this.handleInternalResume());
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/decommission') {
+        return this.withMutation(() => this.handleInternalDecommission(request));
       }
       return errorResponse('NOT_FOUND', 404);
     }
@@ -3685,6 +3704,364 @@ export class MusixquareProRoom {
     }
   }
 
+  decommissionPurgeAfterMs(nowMs) {
+    const presignTtlMs =
+      configuredNumber(this.env.PRESIGN_TTL_SECONDS, PRESIGN_TTL_SECONDS, 60, 3600) * 1000;
+    let purgeAfterMs = nowMs + presignTtlMs + 5_000;
+    for (const asset of Object.values(this.room.assets || {})) {
+      if (Number.isSafeInteger(asset.expiresAtMs)) {
+        purgeAfterMs = Math.max(purgeAfterMs, asset.expiresAtMs + 5_000);
+      }
+      if (Number.isSafeInteger(asset.uploadExpiresAtMs)) {
+        purgeAfterMs = Math.max(purgeAfterMs, asset.uploadExpiresAtMs + 5_000);
+      }
+      if (Number.isSafeInteger(asset.stagingCleanupAfterMs)) {
+        purgeAfterMs = Math.max(purgeAfterMs, asset.stagingCleanupAfterMs);
+      }
+    }
+    for (const tombstone of Object.values(this.room.stagingTombstones || {})) {
+      if (Number.isSafeInteger(tombstone.cleanupAfterMs)) {
+        purgeAfterMs = Math.max(purgeAfterMs, tombstone.cleanupAfterMs);
+      }
+    }
+    return purgeAfterMs;
+  }
+
+  decommissionFinalEmptyWindowMs() {
+    return (
+      configuredNumber(
+        this.env.DECOMMISSION_FINAL_EMPTY_WINDOW_SECONDS,
+        DECOMMISSION_FINAL_EMPTY_WINDOW_SECONDS,
+        60,
+        24 * 60 * 60,
+      ) * 1000
+    );
+  }
+
+  async purgeDecommissionedMediaPrefix() {
+    const bucket = this.env.PRO_MEDIA_BUCKET;
+    if (!bucket || typeof bucket.list !== 'function' || typeof bucket.delete !== 'function') {
+      return { ok: false, deletedAny: false };
+    }
+    const prefix = `rooms/${this.room.roomCode}/`;
+    let deletedAny = false;
+    try {
+      // Re-read the first page after every batch. Deleting while following an
+      // old cursor can skip keys when the listing contracts underneath it.
+      for (let round = 0; round < 32; round += 1) {
+        const page = await bucket.list({ prefix, limit: 1000 });
+        const keys = Array.isArray(page?.objects)
+          ? page.objects.map((object) => object?.key).filter((key) => typeof key === 'string')
+          : [];
+        if (keys.length === 0) return { ok: true, deletedAny };
+        deletedAny = true;
+        await bucket.delete(keys);
+      }
+      return { ok: false, deletedAny };
+    } catch {
+      return { ok: false, deletedAny };
+    }
+  }
+
+  async decommissionSignaling(requestId) {
+    const namespace = this.env.PRO_SIGNALING_ROOMS;
+    if (!namespace || typeof namespace.idFromName !== 'function') return false;
+    try {
+      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
+      const response = await stub.fetch(
+        new Request('https://signaling.internal/internal/admin/v1/decommission', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': this.room.roomCode,
+          },
+          body: JSON.stringify({ roomCode: this.room.roomCode, requestId }),
+        }),
+      );
+      const payload = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      return (
+        response.ok &&
+        payload?.ok === true &&
+        payload.roomCode === this.room.roomCode &&
+        payload.status === 'decommissioned'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async deleteDeveloperRoomData(requestId, nowMs = Date.now()) {
+    const db = this.env.DEVELOPER_API_DB;
+    if (!db?.prepare) return false;
+    try {
+      // Fence new credentials and audit writes before deleting existing rows.
+      // The tombstone is permanent because a decommissioned room code is never
+      // reused.
+      await db
+        .prepare(
+          `INSERT INTO mxqr_developer_api_room_tombstones
+            (room_code, request_id, decommissioned_at)
+           VALUES (?1, ?2, ?3)
+           ON CONFLICT(room_code) DO UPDATE SET
+             request_id = excluded.request_id,
+             decommissioned_at = MIN(
+               mxqr_developer_api_room_tombstones.decommissioned_at,
+               excluded.decommissioned_at
+             )`,
+        )
+        .bind(this.room.roomCode, requestId, nowMs)
+        .run();
+      for (const table of [
+        'mxqr_developer_api_keys',
+        'mxqr_developer_api_audit',
+        'mxqr_developer_api_admin_audit',
+      ]) {
+        await db
+          .prepare(`DELETE FROM ${table} WHERE room_code = ?1`)
+          .bind(this.room.roomCode)
+          .run();
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async clearDeveloperRoomLimiter(requestId) {
+    const namespace = this.env.DEVELOPER_API_LIMITERS;
+    if (!namespace || typeof namespace.idFromName !== 'function') return false;
+    try {
+      const stub = namespace.get(namespace.idFromName(`room:${this.room.roomCode}`));
+      const response = await stub.fetch(
+        new Request('https://developer-api.internal/internal/admin/v1/decommission', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': this.room.roomCode,
+          },
+          body: JSON.stringify({ roomCode: this.room.roomCode, requestId }),
+        }),
+      );
+      const payload = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      return response.ok && payload?.ok === true && payload.roomCode === this.room.roomCode;
+    } catch {
+      return false;
+    }
+  }
+
+  async markRegistryDecommissioned(nowMs) {
+    const db = this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB || null;
+    if (!db?.prepare) return false;
+    try {
+      await db
+        .prepare(
+          `INSERT INTO mxqr_pro_room_registry
+            (room_code, label, status, activation_state, created_at, updated_at)
+           VALUES (?1, 'Decommissioned PRO room', 'decommissioned', 'unactivated', ?2, ?2)
+           ON CONFLICT(room_code) DO UPDATE SET
+             label = 'Decommissioned PRO room',
+             status = 'decommissioned',
+             activation_state = 'unactivated',
+             updated_at = excluded.updated_at`,
+        )
+        .bind(this.room.roomCode, nowMs)
+        .run();
+      const statement = db
+        .prepare(
+          `SELECT status FROM mxqr_pro_room_registry
+           WHERE room_code = ?1 LIMIT 1`,
+        )
+        .bind(this.room.roomCode);
+      const row =
+        typeof statement.first === 'function'
+          ? await statement.first()
+          : (await statement.all())?.results?.[0] || null;
+      return row?.status === 'decommissioned';
+    } catch {
+      return false;
+    }
+  }
+
+  async maintainDecommissionedTombstone(nowMs = Date.now()) {
+    if (this.room.status !== 'decommissioned' || !this.room.decommission) return false;
+    const requestId = this.room.decommission.requestId;
+    const media = await this.purgeDecommissionedMediaPrefix();
+    const signaling = await this.decommissionSignaling(requestId);
+    const developerData = await this.deleteDeveloperRoomData(requestId, nowMs);
+    const developerLimiter = await this.clearDeveloperRoomLimiter(requestId);
+    const registry = await this.markRegistryDecommissioned(nowMs);
+    const repaired = media.ok && signaling && developerData && developerLimiter && registry;
+    this.room.decommission.maintenanceAtMs =
+      nowMs + (repaired ? DECOMMISSION_TOMBSTONE_MAINTENANCE_MS : DECOMMISSION_RETRY_MS);
+    await this.persist();
+    return repaired;
+  }
+
+  async continueDecommission(nowMs = Date.now()) {
+    if (this.room.status !== 'decommissioning' || !this.room.decommission) {
+      return this.room.status === 'decommissioned';
+    }
+    const job = this.room.decommission;
+
+    if (!job.signalingCleared) {
+      job.signalingCleared = await this.decommissionSignaling(job.requestId);
+    }
+    if (!job.initialSweepCompleted) {
+      job.initialSweepCompleted = (await this.purgeDecommissionedMediaPrefix()).ok;
+    }
+    if (!job.developerDataCleared) {
+      job.developerDataCleared = await this.deleteDeveloperRoomData(job.requestId, nowMs);
+    }
+    if (!job.developerLimiterCleared) {
+      job.developerLimiterCleared = await this.clearDeveloperRoomLimiter(job.requestId);
+    }
+
+    if (nowMs < job.purgeAfterMs) {
+      job.retryAtMs =
+        job.signalingCleared &&
+        job.initialSweepCompleted &&
+        job.developerDataCleared &&
+        job.developerLimiterCleared
+          ? job.purgeAfterMs
+          : Math.min(job.purgeAfterMs, nowMs + DECOMMISSION_RETRY_MS);
+      await this.persist();
+      return false;
+    }
+
+    // Repeat every externally writable cleanup after the URL-expiry fence.
+    // Requests that authenticated just before decommission may otherwise
+    // finish after the initial pass and recreate audit/limiter state.
+    const finalSweep = await this.purgeDecommissionedMediaPrefix();
+    job.developerDataCleared = await this.deleteDeveloperRoomData(job.requestId, nowMs);
+    job.developerLimiterCleared = await this.clearDeveloperRoomLimiter(job.requestId);
+    job.signalingCleared = await this.decommissionSignaling(job.requestId);
+    if (
+      !job.signalingCleared ||
+      !job.developerDataCleared ||
+      !job.developerLimiterCleared ||
+      !finalSweep.ok
+    ) {
+      job.finalEmptySinceMs = null;
+      job.retryAtMs = nowMs + DECOMMISSION_RETRY_MS;
+      await this.persist();
+      return false;
+    }
+    if (finalSweep.deletedAny || !Number.isSafeInteger(job.finalEmptySinceMs)) {
+      job.finalEmptySinceMs = nowMs;
+    }
+    const finalEmptyAtMs = job.finalEmptySinceMs + this.decommissionFinalEmptyWindowMs();
+    if (nowMs < finalEmptyAtMs) {
+      job.retryAtMs = Math.min(finalEmptyAtMs, nowMs + DECOMMISSION_RETRY_MS);
+      await this.persist();
+      return false;
+    }
+    if (!(await this.markRegistryDecommissioned(nowMs))) {
+      job.retryAtMs = nowMs + DECOMMISSION_RETRY_MS;
+      await this.persist();
+      return false;
+    }
+
+    this.room.status = 'decommissioned';
+    this.room.decommission = {
+      requestId: job.requestId,
+      startedAtMs: job.startedAtMs,
+      completedAtMs: nowMs,
+      maintenanceAtMs: nowMs + DECOMMISSION_TOMBSTONE_MAINTENANCE_MS,
+    };
+    await this.persist();
+    return true;
+  }
+
+  async handleInternalDecommission(request) {
+    const parsed = await readJsonBody(request, SMALL_REQUEST_MAX_BYTES);
+    if (
+      parsed.error ||
+      !hasExactKeys(parsed.value, ['roomCode', 'requestId']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !ADMIN_REQUEST_ID_RE.test(parsed.value.requestId)
+    ) {
+      return errorResponse(parsed.error || 'INVALID_REQUEST', parsed.status || 400);
+    }
+    if (this.room.status === 'decommissioned') {
+      return jsonResponse({
+        ok: true,
+        roomCode: this.room.roomCode,
+        status: 'decommissioned',
+        changed: false,
+        completedAtMs: this.room.decommission?.completedAtMs || null,
+      });
+    }
+    if (this.room.status === 'decommissioning') {
+      await this.continueDecommission(Date.now());
+      return jsonResponse(
+        {
+          ok: true,
+          roomCode: this.room.roomCode,
+          status: this.room.status,
+          changed: false,
+          purgeAfterMs: this.room.decommission?.purgeAfterMs || null,
+          completedAtMs: this.room.decommission?.completedAtMs || null,
+        },
+        this.room.status === 'decommissioned' ? 200 : 202,
+      );
+    }
+    if (
+      !this.env.PRO_MEDIA_BUCKET?.list ||
+      !this.env.PRO_MEDIA_BUCKET?.delete ||
+      !this.env.PRO_SIGNALING_ROOMS?.idFromName ||
+      !this.env.DEVELOPER_API_DB?.prepare ||
+      !this.env.DEVELOPER_API_LIMITERS?.idFromName ||
+      !(this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB)?.prepare
+    ) {
+      return errorResponse('PRO_ROOM_DECOMMISSION_NOT_CONFIGURED', 503);
+    }
+
+    const nowMs = Date.now();
+    const purgeAfterMs = this.decommissionPurgeAfterMs(nowMs);
+    const previousActivationGeneration = Number.isSafeInteger(this.room.activationClaimGeneration)
+      ? this.room.activationClaimGeneration
+      : 0;
+    const previousAuthEpoch = Number.isSafeInteger(this.room.authEpoch) ? this.room.authEpoch : 0;
+    const tombstone = initialRoomState(this.room.roomCode, false);
+    tombstone.status = 'decommissioning';
+    tombstone.activationClaimGeneration = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      previousActivationGeneration + 1,
+    );
+    tombstone.authEpoch = Math.min(Number.MAX_SAFE_INTEGER, previousAuthEpoch + 1);
+    tombstone.decommission = {
+      requestId: parsed.value.requestId,
+      startedAtMs: nowMs,
+      purgeAfterMs,
+      retryAtMs: nowMs,
+      signalingCleared: false,
+      initialSweepCompleted: false,
+      developerDataCleared: false,
+      developerLimiterCleared: false,
+      finalEmptySinceMs: null,
+    };
+    this.room = tombstone;
+    await this.persist();
+    await this.continueDecommission(nowMs);
+    return jsonResponse(
+      {
+        ok: true,
+        roomCode: this.room.roomCode,
+        status: this.room.status,
+        changed: true,
+        purgeAfterMs: this.room.decommission?.purgeAfterMs || null,
+        completedAtMs: this.room.decommission?.completedAtMs || null,
+      },
+      this.room.status === 'decommissioned' ? 200 : 202,
+    );
+  }
+
   internalAdminStateResponse(changed) {
     return jsonResponse({
       ok: true,
@@ -4775,6 +5152,17 @@ export class MusixquareProRoom {
   }
 
   async prune(nowMs) {
+    if (this.room.status === 'decommissioning') {
+      await this.continueDecommission(nowMs);
+      return true;
+    }
+    if (this.room.status === 'decommissioned') {
+      if ((this.room.decommission?.maintenanceAtMs || 0) <= nowMs) {
+        await this.maintainDecommissionedTombstone(nowMs);
+        return true;
+      }
+      return false;
+    }
     // This also migrates ready assets written before gcAfterMs existed and
     // repairs stale markers on assets that are referenced by the playlist.
     let changed =

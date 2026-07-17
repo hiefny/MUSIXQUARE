@@ -74,14 +74,14 @@ untouched, but redemption revokes the previous server-side owner credential;
 rolling back the client endpoint would therefore require another recovery on
 the old origin.
 
-The public PRO front door keeps the two launch rooms on an immutable fast path.
-For dynamic rooms it cold-loads a bounded set of `registered` D1 rows and then
-keeps positive entries in memory. Unknown-code probes share a short negative
-refresh window and are rejected before Durable Object lookup, preventing
-namespace scans from creating one object per guessed code. Heartbeats and
-mutations for a known room do not await D1. The registry is append-only in this
-release; a future suspend/delete operation must add explicit cache invalidation
-before changing that rule.
+The public PRO front door cold-loads a bounded set of `registered` D1 rows,
+including the two launch rooms, and replaces that cache on a five-second
+refresh. Unknown-code probes are rejected before Durable Object lookup,
+preventing namespace scans from creating one object per guessed code. A bound
+registry fails closed when it cannot refresh; local test environments without
+D1 retain only the two launch-room defaults. Replacing rather than extending
+the cache is essential: a suspended or permanently deleted code must disappear
+from the front door even when it is `000000` or `000001`.
 
 Admin registration is an explicit two-phase reconciliation: D1 first records
 `provisioning`, the cross-script binding idempotently persists the room's
@@ -94,6 +94,59 @@ URLs are forbidden in both the registry and audit table. If the issuance audit
 write fails, the admin endpoint discards the just-issued URL and returns an
 error; retrying rotates the claim generation again, so no unaudited link can
 later become the current credential.
+
+### Permanent room deletion
+
+The admin dashboard exposes permanent deletion in a separate danger zone. It
+requires the operator to enter the exact six-digit room code in a modal; the
+server independently verifies that confirmation and a UUID request ID. This is
+not an extension of suspend. Suspend preserves the playlist and media, while
+permanent deletion is an irreversible, idempotent decommission protocol.
+
+The app records the operator audit first, then asks the room Durable Object to
+durably enter `decommissioning`, and only after that acknowledgement updates
+the D1 display registry. This DO-first order guarantees that a cross-script
+failure cannot leave a closed-looking registry row without an alarm that owns
+the cleanup. That transition immediately sets `provisioned=false`,
+invalidates every browser session and owner credential, removes PIN, playlist,
+playback, presence, effects, media ledgers, recovery nonces, and Developer API
+commands, closes all signaling sockets, and deletes the room's Developer API
+keys, room-scoped API audit rows, and rate-limit ledger. A permanent tombstone
+in the Developer API database blocks late key or audit inserts, and the
+room-scoped limiter retains its own authorization tombstone. Existing browser
+cookies may remain as inert strings on offline devices, but their server-side
+credentials no longer exist.
+
+Persistent media is deleted by repeatedly listing and removing every R2 object
+under `rooms/{roomCode}/`; individual asset ledgers are not trusted as a
+complete inventory. The service performs an immediate sweep, waits until every
+previously issued presigned PUT or reservation has expired, and then requires
+the prefix to remain continuously empty for one hour. It rechecks every minute;
+any late object is deleted and restarts that quiet window. R2, signaling,
+Developer API, or registry failures also restart the window and leave the room
+fail-closed in `decommissioning`. The admin endpoint therefore returns `202`
+until this final safety window completes. A decommissioned tombstone keeps a
+daily repair sweep afterward, catching even an abnormally long direct PUT that
+finishes after the primary window without making the room reusable.
+
+Completion scrubs the registry label and records `decommissioned`. A minimal
+PRO-state tombstone and a signaling tombstone retain only the room code,
+decommission timing/idempotency metadata, and non-user empty schema defaults.
+These tombstones are intentional:
+the room number can never be registered again, so old activation, recovery,
+signaling, or upload credentials cannot become valid in a new incarnation.
+Operator audit events remain under the existing 365-day retention policy; all
+room-scoped Developer API audit detail is removed with the room.
+
+For a release containing this protocol, deploy signaling before the PRO Worker
+and deploy both the PRO and Developer API Workers before the app Worker. The
+checked-in all-workers command already satisfies those dependency edges. The
+PRO Worker owns cross-script bindings to signaling and the room-scoped
+Developer API limiter so its alarm can finish every cleanup phase without an
+open admin tab. The Developer API D1 schema migration is a required part of the
+same release because it installs the permanent room tombstone and late-write
+triggers. Deploying the app first would expose an action whose cleanup
+dependencies are not ready.
 
 ### Authorization model
 

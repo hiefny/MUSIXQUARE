@@ -106,6 +106,7 @@ class FakeWebSocketPair {
 class FakeStorage {
   data = new Map<string, unknown>();
   alarmTime: number | null = null;
+  deleteAllCalls = 0;
 
   async get(key: string): Promise<unknown> {
     return structuredClone(this.data.get(key));
@@ -113,6 +114,19 @@ class FakeStorage {
 
   async put(key: string, value: unknown): Promise<void> {
     this.data.set(key, structuredClone(value));
+  }
+
+  async list(): Promise<Map<string, unknown>> {
+    return new Map([...this.data.entries()].map(([key, value]) => [key, structuredClone(value)]));
+  }
+
+  async delete(key: string): Promise<void> {
+    this.data.delete(key);
+  }
+
+  async deleteAll(): Promise<void> {
+    this.deleteAllCalls += 1;
+    this.data.clear();
   }
 
   async setAlarm(time: number): Promise<void> {
@@ -682,6 +696,156 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       coordinatorEpoch: 1,
       coordinatorParticipantId: 'coordinator-device',
     });
+  });
+
+  it('decommissions every PRO socket, leaves only a tombstone, and rejects old tickets idempotently', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T00:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const coordinatorRequest = await proWsRequest({
+      role: 'coordinator',
+      participantId: 'coordinator-device',
+      jti: 'coordinator-ticket-0001',
+    });
+    await room.fetch(coordinatorRequest);
+    const coordinator = lastServer();
+    await room.fetch(
+      await proWsRequest({
+        role: 'member',
+        participantId: 'signed-member',
+        jti: 'member-ticket-0000001',
+      }),
+    );
+    const member = lastServer();
+    await state.storage.put('unrelatedPersistedState', { shouldBeDeleted: true });
+    await state.storage.setAlarm(Date.now() + 60_000);
+    const requestId = '12345678-1234-4123-8123-123456789abc';
+    const decommissionRequest = () =>
+      new Request('https://signaling.internal/internal/admin/v1/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+        },
+        body: JSON.stringify({ roomCode: '000001', requestId }),
+      });
+
+    const wrongMethod = await room.fetch(
+      new Request('https://signaling.internal/internal/admin/v1/decommission', {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+        },
+        body: JSON.stringify({ roomCode: '000001', requestId }),
+      }),
+    );
+    expect(wrongMethod.status).toBe(404);
+    expect(coordinator.closed).toBe(false);
+    expect(member.closed).toBe(false);
+
+    const first = await room.fetch(decommissionRequest());
+
+    expect(first.status).toBe(200);
+    expect(JSON.parse(String(first.body))).toEqual({
+      ok: true,
+      roomCode: '000001',
+      status: 'decommissioned',
+      changed: true,
+    });
+    expect(coordinator.closeEvents).toEqual([{ code: 1012, reason: 'PRO_ROOM_DECOMMISSIONED' }]);
+    expect(member.closeEvents).toEqual([{ code: 1012, reason: 'PRO_ROOM_DECOMMISSIONED' }]);
+    expect(state.storage.deleteAllCalls).toBe(0);
+    expect(state.storage.alarmTime).toBeNull();
+    expect([...state.storage.data.keys()]).toEqual(['proRoomDecommissioned']);
+    expect(await state.storage.get('proRoomDecommissioned')).toEqual({
+      v: 1,
+      roomCode: '000001',
+      requestId,
+      decommissionedAtMs: Date.now(),
+    });
+
+    const pairCount = FakeWebSocketPair.pairs.length;
+    const rejected = await room.fetch(coordinatorRequest);
+    expect(rejected.status).toBe(410);
+    expect(JSON.parse(String(rejected.body))).toEqual({ error: 'PRO_ROOM_DECOMMISSIONED' });
+    expect(FakeWebSocketPair.pairs).toHaveLength(pairCount);
+
+    const residueSocket = new FakeSocket();
+    residueSocket.serializeAttachment({
+      v: 1,
+      role: 'guest',
+      roomKind: 'pro',
+      roomId: '000001',
+      peerId: 'late-residue',
+    });
+    state.sockets.push(residueSocket);
+    await state.storage.put('lateResidue', { shouldBeDeleted: true });
+    await state.storage.setAlarm(Date.now() + 60_000);
+
+    const repeated = await room.fetch(decommissionRequest());
+    expect(repeated.status).toBe(200);
+    expect(JSON.parse(String(repeated.body))).toEqual({
+      ok: true,
+      roomCode: '000001',
+      status: 'decommissioned',
+      changed: false,
+    });
+    expect(state.storage.deleteAllCalls).toBe(0);
+    expect([...state.storage.data.keys()]).toEqual(['proRoomDecommissioned']);
+    expect(residueSocket.closeEvents).toEqual([{ code: 1012, reason: 'PRO_ROOM_DECOMMISSIONED' }]);
+    expect(state.storage.alarmTime).toBeNull();
+    expect(coordinator.closeEvents).toHaveLength(1);
+    expect(member.closeEvents).toHaveLength(1);
+  });
+
+  it('serializes PRO admission behind permanent decommission', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const requestId = '22345678-1234-4123-8123-123456789abc';
+    let releaseList!: () => void;
+    let markListStarted!: () => void;
+    const listGate = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    const listStarted = new Promise<void>((resolve) => {
+      markListStarted = resolve;
+    });
+    const originalList = state.storage.list.bind(state.storage);
+    state.storage.list = async (): Promise<Map<string, unknown>> => {
+      markListStarted();
+      await listGate;
+      return originalList();
+    };
+
+    const decommission = room.fetch(
+      new Request('https://signaling.internal/internal/admin/v1/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+        },
+        body: JSON.stringify({ roomCode: '000001', requestId }),
+      }),
+    );
+    await listStarted;
+    const pairCount = FakeWebSocketPair.pairs.length;
+    const lateAdmission = room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'late-coordinator',
+        jti: 'late-coordinator-ticket-0001',
+      }),
+    );
+    releaseList();
+
+    expect((await decommission).status).toBe(200);
+    const rejected = await lateAdmission;
+    expect(rejected.status).toBe(410);
+    expect(JSON.parse(String(rejected.body))).toEqual({ error: 'PRO_ROOM_DECOMMISSIONED' });
+    expect(FakeWebSocketPair.pairs).toHaveLength(pairCount);
+    expect([...state.storage.data.keys()]).toEqual(['proRoomDecommissioned']);
   });
 
   it('dispatches a bounded server-only developer command only to the exact capable coordinator', async () => {

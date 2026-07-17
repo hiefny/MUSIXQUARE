@@ -65,6 +65,7 @@ const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activation-claim)?$/;
 const ADMIN_PRO_ROOM_STATE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/state$/;
+const ADMIN_PRO_ROOM_DELETE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})$/;
 const ADMIN_DEVELOPER_API_KEY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/api-keys(?:\/([A-Za-z0-9_-]{16}))?$/;
 const ADMIN_PRO_ROOM_CODE_RE = /^0\d{5}$/;
@@ -1118,11 +1119,15 @@ function normalizeAdminProRoomRow(row) {
     roomCode: row.room_code,
     label,
     status:
-      row.status === 'suspended'
-        ? 'suspended'
-        : row.status === 'provisioning'
-          ? 'provisioning'
-          : 'registered',
+      row.status === 'decommissioned'
+        ? 'decommissioned'
+        : row.status === 'decommissioning'
+          ? 'decommissioning'
+          : row.status === 'suspended'
+            ? 'suspended'
+            : row.status === 'provisioning'
+              ? 'provisioning'
+              : 'registered',
     // Display-only index. Every privileged decision is re-authorized against
     // the cross-script Durable Object, which owns the canonical room status.
     activationState: row.activation_state === 'active' ? 'active' : 'unactivated',
@@ -1185,7 +1190,8 @@ async function markAdminProRoomRegistered(db, roomCode, activationState, nowMs =
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        SET status = 'registered', activation_state = ?2, updated_at = ?3
-       WHERE room_code = ?1 AND status != 'suspended'`,
+       WHERE room_code = ?1
+         AND status NOT IN ('suspended', 'decommissioning', 'decommissioned')`,
     )
     .bind(roomCode, activationState === 'active' ? 'active' : 'unactivated', nowMs)
     .run();
@@ -1197,7 +1203,7 @@ async function markAdminProRoomOperationalState(db, roomCode, status, nowMs = Da
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        SET status = ?2, activation_state = 'active', updated_at = ?3
-       WHERE room_code = ?1`,
+       WHERE room_code = ?1 AND status NOT IN ('decommissioning', 'decommissioned')`,
     )
     .bind(roomCode, status === 'suspended' ? 'suspended' : 'registered', nowMs)
     .run();
@@ -1221,7 +1227,7 @@ async function reconcileAdminProRoomStatus(env, db, roomCode) {
       .prepare(
         `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
          SET status = 'suspended', activation_state = 'active', updated_at = ?2
-         WHERE room_code = ?1`,
+         WHERE room_code = ?1 AND status NOT IN ('decommissioning', 'decommissioned')`,
       )
       .bind(roomCode, Date.now())
       .run();
@@ -1267,7 +1273,7 @@ async function writeAdminProRoomAuditOrFail(db, request, env, action, result, ro
   }
 }
 
-async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST') {
+async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST', body = undefined) {
   const namespace = getProRoomAdminNamespace(env);
   if (!namespace) return { response: null, payload: null };
   const stub = namespace.get(namespace.idFromName(roomCode));
@@ -1276,7 +1282,11 @@ async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST') 
     response = await stub.fetch(
       new Request(`https://pro-room.internal${pathname}`, {
         method,
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }),
     );
   } catch {
@@ -1295,6 +1305,31 @@ function proRoomObjectError(result) {
     return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
   }
   return json(result.payload, result.response.status);
+}
+
+async function markAdminProRoomDecommissioning(db, roomCode, nowMs = Date.now()) {
+  await ensureAdminProRoomRegistry(db);
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       SET status = 'decommissioning', activation_state = 'unactivated', updated_at = ?2
+       WHERE room_code = ?1 AND status NOT IN ('decommissioning', 'decommissioned')`,
+    )
+    .bind(roomCode, nowMs)
+    .run();
+}
+
+async function markAdminProRoomDecommissioned(db, roomCode, nowMs = Date.now()) {
+  await ensureAdminProRoomRegistry(db);
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       SET label = 'Decommissioned PRO room', status = 'decommissioned',
+           activation_state = 'unactivated', updated_at = ?2
+       WHERE room_code = ?1`,
+    )
+    .bind(roomCode, nowMs)
+    .run();
 }
 
 function isValidAdminActivationLink(payload, roomCode) {
@@ -1626,6 +1661,9 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
     return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
   }
   if (!room) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  if (room.status === 'decommissioning' || room.status === 'decommissioned') {
+    return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+  }
 
   const nowMs = Date.now();
   try {
@@ -1923,6 +1961,12 @@ async function handleAdminProRooms(request, env, pathname) {
         if (auditError) return auditError;
         return json({ error: 'PRO_ROOM_REGISTRY_CAPACITY_REACHED' }, 409);
       }
+      if (
+        registered.room?.status === 'decommissioning' ||
+        registered.room?.status === 'decommissioned'
+      ) {
+        return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+      }
       const previousStatus = registered.room?.status || 'provisioning';
       const provisioned = await callProRoomAdminObject(env, roomCode, '/internal/admin/provision');
       if (!provisioned.response?.ok || !provisioned.payload?.ok) {
@@ -1987,6 +2031,9 @@ async function handleAdminProRooms(request, env, pathname) {
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.status === 'decommissioning' || room.status === 'decommissioned') {
+    return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
   }
   if (room.status === 'provisioning') {
     const auditError = await writeAdminProRoomAuditOrFail(
@@ -2102,6 +2149,9 @@ async function handleAdminProRoomState(request, env, pathname) {
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
   }
+  if (room.status === 'decommissioning' || room.status === 'decommissioned') {
+    return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+  }
   if (room.status === 'provisioning') {
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
@@ -2166,6 +2216,94 @@ async function handleAdminProRoomState(request, env, pathname) {
   );
   if (auditError) return auditError;
   return json({ ok: true, roomCode, status: targetStatus, changed: payload.changed });
+}
+
+async function handleAdminProRoomDelete(request, env, pathname) {
+  const route = pathname.match(ADMIN_PRO_ROOM_DELETE_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const methodError = adminApiMethodAllowed(request, ['DELETE']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const db = getAdminDb(env);
+  if (!db?.prepare || !getProRoomAdminNamespace(env)) {
+    return json({ error: 'PRO_ROOM_DECOMMISSION_NOT_CONFIGURED' }, 503);
+  }
+
+  const roomCode = route[1];
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== 2 ||
+    body.confirmRoomCode !== roomCode ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId || '')
+  ) {
+    return json({ error: 'PRO_ROOM_DELETE_CONFIRMATION_MISMATCH' }, 400);
+  }
+
+  let room;
+  try {
+    room = await readAdminProRoom(db, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+
+  if (room.status !== 'decommissioning' && room.status !== 'decommissioned') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'room.delete',
+      'authorized',
+      roomCode,
+    );
+    if (auditError) return auditError;
+  }
+  const decommissioned = await callProRoomAdminObject(
+    env,
+    roomCode,
+    '/internal/admin/decommission',
+    'POST',
+    { roomCode, requestId: body.requestId },
+  );
+  const payload = decommissioned.payload;
+  if (
+    !decommissioned.response?.ok ||
+    !payload ||
+    payload.ok !== true ||
+    payload.roomCode !== roomCode ||
+    !['decommissioning', 'decommissioned'].includes(payload.status)
+  ) {
+    return proRoomObjectError(decommissioned);
+  }
+
+  try {
+    if (payload.status === 'decommissioned') {
+      await markAdminProRoomDecommissioned(db, roomCode);
+    } else {
+      // The room Durable Object owns the retry alarm. Move the display index
+      // only after that durable saga exists; otherwise a lost cross-script
+      // call could leave an inert D1 fence with no worker scheduled to purge.
+      await markAdminProRoomDecommissioning(db, roomCode);
+    }
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  return json(
+    {
+      ok: true,
+      roomCode,
+      status: payload.status,
+      purgeAfterMs: Number.isSafeInteger(payload.purgeAfterMs) ? payload.purgeAfterMs : null,
+      completedAtMs: Number.isSafeInteger(payload.completedAtMs) ? payload.completedAtMs : null,
+    },
+    payload.status === 'decommissioned' ? 200 : 202,
+  );
 }
 
 function emptyAdminCounters() {
@@ -5141,6 +5279,10 @@ export default {
 
     if (ADMIN_PRO_ROOM_STATE_PATH_RE.test(url.pathname)) {
       return handleAdminProRoomState(request, env, url.pathname);
+    }
+
+    if (ADMIN_PRO_ROOM_DELETE_PATH_RE.test(url.pathname)) {
+      return handleAdminProRoomDelete(request, env, url.pathname);
     }
 
     if (ADMIN_DEVELOPER_API_KEY_PATH_RE.test(url.pathname)) {

@@ -450,6 +450,16 @@ describe('Developer API key expiry maintenance', () => {
     expect(schema).toMatch(
       /CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_natural_expiry_audit[\s\S]*?OLD\.status = 'active'[\s\S]*?NEW\.status = 'revoked'[\s\S]*?NEW\.revoked_at = OLD\.expires_at[\s\S]*?INSERT OR IGNORE INTO mxqr_developer_api_admin_audit/,
     );
+    expect(schema).toMatch(
+      /CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_tombstones[\s\S]*?room_code TEXT PRIMARY KEY/,
+    );
+    for (const trigger of [
+      'trg_mxqr_developer_api_keys_decommissioned_room',
+      'trg_mxqr_developer_api_audit_decommissioned_room',
+      'trg_mxqr_developer_api_admin_audit_decommissioned_room',
+    ]) {
+      expect(schema).toContain(`CREATE TRIGGER IF NOT EXISTS ${trigger}`);
+    }
   });
 });
 
@@ -1875,6 +1885,10 @@ class FakeStorage {
     this.deleteAllCalls += 1;
     this.values.clear();
   }
+
+  async delete(key: string): Promise<void> {
+    this.values.delete(key);
+  }
 }
 
 describe('Developer API atomic room limiter', () => {
@@ -2035,6 +2049,67 @@ describe('Developer API atomic room limiter', () => {
     await limiter.alarm();
     expect(storage.values.size).toBe(0);
     expect(storage.deleteAllCalls).toBe(1);
+    expect(storage.alarmAt).toBeNull();
+  });
+
+  it('removes all rate buckets and the pending alarm when a PRO room is decommissioned', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T00:00:00.000Z'));
+    const storage = new FakeStorage();
+    const limiter = new DeveloperApiRateLimiter({ storage } as never);
+    const charged = await limiter.fetch(
+      new Request('https://developer-api-rate.internal/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operation: 'authenticated-read', keyId: KEY_ID }),
+      }),
+    );
+    expect(charged.status).toBe(200);
+    expect(storage.values.has('buckets')).toBe(true);
+    expect(storage.alarmAt).not.toBeNull();
+
+    const response = await limiter.fetch(
+      new Request('https://developer-api-rate.internal/internal/admin/v1/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+        },
+        body: JSON.stringify({
+          roomCode: '000001',
+          requestId: '12345678-1234-4123-8123-123456789abc',
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      roomCode: '000001',
+      status: 'decommissioned',
+    });
+    expect([...storage.values.keys()]).toEqual(['decommissioned']);
+    expect(storage.values.get('decommissioned')).toMatchObject({
+      roomCode: '000001',
+      requestId: '12345678-1234-4123-8123-123456789abc',
+    });
+    expect(storage.deleteAllCalls).toBe(1);
+    expect(storage.alarmAt).toBeNull();
+
+    const rejected = await limiter.fetch(
+      new Request('https://developer-api-rate.internal/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operation: 'authenticated-read', keyId: KEY_ID }),
+      }),
+    );
+    expect(rejected.status).toBe(410);
+    expect(await rejected.json()).toEqual({ error: 'PRO_ROOM_DECOMMISSIONED' });
+
+    await storage.put('buckets', { late: { count: 1, resetAtMs: Date.now() + 60_000 } });
+    await storage.setAlarm(Date.now() + 60_000);
+    await limiter.alarm();
+    expect([...storage.values.keys()]).toEqual(['decommissioned']);
     expect(storage.alarmAt).toBeNull();
   });
 });

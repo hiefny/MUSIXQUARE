@@ -2290,6 +2290,255 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(JSON.stringify(audits)).not.toContain('operator@example.com');
   });
 
+  it('permanently decommissions a PRO room only after strict admin confirmation', async () => {
+    type RegistryRow = {
+      room_code: string;
+      label: string;
+      status: string;
+      activation_state: string;
+      created_at: number;
+      updated_at: number;
+    };
+    const roomCode = '000001';
+    const requestId = '123e4567-e89b-42d3-a456-426614174000';
+    const registryRows = new Map<string, RegistryRow>([
+      [
+        roomCode,
+        {
+          room_code: roomCode,
+          label: 'Friends & Family',
+          status: 'registered',
+          activation_state: 'active',
+          created_at: Date.now() - 10_000,
+          updated_at: Date.now() - 1_000,
+        },
+      ],
+    ]);
+    const proAudits: Array<{ action: string; result: string; roomCode: string }> = [];
+    const adminDb = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/CREATE TABLE IF NOT EXISTS/i.test(sql)) return { meta: { changes: 0 } };
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_registry/i.test(sql)) {
+            const [code, label, timestamp] = values as [string, string, number];
+            if (registryRows.has(code)) return { meta: { changes: 0 } };
+            registryRows.set(code, {
+              room_code: code,
+              label,
+              status: /'provisioning'/i.test(sql) ? 'provisioning' : 'registered',
+              activation_state: 'unactivated',
+              created_at: timestamp,
+              updated_at: timestamp,
+            });
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+            const [, action, result, code] = values as [string, string, string, string, number];
+            proAudits.push({ action, result, roomCode: code });
+            return { meta: { changes: 1 } };
+          }
+          if (/SET label = 'Decommissioned PRO room', status = 'decommissioned'/i.test(sql)) {
+            const [code, timestamp] = values as [string, number];
+            const row = registryRows.get(code);
+            if (!row) return { meta: { changes: 0 } };
+            row.label = 'Decommissioned PRO room';
+            row.status = 'decommissioned';
+            row.activation_state = 'unactivated';
+            row.updated_at = timestamp;
+            return { meta: { changes: 1 } };
+          }
+          if (/SET status = 'decommissioning'/i.test(sql)) {
+            const [code, timestamp] = values as [string, number];
+            const row = registryRows.get(code);
+            if (!row || row.status === 'decommissioned') return { meta: { changes: 0 } };
+            row.status = 'decommissioning';
+            row.activation_state = 'unactivated';
+            row.updated_at = timestamp;
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        };
+        return {
+          run: vi.fn(async () => executeRun()),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => executeRun(...values)),
+            first: vi.fn(async () => registryRows.get(String(values[0])) || null),
+            all: vi.fn(async () => ({ results: [...registryRows.values()] })),
+          })),
+        };
+      }),
+    };
+
+    let proRoomStatus: 'decommissioning' | 'decommissioned' = 'decommissioning';
+    let rejectNextDecommission = true;
+    const proRoomCalls: Array<{ pathname: string; roomCodeHeader: string; body: unknown }> = [];
+    const proRoomFetch = vi.fn(async (request: Request) => {
+      const pathname = new URL(request.url).pathname;
+      proRoomCalls.push({
+        pathname,
+        roomCodeHeader: request.headers.get('x-mxqr-pro-room-code') || '',
+        body: await request.clone().json(),
+      });
+      if (rejectNextDecommission) {
+        rejectNextDecommission = false;
+        return Response.json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, { status: 503 });
+      }
+      return Response.json(
+        {
+          ok: true,
+          roomCode,
+          status: proRoomStatus,
+          purgeAfterMs: Date.now() + 600_000,
+          completedAtMs: proRoomStatus === 'decommissioned' ? Date.now() : null,
+        },
+        { status: proRoomStatus === 'decommissioned' ? 200 : 202 },
+      );
+    });
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_ADMIN_DB: adminDb,
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((code: string) => code),
+        get: vi.fn(() => ({ fetch: proRoomFetch })),
+      },
+    };
+
+    const deleteRequest = (
+      headers: Record<string, string>,
+      body: unknown = { confirmRoomCode: roomCode, requestId },
+    ) =>
+      new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}`, {
+        method: 'DELETE',
+        headers,
+        body: JSON.stringify(body),
+      });
+
+    const unauthenticated = await appWorker.fetch(deleteRequest(adminMutationHeaders()), env);
+    expect(unauthenticated.status).toBe(401);
+    expect(proRoomFetch).not.toHaveBeenCalled();
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.95' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = (login.headers.get('Set-Cookie') || '').split(';')[0];
+    expect(login.status).toBe(200);
+
+    const missingCsrf = await appWorker.fetch(
+      deleteRequest({
+        Origin: 'https://musixquare.com',
+        'Content-Type': 'application/json',
+        Cookie: cookie,
+      }),
+      env,
+    );
+    expect(missingCsrf.status).toBe(403);
+
+    const wrongContentType = await appWorker.fetch(
+      deleteRequest({
+        Origin: 'https://musixquare.com',
+        'Content-Type': 'text/plain',
+        'X-MXQR-Admin-CSRF': '1',
+        Cookie: cookie,
+      }),
+      env,
+    );
+    expect(wrongContentType.status).toBe(415);
+
+    const adminHeaders = adminMutationHeaders({ Cookie: cookie });
+    for (const invalidBody of [
+      { confirmRoomCode: '000002', requestId },
+      { confirmRoomCode: roomCode, requestId: '123e4567-e89b-12d3-a456-426614174000' },
+      { confirmRoomCode: roomCode, requestId, extra: true },
+    ]) {
+      const invalid = await appWorker.fetch(deleteRequest(adminHeaders, invalidBody), env);
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({ error: 'PRO_ROOM_DELETE_CONFIRMATION_MISMATCH' });
+    }
+    expect(proRoomFetch).not.toHaveBeenCalled();
+
+    const unavailable = await appWorker.fetch(deleteRequest(adminHeaders), env);
+    expect(unavailable.status).toBe(503);
+    expect(registryRows.get(roomCode)).toMatchObject({
+      status: 'registered',
+      activation_state: 'active',
+    });
+
+    const accepted = await appWorker.fetch(deleteRequest(adminHeaders), env);
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toMatchObject({
+      ok: true,
+      roomCode,
+      status: 'decommissioning',
+      purgeAfterMs: expect.any(Number),
+      completedAtMs: null,
+    });
+    expect(registryRows.get(roomCode)).toMatchObject({
+      status: 'decommissioning',
+      activation_state: 'unactivated',
+    });
+    expect(proRoomCalls).toEqual([
+      {
+        pathname: '/internal/admin/decommission',
+        roomCodeHeader: roomCode,
+        body: { roomCode, requestId },
+      },
+      {
+        pathname: '/internal/admin/decommission',
+        roomCodeHeader: roomCode,
+        body: { roomCode, requestId },
+      },
+    ]);
+    expect(proAudits).toContainEqual({
+      action: 'room.delete',
+      result: 'authorized',
+      roomCode,
+    });
+
+    proRoomStatus = 'decommissioned';
+    const completed = await appWorker.fetch(deleteRequest(adminHeaders), env);
+    expect(completed.status).toBe(200);
+    expect(await completed.json()).toMatchObject({
+      ok: true,
+      roomCode,
+      status: 'decommissioned',
+      completedAtMs: expect.any(Number),
+    });
+    expect(registryRows.get(roomCode)).toMatchObject({
+      label: 'Decommissioned PRO room',
+      status: 'decommissioned',
+      activation_state: 'unactivated',
+    });
+
+    const completedReplay = await appWorker.fetch(deleteRequest(adminHeaders), env);
+    expect(completedReplay.status).toBe(200);
+    expect((await completedReplay.json()) as { status?: string }).toMatchObject({
+      status: 'decommissioned',
+    });
+
+    const provisionCallCount = proRoomCalls.filter(
+      (call) => call.pathname === '/internal/admin/provision',
+    ).length;
+    const reregister = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode, label: 'Recreated room' }),
+      }),
+      env,
+    );
+    expect(reregister.status).toBe(410);
+    expect(await reregister.json()).toEqual({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' });
+    expect(
+      proRoomCalls.filter((call) => call.pathname === '/internal/admin/provision'),
+    ).toHaveLength(provisionCallCount);
+  });
+
   it('keeps /admin unindexed and no-store cached', async () => {
     const response = await appWorker.fetch(new Request('https://musixquare.com/admin'), {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
@@ -2608,9 +2857,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     requestId = crypto.randomUUID(),
   ) {
     const requestBody =
-      body && typeof body === 'object' && !Array.isArray(body)
-        ? { ...body, requestId }
-        : body;
+      body && typeof body === 'object' && !Array.isArray(body) ? { ...body, requestId } : body;
     return new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
       method: 'POST',
       headers: adminMutationHeaders({
@@ -3140,9 +3387,7 @@ describe('Cloudflare app worker PRO room facade', () => {
     const upstreamFetch = vi.fn(async (request: Request) => {
       expect(request.method).toBe('POST');
       expect(request.headers.get('Origin')).toBe('https://musixquare.com');
-      expect(request.headers.get('Cookie')).toBe(
-        '__Host-mxqr_pro_session_000001=session-token',
-      );
+      expect(request.headers.get('Cookie')).toBe('__Host-mxqr_pro_session_000001=session-token');
       await expect(request.text()).resolves.toBe('');
       return new Response(JSON.stringify({ snapshot: { roomCode: '000001' } }), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -3259,10 +3504,7 @@ describe('Cloudflare app worker invite route', () => {
 
   it('serves the canonical Developer API document with static-page cache policy', async () => {
     const env = createAssetEnv();
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/developers'),
-      env,
-    );
+    const response = await appWorker.fetch(new Request('https://musixquare.com/developers'), env);
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe(
@@ -3277,10 +3519,7 @@ describe('Cloudflare app worker invite route', () => {
 
   it('redirects mixed-case Developer API document URLs to the canonical path', async () => {
     const env = createAssetEnv();
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/Developers'),
-      env,
-    );
+    const response = await appWorker.fetch(new Request('https://musixquare.com/Developers'), env);
 
     expect(response.status).toBe(301);
     expect(response.headers.get('Location')).toBe('https://musixquare.com/developers');

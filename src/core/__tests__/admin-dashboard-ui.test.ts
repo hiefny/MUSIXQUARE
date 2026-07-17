@@ -251,7 +251,9 @@ describe('admin PRO room operations dashboard', () => {
     room.open = true;
     room.dispatchEvent(new Event('toggle'));
     await vi.waitFor(() => {
-      expect(room.querySelector<HTMLFormElement>('[data-pro-room-api-form="000001"]')).not.toBeNull();
+      expect(
+        room.querySelector<HTMLFormElement>('[data-pro-room-api-form="000001"]'),
+      ).not.toBeNull();
       expect(room.querySelector('.pro-room-api-key')?.textContent).toContain('Friend bot');
     });
 
@@ -293,7 +295,9 @@ describe('admin PRO room operations dashboard', () => {
     room.open = true;
     room.dispatchEvent(new Event('toggle'));
     await vi.waitFor(() => {
-      expect(room.querySelector<HTMLButtonElement>('.pro-room-api-key-actions button')).not.toBeNull();
+      expect(
+        room.querySelector<HTMLButtonElement>('.pro-room-api-key-actions button'),
+      ).not.toBeNull();
     });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     room.querySelector<HTMLButtonElement>('.pro-room-api-key-actions button')?.click();
@@ -302,5 +306,144 @@ describe('admin PRO room operations dashboard', () => {
       expect(room.querySelector('.pro-room-api-key')).toBeNull();
       expect(room.querySelector('.pro-room-api-empty')?.textContent).toContain('No API keys');
     });
+  });
+
+  it('requires an exact room-code confirmation before permanently deleting a room', async () => {
+    installAdminDom();
+    let deleted = false;
+    let deleteAttempts = 0;
+    const deleteRequests: Array<RequestInit> = [];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (
+        url.pathname === '/api/admin/pro-rooms/000001' &&
+        String(init?.method || 'GET').toUpperCase() === 'DELETE'
+      ) {
+        deleteAttempts += 1;
+        deleteRequests.push(init || {});
+        if (deleteAttempts === 1) {
+          return Response.json({ error: 'DELETE_TEMPORARILY_UNAVAILABLE' }, { status: 503 });
+        }
+        deleted = true;
+        return Response.json({ ok: true, roomCode: '000001', status: 'destroyed' });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: deleted
+            ? []
+            : [
+                {
+                  roomCode: '000001',
+                  label: 'Friends room',
+                  status: 'registered',
+                  activationState: 'active',
+                  createdAt: Date.now(),
+                },
+              ],
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const destroyButton = await vi.waitFor(() => {
+      const value = document.querySelector<HTMLButtonElement>('[data-pro-room-destroy="000001"]');
+      expect(value?.textContent).toBe('Delete room permanently');
+      return value!;
+    });
+    destroyButton.focus();
+    destroyButton.click();
+
+    const dialog = document.querySelector<HTMLDialogElement>('[data-pro-room-destroy-dialog]')!;
+    const input = dialog.querySelector<HTMLInputElement>('[data-pro-room-destroy-input]')!;
+    const confirm = dialog.querySelector<HTMLButtonElement>('[data-pro-room-destroy-confirm]')!;
+    const cancel = dialog.querySelector<HTMLButtonElement>('[data-pro-room-destroy-cancel]')!;
+    expect(dialog.open).toBe(true);
+    expect(dialog.getAttribute('aria-labelledby')).toBe('pro-room-destroy-title');
+    expect(document.activeElement).toBe(input);
+    expect(confirm.disabled).toBe(true);
+    expect(deleteAttempts).toBe(0);
+
+    input.value = '000002';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(confirm.disabled).toBe(true);
+    input.value = '000001';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(confirm.disabled).toBe(false);
+
+    cancel.click();
+    expect(dialog.open).toBe(false);
+    expect(document.activeElement).toBe(destroyButton);
+    expect(deleteAttempts).toBe(0);
+
+    destroyButton.click();
+    expect(dialog.open).toBe(true);
+    dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+    expect(dialog.open).toBe(false);
+    expect(deleteAttempts).toBe(0);
+
+    destroyButton.click();
+    input.value = '000001';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    confirm.click();
+    await vi.waitFor(() => {
+      expect(deleteAttempts).toBe(1);
+      expect(dialog.querySelector('[data-pro-room-destroy-error]')?.textContent).toContain(
+        'DELETE_TEMPORARILY_UNAVAILABLE',
+      );
+    });
+    expect(dialog.open).toBe(true);
+    expect(confirm.disabled).toBe(false);
+
+    const firstRequest = deleteRequests[0];
+    expect(new Headers(firstRequest.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+    const firstBody = JSON.parse(String(firstRequest.body)) as {
+      confirmRoomCode?: string;
+      requestId?: string;
+    };
+    expect(firstBody.confirmRoomCode).toBe('000001');
+    expect(firstBody.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+
+    confirm.click();
+    await vi.waitFor(() => {
+      expect(deleteAttempts).toBe(2);
+      expect(dialog.open).toBe(false);
+      expect(document.querySelector('[data-pro-room-item="000001"]')).toBeNull();
+    });
+    const secondBody = JSON.parse(String(deleteRequests[1].body)) as { requestId?: string };
+    expect(secondBody.requestId).toBe(firstBody.requestId);
+    expect(document.activeElement).toBe(
+      document.querySelector<HTMLElement>('[data-pro-room-list-status]'),
+    );
   });
 });

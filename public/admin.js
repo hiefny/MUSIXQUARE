@@ -49,6 +49,8 @@ const expandedProRooms = new Set();
 const proRoomApiCache = new Map();
 const proRoomApiSecrets = new Map();
 const proRoomApiRequestGenerations = new Map();
+let proRoomDestroyDialogElements = null;
+let proRoomDestroyTarget = null;
 const developerApiScopeLabels = Object.freeze({
   'room:read': 'Room',
   'playback:read': 'Playback read',
@@ -115,6 +117,7 @@ async function fetchJson(url, options = {}) {
 }
 
 function showLogin(message = '') {
+  closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
   expandedProRooms.clear();
@@ -248,6 +251,15 @@ function adminErrorMessage(error, fallback) {
   if (message === 'PRO_ROOM_NOT_SUSPENDED') return 'This room is already active.';
   if (message === 'PRO_ROOM_SUSPENDED') return 'Resume this room before issuing an API key.';
   if (message === 'PRO_ROOM_NOT_READY') return 'Finish provisioning this room first.';
+  if (message === 'PRO_ROOM_DELETE_CONFIRMATION_MISMATCH') {
+    return 'Enter the room number exactly as shown to confirm deletion.';
+  }
+  if (message === 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED') {
+    return 'This room has already been permanently deleted.';
+  }
+  if (message === 'PRO_ROOM_DECOMMISSION_NOT_CONFIGURED') {
+    return 'Permanent deletion is not fully configured.';
+  }
   return message || fallback;
 }
 
@@ -281,6 +293,8 @@ function setProRoomStatus(message, isError = false) {
 function formatProRoomStatus(status) {
   if (status === 'active') return 'Active';
   if (status === 'suspended') return 'Suspended';
+  if (status === 'decommissioning') return 'Deleting';
+  if (status === 'decommissioned') return 'Permanently deleted';
   if (status === 'provisioning') return 'Provisioning incomplete';
   if (status === 'unactivated') return 'Awaiting activation';
   return 'Registered';
@@ -340,6 +354,8 @@ async function copyProRoomClaim() {
 function proRoomRawStatus(room) {
   const registryStatus = String(room?.status || 'registered');
   const activationState = String(room?.activationState || '');
+  if (registryStatus === 'decommissioned') return 'decommissioned';
+  if (registryStatus === 'decommissioning') return 'decommissioning';
   if (registryStatus === 'provisioning') return 'provisioning';
   if (registryStatus === 'suspended') return 'suspended';
   if (activationState === 'active') return 'active';
@@ -357,6 +373,259 @@ function clearProRoomApiSecret(roomCode) {
 function clearAllProRoomApiSecrets() {
   for (const roomCode of proRoomApiSecrets.keys()) clearProRoomApiSecret(roomCode);
   proRoomApiSecrets.clear();
+}
+
+function resetProRoomDestroyDialog() {
+  if (!proRoomDestroyDialogElements) return;
+  const { dialog, form, input, cancelButton, confirmButton, error } = proRoomDestroyDialogElements;
+  const restoreFocus = proRoomDestroyTarget?.restoreFocus;
+  proRoomDestroyTarget = null;
+  form.reset();
+  form.removeAttribute('aria-busy');
+  input.disabled = false;
+  cancelButton.disabled = false;
+  confirmButton.disabled = true;
+  confirmButton.textContent = 'Delete permanently';
+  error.textContent = '';
+  if (restoreFocus?.isConnected) restoreFocus.focus();
+  dialog.removeAttribute('data-room-code');
+}
+
+function closeProRoomDestroyDialog({ restoreFocus = true } = {}) {
+  if (!proRoomDestroyDialogElements) return;
+  const { dialog } = proRoomDestroyDialogElements;
+  if (!restoreFocus && proRoomDestroyTarget) proRoomDestroyTarget.restoreFocus = null;
+  if (!dialog.open && !dialog.hasAttribute('open')) {
+    resetProRoomDestroyDialog();
+    return;
+  }
+  if (typeof dialog.close === 'function') {
+    try {
+      dialog.close();
+      return;
+    } catch {
+      // Fall through to the attribute fallback used by lightweight DOM implementations.
+    }
+  }
+  dialog.removeAttribute('open');
+  dialog.dispatchEvent(new Event('close'));
+}
+
+function setProRoomDestroyBusy(isBusy) {
+  if (!proRoomDestroyDialogElements) return;
+  const { form, input, cancelButton, confirmButton } = proRoomDestroyDialogElements;
+  if (isBusy) form.setAttribute('aria-busy', 'true');
+  else form.removeAttribute('aria-busy');
+  input.disabled = isBusy;
+  cancelButton.disabled = isBusy;
+  confirmButton.disabled =
+    isBusy || String(input.value || '') !== String(proRoomDestroyTarget?.roomCode || '');
+  confirmButton.textContent = isBusy ? 'Deleting...' : 'Delete permanently';
+  if (proRoomDestroyTarget) proRoomDestroyTarget.busy = isBusy;
+}
+
+function updateProRoomDestroyConfirmation() {
+  if (!proRoomDestroyDialogElements) return;
+  const { input, confirmButton, error } = proRoomDestroyDialogElements;
+  const digits = String(input.value || '')
+    .replace(/\D/g, '')
+    .slice(0, 6);
+  if (input.value !== digits) input.value = digits;
+  error.textContent = '';
+  confirmButton.disabled =
+    Boolean(proRoomDestroyTarget?.busy) || digits !== proRoomDestroyTarget?.roomCode;
+}
+
+function focusProRoomListAfterDestroy() {
+  const nextSummary = proRoomListEl?.querySelector('summary');
+  if (nextSummary) return nextSummary;
+  if (!proRoomListStatusEl) return null;
+  proRoomListStatusEl.tabIndex = -1;
+  return proRoomListStatusEl;
+}
+
+function clearDestroyedProRoomState(roomCode) {
+  expandedProRooms.delete(roomCode);
+  issuedActivationLinks.delete(roomCode);
+  proRoomApiCache.delete(roomCode);
+  proRoomApiRequestGenerations.set(roomCode, (proRoomApiRequestGenerations.get(roomCode) || 0) + 1);
+  clearProRoomApiSecret(roomCode);
+  const claimRoomCode = normalizeProRoomCode(
+    String(proRoomClaimTitleEl?.textContent || '').slice(0, 6),
+  );
+  if (claimRoomCode === roomCode) dismissProRoomClaim();
+}
+
+async function permanentlyDeleteProRoom() {
+  if (!proRoomDestroyDialogElements || !proRoomDestroyTarget) return;
+  const { input, error } = proRoomDestroyDialogElements;
+  const target = proRoomDestroyTarget;
+  const roomCode = target.roomCode;
+  if (input.value !== roomCode || target.busy) return;
+
+  setProRoomDestroyBusy(true);
+  error.textContent = '';
+  try {
+    const result = await fetchJson(`/api/admin/pro-rooms/${roomCode}`, {
+      method: 'DELETE',
+      body: JSON.stringify({
+        confirmRoomCode: roomCode,
+        requestId: target.requestId,
+      }),
+    });
+    clearDestroyedProRoomState(roomCode);
+    document.querySelector(`[data-pro-room-item="${roomCode}"]`)?.remove();
+    const deletionPending = result?.status === 'decommissioning';
+    setProRoomStatus(
+      deletionPending
+        ? `${roomCode} is closed. Final storage cleanup is in progress.`
+        : `${roomCode} permanently deleted.`,
+    );
+    try {
+      await loadProRooms();
+    } catch (loadError) {
+      proRoomsLoaded = false;
+      setProRoomStatus(
+        deletionPending
+          ? `${roomCode} is closed. Refresh the room list to check storage cleanup.`
+          : `${roomCode} permanently deleted. Refresh the room list to confirm the latest state.`,
+      );
+    }
+    if (proRoomDestroyTarget) {
+      proRoomDestroyTarget.restoreFocus = focusProRoomListAfterDestroy();
+    }
+    closeProRoomDestroyDialog();
+  } catch (deleteError) {
+    if (proRoomDestroyTarget !== target) return;
+    error.textContent = adminErrorMessage(
+      deleteError,
+      'The room could not be permanently deleted.',
+    );
+    setProRoomDestroyBusy(false);
+    input.focus();
+  }
+}
+
+function ensureProRoomDestroyDialog() {
+  if (proRoomDestroyDialogElements) return proRoomDestroyDialogElements;
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'pro-room-destroy-dialog';
+  dialog.dataset.proRoomDestroyDialog = '';
+  dialog.setAttribute('aria-labelledby', 'pro-room-destroy-title');
+  dialog.setAttribute('aria-describedby', 'pro-room-destroy-description');
+
+  const form = document.createElement('form');
+  form.className = 'pro-room-destroy-form';
+  form.dataset.proRoomDestroyForm = '';
+
+  const copy = document.createElement('div');
+  copy.className = 'pro-room-destroy-copy';
+  const eyebrow = document.createElement('span');
+  eyebrow.className = 'pro-room-destroy-eyebrow';
+  eyebrow.textContent = 'Permanent deletion';
+  const title = document.createElement('h2');
+  title.id = 'pro-room-destroy-title';
+  title.dataset.proRoomDestroyTitle = '';
+  const description = document.createElement('p');
+  description.id = 'pro-room-destroy-description';
+  description.textContent =
+    'The room, playlist, uploaded media, active sessions, owner access, and API keys will be permanently removed. Connected participants will be signed out. This cannot be undone.';
+  copy.append(eyebrow, title, description);
+
+  const field = document.createElement('label');
+  field.className = 'pro-room-destroy-field';
+  const fieldLabel = document.createElement('span');
+  fieldLabel.dataset.proRoomDestroyLabel = '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'numeric';
+  input.maxLength = 6;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.dataset.proRoomDestroyInput = '';
+  input.setAttribute('aria-describedby', 'pro-room-destroy-description pro-room-destroy-error');
+  field.append(fieldLabel, input);
+
+  const error = document.createElement('p');
+  error.id = 'pro-room-destroy-error';
+  error.className = 'pro-room-destroy-error';
+  error.dataset.proRoomDestroyError = '';
+  error.setAttribute('role', 'alert');
+  error.setAttribute('aria-live', 'assertive');
+
+  const actions = document.createElement('div');
+  actions.className = 'pro-room-destroy-actions';
+  const cancelButton = document.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.className = 'is-secondary';
+  cancelButton.textContent = 'Cancel';
+  cancelButton.dataset.proRoomDestroyCancel = '';
+  const confirmButton = document.createElement('button');
+  confirmButton.type = 'submit';
+  confirmButton.className = 'is-danger';
+  confirmButton.textContent = 'Delete permanently';
+  confirmButton.disabled = true;
+  confirmButton.dataset.proRoomDestroyConfirm = '';
+  actions.append(cancelButton, confirmButton);
+
+  form.append(copy, field, error, actions);
+  dialog.append(form);
+  document.body.append(dialog);
+  proRoomDestroyDialogElements = {
+    dialog,
+    form,
+    title,
+    fieldLabel,
+    input,
+    error,
+    cancelButton,
+    confirmButton,
+  };
+
+  input.addEventListener('input', updateProRoomDestroyConfirmation);
+  cancelButton.addEventListener('click', () => closeProRoomDestroyDialog());
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    permanentlyDeleteProRoom().catch(() => {});
+  });
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    if (!proRoomDestroyTarget?.busy) closeProRoomDestroyDialog();
+  });
+  dialog.addEventListener('close', resetProRoomDestroyDialog);
+  return proRoomDestroyDialogElements;
+}
+
+function openProRoomDestroyDialog(roomCode, trigger) {
+  const elements = ensureProRoomDestroyDialog();
+  const { dialog, form, title, fieldLabel, input, error, cancelButton, confirmButton } = elements;
+  proRoomDestroyTarget = {
+    roomCode,
+    restoreFocus: trigger,
+    busy: false,
+    requestId: createAdminRequestId(),
+  };
+  form.reset();
+  form.removeAttribute('aria-busy');
+  title.textContent = `Permanently delete PRO room ${roomCode}?`;
+  fieldLabel.textContent = `Enter ${roomCode} to confirm`;
+  input.disabled = false;
+  cancelButton.disabled = false;
+  confirmButton.disabled = true;
+  confirmButton.textContent = 'Delete permanently';
+  error.textContent = '';
+  dialog.dataset.roomCode = roomCode;
+  if (typeof dialog.showModal === 'function') {
+    try {
+      dialog.showModal();
+    } catch {
+      dialog.setAttribute('open', '');
+    }
+  } else {
+    dialog.setAttribute('open', '');
+  }
+  input.focus();
 }
 
 async function copySensitiveValue(value, input, button) {
@@ -676,6 +945,17 @@ function renderProRoomActions(room, roomCode, rawStatus) {
   const actions = document.createElement('div');
   actions.className = 'pro-room-actions';
 
+  if (rawStatus === 'decommissioning' || rawStatus === 'decommissioned') {
+    const message = document.createElement('p');
+    message.className = 'pro-room-terminal-copy';
+    message.textContent =
+      rawStatus === 'decommissioning'
+        ? 'The room is closed while the final storage sweep completes.'
+        : 'This room number cannot be reused.';
+    section.append(heading, message);
+    return section;
+  }
+
   if (rawStatus !== 'provisioning' && rawStatus !== 'suspended') {
     const open = document.createElement('a');
     open.href = `/${roomCode}`;
@@ -772,6 +1052,34 @@ function renderProRoomActions(room, roomCode, rawStatus) {
   return section;
 }
 
+function renderProRoomDangerZone(roomCode, rawStatus) {
+  const section = document.createElement('section');
+  section.className = 'pro-room-danger-zone';
+  const copy = document.createElement('div');
+  const heading = document.createElement('strong');
+  heading.textContent = 'Danger zone';
+  const description = document.createElement('p');
+  description.textContent =
+    rawStatus === 'decommissioning'
+      ? 'Access is blocked. Uploaded media is being swept after old upload links expire.'
+      : rawStatus === 'decommissioned'
+        ? 'Room data and API access were permanently removed.'
+        : 'Permanently remove this room, its uploaded media, access, and API keys.';
+  copy.append(heading, description);
+  if (rawStatus === 'decommissioning' || rawStatus === 'decommissioned') {
+    section.append(copy);
+    return section;
+  }
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'is-danger';
+  button.textContent = 'Delete room permanently';
+  button.dataset.proRoomDestroy = roomCode;
+  button.addEventListener('click', () => openProRoomDestroyDialog(roomCode, button));
+  section.append(copy, button);
+  return section;
+}
+
 function renderProRoomRow(room) {
   const roomCode = normalizeProRoomCode(room?.roomCode);
   if (!roomCode) return null;
@@ -812,8 +1120,14 @@ function renderProRoomRow(room) {
   const apiPanel = document.createElement('section');
   apiPanel.className = 'pro-room-api-panel';
   apiPanel.dataset.proRoomApiPanel = roomCode;
+  const isTerminal = rawStatus === 'decommissioning' || rawStatus === 'decommissioned';
   const cached = proRoomApiCache.get(roomCode);
-  if (cached) renderProRoomApiPanel(roomCode, rawStatus, apiPanel, cached);
+  if (isTerminal) {
+    const unavailable = document.createElement('p');
+    unavailable.className = 'pro-room-api-status';
+    unavailable.textContent = 'Developer API access has been removed.';
+    apiPanel.append(unavailable);
+  } else if (cached) renderProRoomApiPanel(roomCode, rawStatus, apiPanel, cached);
   else {
     const loading = document.createElement('p');
     loading.className = 'pro-room-api-status';
@@ -821,12 +1135,13 @@ function renderProRoomRow(room) {
     loading.textContent = 'Open this room to load API keys.';
     apiPanel.append(loading);
   }
-  expanded.append(controls, apiPanel);
+  const dangerZone = renderProRoomDangerZone(roomCode, rawStatus);
+  expanded.append(controls, apiPanel, dangerZone);
   item.append(summary, expanded);
   item.addEventListener('toggle', () => {
     if (item.open) {
       expandedProRooms.add(roomCode);
-      loadProRoomApiKeys(roomCode, rawStatus, apiPanel).catch(() => {});
+      if (!isTerminal) loadProRoomApiKeys(roomCode, rawStatus, apiPanel).catch(() => {});
     } else {
       expandedProRooms.delete(roomCode);
       proRoomApiRequestGenerations.set(
@@ -842,7 +1157,7 @@ function renderProRoomRow(room) {
 function renderProRooms(payload) {
   const rooms = Array.isArray(payload?.rooms) ? payload.rooms : [];
   if (proRoomListStatusEl) {
-    proRoomListStatusEl.textContent = `${formatter.format(rooms.length)} registered`;
+    proRoomListStatusEl.textContent = `${formatter.format(rooms.length)} rooms`;
   }
   if (!proRoomListEl) return;
   const rows = rooms.map(renderProRoomRow).filter(Boolean);
@@ -853,8 +1168,9 @@ function renderProRooms(payload) {
       const roomCode = row.dataset.proRoomItem;
       const room = rooms.find((candidate) => candidate?.roomCode === roomCode);
       const panel = row.querySelector('[data-pro-room-api-panel]');
-      if (roomCode && panel) {
-        loadProRoomApiKeys(roomCode, proRoomRawStatus(room), panel).catch(() => {});
+      const rawStatus = proRoomRawStatus(room);
+      if (roomCode && panel && rawStatus !== 'decommissioning' && rawStatus !== 'decommissioned') {
+        loadProRoomApiKeys(roomCode, rawStatus, panel).catch(() => {});
       }
     }
     return;
@@ -1375,10 +1691,12 @@ proRoomClaimCopyBtn?.addEventListener('click', () => {
 
 proRoomClaimDismissBtn?.addEventListener('click', dismissProRoomClaim);
 window.addEventListener('pagehide', () => {
+  closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
 });
 window.addEventListener('beforeunload', () => {
+  closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
 });

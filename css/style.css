@@ -7159,7 +7159,7 @@
 
     .header-pro-badge {
       align-self: flex-start;
-      margin-top: 6px;
+      margin-top: 12px;
       margin-left: 0;
     }
 
@@ -7489,11 +7489,11 @@
       transform: translateY(-50%) !important;
     }
 
-    /* ── Super-Compact Landscape (< 351px height) ──
+    /* ── Super-Compact Landscape (≤ 400px height) ──
            Guarded with html:not(.keyboard-open) so the soft keyboard shrinking
            the viewport doesn't trigger this compact layout transformation,
            which would cause layout recalculation explosion. */
-    @media (max-height: 350px) {
+    @media (max-height: 400px) {
       /* Hide 'Help' tab in super-compact mode */
       html:not(.keyboard-open) #nav-guide {
         display: none !important;

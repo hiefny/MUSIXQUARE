@@ -42,8 +42,10 @@ describe('PRO room branding', () => {
       /#app-logo\s*{\s*flex-direction:\s*column;\s*align-items:\s*flex-start;/,
     );
     expect(compactSidebarStyles).toMatch(
-      /\.header-pro-badge\s*{\s*align-self:\s*flex-start;\s*margin-top:\s*6px;\s*margin-left:\s*0;/,
+      /\.header-pro-badge\s*{\s*align-self:\s*flex-start;\s*margin-top:\s*12px;\s*margin-left:\s*0;/,
     );
+    expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*400px\)/);
+    expect(compactSidebarStyles).not.toMatch(/@media\s*\(max-height:\s*350px\)/);
   });
 
   it('keeps the persistent-storage disclosure contextual to PRO rooms', async () => {

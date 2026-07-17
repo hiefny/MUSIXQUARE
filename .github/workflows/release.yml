@@ -306,6 +306,8 @@ jobs:
         shell: bash
         run: |
           node scripts/release-deployment-state.mjs preflight developer-api
+          npm run developer-api:schema:remote
+          node scripts/release-deployment-state.mjs preflight developer-api
           node scripts/release-deployment-state.mjs attempt developer-api
           set +e
           npm run --silent wrangler -- deploy \

@@ -101,20 +101,14 @@ requireMatch(
 );
 requireMatch(
   publicConfig,
-  /^DEVELOPER_API_MODE\s*=\s*"(?:off|canary)"\s*$/m,
-  'closed or room-limited API mode',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^DEVELOPER_API_CANARY_ROOMS\s*=\s*"000001"\s*$/m,
-  'single 000001 canary room',
+  /^DEVELOPER_API_MODE\s*=\s*"enabled"\s*$/m,
+  'admin-issued room-bound API mode',
   failures,
 );
 forbidMatch(
   publicConfig,
-  /^DEVELOPER_API_MODE\s*=\s*"enabled"\s*$/m,
-  'globally enabled API mode',
+  /^DEVELOPER_API_CANARY_ROOMS\s*=/m,
+  'stale static canary room list',
   failures,
 );
 forbidMatch(

@@ -157,3 +157,150 @@ describe('admin PRO room claim lifecycle', () => {
     expect(document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value).toBe('');
   });
 });
+
+describe('admin PRO room operations dashboard', () => {
+  it('expands one room, manages API keys, and clears a one-time key when collapsed', async () => {
+    installAdminDom();
+    const apiKey = 'mxqr_live_one-time-secret';
+    const keyRecord = {
+      keyId: 'ActiveKeyId00001',
+      label: 'Friend bot',
+      scopes: ['room:read', 'queue:read'],
+      status: 'active',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      expiresAt: Date.now() + 90 * 24 * 60 * 60 * 1000,
+      revokedAt: null,
+      lastUsedAt: null,
+    };
+    let issuedBody: unknown;
+    let revoked = false;
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000001',
+              label: 'Friends room',
+              status: 'registered',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000001/api-keys') {
+        if (init?.method === 'POST') {
+          expect(new Headers(init.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+          issuedBody = JSON.parse(String(init.body));
+          return Response.json({ roomCode: '000001', apiKey, key: keyRecord });
+        }
+        return Response.json({
+          roomCode: '000001',
+          maxActiveKeys: 3,
+          keys: revoked ? [] : [keyRecord],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000001/api-keys/ActiveKeyId00001') {
+        expect(init?.method).toBe('DELETE');
+        expect(new Headers(init.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+        revoked = true;
+        return Response.json({ ok: true, roomCode: '000001', keyId: 'ActiveKeyId00001' });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const room = await vi.waitFor(() => {
+      const value = document.querySelector<HTMLDetailsElement>('[data-pro-room-item="000001"]');
+      expect(value).not.toBeNull();
+      return value!;
+    });
+    expect(room.open).toBe(false);
+    expect(room.querySelector('.pro-room-actions')?.textContent).toContain('Suspend room');
+
+    room.open = true;
+    room.dispatchEvent(new Event('toggle'));
+    await vi.waitFor(() => {
+      expect(room.querySelector<HTMLFormElement>('[data-pro-room-api-form="000001"]')).not.toBeNull();
+      expect(room.querySelector('.pro-room-api-key')?.textContent).toContain('Friend bot');
+    });
+
+    const form = room.querySelector<HTMLFormElement>('[data-pro-room-api-form="000001"]');
+    const label = form?.elements.namedItem('label') as HTMLInputElement | null;
+    const preset = form?.elements.namedItem('preset') as HTMLSelectElement | null;
+    const days = form?.elements.namedItem('days') as HTMLSelectElement | null;
+    if (label) label.value = 'Cafe controller';
+    if (preset) preset.value = 'playlist';
+    if (days) days.value = '365';
+    form?.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(
+        room.querySelector<HTMLInputElement>('[aria-label="000001 Developer API key"]')?.value,
+      ).toBe(apiKey);
+    });
+    expect(issuedBody).toMatchObject({
+      label: 'Cafe controller',
+      days: 365,
+      scopes: [
+        'room:read',
+        'playback:read',
+        'playback:control',
+        'queue:read',
+        'queue:write',
+        'media:upload',
+        'effects:read',
+      ],
+    });
+    expect((issuedBody as { requestId?: string }).requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+
+    room.open = false;
+    room.dispatchEvent(new Event('toggle'));
+    expect(room.querySelector('[aria-label="000001 Developer API key"]')).toBeNull();
+
+    room.open = true;
+    room.dispatchEvent(new Event('toggle'));
+    await vi.waitFor(() => {
+      expect(room.querySelector<HTMLButtonElement>('.pro-room-api-key-actions button')).not.toBeNull();
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    room.querySelector<HTMLButtonElement>('.pro-room-api-key-actions button')?.click();
+    await vi.waitFor(() => {
+      expect(revoked).toBe(true);
+      expect(room.querySelector('.pro-room-api-key')).toBeNull();
+      expect(room.querySelector('.pro-room-api-empty')?.textContent).toContain('No API keys');
+    });
+  });
+});

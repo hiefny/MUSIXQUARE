@@ -4,6 +4,9 @@ compatibility_date = "2026-07-17"
 workers_dev = false
 preview_urls = false
 
+[triggers]
+crons = ["0 */6 * * *"]
+
 [version_metadata]
 binding = "CF_VERSION_METADATA"
 
@@ -19,12 +22,11 @@ head_sampling_rate = 0.01
 pattern = "api.musixquare.com"
 custom_domain = true
 
-# Production remains limited to the explicitly listed room while the first
-# server-to-server integration is validated. Never widen this to `enabled`
-# without a separate production review.
+# Keys can only be issued through the Access-gated admin dashboard and remain
+# cryptographically bound to one registered PRO room. The public API is
+# therefore available to every room for which an administrator issues a key.
 [vars]
-DEVELOPER_API_MODE = "canary"
-DEVELOPER_API_CANARY_ROOMS = "000001"
+DEVELOPER_API_MODE = "enabled"
 
 [[d1_databases]]
 binding = "DEVELOPER_API_DB"

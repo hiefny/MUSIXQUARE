@@ -43,6 +43,13 @@ binding = "MUSIXQUARE_ADMIN_DB"
 database_name = "musixquare-admin-metrics"
 database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
 
+# Access-gated Developer API key management. This is the same dedicated D1
+# database used by the public Developer API Worker; raw keys are never stored.
+[[d1_databases]]
+binding = "DEVELOPER_API_DB"
+database_name = "musixquare-developer-api"
+database_id = "237d63d2-6eea-4b01-b396-7784b5b8b6f0"
+
 # Cross-script Durable Object binding for Access + admin-session protected PRO
 # provisioning. The PRO Worker's public router cannot reach these root-level
 # internal endpoints, and activation claims are never persisted in D1.
@@ -72,5 +79,6 @@ MXQR_TURNSTILE_DISABLED = "true"
 # TRUSTED_CORS_ORIGINS = "https://example-preview.pages.dev"
 # Required production secrets:
 # - MXQR_CAPABILITY_SECRET
+# - MXQR_DEVELOPER_API_KEY_PEPPER (same >=32-character value as Developer API Worker)
 # Local/emergency only; production guards reject these:
 # - MXQR_ALLOW_UNGUARDED_PAID_APIS = "true"

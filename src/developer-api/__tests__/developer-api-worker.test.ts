@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import developerApiWorker, {
   DeveloperApiRateLimiter,
   deriveDeveloperApiKeyDigest,
   developerApiScopes,
+  expireDeveloperApiKeys,
   isDeveloperApiRequestId,
   parseDeveloperApiKey,
 } from '../../../cloudflare/developer-api-worker.js';
@@ -387,6 +389,67 @@ describe('Developer API key credentials', () => {
     expect(rejected.status).toBe(401);
     expect(await errorCode(rejected)).toBe('UNAUTHORIZED');
     expect(unsafe.facadeFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('Developer API key expiry maintenance', () => {
+  it('schedules the indexed active-key expiry transition at the cron timestamp', async () => {
+    const run = vi.fn(async () => ({ meta: { changes: 2 } }));
+    const bind = vi.fn(() => ({ run }));
+    const prepare = vi.fn(() => ({ bind }));
+    const waits: Promise<unknown>[] = [];
+
+    developerApiWorker.scheduled(
+      { scheduledTime: OBSERVED_AT_MS },
+      { DEVELOPER_API_DB: { prepare } },
+      { waitUntil: (promise: Promise<unknown>) => waits.push(promise) },
+    );
+
+    expect(waits).toHaveLength(1);
+    await Promise.all(waits);
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining("WHERE status = 'active'"));
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('revoked_at = expires_at'));
+    expect(prepare).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'updated_at = CASE WHEN updated_at > expires_at THEN updated_at ELSE expires_at END',
+      ),
+    );
+    expect(bind).toHaveBeenCalledWith(OBSERVED_AT_MS);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('fails the maintenance job closed for invalid timestamps or a missing D1 binding', async () => {
+    await expect(expireDeveloperApiKeys({}, OBSERVED_AT_MS)).rejects.toThrow(
+      'Developer API D1 binding unavailable',
+    );
+    await expect(
+      expireDeveloperApiKeys({ DEVELOPER_API_DB: { prepare: vi.fn() } }, Number.NaN),
+    ).rejects.toThrow('Invalid Developer API expiry timestamp');
+  });
+
+  it('defines a six-hour global cron and an atomic, idempotent natural-expiry audit', () => {
+    const config = readFileSync(
+      new URL('../../../cloudflare/wrangler.developer-api.toml', import.meta.url),
+      'utf8',
+    );
+    const schema = readFileSync(
+      new URL('../../../cloudflare/developer-api.schema.sql', import.meta.url),
+      'utf8',
+    );
+
+    expect(config).toMatch(/\[triggers\]\s+crons = \["0 \*\/6 \* \* \*"\]/);
+    expect(schema).toMatch(
+      /idx_mxqr_developer_api_keys_status_expiry[\s\S]*?\(status, expires_at\)/,
+    );
+    expect(schema).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_developer_api_admin_audit_key_expiry[\s\S]*?WHERE action = 'key\.expire'/,
+    );
+    expect(schema).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_developer_api_admin_audit_key_revoke[\s\S]*?WHERE action = 'key\.revoke'/,
+    );
+    expect(schema).toMatch(
+      /CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_natural_expiry_audit[\s\S]*?OLD\.status = 'active'[\s\S]*?NEW\.status = 'revoked'[\s\S]*?NEW\.revoked_at = OLD\.expires_at[\s\S]*?INSERT OR IGNORE INTO mxqr_developer_api_admin_audit/,
+    );
   });
 });
 

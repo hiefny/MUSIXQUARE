@@ -68,7 +68,7 @@ describe('release deployment rollback state', () => {
     }
   });
 
-  it('keeps the Developer API release chain ordered and canary-scoped', () => {
+  it('keeps the room-bound Developer API release chain ordered', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const proRoom = workflow.indexOf('Deploy and record PRO room Worker');
     const facade = workflow.indexOf('Deploy and record Developer API facade Worker');

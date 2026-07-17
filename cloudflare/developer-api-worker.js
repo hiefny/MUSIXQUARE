@@ -325,6 +325,24 @@ function updateLastUsedBestEffort(env, context, keyId, nowMs) {
   context.waitUntil(update);
 }
 
+export async function expireDeveloperApiKeys(env, nowMs = Date.now()) {
+  if (!isSafeNonNegativeInteger(nowMs)) {
+    throw new Error('Invalid Developer API expiry timestamp');
+  }
+  if (!env.DEVELOPER_API_DB?.prepare) {
+    throw new Error('Developer API D1 binding unavailable');
+  }
+  return env.DEVELOPER_API_DB.prepare(
+    `UPDATE mxqr_developer_api_keys
+     SET status = 'revoked',
+         revoked_at = expires_at,
+         updated_at = CASE WHEN updated_at > expires_at THEN updated_at ELSE expires_at END
+     WHERE status = 'active' AND expires_at <= ?1`,
+  )
+    .bind(nowMs)
+    .run();
+}
+
 async function authenticate(request, env, context, nowMs) {
   const pepper = String(env.MXQR_DEVELOPER_API_KEY_PEPPER || '');
   if (pepper.length < 32) return { configurationError: true };
@@ -1897,6 +1915,12 @@ export default {
     } catch {
       return errorResponse('BACKEND_UNAVAILABLE', 503, requestId, { retryable: true });
     }
+  },
+
+  scheduled(controller, env, context) {
+    const scheduledTime = Number(controller?.scheduledTime);
+    const nowMs = isSafeNonNegativeInteger(scheduledTime) ? scheduledTime : Date.now();
+    context.waitUntil(expireDeveloperApiKeys(env, nowMs));
   },
 };
 

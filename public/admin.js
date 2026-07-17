@@ -45,6 +45,43 @@ let proRoomsLoaded = false;
 let articlesLoaded = false;
 let announcementLoaded = false;
 const issuedActivationLinks = new Set();
+const expandedProRooms = new Set();
+const proRoomApiCache = new Map();
+const proRoomApiSecrets = new Map();
+const proRoomApiRequestGenerations = new Map();
+const developerApiScopeLabels = Object.freeze({
+  'room:read': 'Room',
+  'playback:read': 'Playback read',
+  'playback:control': 'Playback control',
+  'queue:read': 'Playlist read',
+  'queue:write': 'Playlist write',
+  'media:upload': 'File upload',
+  'effects:read': 'Effects read',
+  'effects:control': 'Effects control',
+});
+const developerApiPresets = Object.freeze({
+  read: ['room:read', 'playback:read', 'queue:read', 'effects:read'],
+  playlist: [
+    'room:read',
+    'playback:read',
+    'playback:control',
+    'queue:read',
+    'queue:write',
+    'media:upload',
+    'effects:read',
+  ],
+  full: Object.keys(developerApiScopeLabels),
+});
+
+function createAdminRequestId() {
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 function setStatus(message, isError = false) {
   if (!loginStatus) return;
@@ -53,13 +90,16 @@ function setStatus(message, isError = false) {
 }
 
 async function fetchJson(url, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const { headers: optionHeaders = {}, ...requestOptions } = options;
   const response = await fetch(url, {
     credentials: 'same-origin',
+    ...requestOptions,
     headers: {
       'Content-Type': 'application/json',
-      ...(options.headers || {}),
+      ...(!['GET', 'HEAD'].includes(method) ? { 'X-MXQR-Admin-CSRF': '1' } : {}),
+      ...optionHeaders,
     },
-    ...options,
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -76,6 +116,10 @@ async function fetchJson(url, options = {}) {
 
 function showLogin(message = '') {
   clearProRoomClaimState();
+  clearAllProRoomApiSecrets();
+  expandedProRooms.clear();
+  proRoomApiCache.clear();
+  proRoomApiRequestGenerations.clear();
   proRoomsLoaded = false;
   articlesLoaded = false;
   announcementLoaded = false;
@@ -187,6 +231,23 @@ function adminErrorMessage(error, fallback) {
   if (message === 'PRO_ROOM_REGISTRY_CAPACITY_REACHED') {
     return 'The PRO room registry has reached its current capacity.';
   }
+  if (message === 'DEVELOPER_API_ADMIN_NOT_CONFIGURED') {
+    return 'Developer API key management is not configured.';
+  }
+  if (message === 'DEVELOPER_API_ACTIVE_KEY_LIMIT') {
+    return 'This room already has three active API keys. Revoke one before issuing another.';
+  }
+  if (message === 'DEVELOPER_API_KEY_NOT_FOUND') return 'This API key is no longer active.';
+  if (message === 'DEVELOPER_API_IDEMPOTENCY_CONFLICT') {
+    return 'This issuance request was already used with different settings. Try again.';
+  }
+  if (message === 'DEVELOPER_API_AUDIT_UNAVAILABLE') {
+    return 'The action was withheld because the API audit log is unavailable.';
+  }
+  if (message === 'PRO_ROOM_NOT_ACTIVE') return 'Only an active room can be suspended.';
+  if (message === 'PRO_ROOM_NOT_SUSPENDED') return 'This room is already active.';
+  if (message === 'PRO_ROOM_SUSPENDED') return 'Resume this room before issuing an API key.';
+  if (message === 'PRO_ROOM_NOT_READY') return 'Finish provisioning this room first.';
   return message || fallback;
 }
 
@@ -276,50 +337,353 @@ async function copyProRoomClaim() {
   }
 }
 
-function renderProRoomRow(room) {
-  const roomCode = normalizeProRoomCode(room?.roomCode);
-  if (!roomCode) return null;
+function proRoomRawStatus(room) {
+  const registryStatus = String(room?.status || 'registered');
+  const activationState = String(room?.activationState || '');
+  if (registryStatus === 'provisioning') return 'provisioning';
+  if (registryStatus === 'suspended') return 'suspended';
+  if (activationState === 'active') return 'active';
+  if (activationState === 'unactivated') return 'unactivated';
+  return 'registered';
+}
 
+function clearProRoomApiSecret(roomCode) {
+  proRoomApiSecrets.delete(roomCode);
+  document
+    .querySelector(`[data-pro-room-api-secret="${roomCode}"]`)
+    ?.replaceChildren();
+}
+
+function clearAllProRoomApiSecrets() {
+  for (const roomCode of proRoomApiSecrets.keys()) clearProRoomApiSecret(roomCode);
+  proRoomApiSecrets.clear();
+}
+
+async function copySensitiveValue(value, input, button) {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    input?.focus();
+    input?.select();
+    if (!document.execCommand?.('copy')) throw new Error('COPY_FAILED');
+  }
+  const previous = button.textContent;
+  button.textContent = 'Copied';
+  window.setTimeout(() => {
+    if (button.isConnected) button.textContent = previous;
+  }, 1600);
+}
+
+function renderProRoomApiSecret(roomCode) {
+  const host = document.createElement('div');
+  host.className = 'pro-room-api-secret';
+  host.dataset.proRoomApiSecret = roomCode;
+  host.setAttribute('aria-live', 'polite');
+  const issued = proRoomApiSecrets.get(roomCode);
+  if (!issued?.apiKey) return host;
+
+  const copy = document.createElement('div');
+  copy.className = 'pro-room-api-secret-copy';
+  const title = document.createElement('strong');
+  title.textContent = 'API key issued';
+  const warning = document.createElement('span');
+  warning.textContent = 'Copy it now. The full key cannot be shown again.';
+  copy.append(title, warning);
+
+  const row = document.createElement('div');
+  row.className = 'pro-room-api-secret-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.readOnly = true;
+  input.autocomplete = 'off';
+  input.value = issued.apiKey;
+  input.setAttribute('aria-label', `${roomCode} Developer API key`);
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.textContent = 'Copy key';
+  copyButton.addEventListener('click', () => {
+    copySensitiveValue(issued.apiKey, input, copyButton).catch(() => {
+      input.focus();
+      input.select();
+    });
+  });
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'is-secondary';
+  dismiss.textContent = 'Dismiss';
+  dismiss.addEventListener('click', () => clearProRoomApiSecret(roomCode));
+  row.append(input, copyButton, dismiss);
+  host.append(copy, row);
+  return host;
+}
+
+function renderProRoomApiKey(roomCode, key, refresh) {
   const item = document.createElement('article');
-  item.className = 'pro-room-item';
-
+  item.className = 'pro-room-api-key';
   const identity = document.createElement('div');
-  identity.className = 'pro-room-identity';
-  const code = document.createElement('strong');
-  code.textContent = roomCode;
-  const label = document.createElement('span');
-  label.textContent = String(room.label || 'Unlabelled PRO room');
-  identity.append(code, label);
+  identity.className = 'pro-room-api-key-identity';
+  const label = document.createElement('strong');
+  label.textContent = String(key?.label || 'Unnamed integration');
+  const id = document.createElement('code');
+  id.textContent = String(key?.keyId || '');
+  identity.append(label, id);
 
-  const details = document.createElement('div');
-  details.className = 'pro-room-details';
-  const status = document.createElement('span');
-  const registryStatus = String(room.status || 'registered');
-  const activationState = String(room.activationState || '');
-  const rawStatus =
-    registryStatus === 'provisioning'
-      ? 'provisioning'
-      : registryStatus === 'suspended'
-        ? 'suspended'
-        : activationState === 'active'
-          ? 'active'
-          : activationState === 'unactivated'
-            ? 'unactivated'
-            : 'registered';
-  status.className = `pro-room-state is-${rawStatus.replace(/[^a-z-]/g, '')}`;
-  status.textContent = formatProRoomStatus(rawStatus);
-  const created = document.createElement('small');
-  const createdAt = formatAdminDateTime(room.createdAt);
-  created.textContent = createdAt ? `Created ${createdAt}` : 'Creation time unavailable';
-  details.append(status, created);
+  const metadata = document.createElement('div');
+  metadata.className = 'pro-room-api-key-meta';
+  const state = document.createElement('span');
+  const keyStatus = ['active', 'expired', 'revoked'].includes(key?.status)
+    ? key.status
+    : 'revoked';
+  state.className = `pro-room-api-key-state is-${keyStatus}`;
+  state.textContent = keyStatus[0].toUpperCase() + keyStatus.slice(1);
+  const expiry = document.createElement('small');
+  const expiresAt = formatAdminDateTime(key?.expiresAt);
+  expiry.textContent = expiresAt ? `Expires ${expiresAt}` : 'Expiry unavailable';
+  const lastUsed = document.createElement('small');
+  const lastUsedAt = formatAdminDateTime(key?.lastUsedAt ?? key?.lastUsedHour);
+  lastUsed.textContent = lastUsedAt ? `Last used ${lastUsedAt}` : 'Not used yet';
+  metadata.append(state, expiry, lastUsed);
+
+  const scopes = document.createElement('div');
+  scopes.className = 'pro-room-api-key-scopes';
+  for (const scope of Array.isArray(key?.scopes) ? key.scopes : []) {
+    const chip = document.createElement('span');
+    chip.textContent = developerApiScopeLabels[scope] || scope;
+    scopes.append(chip);
+  }
 
   const actions = document.createElement('div');
+  actions.className = 'pro-room-api-key-actions';
+  if (keyStatus === 'active' && key?.keyId) {
+    const revoke = document.createElement('button');
+    revoke.type = 'button';
+    revoke.textContent = 'Revoke';
+    revoke.setAttribute('aria-label', `Revoke ${label.textContent}`);
+    revoke.addEventListener('click', async () => {
+      if (!window.confirm(`Revoke “${label.textContent}”? This cannot be undone.`)) return;
+      revoke.disabled = true;
+      revoke.textContent = 'Revoking...';
+      try {
+        await fetchJson(`/api/admin/pro-rooms/${roomCode}/api-keys/${key.keyId}`, {
+          method: 'DELETE',
+        });
+        if (proRoomApiSecrets.get(roomCode)?.keyId === key.keyId) {
+          clearProRoomApiSecret(roomCode);
+        }
+        await refresh('API key revoked.');
+      } catch (error) {
+        revoke.disabled = false;
+        revoke.textContent = 'Revoke';
+        await refresh(adminErrorMessage(error, 'API key revocation failed.'), true, false);
+      }
+    });
+    actions.append(revoke);
+  }
+  item.append(identity, metadata, scopes, actions);
+  return item;
+}
+
+function renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message = '', isError = false) {
+  const keys = Array.isArray(payload?.keys) ? payload.keys : [];
+  const activeCount = keys.filter((key) => key?.status === 'active').length;
+  const maxActiveKeys = Number.isSafeInteger(payload?.maxActiveKeys) ? payload.maxActiveKeys : 3;
+  panel.replaceChildren();
+
+  const head = document.createElement('div');
+  head.className = 'pro-room-api-head';
+  const heading = document.createElement('div');
+  const title = document.createElement('strong');
+  title.textContent = 'Developer API';
+  const description = document.createElement('span');
+  description.textContent = 'Issue room-bound credentials for servers, bots, and integrations.';
+  heading.append(title, description);
+  const count = document.createElement('span');
+  count.textContent = `${activeCount} active · ${maxActiveKeys} max`;
+  head.append(heading, count);
+
+  const status = document.createElement('p');
+  status.className = `pro-room-api-status${isError ? ' is-error' : ''}`;
+  status.dataset.proRoomApiStatus = roomCode;
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.textContent = message;
+
+  const form = document.createElement('form');
+  form.className = 'pro-room-api-form';
+  form.dataset.proRoomApiForm = roomCode;
+  const labelField = document.createElement('label');
+  labelField.className = 'pro-room-api-field';
+  const labelTitle = document.createElement('span');
+  labelTitle.textContent = 'Integration name';
+  const labelInput = document.createElement('input');
+  labelInput.name = 'label';
+  labelInput.maxLength = 64;
+  labelInput.placeholder = 'Cafe controller';
+  labelInput.autocomplete = 'off';
+  labelInput.required = true;
+  labelField.append(labelTitle, labelInput);
+
+  const accessField = document.createElement('label');
+  accessField.className = 'pro-room-api-field';
+  const accessTitle = document.createElement('span');
+  accessTitle.textContent = 'Access';
+  const accessSelect = document.createElement('select');
+  accessSelect.name = 'preset';
+  for (const [value, text] of [
+    ['read', 'Read only'],
+    ['playlist', 'Playback, playlist & upload'],
+    ['full', 'Full control'],
+  ]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = text;
+    if (value === 'read') option.selected = true;
+    accessSelect.append(option);
+  }
+  accessField.append(accessTitle, accessSelect);
+
+  const expiryField = document.createElement('label');
+  expiryField.className = 'pro-room-api-field';
+  const expiryTitle = document.createElement('span');
+  expiryTitle.textContent = 'Expires';
+  const expirySelect = document.createElement('select');
+  expirySelect.name = 'days';
+  for (const days of [30, 90, 180, 365]) {
+    const option = document.createElement('option');
+    option.value = String(days);
+    option.textContent = `${days} days`;
+    if (days === 90) option.selected = true;
+    expirySelect.append(option);
+  }
+  expiryField.append(expiryTitle, expirySelect);
+
+  const issue = document.createElement('button');
+  issue.type = 'submit';
+  issue.textContent = 'Issue API key';
+  issue.disabled = activeCount >= maxActiveKeys || roomStatus !== 'active';
+  if (roomStatus !== 'active') issue.title = 'Activate or resume this room before issuing a key.';
+  form.append(labelField, accessField, expiryField, issue);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const preset = developerApiPresets[accessSelect.value] || developerApiPresets.read;
+    const requestBody = JSON.stringify({
+      label: labelInput.value.trim(),
+      days: Number(expirySelect.value),
+      scopes: preset,
+      requestId: createAdminRequestId(),
+    });
+    issue.disabled = true;
+    issue.textContent = 'Issuing...';
+    try {
+      let issued;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          issued = await fetchJson(`/api/admin/pro-rooms/${roomCode}/api-keys`, {
+            method: 'POST',
+            body: requestBody,
+          });
+          break;
+        } catch (error) {
+          if (error?.status || attempt === 1) throw error;
+        }
+      }
+      if (typeof issued?.apiKey !== 'string' || !issued.apiKey.startsWith('mxqr_live_')) {
+        throw new Error('INVALID_DEVELOPER_API_KEY_RESPONSE');
+      }
+      proRoomApiSecrets.set(roomCode, {
+        apiKey: issued.apiKey,
+        keyId: typeof issued?.key?.keyId === 'string' ? issued.key.keyId : '',
+      });
+      form.reset();
+      await loadProRoomApiKeys(roomCode, roomStatus, panel, 'API key issued. Copy it now.');
+      panel
+        .querySelector(`[aria-label="${roomCode} Developer API key"]`)
+        ?.focus({ preventScroll: true });
+    } catch (error) {
+      await loadProRoomApiKeys(
+        roomCode,
+        roomStatus,
+        panel,
+        adminErrorMessage(error, 'API key issuance failed.'),
+        true,
+      );
+    }
+  });
+
+  const list = document.createElement('div');
+  list.className = 'pro-room-api-key-list';
+  const refresh = async (nextMessage = '', nextIsError = false, reload = true) => {
+    if (reload) {
+      await loadProRoomApiKeys(roomCode, roomStatus, panel, nextMessage, nextIsError);
+      return;
+    }
+    renderProRoomApiPanel(roomCode, roomStatus, panel, payload, nextMessage, nextIsError);
+  };
+  const rows = keys.map((key) => renderProRoomApiKey(roomCode, key, refresh));
+  if (rows.length) list.append(...rows);
+  else {
+    const empty = document.createElement('p');
+    empty.className = 'pro-room-api-empty';
+    empty.textContent = 'No API keys issued for this room.';
+    list.append(empty);
+  }
+
+  panel.append(head, renderProRoomApiSecret(roomCode), form, status, list);
+}
+
+async function loadProRoomApiKeys(
+  roomCode,
+  roomStatus,
+  panel,
+  message = '',
+  isError = false,
+) {
+  if (!panel?.isConnected) return;
+  const requestGeneration = (proRoomApiRequestGenerations.get(roomCode) || 0) + 1;
+  proRoomApiRequestGenerations.set(roomCode, requestGeneration);
+  if (!message) {
+    const status = panel.querySelector('[data-pro-room-api-status]');
+    if (status) status.textContent = 'Loading API keys...';
+  }
+  try {
+    const payload = await fetchJson(`/api/admin/pro-rooms/${roomCode}/api-keys`);
+    if (proRoomApiRequestGenerations.get(roomCode) !== requestGeneration) return;
+    proRoomApiCache.set(roomCode, payload);
+    if (panel.isConnected) {
+      renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message, isError);
+    }
+  } catch (error) {
+    if (proRoomApiRequestGenerations.get(roomCode) !== requestGeneration) return;
+    const cached = proRoomApiCache.get(roomCode) || { keys: [], maxActiveKeys: 3 };
+    if (panel.isConnected) {
+      renderProRoomApiPanel(
+        roomCode,
+        roomStatus,
+        panel,
+        cached,
+        adminErrorMessage(error, 'API keys could not be loaded.'),
+        true,
+      );
+    }
+  }
+}
+
+function renderProRoomActions(room, roomCode, rawStatus) {
+  const section = document.createElement('section');
+  section.className = 'pro-room-controls';
+  const heading = document.createElement('strong');
+  heading.textContent = 'Room controls';
+  const actions = document.createElement('div');
   actions.className = 'pro-room-actions';
-  const open = document.createElement('a');
-  open.href = `/${roomCode}`;
-  open.target = '_blank';
-  open.rel = 'noopener noreferrer';
-  open.textContent = 'Open room';
+
+  if (rawStatus !== 'provisioning' && rawStatus !== 'suspended') {
+    const open = document.createElement('a');
+    open.href = `/${roomCode}`;
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.textContent = 'Open room';
+    actions.append(open);
+  }
 
   const activation = document.createElement('button');
   activation.type = 'button';
@@ -369,10 +733,109 @@ function renderProRoomRow(room) {
       }
     });
   }
-
-  if (rawStatus !== 'provisioning') actions.append(open);
   actions.append(activation);
-  item.append(identity, details, actions);
+
+  if (rawStatus === 'active' || rawStatus === 'suspended') {
+    const targetStatus = rawStatus === 'active' ? 'suspended' : 'active';
+    const stateButton = document.createElement('button');
+    stateButton.type = 'button';
+    stateButton.className = rawStatus === 'active' ? 'is-danger' : 'is-secondary';
+    stateButton.textContent = rawStatus === 'active' ? 'Suspend room' : 'Resume room';
+    stateButton.addEventListener('click', async () => {
+      if (
+        targetStatus === 'suspended' &&
+        !window.confirm(`Suspend room ${roomCode}? Connected participants will be signed out.`)
+      ) {
+        return;
+      }
+      stateButton.disabled = true;
+      stateButton.textContent = targetStatus === 'suspended' ? 'Suspending...' : 'Resuming...';
+      try {
+        await fetchJson(`/api/admin/pro-rooms/${roomCode}/state`, {
+          method: 'POST',
+          body: JSON.stringify({ status: targetStatus }),
+        });
+        setProRoomStatus(
+          targetStatus === 'suspended' ? `${roomCode} suspended.` : `${roomCode} resumed.`,
+        );
+        await loadProRooms();
+      } catch (error) {
+        stateButton.disabled = false;
+        stateButton.textContent = rawStatus === 'active' ? 'Suspend room' : 'Resume room';
+        setProRoomStatus(adminErrorMessage(error, 'Room status update failed.'), true);
+      }
+    });
+    actions.append(stateButton);
+  }
+
+  section.append(heading, actions);
+  return section;
+}
+
+function renderProRoomRow(room) {
+  const roomCode = normalizeProRoomCode(room?.roomCode);
+  if (!roomCode) return null;
+  const rawStatus = proRoomRawStatus(room);
+  const item = document.createElement('details');
+  item.className = 'pro-room-item';
+  item.dataset.proRoomItem = roomCode;
+  item.open = expandedProRooms.has(roomCode);
+
+  const summary = document.createElement('summary');
+  summary.className = 'pro-room-summary';
+  const identity = document.createElement('div');
+  identity.className = 'pro-room-identity';
+  const code = document.createElement('strong');
+  code.textContent = roomCode;
+  const label = document.createElement('span');
+  label.textContent = String(room.label || 'Unlabelled PRO room');
+  identity.append(code, label);
+
+  const details = document.createElement('div');
+  details.className = 'pro-room-details';
+  const status = document.createElement('span');
+  status.className = `pro-room-state is-${rawStatus.replace(/[^a-z-]/g, '')}`;
+  status.textContent = formatProRoomStatus(rawStatus);
+  const created = document.createElement('small');
+  const createdAt = formatAdminDateTime(room.createdAt);
+  created.textContent = createdAt ? `Created ${createdAt}` : 'Creation time unavailable';
+  details.append(status, created);
+  const chevron = document.createElement('span');
+  chevron.className = 'pro-room-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  chevron.textContent = '›';
+  summary.append(identity, details, chevron);
+
+  const expanded = document.createElement('div');
+  expanded.className = 'pro-room-expanded';
+  const controls = renderProRoomActions(room, roomCode, rawStatus);
+  const apiPanel = document.createElement('section');
+  apiPanel.className = 'pro-room-api-panel';
+  apiPanel.dataset.proRoomApiPanel = roomCode;
+  const cached = proRoomApiCache.get(roomCode);
+  if (cached) renderProRoomApiPanel(roomCode, rawStatus, apiPanel, cached);
+  else {
+    const loading = document.createElement('p');
+    loading.className = 'pro-room-api-status';
+    loading.dataset.proRoomApiStatus = roomCode;
+    loading.textContent = 'Open this room to load API keys.';
+    apiPanel.append(loading);
+  }
+  expanded.append(controls, apiPanel);
+  item.append(summary, expanded);
+  item.addEventListener('toggle', () => {
+    if (item.open) {
+      expandedProRooms.add(roomCode);
+      loadProRoomApiKeys(roomCode, rawStatus, apiPanel).catch(() => {});
+    } else {
+      expandedProRooms.delete(roomCode);
+      proRoomApiRequestGenerations.set(
+        roomCode,
+        (proRoomApiRequestGenerations.get(roomCode) || 0) + 1,
+      );
+      clearProRoomApiSecret(roomCode);
+    }
+  });
   return item;
 }
 
@@ -385,6 +848,15 @@ function renderProRooms(payload) {
   const rows = rooms.map(renderProRoomRow).filter(Boolean);
   if (rows.length) {
     proRoomListEl.replaceChildren(...rows);
+    for (const row of rows) {
+      if (!row.open) continue;
+      const roomCode = row.dataset.proRoomItem;
+      const room = rooms.find((candidate) => candidate?.roomCode === roomCode);
+      const panel = row.querySelector('[data-pro-room-api-panel]');
+      if (roomCode && panel) {
+        loadProRoomApiKeys(roomCode, proRoomRawStatus(room), panel).catch(() => {});
+      }
+    }
     return;
   }
   const empty = document.createElement('p');
@@ -902,8 +1374,14 @@ proRoomClaimCopyBtn?.addEventListener('click', () => {
 });
 
 proRoomClaimDismissBtn?.addEventListener('click', dismissProRoomClaim);
-window.addEventListener('pagehide', clearProRoomClaimState);
-window.addEventListener('beforeunload', clearProRoomClaimState);
+window.addEventListener('pagehide', () => {
+  clearProRoomClaimState();
+  clearAllProRoomApiSecrets();
+});
+window.addEventListener('beforeunload', () => {
+  clearProRoomClaimState();
+  clearAllProRoomApiSecrets();
+});
 
 announcementForm?.addEventListener('submit', (event) => {
   event.preventDefault();

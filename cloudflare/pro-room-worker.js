@@ -2041,6 +2041,12 @@ export class MusixquareProRoom {
       if (request.method === 'POST' && url.pathname === '/internal/admin/activation-claim') {
         return this.withMutation(() => this.handleInternalActivationClaim());
       }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/suspend') {
+        return this.withMutation(() => this.handleInternalSuspend());
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/resume') {
+        return this.withMutation(() => this.handleInternalResume());
+      }
       return errorResponse('NOT_FOUND', 404);
     }
     if (url.pathname.startsWith('/internal/developer/')) {
@@ -3677,6 +3683,72 @@ export class MusixquareProRoom {
       this.room.playback.updatedAtMs = nowMs;
       this.room.playback.revision += 1;
     }
+  }
+
+  internalAdminStateResponse(changed) {
+    return jsonResponse({
+      ok: true,
+      roomCode: this.room.roomCode,
+      status: this.room.status,
+      changed,
+    });
+  }
+
+  async handleInternalSuspend() {
+    if (!this.room.provisioned) return errorResponse('ROOM_NOT_FOUND', 404);
+    if (this.room.status === 'suspended') return this.internalAdminStateResponse(false);
+    if (this.room.status !== 'active') return errorResponse('ROOM_NOT_ACTIVE', 409);
+    const playbackRevisionSteps =
+      this.room.playback.state === 'playing' && this.room.playback.updatedAtMs > 0 ? 2 : 1;
+    if (
+      this.room.authEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.playback.revision > Number.MAX_SAFE_INTEGER - playbackRevisionSteps
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+
+    const nowMs = Date.now();
+    this.freezePlayback(nowMs);
+
+    // Suspension is an authorization and topology fence, not data deletion.
+    // Playlist, media assets, PIN, and the owner recovery credential remain in
+    // the room while every transient browser/session identity is discarded.
+    this.room.sessions = {};
+    this.room.presence.participants = {};
+    this.room.presence.coordinatorParticipantId = null;
+    this.room.presence.revision += 1;
+    this.room.authEpoch += 1;
+    this.room.runtime = 'sleeping';
+    this.reconcileSystemAudio(nowMs);
+    this.bumpCoordinatorEpoch(nowMs);
+    this.room.status = 'suspended';
+    this.room.revision += 1;
+    await this.persist();
+    return this.internalAdminStateResponse(true);
+  }
+
+  async handleInternalResume() {
+    if (!this.room.provisioned) return errorResponse('ROOM_NOT_FOUND', 404);
+    if (this.room.status === 'active') return this.internalAdminStateResponse(false);
+    if (this.room.status !== 'suspended') return errorResponse('ROOM_NOT_SUSPENDED', 409);
+    if (this.room.revision >= Number.MAX_SAFE_INTEGER) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+
+    // A resumed room is available for fresh PIN authentication only. No old
+    // presence, cookie session, coordinator, or system-audio lease is revived.
+    this.room.sessions = {};
+    this.room.presence.participants = {};
+    this.room.presence.coordinatorParticipantId = null;
+    this.room.runtime = 'sleeping';
+    this.reconcileSystemAudio(Date.now());
+    this.room.status = 'active';
+    this.room.revision += 1;
+    await this.persist();
+    return this.internalAdminStateResponse(true);
   }
 
   removePresence(participantId, nowMs) {

@@ -97,14 +97,23 @@ remains usable while backends roll forward:
 3. `cloudflare/wrangler.pro-room.toml`, then its version-aware health smoke;
 4. `cloudflare/wrangler.developer-api-facade.toml` (private service binding only);
 5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke
-   against the fixed `000001` canary room;
+   against the fixed `000001` smoke room;
 6. `cloudflare/wrangler.app.toml` with the verified artifact, then its live smoke
    and browser QA.
 
 The production environment secret `MXQR_DEVELOPER_API_SMOKE_KEY` must contain a
 valid key limited to room `000001`; it is used only by the release smoke and is
-never embedded in the immutable app artifact. Widening the Developer API beyond
-that room requires a separate production review and config change.
+never embedded in the immutable app artifact. Production mode is enabled for
+registered PRO rooms, but every credential remains bound to exactly one room
+and is issued or revoked from the Access-protected admin surface. Keeping the
+release smoke fixed to `000001` makes the deployment check reproducible; it does
+not limit API availability to that room.
+
+Before the first App Worker deployment that includes dashboard key issuance,
+run `npm run developer-api:admin-secret:sync` from the secured operator machine.
+It copies the existing Developer API pepper to the App Worker through stdin and
+never prints or stores the value in a tracked file. Worker secrets persist across
+later deployments, so this is a one-time setup unless the pepper is rotated.
 
 That Worker-first order applies only to backward-compatible protocol changes.
 For an intentional hard cut such as the `queueItemId` remote-share migration,

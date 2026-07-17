@@ -64,12 +64,38 @@ const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
 const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activation-claim)?$/;
+const ADMIN_PRO_ROOM_STATE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/state$/;
+const ADMIN_DEVELOPER_API_KEY_PATH_RE =
+  /^\/api\/admin\/pro-rooms\/(0\d{5})\/api-keys(?:\/([A-Za-z0-9_-]{16}))?$/;
 const ADMIN_PRO_ROOM_CODE_RE = /^0\d{5}$/;
 const ADMIN_PRO_ROOM_REGISTRY_TABLE = 'mxqr_pro_room_registry';
 const ADMIN_PRO_ROOM_AUDIT_TABLE = 'mxqr_pro_room_admin_audit';
 const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
 const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
+const ADMIN_DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
+const ADMIN_DEVELOPER_API_KEY_SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
+const ADMIN_DEVELOPER_API_KEY_DEFAULT_DAYS = 90;
+const ADMIN_DEVELOPER_API_KEY_MAX_DAYS = 365;
+const ADMIN_DEVELOPER_API_DAY_MS = 86_400_000;
+const ADMIN_DEVELOPER_API_KEY_MAX_ACTIVE = 3;
+const ADMIN_DEVELOPER_API_KEY_LIST_LIMIT = 200;
+const ADMIN_DEVELOPER_API_REQUEST_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const ADMIN_DEVELOPER_API_KEY_SCOPES = Object.freeze({
+  'room:read': 1,
+  'playback:read': 2,
+  'playback:control': 4,
+  'queue:read': 8,
+  'queue:write': 16,
+  'media:upload': 32,
+  'effects:read': 64,
+  'effects:control': 128,
+});
+const ADMIN_DEVELOPER_API_KEY_ALL_SCOPE_BITS = Object.values(ADMIN_DEVELOPER_API_KEY_SCOPES).reduce(
+  (mask, bit) => mask | bit,
+  0,
+);
 const PRO_ROOM_FACADE_PREFIX = '/api/pro-room';
 const PRO_ROOM_FACADE_HEALTH_PATH = `${PRO_ROOM_FACADE_PREFIX}/health`;
 const PRO_ROOM_FACADE_PATH_RE = /^\/api\/pro-room(\/v1\/rooms\/(0\d{5})(?:\/|$).*)$/;
@@ -951,7 +977,22 @@ async function verifyAdminSession(request, env) {
 }
 
 function adminApiMethodAllowed(request, methods) {
-  if (methods.includes(request.method)) return null;
+  if (methods.includes(request.method)) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+      const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+      if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+        return json({ error: 'ADMIN_JSON_REQUIRED' }, 415);
+      }
+      const requestOrigin = new URL(request.url).origin;
+      const origin = request.headers.get('Origin') || '';
+      const fetchSite = String(request.headers.get('Sec-Fetch-Site') || '').toLowerCase();
+      const sameOrigin = origin === requestOrigin || (!origin && fetchSite === 'same-origin');
+      if (!sameOrigin || request.headers.get('X-MXQR-Admin-CSRF') !== '1') {
+        return json({ error: 'ADMIN_CSRF_REJECTED' }, 403);
+      }
+    }
+    return null;
+  }
   return json({ error: 'METHOD_NOT_ALLOWED' }, 405, {
     Allow: methods.join(', '),
   });
@@ -1150,6 +1191,18 @@ async function markAdminProRoomRegistered(db, roomCode, activationState, nowMs =
     .run();
 }
 
+async function markAdminProRoomOperationalState(db, roomCode, status, nowMs = Date.now()) {
+  await ensureAdminProRoomRegistry(db);
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       SET status = ?2, activation_state = 'active', updated_at = ?3
+       WHERE room_code = ?1`,
+    )
+    .bind(roomCode, status === 'suspended' ? 'suspended' : 'registered', nowMs)
+    .run();
+}
+
 async function reconcileAdminProRoomStatus(env, db, roomCode) {
   const statusResult = await callProRoomAdminObject(env, roomCode, '/internal/admin/status', 'GET');
   const payload = statusResult.payload;
@@ -1270,6 +1323,536 @@ function isValidAdminActivationLink(payload, roomCode) {
   } catch {
     return false;
   }
+}
+
+function getDeveloperApiAdminDb(env) {
+  return env.DEVELOPER_API_DB?.prepare ? env.DEVELOPER_API_DB : null;
+}
+
+function developerApiAdminPepper(env) {
+  const pepper = String(env.MXQR_DEVELOPER_API_KEY_PEPPER || '');
+  return pepper.length >= 32 ? pepper : '';
+}
+
+function developerApiScopeNames(scopeMask) {
+  if (
+    !Number.isSafeInteger(scopeMask) ||
+    scopeMask <= 0 ||
+    scopeMask > ADMIN_DEVELOPER_API_KEY_ALL_SCOPE_BITS ||
+    (scopeMask & ~ADMIN_DEVELOPER_API_KEY_ALL_SCOPE_BITS) !== 0
+  ) {
+    return null;
+  }
+  return Object.entries(ADMIN_DEVELOPER_API_KEY_SCOPES)
+    .filter(([, bit]) => (scopeMask & bit) !== 0)
+    .map(([scope]) => scope);
+}
+
+function developerApiKeyStatus(row, nowMs) {
+  if (row.status === 'active') return row.expires_at <= nowMs ? 'expired' : 'active';
+  return row.revoked_at === row.expires_at ? 'expired' : 'revoked';
+}
+
+function normalizeAdminDeveloperApiKeyRow(row, nowMs = Date.now()) {
+  const scopes = developerApiScopeNames(row?.scope_mask);
+  const label = typeof row?.label === 'string' ? row.label : '';
+  if (
+    !row ||
+    !ADMIN_DEVELOPER_API_KEY_ID_RE.test(String(row.key_id || '')) ||
+    !ADMIN_PRO_ROOM_CODE_RE.test(String(row.room_code || '')) ||
+    !label ||
+    label.length > 64 ||
+    !scopes ||
+    !['active', 'revoked'].includes(row.status) ||
+    !Number.isSafeInteger(row.created_at) ||
+    row.created_at < 0 ||
+    !Number.isSafeInteger(row.updated_at) ||
+    row.updated_at < row.created_at ||
+    !Number.isSafeInteger(row.expires_at) ||
+    row.expires_at <= row.created_at ||
+    (row.status === 'active' && row.revoked_at !== null) ||
+    (row.status === 'revoked' &&
+      (!Number.isSafeInteger(row.revoked_at) || row.revoked_at < row.created_at)) ||
+    (row.last_used_hour !== null &&
+      (!Number.isSafeInteger(row.last_used_hour) || row.last_used_hour < 0))
+  ) {
+    return null;
+  }
+  return {
+    keyId: row.key_id,
+    label,
+    scopes,
+    status: developerApiKeyStatus(row, nowMs),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+    lastUsedAt: row.last_used_hour,
+  };
+}
+
+async function cleanupExpiredAdminDeveloperApiKeys(db, roomCode, nowMs) {
+  await db
+    .prepare(
+      `UPDATE mxqr_developer_api_keys
+       SET status = 'revoked', revoked_at = expires_at, updated_at = ?2
+       WHERE room_code = ?1 AND status = 'active' AND expires_at <= ?2`,
+    )
+    .bind(roomCode, nowMs)
+    .run();
+}
+
+async function listAdminDeveloperApiKeys(db, roomCode, nowMs) {
+  const result = await db
+    .prepare(
+      `SELECT key_id, room_code, label, scope_mask, status, created_at, updated_at,
+              expires_at, revoked_at, last_used_hour
+       FROM mxqr_developer_api_keys
+       WHERE room_code = ?1
+       ORDER BY created_at DESC
+       LIMIT ?2`,
+    )
+    .bind(roomCode, ADMIN_DEVELOPER_API_KEY_LIST_LIMIT)
+    .all();
+  return (result?.results || [])
+    .map((row) => normalizeAdminDeveloperApiKeyRow(row, nowMs))
+    .filter(Boolean);
+}
+
+function adminDeveloperApiKeyListPayload(roomCode, keys) {
+  return {
+    roomCode,
+    maxActiveKeys: ADMIN_DEVELOPER_API_KEY_MAX_ACTIVE,
+    keys,
+  };
+}
+
+function parseAdminDeveloperApiKeyIssueBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const keys = Object.keys(body);
+  if (
+    !keys.includes('label') ||
+    !keys.includes('scopes') ||
+    !keys.includes('requestId') ||
+    keys.some((key) => !['label', 'days', 'scopes', 'requestId'].includes(key))
+  ) {
+    return null;
+  }
+  const label = typeof body.label === 'string' ? body.label.trim() : '';
+  const days = body.days === undefined ? ADMIN_DEVELOPER_API_KEY_DEFAULT_DAYS : body.days;
+  const scopes = body.scopes;
+  const requestId = typeof body.requestId === 'string' ? body.requestId.toLowerCase() : '';
+  if (
+    !label ||
+    label.length > 64 ||
+    /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(label) ||
+    !Number.isSafeInteger(days) ||
+    days < 1 ||
+    days > ADMIN_DEVELOPER_API_KEY_MAX_DAYS ||
+    !Array.isArray(scopes) ||
+    scopes.length < 1 ||
+    scopes.length > Object.keys(ADMIN_DEVELOPER_API_KEY_SCOPES).length ||
+    new Set(scopes).size !== scopes.length ||
+    scopes.some(
+      (scope) =>
+        typeof scope !== 'string' ||
+        !Object.prototype.hasOwnProperty.call(ADMIN_DEVELOPER_API_KEY_SCOPES, scope),
+    ) ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(requestId)
+  ) {
+    return null;
+  }
+  return {
+    label,
+    days,
+    scopes,
+    requestId,
+    scopeMask: scopes.reduce((mask, scope) => mask | ADMIN_DEVELOPER_API_KEY_SCOPES[scope], 0),
+  };
+}
+
+async function deriveAdminDeveloperApiKeyMaterial(env, roomCode, requestId) {
+  const pepper = developerApiAdminPepper(env);
+  const keyIdMaterial = await hmacSha256(
+    pepper,
+    `mxqr-developer-api-admin-issue-id:v1\u0000${roomCode}\u0000${requestId}`,
+  );
+  const secret = await hmacSha256(
+    pepper,
+    `mxqr-developer-api-admin-issue-secret:v1\u0000${roomCode}\u0000${requestId}`,
+  );
+  return { keyId: keyIdMaterial.slice(0, 16), secret };
+}
+
+async function readAdminDeveloperApiKey(db, roomCode, keyId) {
+  const statement = db
+    .prepare(
+      `SELECT key_id, room_code, label, secret_digest, digest_version, scope_mask, status,
+              created_at, updated_at, expires_at, revoked_at, last_used_hour
+       FROM mxqr_developer_api_keys
+       WHERE room_code = ?1 AND key_id = ?2
+       LIMIT 1`,
+    )
+    .bind(roomCode, keyId);
+  return typeof statement.first === 'function'
+    ? await statement.first()
+    : (await statement.all())?.results?.[0] || null;
+}
+
+function recoverAdminDeveloperApiKeyReplay(row, issue, digest, nowMs) {
+  const key = normalizeAdminDeveloperApiKeyRow(row, nowMs);
+  if (
+    !key ||
+    key.status !== 'active' ||
+    !constantTimeEqual(String(row?.secret_digest || ''), digest) ||
+    row?.digest_version !== 1 ||
+    row?.label !== issue.label ||
+    row?.scope_mask !== issue.scopeMask ||
+    row?.expires_at - row?.created_at !== issue.days * ADMIN_DEVELOPER_API_DAY_MS
+  ) {
+    return null;
+  }
+  return key;
+}
+
+async function adminDeveloperApiAuditActor(request, env) {
+  const sessionToken = readCookies(request).get(ADMIN_SESSION_COOKIE) || '';
+  const accessIdentity =
+    request.headers.get('cf-access-authenticated-user-email') ||
+    request.headers.get('cf-access-jwt-assertion') ||
+    '';
+  return `admin_${(
+    await hmacSha256(
+      getAdminSessionSecret(env),
+      `developer-api-admin-audit\u0000${sessionToken}\u0000${accessIdentity}`,
+    )
+  ).slice(0, 32)}`;
+}
+
+function developerApiAdminAuditStatement(
+  db,
+  actorId,
+  action,
+  result,
+  keyId,
+  roomCode,
+  nowMs,
+  { ignoreDuplicate = false } = {},
+) {
+  return db
+    .prepare(
+      `INSERT${ignoreDuplicate ? ' OR IGNORE' : ''} INTO mxqr_developer_api_admin_audit
+        (actor_id, action, result, key_id, room_code, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    )
+    .bind(actorId, action, result, keyId, roomCode, nowMs);
+}
+
+function d1MutationChanged(result) {
+  return Number(result?.meta?.changes || 0) === 1;
+}
+
+function developerApiAdminErrorChainIncludes(error, needle) {
+  let current = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    if (String(current?.message || current).toLowerCase().includes(needle)) return true;
+    current = current?.cause;
+  }
+  return false;
+}
+
+function isDeveloperApiActiveKeyLimitError(error) {
+  return developerApiAdminErrorChainIncludes(error, 'developer_api_active_key_limit');
+}
+
+function isDeveloperApiAuditError(error) {
+  return (
+    error?.developerApiAuditFailure === true ||
+    developerApiAdminErrorChainIncludes(error, 'admin audit') ||
+    developerApiAdminErrorChainIncludes(error, 'admin_audit') ||
+    developerApiAdminErrorChainIncludes(error, 'audit unavailable')
+  );
+}
+
+async function runDeveloperApiAdminMutation(db, mutation, audit, cleanupOnAuditFailure) {
+  if (typeof db.batch === 'function') {
+    const results = await db.batch([mutation, audit]);
+    if (!Array.isArray(results) || results.length !== 2 || !d1MutationChanged(results[0])) {
+      throw new Error('Developer API key mutation was not confirmed');
+    }
+    if (!d1MutationChanged(results[1])) {
+      throw new Error('Developer API admin audit was not confirmed');
+    }
+    return;
+  }
+
+  const mutationResult = await mutation.run();
+  if (!d1MutationChanged(mutationResult)) {
+    throw new Error('Developer API key mutation was not confirmed');
+  }
+  try {
+    const auditResult = await audit.run();
+    if (!d1MutationChanged(auditResult)) {
+      throw new Error('Developer API admin audit was not confirmed');
+    }
+  } catch (error) {
+    await cleanupOnAuditFailure?.().catch(() => {});
+    const wrapped = new Error('Developer API admin audit unavailable');
+    wrapped.cause = error;
+    wrapped.developerApiAuditFailure = true;
+    throw wrapped;
+  }
+}
+
+async function handleAdminDeveloperApiKeys(request, env, pathname) {
+  const route = pathname.match(ADMIN_DEVELOPER_API_KEY_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const roomCode = route[1];
+  const keyId = route[2] || '';
+  const methodError = adminApiMethodAllowed(request, keyId ? ['DELETE'] : ['GET', 'HEAD', 'POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const adminDb = getAdminDb(env);
+  const developerDb = getDeveloperApiAdminDb(env);
+  if (!adminDb?.prepare || !developerDb) {
+    return json({ error: 'DEVELOPER_API_ADMIN_NOT_CONFIGURED' }, 503);
+  }
+
+  let room;
+  try {
+    room = await readAdminProRoom(adminDb, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+
+  const nowMs = Date.now();
+  try {
+    await cleanupExpiredAdminDeveloperApiKeys(developerDb, roomCode, nowMs);
+  } catch {
+    return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+  }
+
+  if (!keyId && (request.method === 'GET' || request.method === 'HEAD')) {
+    try {
+      if (request.method === 'HEAD') {
+        return withSecurityHeaders(new Response(null, { status: 200 }), {
+          'Cache-Control': 'no-store, max-age=0',
+        });
+      }
+      const keys = await listAdminDeveloperApiKeys(developerDb, roomCode, nowMs);
+      return json(adminDeveloperApiKeyListPayload(roomCode, keys));
+    } catch {
+      return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+    }
+  }
+
+  if (!keyId) {
+    if (!developerApiAdminPepper(env)) {
+      return json({ error: 'DEVELOPER_API_ADMIN_NOT_CONFIGURED' }, 503);
+    }
+    const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+    if (parsedBody.error) return jsonBodyError(parsedBody);
+    const issue = parseAdminDeveloperApiKeyIssueBody(parsedBody.value);
+    if (!issue) return json({ error: 'INVALID_REQUEST' }, 400);
+
+    const { keyId: newKeyId, secret } = await deriveAdminDeveloperApiKeyMaterial(
+      env,
+      roomCode,
+      issue.requestId,
+    );
+    if (
+      !ADMIN_DEVELOPER_API_KEY_ID_RE.test(newKeyId) ||
+      !ADMIN_DEVELOPER_API_KEY_SECRET_RE.test(secret)
+    ) {
+      return json({ error: 'DEVELOPER_API_KEY_GENERATION_FAILED' }, 503);
+    }
+    const digest = await hmacSha256(
+      developerApiAdminPepper(env),
+      `mxqr-developer-api-key:v1\u0000${newKeyId}\u0000${secret}`,
+    );
+    let replayed;
+    try {
+      replayed = await readAdminDeveloperApiKey(developerDb, roomCode, newKeyId);
+    } catch {
+      return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+    }
+    if (replayed) {
+      const replayedKey = recoverAdminDeveloperApiKeyReplay(replayed, issue, digest, nowMs);
+      if (!replayedKey) {
+        return json({ error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT' }, 409);
+      }
+      return json({
+        roomCode,
+        apiKey: `mxqr_live_${newKeyId}.${secret}`,
+        key: replayedKey,
+      });
+    }
+
+    const canonicalStatus = await reconcileAdminProRoomStatus(env, adminDb, roomCode).catch(
+      () => null,
+    );
+    if (!canonicalStatus) {
+      return json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502);
+    }
+    if (canonicalStatus !== 'active') {
+      return json(
+        {
+          error: canonicalStatus === 'suspended' ? 'PRO_ROOM_SUSPENDED' : 'PRO_ROOM_NOT_READY',
+        },
+        409,
+      );
+    }
+
+    const expiresAt = nowMs + issue.days * ADMIN_DEVELOPER_API_DAY_MS;
+    const mutation = developerDb
+      .prepare(
+        `INSERT INTO mxqr_developer_api_keys
+          (key_id, room_code, label, secret_digest, digest_version, scope_mask, status,
+           created_at, updated_at, expires_at, revoked_at, last_used_hour)
+         VALUES (?1, ?2, ?3, ?4, 1, ?5, 'active', ?6, ?6, ?7, NULL, NULL)`,
+      )
+      .bind(newKeyId, roomCode, issue.label, digest, issue.scopeMask, nowMs, expiresAt);
+    const actorId = await adminDeveloperApiAuditActor(request, env);
+    const audit = developerApiAdminAuditStatement(
+      developerDb,
+      actorId,
+      'key.issue',
+      'issued',
+      newKeyId,
+      roomCode,
+      nowMs,
+    );
+    try {
+      await runDeveloperApiAdminMutation(developerDb, mutation, audit, async () => {
+        await developerDb
+          .prepare(
+            `DELETE FROM mxqr_developer_api_keys
+             WHERE key_id = ?1 AND room_code = ?2 AND secret_digest = ?3`,
+          )
+          .bind(newKeyId, roomCode, digest)
+          .run();
+      });
+    } catch (error) {
+      try {
+        const concurrent = await readAdminDeveloperApiKey(developerDb, roomCode, newKeyId);
+        if (concurrent) {
+          const concurrentKey = recoverAdminDeveloperApiKeyReplay(
+            concurrent,
+            issue,
+            digest,
+            Date.now(),
+          );
+          if (!concurrentKey) {
+            return json({ error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT' }, 409);
+          }
+          return json({
+            roomCode,
+            apiKey: `mxqr_live_${newKeyId}.${secret}`,
+            key: concurrentKey,
+          });
+        }
+      } catch {
+        // Fall through to the original mutation failure classification.
+      }
+      if (isDeveloperApiActiveKeyLimitError(error)) {
+        return json({ error: 'DEVELOPER_API_ACTIVE_KEY_LIMIT' }, 409);
+      }
+      return json(
+        {
+          error: isDeveloperApiAuditError(error)
+            ? 'DEVELOPER_API_AUDIT_UNAVAILABLE'
+            : 'DEVELOPER_API_ADMIN_UNAVAILABLE',
+        },
+        503,
+      );
+    }
+
+    const key = normalizeAdminDeveloperApiKeyRow(
+      {
+        key_id: newKeyId,
+        room_code: roomCode,
+        label: issue.label,
+        scope_mask: issue.scopeMask,
+        status: 'active',
+        created_at: nowMs,
+        updated_at: nowMs,
+        expires_at: expiresAt,
+        revoked_at: null,
+        last_used_hour: null,
+      },
+      nowMs,
+    );
+    return json(
+      {
+        roomCode,
+        apiKey: `mxqr_live_${newKeyId}.${secret}`,
+        key,
+      },
+      201,
+    );
+  }
+
+  let existing;
+  try {
+    existing = await readAdminDeveloperApiKey(developerDb, roomCode, keyId);
+  } catch {
+    return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+  }
+  if (!existing) return json({ error: 'DEVELOPER_API_KEY_NOT_FOUND' }, 404);
+  if (existing.status !== 'active' || existing.expires_at <= nowMs) {
+    return json({ ok: true, roomCode, keyId });
+  }
+
+  const mutation = developerDb
+    .prepare(
+      `UPDATE mxqr_developer_api_keys
+       SET status = 'revoked', revoked_at = ?3, updated_at = ?3
+       WHERE room_code = ?1 AND key_id = ?2 AND status = 'active' AND expires_at > ?3`,
+    )
+    .bind(roomCode, keyId, nowMs);
+  const actorId = await adminDeveloperApiAuditActor(request, env);
+  const audit = developerApiAdminAuditStatement(
+    developerDb,
+    actorId,
+    'key.revoke',
+    'revoked',
+    keyId,
+    roomCode,
+    nowMs,
+    { ignoreDuplicate: true },
+  );
+  try {
+    await runDeveloperApiAdminMutation(developerDb, mutation, audit, async () => {
+      await developerDb
+        .prepare(
+          `UPDATE mxqr_developer_api_keys
+           SET status = 'active', revoked_at = NULL, updated_at = ?3
+           WHERE room_code = ?1 AND key_id = ?2 AND status = 'revoked' AND revoked_at = ?3`,
+        )
+        .bind(roomCode, keyId, nowMs)
+        .run();
+    });
+  } catch (error) {
+    try {
+      const current = await readAdminDeveloperApiKey(developerDb, roomCode, keyId);
+      if (current && (current.status !== 'active' || current.expires_at <= nowMs)) {
+        return json({ ok: true, roomCode, keyId });
+      }
+    } catch {
+      // Preserve the original failure below when reconciliation is unavailable.
+    }
+    return json(
+      {
+        error: isDeveloperApiAuditError(error)
+          ? 'DEVELOPER_API_AUDIT_UNAVAILABLE'
+          : 'DEVELOPER_API_ADMIN_UNAVAILABLE',
+      },
+      503,
+    );
+  }
+  return json({ ok: true, roomCode, keyId });
 }
 
 async function handleAdminProRooms(request, env, pathname) {
@@ -1473,6 +2056,116 @@ async function handleAdminProRooms(request, env, pathname) {
   // no unaudited link can subsequently be used.
   if (auditError) return auditError;
   return json(issued.payload);
+}
+
+async function handleAdminProRoomState(request, env, pathname) {
+  const route = pathname.match(ADMIN_PRO_ROOM_STATE_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const methodError = adminApiMethodAllowed(request, ['POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const db = getAdminDb(env);
+  if (!db?.prepare || !getProRoomAdminNamespace(env)) {
+    return json({ error: 'PRO_ROOM_ADMIN_NOT_CONFIGURED' }, 503);
+  }
+
+  const roomCode = route[1];
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+  const targetStatus = body?.status;
+  if (
+    keys.length !== 1 ||
+    keys[0] !== 'status' ||
+    (targetStatus !== 'active' && targetStatus !== 'suspended')
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+
+  let room;
+  try {
+    room = await readAdminProRoom(db, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      targetStatus === 'suspended' ? 'room.suspend' : 'room.resume',
+      'room_not_found',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.status === 'provisioning') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      targetStatus === 'suspended' ? 'room.suspend' : 'room.resume',
+      'provisioning_incomplete',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' }, 409);
+  }
+
+  const action = targetStatus === 'suspended' ? 'room.suspend' : 'room.resume';
+  const internalPath = targetStatus === 'suspended' ? '/internal/admin/suspend' : '/internal/admin/resume';
+  const changed = await callProRoomAdminObject(env, roomCode, internalPath);
+  const payload = changed.payload;
+  if (!changed.response?.ok) {
+    await reconcileAdminProRoomStatus(env, db, roomCode).catch(() => {});
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      action,
+      changed.response ? 'service_rejected' : 'service_unavailable',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return proRoomObjectError(changed);
+  }
+  if (
+    !payload ||
+    payload.ok !== true ||
+    payload.roomCode !== roomCode ||
+    payload.status !== targetStatus ||
+    typeof payload.changed !== 'boolean'
+  ) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      action,
+      'invalid_service_response',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+
+  try {
+    await markAdminProRoomOperationalState(db, roomCode, targetStatus);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  const auditError = await writeAdminProRoomAuditOrFail(
+    db,
+    request,
+    env,
+    action,
+    payload.changed ? 'changed' : 'already_applied',
+    roomCode,
+  );
+  if (auditError) return auditError;
+  return json({ ok: true, roomCode, status: targetStatus, changed: payload.changed });
 }
 
 function emptyAdminCounters() {
@@ -2061,6 +2754,7 @@ function renderAdminPage(request, env) {
             <div class="pro-room-list-head">
               <div>
                 <h2>Registered rooms</h2>
+                <p>Expand a room to manage access, lifecycle, and API keys.</p>
                 <p data-pro-room-list-status>Loading PRO rooms...</p>
               </div>
             </div>
@@ -4443,6 +5137,14 @@ export default {
 
     if (ADMIN_PRO_ROOM_PATH_RE.test(url.pathname)) {
       return handleAdminProRooms(request, env, url.pathname);
+    }
+
+    if (ADMIN_PRO_ROOM_STATE_PATH_RE.test(url.pathname)) {
+      return handleAdminProRoomState(request, env, url.pathname);
+    }
+
+    if (ADMIN_DEVELOPER_API_KEY_PATH_RE.test(url.pathname)) {
+      return handleAdminDeveloperApiKeys(request, env, url.pathname);
     }
 
     switch (url.pathname) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, { sanitizeSoroArticleHtmlForTests } from '../../../cloudflare/app-worker.js';
+import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -10,6 +11,15 @@ function requestWithOrigin(origin: string): Request {
   return new Request('https://musixquare.com/api/get-turn-config', {
     headers: { Origin: origin },
   });
+}
+
+function adminMutationHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    Origin: 'https://musixquare.com',
+    'Content-Type': 'application/json',
+    'X-MXQR-Admin-CSRF': '1',
+    ...extra,
+  };
 }
 
 async function solveProofOfWork(challenge: string, difficulty: number): Promise<string> {
@@ -958,10 +968,7 @@ describe('Cloudflare app worker JSON body limits', () => {
     const admin = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'CF-Connecting-IP': '203.0.113.91',
-        },
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.91' }),
         body: JSON.stringify({ password: 'admin-pass', padding: 'x'.repeat(8192) }),
       }),
       {
@@ -1446,13 +1453,47 @@ describe('Cloudflare app worker admin dashboard', () => {
     const login = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.80' },
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.80' }),
         body: JSON.stringify({ password: 'legacy-password' }),
       }),
       env,
     );
     expect(login.status).toBe(503);
     expect(await login.json()).toEqual({ error: 'ADMIN_NOT_CONFIGURED' });
+  });
+
+  it('rejects same-site and cross-site admin mutations without the exact JSON CSRF envelope', async () => {
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+    };
+    const cases = [
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: { Origin: 'https://pro.musixquare.com', 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://pro.musixquare.com',
+          'Content-Type': 'application/json',
+          'X-MXQR-Admin-CSRF': '1',
+        },
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: { Origin: 'https://musixquare.com', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+    ];
+
+    const responses = await Promise.all(cases.map((request) => appWorker.fetch(request, env)));
+    expect(responses.map((response) => response.status)).toEqual([415, 403, 403]);
+    await expect(responses[0].json()).resolves.toEqual({ error: 'ADMIN_JSON_REQUIRED' });
+    await expect(responses[1].json()).resolves.toEqual({ error: 'ADMIN_CSRF_REJECTED' });
+    await expect(responses[2].json()).resolves.toEqual({ error: 'ADMIN_CSRF_REJECTED' });
   });
 
   it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
@@ -1487,7 +1528,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const login = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.81' },
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.81' }),
         body: JSON.stringify({ password: 'admin-pass' }),
       }),
       env,
@@ -1564,7 +1605,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const login = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.82' },
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.82' }),
         body: JSON.stringify({ password: 'admin-pass' }),
       }),
       env,
@@ -1590,7 +1631,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const hide = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/articles/visibility', {
         method: 'POST',
-        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        headers: adminMutationHeaders({ Cookie: cookie }),
         body: JSON.stringify({ slug: 'hidden-article', hidden: true }),
       }),
       env,
@@ -1793,7 +1834,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const login = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.82' },
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.82' }),
         body: JSON.stringify({ password: 'admin-pass' }),
       }),
       env,
@@ -1803,7 +1844,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const pastExpiry = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/announcement', {
         method: 'POST',
-        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        headers: adminMutationHeaders({ Cookie: cookie }),
         body: JSON.stringify({
           enabled: true,
           message: 'Maintenance starts in five minutes.',
@@ -1819,7 +1860,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const save = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/announcement', {
         method: 'POST',
-        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        headers: adminMutationHeaders({ Cookie: cookie }),
         body: JSON.stringify({
           enabled: true,
           message: 'Maintenance starts in five minutes.',
@@ -1888,7 +1929,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const clear = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/announcement', {
         method: 'POST',
-        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        headers: adminMutationHeaders({ Cookie: cookie }),
         body: JSON.stringify({ enabled: false, message: '', expiresAt: null }),
       }),
       env,
@@ -1966,6 +2007,10 @@ describe('Cloudflare app worker admin dashboard', () => {
                 row.status = 'registered';
                 row.activation_state = String(values[1]);
                 row.updated_at = Number(values[2]);
+              } else if (/SET status = \?2/i.test(sql)) {
+                row.status = String(values[1]);
+                row.activation_state = 'active';
+                row.updated_at = Number(values[2]);
               } else {
                 row.activation_state = 'active';
                 row.updated_at = Number(values[1]);
@@ -2014,6 +2059,12 @@ describe('Cloudflare app worker admin dashboard', () => {
           if (url.pathname === '/internal/admin/status') {
             return Response.json({ roomCode, provisioned: true, status: 'active' });
           }
+          if (url.pathname === '/internal/admin/suspend') {
+            return Response.json({ ok: true, roomCode, status: 'suspended', changed: true });
+          }
+          if (url.pathname === '/internal/admin/resume') {
+            return Response.json({ ok: true, roomCode, status: 'active', changed: true });
+          }
           if (roomCode === '000004') {
             return Response.json({ error: 'PRO_ROOM_ACTIVATION_UNAVAILABLE' }, { status: 409 });
           }
@@ -2042,17 +2093,16 @@ describe('Cloudflare app worker admin dashboard', () => {
     const login = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.83' },
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.83' }),
         body: JSON.stringify({ password: 'admin-pass' }),
       }),
       env,
     );
     const cookie = (login.headers.get('Set-Cookie') || '').split(';')[0];
-    const adminHeaders = {
+    const adminHeaders = adminMutationHeaders({
       Cookie: cookie,
-      'Content-Type': 'application/json',
       'Cf-Access-Authenticated-User-Email': 'operator@example.com',
-    };
+    });
 
     const list = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/pro-rooms', { headers: adminHeaders }),
@@ -2086,6 +2136,41 @@ describe('Cloudflare app worker admin dashboard', () => {
     const claimPayload = (await claim.json()) as { activationUrl?: string };
     expect(claim.status).toBe(200);
     expect(claimPayload.activationUrl).toContain('#pro-claim=');
+
+    rows.get('000002')!.activation_state = 'active';
+    const suspended = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000002/state', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ status: 'suspended' }),
+      }),
+      env,
+    );
+    expect(suspended.status).toBe(200);
+    expect(await suspended.json()).toEqual({
+      ok: true,
+      roomCode: '000002',
+      status: 'suspended',
+      changed: true,
+    });
+    expect(rows.get('000002')).toMatchObject({ status: 'suspended', activation_state: 'active' });
+
+    const resumed = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000002/state', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ status: 'active' }),
+      }),
+      env,
+    );
+    expect(resumed.status).toBe(200);
+    expect(await resumed.json()).toEqual({
+      ok: true,
+      roomCode: '000002',
+      status: 'active',
+      changed: true,
+    });
+    expect(rows.get('000002')).toMatchObject({ status: 'registered', activation_state: 'active' });
 
     failAudit = true;
     const withheldClaim = await appWorker.fetch(
@@ -2180,6 +2265,8 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(seen).toEqual([
       { roomCode: '000002', url: '/internal/admin/provision', authorization: '' },
       { roomCode: '000002', url: '/internal/admin/activation-claim', authorization: '' },
+      { roomCode: '000002', url: '/internal/admin/suspend', authorization: '' },
+      { roomCode: '000002', url: '/internal/admin/resume', authorization: '' },
       { roomCode: '000002', url: '/internal/admin/activation-claim', authorization: '' },
       { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
       { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
@@ -2190,6 +2277,8 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(audits).toMatchObject([
       { action: 'room.register', result: 'created', roomCode: '000002' },
       { action: 'activation_claim.issue', result: 'issued', roomCode: '000002' },
+      { action: 'room.suspend', result: 'changed', roomCode: '000002' },
+      { action: 'room.resume', result: 'changed', roomCode: '000002' },
       { action: 'room.register', result: 'provision_failed', roomCode: '000003' },
       { action: 'room.register', result: 'provisioning_recovered', roomCode: '000003' },
       { action: 'activation_claim.issue', result: 'service_rejected', roomCode: '000004' },
@@ -2215,6 +2304,670 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(html).toContain('/admin.js');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
+  });
+});
+
+describe('Cloudflare app worker Developer API key administration', () => {
+  type DeveloperKeyRow = {
+    key_id: string;
+    room_code: string;
+    label: string;
+    secret_digest: string;
+    digest_version: number;
+    scope_mask: number;
+    status: 'active' | 'revoked';
+    created_at: number;
+    updated_at: number;
+    expires_at: number;
+    revoked_at: number | null;
+    last_used_hour: number | null;
+  };
+
+  function createDeveloperApiAdminEnv(
+    options: { roomStatus?: string; simulateConcurrentIssue?: boolean } = {},
+  ) {
+    const now = Date.now();
+    const registryRows = new Map([
+      [
+        '000001',
+        {
+          room_code: '000001',
+          label: 'Friends & Family',
+          status: options.roomStatus || 'registered',
+          activation_state: 'active',
+          created_at: now - 1_000,
+          updated_at: now - 1_000,
+        },
+      ],
+    ]);
+    const registryDb = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_registry/i.test(sql)) {
+            const [roomCode, label, createdAt] = values as [string, string, number];
+            if (!registryRows.has(roomCode)) {
+              registryRows.set(roomCode, {
+                room_code: roomCode,
+                label,
+                status: 'registered',
+                activation_state: 'unactivated',
+                created_at: createdAt,
+                updated_at: createdAt,
+              });
+              return { meta: { changes: 1 } };
+            }
+          }
+          if (/UPDATE mxqr_pro_room_registry/i.test(sql)) {
+            const roomCode = String(values[0]);
+            const row = registryRows.get(roomCode);
+            if (row) {
+              if (/SET status = 'suspended'/i.test(sql)) {
+                row.status = 'suspended';
+                row.activation_state = 'active';
+                row.updated_at = Number(values[1]);
+              } else if (/SET status = 'registered'/i.test(sql)) {
+                row.status = 'registered';
+                row.activation_state = String(values[1]);
+                row.updated_at = Number(values[2]);
+              }
+              return { meta: { changes: 1 } };
+            }
+          }
+          return { meta: { changes: 0 } };
+        };
+        return {
+          run: vi.fn(async () => executeRun()),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => executeRun(...values)),
+            first: vi.fn(async () => registryRows.get(String(values[0])) || null),
+            all: vi.fn(async () => ({ results: [...registryRows.values()] })),
+          })),
+        };
+      }),
+    };
+
+    const keyRows = new Map<string, DeveloperKeyRow>();
+    const audits: Array<{
+      actorId: string;
+      action: string;
+      result: string;
+      keyId: string;
+      roomCode: string;
+      createdAt: number;
+    }> = [];
+    let failAudit = false;
+    let simulateConcurrentIssue = options.simulateConcurrentIssue === true;
+
+    const developerDb = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/SET status = 'revoked', revoked_at = expires_at/i.test(sql)) {
+            const [roomCode, timestamp] = values as [string, number];
+            let changes = 0;
+            for (const row of keyRows.values()) {
+              if (
+                row.room_code === roomCode &&
+                row.status === 'active' &&
+                row.expires_at <= timestamp
+              ) {
+                row.status = 'revoked';
+                row.revoked_at = row.expires_at;
+                row.updated_at = timestamp;
+                changes += 1;
+              }
+            }
+            return { meta: { changes } };
+          }
+          if (/INSERT INTO mxqr_developer_api_keys/i.test(sql)) {
+            const [keyId, roomCode, label, digest, scopeMask, createdAt, expiresAt] = values as [
+              string,
+              string,
+              string,
+              string,
+              number,
+              number,
+              number,
+            ];
+            const concurrentRow: DeveloperKeyRow = {
+              key_id: keyId,
+              room_code: roomCode,
+              label,
+              secret_digest: digest,
+              digest_version: 1,
+              scope_mask: scopeMask,
+              status: 'active',
+              created_at: createdAt,
+              updated_at: createdAt,
+              expires_at: expiresAt,
+              revoked_at: null,
+              last_used_hour: null,
+            };
+            if (simulateConcurrentIssue) {
+              simulateConcurrentIssue = false;
+              const error = new Error('duplicate key id') as Error & {
+                concurrentRow?: DeveloperKeyRow;
+              };
+              error.concurrentRow = concurrentRow;
+              throw error;
+            }
+            const activeCount = [...keyRows.values()].filter(
+              (row) => row.room_code === roomCode && row.status === 'active',
+            ).length;
+            if (activeCount >= 3) throw new Error('developer_api_active_key_limit');
+            if (keyRows.has(keyId)) throw new Error('duplicate key id');
+            keyRows.set(keyId, concurrentRow);
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT(?: OR IGNORE)? INTO mxqr_developer_api_admin_audit/i.test(sql)) {
+            if (failAudit) throw new Error('audit unavailable');
+            const [actorId, action, result, keyId, roomCode, createdAt] = values as [
+              string,
+              string,
+              string,
+              string,
+              string,
+              number,
+            ];
+            audits.push({ actorId, action, result, keyId, roomCode, createdAt });
+            return { meta: { changes: 1 } };
+          }
+          if (/DELETE FROM mxqr_developer_api_keys/i.test(sql)) {
+            const [keyId, roomCode, digest] = values as [string, string, string];
+            const row = keyRows.get(keyId);
+            if (row?.room_code === roomCode && row.secret_digest === digest) {
+              keyRows.delete(keyId);
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }
+          if (
+            /SET status = 'revoked', revoked_at = \?3/i.test(sql) &&
+            /expires_at > \?3/i.test(sql)
+          ) {
+            const [roomCode, keyId, timestamp] = values as [string, string, number];
+            const row = keyRows.get(keyId);
+            if (
+              row?.room_code === roomCode &&
+              row.status === 'active' &&
+              row.expires_at > timestamp
+            ) {
+              row.status = 'revoked';
+              row.revoked_at = timestamp;
+              row.updated_at = timestamp;
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }
+          if (/SET status = 'active', revoked_at = NULL/i.test(sql)) {
+            const [roomCode, keyId, timestamp] = values as [string, string, number];
+            const row = keyRows.get(keyId);
+            if (
+              row?.room_code === roomCode &&
+              row.status === 'revoked' &&
+              row.revoked_at === timestamp
+            ) {
+              row.status = 'active';
+              row.revoked_at = null;
+              row.updated_at = timestamp;
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }
+          return { meta: { changes: 0 } };
+        };
+        const bound = (...values: unknown[]) => ({
+          run: vi.fn(async () => executeRun(...values)),
+          first: vi.fn(async () => {
+            const [roomCode, keyId] = values as [string, string];
+            const row = keyRows.get(keyId);
+            return row?.room_code === roomCode ? { ...row } : null;
+          }),
+          all: vi.fn(async () => {
+            const roomCode = String(values[0]);
+            return {
+              results: [...keyRows.values()]
+                .filter((row) => row.room_code === roomCode)
+                .sort((left, right) => right.created_at - left.created_at)
+                .map((row) => ({ ...row })),
+            };
+          }),
+        });
+        return { bind: vi.fn(bound), run: vi.fn(async () => executeRun()) };
+      }),
+      batch: vi.fn(async (statements: Array<{ run: () => Promise<unknown> }>) => {
+        const rowSnapshot = new Map(
+          [...keyRows.entries()].map(([key, value]) => [key, { ...value }] as const),
+        );
+        const auditCount = audits.length;
+        try {
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          return results;
+        } catch (error) {
+          keyRows.clear();
+          for (const [key, value] of rowSnapshot) keyRows.set(key, value);
+          audits.splice(auditCount);
+          const concurrentRow = (error as Error & { concurrentRow?: DeveloperKeyRow })
+            .concurrentRow;
+          if (concurrentRow) keyRows.set(concurrentRow.key_id, concurrentRow);
+          throw error;
+        }
+      }),
+    };
+
+    return {
+      env: {
+        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        MXQR_DEVELOPER_API_KEY_PEPPER: 'developer-api-test-pepper-at-least-32',
+        MUSIXQUARE_ADMIN_DB: registryDb,
+        DEVELOPER_API_DB: developerDb,
+        PRO_ROOM_ADMIN_ROOMS: {
+          idFromName: vi.fn((roomCode: string) => roomCode),
+          get: vi.fn((roomCode: string) => ({
+            fetch: vi.fn(async (request: Request) => {
+              expect(new URL(request.url).pathname).toBe('/internal/admin/status');
+              const row = registryRows.get(roomCode);
+              if (!row) return Response.json({ error: 'ROOM_NOT_FOUND' }, { status: 404 });
+              const status =
+                row.status === 'suspended'
+                  ? 'suspended'
+                  : row.activation_state === 'active'
+                    ? 'active'
+                    : 'unactivated';
+              return Response.json({ roomCode, provisioned: true, status });
+            }),
+          })),
+        },
+      },
+      keyRows,
+      audits,
+      registryRows,
+      setFailAudit(value: boolean) {
+        failAudit = value;
+      },
+    };
+  }
+
+  async function loginDeveloperApiAdmin(env: Record<string, unknown>) {
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.94' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    expect(login.status).toBe(200);
+    return (login.headers.get('Set-Cookie') || '').split(';')[0];
+  }
+
+  function issueDeveloperApiKeyRequest(
+    cookie: string,
+    body: unknown,
+    requestId = crypto.randomUUID(),
+  ) {
+    const requestBody =
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? { ...body, requestId }
+        : body;
+    return new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
+      method: 'POST',
+      headers: adminMutationHeaders({
+        Cookie: cookie,
+        'Cf-Access-Authenticated-User-Email': 'operator@example.com',
+      }),
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  it('requires admin auth and strictly validates room-bound key issuance', async () => {
+    const { env, keyRows, registryRows } = createDeveloperApiAdminEnv();
+    const unauthenticated = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys'),
+      env,
+    );
+    expect(unauthenticated.status).toBe(401);
+    expect(keyRows.size).toBe(0);
+
+    const cookie = await loginDeveloperApiAdmin(env);
+    for (const invalidBody of [
+      { label: '', scopes: ['room:read'] },
+      { label: 'Bot', days: 0, scopes: ['room:read'] },
+      { label: 'Bot', days: 366, scopes: ['room:read'] },
+      { label: 'Bot', scopes: ['room:read', 'room:read'] },
+      { label: 'Bot', scopes: ['unknown:scope'] },
+      { label: 'Bot', scopes: ['room:read'], extra: true },
+    ]) {
+      const response = await appWorker.fetch(issueDeveloperApiKeyRequest(cookie, invalidBody), env);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'INVALID_REQUEST' });
+    }
+
+    const missingRoom = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000009/api-keys', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    expect(missingRoom.status).toBe(404);
+
+    registryRows.get('000001')!.status = 'suspended';
+    const suspended = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, { label: 'Bot', scopes: ['room:read'] }),
+      env,
+    );
+    expect(suspended.status).toBe(409);
+    expect(await suspended.json()).toEqual({ error: 'PRO_ROOM_SUSPENDED' });
+    expect(keyRows.size).toBe(0);
+  });
+
+  it('issues a one-time secret, preserves exact v1 digest, and lists no secret material', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T12:00:00.000Z'));
+    const { env, keyRows, audits, registryRows } = createDeveloperApiAdminEnv();
+    const cookie = await loginDeveloperApiAdmin(env);
+    const requestId = crypto.randomUUID();
+    const issueBody = {
+      label: 'Friend bot',
+      scopes: ['room:read', 'queue:write', 'effects:control'],
+    };
+    const response = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, issueBody, requestId),
+      env,
+    );
+    const payload = (await response.json()) as {
+      roomCode: string;
+      apiKey: string;
+      key: { keyId: string; scopes: string[]; status: string; expiresAt: number };
+    };
+    expect(response.status).toBe(201);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(payload.roomCode).toBe('000001');
+    expect(payload.apiKey).toMatch(/^mxqr_live_[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}$/);
+    expect(payload.key).toMatchObject({
+      keyId: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/),
+      scopes: ['room:read', 'queue:write', 'effects:control'],
+      status: 'active',
+      expiresAt: Date.now() + 90 * 86_400_000,
+    });
+
+    const [, keyMaterial] = payload.apiKey.split('mxqr_live_');
+    const [keyId, secret] = keyMaterial.split('.');
+    const stored = keyRows.get(keyId)!;
+    expect(stored.room_code).toBe('000001');
+    expect(stored.secret_digest).toBe(
+      await deriveDeveloperApiKeyDigest(String(env.MXQR_DEVELOPER_API_KEY_PEPPER), keyId, secret),
+    );
+    expect(stored.scope_mask).toBe(1 | 16 | 128);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: 'key.issue',
+      result: 'issued',
+      keyId,
+      roomCode: '000001',
+    });
+    expect(audits[0].actorId).toMatch(/^admin_[A-Za-z0-9_-]{32}$/);
+    expect(JSON.stringify(audits)).not.toContain('operator@example.com');
+    expect(JSON.stringify(audits)).not.toContain(secret);
+
+    const replay = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, issueBody, requestId),
+      env,
+    );
+    const replayedPayload = (await replay.json()) as { apiKey?: string };
+    expect(replay.status).toBe(200);
+    expect(replayedPayload.apiKey).toBe(payload.apiKey);
+    expect(keyRows.size).toBe(1);
+    expect(audits).toHaveLength(1);
+
+    registryRows.get('000001')!.status = 'suspended';
+    const suspendedReplay = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, issueBody, requestId),
+      env,
+    );
+    expect(suspendedReplay.status).toBe(200);
+    expect(((await suspendedReplay.json()) as { apiKey?: string }).apiKey).toBe(payload.apiKey);
+
+    const conflict = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(
+        cookie,
+        { ...issueBody, label: 'Changed integration' },
+        requestId,
+      ),
+      env,
+    );
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT' });
+    expect(keyRows.size).toBe(1);
+
+    const expiryConflict = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, { ...issueBody, days: 30 }, requestId),
+      env,
+    );
+    expect(expiryConflict.status).toBe(409);
+    expect(await expiryConflict.json()).toEqual({
+      error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT',
+    });
+
+    const list = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    const listText = await list.text();
+    const listed = JSON.parse(listText) as {
+      roomCode: string;
+      maxActiveKeys: number;
+      keys: Array<{ keyId: string; scopes: string[]; status: string }>;
+    };
+    expect(list.status).toBe(200);
+    expect(listed).toMatchObject({
+      roomCode: '000001',
+      maxActiveKeys: 3,
+      keys: [{ keyId, scopes: ['room:read', 'queue:write', 'effects:control'], status: 'active' }],
+    });
+    expect(listText).not.toContain(payload.apiKey);
+    expect(listText).not.toContain(secret);
+    expect(listText).not.toContain(stored.secret_digest);
+    expect(listText).not.toContain('secret_digest');
+  });
+
+  it('recovers the same raw key when an identical issuance wins a concurrent insert race', async () => {
+    const { env, keyRows } = createDeveloperApiAdminEnv({ simulateConcurrentIssue: true });
+    const cookie = await loginDeveloperApiAdmin(env);
+    const response = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(
+        cookie,
+        { label: 'Concurrent bot', days: 180, scopes: ['room:read', 'queue:write'] },
+        crypto.randomUUID(),
+      ),
+      env,
+    );
+    const payload = (await response.json()) as { apiKey?: string; key?: { status?: string } };
+
+    expect(response.status).toBe(200);
+    expect(payload.apiKey).toMatch(/^mxqr_live_[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}$/);
+    expect(payload.key?.status).toBe('active');
+    expect(keyRows.size).toBe(1);
+  });
+
+  it('cleans expired keys, distinguishes list statuses, revokes idempotently, and binds IDs to rooms', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T12:00:00.000Z'));
+    const { env, keyRows, audits } = createDeveloperApiAdminEnv();
+    const cookie = await loginDeveloperApiAdmin(env);
+    const base = Date.now() - 10_000;
+    keyRows.set('ExpiredKeyId0001', {
+      key_id: 'ExpiredKeyId0001',
+      room_code: '000001',
+      label: 'Expired bot',
+      secret_digest: 'A'.repeat(43),
+      digest_version: 1,
+      scope_mask: 1 | 2,
+      status: 'active',
+      created_at: base,
+      updated_at: base,
+      expires_at: Date.now() - 1,
+      revoked_at: null,
+      last_used_hour: null,
+    });
+    keyRows.set('RevokedKeyId0001', {
+      key_id: 'RevokedKeyId0001',
+      room_code: '000001',
+      label: 'Revoked bot',
+      secret_digest: 'B'.repeat(43),
+      digest_version: 1,
+      scope_mask: 8,
+      status: 'revoked',
+      created_at: base,
+      updated_at: base + 2,
+      expires_at: Date.now() + 86_400_000,
+      revoked_at: base + 2,
+      last_used_hour: base,
+    });
+    keyRows.set('ActiveKeyId00001', {
+      key_id: 'ActiveKeyId00001',
+      room_code: '000001',
+      label: 'Active bot',
+      secret_digest: 'C'.repeat(43),
+      digest_version: 1,
+      scope_mask: 64 | 128,
+      status: 'active',
+      created_at: base + 3,
+      updated_at: base + 3,
+      expires_at: Date.now() + 86_400_000,
+      revoked_at: null,
+      last_used_hour: base,
+    });
+
+    const list = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    const payload = (await list.json()) as {
+      keys: Array<{ keyId: string; status: string; scopes: string[]; lastUsedAt: number | null }>;
+    };
+    expect(payload.keys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          keyId: 'ExpiredKeyId0001',
+          status: 'expired',
+          scopes: ['room:read', 'playback:read'],
+        }),
+        expect.objectContaining({
+          keyId: 'RevokedKeyId0001',
+          status: 'revoked',
+          scopes: ['queue:read'],
+          lastUsedAt: base,
+        }),
+        expect.objectContaining({
+          keyId: 'ActiveKeyId00001',
+          status: 'active',
+          scopes: ['effects:read', 'effects:control'],
+        }),
+      ]),
+    );
+    expect(keyRows.get('ExpiredKeyId0001')).toMatchObject({
+      status: 'revoked',
+      revoked_at: Date.now() - 1,
+    });
+
+    const wrongRoom = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000000/api-keys/ActiveKeyId00001', {
+        method: 'DELETE',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+      }),
+      env,
+    );
+    expect(wrongRoom.status).toBe(404);
+    expect(await wrongRoom.json()).toEqual({ error: 'DEVELOPER_API_KEY_NOT_FOUND' });
+
+    const revoke = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys/ActiveKeyId00001', {
+        method: 'DELETE',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+      }),
+      env,
+    );
+    expect(revoke.status).toBe(200);
+    expect(await revoke.json()).toEqual({
+      ok: true,
+      roomCode: '000001',
+      keyId: 'ActiveKeyId00001',
+    });
+    expect(keyRows.get('ActiveKeyId00001')?.status).toBe('revoked');
+    expect(audits.at(-1)).toMatchObject({
+      action: 'key.revoke',
+      result: 'revoked',
+      keyId: 'ActiveKeyId00001',
+    });
+
+    const repeat = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys/ActiveKeyId00001', {
+        method: 'DELETE',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+      }),
+      env,
+    );
+    expect(repeat.status).toBe(200);
+    expect(audits.filter((entry) => entry.action === 'key.revoke')).toHaveLength(1);
+  });
+
+  it('maps the active-key trigger to 409 and never returns a raw key when audit fails', async () => {
+    const fixture = createDeveloperApiAdminEnv();
+    const cookie = await loginDeveloperApiAdmin(fixture.env);
+    const makeRow = (index: number): DeveloperKeyRow => ({
+      key_id: `ExistingKey0000${index}`,
+      room_code: '000001',
+      label: `Existing ${index}`,
+      secret_digest: String(index).repeat(43),
+      digest_version: 1,
+      scope_mask: 1,
+      status: 'active',
+      created_at: Date.now() - 1_000,
+      updated_at: Date.now() - 1_000,
+      expires_at: Date.now() + 86_400_000,
+      revoked_at: null,
+      last_used_hour: null,
+    });
+    fixture.keyRows.set('ExistingKey00001', makeRow(1));
+    fixture.keyRows.set('ExistingKey00002', makeRow(2));
+    fixture.keyRows.set('ExistingKey00003', makeRow(3));
+    const limited = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, { label: 'Fourth', scopes: ['room:read'] }),
+      fixture.env,
+    );
+    expect(limited.status).toBe(409);
+    expect(await limited.json()).toEqual({ error: 'DEVELOPER_API_ACTIVE_KEY_LIMIT' });
+
+    fixture.keyRows.delete('ExistingKey00003');
+    fixture.setFailAudit(true);
+    const failedIssue = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, { label: 'No audit', scopes: ['room:read'] }),
+      fixture.env,
+    );
+    const failedText = await failedIssue.text();
+    expect(failedIssue.status).toBe(503);
+    expect(JSON.parse(failedText)).toEqual({ error: 'DEVELOPER_API_AUDIT_UNAVAILABLE' });
+    expect(failedText).not.toContain('mxqr_live_');
+    expect(fixture.keyRows.size).toBe(2);
+    expect(fixture.audits).toHaveLength(0);
+
+    const before = { ...fixture.keyRows.get('ExistingKey00001')! };
+    const failedRevoke = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys/ExistingKey00001', {
+        method: 'DELETE',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+      }),
+      fixture.env,
+    );
+    expect(failedRevoke.status).toBe(503);
+    expect(await failedRevoke.json()).toEqual({ error: 'DEVELOPER_API_AUDIT_UNAVAILABLE' });
+    expect(fixture.keyRows.get('ExistingKey00001')).toEqual(before);
   });
 });
 

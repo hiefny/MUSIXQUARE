@@ -56,12 +56,35 @@ FROM mxqr_developer_api_keys;
 
 DROP TRIGGER IF EXISTS trg_mxqr_developer_api_keys_active_insert;
 DROP TRIGGER IF EXISTS trg_mxqr_developer_api_keys_active_update;
+DROP TRIGGER IF EXISTS trg_mxqr_developer_api_keys_expiry_audit;
+DROP TRIGGER IF EXISTS trg_mxqr_developer_api_keys_natural_expiry_audit;
 DROP INDEX IF EXISTS idx_mxqr_developer_api_keys_room_status_expiry;
+DROP INDEX IF EXISTS idx_mxqr_developer_api_keys_status_expiry;
 DROP TABLE mxqr_developer_api_keys;
 ALTER TABLE mxqr_developer_api_keys_effects_v2 RENAME TO mxqr_developer_api_keys;
 
 CREATE INDEX idx_mxqr_developer_api_keys_room_status_expiry
   ON mxqr_developer_api_keys (room_code, status, expires_at);
+
+CREATE INDEX idx_mxqr_developer_api_keys_status_expiry
+  ON mxqr_developer_api_keys (status, expires_at);
+
+CREATE TRIGGER trg_mxqr_developer_api_keys_natural_expiry_audit
+AFTER UPDATE OF status, revoked_at, updated_at ON mxqr_developer_api_keys
+WHEN OLD.status = 'active'
+  AND NEW.status = 'revoked'
+  AND NEW.expires_at = OLD.expires_at
+  AND NEW.revoked_at = OLD.expires_at
+  AND NEW.updated_at = CASE
+    WHEN OLD.updated_at > OLD.expires_at THEN OLD.updated_at
+    ELSE OLD.expires_at
+  END
+BEGIN
+  INSERT OR IGNORE INTO mxqr_developer_api_admin_audit
+    (actor_id, action, result, key_id, room_code, created_at)
+  VALUES
+    ('system:expiry', 'key.expire', 'expired', NEW.key_id, NEW.room_code, NEW.expires_at);
+END;
 
 CREATE TRIGGER trg_mxqr_developer_api_keys_active_insert
 BEFORE INSERT ON mxqr_developer_api_keys

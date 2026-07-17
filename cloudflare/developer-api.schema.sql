@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_keys (
 CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_keys_room_status_expiry
   ON mxqr_developer_api_keys (room_code, status, expires_at);
 
+-- The scheduled global expiry sweep cannot use the room-prefixed operator
+-- index above. Keep its active-and-expired lookup bounded as key volume grows.
+CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_keys_status_expiry
+  ON mxqr_developer_api_keys (status, expires_at);
+
 -- The private beta intentionally caps credential fan-out. Rotation must
 -- revoke an old key before issuing a fourth active key for the same room.
 CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_active_insert
@@ -79,3 +84,34 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_admin_audit (
 
 CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_admin_audit_created_at
   ON mxqr_developer_api_admin_audit (created_at);
+
+-- A key ID is never reactivated or reused. Keep concurrent idempotent revoke
+-- requests from producing more than one operator audit row.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_developer_api_admin_audit_key_revoke
+  ON mxqr_developer_api_admin_audit (key_id, action)
+  WHERE action = 'key.revoke';
+
+-- Natural expiry is represented as a revocation at the credential's exact
+-- expiry instant. The trigger makes the lifecycle transition and its audit
+-- entry one SQLite transaction. The partial unique index plus OR IGNORE keeps
+-- an accidental later reactivation/expiry from duplicating the audit record.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_developer_api_admin_audit_key_expiry
+  ON mxqr_developer_api_admin_audit (key_id, action)
+  WHERE action = 'key.expire';
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_natural_expiry_audit
+AFTER UPDATE OF status, revoked_at, updated_at ON mxqr_developer_api_keys
+WHEN OLD.status = 'active'
+  AND NEW.status = 'revoked'
+  AND NEW.expires_at = OLD.expires_at
+  AND NEW.revoked_at = OLD.expires_at
+  AND NEW.updated_at = CASE
+    WHEN OLD.updated_at > OLD.expires_at THEN OLD.updated_at
+    ELSE OLD.expires_at
+  END
+BEGIN
+  INSERT OR IGNORE INTO mxqr_developer_api_admin_audit
+    (actor_id, action, result, key_id, room_code, created_at)
+  VALUES
+    ('system:expiry', 'key.expire', 'expired', NEW.key_id, NEW.room_code, NEW.expires_at);
+END;

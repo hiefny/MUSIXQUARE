@@ -2576,6 +2576,232 @@ describe('PRO room private Developer API projections', () => {
 });
 
 describe('persistent PRO room bootstrap and activation', () => {
+  it('suspends an active room without deleting durable content and resumes only for fresh sessions', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.parse('2026-07-18T01:00:00.000Z');
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const ready = await completeReadyAsset(context, 'admin-suspend');
+    const queueItemId = '018f977e-5df5-4c8f-bb80-55d847ddec8f';
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [playlistItem(queueItemId, ready.asset)],
+          'admin-suspend-playlist',
+        )
+      ).status,
+    ).toBe(200);
+
+    const memberResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    expect(memberResponse.status).toBe(200);
+    const memberCookie = cookieFrom(memberResponse);
+    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+
+    const acquiredResponse = await context.worker.fetch(
+      jsonRequest('/system-audio/acquire', 'POST', {}, context.ownerCookie),
+    );
+    expect(acquiredResponse.status).toBe(200);
+    const acquired = await responseJson(acquiredResponse);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    internal.room.currentQueueItemId = queueItemId;
+    internal.room.playback = {
+      ...internal.room.playback,
+      state: 'playing',
+      queueItemId,
+      positionSeconds: 42,
+      updatedAtMs: startedAtMs,
+    };
+
+    const preserved = structuredClone({
+      playlist: internal.room.playlist,
+      assets: internal.room.assets,
+      quota: internal.room.quota,
+      pin: internal.room.pin,
+      ownerMemberId: internal.room.ownerMemberId,
+      ownerCredentialHash: internal.room.ownerCredentialHash,
+    });
+    const authEpoch = internal.room.authEpoch as number;
+    const coordinatorEpoch = internal.room.presence.coordinatorEpoch as number;
+    const systemAudioGeneration = acquired.systemAudio.generation as number;
+    expect(Object.keys(internal.room.sessions)).toHaveLength(2);
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(2);
+
+    vi.setSystemTime(startedAtMs + 5_000);
+    const suspend = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/suspend', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(suspend.status).toBe(200);
+    expect(await responseJson(suspend)).toEqual({
+      ok: true,
+      roomCode: ROOM_CODE,
+      status: 'suspended',
+      changed: true,
+    });
+    expect(internal.room).toMatchObject({
+      status: 'suspended',
+      runtime: 'sleeping',
+      authEpoch: authEpoch + 1,
+      currentQueueItemId: queueItemId,
+      playback: {
+        state: 'playing',
+        queueItemId,
+        positionSeconds: 47,
+        updatedAtMs: startedAtMs + 5_000,
+      },
+      presence: {
+        coordinatorEpoch: coordinatorEpoch + 1,
+        coordinatorParticipantId: null,
+        participants: {},
+      },
+      sessions: {},
+      systemAudio: {
+        generation: systemAudioGeneration + 1,
+        status: 'idle',
+        ownerParticipantId: null,
+        publication: null,
+      },
+    });
+    expect({
+      playlist: internal.room.playlist,
+      assets: internal.room.assets,
+      quota: internal.room.quota,
+      pin: internal.room.pin,
+      ownerMemberId: internal.room.ownerMemberId,
+      ownerCredentialHash: internal.room.ownerCredentialHash,
+    }).toEqual(preserved);
+    expect(await responseJson(await context.worker.fetch(request('/bootstrap')))).toEqual({
+      roomCode: ROOM_CODE,
+      status: 'suspended',
+    });
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      401,
+    );
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Blocked' }),
+        )
+      ).status,
+    ).toBe(423);
+
+    const suspendedState = structuredClone(internal.room);
+    const repeatedSuspend = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/suspend', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(await responseJson(repeatedSuspend)).toEqual({
+      ok: true,
+      roomCode: ROOM_CODE,
+      status: 'suspended',
+      changed: false,
+    });
+    expect(internal.room).toEqual(suspendedState);
+
+    const resume = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/resume', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(await responseJson(resume)).toEqual({
+      ok: true,
+      roomCode: ROOM_CODE,
+      status: 'active',
+      changed: true,
+    });
+    expect(internal.room).toMatchObject({
+      status: 'active',
+      runtime: 'sleeping',
+      sessions: {},
+      presence: { coordinatorParticipantId: null, participants: {} },
+    });
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      401,
+    );
+
+    const resumedState = structuredClone(internal.room);
+    const repeatedResume = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/resume', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(await responseJson(repeatedResume)).toEqual({
+      ok: true,
+      roomCode: ROOM_CODE,
+      status: 'active',
+      changed: false,
+    });
+    expect(internal.room).toEqual(resumedState);
+
+    const freshSession = await context.worker.fetch(
+      jsonRequest(
+        '/sessions',
+        'POST',
+        { pin: '12345678', displayName: 'Fresh Owner' },
+        context.ownerRecoveryCookie,
+      ),
+    );
+    expect(freshSession.status).toBe(200);
+    expect((await responseJson(freshSession)).snapshot).toMatchObject({
+      status: 'active',
+      runtime: 'awake',
+      playback: { state: 'playing', positionSeconds: 47 },
+      viewer: { role: 'owner', displayName: 'Fresh Owner' },
+    });
+  });
+
+  it('rejects suspend and resume for rooms that have not been activated or provisioned', async () => {
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const internalRequest = (roomCode: string, operation: 'suspend' | 'resume') =>
+      new Request(`https://pro-room.internal/internal/admin/${operation}`, {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      });
+
+    const inactiveSuspend = await worker.fetch(internalRequest(ROOM_CODE, 'suspend'));
+    expect(inactiveSuspend.status).toBe(409);
+    expect(await responseJson(inactiveSuspend)).toEqual({ error: 'ROOM_NOT_ACTIVE' });
+    const inactiveResume = await worker.fetch(internalRequest(ROOM_CODE, 'resume'));
+    expect(inactiveResume.status).toBe(409);
+    expect(await responseJson(inactiveResume)).toEqual({ error: 'ROOM_NOT_SUSPENDED' });
+
+    const unprovisioned = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    for (const operation of ['suspend', 'resume'] as const) {
+      const response = await unprovisioned.fetch(internalRequest('000002', operation));
+      expect(response.status).toBe(404);
+      expect(await responseJson(response)).toEqual({ error: 'ROOM_NOT_FOUND' });
+    }
+  });
+
+  it('fails a suspend fence atomically when its bounded revisions are exhausted', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    internal.room.playback.state = 'playing';
+    internal.room.playback.updatedAtMs = Date.now();
+    internal.room.playback.revision = Number.MAX_SAFE_INTEGER - 1;
+    const before = structuredClone(internal.room);
+
+    const response = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/suspend', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await responseJson(response)).toEqual({ error: 'REVISION_EXHAUSTED' });
+    expect(internal.room).toEqual(before);
+  });
+
   it('never exposes an owner claim in public bootstrap and rejects invalid activation uniformly', async () => {
     const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
     const bootstrap = await worker.fetch(request('/bootstrap'));
@@ -2755,7 +2981,14 @@ describe('persistent PRO room bootstrap and activation', () => {
         },
       }),
     };
-    for (const path of ['/internal/admin/provision', '/v1/rooms/000002/internal/admin/provision']) {
+    for (const path of [
+      '/internal/admin/provision',
+      '/internal/admin/suspend',
+      '/internal/admin/resume',
+      '/v1/rooms/000002/internal/admin/provision',
+      '/v1/rooms/000002/internal/admin/suspend',
+      '/v1/rooms/000002/internal/admin/resume',
+    ]) {
       const response = await proRoomWorker.fetch(
         new Request(`https://pro.musixquare.com${path}`, {
           method: 'POST',

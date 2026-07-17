@@ -1,12 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MusixquareProRoom,
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
   default as proRoomWorker,
 } from '../../../cloudflare/pro-room-worker.js';
+import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.js';
+import developerApiWorker, {
+  deriveDeveloperApiKeyDigest,
+  developerApiScopes,
+} from '../../../cloudflare/developer-api-worker.js';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const ROOM_CODE = '000001';
 const BASE_URL = `https://pro.musixquare.com/v1/rooms/${ROOM_CODE}`;
@@ -381,6 +390,351 @@ function playlistItem(
     },
   };
 }
+
+function internalDeveloperRead(
+  worker: MusixquareProRoom,
+  projection: 'room' | 'playback' | 'queue',
+): Promise<Response> {
+  return worker.fetch(
+    new Request('https://pro-room.internal/internal/developer/v1/read', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+      },
+      body: JSON.stringify({ projection }),
+    }),
+  );
+}
+
+describe('PRO room private Developer API projections', () => {
+  it('exposes only bounded room, playback, and queue fields', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T01:00:00.000Z'));
+    const { worker, activationEnvelope } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: {
+        revision: number;
+        playlistRevision: number;
+        playlist: Array<Record<string, any>>;
+        currentQueueItemId: string | null;
+        playback: Record<string, any>;
+        assets: Record<string, Record<string, any>>;
+        ownerMemberId: string;
+      };
+    };
+    const queueItemId = '11111111-1111-4111-8111-111111111111';
+    const assetId = 'asset_018f977e5df57c8f';
+    internal.room.revision = 9;
+    internal.room.playlistRevision = 4;
+    internal.room.playlist = [
+      {
+        queueItemId,
+        name: 'Private Orchestra.flac',
+        title: 'Orchestra',
+        artist: 'Private Artist',
+        source: {
+          kind: 'pro-r2',
+          assetId,
+          version: 1,
+          byteLength: 1_024,
+          mime: 'audio/flac',
+        },
+      },
+    ];
+    internal.room.currentQueueItemId = queueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+      revision: 3,
+      state: 'playing',
+      queueItemId,
+      positionSeconds: 10,
+      updatedAtMs: Date.now() - 2_000,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    };
+    internal.room.assets[assetId] = {
+      status: 'ready',
+      assetId,
+      objectKey: 'rooms/000001/private-object.flac',
+      stagingObjectKey: 'staging/000001/private-object.flac',
+      version: 1,
+      byteLength: 1_024,
+      mime: 'audio/flac',
+    };
+    internal.room.ownerMemberId = 'private-owner-member-id';
+
+    const room = await responseJson(await internalDeveloperRead(worker, 'room'));
+    expect(room).toEqual({
+      schemaVersion: 1,
+      view: 'room',
+      roomCode: ROOM_CODE,
+      status: 'active',
+      runtime: 'awake',
+      revision: 9,
+      participantCount: 1,
+      controlAvailable: false,
+      quota: {
+        limitBytes: 1_073_741_824,
+        perAssetLimitBytes: 209_715_200,
+        usedBytes: 0,
+        reservedBytes: 0,
+      },
+    });
+
+    const playback = await responseJson(await internalDeveloperRead(worker, 'playback'));
+    expect(playback).toEqual({
+      schemaVersion: 1,
+      view: 'playback',
+      roomCode: ROOM_CODE,
+      revision: 3,
+      playlistRevision: 4,
+      state: 'playing',
+      queueItemId,
+      positionSeconds: 12,
+      observedAtMs: Date.now(),
+      item: {
+        queueItemId,
+        kind: 'audio',
+        name: 'Private Orchestra.flac',
+        title: 'Orchestra',
+        artist: 'Private Artist',
+        byteLength: 1_024,
+      },
+    });
+
+    const queue = await responseJson(await internalDeveloperRead(worker, 'queue'));
+    expect(queue).toEqual({
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: 4,
+      currentQueueItemId: queueItemId,
+      items: [playback.item],
+    });
+    const serialized = JSON.stringify({ room, playback, queue });
+    for (const privateValue of [
+      assetId,
+      'objectKey',
+      'stagingObjectKey',
+      'private-owner-member-id',
+      activationEnvelope.snapshot.viewer.participantId,
+      activationEnvelope.snapshot.viewer.displayName,
+      'source',
+      'mime',
+    ]) {
+      expect(serialized).not.toContain(String(privateValue));
+    }
+    vi.useRealTimers();
+  });
+
+  it('composes the public API through the private facade into a real PRO room projection', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: {
+        playlistRevision: number;
+        playlist: Array<Record<string, any>>;
+        currentQueueItemId: string | null;
+      };
+    };
+    const queueItemId = '33333333-3333-4333-8333-333333333333';
+    internal.room.playlistRevision = 5;
+    internal.room.playlist = [
+      {
+        queueItemId,
+        name: 'Facade Orchestra.flac',
+        title: 'Facade Orchestra',
+        source: {
+          kind: 'pro-r2',
+          assetId: 'private-composed-asset',
+          version: 1,
+          byteLength: 4_096,
+          mime: 'audio/flac',
+        },
+      },
+    ];
+    internal.room.currentQueueItemId = queueItemId;
+
+    const keyId = 'C'.repeat(16);
+    const keySecret = 'D'.repeat(43);
+    const pepper = 'developer-api-pepper'.padEnd(48, 'p');
+    const nowMs = Date.now();
+    const secretDigest = await deriveDeveloperApiKeyDigest(pepper, keyId, keySecret);
+    const database = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          first: vi.fn(async () => ({
+            key_id: keyId,
+            room_code: ROOM_CODE,
+            secret_digest: secretDigest,
+            digest_version: 1,
+            scope_mask:
+              developerApiScopes['room:read'] |
+              developerApiScopes['playback:read'] |
+              developerApiScopes['queue:read'],
+            status: 'active',
+            created_at: nowMs - 1_000,
+            updated_at: nowMs - 1_000,
+            expires_at: nowMs + 86_400_000,
+            revoked_at: null,
+          })),
+          run: vi.fn(async () => ({ meta: { changes: 1 } })),
+        })),
+      })),
+    };
+    const limiter = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async () =>
+          Response.json({
+            allowed: true,
+            limit: 60,
+            remaining: 59,
+            resetAtMs: Date.now() + 60_000,
+            retryAfterSeconds: 0,
+          }),
+        ),
+      })),
+    };
+    const proNamespace = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({ fetch: (request: Request) => worker.fetch(request) })),
+    };
+    const facade = {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        developerApiFacadeWorker.fetch(new Request(input, init), {
+          PRO_ROOM_DEVELOPER_ROOMS: proNamespace,
+        }),
+    };
+    const response = await developerApiWorker.fetch(
+      new Request(`https://api.musixquare.com/v1/rooms/${ROOM_CODE}/queue`, {
+        headers: {
+          authorization: `Bearer mxqr_live_${keyId}.${keySecret}`,
+          'cf-connecting-ip': '203.0.113.50',
+        },
+      }),
+      {
+        DEVELOPER_API_MODE: 'canary',
+        DEVELOPER_API_CANARY_ROOMS: ROOM_CODE,
+        MXQR_DEVELOPER_API_KEY_PEPPER: pepper,
+        MXQR_DEVELOPER_API_RATE_SECRET: 'developer-api-rate'.padEnd(48, 'r'),
+        DEVELOPER_API_DB: database,
+        DEVELOPER_API_LIMITERS: limiter,
+        DEVELOPER_API_FACADE: facade,
+      },
+    );
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toEqual({
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: 5,
+      currentQueueItemId: queueItemId,
+      items: [
+        {
+          queueItemId,
+          kind: 'audio',
+          name: 'Facade Orchestra.flac',
+          title: 'Facade Orchestra',
+          byteLength: 4_096,
+        },
+      ],
+    });
+    expect(response.headers.get('etag')).toMatch(/^"mxqr-queue-[A-Za-z0-9_-]{43}"$/);
+    expect(JSON.stringify(payload)).not.toContain('private-composed-asset');
+    expect(JSON.stringify(payload)).not.toContain('source');
+    expect(JSON.stringify(payload)).not.toContain('mime');
+  });
+
+  it('freezes a sleeping room position instead of extrapolating it', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T02:00:00.000Z'));
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: {
+        runtime: string;
+        playlistRevision: number;
+        playlist: Array<Record<string, any>>;
+        currentQueueItemId: string;
+        playback: Record<string, any>;
+      };
+    };
+    const queueItemId = '22222222-2222-4222-8222-222222222222';
+    internal.room.runtime = 'sleeping';
+    internal.room.playlistRevision = 1;
+    internal.room.playlist = [
+      {
+        queueItemId,
+        name: 'Video',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ];
+    internal.room.currentQueueItemId = queueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: 1,
+      revision: 1,
+      state: 'playing',
+      queueItemId,
+      positionSeconds: 30,
+      updatedAtMs: Date.now() - 60_000,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+    const playback = await responseJson(await internalDeveloperRead(worker, 'playback'));
+    expect(playback.positionSeconds).toBe(30);
+    vi.useRealTimers();
+  });
+
+  it('clamps a frozen playback position to the persisted seven-day state bound', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T03:00:00.000Z'));
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: { playback: Record<string, any> };
+      freezePlayback(nowMs: number): void;
+    };
+    internal.room.playback.state = 'playing';
+    internal.room.playback.positionSeconds = 604_799;
+    internal.room.playback.updatedAtMs = Date.now() - 10_000;
+    internal.freezePlayback(Date.now());
+    expect(internal.room.playback.positionSeconds).toBe(604_800);
+  });
+
+  it('rejects non-active rooms and exact-body violations', async () => {
+    const { worker } = await activatedRoom();
+    const invalid = await worker.fetch(
+      new Request('https://pro-room.internal/internal/developer/v1/read', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({ projection: 'room', admin: true }),
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    expect(await responseJson(invalid)).toEqual({ error: 'INVALID_REQUEST' });
+
+    const internal = worker as unknown as { room: { status: string } };
+    internal.room.status = 'suspended';
+    const suspended = await internalDeveloperRead(worker, 'room');
+    expect(suspended.status).toBe(404);
+    expect(await responseJson(suspended)).toEqual({ error: 'ROOM_NOT_FOUND' });
+  });
+
+  it('keeps every root internal path unreachable on the public PRO hostname', async () => {
+    const response = await proRoomWorker.fetch(
+      new Request('https://pro.musixquare.com/internal/developer/v1/read', {
+        method: 'POST',
+        headers: { origin: 'https://musixquare.com', 'content-type': 'application/json' },
+        body: JSON.stringify({ projection: 'room' }),
+      }),
+      environment(),
+    );
+    expect(response.status).toBe(404);
+  });
+});
 
 describe('persistent PRO room bootstrap and activation', () => {
   it('never exposes an owner claim in public bootstrap and rejects invalid activation uniformly', async () => {

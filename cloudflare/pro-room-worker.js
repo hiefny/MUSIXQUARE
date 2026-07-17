@@ -840,6 +840,85 @@ function publicSnapshot(room, session = null) {
   };
 }
 
+function developerQueueItem(item) {
+  const developerText = (value) => {
+    if (typeof value !== 'string' || value.length <= 512) return value;
+    const truncated = value.slice(0, 512);
+    return /[\uD800-\uDBFF]$/.test(truncated) ? truncated.slice(0, -1) : truncated;
+  };
+  const metadata = {
+    queueItemId: item.queueItemId,
+    kind: item.source.kind === 'youtube' ? 'youtube' : 'audio',
+    name: developerText(item.name),
+    ...(item.title === undefined ? {} : { title: developerText(item.title) }),
+    ...(item.artist === undefined ? {} : { artist: developerText(item.artist) }),
+    ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+  };
+  return item.source.kind === 'pro-r2'
+    ? { ...metadata, byteLength: item.source.byteLength }
+    : metadata;
+}
+
+function developerProjection(room, projection, nowMs) {
+  if (projection === 'room') {
+    return {
+      schemaVersion: 1,
+      view: 'room',
+      roomCode: room.roomCode,
+      status: room.status,
+      runtime: room.runtime,
+      revision: room.revision,
+      participantCount: Object.keys(room.presence.participants).length,
+      // Playback commands are introduced in a later, capability-negotiated
+      // phase. Read-only clients must not infer support from an awake room.
+      controlAvailable: false,
+      quota: { ...room.quota },
+    };
+  }
+  const playlistById = new Map(room.playlist.map((item) => [item.queueItemId, item]));
+  if (projection === 'playback') {
+    const item = room.playback.queueItemId
+      ? playlistById.get(room.playback.queueItemId) || null
+      : null;
+    if ((item === null) !== (room.playback.queueItemId === null)) return null;
+    let positionSeconds = room.playback.positionSeconds;
+    if (
+      room.runtime === 'awake' &&
+      room.playback.state === 'playing' &&
+      room.playback.updatedAtMs > 0 &&
+      nowMs > room.playback.updatedAtMs
+    ) {
+      positionSeconds = Math.min(
+        PLAYBACK_MAX_POSITION_SECONDS,
+        positionSeconds + (nowMs - room.playback.updatedAtMs) / 1_000,
+      );
+    }
+    return {
+      schemaVersion: 1,
+      view: 'playback',
+      roomCode: room.roomCode,
+      revision: room.playback.revision,
+      playlistRevision: room.playlistRevision,
+      state: room.playback.state,
+      queueItemId: room.playback.queueItemId,
+      positionSeconds,
+      observedAtMs: nowMs,
+      item: item ? developerQueueItem(item) : null,
+    };
+  }
+  if (projection === 'queue') {
+    return {
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: room.roomCode,
+      playlistRevision: room.playlistRevision,
+      currentQueueItemId: room.currentQueueItemId,
+      items: room.playlist.map(developerQueueItem),
+    };
+  }
+  return null;
+}
+
 function parsePlaylistItem(value) {
   if (!hasExactKeys(value, ['queueItemId', 'source', 'name'], ['title', 'artist', 'thumbnail']))
     return null;
@@ -1414,6 +1493,15 @@ export class MusixquareProRoom {
       }
       return errorResponse('NOT_FOUND', 404);
     }
+    if (url.pathname.startsWith('/internal/developer/')) {
+      if (request.method !== 'POST' || url.pathname !== '/internal/developer/v1/read') {
+        return errorResponse('NOT_FOUND', 404);
+      }
+      return this.withMutation(async () => {
+        await this.prune(Date.now());
+        return this.handleInternalDeveloperRead(request);
+      });
+    }
     const prefix = `/v1/rooms/${this.room.roomCode}`;
     if (!url.pathname.startsWith(`${prefix}/`)) return errorResponse('ROOM_NOT_FOUND', 404);
     if (!this.room.provisioned) return errorResponse('ROOM_NOT_FOUND', 404);
@@ -1486,6 +1574,24 @@ export class MusixquareProRoom {
           ? 'suspended'
           : 'pin_required';
     return jsonResponse({ roomCode: this.room.roomCode, status });
+  }
+
+  async handleInternalDeveloperRead(request) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['projection']) ||
+      !['room', 'playback', 'queue'].includes(parsed.value.projection)
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const projection = developerProjection(this.room, parsed.value.projection, Date.now());
+    return projection
+      ? jsonResponse(projection)
+      : errorResponse('ROOM_STATE_INVALID', 503);
   }
 
   async handleInternalActivationClaim() {
@@ -1941,9 +2047,10 @@ export class MusixquareProRoom {
 
   freezePlayback(nowMs) {
     if (this.room.playback.state === 'playing' && this.room.playback.updatedAtMs > 0) {
-      this.room.playback.positionSeconds += Math.max(
-        0,
-        (nowMs - this.room.playback.updatedAtMs) / 1000,
+      this.room.playback.positionSeconds = Math.min(
+        PLAYBACK_MAX_POSITION_SECONDS,
+        this.room.playback.positionSeconds +
+          Math.max(0, (nowMs - this.room.playback.updatedAtMs) / 1000),
       );
       this.room.playback.updatedAtMs = nowMs;
       this.room.playback.revision += 1;

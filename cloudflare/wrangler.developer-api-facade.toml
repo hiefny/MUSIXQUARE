@@ -1,0 +1,21 @@
+name = "musixquare-developer-api-facade"
+main = "developer-api-facade-worker.js"
+compatibility_date = "2026-07-17"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.01
+
+# This Worker intentionally has no public route, D1, R2, secrets, or
+# signaling binding. Only the public Developer API Worker may call it through
+# a service binding, and only this facade can reach the PRO room namespace.
+[[durable_objects.bindings]]
+name = "PRO_ROOM_DEVELOPER_ROOMS"
+class_name = "MusixquareProRoom"
+script_name = "musixquare-pro-room"

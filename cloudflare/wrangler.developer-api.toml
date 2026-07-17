@@ -1,0 +1,47 @@
+name = "musixquare-developer-api"
+main = "developer-api-worker.js"
+compatibility_date = "2026-07-17"
+workers_dev = false
+preview_urls = false
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.01
+
+[[routes]]
+pattern = "api.musixquare.com"
+custom_domain = true
+
+# The first production deployment stays closed until the dedicated schema,
+# secrets, and room-bound canary key have all been provisioned.
+[vars]
+DEVELOPER_API_MODE = "off"
+DEVELOPER_API_CANARY_ROOMS = "000001"
+
+[[d1_databases]]
+binding = "DEVELOPER_API_DB"
+database_name = "musixquare-developer-api"
+database_id = "237d63d2-6eea-4b01-b396-7784b5b8b6f0"
+
+[[durable_objects.bindings]]
+name = "DEVELOPER_API_LIMITERS"
+class_name = "DeveloperApiRateLimiter"
+
+[[services]]
+binding = "DEVELOPER_API_FACADE"
+service = "musixquare-developer-api-facade"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeveloperApiRateLimiter"]
+
+# Required secrets (never commit their values):
+# npm run wrangler -- secret put MXQR_DEVELOPER_API_KEY_PEPPER --config cloudflare/wrangler.developer-api.toml
+# npm run wrangler -- secret put MXQR_DEVELOPER_API_RATE_SECRET --config cloudflare/wrangler.developer-api.toml

@@ -389,6 +389,40 @@ describe('Developer API read-only public Worker', () => {
     expect(facadeFetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ['a weak validator', (etag: string) => `W/${etag}`],
+    ['a validator list', (etag: string) => ` "unrelated" , W/${etag} `],
+  ])('returns 304 when If-None-Match contains %s for the current projection', async (_, header) => {
+    const { env } = await createEnvironment();
+    const initial = await developerApiWorker.fetch(apiRequest(), env);
+    const etag = initial.headers.get('etag');
+    if (!etag) throw new Error('missing ETag');
+
+    const response = await developerApiWorker.fetch(
+      apiRequest(undefined, { headers: { 'if-none-match': header(etag) } }),
+      env,
+    );
+
+    expect(response.status).toBe(304);
+    expect(response.body).toBeNull();
+    expect(response.headers.get('etag')).toBe(etag);
+  });
+
+  it('does not match a malformed or stale If-None-Match validator', async () => {
+    const { env } = await createEnvironment();
+    const malformed = await developerApiWorker.fetch(
+      apiRequest(undefined, { headers: { 'if-none-match': 'W/ "mxqr-room-stale"' } }),
+      env,
+    );
+    const stale = await developerApiWorker.fetch(
+      apiRequest(undefined, { headers: { 'if-none-match': 'W/"mxqr-room-stale"' } }),
+      env,
+    );
+
+    expect(malformed.status).toBe(200);
+    expect(stale.status).toBe(200);
+  });
+
   it('changes ETags whenever a response representation changes without a revision bump', async () => {
     const playbackSetup = await createEnvironment({
       facadePayload: { ...playbackPayload(), observedAtMs: OBSERVED_AT_MS },

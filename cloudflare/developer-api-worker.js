@@ -1179,6 +1179,52 @@ async function etagFor(view, payload) {
   return `"mxqr-${view}-${base64UrlEncode(digest)}"`;
 }
 
+function ifNoneMatchMatches(value, currentEtag) {
+  let index = 0;
+  let matched = false;
+
+  const skipOptionalWhitespace = () => {
+    while (value[index] === ' ' || value[index] === '\t') index += 1;
+  };
+
+  skipOptionalWhitespace();
+  if (value[index] === '*') {
+    index += 1;
+    skipOptionalWhitespace();
+    return index === value.length;
+  }
+
+  while (index < value.length) {
+    if (value.startsWith('W/', index)) index += 2;
+    if (value[index] !== '"') return false;
+
+    const tagStart = index;
+    index += 1;
+    while (index < value.length && value[index] !== '"') {
+      const code = value.charCodeAt(index);
+      if (
+        code !== 0x21 &&
+        !(code >= 0x23 && code <= 0x7e) &&
+        !(code >= 0x80 && code <= 0xff)
+      ) {
+        return false;
+      }
+      index += 1;
+    }
+    if (value[index] !== '"') return false;
+    index += 1;
+
+    if (value.slice(tagStart, index) === currentEtag) matched = true;
+    skipOptionalWhitespace();
+    if (index === value.length) return matched;
+    if (value[index] !== ',') return false;
+    index += 1;
+    skipOptionalWhitespace();
+  }
+
+  return false;
+}
+
 function readIdempotencyKey(request) {
   const value = request.headers.get('idempotency-key');
   return value !== null && IDEMPOTENCY_KEY_RE.test(value) ? value : null;
@@ -1546,7 +1592,7 @@ async function handleApiRequest(request, env, context, requestId) {
   if (ifNoneMatch !== null && encoder.encode(ifNoneMatch).byteLength > ETAG_HEADER_MAX_BYTES) {
     return errorResponse('NOT_FOUND', 404, requestId);
   }
-  if (ifNoneMatch === etag || ifNoneMatch === '*') {
+  if (ifNoneMatch !== null && ifNoneMatchMatches(ifNoneMatch, etag)) {
     return emptyResponse(304, requestId, { ...limiterHeaders, etag });
   }
   return jsonResponse(

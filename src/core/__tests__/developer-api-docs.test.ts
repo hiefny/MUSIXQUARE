@@ -27,6 +27,7 @@ describe('Developer API public documentation', () => {
       '/rooms/{roomCode}/commands',
       '/rooms/{roomCode}/commands/{commandId}',
       '/rooms/{roomCode}/queue/items',
+      '/rooms/{roomCode}/queue/items/owned',
       '/rooms/{roomCode}/queue/items/{queueItemId}',
       '/rooms/{roomCode}/queue/order',
       '/rooms/{roomCode}/media/uploads',
@@ -59,6 +60,7 @@ describe('Developer API public documentation', () => {
       '/v1/rooms/{roomCode}/commands:',
       '/v1/rooms/{roomCode}/commands/{commandId}:',
       '/v1/rooms/{roomCode}/queue/items:',
+      '/v1/rooms/{roomCode}/queue/items/owned:',
       '/v1/rooms/{roomCode}/queue/items/{queueItemId}:',
       '/v1/rooms/{roomCode}/queue/order:',
       '/v1/rooms/{roomCode}/media/uploads:',
@@ -75,7 +77,7 @@ describe('Developer API public documentation', () => {
     expect(spec).not.toContain('/internal/');
   });
 
-  it('distinguishes atomic collection clear from deleting one queue item', async () => {
+  it('distinguishes full clear, credential-owned cleanup, and one-item deletion', async () => {
     const [html, spec] = await Promise.all([
       readFile(DOC_PATH, 'utf8'),
       readFile(OPENAPI_PATH, 'utf8'),
@@ -85,18 +87,41 @@ describe('Developer API public documentation', () => {
       '<span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items</span>',
     );
     expect(html).toContain(
+      '<span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items/owned</span>',
+    );
+    expect(html).toContain(
       '<span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items/{queueItemId}</span>',
     );
     expect(html).toContain("method: 'DELETE'");
     expect(html).toContain("'Idempotency-Key': crypto.randomUUID()");
     expect(html).toContain('clearedQueue.currentQueueItemId); // null');
     expect(html).toContain('clearedQueue.items.length); // 0');
+    expect(html).toContain('Safe bot cleanup: human tracks and tracks from other API keys remain.');
+    expect(html).toContain('removes tracks added by');
 
     expect(spec).toContain('operationId: clearQueue');
+    expect(spec).toContain('operationId: deleteQueueItemsOwnedByCurrentApiKey');
     expect(spec).toContain('operationId: deleteQueueItem');
     expect(spec).toContain('Atomically stops current playback');
     expect(spec).toContain('currentQueueItemId set to null');
     expect(spec).toContain("- $ref: '#/components/parameters/IdempotencyKey'");
+  });
+
+  it('documents privacy-preserving queue provenance as an additive optional field', async () => {
+    const [html, spec] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+    ]);
+
+    for (const value of ['participant', 'current_api_key', 'another_api_key']) {
+      expect(html).toContain(`<code>${value}</code>`);
+      expect(spec).toContain(value);
+    }
+    expect(html).toContain('before provenance tracking may omit this optional field');
+    expect(html).toContain('Raw API key IDs are');
+    expect(spec).toContain('QueueItemAddedBy:');
+    expect(spec).toContain("addedBy: { $ref: '#/components/schemas/QueueItemAddedBy' }");
+    expect(spec).not.toMatch(/required: \[[^\]]*addedBy/);
   });
 
   it('links to the Developer API page from each shared document footer', async () => {

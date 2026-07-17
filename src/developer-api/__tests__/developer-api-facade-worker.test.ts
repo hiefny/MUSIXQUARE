@@ -37,7 +37,7 @@ function namespace(responseFactory: (request: Request) => Response | Promise<Res
 }
 
 describe('private Developer API facade', () => {
-  it('forwards one fixed projection intent without caller credentials or paths', async () => {
+  it('forwards one fixed caller-relative projection intent without bearer credentials or paths', async () => {
     const rooms = namespace(() =>
       Response.json({
         schemaVersion: 1,
@@ -59,7 +59,7 @@ describe('private Developer API facade', () => {
       }),
     );
     const response = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'room' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }),
       { PRO_ROOM_DEVELOPER_ROOMS: rooms },
     );
     expect(response.status).toBe(200);
@@ -86,7 +86,35 @@ describe('private Developer API facade', () => {
     expect(forwarded.headers.get('x-mxqr-pro-room-code')).toBe(ROOM_CODE);
     expect(forwarded.headers.has('authorization')).toBe(false);
     expect(forwarded.headers.has('cookie')).toBe(false);
-    await expect(forwarded.json()).resolves.toEqual({ projection: 'room' });
+    await expect(forwarded.json()).resolves.toEqual({ keyId: KEY_ID, projection: 'room' });
+  });
+
+  it('keeps read forwarding compatible while the public API rolls out caller-relative provenance', async () => {
+    const rooms = namespace(() =>
+      Response.json({
+        schemaVersion: 1,
+        view: 'room',
+        roomCode: ROOM_CODE,
+        status: 'active',
+        runtime: 'sleeping',
+        revision: 1,
+        participantCount: 0,
+        controlAvailable: false,
+        quota: {
+          limitBytes: 1_073_741_824,
+          perAssetLimitBytes: 209_715_200,
+          usedBytes: 0,
+          reservedBytes: 0,
+        },
+      }),
+    );
+    const response = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, projection: 'room' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({ projection: 'room' });
   });
 
   it('forwards a canonical command to one fixed PRO room path and strips private response fields', async () => {
@@ -199,6 +227,8 @@ describe('private Developer API facade', () => {
               kind: 'youtube',
               name: 'API track',
               title: 'API track',
+              addedBy: 'current_api_key',
+              keyId: 'private-key-id',
               privateSource: { videoId: 'dQw4w9WgXcQ' },
             },
           ],
@@ -223,7 +253,8 @@ describe('private Developer API facade', () => {
     );
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({
+    const payload = await response.json();
+    expect(payload).toEqual({
       schemaVersion: 1,
       view: 'queue',
       roomCode: ROOM_CODE,
@@ -235,6 +266,7 @@ describe('private Developer API facade', () => {
           kind: 'youtube',
           name: 'API track',
           title: 'API track',
+          addedBy: 'current_api_key',
         },
       ],
     });
@@ -248,6 +280,7 @@ describe('private Developer API facade', () => {
       idempotencyKey: IDEMPOTENCY_KEY,
       mutation,
     });
+    expect(JSON.stringify(payload)).not.toContain('private-key-id');
   });
 
   it('forwards only the exact atomic queue-clear mutation', async () => {
@@ -300,6 +333,70 @@ describe('private Developer API facade', () => {
           keyId: KEY_ID,
           idempotencyKey: 'request.queue-clear-0002',
           mutation: { type: 'clear', unexpected: true },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: invalidRooms },
+    );
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(invalidRooms.seen).toHaveLength(0);
+  });
+
+  it('forwards only the exact caller-owned queue-clear mutation', async () => {
+    const rooms = namespace(() =>
+      Response.json({
+        schemaVersion: 1,
+        view: 'queue',
+        roomCode: ROOM_CODE,
+        playlistRevision: 7,
+        currentQueueItemId: QUEUE_ITEM_ID,
+        items: [
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            kind: 'youtube',
+            name: 'Participant track',
+            addedBy: 'participant',
+          },
+        ],
+      }),
+    );
+    const response = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: 'request.queue-clear-owned-0001',
+          mutation: { type: 'clear_owned' },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      playlistRevision: 7,
+      items: [{ queueItemId: QUEUE_ITEM_ID, addedBy: 'participant' }],
+    });
+    expect(rooms.seen).toHaveLength(1);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      idempotencyKey: 'request.queue-clear-owned-0001',
+      mutation: { type: 'clear_owned' },
+    });
+
+    const invalidRooms = namespace(() => Response.json({}));
+    const invalid = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: 'request.queue-clear-owned-0002',
+          mutation: { type: 'clear_owned', queueItemId: QUEUE_ITEM_ID },
         },
         {},
         '/internal/v1/queue/mutate',
@@ -631,6 +728,27 @@ describe('private Developer API facade', () => {
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: 'ROOM_SLEEPING' });
+
+    const exhausted = namespace(() =>
+      Response.json({ error: 'PLAYBACK_REVISION_EXHAUSTED' }, { status: 409 }),
+    );
+    const exhaustedResponse = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: IDEMPOTENCY_KEY,
+          mutation: { type: 'clear_owned' },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: exhausted },
+    );
+    expect(exhaustedResponse.status).toBe(409);
+    await expect(exhaustedResponse.json()).resolves.toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
   });
 
   it('reconstructs queue items without asset IDs, object keys, or raw sources', async () => {
@@ -656,7 +774,7 @@ describe('private Developer API facade', () => {
       }),
     );
     const response = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'queue' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'queue' }),
       { PRO_ROOM_DEVELOPER_ROOMS: rooms },
     );
     const payload = await response.json();
@@ -682,6 +800,73 @@ describe('private Developer API facade', () => {
     expect(JSON.stringify(payload)).not.toContain('source');
   });
 
+  it.each(['participant', 'current_api_key', 'another_api_key'])(
+    'passes through the bounded caller-relative queue provenance %s',
+    async (addedBy) => {
+      const rooms = namespace(() =>
+        Response.json({
+          schemaVersion: 1,
+          view: 'queue',
+          roomCode: ROOM_CODE,
+          playlistRevision: 1,
+          currentQueueItemId: QUEUE_ITEM_ID,
+          items: [
+            {
+              queueItemId: QUEUE_ITEM_ID,
+              kind: 'youtube',
+              name: 'Track',
+              addedBy,
+            },
+          ],
+        }),
+      );
+      const response = await facadeWorker.fetch(
+        request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'queue' }),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ items: [{ addedBy }] });
+    },
+  );
+
+  it('accepts a rolling-deploy queue item without provenance but rejects an invalid value', async () => {
+    const payload = {
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: 1,
+      currentQueueItemId: QUEUE_ITEM_ID,
+      items: [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          kind: 'youtube',
+          name: 'Track',
+        },
+      ],
+    };
+    const legacyRooms = namespace(() => Response.json(payload));
+    const compatible = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'queue' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: legacyRooms },
+    );
+    expect(compatible.status).toBe(200);
+    await expect(compatible.json()).resolves.toEqual(payload);
+
+    const invalidRooms = namespace(() =>
+      Response.json({
+        ...payload,
+        items: [{ ...payload.items[0], addedBy: KEY_ID }],
+      }),
+    );
+    const invalid = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'queue' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: invalidRooms },
+    );
+    expect(invalid.status).toBe(503);
+    await expect(invalid.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+  });
+
   it('bounds long metadata without splitting a surrogate pair', async () => {
     const longName = `${'a'.repeat(511)}😀${'b'.repeat(1_000)}`;
     const rooms = namespace(() =>
@@ -703,7 +888,7 @@ describe('private Developer API facade', () => {
       }),
     );
     const response = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'queue' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'queue' }),
       { PRO_ROOM_DEVELOPER_ROOMS: rooms },
     );
     expect(response.status).toBe(200);
@@ -723,13 +908,18 @@ describe('private Developer API facade', () => {
     expect(wrongPath.status).toBe(404);
 
     const extraField = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'room', path: '/internal/admin/provision' }),
+      request({
+        roomCode: ROOM_CODE,
+        keyId: KEY_ID,
+        projection: 'room',
+        path: '/internal/admin/provision',
+      }),
       { PRO_ROOM_DEVELOPER_ROOMS: rooms },
     );
     expect(extraField.status).toBe(400);
 
     const wrongProjection = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'admin' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'admin' }),
       { PRO_ROOM_DEVELOPER_ROOMS: rooms },
     );
     expect(wrongProjection.status).toBe(400);
@@ -744,7 +934,7 @@ describe('private Developer API facade', () => {
       { origin: 'https://attacker.example' },
     ]) {
       const response = await facadeWorker.fetch(
-        request({ roomCode: ROOM_CODE, projection: 'room' }, { headers }),
+        request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }, { headers }),
         { PRO_ROOM_DEVELOPER_ROOMS: rooms },
       );
       expect(response.status).toBe(404);
@@ -754,7 +944,7 @@ describe('private Developer API facade', () => {
 
   it('fails closed on missing bindings, backend failures, and malformed projections', async () => {
     const missing = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'room' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }),
       {},
     );
     expect(missing.status).toBe(503);
@@ -763,7 +953,7 @@ describe('private Developer API facade', () => {
       Response.json({ error: 'ROOM_STATE_INVALID' }, { status: 503 }),
     );
     const unavailable = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'room' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }),
       { PRO_ROOM_DEVELOPER_ROOMS: unavailableRooms },
     );
     expect(unavailable.status).toBe(503);
@@ -783,7 +973,7 @@ describe('private Developer API facade', () => {
       }),
     );
     const malformed = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'playback' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'playback' }),
       { PRO_ROOM_DEVELOPER_ROOMS: malformedRooms },
     );
     expect(malformed.status).toBe(503);
@@ -824,7 +1014,7 @@ describe('private Developer API facade', () => {
     ]) {
       const rooms = namespace(() => Response.json(payload));
       const response = await facadeWorker.fetch(
-        request({ roomCode: ROOM_CODE, projection: 'playback' }),
+        request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'playback' }),
         { PRO_ROOM_DEVELOPER_ROOMS: rooms },
       );
       expect(response.status).toBe(503);
@@ -834,7 +1024,7 @@ describe('private Developer API facade', () => {
   it('maps an unavailable or suspended room to the same private 404', async () => {
     const rooms = namespace(() => Response.json({ error: 'ROOM_NOT_FOUND' }, { status: 404 }));
     const response = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, projection: 'room' }),
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }),
       { PRO_ROOM_DEVELOPER_ROOMS: rooms },
     );
     expect(response.status).toBe(404);

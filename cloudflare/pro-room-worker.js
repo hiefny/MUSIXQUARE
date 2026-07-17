@@ -840,6 +840,32 @@ function publicAsset(asset) {
   };
 }
 
+function publicPlaylistItem(item) {
+  const source =
+    item.source.kind === 'youtube'
+      ? {
+          kind: 'youtube',
+          videoId: item.source.videoId,
+          ...(item.source.playlistId === undefined ? {} : { playlistId: item.source.playlistId }),
+        }
+      : {
+          kind: 'pro-r2',
+          assetId: item.source.assetId,
+          version: item.source.version,
+          byteLength: item.source.byteLength,
+          mime: item.source.mime,
+          ...(item.source.sha256 === undefined ? {} : { sha256: item.source.sha256 }),
+        };
+  return {
+    queueItemId: item.queueItemId,
+    name: item.name,
+    ...(item.title === undefined ? {} : { title: item.title }),
+    ...(item.artist === undefined ? {} : { artist: item.artist }),
+    ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+    source,
+  };
+}
+
 function publicSnapshot(room, session = null) {
   const participants = Object.values(room.presence.participants)
     .sort(
@@ -876,7 +902,10 @@ function publicSnapshot(room, session = null) {
     runtime: room.runtime,
     revision: room.revision,
     playlistRevision: room.playlistRevision,
-    playlist: structuredClone(room.playlist),
+    // Developer ownership is private server state. Keeping the public v1
+    // playlist exact lets cached clients round-trip snapshots without learning
+    // or being able to forge API-key attribution.
+    playlist: room.playlist.map(publicPlaylistItem),
     currentQueueItemId: room.currentQueueItemId,
     playback: structuredClone(room.playback),
     presence: {
@@ -890,16 +919,25 @@ function publicSnapshot(room, session = null) {
   };
 }
 
-function developerQueueItem(item) {
+function developerQueueItem(item, requesterKeyId) {
   const developerText = (value) => {
     if (typeof value !== 'string' || value.length <= 512) return value;
     const truncated = value.slice(0, 512);
     return /[\uD800-\uDBFF]$/.test(truncated) ? truncated.slice(0, -1) : truncated;
   };
+  const addedBy = DEVELOPER_API_KEY_ID_RE.test(requesterKeyId || '')
+    ? DEVELOPER_API_KEY_ID_RE.test(item.developerOwnerKeyId || '') &&
+      item.developerOwnerKeyId === requesterKeyId
+      ? 'current_api_key'
+      : DEVELOPER_API_KEY_ID_RE.test(item.developerOwnerKeyId || '')
+        ? 'another_api_key'
+        : 'participant'
+    : null;
   const metadata = {
     queueItemId: item.queueItemId,
     kind: item.source.kind === 'youtube' ? 'youtube' : 'audio',
     name: developerText(item.name),
+    ...(addedBy === null ? {} : { addedBy }),
     ...(item.title === undefined ? {} : { title: developerText(item.title) }),
     ...(item.artist === undefined ? {} : { artist: developerText(item.artist) }),
     ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
@@ -909,7 +947,7 @@ function developerQueueItem(item) {
     : metadata;
 }
 
-function developerProjection(room, projection, nowMs) {
+function developerProjection(room, projection, nowMs, requesterKeyId) {
   if (projection === 'room') {
     const coordinator = room.presence.coordinatorParticipantId
       ? room.presence.participants[room.presence.coordinatorParticipantId]
@@ -957,7 +995,7 @@ function developerProjection(room, projection, nowMs) {
       queueItemId: room.playback.queueItemId,
       positionSeconds,
       observedAtMs: nowMs,
-      item: item ? developerQueueItem(item) : null,
+      item: item ? developerQueueItem(item, requesterKeyId) : null,
     };
   }
   if (projection === 'queue') {
@@ -967,7 +1005,7 @@ function developerProjection(room, projection, nowMs) {
       roomCode: room.roomCode,
       playlistRevision: room.playlistRevision,
       currentQueueItemId: room.currentQueueItemId,
-      items: room.playlist.map(developerQueueItem),
+      items: room.playlist.map((item) => developerQueueItem(item, requesterKeyId)),
     };
   }
   return null;
@@ -1049,6 +1087,9 @@ function parseDeveloperQueueMutation(value) {
   }
   if (value.type === 'clear') {
     return hasExactKeys(value, ['type']) ? { type: 'clear' } : null;
+  }
+  if (value.type === 'clear_owned') {
+    return hasExactKeys(value, ['type']) ? { type: 'clear_owned' } : null;
   }
   if (value.type === 'reorder') {
     if (
@@ -1875,12 +1916,19 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['projection']) ||
+      !hasExactKeys(parsed.value, ['projection'], ['keyId']) ||
+      (parsed.value.keyId !== undefined &&
+        !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '')) ||
       !['room', 'playback', 'queue'].includes(parsed.value.projection)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    const projection = developerProjection(this.room, parsed.value.projection, Date.now());
+    const projection = developerProjection(
+      this.room,
+      parsed.value.projection,
+      Date.now(),
+      parsed.value.keyId,
+    );
     return projection ? jsonResponse(projection) : errorResponse('ROOM_STATE_INVALID', 503);
   }
 
@@ -2043,7 +2091,13 @@ export class MusixquareProRoom {
     if (!mutation) return errorResponse('INVALID_REQUEST', 400);
     const scope = `developer:${parsed.value.keyId}:queue:${mutation.type}`;
     const fingerprint = await this.idempotencyFingerprint(scope, mutation);
-    const replay = this.replayIdempotency(scope, parsed.value.idempotencyKey, fingerprint);
+    const replay = this.replayIdempotency(
+      scope,
+      parsed.value.idempotencyKey,
+      fingerprint,
+      null,
+      parsed.value.keyId,
+    );
     if (replay) return replay;
 
     const nowMs = Date.now();
@@ -2064,6 +2118,7 @@ export class MusixquareProRoom {
           videoId: mutation.videoId,
           ...(mutation.playlistId === undefined ? {} : { playlistId: mutation.playlistId }),
         },
+        developerOwnerKeyId: parsed.value.keyId,
       };
       this.room.playlist.push(item);
       playlistChanged = true;
@@ -2103,13 +2158,49 @@ export class MusixquareProRoom {
           this.room.currentQueueItemId !== null ||
           this.room.playback.queueItemId !== null ||
           this.room.playback.state !== 'idle';
-        if (
-          clearCurrentPlayback &&
-          this.room.playback.revision >= Number.MAX_SAFE_INTEGER
-        ) {
+        if (clearCurrentPlayback && this.room.playback.revision >= Number.MAX_SAFE_INTEGER) {
           return errorResponse('PLAYBACK_REVISION_EXHAUSTED', 409);
         }
         this.room.playlist = [];
+        playlistChanged = true;
+        if (clearCurrentPlayback) {
+          this.room.currentQueueItemId = null;
+          this.room.playback = {
+            coordinatorEpoch: this.room.playback.coordinatorEpoch,
+            revision: this.room.playback.revision + 1,
+            state: 'idle',
+            queueItemId: null,
+            positionSeconds: 0,
+            updatedAtMs: Math.max(this.room.playback.updatedAtMs, nowMs),
+            youtubeVideoId: null,
+            youtubeSubIndex: null,
+          };
+        }
+      }
+    } else if (mutation.type === 'clear_owned') {
+      const ownedQueueItemIds = new Set(
+        this.room.playlist
+          .filter((item) => item.developerOwnerKeyId === parsed.value.keyId)
+          .map((item) => item.queueItemId),
+      );
+      if (ownedQueueItemIds.size > 0) {
+        if (
+          this.room.playlistRevision >= Number.MAX_SAFE_INTEGER ||
+          this.room.revision >= Number.MAX_SAFE_INTEGER
+        ) {
+          return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+        }
+        const clearCurrentPlayback =
+          (this.room.currentQueueItemId !== null &&
+            ownedQueueItemIds.has(this.room.currentQueueItemId)) ||
+          (this.room.playback.queueItemId !== null &&
+            ownedQueueItemIds.has(this.room.playback.queueItemId));
+        if (clearCurrentPlayback && this.room.playback.revision >= Number.MAX_SAFE_INTEGER) {
+          return errorResponse('PLAYBACK_REVISION_EXHAUSTED', 409);
+        }
+        this.room.playlist = this.room.playlist.filter(
+          (item) => !ownedQueueItemIds.has(item.queueItemId),
+        );
         playlistChanged = true;
         if (clearCurrentPlayback) {
           this.room.currentQueueItemId = null;
@@ -2151,7 +2242,7 @@ export class MusixquareProRoom {
       this.room.revision += 1;
       this.reconcileAssetGarbageCollection(nowMs);
     }
-    const responseBody = developerProjection(this.room, 'queue', nowMs);
+    const responseBody = developerProjection(this.room, 'queue', nowMs, parsed.value.keyId);
     const responseStatus = mutation.type === 'add_youtube' ? 201 : 200;
     this.storeDeveloperQueueIdempotency(
       scope,
@@ -2408,6 +2499,7 @@ export class MusixquareProRoom {
       queueItemId: asset.developerQueueItemId,
       ...asset.developerMetadata,
       source: publicAsset(asset),
+      developerOwnerKeyId: parsed.value.keyId,
     };
     asset.status = 'ready';
     delete asset.expiresAtMs;
@@ -2426,7 +2518,7 @@ export class MusixquareProRoom {
       schemaVersion: 1,
       roomCode: this.room.roomCode,
       asset: publicAsset(asset),
-      queueItem: developerQueueItem(queueItem),
+      queueItem: developerQueueItem(queueItem, parsed.value.keyId),
       playlistRevision: this.room.playlistRevision,
       quota: { ...this.room.quota },
     };
@@ -3760,7 +3852,7 @@ export class MusixquareProRoom {
     return sha256Base64Url(`${scope}\n${JSON.stringify(body)}`);
   }
 
-  replayIdempotency(scope, key, fingerprint, session = null) {
+  replayIdempotency(scope, key, fingerprint, session = null, developerRequesterKeyId = null) {
     const record = this.room.idempotency[`${scope}:${key}`];
     if (!record) return null;
     if (!constantTimeEqual(record.fingerprint, fingerprint)) {
@@ -3774,7 +3866,13 @@ export class MusixquareProRoom {
       // regenerated from authoritative state. Storing a full queue snapshot
       // per API mutation would duplicate up to 1.2 MiB in the room's 24-hour
       // idempotency ledger and make an otherwise healthy room unwritable.
-      return jsonResponse(developerProjection(this.room, 'queue', Date.now()), record.status);
+      if (!DEVELOPER_API_KEY_ID_RE.test(developerRequesterKeyId || '')) {
+        return errorResponse('ROOM_STATE_INVALID', 503);
+      }
+      return jsonResponse(
+        developerProjection(this.room, 'queue', Date.now(), developerRequesterKeyId),
+        record.status,
+      );
     }
     return jsonResponse(record.body, record.status);
   }
@@ -3873,8 +3971,17 @@ export class MusixquareProRoom {
         409,
       );
     }
-    const playlist = parsePlaylist(body.playlist);
-    if (!playlist) return errorResponse('INVALID_PLAYLIST', 400);
+    const parsedPlaylist = parsePlaylist(body.playlist);
+    if (!parsedPlaylist) return errorResponse('INVALID_PLAYLIST', 400);
+    const previousPlaylistById = new Map(
+      this.room.playlist.map((item) => [item.queueItemId, item]),
+    );
+    const playlist = parsedPlaylist.map((item) => {
+      const existingOwnerKeyId = previousPlaylistById.get(item.queueItemId)?.developerOwnerKeyId;
+      return DEVELOPER_API_KEY_ID_RE.test(existingOwnerKeyId || '')
+        ? { ...item, developerOwnerKeyId: existingOwnerKeyId }
+        : item;
+    });
     const playlistById = new Map(playlist.map((item) => [item.queueItemId, item]));
     if (
       body.currentQueueItemId !== null &&

@@ -165,13 +165,39 @@ paths:
         Atomically stops current playback, clears the current selection, and removes every item from the
         persistent playlist. This collection operation has no request body and returns one updated sanitized
         queue snapshot with currentQueueItemId set to null and items set to an empty array. Media references
-        released by the clear become eligible for later cleanup.
+        released by the clear become eligible for later cleanup. Warning: this includes items added directly
+        by participants and items added through every Developer API credential.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
           description: The current sanitized queue after the accepted clear or an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/queue/items/owned:
+    delete:
+      operationId: deleteQueueItemsOwnedByCurrentApiKey
+      description: |
+        Atomically removes only queue items added by the Developer API credential making this request. The
+        operation has no request body, requires queue:write and a unique Idempotency-Key, and succeeds as a
+        no-op when there are no matching items. Current playback stops and the selection clears only when the
+        selected item belongs to this credential. Released media references become eligible for later R2
+        garbage collection. Items added directly by participants or by another API credential remain untouched.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The current sanitized queue after the accepted owned cleanup or an idempotent replay.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Queue' }
@@ -373,6 +399,15 @@ components:
       type: string
       format: uuid
       pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+    QueueItemAddedBy:
+      type: string
+      description: |
+        Optional privacy-preserving creation provenance relative to the credential reading this response.
+        participant means the item was added directly in the app or predates provenance tracking;
+        current_api_key means this credential added it; another_api_key means a different Developer API
+        credential added it. Raw API key IDs are never exposed. For forward and legacy compatibility,
+        consumers must treat an omitted value as participant.
+      enum: [participant, current_api_key, another_api_key]
     QueueItem:
       oneOf:
         - type: object
@@ -385,6 +420,7 @@ components:
             title: { type: string, minLength: 1, maxLength: 512 }
             artist: { type: string, minLength: 1, maxLength: 512 }
             thumbnail: { type: string, minLength: 1, maxLength: 512 }
+            addedBy: { $ref: '#/components/schemas/QueueItemAddedBy' }
         - type: object
           additionalProperties: false
           required: [queueItemId, kind, name, byteLength]
@@ -396,6 +432,7 @@ components:
             artist: { type: string, minLength: 1, maxLength: 512 }
             thumbnail: { type: string, minLength: 1, maxLength: 512 }
             byteLength: { type: integer, minimum: 1, maximum: 209715200 }
+            addedBy: { $ref: '#/components/schemas/QueueItemAddedBy' }
     Room:
       type: object
       additionalProperties: false

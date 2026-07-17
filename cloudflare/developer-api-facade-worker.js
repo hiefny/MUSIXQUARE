@@ -22,6 +22,7 @@ const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
 const PLAYLIST_MAX_ITEMS = 1_000;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const COMMAND_STATUSES = new Set(['pending', 'dispatched', 'applied', 'rejected', 'expired']);
@@ -57,6 +58,7 @@ const BACKEND_ERROR_MAP = Object.freeze({
   ROOM_QUOTA_EXCEEDED: { error: 'ROOM_QUOTA_EXCEEDED', status: 409 },
   UPLOAD_INCOMPLETE: { error: 'UPLOAD_INCOMPLETE', status: 409 },
   UPLOAD_MISMATCH: { error: 'UPLOAD_MISMATCH', status: 409 },
+  PLAYBACK_REVISION_EXHAUSTED: { error: 'ROOM_STATE_CAPACITY_EXCEEDED', status: 409 },
   ROOM_STATE_CAPACITY_EXCEEDED: { error: 'ROOM_STATE_CAPACITY_EXCEEDED', status: 409 },
   MEDIA_NOT_CONFIGURED: { error: 'BACKEND_UNAVAILABLE', status: 503 },
   MEDIA_STORAGE_UNAVAILABLE: { error: 'BACKEND_UNAVAILABLE', status: 503 },
@@ -203,6 +205,7 @@ function sanitizeQueueItem(value) {
   ) {
     return null;
   }
+  if (value.addedBy !== undefined && !QUEUE_ITEM_ADDED_BY_VALUES.has(value.addedBy)) return null;
   const optional = {};
   for (const key of ['title', 'artist']) {
     if (value[key] !== undefined) {
@@ -216,6 +219,7 @@ function sanitizeQueueItem(value) {
     if (thumbnail === null) return null;
     optional.thumbnail = thumbnail;
   }
+  if (value.addedBy !== undefined) optional.addedBy = value.addedBy;
   if (value.kind === 'audio') {
     if (!Number.isSafeInteger(value.byteLength) || value.byteLength <= 0) return null;
     return {
@@ -373,6 +377,9 @@ function parseQueueMutation(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   if (value.type === 'clear') {
     return hasExactKeys(value, ['type']) ? { type: 'clear' } : null;
+  }
+  if (value.type === 'clear_owned') {
+    return hasExactKeys(value, ['type']) ? { type: 'clear_owned' } : null;
   }
   if (value.type === 'add_youtube') {
     if (
@@ -703,13 +710,15 @@ export default {
 
     if (url.pathname === '/internal/v1/read') {
       if (
-        !hasExactKeys(body, ['roomCode', 'projection']) ||
+        !hasExactKeys(body, ['roomCode', 'projection'], ['keyId']) ||
         !ROOM_CODE_RE.test(body.roomCode) ||
+        (body.keyId !== undefined && !API_KEY_ID_RE.test(body.keyId || '')) ||
         !['room', 'playback', 'queue'].includes(body.projection)
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
       }
       const called = await callRoom(namespace, body.roomCode, '/internal/developer/v1/read', {
+        ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
         projection: body.projection,
       });
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);

@@ -354,6 +354,13 @@ describe('Developer API read-only public Worker', () => {
     expect(limiter.calls[1]?.name).toBe(`room:${ROOM_CODE}`);
     expect(facadeFetch).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(facadeFetch.mock.calls)).not.toContain(API_KEY);
+    const [facadeInput, facadeInit] = facadeFetch.mock.calls[0]!;
+    expect(new URL(String(facadeInput)).pathname).toBe('/internal/v1/read');
+    expect(JSON.parse(String(facadeInit?.body))).toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      projection: 'room',
+    });
     await Promise.all(waits);
     expect(database.run).toHaveBeenCalledTimes(1);
   });
@@ -372,6 +379,53 @@ describe('Developer API read-only public Worker', () => {
     expect(queue.status).toBe(200);
     expect(queue.headers.get('etag')).toMatch(/^"mxqr-queue-[A-Za-z0-9_-]{43}"$/);
     await expect(queue.json()).resolves.toEqual(queuePayload());
+  });
+
+  it.each(['participant', 'current_api_key', 'another_api_key'])(
+    'returns the bounded caller-relative queue provenance %s without a raw key identifier',
+    async (addedBy) => {
+      const payload = {
+        ...queuePayload(),
+        items: [{ ...queuePayload().items[0], addedBy }],
+      };
+      const { env } = await createEnvironment({ facadePayload: payload });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/queue`),
+        env,
+      );
+
+      expect(response.status).toBe(200);
+      const value = await response.json();
+      expect(value).toEqual(payload);
+      expect(JSON.stringify(value)).not.toContain(KEY_ID);
+    },
+  );
+
+  it('accepts missing queue provenance during a rolling deploy and rejects invalid or extra fields', async () => {
+    const compatible = await createEnvironment({ facadePayload: queuePayload() });
+    const compatibleResponse = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue`),
+      compatible.env,
+    );
+    expect(compatibleResponse.status).toBe(200);
+    await expect(compatibleResponse.json()).resolves.toEqual(queuePayload());
+
+    for (const item of [
+      { ...queuePayload().items[0], addedBy: KEY_ID },
+      { ...queuePayload().items[0], addedBy: 'current_api_key', keyId: KEY_ID },
+    ]) {
+      const invalid = await createEnvironment({
+        facadePayload: { ...queuePayload(), items: [item] },
+      });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/queue`),
+        invalid.env,
+      );
+      expect(response.status).toBe(503);
+      const errorPayload = await response.json();
+      expect(errorPayload).toMatchObject({ error: { code: 'INTERNAL_RESPONSE_INVALID' } });
+      expect(JSON.stringify(errorPayload)).not.toContain(KEY_ID);
+    }
   });
 
   it('returns 304 for the current projection ETag without a body', async () => {
@@ -729,6 +783,151 @@ describe('Developer API read-only public Worker', () => {
       200,
       expect.any(Number),
     );
+  });
+
+  it('clears only caller-owned queue items with queue-write rate, idempotency, and audit controls', async () => {
+    const payload = {
+      ...queuePayload(),
+      items: [{ ...queuePayload().items[0], addedBy: 'participant' }],
+    };
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+      facadePayload: payload,
+    });
+    const waits: Promise<unknown>[] = [];
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/owned`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.queue-clear-owned-0001' },
+      }),
+      setup.env,
+      { waitUntil: (promise: Promise<unknown>) => waits.push(promise) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(payload);
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-queue-write',
+    ]);
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(1);
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/queue/mutate');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      idempotencyKey: 'request.queue-clear-owned-0001',
+      mutation: { type: 'clear_owned' },
+    });
+    expect(JSON.stringify(setup.facadeFetch.mock.calls)).not.toContain(API_KEY);
+
+    await Promise.all(waits);
+    const auditIndex = setup.database.prepare.mock.calls.findIndex(([sql]) =>
+      String(sql).includes('INSERT INTO mxqr_developer_api_audit'),
+    );
+    expect(auditIndex).toBeGreaterThanOrEqual(0);
+    const auditStatement = setup.database.prepare.mock.results[auditIndex]?.value;
+    expect(auditStatement.bind).toHaveBeenCalledWith(
+      expect.stringMatching(/^req_/),
+      KEY_ID,
+      ROOM_CODE,
+      'queue.clear_owned',
+      'applied',
+      200,
+      expect.any(Number),
+    );
+  });
+
+  it('preserves the stable 409 contract when an owned clear exhausts room revisions', async () => {
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+      facadePayload: { error: 'ROOM_STATE_CAPACITY_EXCEEDED' },
+      facadeStatus: 409,
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/owned`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.queue-clear-owned-overflow' },
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe('ROOM_STATE_CAPACITY_EXCEEDED');
+  });
+
+  it('fails closed for unauthorized, unscoped, rate-limited, non-idempotent, or bodyful owned clears', async () => {
+    const unauthorizedSetup = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+    });
+    const unauthorized = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/owned`, {
+        method: 'DELETE',
+        headers: {
+          authorization: `Bearer mxqr_live_${KEY_ID}.${'C'.repeat(43)}`,
+          'idempotency-key': 'request.queue-clear-owned-0002',
+        },
+      }),
+      unauthorizedSetup.env,
+    );
+    expect(unauthorized.status).toBe(401);
+    expect(await errorCode(unauthorized)).toBe('UNAUTHORIZED');
+    expect(unauthorizedSetup.facadeFetch).not.toHaveBeenCalled();
+
+    const noScope = await createEnvironment({ scopeMask: developerApiScopes['queue:read'] });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/owned`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.queue-clear-owned-0003' },
+      }),
+      noScope.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(await errorCode(forbidden)).toBe('FORBIDDEN');
+    expect(noScope.facadeFetch).not.toHaveBeenCalled();
+
+    const missingKey = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const missing = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/owned`, { method: 'DELETE' }),
+      missingKey.env,
+    );
+    expect(missing.status).toBe(400);
+    expect(await errorCode(missing)).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect(missingKey.facadeFetch).not.toHaveBeenCalled();
+
+    const bodyful = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const invalidBody = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/owned`, {
+        method: 'DELETE',
+        headers: {
+          'content-length': '0',
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-clear-owned-0004',
+        },
+        body: '{}',
+      }),
+      bodyful.env,
+    );
+    expect(invalidBody.status).toBe(400);
+    expect(await errorCode(invalidBody)).toBe('INVALID_REQUEST');
+    expect(bodyful.database.first).not.toHaveBeenCalled();
+    expect(bodyful.facadeFetch).not.toHaveBeenCalled();
+
+    const limiter = limiterNamespace({ block: (name) => name === `room:${ROOM_CODE}` });
+    const rateLimited = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+      limiter,
+    });
+    const limited = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/owned`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.queue-clear-owned-0005' },
+      }),
+      rateLimited.env,
+    );
+    expect(limited.status).toBe(429);
+    expect(await errorCode(limited)).toBe('RATE_LIMITED');
+    expect(rateLimited.facadeFetch).not.toHaveBeenCalled();
   });
 
   it('rejects queue clear without queue-write scope, idempotency, or an empty body', async () => {

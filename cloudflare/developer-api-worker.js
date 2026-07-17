@@ -28,6 +28,7 @@ const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
 const PLAYLIST_MAX_ITEMS = 1_000;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
@@ -642,7 +643,7 @@ function validQueueItem(value) {
     !hasExactKeys(
       value,
       ['queueItemId', 'kind', 'name'],
-      ['title', 'artist', 'thumbnail', 'byteLength'],
+      ['title', 'artist', 'thumbnail', 'byteLength', 'addedBy'],
     ) ||
     typeof value.queueItemId !== 'string' ||
     !/^[A-Za-z0-9_-]{16,128}$/.test(value.queueItemId) ||
@@ -651,6 +652,7 @@ function validQueueItem(value) {
   ) {
     return false;
   }
+  if (value.addedBy !== undefined && !QUEUE_ITEM_ADDED_BY_VALUES.has(value.addedBy)) return false;
   for (const key of ['title', 'artist']) {
     if (value[key] !== undefined && boundedString(value[key], 512) === null) return false;
   }
@@ -951,6 +953,14 @@ function parseRoute(method, url) {
         requiredScope: SCOPE_QUEUE_WRITE,
       };
     }
+    const clearOwnedMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue\/items\/owned$/);
+    if (clearOwnedMatch) {
+      return {
+        kind: 'queue-clear-owned',
+        roomCode: clearOwnedMatch[1],
+        requiredScope: SCOPE_QUEUE_WRITE,
+      };
+    }
     const removeMatch = url.pathname.match(
       /^\/v1\/rooms\/(0\d{5})\/queue\/items\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
     );
@@ -1050,7 +1060,7 @@ async function authenticatedMediaUploadCompleteLimit(env, principal) {
   );
 }
 
-async function facadeRead(env, route) {
+async function facadeRead(env, route, keyId) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
   let response;
   try {
@@ -1059,7 +1069,7 @@ async function facadeRead(env, route) {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ roomCode: route.roomCode, projection: route.view }),
+        body: JSON.stringify({ roomCode: route.roomCode, keyId, projection: route.view }),
       },
     );
   } catch {
@@ -1281,6 +1291,7 @@ async function handleApiRequest(request, env, context, requestId) {
     'command-create',
     'queue-add',
     'queue-clear',
+    'queue-clear-owned',
     'queue-remove',
     'queue-reorder',
     'media-create',
@@ -1292,6 +1303,7 @@ async function handleApiRequest(request, env, context, requestId) {
   if (request.method === 'GET' && request.body) return errorResponse('NOT_FOUND', 404, requestId);
   if (
     (route.kind === 'queue-clear' ||
+      route.kind === 'queue-clear-owned' ||
       route.kind === 'queue-remove' ||
       route.kind === 'media-complete') &&
     (await hasNonEmptyRequestBody(request))
@@ -1326,6 +1338,7 @@ async function handleApiRequest(request, env, context, requestId) {
       ? await authenticatedCommandLimit(env, principal)
       : route.kind === 'queue-add' ||
           route.kind === 'queue-clear' ||
+          route.kind === 'queue-clear-owned' ||
           route.kind === 'queue-remove' ||
           route.kind === 'queue-reorder'
         ? await authenticatedQueueWriteLimit(env, principal)
@@ -1356,6 +1369,7 @@ async function handleApiRequest(request, env, context, requestId) {
   if (
     route.kind === 'queue-add' ||
     route.kind === 'queue-clear' ||
+    route.kind === 'queue-clear-owned' ||
     route.kind === 'queue-remove' ||
     route.kind === 'queue-reorder' ||
     route.kind === 'media-create' ||
@@ -1394,6 +1408,17 @@ async function handleApiRequest(request, env, context, requestId) {
       expectedStatus = 200;
       validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
       auditAction = 'queue.clear';
+    } else if (route.kind === 'queue-clear-owned') {
+      path = '/internal/v1/queue/mutate';
+      body = {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        idempotencyKey,
+        mutation: { type: 'clear_owned' },
+      };
+      expectedStatus = 200;
+      validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
+      auditAction = 'queue.clear_owned';
     } else if (route.kind === 'queue-remove') {
       path = '/internal/v1/queue/mutate';
       body = {
@@ -1625,7 +1650,7 @@ async function handleApiRequest(request, env, context, requestId) {
     return jsonResponse(facade.payload, 200, requestId, limiterHeaders, 'private, no-cache');
   }
 
-  const facade = await facadeRead(env, route);
+  const facade = await facadeRead(env, route, principal.keyId);
   if (facade.configurationError) {
     return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
   }

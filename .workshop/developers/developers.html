@@ -125,9 +125,20 @@ console.log(await response.json());</code></pre>
           </div>
           <div>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/queue</span></dt>
-            <dd>Persistent playlist, current item, and playlist revision without private R2 identifiers or URLs.</dd>
+            <dd>
+              Persistent playlist, current item, playlist revision, and each item's optional <code>addedBy</code>
+              provenance without private R2 identifiers, API key IDs, or URLs.
+            </dd>
           </div>
         </dl>
+        <p>
+          When present, <code>addedBy</code> is <code>participant</code> for an item added directly in the app,
+          <code>current_api_key</code> for an item added with the credential making this request, or
+          <code>another_api_key</code> for an item added with a different Developer API credential. Items created
+          before provenance tracking may omit this optional field; treat an omitted value like
+          <code>participant</code> so an integration never deletes a person's track by mistake. Raw API key IDs are
+          never exposed.
+        </p>
         <p>
           Read responses include an <code>ETag</code>. Send it later as <code>If-None-Match</code>; an unchanged
           representation returns <code>304 Not Modified</code> without a JSON body.
@@ -180,8 +191,17 @@ console.log(command.commandId, command.status);</code></pre>
           <div>
             <dt class="api-endpoint"><span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items</span></dt>
             <dd>
-              Clear the entire playlist atomically with no request body. This stops current playback, clears the
-              current selection, and returns one updated queue with no items.
+              Clear the entire playlist atomically with no request body. Warning: this removes tracks added by
+              people and by every API credential. It stops current playback, clears the current selection, and
+              returns one updated queue with no items.
+            </dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items/owned</span></dt>
+            <dd>
+              Atomically remove only items added by the API credential making this request, with no request body.
+              An empty match is a successful no-op. Playback stops and the selection clears only when the current
+              item belongs to this credential; released media references become eligible for later R2 cleanup.
             </dd>
           </div>
           <div>
@@ -226,6 +246,19 @@ if (!clearResponse.ok) throw new Error(await clearResponse.text());
 const clearedQueue = await clearResponse.json();
 console.log(clearedQueue.currentQueueItemId); // null
 console.log(clearedQueue.items.length); // 0</code></pre>
+        <pre class="policy-code"><code>// Safe bot cleanup: human tracks and tracks from other API keys remain.
+const cleanupResponse = await fetch(`${baseUrl}/rooms/${roomCode}/queue/items/owned`, {
+  method: 'DELETE',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+});
+
+if (!cleanupResponse.ok) throw new Error(await cleanupResponse.text());
+
+const queueAfterCleanup = await cleanupResponse.json();
+console.log(queueAfterCleanup.items);</code></pre>
         <pre class="policy-code"><code>const queue = await fetch(`${baseUrl}/rooms/${roomCode}/queue`, {
   headers: { Authorization: `Bearer ${apiKey}` },
 }).then((response) => response.json());
@@ -243,12 +276,14 @@ await fetch(`${baseUrl}/rooms/${roomCode}/queue/order`, {
   }),
 });</code></pre>
         <p>
-          Collection <code>DELETE /queue/items</code> clears every item; item
-          <code>DELETE /queue/items/{queueItemId}</code> removes exactly one. Both require a unique
+          Collection <code>DELETE /queue/items</code> clears every person's and every integration's item;
+          <code>DELETE /queue/items/owned</code> removes only items owned by the current API credential; item
+          <code>DELETE /queue/items/{queueItemId}</code> removes exactly one. All three require a unique
           <code>Idempotency-Key</code> for each new intent. Replaying a key returns the current sanitized queue without
           applying that mutation again. Reordering rejects a stale playlist revision; fetch the queue again instead
           of retrying an old order blindly. Queue writes remain available while the room is sleeping and do not start
-          playback automatically, except that clearing the queue stops any current playback.
+          playback automatically. A full clear always stops current playback; an owned cleanup stops it only when it
+          removes the selected item.
         </p>
       </section>
 

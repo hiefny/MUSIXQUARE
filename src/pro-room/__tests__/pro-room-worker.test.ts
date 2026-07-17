@@ -25,6 +25,7 @@ const SESSION_SECRET = 'session-secret-'.padEnd(48, 's');
 const SIGNALING_SECRET = 'signaling-secret-'.padEnd(48, 'g');
 const R2_ACCOUNT_ID = '01353882e4eea3a5acaa0c45e8336af4';
 const IDEMPOTENCY_KEY = '018f977e-5df5-7c8f-bb80-55d847ddec0f';
+const DEVELOPER_KEY_ID = 'D'.repeat(16);
 const presenceByCookie = new Map<
   string,
   { participantId: string; presenceIncarnationId: string }
@@ -394,6 +395,7 @@ function playlistItem(
 function internalDeveloperRead(
   worker: MusixquareProRoom,
   projection: 'room' | 'playback' | 'queue',
+  keyId = DEVELOPER_KEY_ID,
 ): Promise<Response> {
   return worker.fetch(
     new Request('https://pro-room.internal/internal/developer/v1/read', {
@@ -402,7 +404,7 @@ function internalDeveloperRead(
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
       },
-      body: JSON.stringify({ projection }),
+      body: JSON.stringify({ projection, keyId }),
     }),
   );
 }
@@ -608,6 +610,7 @@ describe('PRO room private Developer API projections', () => {
         queueItemId,
         kind: 'audio',
         name: 'Private Orchestra.flac',
+        addedBy: 'participant',
         title: 'Orchestra',
         artist: 'Private Artist',
         byteLength: 1_024,
@@ -747,6 +750,7 @@ describe('PRO room private Developer API projections', () => {
           queueItemId,
           kind: 'audio',
           name: 'Facade Orchestra.flac',
+          addedBy: 'participant',
           title: 'Facade Orchestra',
           byteLength: 4_096,
         },
@@ -814,6 +818,22 @@ describe('PRO room private Developer API projections', () => {
 
   it('rejects non-active rooms and exact-body violations', async () => {
     const { worker } = await activatedRoom();
+    const rollingCompatibleRead = await worker.fetch(
+      new Request('https://pro-room.internal/internal/developer/v1/read', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({ projection: 'room' }),
+      }),
+    );
+    expect(rollingCompatibleRead.status).toBe(200);
+    await expect(responseJson(rollingCompatibleRead)).resolves.toMatchObject({
+      view: 'room',
+      roomCode: ROOM_CODE,
+    });
+
     const invalid = await worker.fetch(
       new Request('https://pro-room.internal/internal/developer/v1/read', {
         method: 'POST',
@@ -821,7 +841,7 @@ describe('PRO room private Developer API projections', () => {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
         },
-        body: JSON.stringify({ projection: 'room', admin: true }),
+        body: JSON.stringify({ projection: 'room', keyId: DEVELOPER_KEY_ID, admin: true }),
       }),
     );
     expect(invalid.status).toBe(400);
@@ -898,6 +918,167 @@ describe('PRO room private Developer API projections', () => {
     expect(conflict.status).toBe(409);
     expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
     expect(internal.room.playlist).toHaveLength(1);
+  });
+
+  it('keeps API ownership private while classifying legacy, participant, and per-key additions', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const legacyQueueItemId = '10000000-0000-4000-8000-000000000001';
+    const participantQueueItemId = '10000000-0000-4000-8000-000000000002';
+    const firstKeyId = 'A'.repeat(16);
+    const secondKeyId = 'B'.repeat(16);
+    internal.room.playlist = [
+      {
+        queueItemId: legacyQueueItemId,
+        name: 'Legacy participant item',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ];
+    internal.room.playlistRevision = 1;
+    internal.room.revision += 1;
+
+    const firstAdded = await responseJson(
+      await mutateInternalDeveloperQueue(worker, firstKeyId, 'developer-owner-first-add', {
+        type: 'add_youtube',
+        videoId: 'M7lc1UVf-VE',
+        name: 'First integration item',
+      }),
+    );
+    const firstOwnedId = firstAdded.items.at(-1).queueItemId;
+    expect(firstAdded.items).toEqual([
+      expect.objectContaining({ queueItemId: legacyQueueItemId, addedBy: 'participant' }),
+      expect.objectContaining({ queueItemId: firstOwnedId, addedBy: 'current_api_key' }),
+    ]);
+
+    const secondAdded = await responseJson(
+      await mutateInternalDeveloperQueue(worker, secondKeyId, 'developer-owner-second-add', {
+        type: 'add_youtube',
+        videoId: '9bZkp7q19f0',
+        name: 'Second integration item',
+      }),
+    );
+    const secondOwnedId = secondAdded.items.at(-1).queueItemId;
+    expect(secondAdded.items).toEqual([
+      expect.objectContaining({ queueItemId: legacyQueueItemId, addedBy: 'participant' }),
+      expect.objectContaining({ queueItemId: firstOwnedId, addedBy: 'another_api_key' }),
+      expect.objectContaining({ queueItemId: secondOwnedId, addedBy: 'current_api_key' }),
+    ]);
+
+    const publicBefore = await responseJson(
+      await worker.fetch(request('/snapshot', {}, ownerCookie)),
+    );
+    expect(parseProRoomSnapshot(publicBefore.snapshot)).not.toBeNull();
+    expect(JSON.stringify(publicBefore.snapshot)).not.toContain('developerOwnerKeyId');
+    expect(JSON.stringify(publicBefore.snapshot)).not.toContain(firstKeyId);
+    expect(JSON.stringify(publicBefore.snapshot)).not.toContain(secondKeyId);
+
+    const unchangedRoundTrip = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: publicBefore.snapshot.revision,
+          playlist: publicBefore.snapshot.playlist,
+          currentQueueItemId: publicBefore.snapshot.currentQueueItemId,
+          playback: publicBefore.snapshot.playback,
+        },
+        ownerCookie,
+        'participant-unchanged-round-trip',
+      ),
+    );
+    expect(unchangedRoundTrip.status).toBe(200);
+    const unchangedEnvelope = await responseJson(unchangedRoundTrip);
+    expect(unchangedEnvelope.snapshot.playlistRevision).toBe(
+      publicBefore.snapshot.playlistRevision,
+    );
+
+    const participantPlaylist = [
+      ...unchangedEnvelope.snapshot.playlist,
+      {
+        queueItemId: participantQueueItemId,
+        name: 'New participant item',
+        source: { kind: 'youtube', videoId: 'aqz-KE-bpKQ' },
+      },
+    ];
+    const roundTrip = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: unchangedEnvelope.snapshot.revision,
+          playlist: participantPlaylist,
+          currentQueueItemId: unchangedEnvelope.snapshot.currentQueueItemId,
+          playback: unchangedEnvelope.snapshot.playback,
+        },
+        ownerCookie,
+        'participant-round-trip-ownership',
+      ),
+    );
+    expect(roundTrip.status).toBe(200);
+    const roundTripEnvelope = await responseJson(roundTrip);
+    expect(parseProRoomSnapshot(roundTripEnvelope.snapshot)).not.toBeNull();
+    expect(JSON.stringify(roundTripEnvelope.snapshot)).not.toContain('developerOwnerKeyId');
+
+    expect(
+      internal.room.playlist.find((item: any) => item.queueItemId === legacyQueueItemId),
+    ).not.toHaveProperty('developerOwnerKeyId');
+    expect(
+      internal.room.playlist.find((item: any) => item.queueItemId === participantQueueItemId),
+    ).not.toHaveProperty('developerOwnerKeyId');
+    expect(
+      internal.room.playlist.find((item: any) => item.queueItemId === firstOwnedId),
+    ).toHaveProperty('developerOwnerKeyId', firstKeyId);
+    expect(
+      internal.room.playlist.find((item: any) => item.queueItemId === secondOwnedId),
+    ).toHaveProperty('developerOwnerKeyId', secondKeyId);
+
+    const firstKeyView = await responseJson(
+      await internalDeveloperRead(worker, 'queue', firstKeyId),
+    );
+    expect(firstKeyView.items.map((item: any) => [item.queueItemId, item.addedBy])).toEqual([
+      [legacyQueueItemId, 'participant'],
+      [firstOwnedId, 'current_api_key'],
+      [secondOwnedId, 'another_api_key'],
+      [participantQueueItemId, 'participant'],
+    ]);
+
+    const rollingCompatibleView = await responseJson(
+      await worker.fetch(
+        new Request('https://pro-room.internal/internal/developer/v1/read', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+          },
+          body: JSON.stringify({ projection: 'queue' }),
+        }),
+      ),
+    );
+    expect(
+      rollingCompatibleView.items.every(
+        (item: Record<string, unknown>) =>
+          !Object.prototype.hasOwnProperty.call(item, 'addedBy'),
+      ),
+    ).toBe(true);
+
+    const forged = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: roundTripEnvelope.snapshot.revision,
+          playlist: roundTripEnvelope.snapshot.playlist.map((item: any, index: number) =>
+            index === 0 ? { ...item, developerOwnerKeyId: firstKeyId } : item,
+          ),
+          currentQueueItemId: roundTripEnvelope.snapshot.currentQueueItemId,
+          playback: roundTripEnvelope.snapshot.playback,
+        },
+        ownerCookie,
+        'participant-forged-ownership',
+      ),
+    );
+    expect(forged.status).toBe(400);
+    expect(await responseJson(forged)).toEqual({ error: 'INVALID_PLAYLIST' });
   });
 
   it('atomically clears the queue, current playback, and R2 references with one revision step', async () => {
@@ -1022,6 +1203,231 @@ describe('PRO room private Developer API projections', () => {
     expect(dispatchFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('clears only the current API key additions while preserving participant playback and replay safety', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const firstKeyId = 'A'.repeat(16);
+    const secondKeyId = 'B'.repeat(16);
+    const participantQueueItemId = '20000000-0000-4000-8000-000000000001';
+    internal.room.playlist = [
+      {
+        queueItemId: participantQueueItemId,
+        name: 'Participant keeps playing',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ];
+    internal.room.playlistRevision = 1;
+    internal.room.revision += 1;
+
+    const firstAdd = await responseJson(
+      await mutateInternalDeveloperQueue(worker, firstKeyId, 'owned-clear-first-add', {
+        type: 'add_youtube',
+        videoId: 'M7lc1UVf-VE',
+        name: 'First key item',
+      }),
+    );
+    const firstOwnedId = firstAdd.items.at(-1).queueItemId;
+    const secondAdd = await responseJson(
+      await mutateInternalDeveloperQueue(worker, secondKeyId, 'owned-clear-second-add', {
+        type: 'add_youtube',
+        videoId: '9bZkp7q19f0',
+        name: 'Second key item',
+      }),
+    );
+    const secondOwnedId = secondAdd.items.at(-1).queueItemId;
+    internal.room.currentQueueItemId = participantQueueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: 8,
+      state: 'paused',
+      queueItemId: participantQueueItemId,
+      positionSeconds: 42,
+      updatedAtMs: Date.now(),
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+      playback: structuredClone(internal.room.playback),
+    };
+
+    const cleared = await mutateInternalDeveloperQueue(
+      worker,
+      firstKeyId,
+      'owned-clear-current-key',
+      { type: 'clear_owned' },
+    );
+    expect(cleared.status).toBe(200);
+    expect(await responseJson(cleared)).toMatchObject({
+      playlistRevision: before.playlistRevision + 1,
+      currentQueueItemId: participantQueueItemId,
+      items: [
+        { queueItemId: participantQueueItemId, addedBy: 'participant' },
+        { queueItemId: secondOwnedId, addedBy: 'another_api_key' },
+      ],
+    });
+    expect(internal.room.playlist.map((item: any) => item.queueItemId)).toEqual([
+      participantQueueItemId,
+      secondOwnedId,
+    ]);
+    expect(internal.room.playlist.some((item: any) => item.queueItemId === firstOwnedId)).toBe(
+      false,
+    );
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playback).toEqual(before.playback);
+
+    const addedAfterClear = await responseJson(
+      await mutateInternalDeveloperQueue(worker, firstKeyId, 'owned-clear-later-add', {
+        type: 'add_youtube',
+        videoId: 'aqz-KE-bpKQ',
+        name: 'Added after clear',
+      }),
+    );
+    const laterOwnedId = addedAfterClear.items.at(-1).queueItemId;
+    const beforeReplay = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+    };
+    const replay = await mutateInternalDeveloperQueue(
+      worker,
+      firstKeyId,
+      'owned-clear-current-key',
+      { type: 'clear_owned' },
+    );
+    expect(replay.status).toBe(200);
+    expect((await responseJson(replay)).items).toContainEqual(
+      expect.objectContaining({ queueItemId: laterOwnedId, addedBy: 'current_api_key' }),
+    );
+    expect(internal.room.revision).toBe(beforeReplay.revision);
+    expect(internal.room.playlistRevision).toBe(beforeReplay.playlistRevision);
+
+    const noOp = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'owned-clear-empty-owner',
+      { type: 'clear_owned' },
+    );
+    expect(noOp.status).toBe(200);
+    expect(internal.room.revision).toBe(beforeReplay.revision);
+    expect(internal.room.playlistRevision).toBe(beforeReplay.playlistRevision);
+  });
+
+  it('resets playback only when clear-owned removes the selected owner item', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const firstKeyId = 'A'.repeat(16);
+    const secondKeyId = 'B'.repeat(16);
+    const firstAdded = await responseJson(
+      await mutateInternalDeveloperQueue(worker, firstKeyId, 'owned-current-first-add', {
+        type: 'add_youtube',
+        videoId: 'dQw4w9WgXcQ',
+        name: 'Selected API item',
+      }),
+    );
+    const firstOwnedId = firstAdded.items[0].queueItemId;
+    const secondAdded = await responseJson(
+      await mutateInternalDeveloperQueue(worker, secondKeyId, 'owned-current-second-add', {
+        type: 'add_youtube',
+        videoId: 'M7lc1UVf-VE',
+        name: 'Other API item',
+      }),
+    );
+    const secondOwnedId = secondAdded.items.at(-1).queueItemId;
+    internal.room.currentQueueItemId = firstOwnedId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: 4,
+      state: 'playing',
+      queueItemId: firstOwnedId,
+      positionSeconds: 9,
+      updatedAtMs: Date.now() - 500,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+
+    const cleared = await mutateInternalDeveloperQueue(worker, firstKeyId, 'owned-clear-selected', {
+      type: 'clear_owned',
+    });
+    expect(cleared.status).toBe(200);
+    expect(await responseJson(cleared)).toMatchObject({
+      currentQueueItemId: null,
+      items: [{ queueItemId: secondOwnedId, addedBy: 'another_api_key' }],
+    });
+    expect(internal.room.playback).toMatchObject({
+      revision: 5,
+      state: 'idle',
+      queueItemId: null,
+      positionSeconds: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    });
+  });
+
+  it('rejects clear-owned revision exhaustion without partial mutation', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const keyId = 'A'.repeat(16);
+    const added = await responseJson(
+      await mutateInternalDeveloperQueue(worker, keyId, 'owned-overflow-add', {
+        type: 'add_youtube',
+        videoId: 'dQw4w9WgXcQ',
+        name: 'Overflow item',
+      }),
+    );
+    const queueItemId = added.items[0].queueItemId;
+
+    internal.room.playlistRevision = Number.MAX_SAFE_INTEGER;
+    const playlistBefore = structuredClone(internal.room.playlist);
+    const revisionOverflow = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'owned-overflow-playlist-revision',
+      { type: 'clear_owned' },
+    );
+    expect(revisionOverflow.status).toBe(409);
+    expect(await responseJson(revisionOverflow)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(internal.room.playlist).toEqual(playlistBefore);
+
+    internal.room.playlistRevision = 1;
+    internal.room.revision = Number.MAX_SAFE_INTEGER;
+    const roomRevisionOverflow = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'owned-overflow-room-revision',
+      { type: 'clear_owned' },
+    );
+    expect(roomRevisionOverflow.status).toBe(409);
+    expect(await responseJson(roomRevisionOverflow)).toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
+    expect(internal.room.playlist).toEqual(playlistBefore);
+
+    internal.room.revision = 1;
+    internal.room.currentQueueItemId = queueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: Number.MAX_SAFE_INTEGER,
+      state: 'paused',
+      queueItemId,
+      positionSeconds: 1,
+      updatedAtMs: Date.now(),
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+    const playbackBefore = structuredClone(internal.room.playback);
+    const playbackOverflow = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'owned-overflow-playback-revision',
+      { type: 'clear_owned' },
+    );
+    expect(playbackOverflow.status).toBe(409);
+    expect(await responseJson(playbackOverflow)).toEqual({ error: 'PLAYBACK_REVISION_EXHAUSTED' });
+    expect(internal.room.playlist).toEqual(playlistBefore);
+    expect(internal.room.playback).toEqual(playbackBefore);
+  });
+
   it('rejects malformed or unsafe queue clears without partially mutating room state', async () => {
     const { worker, internal } = await preparedDeveloperCommandRoom();
     const before = structuredClone(internal.room);
@@ -1035,6 +1441,16 @@ describe('PRO room private Developer API projections', () => {
     expect(await responseJson(malformed)).toEqual({ error: 'INVALID_REQUEST' });
     expect(internal.room.playlist).toEqual(before.playlist);
     expect(internal.room.currentQueueItemId).toBe(before.currentQueueItemId);
+
+    const malformedOwned = await mutateInternalDeveloperQueue(
+      worker,
+      'C'.repeat(16),
+      'developer-queue-clear-owned-invalid',
+      { type: 'clear_owned', includeParticipants: true },
+    );
+    expect(malformedOwned.status).toBe(400);
+    expect(await responseJson(malformedOwned)).toEqual({ error: 'INVALID_REQUEST' });
+    expect(internal.room.playlist).toEqual(before.playlist);
 
     internal.room.playback.revision = Number.MAX_SAFE_INTEGER;
     const exhausted = await mutateInternalDeveloperQueue(
@@ -1243,6 +1659,7 @@ describe('PRO room private Developer API projections', () => {
         queueItemId: reservation.queueItemId,
         kind: 'audio',
         name: media.name,
+        addedBy: 'current_api_key',
         title: media.title,
         artist: media.artist,
         byteLength: media.byteLength,
@@ -1252,6 +1669,7 @@ describe('PRO room private Developer API projections', () => {
     });
     expect(internal.room.runtime).toBe('sleeping');
     expect(internal.room.playlist).toHaveLength(1);
+    expect(internal.room.playlist[0]).toHaveProperty('developerOwnerKeyId', keyId);
     expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
 
     const replayResponse = await completeInternalDeveloperUpload(
@@ -1263,6 +1681,17 @@ describe('PRO room private Developer API projections', () => {
     expect(replayResponse.status).toBe(201);
     expect(await responseJson(replayResponse)).toEqual(completed);
     expect(internal.room.playlist).toHaveLength(1);
+
+    const clearOwned = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-upload-clear-owned',
+      { type: 'clear_owned' },
+    );
+    expect(clearOwned.status).toBe(200);
+    expect(await responseJson(clearOwned)).toMatchObject({ items: [], currentQueueItemId: null });
+    expect(internal.room.playlist).toEqual([]);
+    expect(asset.gcAfterMs).toBeGreaterThan(Date.now());
   });
 
   it('hints the exact capable coordinator only after queue and upload completion commits', async () => {

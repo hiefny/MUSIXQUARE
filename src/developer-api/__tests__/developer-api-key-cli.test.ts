@@ -36,6 +36,9 @@ describe('Developer API key CLI', () => {
         'queue:write',
       ]),
     ).toThrow(DeveloperApiKeyCliError);
+    expect(() =>
+      parseDeveloperApiKeyCommand(['issue', '--room', '000001', '--label', 'Friend & shell']),
+    ).toThrow(DeveloperApiKeyCliError);
   });
 
   it('stores only a digest and emits the full random key exactly once', async () => {

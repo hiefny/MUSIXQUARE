@@ -72,7 +72,7 @@ export function parseDeveloperApiKeyCommand(argv) {
     if (
       label.length === 0 ||
       label.length > 64 ||
-      /[\u0000-\u001f\u007f]/.test(label) ||
+      /[\u0000-\u001f\u007f"%&|<>^!]/.test(label) ||
       !Number.isSafeInteger(days) ||
       days < 1 ||
       days > MAX_DAYS
@@ -107,31 +107,37 @@ function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-function npmExecutable() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
-}
-
 export function executeDeveloperApiD1(sql) {
+  const npmArgs = [
+    'run',
+    '--silent',
+    'wrangler',
+    '--',
+    'd1',
+    'execute',
+    DATABASE_NAME,
+    '--remote',
+    '--config',
+    WRANGLER_CONFIG,
+    '--json',
+    '--command',
+    sql,
+  ];
+  const executable =
+    process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
+  const args =
+    process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd', ...npmArgs] : npmArgs;
   let output;
   try {
     output = execFileSync(
-      npmExecutable(),
-      [
-        'run',
-        '--silent',
-        'wrangler',
-        '--',
-        'd1',
-        'execute',
-        DATABASE_NAME,
-        '--remote',
-        '--config',
-        WRANGLER_CONFIG,
-        '--json',
-        '--command',
-        sql,
-      ],
-      { cwd: resolve(import.meta.dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      executable,
+      args,
+      {
+        cwd: resolve(import.meta.dirname, '..'),
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      },
     );
   } catch {
     throw new DeveloperApiKeyCliError('Developer API key database operation failed');

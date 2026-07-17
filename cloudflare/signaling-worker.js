@@ -182,9 +182,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     presenceIncarnationId: value.presenceIncarnationId,
     ticketSequence: value.ticketSequence,
     developerControlVersion:
-      value.developerControlVersion === DEVELOPER_CONTROL_VERSION
-        ? DEVELOPER_CONTROL_VERSION
-        : 0,
+      value.developerControlVersion === DEVELOPER_CONTROL_VERSION ? DEVELOPER_CONTROL_VERSION : 0,
     jti: value.jti,
     iat: value.iat,
     exp: value.exp,
@@ -349,6 +347,37 @@ function normalizeDeveloperCommandFrame(value) {
       playbackRevision: value.expected.playbackRevision,
     },
     command,
+  };
+}
+
+function normalizeDeveloperInvalidationFrame(value) {
+  if (
+    !hasExactKeys(value, [
+      'type',
+      'version',
+      'roomCode',
+      'coordinatorEpoch',
+      'revision',
+      'playlistRevision',
+    ]) ||
+    value.type !== 'developer-invalidation' ||
+    value.version !== DEVELOPER_CONTROL_VERSION ||
+    !isProNamespaceRoomCode(value.roomCode) ||
+    !isValidProEpoch(value.coordinatorEpoch) ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0 ||
+    !Number.isSafeInteger(value.playlistRevision) ||
+    value.playlistRevision < 0
+  ) {
+    return null;
+  }
+  return {
+    type: 'developer-invalidation',
+    version: DEVELOPER_CONTROL_VERSION,
+    roomCode: value.roomCode,
+    coordinatorEpoch: value.coordinatorEpoch,
+    revision: value.revision,
+    playlistRevision: value.playlistRevision,
   };
 }
 
@@ -710,9 +739,7 @@ function normalizeAttachment(value) {
           ? value.ticketSequence
           : 0,
       developerControlVersion:
-        value.developerControlVersion === DEVELOPER_CONTROL_VERSION
-          ? DEVELOPER_CONTROL_VERSION
-          : 0,
+        value.developerControlVersion === DEVELOPER_CONTROL_VERSION ? DEVELOPER_CONTROL_VERSION : 0,
       auth: 'ok',
     };
     if (value.role === 'guest') {
@@ -1257,15 +1284,16 @@ export class MusixquareRoom {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/internal/')) {
-      if (
-        request.method !== 'POST' ||
-        url.pathname !== '/internal/developer/v1/dispatch' ||
-        url.search ||
-        url.hash
-      ) {
+      if (request.method !== 'POST' || url.search || url.hash) {
         return json({ error: 'NOT_FOUND' }, 404);
       }
-      return this.handleInternalDeveloperDispatch(request);
+      if (url.pathname === '/internal/developer/v1/dispatch') {
+        return this.handleInternalDeveloperDispatch(request);
+      }
+      if (url.pathname === '/internal/developer/v1/invalidate') {
+        return this.handleInternalDeveloperInvalidation(request);
+      }
+      return json({ error: 'NOT_FOUND' }, 404);
     }
     const upgrade = request.headers.get('Upgrade') || '';
     if (upgrade.toLowerCase() !== 'websocket') {
@@ -1337,9 +1365,7 @@ export class MusixquareRoom {
       !isValidProEpoch(value.coordinatorEpoch) ||
       !isValidPeerId(value.coordinatorParticipantId) ||
       typeof value.coordinatorPresenceIncarnationId !== 'string' ||
-      !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(
-        value.coordinatorPresenceIncarnationId,
-      ) ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.coordinatorPresenceIncarnationId) ||
       value.developerControlVersion !== DEVELOPER_CONTROL_VERSION
     ) {
       return json({ error: 'INVALID_REQUEST' }, 400);
@@ -1350,6 +1376,60 @@ export class MusixquareRoom {
       frame.roomCode !== value.roomCode ||
       frame.coordinatorEpoch !== value.coordinatorEpoch ||
       frame.expiresAtMs <= Date.now()
+    ) {
+      return json({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    await this.validateRehydratedProSockets();
+    const meta = await this.loadProRoomMeta();
+    const attachment = readAttachment(this.host);
+    if (
+      !meta ||
+      meta.roomId !== value.roomCode ||
+      meta.coordinatorEpoch !== value.coordinatorEpoch ||
+      meta.coordinatorParticipantId !== value.coordinatorParticipantId ||
+      meta.coordinatorPresenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
+      !this.host ||
+      attachment?.roomKind !== 'pro' ||
+      attachment.role !== 'host' ||
+      attachment.roomId !== value.roomCode ||
+      attachment.participantId !== value.coordinatorParticipantId ||
+      attachment.coordinatorEpoch !== value.coordinatorEpoch ||
+      attachment.presenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
+      attachment.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+    ) {
+      return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
+    }
+    return sendChecked(this.host, frame)
+      ? json({ dispatched: true })
+      : json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
+  }
+
+  async handleInternalDeveloperInvalidation(request) {
+    const value = await readBoundedJson(request, DEVELOPER_COMMAND_BODY_MAX_BYTES);
+    if (
+      !hasExactKeys(value, [
+        'roomCode',
+        'coordinatorEpoch',
+        'coordinatorParticipantId',
+        'coordinatorPresenceIncarnationId',
+        'developerControlVersion',
+        'frame',
+      ]) ||
+      !isProNamespaceRoomCode(value.roomCode) ||
+      !isValidProEpoch(value.coordinatorEpoch) ||
+      !isValidPeerId(value.coordinatorParticipantId) ||
+      typeof value.coordinatorPresenceIncarnationId !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.coordinatorPresenceIncarnationId) ||
+      value.developerControlVersion !== DEVELOPER_CONTROL_VERSION
+    ) {
+      return json({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const frame = normalizeDeveloperInvalidationFrame(value.frame);
+    if (
+      !frame ||
+      frame.roomCode !== value.roomCode ||
+      frame.coordinatorEpoch !== value.coordinatorEpoch
     ) {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }

@@ -31,6 +31,20 @@ export interface DeveloperCommandFrame {
   readonly command: DeveloperCommand;
 }
 
+/**
+ * Authenticated signaling-service hint that the persistent PRO snapshot has
+ * advanced. It carries no mutable state: the coordinator must refresh the
+ * authoritative snapshot before applying anything locally.
+ */
+export interface DeveloperInvalidationFrame {
+  readonly type: 'developer-invalidation';
+  readonly version: 1;
+  readonly roomCode: string;
+  readonly coordinatorEpoch: number;
+  readonly revision: number;
+  readonly playlistRevision: number;
+}
+
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const DEVELOPER_COMMAND_QUEUE_ITEM_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -132,6 +146,39 @@ export function parseDeveloperCommandFrame(value: unknown): DeveloperCommandFram
   };
 }
 
+export function parseDeveloperInvalidationFrame(value: unknown): DeveloperInvalidationFrame | null {
+  if (
+    !isPlainRecord(value) ||
+    !hasExactKeys(value, [
+      'type',
+      'version',
+      'roomCode',
+      'coordinatorEpoch',
+      'revision',
+      'playlistRevision',
+    ]) ||
+    value.type !== 'developer-invalidation' ||
+    value.version !== 1 ||
+    typeof value.roomCode !== 'string' ||
+    !/^0\d{5}$/.test(value.roomCode) ||
+    !isNonNegativeSafeInteger(value.coordinatorEpoch) ||
+    value.coordinatorEpoch < 1 ||
+    !isNonNegativeSafeInteger(value.revision) ||
+    !isNonNegativeSafeInteger(value.playlistRevision)
+  ) {
+    return null;
+  }
+
+  return {
+    type: 'developer-invalidation',
+    version: 1,
+    roomCode: value.roomCode,
+    coordinatorEpoch: value.coordinatorEpoch,
+    revision: value.revision,
+    playlistRevision: value.playlistRevision,
+  };
+}
+
 export interface TransportConnectOptions {
   reliable?: boolean;
   metadata?: unknown;
@@ -198,6 +245,7 @@ export interface TransportPeer {
   on(event: 'disconnected', callback: () => void): void;
   on(event: 'pro-epoch-advanced', callback: () => void): void;
   on(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
+  on(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
   on(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   on(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
   off(event: 'open', callback: (id: string) => void): void;
@@ -205,6 +253,7 @@ export interface TransportPeer {
   off(event: 'disconnected', callback: () => void): void;
   off(event: 'pro-epoch-advanced', callback: () => void): void;
   off(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
+  off(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
   off(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
   off(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
 }

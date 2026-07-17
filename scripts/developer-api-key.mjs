@@ -13,11 +13,19 @@ const WRANGLER_CONFIG = 'cloudflare/wrangler.developer-api.toml';
 const ROOM_CODE_RE = /^0\d{5}$/;
 const KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const READ_SCOPES = Object.freeze(['room:read', 'playback:read', 'queue:read']);
+const ISSUABLE_SCOPES = Object.freeze([
+  'room:read',
+  'playback:read',
+  'playback:control',
+  'queue:read',
+  'queue:write',
+  'media:upload',
+]);
 const DEFAULT_DAYS = 90;
 const MAX_DAYS = 365;
 const USAGE = [
   'Usage:',
-  '  npm run developer-api:key -- issue --room 000001 --label "Friend API" [--days 90] [--scopes room:read,playback:read,queue:read]',
+  '  npm run developer-api:key -- issue --room 000001 --label "Friend API" [--days 90] [--scopes room:read,playback:read,playback:control,queue:read,queue:write,media:upload]',
   '  npm run developer-api:key -- list [--room 000001]',
   '  npm run developer-api:key -- revoke --id <16-character-key-id>',
 ].join('\n');
@@ -52,11 +60,9 @@ function parseScopes(value) {
   if (
     scopes.length === 0 ||
     new Set(scopes).size !== scopes.length ||
-    scopes.some((scope) => !READ_SCOPES.includes(scope))
+    scopes.some((scope) => !ISSUABLE_SCOPES.includes(scope))
   ) {
-    throw new DeveloperApiKeyCliError(
-      `Phase 1 permits only these scopes: ${READ_SCOPES.join(', ')}`,
-    );
+    throw new DeveloperApiKeyCliError(`Permitted scopes: ${ISSUABLE_SCOPES.join(', ')}`);
   }
   return scopes;
 }
@@ -123,22 +129,16 @@ export function executeDeveloperApiD1(sql) {
     '--command',
     sql,
   ];
-  const executable =
-    process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
-  const args =
-    process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd', ...npmArgs] : npmArgs;
+  const executable = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
+  const args = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd', ...npmArgs] : npmArgs;
   let output;
   try {
-    output = execFileSync(
-      executable,
-      args,
-      {
-        cwd: resolve(import.meta.dirname, '..'),
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      },
-    );
+    output = execFileSync(executable, args, {
+      cwd: resolve(import.meta.dirname, '..'),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
   } catch {
     throw new DeveloperApiKeyCliError('Developer API key database operation failed');
   }
@@ -178,10 +178,7 @@ export async function runDeveloperApiKeyCli({
     const digest = await deriveDeveloperApiKeyDigest(pepper, keyId, secret);
     const createdAt = now();
     const expiresAt = createdAt + command.days * 86_400_000;
-    const scopeMask = command.scopes.reduce(
-      (mask, scope) => mask | developerApiScopes[scope],
-      0,
-    );
+    const scopeMask = command.scopes.reduce((mask, scope) => mask | developerApiScopes[scope], 0);
     const inserted = execute(
       `INSERT INTO mxqr_developer_api_keys (` +
         `key_id, room_code, label, secret_digest, digest_version, scope_mask, status, ` +
@@ -240,7 +237,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     await runDeveloperApiKeyCli();
   } catch (error) {
     const message =
-      error instanceof DeveloperApiKeyCliError ? error.message : 'Developer API key operation failed';
+      error instanceof DeveloperApiKeyCliError
+        ? error.message
+        : 'Developer API key operation failed';
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   }

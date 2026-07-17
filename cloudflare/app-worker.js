@@ -4264,6 +4264,7 @@ function redirectTarget(pathname) {
     ['/privacy', '/privacy'],
     ['/terms', '/terms'],
     ['/faq', '/faq'],
+    ['/developers', '/developers'],
     ['/history', '/history'],
     ['/designsystem', '/designsystem'],
   ]);
@@ -4280,6 +4281,7 @@ function routeStaticPath(pathname) {
   if (path === '/privacy' || path === '/privacy/') return '/privacy.html';
   if (path === '/terms' || path === '/terms/') return '/terms.html';
   if (path === '/faq' || path === '/faq/') return '/faq.html';
+  if (path === '/developers' || path === '/developers/') return '/developers.html';
   if (path === '/history' || path === '/history/') return '/history/index.html';
   if (path === '/designsystem' || path === '/designsystem/') return '/designsystem/index.html';
   return null;
@@ -4300,7 +4302,16 @@ function cacheHeadersForPath(pathname, assetPathname = pathname) {
     return { 'Cache-Control': 'public, max-age=31536000, immutable' };
   }
   if (
-    ['/about', '/blog', '/privacy', '/terms', '/faq', '/history', '/designsystem'].includes(
+    [
+      '/about',
+      '/blog',
+      '/privacy',
+      '/terms',
+      '/faq',
+      '/developers',
+      '/history',
+      '/designsystem',
+    ].includes(
       pathname.toLowerCase().replace(/\/$/, ''),
     )
   ) {

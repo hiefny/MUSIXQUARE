@@ -17,6 +17,7 @@ import type {
 
 import type {
   DeveloperCommandFrame,
+  DeveloperInvalidationFrame,
   TransportDataConnection,
   TransportMediaConnection,
   TransportPeer,
@@ -25,6 +26,7 @@ import type {
 export type {
   DeveloperCommandFrame,
   DeveloperCommandResultCode,
+  DeveloperInvalidationFrame,
 } from '../network/transport/types.ts';
 
 /** App data channel connection. PeerJS is only one possible provider. */
@@ -1150,6 +1152,8 @@ interface BaseEventMap {
   'network:error': [error: unknown];
   /** Authenticated server-to-coordinator command; never accepted from peers. */
   'network:developer-command': [frame: DeveloperCommandFrame];
+  /** Authenticated server-to-coordinator snapshot hint; never accepted from peers. */
+  'network:developer-invalidation': [frame: DeveloperInvalidationFrame];
   'network:broadcast': [data: unknown];
   'network:broadcast-except': [peerId: string, data: unknown];
   'network:toggle-operator': [peerId: string];

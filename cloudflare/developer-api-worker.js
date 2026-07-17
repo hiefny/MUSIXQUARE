@@ -16,10 +16,20 @@ const URL_MAX_BYTES = 2_048;
 const ETAG_HEADER_MAX_BYTES = 128;
 const COMMAND_REQUEST_MAX_BYTES = 1_024;
 const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
+const QUEUE_MUTATION_REQUEST_MAX_BYTES = 64 * 1024;
+const MEDIA_UPLOAD_REQUEST_MAX_BYTES = 16 * 1024;
+const MUTATION_RESPONSE_MAX_BYTES = 1_500 * 1024;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const QUEUE_ITEM_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 const QUEUE_ITEM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
+const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const PLAYLIST_MAX_ITEMS = 1_000;
+const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 // PRO room state is itself capped at 1.2 MiB. Leave bounded framing room for
 // the projection envelope so every valid 1,000-item queue remains readable.
@@ -31,6 +41,10 @@ const KEY_READ_LIMIT_PER_MINUTE = 60;
 const ROOM_READ_LIMIT_PER_MINUTE = 180;
 const KEY_COMMAND_LIMIT_PER_MINUTE = 30;
 const ROOM_COMMAND_LIMIT_PER_MINUTE = 90;
+const KEY_QUEUE_WRITE_LIMIT_PER_MINUTE = 10;
+const ROOM_QUEUE_WRITE_LIMIT_PER_MINUTE = 30;
+const KEY_MEDIA_UPLOAD_LIMIT_PER_HOUR = 10;
+const ROOM_MEDIA_UPLOAD_LIMIT_PER_HOUR = 30;
 const SCOPE_ROOM_READ = 1;
 const SCOPE_PLAYBACK_READ = 2;
 const SCOPE_PLAYBACK_CONTROL = 4;
@@ -66,6 +80,14 @@ const ERROR_MESSAGES = Object.freeze({
   COORDINATOR_INCOMPATIBLE: 'The active room coordinator cannot accept API commands.',
   NO_MEDIA: 'The room has no playable media.',
   NOT_FOUND: 'The requested resource was not found.',
+  ASSET_CAPACITY_EXCEEDED: 'The room cannot accept another media asset right now.',
+  PLAYLIST_CAPACITY_EXCEEDED: 'The room playlist is full.',
+  PLAYLIST_REVISION_CONFLICT: 'The playlist changed. Read it again and retry with the new revision.',
+  RESERVATION_CAPACITY_EXCEEDED: 'This API key has too many unfinished uploads.',
+  ROOM_QUOTA_EXCEEDED: 'The PRO room storage quota would be exceeded.',
+  ROOM_STATE_CAPACITY_EXCEEDED: 'The room state cannot accept this change right now.',
+  UPLOAD_INCOMPLETE: 'The direct upload has not finished yet.',
+  UPLOAD_MISMATCH: 'The uploaded object does not match its reservation.',
   RATE_LIMITED: 'Too many requests. Try again later.',
   ROOM_SLEEPING: 'The room is sleeping and cannot accept playback commands.',
   UNAUTHORIZED: 'A valid Developer API key is required.',
@@ -428,6 +450,104 @@ function parseDeveloperCommand(value) {
   return null;
 }
 
+function parseMetadata(value) {
+  const name = boundedString(value?.name, 512);
+  if (!name) return null;
+  const metadata = { name };
+  for (const key of ['title', 'artist', 'thumbnail']) {
+    if (value[key] === undefined) continue;
+    const parsed = boundedString(value[key], 512);
+    if (!parsed) return null;
+    metadata[key] = parsed;
+  }
+  return metadata;
+}
+
+function parseYouTubeQueueItem(value) {
+  if (
+    !hasExactKeys(value, ['videoId', 'name'], ['playlistId', 'title', 'artist', 'thumbnail']) ||
+    !YOUTUBE_VIDEO_ID_RE.test(value.videoId || '') ||
+    (value.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(value.playlistId || ''))
+  ) {
+    return null;
+  }
+  const metadata = parseMetadata(value);
+  return metadata
+    ? {
+        type: 'add_youtube',
+        videoId: value.videoId,
+        ...(value.playlistId === undefined ? {} : { playlistId: value.playlistId }),
+        ...metadata,
+      }
+    : null;
+}
+
+function parseQueueOrder(value) {
+  if (
+    !hasExactKeys(value, ['basePlaylistRevision', 'queueItemIds']) ||
+    !isSafeNonNegativeInteger(value.basePlaylistRevision) ||
+    !Array.isArray(value.queueItemIds) ||
+    value.queueItemIds.length > PLAYLIST_MAX_ITEMS ||
+    value.queueItemIds.some((queueItemId) => !QUEUE_ITEM_UUID_RE.test(queueItemId || '')) ||
+    new Set(value.queueItemIds).size !== value.queueItemIds.length
+  ) {
+    return null;
+  }
+  return {
+    type: 'reorder',
+    basePlaylistRevision: value.basePlaylistRevision,
+    queueItemIds: [...value.queueItemIds],
+  };
+}
+
+const DEVELOPER_AUDIO_EXTENSIONS = new Set([
+  'mp3',
+  'wav',
+  'flac',
+  'm4a',
+  'aac',
+  'ogg',
+  'oga',
+  'opus',
+  'webm',
+  'aif',
+  'aiff',
+  'caf',
+]);
+
+function isAudioCandidate(name, mime) {
+  if (/^audio\//i.test(mime) || mime.toLowerCase() === 'application/ogg') return true;
+  if (mime.toLowerCase() !== 'application/octet-stream') return false;
+  const extension = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  return DEVELOPER_AUDIO_EXTENSIONS.has(extension);
+}
+
+function parseMediaUpload(value) {
+  if (
+    !hasExactKeys(
+      value,
+      ['name', 'byteLength', 'mime'],
+      ['sha256', 'title', 'artist', 'thumbnail'],
+    ) ||
+    !Number.isSafeInteger(value.byteLength) ||
+    value.byteLength <= 0 ||
+    value.byteLength > ASSET_MAX_BYTES ||
+    !MIME_RE.test(value.mime || '') ||
+    (value.sha256 !== undefined && !SHA256_RE.test(value.sha256 || ''))
+  ) {
+    return null;
+  }
+  const metadata = parseMetadata(value);
+  return metadata && isAudioCandidate(metadata.name, value.mime)
+    ? {
+        ...metadata,
+        byteLength: value.byteLength,
+        mime: value.mime,
+        ...(value.sha256 === undefined ? {} : { sha256: value.sha256 }),
+      }
+    : null;
+}
+
 const COMMAND_STATUSES = new Set(['pending', 'dispatched', 'applied', 'rejected', 'expired']);
 const COMMAND_RESULT_CODES = new Set([
   'applied',
@@ -608,6 +728,125 @@ function validateFacadePayload(value, expectedView, roomCode) {
   return null;
 }
 
+function validQuota(value) {
+  return (
+    hasExactKeys(value, ['limitBytes', 'perAssetLimitBytes', 'usedBytes', 'reservedBytes']) &&
+    Object.values(value).every(isSafeNonNegativeInteger)
+  );
+}
+
+function validateUploadPayload(value, roomCode, expectedMedia) {
+  if (
+    !hasExactKeys(value, [
+      'schemaVersion',
+      'roomCode',
+      'assetId',
+      'queueItemId',
+      'byteLength',
+      'uploadExpiresAtMs',
+      'completionExpiresAtMs',
+      'upload',
+      'quota',
+    ]) ||
+    value.schemaVersion !== 1 ||
+    value.roomCode !== roomCode ||
+    !ASSET_ID_RE.test(value.assetId || '') ||
+    !QUEUE_ITEM_UUID_RE.test(value.queueItemId || '') ||
+    !Number.isSafeInteger(value.byteLength) ||
+    value.byteLength <= 0 ||
+    value.byteLength > ASSET_MAX_BYTES ||
+    value.byteLength !== expectedMedia.byteLength ||
+    !isSafeNonNegativeInteger(value.uploadExpiresAtMs) ||
+    !isSafeNonNegativeInteger(value.completionExpiresAtMs) ||
+    value.completionExpiresAtMs < value.uploadExpiresAtMs ||
+    !validQuota(value.quota) ||
+    !hasExactKeys(value.upload, ['method', 'url', 'headers']) ||
+    value.upload.method !== 'PUT'
+  ) {
+    return null;
+  }
+  let uploadUrl;
+  try {
+    uploadUrl = new URL(value.upload.url);
+  } catch {
+    return null;
+  }
+  if (
+    uploadUrl.protocol !== 'https:' ||
+    uploadUrl.username ||
+    uploadUrl.password ||
+    uploadUrl.hash ||
+    !/^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/i.test(uploadUrl.hostname) ||
+    !uploadUrl.searchParams.has('X-Amz-Signature')
+  ) {
+    return null;
+  }
+  const headers = value.upload.headers;
+  const allowedHeaders = new Set([
+    'content-length',
+    'content-type',
+    'x-amz-meta-mxqr-room',
+    'x-amz-meta-mxqr-asset',
+    'x-amz-meta-mxqr-version',
+    'x-amz-meta-mxqr-bytes',
+    'x-amz-meta-mxqr-sha256',
+  ]);
+  if (
+    !headers ||
+    typeof headers !== 'object' ||
+    Array.isArray(headers) ||
+    Object.keys(headers).some((key) => !allowedHeaders.has(key)) ||
+    headers['content-length'] !== String(value.byteLength) ||
+    headers['x-amz-meta-mxqr-room'] !== roomCode ||
+    headers['x-amz-meta-mxqr-asset'] !== value.assetId ||
+    headers['x-amz-meta-mxqr-version'] !== '1' ||
+    headers['x-amz-meta-mxqr-bytes'] !== String(value.byteLength) ||
+    !MIME_RE.test(headers['content-type'] || '') ||
+    headers['content-type'] !== expectedMedia.mime ||
+    (headers['x-amz-meta-mxqr-sha256'] !== undefined &&
+      !SHA256_RE.test(headers['x-amz-meta-mxqr-sha256'])) ||
+    (expectedMedia.sha256 === undefined
+      ? headers['x-amz-meta-mxqr-sha256'] !== undefined
+      : headers['x-amz-meta-mxqr-sha256'] !== expectedMedia.sha256)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function validateUploadCompletionPayload(value, roomCode, expectedAssetId) {
+  if (
+    !hasExactKeys(value, [
+      'schemaVersion',
+      'roomCode',
+      'asset',
+      'queueItem',
+      'playlistRevision',
+      'quota',
+    ]) ||
+    value.schemaVersion !== 1 ||
+    value.roomCode !== roomCode ||
+    !isSafeNonNegativeInteger(value.playlistRevision) ||
+    !validQuota(value.quota) ||
+    !validQueueItem(value.queueItem) ||
+    value.queueItem.kind !== 'audio' ||
+    !hasExactKeys(value.asset, ['kind', 'assetId', 'version', 'byteLength', 'mime'], ['sha256']) ||
+    value.asset.kind !== 'pro-r2' ||
+    !ASSET_ID_RE.test(value.asset.assetId || '') ||
+    value.asset.assetId !== expectedAssetId ||
+    value.asset.version !== 1 ||
+    !Number.isSafeInteger(value.asset.byteLength) ||
+    value.asset.byteLength <= 0 ||
+    value.asset.byteLength > ASSET_MAX_BYTES ||
+    value.asset.byteLength !== value.queueItem.byteLength ||
+    !MIME_RE.test(value.asset.mime || '') ||
+    (value.asset.sha256 !== undefined && !SHA256_RE.test(value.asset.sha256 || ''))
+  ) {
+    return null;
+  }
+  return value;
+}
+
 function parseRoute(method, url) {
   if (method === 'GET') {
     const readMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})(?:\/(playback|queue))?$/);
@@ -640,11 +879,62 @@ function parseRoute(method, url) {
   }
   if (method === 'POST') {
     const createMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/commands$/);
-    return createMatch
+    if (createMatch) {
+      return {
+        kind: 'command-create',
+        roomCode: createMatch[1],
+        requiredScope: SCOPE_PLAYBACK_CONTROL,
+      };
+    }
+    const queueItemMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue\/items$/);
+    if (queueItemMatch) {
+      return {
+        kind: 'queue-add',
+        roomCode: queueItemMatch[1],
+        requiredScope: SCOPE_QUEUE_WRITE,
+      };
+    }
+    const completeMatch = url.pathname.match(
+      /^\/v1\/rooms\/(0\d{5})\/media\/uploads\/([A-Za-z0-9][A-Za-z0-9_-]{15,127})\/complete$/,
+    );
+    if (completeMatch) {
+      return {
+        kind: 'media-complete',
+        roomCode: completeMatch[1],
+        assetId: completeMatch[2],
+        requiredScope: SCOPE_MEDIA_UPLOAD | SCOPE_QUEUE_WRITE,
+      };
+    }
+    const uploadMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/media\/uploads$/);
+    if (uploadMatch) {
+      return {
+        kind: 'media-create',
+        roomCode: uploadMatch[1],
+        requiredScope: SCOPE_MEDIA_UPLOAD | SCOPE_QUEUE_WRITE,
+      };
+    }
+    return null;
+  }
+  if (method === 'DELETE') {
+    const removeMatch = url.pathname.match(
+      /^\/v1\/rooms\/(0\d{5})\/queue\/items\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+    );
+    return removeMatch
       ? {
-          kind: 'command-create',
-          roomCode: createMatch[1],
-          requiredScope: SCOPE_PLAYBACK_CONTROL,
+          kind: 'queue-remove',
+          roomCode: removeMatch[1],
+          queueItemId: removeMatch[2],
+          requiredScope: SCOPE_QUEUE_WRITE,
+        }
+      : null;
+  }
+  if (method === 'PUT') {
+    const orderMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue\/order$/);
+    return orderMatch
+      ? {
+          kind: 'queue-reorder',
+          roomCode: orderMatch[1],
+          requiredScope: SCOPE_QUEUE_WRITE,
         }
       : null;
   }
@@ -703,6 +993,28 @@ async function authenticatedCommandLimit(env, principal) {
   return callLimiter(env, `room:${principal.roomCode}`, 'authenticated-command', principal.keyId);
 }
 
+async function authenticatedQueueWriteLimit(env, principal) {
+  return callLimiter(env, `room:${principal.roomCode}`, 'authenticated-queue-write', principal.keyId);
+}
+
+async function authenticatedMediaUploadCreateLimit(env, principal) {
+  return callLimiter(
+    env,
+    `room:${principal.roomCode}`,
+    'authenticated-media-upload-create',
+    principal.keyId,
+  );
+}
+
+async function authenticatedMediaUploadCompleteLimit(env, principal) {
+  return callLimiter(
+    env,
+    `room:${principal.roomCode}`,
+    'authenticated-media-upload-complete',
+    principal.keyId,
+  );
+}
+
 async function facadeRead(env, route) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
   let response;
@@ -736,6 +1048,14 @@ const COMMAND_ERROR_STATUSES = Object.freeze({
   COMMAND_CAPACITY_EXCEEDED: 409,
   RATE_LIMITED: 429,
   BACKEND_UNAVAILABLE: 503,
+  ASSET_CAPACITY_EXCEEDED: 409,
+  PLAYLIST_CAPACITY_EXCEEDED: 409,
+  PLAYLIST_REVISION_CONFLICT: 409,
+  RESERVATION_CAPACITY_EXCEEDED: 409,
+  ROOM_QUOTA_EXCEEDED: 409,
+  ROOM_STATE_CAPACITY_EXCEEDED: 409,
+  UPLOAD_INCOMPLETE: 409,
+  UPLOAD_MISMATCH: 409,
 });
 
 async function facadeCommand(env, path, body, roomCode) {
@@ -768,12 +1088,66 @@ async function facadeCommand(env, path, body, roomCode) {
   return payload ? { payload, status: response.status } : { invalidResponse: true };
 }
 
+async function facadeMutation(env, path, body, roomCode, expectedStatus, validator) {
+  if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
+  let response;
+  try {
+    response = await env.DEVELOPER_API_FACADE.fetch(
+      `https://developer-api-facade.internal${path}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+  } catch {
+    return { backendError: true };
+  }
+  const value = await readJsonLimited(response, MUTATION_RESPONSE_MAX_BYTES);
+  if (!response.ok) {
+    if (
+      hasExactKeys(value, ['error']) &&
+      typeof value.error === 'string' &&
+      COMMAND_ERROR_STATUSES[value.error] === response.status
+    ) {
+      return { errorCode: value.error, status: response.status };
+    }
+    return { backendError: true };
+  }
+  const payload = validator(value, roomCode);
+  return payload && response.status === expectedStatus
+    ? { payload, status: response.status }
+    : { invalidResponse: true };
+}
+
 function auditCommandBestEffort(
   env,
   context,
   requestId,
   principal,
   commandType,
+  result,
+  statusCode,
+  nowMs,
+) {
+  auditWriteBestEffort(
+    env,
+    context,
+    requestId,
+    principal,
+    `playback.command.${commandType}`,
+    result,
+    statusCode,
+    nowMs,
+  );
+}
+
+function auditWriteBestEffort(
+  env,
+  context,
+  requestId,
+  principal,
+  action,
   result,
   statusCode,
   nowMs,
@@ -788,7 +1162,7 @@ function auditCommandBestEffort(
       requestId,
       principal.keyId,
       principal.roomCode,
-      `playback.command.${commandType}`,
+      action,
       result,
       statusCode,
       nowMs,
@@ -805,6 +1179,11 @@ async function etagFor(view, payload) {
   return `"mxqr-${view}-${base64UrlEncode(digest)}"`;
 }
 
+function readIdempotencyKey(request) {
+  const value = request.headers.get('idempotency-key');
+  return value !== null && IDEMPOTENCY_KEY_RE.test(value) ? value : null;
+}
+
 async function handleApiRequest(request, env, context, requestId) {
   const mode = configuredMode(env);
   if (mode === 'off') return errorResponse('API_DISABLED', 503, requestId, { retryable: true });
@@ -817,10 +1196,25 @@ async function handleApiRequest(request, env, context, requestId) {
   }
   const route = parseRoute(request.method, url);
   if (!route) return errorResponse('NOT_FOUND', 404, requestId);
-  if (route.kind === 'command-create' && mode === 'read-only') {
+  const writeRoute = [
+    'command-create',
+    'queue-add',
+    'queue-remove',
+    'queue-reorder',
+    'media-create',
+    'media-complete',
+  ].includes(route.kind);
+  if (writeRoute && mode === 'read-only') {
     return errorResponse('NOT_FOUND', 404, requestId);
   }
   if (request.method === 'GET' && request.body) return errorResponse('NOT_FOUND', 404, requestId);
+  if (
+    (route.kind === 'queue-remove' || route.kind === 'media-complete') &&
+    request.body &&
+    (request.headers.get('content-length') || '') !== '0'
+  ) {
+    return errorResponse('INVALID_REQUEST', 400, requestId);
+  }
 
   const ingress = await ingressLimit(request, env);
   if (!ingress) return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
@@ -847,7 +1241,15 @@ async function handleApiRequest(request, env, context, requestId) {
   const limiter =
     route.kind === 'command-create'
       ? await authenticatedCommandLimit(env, principal)
-      : await authenticatedReadLimit(env, principal);
+      : route.kind === 'queue-add' ||
+          route.kind === 'queue-remove' ||
+          route.kind === 'queue-reorder'
+        ? await authenticatedQueueWriteLimit(env, principal)
+        : route.kind === 'media-create'
+          ? await authenticatedMediaUploadCreateLimit(env, principal)
+          : route.kind === 'media-complete'
+            ? await authenticatedMediaUploadCompleteLimit(env, principal)
+          : await authenticatedReadLimit(env, principal);
   if (!limiter) return errorResponse('BACKEND_UNAVAILABLE', 503, requestId, { retryable: true });
   const limiterHeaders = rateHeaders(limiter);
   if (!limiter.allowed) {
@@ -865,6 +1267,155 @@ async function handleApiRequest(request, env, context, requestId) {
   }
   if ((principal.scopeMask & route.requiredScope) !== route.requiredScope) {
     return errorResponse('FORBIDDEN', 403, requestId);
+  }
+
+  if (
+    route.kind === 'queue-add' ||
+    route.kind === 'queue-remove' ||
+    route.kind === 'queue-reorder' ||
+    route.kind === 'media-create' ||
+    route.kind === 'media-complete'
+  ) {
+    const rawIdempotencyKey = request.headers.get('idempotency-key');
+    if (rawIdempotencyKey === null || rawIdempotencyKey.length === 0) {
+      return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400, requestId);
+    }
+    const idempotencyKey = readIdempotencyKey(request);
+    if (!idempotencyKey) return errorResponse('INVALID_REQUEST', 400, requestId);
+
+    let path;
+    let body;
+    let expectedStatus;
+    let validator;
+    let auditAction;
+    if (route.kind === 'queue-add') {
+      const mutation = parseYouTubeQueueItem(
+        await readRequestJsonLimited(request, MEDIA_UPLOAD_REQUEST_MAX_BYTES),
+      );
+      if (!mutation) return errorResponse('INVALID_REQUEST', 400, requestId);
+      path = '/internal/v1/queue/mutate';
+      body = { keyId: principal.keyId, roomCode: route.roomCode, idempotencyKey, mutation };
+      expectedStatus = 201;
+      validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
+      auditAction = 'queue.add_youtube';
+    } else if (route.kind === 'queue-remove') {
+      path = '/internal/v1/queue/mutate';
+      body = {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        idempotencyKey,
+        mutation: { type: 'remove', queueItemId: route.queueItemId },
+      };
+      expectedStatus = 200;
+      validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
+      auditAction = 'queue.remove';
+    } else if (route.kind === 'queue-reorder') {
+      const mutation = parseQueueOrder(
+        await readRequestJsonLimited(request, QUEUE_MUTATION_REQUEST_MAX_BYTES),
+      );
+      if (!mutation) return errorResponse('INVALID_REQUEST', 400, requestId);
+      path = '/internal/v1/queue/mutate';
+      body = { keyId: principal.keyId, roomCode: route.roomCode, idempotencyKey, mutation };
+      expectedStatus = 200;
+      validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
+      auditAction = 'queue.reorder';
+    } else if (route.kind === 'media-create') {
+      const media = parseMediaUpload(
+        await readRequestJsonLimited(request, MEDIA_UPLOAD_REQUEST_MAX_BYTES),
+      );
+      if (!media) return errorResponse('INVALID_REQUEST', 400, requestId);
+      path = '/internal/v1/media/uploads/create';
+      body = { keyId: principal.keyId, roomCode: route.roomCode, idempotencyKey, media };
+      expectedStatus = 201;
+      validator = (value, roomCode) => validateUploadPayload(value, roomCode, media);
+      auditAction = 'media.upload.reserve';
+    } else {
+      path = '/internal/v1/media/uploads/complete';
+      body = {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        idempotencyKey,
+        assetId: route.assetId,
+      };
+      expectedStatus = 201;
+      validator = (value, roomCode) =>
+        validateUploadCompletionPayload(value, roomCode, route.assetId);
+      auditAction = 'media.upload.complete';
+    }
+
+    const facade = await facadeMutation(
+      env,
+      path,
+      body,
+      route.roomCode,
+      expectedStatus,
+      validator,
+    );
+    const auditAtMs = Date.now();
+    if (facade.configurationError) {
+      auditWriteBestEffort(
+        env,
+        context,
+        requestId,
+        principal,
+        auditAction,
+        'api_not_configured',
+        503,
+        auditAtMs,
+      );
+      return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
+    }
+    if (facade.errorCode) {
+      auditWriteBestEffort(
+        env,
+        context,
+        requestId,
+        principal,
+        auditAction,
+        facade.errorCode.toLowerCase(),
+        facade.status,
+        auditAtMs,
+      );
+      return errorResponse(facade.errorCode, facade.status, requestId, {
+        retryable:
+          facade.status === 429 ||
+          facade.status === 503 ||
+          facade.errorCode === 'UPLOAD_INCOMPLETE',
+        ...(facade.errorCode === 'UPLOAD_INCOMPLETE'
+          ? { headers: { 'retry-after': '1' } }
+          : {}),
+      });
+    }
+    if (facade.backendError || facade.invalidResponse || !facade.payload) {
+      const invalid = !facade.backendError && facade.invalidResponse;
+      auditWriteBestEffort(
+        env,
+        context,
+        requestId,
+        principal,
+        auditAction,
+        invalid ? 'invalid_backend_response' : 'backend_unavailable',
+        503,
+        auditAtMs,
+      );
+      return errorResponse(
+        invalid ? 'INTERNAL_RESPONSE_INVALID' : 'BACKEND_UNAVAILABLE',
+        503,
+        requestId,
+        { retryable: true },
+      );
+    }
+    auditWriteBestEffort(
+      env,
+      context,
+      requestId,
+      principal,
+      auditAction,
+      'applied',
+      expectedStatus,
+      auditAtMs,
+    );
+    return jsonResponse(facade.payload, expectedStatus, requestId, limiterHeaders);
   }
 
   if (route.kind === 'command-create') {
@@ -1118,6 +1669,69 @@ function rateBucketsForRequest(value) {
         id: 'room:playback-control',
         limit: ROOM_COMMAND_LIMIT_PER_MINUTE,
         windowMs: 60_000,
+        cost: 1,
+      },
+    ];
+  }
+  if (
+    hasExactKeys(value, ['operation', 'keyId']) &&
+    value.operation === 'authenticated-queue-write' &&
+    typeof value.keyId === 'string' &&
+    /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
+  ) {
+    return [
+      {
+        id: `key:${value.keyId}:queue-write`,
+        limit: KEY_QUEUE_WRITE_LIMIT_PER_MINUTE,
+        windowMs: 60_000,
+        cost: 1,
+      },
+      {
+        id: 'room:queue-write',
+        limit: ROOM_QUEUE_WRITE_LIMIT_PER_MINUTE,
+        windowMs: 60_000,
+        cost: 1,
+      },
+    ];
+  }
+  if (
+    hasExactKeys(value, ['operation', 'keyId']) &&
+    value.operation === 'authenticated-media-upload-create' &&
+    typeof value.keyId === 'string' &&
+    /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
+  ) {
+    return [
+      {
+        id: `key:${value.keyId}:media-upload`,
+        limit: KEY_MEDIA_UPLOAD_LIMIT_PER_HOUR,
+        windowMs: 60 * 60_000,
+        cost: 1,
+      },
+      {
+        id: 'room:media-upload',
+        limit: ROOM_MEDIA_UPLOAD_LIMIT_PER_HOUR,
+        windowMs: 60 * 60_000,
+        cost: 1,
+      },
+    ];
+  }
+  if (
+    hasExactKeys(value, ['operation', 'keyId']) &&
+    value.operation === 'authenticated-media-upload-complete' &&
+    typeof value.keyId === 'string' &&
+    /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
+  ) {
+    return [
+      {
+        id: `key:${value.keyId}:media-upload-complete`,
+        limit: 30,
+        windowMs: 60 * 60_000,
+        cost: 1,
+      },
+      {
+        id: 'room:media-upload-complete',
+        limit: 90,
+        windowMs: 60 * 60_000,
         cost: 1,
       },
     ];

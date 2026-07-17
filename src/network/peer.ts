@@ -738,6 +738,11 @@ function setupPeerEvents(peer: PeerInstance): void {
     bus.emit('network:developer-command', frame);
   });
 
+  peer.on('developer-invalidation', (frame) => {
+    if (getPeer() !== peer) return;
+    bus.emit('network:developer-invalidation', frame);
+  });
+
   peer.on('pro-epoch-advanced', () => {
     if (getPeer() !== peer) return;
     log.info('[Transport] PRO coordinator epoch advanced; rebuilding transport');

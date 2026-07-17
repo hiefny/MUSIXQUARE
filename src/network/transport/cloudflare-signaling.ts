@@ -3,6 +3,7 @@ import { clearManagedTimer, delay, setManagedTimer } from '../../core/timers.ts'
 import { TinyEmitter } from './emitter.ts';
 import type {
   DeveloperCommandFrame,
+  DeveloperInvalidationFrame,
   ProSignalingOptions,
   TransportConnectOptions,
   TransportDataConnection,
@@ -10,7 +11,7 @@ import type {
   TransportPeer,
   TransportPeerOptions,
 } from './types.ts';
-import { parseDeveloperCommandFrame } from './types.ts';
+import { parseDeveloperCommandFrame, parseDeveloperInvalidationFrame } from './types.ts';
 
 type SignalingMessage =
   | { type: 'peer-open'; peerId: string; roomId: string; workerVersionId?: string }
@@ -34,7 +35,8 @@ type SignalingMessage =
   | { type: 'media-answer'; from: string; callId: string; sdp: RTCSessionDescriptionInit }
   | { type: 'media-close'; from: string; callId: string }
   | { type: 'peer-left'; peerId: string }
-  | DeveloperCommandFrame;
+  | DeveloperCommandFrame
+  | DeveloperInvalidationFrame;
 
 type OutgoingSignal =
   | { type: 'room-password-set'; password: string }
@@ -907,6 +909,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (!command) throw createTransportError('server-error', 'INVALID_DEVELOPER_COMMAND');
       return command;
     }
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).type === 'developer-invalidation'
+    ) {
+      const invalidation = parseDeveloperInvalidationFrame(value);
+      if (!invalidation) {
+        throw createTransportError('server-error', 'INVALID_DEVELOPER_INVALIDATION');
+      }
+      return invalidation;
+    }
     return value as SignalingMessage;
   }
 
@@ -917,6 +931,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
       }
       this.emit('developer-command', message);
+      return;
+    }
+    if (message.type === 'developer-invalidation') {
+      const access = this.proSignalingAccess;
+      if (
+        access?.role !== 'coordinator' ||
+        message.roomCode !== access.roomCode ||
+        message.coordinatorEpoch !== access.coordinatorEpoch
+      ) {
+        throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_INVALIDATION');
+      }
+      this.emit('developer-invalidation', message);
       return;
     }
     if (message.type === 'peer-open') {
@@ -981,6 +1007,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const message = await this.parseSignal(raw);
     if (message.type === 'developer-command') {
       throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
+    }
+    if (message.type === 'developer-invalidation') {
+      throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_INVALIDATION');
     }
     if (message.type === 'peer-open') {
       this.disconnected = false;

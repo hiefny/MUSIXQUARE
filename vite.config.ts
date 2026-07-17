@@ -18,6 +18,7 @@ const flattenWorkshopHtml = (): Plugin => ({
       '.workshop/privacy/privacy.html': 'privacy.html',
       '.workshop/terms/terms.html': 'terms.html',
       '.workshop/faq/faq.html': 'faq.html',
+      '.workshop/developers/developers.html': 'developers.html',
     };
     for (const key of Object.keys(bundle)) {
       const normalized = key.replace(/\\/g, '/');
@@ -56,6 +57,11 @@ const devPageAliases = (): Plugin => ({
         target = '/.workshop/terms/terms.html';
       } else if (normalizedPath === '/faq' || normalizedPath === '/faq.html') {
         target = '/.workshop/faq/faq.html';
+      } else if (
+        normalizedPath === '/developers' ||
+        normalizedPath === '/developers.html'
+      ) {
+        target = '/.workshop/developers/developers.html';
       } else if (
         normalizedPath === '/history' ||
         normalizedPath === '/changelog' ||
@@ -119,6 +125,7 @@ export default defineConfig({
         privacy: resolve(__dirname, '.workshop/privacy/privacy.html'),
         terms: resolve(__dirname, '.workshop/terms/terms.html'),
         faq: resolve(__dirname, '.workshop/faq/faq.html'),
+        developers: resolve(__dirname, '.workshop/developers/developers.html'),
       },
       output: {
         manualChunks: {

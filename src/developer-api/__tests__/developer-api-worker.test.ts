@@ -17,6 +17,10 @@ const OBSERVED_AT_MS = 1_784_262_910_000;
 const COMMAND_ID = `cmd_${'C'.repeat(22)}`;
 const IDEMPOTENCY_KEY = 'request.command-0001';
 const QUEUE_ITEM_ID = '123e4567-e89b-42d3-a456-426614174000';
+const ASSET_ID = `asset_${'D'.repeat(32)}`;
+const UPLOAD_URL =
+  'https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com/musixquare-pro-media/staging?X-Amz-Signature=' +
+  'a'.repeat(64);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -109,6 +113,64 @@ function commandPayload(
     : base;
 }
 
+function uploadPayload() {
+  return {
+    schemaVersion: 1,
+    roomCode: ROOM_CODE,
+    assetId: ASSET_ID,
+    queueItemId: QUEUE_ITEM_ID,
+    byteLength: 4_096,
+    uploadExpiresAtMs: OBSERVED_AT_MS + 600_000,
+    completionExpiresAtMs: OBSERVED_AT_MS + 900_000,
+    upload: {
+      method: 'PUT',
+      url: UPLOAD_URL,
+      headers: {
+        'content-length': '4096',
+        'content-type': 'audio/flac',
+        'x-amz-meta-mxqr-room': ROOM_CODE,
+        'x-amz-meta-mxqr-asset': ASSET_ID,
+        'x-amz-meta-mxqr-version': '1',
+        'x-amz-meta-mxqr-bytes': '4096',
+      },
+    },
+    quota: {
+      limitBytes: 1_073_741_824,
+      perAssetLimitBytes: 209_715_200,
+      usedBytes: 0,
+      reservedBytes: 4_096,
+    },
+  };
+}
+
+function uploadCompletionPayload() {
+  return {
+    schemaVersion: 1,
+    roomCode: ROOM_CODE,
+    asset: {
+      kind: 'pro-r2',
+      assetId: ASSET_ID,
+      version: 1,
+      byteLength: 4_096,
+      mime: 'audio/flac',
+    },
+    queueItem: {
+      queueItemId: QUEUE_ITEM_ID,
+      kind: 'audio',
+      name: 'Orchestra.flac',
+      title: 'Orchestra',
+      byteLength: 4_096,
+    },
+    playlistRevision: 5,
+    quota: {
+      limitBytes: 1_073_741_824,
+      perAssetLimitBytes: 209_715_200,
+      usedBytes: 4_096,
+      reservedBytes: 0,
+    },
+  };
+}
+
 function jsonResponse(value: unknown, status = 200): Response {
   return Response.json(value, { status });
 }
@@ -185,19 +247,35 @@ async function createEnvironment(
   const limiter = options.limiter ?? limiterNamespace();
   const facadeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(typeof input === 'string' ? input : input.toString()).pathname;
-    const body = JSON.parse(String(init?.body || '{}')) as { projection?: string };
+    const body = JSON.parse(String(init?.body || '{}')) as {
+      projection?: string;
+      mutation?: { type?: string };
+    };
     const payload =
       options.facadePayload ??
       (path === '/internal/v1/commands/create'
         ? commandPayload()
         : path === '/internal/v1/commands/status'
           ? commandPayload('applied')
-          : body.projection === 'playback'
-            ? playbackPayload()
-            : body.projection === 'queue'
-              ? queuePayload()
-              : roomPayload());
-    const defaultStatus = path === '/internal/v1/commands/create' ? 202 : 200;
+          : path === '/internal/v1/media/uploads/create'
+            ? uploadPayload()
+            : path === '/internal/v1/media/uploads/complete'
+              ? uploadCompletionPayload()
+              : path === '/internal/v1/queue/mutate'
+                ? queuePayload()
+                : body.projection === 'playback'
+                  ? playbackPayload()
+                  : body.projection === 'queue'
+                    ? queuePayload()
+                    : roomPayload());
+    const defaultStatus =
+      path === '/internal/v1/commands/create'
+        ? 202
+        : path === '/internal/v1/media/uploads/create' ||
+            path === '/internal/v1/media/uploads/complete' ||
+            (path === '/internal/v1/queue/mutate' && body.mutation?.type === 'add_youtube')
+          ? 201
+          : 200;
     return jsonResponse(payload, options.facadeStatus ?? defaultStatus);
   });
   return {
@@ -464,6 +542,264 @@ describe('Developer API read-only public Worker', () => {
     expect(facadeFetch).not.toHaveBeenCalled();
   });
 
+  it('adds YouTube queue items through the queue-write scope and dedicated limiter', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const item = {
+      videoId: 'dQw4w9WgXcQ',
+      name: 'Never Gonna Give You Up',
+      title: 'Never Gonna Give You Up',
+      artist: 'Rick Astley',
+    };
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-add-0001',
+        },
+        body: JSON.stringify(item),
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual(queuePayload());
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-queue-write',
+    ]);
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(1);
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/queue/mutate');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      idempotencyKey: 'request.queue-add-0001',
+      mutation: { type: 'add_youtube', ...item },
+    });
+
+    const readOnlyKey = await createEnvironment({ scopeMask: developerApiScopes['queue:read'] });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-add-0002',
+        },
+        body: JSON.stringify(item),
+      }),
+      readOnlyKey.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(await errorCode(forbidden)).toBe('FORBIDDEN');
+    expect(readOnlyKey.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('removes and reorders queue items through canonical mutation envelopes', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const removed = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/${QUEUE_ITEM_ID}`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.queue-remove-0001' },
+      }),
+      setup.env,
+    );
+    expect(removed.status).toBe(200);
+    await expect(removed.json()).resolves.toEqual(queuePayload());
+
+    const reordered = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/order`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-reorder-0001',
+        },
+        body: JSON.stringify({ basePlaylistRevision: 4, queueItemIds: [QUEUE_ITEM_ID] }),
+      }),
+      setup.env,
+    );
+    expect(reordered.status).toBe(200);
+    await expect(reordered.json()).resolves.toEqual(queuePayload());
+
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(2);
+    const forwarded = setup.facadeFetch.mock.calls.map(([input, init]) => ({
+      path: new URL(String(input)).pathname,
+      body: JSON.parse(String(init?.body)),
+    }));
+    expect(forwarded).toEqual([
+      {
+        path: '/internal/v1/queue/mutate',
+        body: {
+          keyId: KEY_ID,
+          roomCode: ROOM_CODE,
+          idempotencyKey: 'request.queue-remove-0001',
+          mutation: { type: 'remove', queueItemId: QUEUE_ITEM_ID },
+        },
+      },
+      {
+        path: '/internal/v1/queue/mutate',
+        body: {
+          keyId: KEY_ID,
+          roomCode: ROOM_CODE,
+          idempotencyKey: 'request.queue-reorder-0001',
+          mutation: {
+            type: 'reorder',
+            basePlaylistRevision: 4,
+            queueItemIds: [QUEUE_ITEM_ID],
+          },
+        },
+      },
+    ]);
+  });
+
+  it('reserves and completes direct uploads through media and queue scopes without proxying bytes', async () => {
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['media:upload'] | developerApiScopes['queue:write'],
+    });
+    const media = {
+      name: 'Orchestra.flac',
+      byteLength: 4_096,
+      mime: 'audio/flac',
+      title: 'Orchestra',
+    };
+    const reserved = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.upload-reserve-0001',
+        },
+        body: JSON.stringify(media),
+      }),
+      setup.env,
+    );
+    expect(reserved.status).toBe(201);
+    await expect(reserved.json()).resolves.toEqual(uploadPayload());
+    expect(uploadPayload().upload.headers['content-length']).toBe(String(media.byteLength));
+
+    const completed = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads/${ASSET_ID}/complete`, {
+        method: 'POST',
+        headers: { 'idempotency-key': 'request.upload-complete-0001' },
+      }),
+      setup.env,
+    );
+    expect(completed.status).toBe(201);
+    await expect(completed.json()).resolves.toEqual(uploadCompletionPayload());
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-media-upload-create',
+      'ingress-read',
+      'authenticated-media-upload-complete',
+    ]);
+
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(2);
+    const forwarded = setup.facadeFetch.mock.calls.map(([input, init]) => ({
+      path: new URL(String(input)).pathname,
+      body: JSON.parse(String(init?.body)),
+    }));
+    expect(forwarded).toEqual([
+      {
+        path: '/internal/v1/media/uploads/create',
+        body: {
+          keyId: KEY_ID,
+          roomCode: ROOM_CODE,
+          idempotencyKey: 'request.upload-reserve-0001',
+          media,
+        },
+      },
+      {
+        path: '/internal/v1/media/uploads/complete',
+        body: {
+          keyId: KEY_ID,
+          roomCode: ROOM_CODE,
+          idempotencyKey: 'request.upload-complete-0001',
+          assetId: ASSET_ID,
+        },
+      },
+    ]);
+
+    const queueOnlyKey = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.upload-reserve-0002',
+        },
+        body: JSON.stringify(media),
+      }),
+      queueOnlyKey.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(await errorCode(forbidden)).toBe('FORBIDDEN');
+    expect(queueOnlyKey.facadeFetch).not.toHaveBeenCalled();
+
+    const mediaOnlyKey = await createEnvironment({ scopeMask: developerApiScopes['media:upload'] });
+    const mediaOnlyForbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.upload-reserve-0003',
+        },
+        body: JSON.stringify(media),
+      }),
+      mediaOnlyKey.env,
+    );
+    expect(mediaOnlyForbidden.status).toBe(403);
+    expect(await errorCode(mediaOnlyForbidden)).toBe('FORBIDDEN');
+    expect(mediaOnlyKey.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('requires idempotency for every queue and upload mutation', async () => {
+    const queue = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const missingQueueKey = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ videoId: 'dQw4w9WgXcQ', name: 'Track' }),
+      }),
+      queue.env,
+    );
+    expect(missingQueueKey.status).toBe(400);
+    expect(await errorCode(missingQueueKey)).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect(queue.facadeFetch).not.toHaveBeenCalled();
+
+    const media = await createEnvironment({
+      scopeMask: developerApiScopes['media:upload'] | developerApiScopes['queue:write'],
+    });
+    const missingCompletionKey = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads/${ASSET_ID}/complete`, {
+        method: 'POST',
+      }),
+      media.env,
+    );
+    expect(missingCompletionKey.status).toBe(400);
+    expect(await errorCode(missingCompletionKey)).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect(media.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('marks an incomplete direct upload as retryable with a short retry hint', async () => {
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['media:upload'] | developerApiScopes['queue:write'],
+      facadePayload: { error: 'UPLOAD_INCOMPLETE' },
+      facadeStatus: 409,
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads/${ASSET_ID}/complete`, {
+        method: 'POST',
+        headers: { 'idempotency-key': 'request.upload-complete-retry' },
+      }),
+      setup.env,
+    );
+    expect(response.status).toBe(409);
+    expect(response.headers.get('retry-after')).toBe('1');
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'UPLOAD_INCOMPLETE', retryable: true },
+    });
+  });
+
   it('creates an allowlisted playback command with idempotency, rate, and audit controls', async () => {
     const setup = await createEnvironment({
       mode: 'enabled',
@@ -636,15 +972,38 @@ describe('Developer API read-only public Worker', () => {
   });
 
   it('rejects arbitrary browser origins without emitting CORS headers', async () => {
-    const { env, database } = await createEnvironment();
-    const response = await developerApiWorker.fetch(
-      apiRequest(undefined, { headers: { origin: 'https://attacker.example' } }),
-      env,
-    );
-    expect(response.status).toBe(403);
-    expect(await errorCode(response)).toBe('BROWSER_ORIGIN_FORBIDDEN');
-    expect(response.headers.has('access-control-allow-origin')).toBe(false);
-    expect(database.first).not.toHaveBeenCalled();
+    const cases: Array<{
+      setup: Awaited<ReturnType<typeof createEnvironment>>;
+      path?: string;
+      options: RequestInit;
+    }> = [
+      { setup: await createEnvironment(), path: undefined, options: {} },
+      {
+        setup: await createEnvironment({ scopeMask: developerApiScopes['queue:write'] }),
+        path: `/v1/rooms/${ROOM_CODE}/queue/items`,
+        options: {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': 'request.browser-write-0001',
+          },
+          body: JSON.stringify({ videoId: 'dQw4w9WgXcQ', name: 'Track' }),
+        },
+      },
+    ];
+    for (const entry of cases) {
+      const headers = new Headers(entry.options.headers);
+      headers.set('origin', 'https://attacker.example');
+      const response = await developerApiWorker.fetch(
+        apiRequest(entry.path, { ...entry.options, headers }),
+        entry.setup.env,
+      );
+      expect(response.status).toBe(403);
+      expect(await errorCode(response)).toBe('BROWSER_ORIGIN_FORBIDDEN');
+      expect(response.headers.has('access-control-allow-origin')).toBe(false);
+      expect(entry.setup.database.first).not.toHaveBeenCalled();
+      expect(entry.setup.facadeFetch).not.toHaveBeenCalled();
+    }
   });
 
   it('applies the HMAC ingress limiter before D1 and returns Retry-After', async () => {
@@ -779,6 +1138,73 @@ describe('Developer API atomic room limiter', () => {
     const stored = storage.values.get('buckets') as Record<string, { count: number }>;
     expect(stored[`key:${KEY_ID}:playback-control`]?.count).toBe(30);
     expect(stored['room:playback-control']?.count).toBe(30);
+  });
+
+  it('applies independent atomic limits to queue writes and media uploads', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
+    for (const policy of [
+      {
+        operation: 'authenticated-queue-write',
+        keyBucket: `key:${KEY_ID}:queue-write`,
+        roomBucket: 'room:queue-write',
+        keyLimit: 10,
+        roomLimit: 30,
+        retryAfterSeconds: 60,
+      },
+      {
+        operation: 'authenticated-media-upload-create',
+        keyBucket: `key:${KEY_ID}:media-upload`,
+        roomBucket: 'room:media-upload',
+        keyLimit: 10,
+        roomLimit: 30,
+        retryAfterSeconds: 3_600,
+      },
+      {
+        operation: 'authenticated-media-upload-complete',
+        keyBucket: `key:${KEY_ID}:media-upload-complete`,
+        roomBucket: 'room:media-upload-complete',
+        keyLimit: 30,
+        roomLimit: 90,
+        retryAfterSeconds: 3_600,
+      },
+    ]) {
+      const storage = new FakeStorage();
+      const limiter = new DeveloperApiRateLimiter({ storage } as never);
+      const request = () =>
+        new Request('https://developer-api-rate.internal/check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ operation: policy.operation, keyId: KEY_ID }),
+        });
+
+      for (let index = 0; index < policy.keyLimit; index += 1) {
+        const allowed = await limiter.fetch(request());
+        expect(allowed.status).toBe(200);
+        expect(await allowed.json()).toMatchObject({
+          allowed: true,
+          limit: policy.keyLimit,
+        });
+      }
+      const blocked = await limiter.fetch(request());
+      expect(await blocked.json()).toMatchObject({
+        allowed: false,
+        limit: policy.keyLimit,
+        retryAfterSeconds: policy.retryAfterSeconds,
+      });
+      const stored = storage.values.get('buckets') as Record<
+        string,
+        { count: number; limit: number }
+      >;
+      expect(stored[policy.keyBucket]).toMatchObject({
+        count: policy.keyLimit,
+        limit: policy.keyLimit,
+      });
+      expect(stored[policy.roomBucket]).toMatchObject({
+        count: policy.keyLimit,
+        limit: policy.roomLimit,
+      });
+    }
   });
 
   it('deletes expired per-IP limiter storage on its alarm', async () => {

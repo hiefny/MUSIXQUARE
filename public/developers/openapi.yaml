@@ -1,0 +1,554 @@
+openapi: 3.1.0
+info:
+  title: MUSIXQUARE Developer API
+  version: 1.0.0-beta
+  description: |
+    Server-to-server API for one room-bound MUSIXQUARE PRO room.
+    API keys must never be embedded in browser code or other public clients.
+  contact:
+    name: MUSIXQUARE
+    email: contact@musixquare.com
+servers:
+  - url: https://api.musixquare.com
+security:
+  - developerApiKey: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Developer API Worker health.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok, service]
+                properties:
+                  ok: { const: true }
+                  service: { const: musixquare-developer-api }
+                  workerVersionId: { type: string }
+  /v1/rooms/{roomCode}:
+    get:
+      operationId: getRoom
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Sanitized room status.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '304': { description: Representation is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/playback:
+    get:
+      operationId: getPlayback
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Canonical playback snapshot at observedAtMs.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Playback' }
+        '304': { description: Representation is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/queue:
+    get:
+      operationId: getQueue
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Sanitized persistent playlist.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        '304': { description: Representation is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/commands:
+    post:
+      operationId: createPlaybackCommand
+      description: |
+        Creates one fenced playback intent. An applied play_item command means
+        the coordinator accepted the item; devices may still be loading it.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaybackCommand' }
+      responses:
+        '202':
+          description: Command accepted, including an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommandStatus' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/commands/{commandId}:
+    get:
+      operationId: getPlaybackCommand
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/CommandId'
+      responses:
+        '200':
+          description: Current command state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommandStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/queue/items:
+    post:
+      operationId: addYouTubeQueueItem
+      description: Adds one canonical YouTube item to the end of the playlist without starting playback.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/YouTubeQueueItemCreate' }
+      responses:
+        '201':
+          description: Item appended, including an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/queue/items/{queueItemId}:
+    delete:
+      operationId: deleteQueueItem
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/QueueItemId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Item removed, including an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/queue/order:
+    put:
+      operationId: reorderQueue
+      description: Replaces the order with an exact permutation of the current queue item IDs.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QueueOrderReplace' }
+      responses:
+        '200':
+          description: Queue reordered, including an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/media/uploads:
+    post:
+      operationId: createMediaUpload
+      description: Reserves room capacity and returns a short-lived direct R2 PUT request.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaUploadCreate' }
+      responses:
+        '201':
+          description: Upload reserved, including an idempotent replay.
+          headers:
+            Cache-Control: { schema: { const: no-store } }
+            Referrer-Policy: { schema: { const: no-referrer } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaUploadReservation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/media/uploads/{assetId}/complete:
+    post:
+      operationId: completeMediaUpload
+      description: Verifies and finalizes the object, then appends one paused, non-autoplaying queue item.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/AssetId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Upload finalized and attached, including an idempotent replay.
+          headers:
+            Cache-Control: { schema: { const: no-store } }
+            Referrer-Policy: { schema: { const: no-referrer } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaUploadCompleted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    developerApiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: mxqr_live_<key-id>.<secret>
+  parameters:
+    RoomCode:
+      name: roomCode
+      in: path
+      required: true
+      schema: { type: string, pattern: '^0[0-9]{5}$' }
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema: { type: string, maxLength: 128 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._~-]{14,126}[A-Za-z0-9]$'
+    CommandId:
+      name: commandId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^cmd_[A-Za-z0-9_-]{22}$' }
+    QueueItemId:
+      name: queueItemId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/QueueItemId' }
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }
+  schemas:
+    PlaybackCommand:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type]
+          properties: { type: { const: play } }
+        - type: object
+          additionalProperties: false
+          required: [type]
+          properties: { type: { const: pause } }
+        - type: object
+          additionalProperties: false
+          required: [type, positionSeconds]
+          properties:
+            type: { const: seek }
+            positionSeconds: { type: number, minimum: 0, maximum: 604800 }
+        - type: object
+          additionalProperties: false
+          required: [type, queueItemId]
+          properties:
+            type: { const: play_item }
+            queueItemId: { $ref: '#/components/schemas/QueueItemId' }
+    CommandStatus:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, roomCode, commandId, status, createdAtMs, expiresAtMs]
+      properties:
+        schemaVersion: { const: 1 }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        commandId: { type: string, pattern: '^cmd_[A-Za-z0-9_-]{22}$' }
+        status: { enum: [pending, dispatched, applied, rejected, expired] }
+        createdAtMs: { type: integer, minimum: 0 }
+        expiresAtMs: { type: integer, minimum: 0 }
+        completedAtMs: { type: integer, minimum: 0 }
+        resultCode:
+          enum:
+            - applied
+            - already_applied
+            - busy
+            - no_media
+            - stale_queue
+            - unsupported_mode
+            - expired
+            - execution_failed
+            - coordinator_changed
+            - coordinator_incompatible
+            - coordinator_unavailable
+    QueueItemId:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+    QueueItem:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [queueItemId, kind, name]
+          properties:
+            queueItemId: { $ref: '#/components/schemas/QueueItemId' }
+            kind: { const: youtube }
+            name: { type: string, minLength: 1, maxLength: 512 }
+            title: { type: string, minLength: 1, maxLength: 512 }
+            artist: { type: string, minLength: 1, maxLength: 512 }
+            thumbnail: { type: string, minLength: 1, maxLength: 512 }
+        - type: object
+          additionalProperties: false
+          required: [queueItemId, kind, name, byteLength]
+          properties:
+            queueItemId: { $ref: '#/components/schemas/QueueItemId' }
+            kind: { const: audio }
+            name: { type: string, minLength: 1, maxLength: 512 }
+            title: { type: string, minLength: 1, maxLength: 512 }
+            artist: { type: string, minLength: 1, maxLength: 512 }
+            thumbnail: { type: string, minLength: 1, maxLength: 512 }
+            byteLength: { type: integer, minimum: 1, maximum: 209715200 }
+    Room:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, view, roomCode, status, runtime, revision, participantCount, controlAvailable, quota]
+      properties:
+        schemaVersion: { const: 1 }
+        view: { const: room }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        status: { enum: [unactivated, active, suspended] }
+        runtime: { enum: [awake, sleeping] }
+        revision: { type: integer, minimum: 0 }
+        participantCount: { type: integer, minimum: 0 }
+        controlAvailable: { type: boolean }
+        quota:
+          $ref: '#/components/schemas/Quota'
+    Playback:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, view, roomCode, revision, playlistRevision, state, queueItemId, positionSeconds, observedAtMs, item]
+      properties:
+        schemaVersion: { const: 1 }
+        view: { const: playback }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        revision: { type: integer, minimum: 0 }
+        playlistRevision: { type: integer, minimum: 0 }
+        state: { enum: [idle, playing, paused] }
+        queueItemId: { oneOf: [{ $ref: '#/components/schemas/QueueItemId' }, { type: 'null' }] }
+        positionSeconds: { type: number, minimum: 0 }
+        observedAtMs: { type: integer, minimum: 0 }
+        item: { oneOf: [{ $ref: '#/components/schemas/QueueItem' }, { type: 'null' }] }
+    Queue:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, view, roomCode, playlistRevision, currentQueueItemId, items]
+      properties:
+        schemaVersion: { const: 1 }
+        view: { const: queue }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        playlistRevision: { type: integer, minimum: 0 }
+        currentQueueItemId: { oneOf: [{ $ref: '#/components/schemas/QueueItemId' }, { type: 'null' }] }
+        items:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/QueueItem' }
+    Quota:
+      type: object
+      additionalProperties: false
+      required: [limitBytes, perAssetLimitBytes, usedBytes, reservedBytes]
+      properties:
+        limitBytes: { type: integer, minimum: 0 }
+        perAssetLimitBytes: { type: integer, minimum: 0 }
+        usedBytes: { type: integer, minimum: 0 }
+        reservedBytes: { type: integer, minimum: 0 }
+    YouTubeQueueItemCreate:
+      type: object
+      additionalProperties: false
+      required: [videoId, name]
+      properties:
+        videoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        playlistId: { type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }
+        name: { type: string, minLength: 1, maxLength: 512 }
+        title: { type: string, minLength: 1, maxLength: 512 }
+        artist: { type: string, minLength: 1, maxLength: 512 }
+        thumbnail: { type: string, minLength: 1, maxLength: 512 }
+    QueueOrderReplace:
+      type: object
+      additionalProperties: false
+      required: [basePlaylistRevision, queueItemIds]
+      properties:
+        basePlaylistRevision: { type: integer, minimum: 0 }
+        queueItemIds:
+          type: array
+          maxItems: 1000
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/QueueItemId' }
+    MediaUploadCreate:
+      type: object
+      additionalProperties: false
+      required: [name, byteLength, mime]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 512 }
+        byteLength: { type: integer, minimum: 1, maximum: 209715200 }
+        mime: { type: string, minLength: 1, maxLength: 255 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        title: { type: string, minLength: 1, maxLength: 512 }
+        artist: { type: string, minLength: 1, maxLength: 512 }
+        thumbnail: { type: string, minLength: 1, maxLength: 512 }
+    MediaUploadReservation:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, roomCode, assetId, queueItemId, byteLength, uploadExpiresAtMs, completionExpiresAtMs, upload, quota]
+      properties:
+        schemaVersion: { const: 1 }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        assetId: { type: string, minLength: 16, maxLength: 128 }
+        queueItemId: { $ref: '#/components/schemas/QueueItemId' }
+        byteLength: { type: integer, minimum: 1, maximum: 209715200 }
+        uploadExpiresAtMs:
+          type: integer
+          minimum: 0
+          description: The signed PUT must begin before this timestamp.
+        completionExpiresAtMs:
+          type: integer
+          minimum: 0
+          description: Completion may be requested through this timestamp after an in-time upload begins.
+        upload:
+          type: object
+          additionalProperties: false
+          required: [method, url, headers]
+          properties:
+            method: { const: PUT }
+            url: { type: string, format: uri }
+            headers:
+              type: object
+              additionalProperties: { type: string }
+        quota: { $ref: '#/components/schemas/Quota' }
+    ProAsset:
+      type: object
+      additionalProperties: false
+      required: [kind, assetId, version, byteLength, mime]
+      properties:
+        kind: { const: pro-r2 }
+        assetId: { type: string, minLength: 16, maxLength: 128 }
+        version: { const: 1 }
+        byteLength: { type: integer, minimum: 1, maximum: 209715200 }
+        mime: { type: string, minLength: 3, maxLength: 255 }
+        sha256:
+          type: string
+          oneOf:
+            - { pattern: '^[0-9a-f]{64}$' }
+            - { pattern: '^[A-Za-z0-9_-]{43}$' }
+    MediaUploadCompleted:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, roomCode, asset, queueItem, playlistRevision, quota]
+      properties:
+        schemaVersion: { const: 1 }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        asset: { $ref: '#/components/schemas/ProAsset' }
+        queueItem: { $ref: '#/components/schemas/QueueItem' }
+        playlistRevision: { type: integer, minimum: 0 }
+        quota: { $ref: '#/components/schemas/Quota' }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId, retryable]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+            retryable: { type: boolean }
+  responses:
+    BadRequest:
+      description: Request shape, idempotency key, or value is invalid.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Unknown, malformed, expired, or revoked key.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Key lacks the required scope or the request came from a browser origin.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Idempotency conflict, stale queue revision, quota conflict, or incompatible room state.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Route, room, item, or upload is unavailable to this key.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Per-key, per-room, or ingress limit exceeded.
+      headers:
+        Retry-After: { schema: { type: integer, minimum: 1 } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unavailable:
+      description: API disabled, misconfigured, or temporarily unavailable.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

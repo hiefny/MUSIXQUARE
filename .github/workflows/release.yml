@@ -12,6 +12,7 @@ on:
           - app
           - signaling
           - pro-room
+          - developer-api
           - remote-share
           - all
 
@@ -255,6 +256,85 @@ jobs:
         env:
           MXQR_EXPECTED_PRO_ROOM_VERSION: ${{ steps.pro_room_deployment.outputs.version_id }}
         run: npm run smoke:live:pro-room
+
+      - name: Record current Developer API facade deployment
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        shell: bash
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.developer-api-facade.toml --json \
+            > release-artifacts/deployments/developer-api-facade-before.json
+          node scripts/release-deployment-state.mjs prepare developer-api-facade
+
+      - name: Deploy and record Developer API facade Worker
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        shell: bash
+        run: |
+          node scripts/release-deployment-state.mjs preflight developer-api-facade
+          node scripts/release-deployment-state.mjs attempt developer-api-facade
+          set +e
+          npm run --silent wrangler -- deploy \
+            --config cloudflare/wrangler.developer-api-facade.toml \
+            --message "$RELEASE_MESSAGE"
+          deploy_exit=$?
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.developer-api-facade.toml --json \
+            > release-artifacts/deployments/developer-api-facade.json
+          status_exit=$?
+          record_exit=0
+          if (( status_exit == 0 )); then
+            node scripts/release-deployment-state.mjs record developer-api-facade
+            record_exit=$?
+          fi
+          set -e
+          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
+          if (( status_exit != 0 )); then exit "$status_exit"; fi
+          exit "$record_exit"
+
+      - name: Record current Developer API deployment
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        shell: bash
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.developer-api.toml --json \
+            > release-artifacts/deployments/developer-api-before.json
+          node scripts/release-deployment-state.mjs prepare developer-api
+
+      - name: Deploy and record Developer API Worker
+        id: developer_api_deployment
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        shell: bash
+        run: |
+          node scripts/release-deployment-state.mjs preflight developer-api
+          node scripts/release-deployment-state.mjs attempt developer-api
+          set +e
+          npm run --silent wrangler -- deploy \
+            --config cloudflare/wrangler.developer-api.toml \
+            --message "$RELEASE_MESSAGE"
+          deploy_exit=$?
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.developer-api.toml --json \
+            > release-artifacts/deployments/developer-api.json
+          status_exit=$?
+          record_exit=0
+          if (( status_exit == 0 )); then
+            node scripts/release-deployment-state.mjs record developer-api
+            record_exit=$?
+          fi
+          set -e
+          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
+          if (( status_exit != 0 )); then exit "$status_exit"; fi
+          if (( record_exit != 0 )); then exit "$record_exit"; fi
+          version_id="$(node scripts/release-deployment-state.mjs version developer-api)"
+          echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke Developer API Worker
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        env:
+          MXQR_DEVELOPER_API_SMOKE_KEY: ${{ secrets.MXQR_DEVELOPER_API_SMOKE_KEY }}
+          MXQR_DEVELOPER_API_SMOKE_ROOM: '000001'
+          MXQR_EXPECTED_DEVELOPER_API_VERSION: ${{ steps.developer_api_deployment.outputs.version_id }}
+        run: npm run smoke:live:developer-api
 
       - name: Record current app deployment
         if: inputs.target == 'all' || inputs.target == 'app'

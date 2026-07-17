@@ -7,7 +7,7 @@ import {
 } from '../../../scripts/developer-api-key.mjs';
 
 describe('Developer API key CLI', () => {
-  it('accepts only room-bound Phase 1 read scopes', () => {
+  it('defaults to read-only access and accepts all room-bound v1 scopes explicitly', () => {
     expect(
       parseDeveloperApiKeyCommand([
         'issue',
@@ -25,15 +25,36 @@ describe('Developer API key CLI', () => {
       days: 30,
       scopes: ['room:read', 'playback:read', 'queue:read'],
     });
+    expect(
+      parseDeveloperApiKeyCommand([
+        'issue',
+        '--room',
+        '000001',
+        '--label',
+        'Friend full API',
+        '--scopes',
+        'room:read,playback:read,playback:control,queue:read,queue:write,media:upload',
+      ]),
+    ).toMatchObject({
+      roomCode: '000001',
+      scopes: [
+        'room:read',
+        'playback:read',
+        'playback:control',
+        'queue:read',
+        'queue:write',
+        'media:upload',
+      ],
+    });
     expect(() =>
       parseDeveloperApiKeyCommand([
         'issue',
         '--room',
         '000001',
         '--label',
-        'Write key',
+        'Unknown scope',
         '--scopes',
-        'queue:write',
+        'admin:write',
       ]),
     ).toThrow(DeveloperApiKeyCliError);
     expect(() =>
@@ -69,6 +90,30 @@ describe('Developer API key CLI', () => {
     expect(sql[0]).not.toContain(result.apiKey.split('.')[1] || 'missing-secret');
     expect(sql[0]).toContain("Friend''s API");
     expect(sql[0]).toContain(', 11,');
+  });
+
+  it('stores the complete v1 permission set as scope mask 63', async () => {
+    let insert = '';
+    await runDeveloperApiKeyCli({
+      argv: [
+        'issue',
+        '--room',
+        '000001',
+        '--label',
+        'Friend full API',
+        '--scopes',
+        'room:read,playback:read,playback:control,queue:read,queue:write,media:upload',
+      ],
+      env: { MXQR_DEVELOPER_API_KEY_PEPPER: 'p'.repeat(32) },
+      randomBytes: (size: number) => Buffer.alloc(size, 7),
+      execute: (statement: string) => {
+        insert = statement;
+        const match = statement.match(/VALUES \('([^']+)'/);
+        return [{ key_id: match?.[1] }];
+      },
+      stdout: { write: () => true },
+    });
+    expect(insert).toContain(', 63,');
   });
 
   it('requires the same key pepper before generating any credential', async () => {

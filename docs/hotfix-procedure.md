@@ -1,6 +1,6 @@
 # Production Hotfix And Rollback Procedure
 
-Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the four
+Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the six
 Wrangler configs, the production release workflow, and the live-smoke scripts
 on 2026-07-16. Read the current
 `CACHE_VERSION` from the service-worker source rather than copying a number
@@ -87,15 +87,24 @@ OAuth credential into GitHub.
 
 ### Worker scope and order
 
-The release workflow deploys only the selected scope. For a backward-compatible
-change that touches all four, it uses this order so the existing browser
+The release workflow deploys only the selected scope. The `developer-api` scope
+deploys its private facade before its public Worker. For a backward-compatible
+change that touches every Worker, `all` uses this order so the existing browser
 remains usable while backends roll forward:
 
 1. `cloudflare/wrangler.remote-share.toml`, then its live smoke;
 2. `cloudflare/wrangler.signaling.toml`, then its live smoke;
 3. `cloudflare/wrangler.pro-room.toml`, then its version-aware health smoke;
-4. `cloudflare/wrangler.app.toml` with the verified artifact, then its live smoke
+4. `cloudflare/wrangler.developer-api-facade.toml` (private service binding only);
+5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke
+   against the fixed `000001` canary room;
+6. `cloudflare/wrangler.app.toml` with the verified artifact, then its live smoke
    and browser QA.
+
+The production environment secret `MXQR_DEVELOPER_API_SMOKE_KEY` must contain a
+valid key limited to room `000001`; it is used only by the release smoke and is
+never embedded in the immutable app artifact. Widening the Developer API beyond
+that room requires a separate production review and config change.
 
 That Worker-first order applies only to backward-compatible protocol changes.
 For an intentional hard cut such as the `queueItemId` remote-share migration,

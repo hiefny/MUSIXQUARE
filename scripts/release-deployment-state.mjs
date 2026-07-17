@@ -22,9 +22,17 @@ const TARGETS = {
     config: 'cloudflare/wrangler.pro-room.toml',
     rollbackOrder: 3,
   },
+  'developer-api-facade': {
+    config: 'cloudflare/wrangler.developer-api-facade.toml',
+    rollbackOrder: 4,
+  },
+  'developer-api': {
+    config: 'cloudflare/wrangler.developer-api.toml',
+    rollbackOrder: 5,
+  },
   app: {
     config: 'cloudflare/wrangler.app.toml',
-    rollbackOrder: 4,
+    rollbackOrder: 6,
   },
 };
 

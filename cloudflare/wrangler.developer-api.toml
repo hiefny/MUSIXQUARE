@@ -19,10 +19,11 @@ head_sampling_rate = 0.01
 pattern = "api.musixquare.com"
 custom_domain = true
 
-# The first production deployment stays closed until the dedicated schema,
-# secrets, and room-bound canary key have all been provisioned.
+# Production remains limited to the explicitly listed room while the first
+# server-to-server integration is validated. Never widen this to `enabled`
+# without a separate production review.
 [vars]
-DEVELOPER_API_MODE = "off"
+DEVELOPER_API_MODE = "canary"
 DEVELOPER_API_CANARY_ROOMS = "000001"
 
 [[d1_databases]]

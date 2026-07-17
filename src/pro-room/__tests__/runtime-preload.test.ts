@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { bus } from '../../core/events.ts';
 import { getState, setState } from '../../core/state.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { ProRoomApiClient, type ProRoomSignalingAccess } from '../api.ts';
@@ -199,5 +200,32 @@ describe.sequential('PRO room runtime preload adoption', () => {
     expect(
       download.mock.calls.filter(([input]) => input.source.assetId === PROMOTE_SOURCE.assetId),
     ).toHaveLength(1);
+  });
+
+  it('refreshes the authoritative snapshot from an exact server invalidation hint', async () => {
+    const next = { ...roomSnapshot(), revision: 2, playlistRevision: 2 };
+    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'getSnapshot').mockResolvedValue(next);
+
+    bus.emit('network:developer-invalidation', {
+      type: 'developer-invalidation',
+      version: 1,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 2,
+      revision: 2,
+      playlistRevision: 2,
+    });
+    await Promise.resolve();
+    expect(refresh).not.toHaveBeenCalled();
+
+    bus.emit('network:developer-invalidation', {
+      type: 'developer-invalidation',
+      version: 1,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 1,
+      revision: 2,
+      playlistRevision: 2,
+    });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledWith(ROOM_CODE, undefined));
+    refresh.mockRestore();
   });
 });

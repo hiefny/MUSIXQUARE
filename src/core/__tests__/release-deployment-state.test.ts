@@ -51,7 +51,14 @@ afterEach(() => {
 describe('release deployment rollback state', () => {
   it('runs a production-state preflight immediately before every Worker deploy', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    for (const target of ['remote-share', 'signaling', 'pro-room', 'app']) {
+    for (const target of [
+      'remote-share',
+      'signaling',
+      'pro-room',
+      'developer-api-facade',
+      'developer-api',
+      'app',
+    ]) {
       expect(workflow).toMatch(
         new RegExp(
           `preflight ${target}\\s+node scripts/release-deployment-state\\.mjs attempt ${target}` +
@@ -59,6 +66,37 @@ describe('release deployment rollback state', () => {
         ),
       );
     }
+  });
+
+  it('keeps the Developer API release chain ordered and canary-scoped', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const proRoom = workflow.indexOf('Deploy and record PRO room Worker');
+    const facade = workflow.indexOf('Deploy and record Developer API facade Worker');
+    const developerApi = workflow.indexOf('Deploy and record Developer API Worker');
+    const app = workflow.indexOf('Deploy and record app Worker with immutable dist');
+
+    expect(proRoom).toBeGreaterThan(-1);
+    expect(facade).toBeGreaterThan(proRoom);
+    expect(developerApi).toBeGreaterThan(facade);
+    expect(app).toBeGreaterThan(developerApi);
+    expect(workflow).toContain('- developer-api');
+    expect(workflow).toContain("MXQR_DEVELOPER_API_SMOKE_ROOM: '000001'");
+    expect(workflow).toContain(
+      'MXQR_DEVELOPER_API_SMOKE_KEY: ${{ secrets.MXQR_DEVELOPER_API_SMOKE_KEY }}',
+    );
+
+    const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    const deployAll = packageJson.scripts['deploy:all-workers'];
+    const proConfig = deployAll.indexOf('cloudflare/wrangler.pro-room.toml');
+    const facadeConfig = deployAll.indexOf('cloudflare/wrangler.developer-api-facade.toml');
+    const apiConfig = deployAll.indexOf('cloudflare/wrangler.developer-api.toml');
+    const appConfig = deployAll.indexOf('cloudflare/wrangler.app.toml');
+
+    expect(facadeConfig).toBeGreaterThan(proConfig);
+    expect(apiConfig).toBeGreaterThan(facadeConfig);
+    expect(appConfig).toBeGreaterThan(apiConfig);
   });
 
   it('requires exactly one 100% production version', () => {
@@ -437,7 +475,14 @@ describe('release deployment rollback state', () => {
 
   it('orders attempted deployments in reverse release order', () => {
     const directory = createDirectory();
-    for (const target of ['remote-share', 'signaling', 'pro-room', 'app']) {
+    for (const target of [
+      'remote-share',
+      'signaling',
+      'pro-room',
+      'developer-api-facade',
+      'developer-api',
+      'app',
+    ]) {
       writeFileSync(
         resolve(directory, `${target}-state.json`),
         JSON.stringify({ schemaVersion: 1, target, attempted: true }),
@@ -446,6 +491,8 @@ describe('release deployment rollback state', () => {
 
     expect(attemptedStates(directory).map((state: { target: string }) => state.target)).toEqual([
       'app',
+      'developer-api',
+      'developer-api-facade',
       'pro-room',
       'signaling',
       'remote-share',

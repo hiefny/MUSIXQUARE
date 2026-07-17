@@ -737,6 +737,60 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(coordinator.sent).toHaveLength(sentCount);
   });
 
+  it('dispatches a bounded server-only invalidation only to the exact capable coordinator', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-device',
+        presenceIncarnationId: 'presence-incarnation-0001',
+        jti: 'coordinator-ticket-0001',
+        developerControlVersion: 1,
+      }),
+    );
+    const coordinator = lastServer();
+    const frame = {
+      type: 'developer-invalidation',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 1,
+      revision: 9,
+      playlistRevision: 4,
+    };
+    const invalidate = (presenceIncarnationId: string, nextFrame: unknown = frame) =>
+      room.fetch(
+        new Request('https://signaling.internal/internal/developer/v1/invalidate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: '000001',
+            coordinatorEpoch: 1,
+            coordinatorParticipantId: 'coordinator-device',
+            coordinatorPresenceIncarnationId: presenceIncarnationId,
+            developerControlVersion: 1,
+            frame: nextFrame,
+          }),
+        }),
+      );
+
+    const accepted = await invalidate('presence-incarnation-0001');
+    expect(accepted.status).toBe(200);
+    expect(sent(coordinator).at(-1)).toEqual(frame);
+
+    const sentCount = coordinator.sent.length;
+    const stale = await invalidate('presence-incarnation-stale');
+    expect(stale.status).toBe(409);
+    expect(coordinator.sent).toHaveLength(sentCount);
+
+    const malformed = await invalidate('presence-incarnation-0001', {
+      ...frame,
+      unexpected: true,
+    });
+    expect(malformed.status).toBe(400);
+    expect(coordinator.sent).toHaveLength(sentCount);
+  });
+
   it('advancing a PRO coordinator epoch closes every prior-epoch socket and rejects stale tickets', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });

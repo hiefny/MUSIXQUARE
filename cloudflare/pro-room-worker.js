@@ -24,6 +24,20 @@ const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const DEVELOPER_AUDIO_EXTENSIONS = new Set([
+  'mp3',
+  'wav',
+  'flac',
+  'm4a',
+  'aac',
+  'ogg',
+  'oga',
+  'opus',
+  'webm',
+  'aif',
+  'aiff',
+  'caf',
+]);
 const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 const DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
@@ -40,6 +54,7 @@ const SESSION_MAX_ITEMS = 128;
 const ASSET_MAX_ITEMS = 1024;
 const RESERVED_ASSET_MAX_ITEMS = 32;
 const RESERVED_ASSET_MAX_ITEMS_PER_PARTICIPANT = 8;
+const RESERVED_ASSET_MAX_ITEMS_PER_DEVELOPER_KEY = 2;
 const IDEMPOTENCY_MAX_ITEMS = 256;
 const RATE_LIMIT_MAX_ITEMS = 512;
 const RECOVERY_NONCE_MAX_ITEMS = 128;
@@ -980,6 +995,112 @@ function parseDeveloperCommand(value) {
   return null;
 }
 
+function randomQueueItemId() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const value = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+function parseDeveloperMetadata(value, requiredName = true) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const name = requiredName ? boundedString(value.name, 512) : undefined;
+  if (requiredName && !name) return null;
+  const metadata = requiredName ? { name } : {};
+  for (const key of ['title', 'artist', 'thumbnail']) {
+    if (value[key] === undefined) continue;
+    const parsed = boundedString(value[key], 512);
+    if (!parsed) return null;
+    metadata[key] = parsed;
+  }
+  return metadata;
+}
+
+function parseDeveloperQueueMutation(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value.type === 'add_youtube') {
+    if (
+      !hasExactKeys(
+        value,
+        ['type', 'videoId', 'name'],
+        ['playlistId', 'title', 'artist', 'thumbnail'],
+      ) ||
+      !YOUTUBE_VIDEO_ID_RE.test(value.videoId || '') ||
+      (value.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(value.playlistId || ''))
+    ) {
+      return null;
+    }
+    const metadata = parseDeveloperMetadata(value);
+    if (!metadata) return null;
+    return {
+      type: 'add_youtube',
+      videoId: value.videoId,
+      ...(value.playlistId === undefined ? {} : { playlistId: value.playlistId }),
+      ...metadata,
+    };
+  }
+  if (value.type === 'remove') {
+    return hasExactKeys(value, ['type', 'queueItemId']) &&
+      QUEUE_ITEM_ID_RE.test(value.queueItemId || '')
+      ? { type: 'remove', queueItemId: value.queueItemId }
+      : null;
+  }
+  if (value.type === 'reorder') {
+    if (
+      !hasExactKeys(value, ['type', 'basePlaylistRevision', 'queueItemIds']) ||
+      !isSafeNonNegativeInteger(value.basePlaylistRevision) ||
+      !Array.isArray(value.queueItemIds) ||
+      value.queueItemIds.length > PLAYLIST_MAX_ITEMS ||
+      value.queueItemIds.some((queueItemId) => !QUEUE_ITEM_ID_RE.test(queueItemId || '')) ||
+      new Set(value.queueItemIds).size !== value.queueItemIds.length
+    ) {
+      return null;
+    }
+    return {
+      type: 'reorder',
+      basePlaylistRevision: value.basePlaylistRevision,
+      queueItemIds: [...value.queueItemIds],
+    };
+  }
+  return null;
+}
+
+function isDeveloperAudioCandidate(name, mime) {
+  if (typeof name !== 'string' || typeof mime !== 'string') return false;
+  if (/^audio\//i.test(mime) || mime.toLowerCase() === 'application/ogg') return true;
+  if (mime.toLowerCase() !== 'application/octet-stream') return false;
+  const extension = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  return DEVELOPER_AUDIO_EXTENSIONS.has(extension);
+}
+
+function parseDeveloperMediaUpload(value) {
+  if (
+    !hasExactKeys(
+      value,
+      ['name', 'byteLength', 'mime'],
+      ['sha256', 'title', 'artist', 'thumbnail'],
+    ) ||
+    !Number.isSafeInteger(value.byteLength) ||
+    value.byteLength <= 0 ||
+    value.byteLength > ASSET_MAX_BYTES ||
+    typeof value.mime !== 'string' ||
+    !MIME_RE.test(value.mime) ||
+    (value.sha256 !== undefined && !SHA256_RE.test(value.sha256 || ''))
+  ) {
+    return null;
+  }
+  const metadata = parseDeveloperMetadata(value);
+  if (!metadata || !isDeveloperAudioCandidate(metadata.name, value.mime)) return null;
+  return {
+    ...metadata,
+    byteLength: value.byteLength,
+    mime: value.mime,
+    ...(value.sha256 === undefined ? {} : { sha256: value.sha256 }),
+  };
+}
+
 function publicDeveloperCommand(record) {
   return {
     schemaVersion: 1,
@@ -1651,6 +1772,15 @@ export class MusixquareProRoom {
           if (url.pathname === '/internal/developer/v1/commands/status') {
             return this.handleInternalDeveloperCommandStatus(request);
           }
+          if (url.pathname === '/internal/developer/v1/queue/mutate') {
+            return this.handleInternalDeveloperQueueMutation(request);
+          }
+          if (url.pathname === '/internal/developer/v1/media/uploads/create') {
+            return this.handleInternalDeveloperMediaUploadCreate(request);
+          }
+          if (url.pathname === '/internal/developer/v1/media/uploads/complete') {
+            return this.handleInternalDeveloperMediaUploadComplete(request);
+          }
           return errorResponse('NOT_FOUND', 404);
         });
       });
@@ -1892,6 +2022,389 @@ export class MusixquareProRoom {
     return retained ? jsonResponse(retained.body) : errorResponse('COMMAND_NOT_FOUND', 404);
   }
 
+  async handleInternalDeveloperQueueMutation(request) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
+    const parsed = await this.parseBody(request, 64 * 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'mutation']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
+      !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const mutation = parseDeveloperQueueMutation(parsed.value.mutation);
+    if (!mutation) return errorResponse('INVALID_REQUEST', 400);
+    const scope = `developer:${parsed.value.keyId}:queue:${mutation.type}`;
+    const fingerprint = await this.idempotencyFingerprint(scope, mutation);
+    const replay = this.replayIdempotency(scope, parsed.value.idempotencyKey, fingerprint);
+    if (replay) return replay;
+
+    const nowMs = Date.now();
+    let playlistChanged = false;
+    if (mutation.type === 'add_youtube') {
+      if (this.room.playlist.length >= PLAYLIST_MAX_ITEMS) {
+        return errorResponse('PLAYLIST_CAPACITY_EXCEEDED', 409);
+      }
+      const queueItemId = randomQueueItemId();
+      const item = {
+        queueItemId,
+        name: mutation.name,
+        ...(mutation.title === undefined ? {} : { title: mutation.title }),
+        ...(mutation.artist === undefined ? {} : { artist: mutation.artist }),
+        ...(mutation.thumbnail === undefined ? {} : { thumbnail: mutation.thumbnail }),
+        source: {
+          kind: 'youtube',
+          videoId: mutation.videoId,
+          ...(mutation.playlistId === undefined ? {} : { playlistId: mutation.playlistId }),
+        },
+      };
+      this.room.playlist.push(item);
+      playlistChanged = true;
+    } else if (mutation.type === 'remove') {
+      const index = this.room.playlist.findIndex(
+        (item) => item.queueItemId === mutation.queueItemId,
+      );
+      if (index === -1) return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
+      const removedCurrent = this.room.currentQueueItemId === mutation.queueItemId;
+      if (removedCurrent && this.room.playback.revision >= Number.MAX_SAFE_INTEGER) {
+        return errorResponse('PLAYBACK_REVISION_EXHAUSTED', 409);
+      }
+      this.room.playlist.splice(index, 1);
+      playlistChanged = true;
+      if (removedCurrent) {
+        this.room.currentQueueItemId = null;
+        this.room.playback = {
+          coordinatorEpoch: this.room.playback.coordinatorEpoch,
+          revision: this.room.playback.revision + 1,
+          state: 'idle',
+          queueItemId: null,
+          positionSeconds: 0,
+          updatedAtMs: Math.max(this.room.playback.updatedAtMs, nowMs),
+          youtubeVideoId: null,
+          youtubeSubIndex: null,
+        };
+      }
+    } else {
+      if (mutation.basePlaylistRevision !== this.room.playlistRevision) {
+        return errorResponse('PLAYLIST_REVISION_CONFLICT', 409);
+      }
+      const currentIds = this.room.playlist.map((item) => item.queueItemId);
+      const requested = new Set(mutation.queueItemIds);
+      if (
+        currentIds.length !== mutation.queueItemIds.length ||
+        currentIds.some((queueItemId) => !requested.has(queueItemId))
+      ) {
+        return errorResponse('PLAYLIST_REVISION_CONFLICT', 409);
+      }
+      playlistChanged = currentIds.some(
+        (queueItemId, index) => queueItemId !== mutation.queueItemIds[index],
+      );
+      if (playlistChanged) {
+        const itemById = new Map(this.room.playlist.map((item) => [item.queueItemId, item]));
+        this.room.playlist = mutation.queueItemIds.map((queueItemId) => itemById.get(queueItemId));
+      }
+    }
+
+    if (playlistChanged) {
+      this.room.playlistRevision += 1;
+      this.room.revision += 1;
+      this.reconcileAssetGarbageCollection(nowMs);
+    }
+    const responseBody = developerProjection(this.room, 'queue', nowMs);
+    const responseStatus = mutation.type === 'add_youtube' ? 201 : 200;
+    this.storeDeveloperQueueIdempotency(
+      scope,
+      parsed.value.idempotencyKey,
+      fingerprint,
+      responseStatus,
+    );
+    await this.persist();
+    if (playlistChanged) this.scheduleDeveloperInvalidationHint();
+    return jsonResponse(responseBody, responseStatus);
+  }
+
+  async handleInternalDeveloperMediaUploadCreate(request) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
+    const parsed = await this.parseBody(request, 16 * 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'media']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
+      !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const media = parseDeveloperMediaUpload(parsed.value.media);
+    if (!media) return errorResponse('INVALID_MEDIA', 400);
+    const scope = `developer:${parsed.value.keyId}:media:reserve`;
+    const fingerprint = await this.idempotencyFingerprint(scope, media);
+    const replay = this.replayIdempotency(scope, parsed.value.idempotencyKey, fingerprint);
+    if (replay) return replay;
+    if (!this.env.PRO_MEDIA_BUCKET || !r2S3Config(this.env)) {
+      return errorResponse('MEDIA_NOT_CONFIGURED', 503);
+    }
+    if (this.room.playlist.length >= PLAYLIST_MAX_ITEMS) {
+      return errorResponse('PLAYLIST_CAPACITY_EXCEEDED', 409);
+    }
+    const assets = Object.values(this.room.assets);
+    const reservations = assets.filter((asset) => asset.status === 'reserved');
+    if (assets.length + Object.keys(this.room.stagingTombstones).length >= ASSET_MAX_ITEMS) {
+      return errorResponse('ASSET_CAPACITY_EXCEEDED', 409);
+    }
+    if (reservations.length >= RESERVED_ASSET_MAX_ITEMS) {
+      return errorResponse('RESERVATION_CAPACITY_EXCEEDED', 409);
+    }
+    if (
+      reservations.filter((asset) => asset.reservedByDeveloperKeyId === parsed.value.keyId)
+        .length >= RESERVED_ASSET_MAX_ITEMS_PER_DEVELOPER_KEY
+    ) {
+      return errorResponse('RESERVATION_CAPACITY_EXCEEDED', 409);
+    }
+    if (
+      this.room.quota.usedBytes + this.room.quota.reservedBytes + media.byteLength >
+      ROOM_QUOTA_BYTES
+    ) {
+      return errorResponse('ROOM_QUOTA_EXCEEDED', 409);
+    }
+
+    const nowMs = Date.now();
+    const assetId = `asset_${randomToken(24)}`;
+    const queueItemId = randomQueueItemId();
+    const version = 1;
+    const objectPrefix = `rooms/${this.room.roomCode}/assets/${assetId}/v${version}`;
+    const stagingObjectKey = `${objectPrefix}/staging_${randomToken(18)}`;
+    const objectKey = `${objectPrefix}/object_${randomToken(24)}`;
+    const uploadHeaders = {
+      'content-length': String(media.byteLength),
+      'content-type': media.mime,
+      'x-amz-meta-mxqr-room': this.room.roomCode,
+      'x-amz-meta-mxqr-asset': assetId,
+      'x-amz-meta-mxqr-version': String(version),
+      'x-amz-meta-mxqr-bytes': String(media.byteLength),
+      ...(media.sha256 === undefined ? {} : { 'x-amz-meta-mxqr-sha256': media.sha256 }),
+    };
+    const presignTtl = Math.min(
+      this.reservationTtlSeconds(),
+      configuredNumber(this.env.PRESIGN_TTL_SECONDS, PRESIGN_TTL_SECONDS, 60, 3600),
+    );
+    const uploadExpiresAtMs = nowMs + presignTtl * 1000;
+    // Completion keeps the original grace window: a large PUT may begin
+    // before its signature expires and finish shortly afterward.
+    const completionExpiresAtMs = nowMs + this.reservationTtlSeconds() * 1000;
+    const uploadUrl = await createR2PresignedUrl({
+      env: this.env,
+      method: 'PUT',
+      objectKey: stagingObjectKey,
+      headers: uploadHeaders,
+      expiresInSeconds: presignTtl,
+      now: new Date(nowMs),
+    });
+    if (!uploadUrl) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
+
+    this.room.assets[assetId] = {
+      status: 'reserved',
+      assetId,
+      version,
+      objectKey,
+      stagingObjectKey,
+      uploadExpiresAtMs,
+      reservedByDeveloperKeyId: parsed.value.keyId,
+      developerQueueItemId: queueItemId,
+      developerMetadata: {
+        name: media.name,
+        ...(media.title === undefined ? {} : { title: media.title }),
+        ...(media.artist === undefined ? {} : { artist: media.artist }),
+        ...(media.thumbnail === undefined ? {} : { thumbnail: media.thumbnail }),
+      },
+      byteLength: media.byteLength,
+      name: media.name,
+      mime: media.mime,
+      ...(media.sha256 === undefined ? {} : { sha256: media.sha256 }),
+      createdAtMs: nowMs,
+      expiresAtMs: completionExpiresAtMs,
+    };
+    this.room.quota.reservedBytes += media.byteLength;
+    this.room.revision += 1;
+    const responseBody = {
+      schemaVersion: 1,
+      roomCode: this.room.roomCode,
+      assetId,
+      queueItemId,
+      byteLength: media.byteLength,
+      uploadExpiresAtMs,
+      completionExpiresAtMs,
+      upload: { method: 'PUT', url: uploadUrl, headers: uploadHeaders },
+      quota: { ...this.room.quota },
+    };
+    // Never replay an expired signed URL. The reservation itself remains
+    // completable through completionExpiresAtMs when the upload started in
+    // time but crossed the signing deadline.
+    this.storeIdempotency(
+      scope,
+      parsed.value.idempotencyKey,
+      fingerprint,
+      responseBody,
+      201,
+      uploadExpiresAtMs,
+    );
+    await this.persist();
+    return jsonResponse(responseBody, 201);
+  }
+
+  async handleInternalDeveloperMediaUploadComplete(request) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
+    const parsed = await this.parseBody(request, 4 * 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'assetId']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
+      !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '') ||
+      !OPAQUE_ID_RE.test(parsed.value.assetId || '')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const assetId = parsed.value.assetId;
+    const scope = `developer:${parsed.value.keyId}:media:complete:${assetId}`;
+    const fingerprint = await this.idempotencyFingerprint(scope, { assetId });
+    const replay = this.replayIdempotency(scope, parsed.value.idempotencyKey, fingerprint);
+    if (replay) return replay;
+    const asset = this.room.assets[assetId];
+    if (!asset || asset.status !== 'reserved') return errorResponse('ASSET_NOT_FOUND', 404);
+    if (!constantTimeEqual(asset.reservedByDeveloperKeyId || '', parsed.value.keyId)) {
+      return errorResponse('ASSET_NOT_FOUND', 404);
+    }
+    if (
+      !QUEUE_ITEM_ID_RE.test(asset.developerQueueItemId || '') ||
+      !parseDeveloperMetadata(asset.developerMetadata)
+    ) {
+      return errorResponse('ROOM_STATE_INVALID', 503);
+    }
+    if (this.room.playlist.length >= PLAYLIST_MAX_ITEMS) {
+      return errorResponse('PLAYLIST_CAPACITY_EXCEEDED', 409);
+    }
+    if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
+    if (serializedStateByteLength(this.room) > STATE_MAX_BYTES - 32 * 1024) {
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    }
+    const expectedObjectMetadata = {
+      'mxqr-room': this.room.roomCode,
+      'mxqr-asset': asset.assetId,
+      'mxqr-version': String(asset.version),
+      'mxqr-bytes': String(asset.byteLength),
+      ...(asset.sha256 === undefined ? {} : { 'mxqr-sha256': asset.sha256 }),
+    };
+    const objectMatchesReservation = (object) => {
+      const metadata = object?.customMetadata || {};
+      return (
+        object?.size === asset.byteLength &&
+        object?.httpMetadata?.contentType === asset.mime &&
+        Object.entries(expectedObjectMetadata).every(
+          ([metadataKey, metadataValue]) => metadata[metadataKey] === metadataValue,
+        ) &&
+        (asset.sha256 !== undefined || metadata['mxqr-sha256'] === undefined)
+      );
+    };
+
+    let stagingObject;
+    let finalObject;
+    try {
+      stagingObject = await this.env.PRO_MEDIA_BUCKET.head(asset.stagingObjectKey);
+      if (!stagingObject) finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
+    } catch {
+      return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+    }
+    // A previous attempt may have copied the final object and then lost its
+    // response or been interrupted before the Durable Object commit. The
+    // immutable final object is a valid recovery source when every reserved
+    // property still matches; otherwise a missing staging object means the
+    // client upload has not completed.
+    if (!stagingObject && !objectMatchesReservation(finalObject)) {
+      return errorResponse('UPLOAD_INCOMPLETE', 409);
+    }
+    if (stagingObject && !objectMatchesReservation(stagingObject)) {
+      try {
+        await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
+      } catch {
+        asset.expiresAtMs = Date.now() + 60_000;
+        await this.persist();
+        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      }
+      this.room.quota.reservedBytes -= asset.byteLength;
+      this.retainStagingTombstone(asset);
+      delete this.room.assets[assetId];
+      this.room.revision += 1;
+      await this.persist();
+      return errorResponse('UPLOAD_MISMATCH', 409);
+    }
+
+    if (!objectMatchesReservation(finalObject)) {
+      try {
+        const staged = await this.env.PRO_MEDIA_BUCKET.get(asset.stagingObjectKey);
+        if (!staged?.body) return errorResponse('UPLOAD_INCOMPLETE', 409);
+        await this.env.PRO_MEDIA_BUCKET.put(asset.objectKey, staged.body, {
+          httpMetadata: { contentType: asset.mime },
+          customMetadata: expectedObjectMetadata,
+        });
+        finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
+        if (!objectMatchesReservation(finalObject)) {
+          await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
+          return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+        }
+      } catch {
+        await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
+        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      }
+    }
+
+    const nowMs = Date.now();
+    const queueItem = {
+      queueItemId: asset.developerQueueItemId,
+      ...asset.developerMetadata,
+      source: publicAsset(asset),
+    };
+    asset.status = 'ready';
+    delete asset.expiresAtMs;
+    asset.completedAtMs = nowMs;
+    asset.stagingCleanupAfterMs = Math.max(asset.uploadExpiresAtMs + 5_000, nowMs + 60_000);
+    this.room.quota.reservedBytes -= asset.byteLength;
+    this.room.quota.usedBytes += asset.byteLength;
+    this.room.playlist.push(queueItem);
+    this.room.playlistRevision += 1;
+    delete asset.reservedByDeveloperKeyId;
+    delete asset.developerQueueItemId;
+    delete asset.developerMetadata;
+    this.reconcileAssetGarbageCollection(nowMs);
+    this.room.revision += 1;
+    const responseBody = {
+      schemaVersion: 1,
+      roomCode: this.room.roomCode,
+      asset: publicAsset(asset),
+      queueItem: developerQueueItem(queueItem),
+      playlistRevision: this.room.playlistRevision,
+      quota: { ...this.room.quota },
+    };
+    this.storeIdempotency(scope, parsed.value.idempotencyKey, fingerprint, responseBody, 201);
+    await this.persist();
+    this.scheduleDeveloperInvalidationHint();
+    // State is authoritative once persisted. Staging cleanup is deliberately
+    // after that commit, so interruption cannot strand a reserved asset whose
+    // only recoverable upload object was already deleted. The normal alarm GC
+    // retries this best-effort cleanup via stagingCleanupAfterMs.
+    const cleanup = this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey).catch(() => {});
+    if (typeof this.state.waitUntil === 'function') this.state.waitUntil(cleanup);
+    return jsonResponse(responseBody, 201);
+  }
+
   reserveDeveloperCommandSlot() {
     const records = this.room.developerCommands;
     const ids = Object.keys(records);
@@ -1969,6 +2482,67 @@ export class MusixquareProRoom {
     record.retainUntilMs = nowMs + DEVELOPER_COMMAND_RETENTION_MS;
     if (acknowledged) record.acknowledgedAtMs = nowMs;
     this.syncDeveloperCommandIdempotency(record);
+  }
+
+  scheduleDeveloperInvalidationHint() {
+    const coordinatorId = this.room.presence.coordinatorParticipantId;
+    const coordinator = coordinatorId ? this.room.presence.participants[coordinatorId] : null;
+    if (
+      this.room.runtime !== 'awake' ||
+      !coordinator ||
+      coordinator.developerControlVersion !== DEVELOPER_CONTROL_VERSION ||
+      !Number.isSafeInteger(this.room.revision) ||
+      this.room.revision < 0 ||
+      !Number.isSafeInteger(this.room.playlistRevision) ||
+      this.room.playlistRevision < 0
+    ) {
+      return;
+    }
+    const dispatch = this.dispatchDeveloperInvalidationHint({
+      roomCode: this.room.roomCode,
+      coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      coordinatorParticipantId: coordinator.participantId,
+      coordinatorPresenceIncarnationId: coordinator.presenceIncarnationId,
+      developerControlVersion: DEVELOPER_CONTROL_VERSION,
+      revision: this.room.revision,
+      playlistRevision: this.room.playlistRevision,
+    });
+    if (typeof this.state.waitUntil === 'function') this.state.waitUntil(dispatch);
+  }
+
+  async dispatchDeveloperInvalidationHint(hint) {
+    const namespace = this.env.PRO_SIGNALING_ROOMS;
+    if (!namespace || typeof namespace.idFromName !== 'function') return false;
+    const frame = {
+      type: 'developer-invalidation',
+      version: DEVELOPER_CONTROL_VERSION,
+      roomCode: hint.roomCode,
+      coordinatorEpoch: hint.coordinatorEpoch,
+      revision: hint.revision,
+      playlistRevision: hint.playlistRevision,
+    };
+    try {
+      const stub = namespace.get(namespace.idFromName(hint.roomCode));
+      const response = await fetchWithDeadline(
+        (boundedRequest) => stub.fetch(boundedRequest),
+        new Request('https://signaling.internal/internal/developer/v1/invalidate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: hint.roomCode,
+            coordinatorEpoch: hint.coordinatorEpoch,
+            coordinatorParticipantId: hint.coordinatorParticipantId,
+            coordinatorPresenceIncarnationId: hint.coordinatorPresenceIncarnationId,
+            developerControlVersion: hint.developerControlVersion,
+            frame,
+          }),
+        }),
+        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
+      );
+      return response.status === 200;
+    } catch {
+      return false;
+    }
   }
 
   async dispatchDeveloperCommand(record) {
@@ -3158,6 +3732,13 @@ export class MusixquareProRoom {
     if (record.kind === 'snapshot') {
       return jsonResponse({ snapshot: publicSnapshot(this.room, session) }, record.status);
     }
+    if (record.kind === 'developer-queue') {
+      // The action is replayed from a compact receipt, while the response is
+      // regenerated from authoritative state. Storing a full queue snapshot
+      // per API mutation would duplicate up to 1.2 MiB in the room's 24-hour
+      // idempotency ledger and make an otherwise healthy room unwritable.
+      return jsonResponse(developerProjection(this.room, 'queue', Date.now()), record.status);
+    }
     return jsonResponse(record.body, record.status);
   }
 
@@ -3187,6 +3768,23 @@ export class MusixquareProRoom {
       kind: 'snapshot',
       committedRevision,
       status: 200,
+      expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
+    };
+    const keys = Object.keys(records);
+    if (keys.length > IDEMPOTENCY_MAX_ITEMS) {
+      keys
+        .sort((left, right) => records[left].expiresAtMs - records[right].expiresAtMs)
+        .slice(0, keys.length - IDEMPOTENCY_MAX_ITEMS)
+        .forEach((oldKey) => delete records[oldKey]);
+    }
+  }
+
+  storeDeveloperQueueIdempotency(scope, key, fingerprint, status) {
+    const records = this.room.idempotency;
+    records[`${scope}:${key}`] = {
+      fingerprint,
+      kind: 'developer-queue',
+      status,
       expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
     };
     const keys = Object.keys(records);

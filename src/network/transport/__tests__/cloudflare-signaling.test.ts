@@ -488,6 +488,55 @@ describe('Cloudflare PRO signaling client contract', () => {
     peer.destroy();
   });
 
+  it('emits a strictly parsed developer invalidation only for its exact PRO coordinator epoch', async () => {
+    installFakeWebSocket();
+    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket,
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    await Promise.resolve();
+    const received = vi.fn();
+    const errors = vi.fn();
+    peer.on('developer-invalidation', received);
+    peer.on('error', errors);
+    const invalidation = {
+      type: 'developer-invalidation',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      revision: 12,
+      playlistRevision: 5,
+    };
+
+    FakeWebSocket.instances[0].dispatch('message', JSON.stringify(invalidation));
+    await flushAsync();
+    expect(received).toHaveBeenCalledOnce();
+    expect(received).toHaveBeenCalledWith(invalidation);
+
+    FakeWebSocket.instances[0].dispatch(
+      'message',
+      JSON.stringify({ ...invalidation, coordinatorEpoch: 8 }),
+    );
+    await flushAsync();
+    expect(received).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledOnce();
+    expect(errors.mock.calls[0]?.[0]).toMatchObject({
+      type: 'server-error',
+      message: 'UNEXPECTED_DEVELOPER_INVALIDATION',
+    });
+    peer.destroy();
+  });
+
   it('rejects a malformed developer command without forwarding it', async () => {
     installFakeWebSocket();
     const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });

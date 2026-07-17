@@ -6,6 +6,10 @@ const KEY_ID = 'A'.repeat(16);
 const COMMAND_ID = `cmd_${'C'.repeat(22)}`;
 const IDEMPOTENCY_KEY = 'request.command-0001';
 const QUEUE_ITEM_ID = '123e4567-e89b-42d3-a456-426614174000';
+const ASSET_ID = `asset_${'D'.repeat(32)}`;
+const UPLOAD_URL =
+  'https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com/musixquare-pro-media/staging?X-Amz-Signature=' +
+  'a'.repeat(64);
 
 function request(body: unknown, options: RequestInit = {}, path = '/internal/v1/read'): Request {
   const headers = new Headers(options.headers);
@@ -178,6 +182,313 @@ describe('private Developer API facade', () => {
       completedAtMs: createdAtMs + 100,
       resultCode: 'already_applied',
     });
+  });
+
+  it('forwards only canonical queue mutation intents and returns a sanitized queue projection', async () => {
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          view: 'queue',
+          roomCode: ROOM_CODE,
+          playlistRevision: 5,
+          currentQueueItemId: QUEUE_ITEM_ID,
+          items: [
+            {
+              queueItemId: QUEUE_ITEM_ID,
+              kind: 'youtube',
+              name: 'API track',
+              title: 'API track',
+              privateSource: { videoId: 'dQw4w9WgXcQ' },
+            },
+          ],
+          ownerMemberId: 'private-owner',
+        },
+        { status: 201 },
+      ),
+    );
+    const mutation = {
+      type: 'add_youtube',
+      videoId: 'dQw4w9WgXcQ',
+      name: 'API track',
+      title: 'API track',
+    };
+    const response = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, mutation },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: 5,
+      currentQueueItemId: QUEUE_ITEM_ID,
+      items: [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          kind: 'youtube',
+          name: 'API track',
+          title: 'API track',
+        },
+      ],
+    });
+    expect(rooms.seen).toHaveLength(1);
+    const forwarded = rooms.seen[0]!;
+    expect(new URL(forwarded.url).pathname).toBe('/internal/developer/v1/queue/mutate');
+    expect([...forwarded.headers.keys()].sort()).toEqual(['content-type', 'x-mxqr-pro-room-code']);
+    await expect(forwarded.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      mutation,
+    });
+  });
+
+  it('sanitizes direct-upload reservations and completions across fixed internal paths', async () => {
+    const quota = {
+      limitBytes: 1_073_741_824,
+      perAssetLimitBytes: 209_715_200,
+      usedBytes: 0,
+      reservedBytes: 4_096,
+    };
+    const rooms = namespace((incoming) => {
+      const path = new URL(incoming.url).pathname;
+      if (path.endsWith('/create')) {
+        return Response.json(
+          {
+            schemaVersion: 1,
+            roomCode: ROOM_CODE,
+            assetId: ASSET_ID,
+            queueItemId: QUEUE_ITEM_ID,
+            byteLength: 4_096,
+            uploadExpiresAtMs: 1_784_263_810_000,
+            completionExpiresAtMs: 1_784_263_990_000,
+            upload: {
+              method: 'PUT',
+              url: UPLOAD_URL,
+              headers: {
+                'content-length': '4096',
+                'content-type': 'audio/flac',
+                'x-amz-meta-mxqr-room': ROOM_CODE,
+                'x-amz-meta-mxqr-asset': ASSET_ID,
+                'x-amz-meta-mxqr-version': '1',
+                'x-amz-meta-mxqr-bytes': '4096',
+              },
+            },
+            quota,
+          },
+          { status: 201 },
+        );
+      }
+      return Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          asset: {
+            kind: 'pro-r2',
+            assetId: ASSET_ID,
+            version: 1,
+            byteLength: 4_096,
+            mime: 'audio/flac',
+          },
+          queueItem: {
+            queueItemId: QUEUE_ITEM_ID,
+            kind: 'audio',
+            name: 'Orchestra.flac',
+            byteLength: 4_096,
+          },
+          playlistRevision: 8,
+          quota: { ...quota, usedBytes: 4_096, reservedBytes: 0 },
+        },
+        { status: 201 },
+      );
+    });
+    const media = { name: 'Orchestra.flac', byteLength: 4_096, mime: 'audio/flac' };
+    const create = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, media },
+        {},
+        '/internal/v1/media/uploads/create',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(create.status).toBe(201);
+    const created = await create.json();
+    expect(created).toMatchObject({
+      assetId: ASSET_ID,
+      queueItemId: QUEUE_ITEM_ID,
+      upload: {
+        method: 'PUT',
+        url: UPLOAD_URL,
+        headers: { 'content-length': '4096', 'content-type': 'audio/flac' },
+      },
+    });
+
+    const complete = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: 'request.upload-complete-0001',
+          assetId: ASSET_ID,
+        },
+        {},
+        '/internal/v1/media/uploads/complete',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(complete.status).toBe(201);
+    const completed = await complete.json();
+    expect(completed).toMatchObject({
+      asset: { assetId: ASSET_ID, kind: 'pro-r2', mime: 'audio/flac' },
+      queueItem: { queueItemId: QUEUE_ITEM_ID, kind: 'audio', byteLength: 4_096 },
+      playlistRevision: 8,
+    });
+    expect(rooms.seen.map((seen) => new URL(seen.url).pathname)).toEqual([
+      '/internal/developer/v1/media/uploads/create',
+      '/internal/developer/v1/media/uploads/complete',
+    ]);
+  });
+
+  it('fails closed when an upload reservation contains a non-R2 URL or unsigned headers', async () => {
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          assetId: ASSET_ID,
+          queueItemId: QUEUE_ITEM_ID,
+          byteLength: 4_096,
+          uploadExpiresAtMs: 1_784_263_810_000,
+          completionExpiresAtMs: 1_784_263_990_000,
+          upload: {
+            method: 'PUT',
+            url: 'https://example.invalid/upload?X-Amz-Signature=stolen',
+            headers: { 'content-length': '4096', 'content-type': 'audio/flac' },
+          },
+          quota: {
+            limitBytes: 1_073_741_824,
+            perAssetLimitBytes: 209_715_200,
+            usedBytes: 0,
+            reservedBytes: 4_096,
+          },
+        },
+        { status: 201 },
+      ),
+    );
+    const response = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: IDEMPOTENCY_KEY,
+          media: { name: 'Orchestra.flac', byteLength: 4_096, mime: 'audio/flac' },
+        },
+        {},
+        '/internal/v1/media/uploads/create',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+  });
+
+  it('fails closed when upload responses do not echo the requested media or asset identity', async () => {
+    const quota = {
+      limitBytes: 1_073_741_824,
+      perAssetLimitBytes: 209_715_200,
+      usedBytes: 0,
+      reservedBytes: 4_097,
+    };
+    const mismatchedCreate = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          assetId: ASSET_ID,
+          queueItemId: QUEUE_ITEM_ID,
+          byteLength: 4_097,
+          uploadExpiresAtMs: 1_784_263_810_000,
+          completionExpiresAtMs: 1_784_263_990_000,
+          upload: {
+            method: 'PUT',
+            url: UPLOAD_URL,
+            headers: {
+              'content-length': '4097',
+              'content-type': 'audio/flac',
+              'x-amz-meta-mxqr-room': ROOM_CODE,
+              'x-amz-meta-mxqr-asset': ASSET_ID,
+              'x-amz-meta-mxqr-version': '1',
+              'x-amz-meta-mxqr-bytes': '4097',
+            },
+          },
+          quota,
+        },
+        { status: 201 },
+      ),
+    );
+    const create = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: IDEMPOTENCY_KEY,
+          media: { name: 'Orchestra.flac', byteLength: 4_096, mime: 'audio/flac' },
+        },
+        {},
+        '/internal/v1/media/uploads/create',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: mismatchedCreate },
+    );
+    expect(create.status).toBe(503);
+    await expect(create.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+
+    const otherAssetId = `asset_${'E'.repeat(32)}`;
+    const mismatchedComplete = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          asset: {
+            kind: 'pro-r2',
+            assetId: otherAssetId,
+            version: 1,
+            byteLength: 4_096,
+            mime: 'audio/flac',
+          },
+          queueItem: {
+            queueItemId: QUEUE_ITEM_ID,
+            kind: 'audio',
+            name: 'Orchestra.flac',
+            byteLength: 4_096,
+          },
+          playlistRevision: 8,
+          quota: { ...quota, usedBytes: 4_096, reservedBytes: 0 },
+        },
+        { status: 201 },
+      ),
+    );
+    const complete = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: 'request.upload-complete-mismatch',
+          assetId: ASSET_ID,
+        },
+        {},
+        '/internal/v1/media/uploads/complete',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: mismatchedComplete },
+    );
+    expect(complete.status).toBe(503);
+    await expect(complete.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
   });
 
   it('delegates command ownership lookup and returns a bounded terminal status', async () => {

@@ -464,6 +464,60 @@ function createInternalDeveloperCommand(
   );
 }
 
+function mutateInternalDeveloperQueue(
+  worker: MusixquareProRoom,
+  keyId: string,
+  idempotencyKey: string,
+  mutation: Record<string, unknown>,
+): Promise<Response> {
+  return worker.fetch(
+    new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+      },
+      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, mutation }),
+    }),
+  );
+}
+
+function createInternalDeveloperUpload(
+  worker: MusixquareProRoom,
+  keyId: string,
+  idempotencyKey: string,
+  media: Record<string, unknown>,
+): Promise<Response> {
+  return worker.fetch(
+    new Request('https://pro-room.internal/internal/developer/v1/media/uploads/create', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+      },
+      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, media }),
+    }),
+  );
+}
+
+function completeInternalDeveloperUpload(
+  worker: MusixquareProRoom,
+  keyId: string,
+  idempotencyKey: string,
+  assetId: string,
+): Promise<Response> {
+  return worker.fetch(
+    new Request('https://pro-room.internal/internal/developer/v1/media/uploads/complete', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+      },
+      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, assetId }),
+    }),
+  );
+}
+
 describe('PRO room private Developer API projections', () => {
   it('exposes only bounded room, playback, and queue fields', async () => {
     vi.useFakeTimers();
@@ -778,6 +832,383 @@ describe('PRO room private Developer API projections', () => {
     const suspended = await internalDeveloperRead(worker, 'room');
     expect(suspended.status).toBe(404);
     expect(await responseJson(suspended)).toEqual({ error: 'ROOM_NOT_FOUND' });
+  });
+
+  it('accepts sleeping-room queue writes and replays an identical idempotent intent exactly once', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    internal.room.runtime = 'sleeping';
+    internal.room.presence.coordinatorParticipantId = null;
+    internal.room.presence.participants = {};
+    const keyId = 'Q'.repeat(16);
+    const mutation = {
+      type: 'add_youtube',
+      videoId: 'dQw4w9WgXcQ',
+      name: 'Never Gonna Give You Up',
+      title: 'Never Gonna Give You Up',
+      artist: 'Rick Astley',
+    };
+
+    const firstResponse = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-add-0001',
+      mutation,
+    );
+    expect(firstResponse.status).toBe(201);
+    const first = await responseJson(firstResponse);
+    expect(first).toMatchObject({
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode: ROOM_CODE,
+      playlistRevision: 1,
+      currentQueueItemId: null,
+      items: [
+        {
+          kind: 'youtube',
+          name: mutation.name,
+          title: mutation.title,
+          artist: mutation.artist,
+        },
+      ],
+    });
+    expect(internal.room.runtime).toBe('sleeping');
+    expect(internal.room.playlist).toHaveLength(1);
+    expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
+    const queueIdempotencyRecord = Object.values(internal.room.idempotency).find(
+      (record: any) => record.kind === 'developer-queue',
+    ) as Record<string, unknown> | undefined;
+    expect(queueIdempotencyRecord).toMatchObject({ kind: 'developer-queue', status: 201 });
+    expect(queueIdempotencyRecord).not.toHaveProperty('body');
+
+    const replayResponse = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-add-0001',
+      mutation,
+    );
+    expect(replayResponse.status).toBe(201);
+    expect(await responseJson(replayResponse)).toEqual(first);
+    expect(internal.room.playlist).toHaveLength(1);
+
+    const conflict = await mutateInternalDeveloperQueue(worker, keyId, 'developer-queue-add-0001', {
+      ...mutation,
+      videoId: 'M7lc1UVf-VE',
+    });
+    expect(conflict.status).toBe(409);
+    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(internal.room.playlist).toHaveLength(1);
+  });
+
+  it('fences stale or non-permutation Developer API reorders by playlist revision', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const keyId = 'R'.repeat(16);
+    for (const [index, videoId] of ['dQw4w9WgXcQ', 'M7lc1UVf-VE'].entries()) {
+      const response = await mutateInternalDeveloperQueue(
+        worker,
+        keyId,
+        `developer-queue-seed-000${index}`,
+        { type: 'add_youtube', videoId, name: `Track ${index + 1}` },
+      );
+      expect(response.status).toBe(201);
+    }
+    const [firstId, secondId] = internal.room.playlist.map(
+      (item: Record<string, unknown>) => item.queueItemId,
+    );
+
+    const stale = await mutateInternalDeveloperQueue(worker, keyId, 'developer-queue-order-0001', {
+      type: 'reorder',
+      basePlaylistRevision: internal.room.playlistRevision - 1,
+      queueItemIds: [secondId, firstId],
+    });
+    expect(stale.status).toBe(409);
+    expect(await responseJson(stale)).toEqual({ error: 'PLAYLIST_REVISION_CONFLICT' });
+
+    const invalidSet = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-order-0002',
+      {
+        type: 'reorder',
+        basePlaylistRevision: internal.room.playlistRevision,
+        queueItemIds: [firstId],
+      },
+    );
+    expect(invalidSet.status).toBe(409);
+    expect(await responseJson(invalidSet)).toEqual({ error: 'PLAYLIST_REVISION_CONFLICT' });
+
+    const accepted = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-order-0003',
+      {
+        type: 'reorder',
+        basePlaylistRevision: internal.room.playlistRevision,
+        queueItemIds: [secondId, firstId],
+      },
+    );
+    expect(accepted.status).toBe(200);
+    expect(
+      (await responseJson(accepted)).items.map((item: Record<string, unknown>) => item.queueItemId),
+    ).toEqual([secondId, firstId]);
+  });
+
+  it('reserves a sleeping-room direct upload and completes it into one non-autoplaying queue row', async () => {
+    const { worker, bucket } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    internal.room.runtime = 'sleeping';
+    internal.room.presence.coordinatorParticipantId = null;
+    internal.room.presence.participants = {};
+    const keyId = 'U'.repeat(16);
+    const media = {
+      name: 'Orchestra.flac',
+      byteLength: 4_096,
+      mime: 'audio/flac',
+      sha256: 'a'.repeat(64),
+      title: 'Orchestra',
+      artist: 'MUSIXQUARE',
+    };
+
+    const reservationResponse = await createInternalDeveloperUpload(
+      worker,
+      keyId,
+      'developer-upload-reserve-0001',
+      media,
+    );
+    expect(reservationResponse.status).toBe(201);
+    const reservation = await responseJson(reservationResponse);
+    expect(reservation).toMatchObject({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      assetId: expect.stringMatching(/^asset_[A-Za-z0-9_-]{32}$/),
+      queueItemId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      ),
+      byteLength: media.byteLength,
+      upload: {
+        method: 'PUT',
+        url: expect.stringMatching(/^https:\/\/[a-f0-9]+\.r2\.cloudflarestorage\.com\//),
+        headers: {
+          'content-length': String(media.byteLength),
+          'content-type': media.mime,
+          'x-amz-meta-mxqr-room': ROOM_CODE,
+          'x-amz-meta-mxqr-asset': expect.any(String),
+          'x-amz-meta-mxqr-bytes': String(media.byteLength),
+          'x-amz-meta-mxqr-sha256': media.sha256,
+        },
+      },
+      quota: { reservedBytes: media.byteLength, usedBytes: 0 },
+    });
+    expect(reservation.uploadExpiresAtMs).toBeLessThan(reservation.completionExpiresAtMs);
+
+    const asset = internal.room.assets[reservation.assetId];
+    expect(asset).toMatchObject({
+      status: 'reserved',
+      reservedByDeveloperKeyId: keyId,
+      developerQueueItemId: reservation.queueItemId,
+    });
+    expect(asset.uploadExpiresAtMs).toBe(reservation.uploadExpiresAtMs);
+    expect(asset.expiresAtMs).toBe(reservation.completionExpiresAtMs);
+    bucket.objects.set(asset.stagingObjectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+        'mxqr-sha256': asset.sha256,
+      },
+    });
+
+    const wrongOwner = await completeInternalDeveloperUpload(
+      worker,
+      'V'.repeat(16),
+      'developer-upload-complete-0000',
+      reservation.assetId,
+    );
+    expect(wrongOwner.status).toBe(404);
+    expect(await responseJson(wrongOwner)).toEqual({ error: 'ASSET_NOT_FOUND' });
+
+    const completeResponse = await completeInternalDeveloperUpload(
+      worker,
+      keyId,
+      'developer-upload-complete-0001',
+      reservation.assetId,
+    );
+    expect(completeResponse.status).toBe(201);
+    const completed = await responseJson(completeResponse);
+    expect(completed).toMatchObject({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      asset: {
+        kind: 'pro-r2',
+        assetId: reservation.assetId,
+        version: 1,
+        byteLength: media.byteLength,
+        mime: media.mime,
+        sha256: media.sha256,
+      },
+      queueItem: {
+        queueItemId: reservation.queueItemId,
+        kind: 'audio',
+        name: media.name,
+        title: media.title,
+        artist: media.artist,
+        byteLength: media.byteLength,
+      },
+      playlistRevision: 1,
+      quota: { reservedBytes: 0, usedBytes: media.byteLength },
+    });
+    expect(internal.room.runtime).toBe('sleeping');
+    expect(internal.room.playlist).toHaveLength(1);
+    expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
+
+    const replayResponse = await completeInternalDeveloperUpload(
+      worker,
+      keyId,
+      'developer-upload-complete-0001',
+      reservation.assetId,
+    );
+    expect(replayResponse.status).toBe(201);
+    expect(await responseJson(replayResponse)).toEqual(completed);
+    expect(internal.room.playlist).toHaveLength(1);
+  });
+
+  it('hints the exact capable coordinator only after queue and upload completion commits', async () => {
+    const { worker, state, bucket, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    const capability = await worker.fetch(
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+    );
+    expect(capability.status).toBe(200);
+
+    const dispatchedBodies: Array<Record<string, any>> = [];
+    const dispatchFetch = vi.fn(async (request: Request) => {
+      const body = (await request.json()) as Record<string, any>;
+      dispatchedBodies.push(body);
+      const persisted = state.storage.data.get('pro-room:v1') as Record<string, any>;
+      expect(persisted.revision).toBe(body.frame.revision);
+      expect(persisted.playlistRevision).toBe(body.frame.playlistRevision);
+      return Response.json({ dispatched: true });
+    });
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+
+    const queueResponse = await mutateInternalDeveloperQueue(
+      worker,
+      'H'.repeat(16),
+      'developer-invalidation-queue-0001',
+      { type: 'add_youtube', videoId: 'dQw4w9WgXcQ', name: 'Queue hint' },
+    );
+    expect(queueResponse.status).toBe(201);
+    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(1));
+
+    const firstRequest = dispatchFetch.mock.calls[0]?.[0];
+    expect(new URL(firstRequest.url).pathname).toBe('/internal/developer/v1/invalidate');
+    const firstBody = dispatchedBodies[0]!;
+    expect(firstBody).toMatchObject({
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      coordinatorParticipantId: internal.room.presence.coordinatorParticipantId,
+      developerControlVersion: 1,
+      frame: {
+        type: 'developer-invalidation',
+        version: 1,
+        roomCode: ROOM_CODE,
+        coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+        revision: internal.room.revision,
+        playlistRevision: internal.room.playlistRevision,
+      },
+    });
+    expect(firstBody.coordinatorPresenceIncarnationId).toBe(
+      internal.room.presence.participants[firstBody.coordinatorParticipantId].presenceIncarnationId,
+    );
+
+    const media = { name: 'Hint.wav', byteLength: 44, mime: 'audio/wav' };
+    const reservation = await responseJson(
+      await createInternalDeveloperUpload(
+        worker,
+        'H'.repeat(16),
+        'developer-invalidation-upload-reserve',
+        media,
+      ),
+    );
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+    const asset = internal.room.assets[reservation.assetId];
+    bucket.objects.set(asset.stagingObjectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+
+    const completion = await completeInternalDeveloperUpload(
+      worker,
+      'H'.repeat(16),
+      'developer-invalidation-upload-complete',
+      reservation.assetId,
+    );
+    expect(completion.status).toBe(201);
+    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(2));
+    const secondBody = dispatchedBodies[1]!;
+    expect(secondBody.frame).toMatchObject({
+      type: 'developer-invalidation',
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+    });
+  });
+
+  it('recovers a Developer API completion when the final object exists but staging cleanup already ran', async () => {
+    const { worker, bucket } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const keyId = 'W'.repeat(16);
+    const media = { name: 'Recovery.wav', byteLength: 44, mime: 'audio/wav' };
+    const reserved = await responseJson(
+      await createInternalDeveloperUpload(
+        worker,
+        keyId,
+        'developer-upload-recovery-reserve',
+        media,
+      ),
+    );
+    const asset = internal.room.assets[reserved.assetId];
+    bucket.objects.set(asset.objectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+    expect(bucket.objects.has(asset.stagingObjectKey)).toBe(false);
+
+    const response = await completeInternalDeveloperUpload(
+      worker,
+      keyId,
+      'developer-upload-recovery-complete',
+      reserved.assetId,
+    );
+    expect(response.status).toBe(201);
+    expect((await responseJson(response)).queueItem).toMatchObject({
+      queueItemId: reserved.queueItemId,
+      kind: 'audio',
+      name: media.name,
+    });
+    expect(internal.room.assets[reserved.assetId].status).toBe('ready');
+    expect(internal.room.playlist).toHaveLength(1);
   });
 
   it('keeps every root internal path unreachable on the public PRO hostname', async () => {

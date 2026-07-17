@@ -2439,6 +2439,12 @@ describe('Cloudflare app worker invite route', () => {
       ASSETS: {
         fetch: vi.fn(async (request: Request) => {
           const url = new URL(request.url);
+          if (url.pathname === '/developers.html') {
+            return new Response('<!doctype html><title>Developer API · MUSIXQUARE</title>', {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' },
+            });
+          }
           if (url.pathname !== '/index.html') {
             return new Response('not found', {
               status: 404,
@@ -2496,6 +2502,36 @@ describe('Cloudflare app worker invite route', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+  });
+
+  it('serves the canonical Developer API document with static-page cache policy', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/developers'),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe(
+      'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+    );
+    expect(response.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+    expect(await response.text()).toContain('Developer API · MUSIXQUARE');
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+    const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+    expect(new URL(assetRequest.url).pathname).toBe('/developers.html');
+  });
+
+  it('redirects mixed-case Developer API document URLs to the canonical path', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/Developers'),
+      env,
+    );
+
+    expect(response.status).toBe(301);
+    expect(response.headers.get('Location')).toBe('https://musixquare.com/developers');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
   it('serves invite pages for GET with fresh app-shell cache semantics', async () => {

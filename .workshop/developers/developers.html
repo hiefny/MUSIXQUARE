@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+  <link rel="canonical" href="https://musixquare.com/developers">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#121212">
+
+  <title>Developer API · MUSIXQUARE</title>
+  <meta name="description"
+    content="Server-to-server API documentation for reading and controlling a MUSIXQUARE PRO room, managing its playlist, and uploading audio.">
+
+  <meta property="og:title" content="Developer API · MUSIXQUARE">
+  <meta property="og:description"
+    content="Connect a server, bot, or integration to one MUSIXQUARE PRO room.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="MUSIXQUARE">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="https://musixquare.com/developers">
+  <meta property="og:image" content="https://musixquare.com/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="MUSIXQUARE">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Developer API · MUSIXQUARE">
+  <meta name="twitter:description" content="Server-to-server API documentation for MUSIXQUARE PRO rooms.">
+  <meta name="twitter:image" content="https://musixquare.com/og-image.png">
+
+  <link rel="icon" href="/designsystem/assets/favicon.svg">
+  <link rel="stylesheet" href="/css/pretendard.css">
+  <link rel="stylesheet" href="/legal-pages.css">
+  <!-- Cloudflare Web Analytics -->
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'></script>
+  <!-- End Cloudflare Web Analytics -->
+</head>
+
+<body>
+  <header class="policy-header">
+    <a class="policy-logo" href="https://musixquare.com" aria-label="MUSIXQUARE home">
+      <span class="policy-wordmark" aria-hidden="true"></span>
+    </a>
+    <a class="policy-home" href="https://musixquare.com">App</a>
+  </header>
+
+  <main class="policy-shell">
+    <section class="policy-hero">
+      <p class="policy-kicker">PRIVATE BETA</p>
+      <h1>Developer API</h1>
+      <p>Connect a server, bot, or integration to one MUSIXQUARE PRO room.</p>
+      <p class="policy-date">API version: v1 · Updated July 17, 2026</p>
+    </section>
+
+    <article class="policy-doc">
+      <section>
+        <h2>1. Overview</h2>
+        <p>
+          The MUSIXQUARE Developer API reads room state, controls playback, manages the persistent playlist, and
+          uploads audio to a PRO room. Each key is bound to one room and only receives its assigned scopes.
+        </p>
+        <p>All versioned endpoints use this base URL:</p>
+        <pre class="policy-code"><code>https://api.musixquare.com/v1</code></pre>
+        <p class="api-note">
+          This is a server-to-server API. Calls made directly from browser pages are rejected. Keep the API key in a
+          server environment variable, never in client-side JavaScript, an app bundle, a URL, or a public repository.
+        </p>
+        <p>
+          Machine-readable reference: <a href="/developers/openapi.yaml">OpenAPI 3.1 specification</a>.
+        </p>
+      </section>
+
+      <section>
+        <h2>2. Authentication</h2>
+        <p>Send the room-bound key as a Bearer credential on every versioned request.</p>
+        <pre class="policy-code"><code>Authorization: Bearer mxqr_live_&lt;key-id&gt;.&lt;secret&gt;</code></pre>
+        <dl>
+          <div>
+            <dt>Scopes</dt>
+            <dd>
+              Keys can receive <code>room:read</code>, <code>playback:read</code>,
+              <code>playback:control</code>, <code>queue:read</code>, <code>queue:write</code>, and
+              <code>media:upload</code>. Direct file additions require both <code>media:upload</code> and
+              <code>queue:write</code>, because completion also appends a playlist item.
+            </dd>
+          </div>
+          <div>
+            <dt>Key safety</dt>
+            <dd>
+              A key is shown only when issued. Store it as a secret, redact it from logs, and request revocation if it
+              may have been exposed. Never send a key belonging to one room with another room code.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section>
+        <h2>3. Quick Start</h2>
+        <p>Node.js 18 or later includes the <code>fetch</code> API used below.</p>
+        <pre class="policy-code"><code>const baseUrl = 'https://api.musixquare.com/v1';
+const roomCode = process.env.MXQR_ROOM_CODE;
+const apiKey = process.env.MXQR_API_KEY;
+
+if (!roomCode || !apiKey) throw new Error('MXQR_ROOM_CODE and MXQR_API_KEY are required');
+
+const response = await fetch(`${baseUrl}/rooms/${roomCode}`, {
+  headers: { Authorization: `Bearer ${apiKey}` },
+});
+
+if (!response.ok) throw new Error(await response.text());
+console.log(await response.json());</code></pre>
+      </section>
+
+      <section>
+        <h2>4. Read Room State</h2>
+        <dl>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}</span></dt>
+            <dd>Room status, runtime, participant count, control availability, revisions, and storage quota.</dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/playback</span></dt>
+            <dd>Canonical playback state, selected queue item, position, and observation time.</dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/queue</span></dt>
+            <dd>Persistent playlist, current item, and playlist revision without private R2 identifiers or URLs.</dd>
+          </div>
+        </dl>
+        <p>
+          Read responses include an <code>ETag</code>. Send it later as <code>If-None-Match</code>; an unchanged
+          representation returns <code>304 Not Modified</code> without a JSON body.
+        </p>
+      </section>
+
+      <section>
+        <h2>5. Control Playback</h2>
+        <dl>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/commands</span></dt>
+            <dd>Submit <code>play</code>, <code>pause</code>, <code>seek</code>, or <code>play_item</code>.</dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/commands/{commandId}</span></dt>
+            <dd>Poll a command until it becomes <code>applied</code>, <code>rejected</code>, or <code>expired</code>.</dd>
+          </div>
+        </dl>
+        <p>
+          Every mutation requires a unique <code>Idempotency-Key</code> header. Reusing the same key with the same body
+          never repeats the operation and returns the latest sanitized state; reusing it with a different body is
+          rejected.
+        </p>
+        <pre class="policy-code"><code>const response = await fetch(`${baseUrl}/rooms/${roomCode}/commands`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+  body: JSON.stringify({ type: 'seek', positionSeconds: 42.5 }),
+});
+
+const command = await response.json();
+console.log(command.commandId, command.status);</code></pre>
+        <p>
+          Playback commands require an awake room with a compatible active coordinator. Selecting a large file can be
+          accepted before every device has finished downloading and decoding it; read playback state before issuing an
+          immediately dependent command.
+        </p>
+      </section>
+
+      <section>
+        <h2>6. Manage the Playlist</h2>
+        <dl>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/queue/items</span></dt>
+            <dd>Add one YouTube item using a canonical video ID and display metadata.</dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">DELETE</span><span class="api-path">/rooms/{roomCode}/queue/items/{queueItemId}</span></dt>
+            <dd>Remove one queue item with no request body. Removing media also releases its playlist reference for later cleanup.</dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">PUT</span><span class="api-path">/rooms/{roomCode}/queue/order</span></dt>
+            <dd>
+              Replace the order with <code>queueItemIds</code>, an exact permutation of the current queue, and the
+              <code>basePlaylistRevision</code> returned by the latest queue read.
+            </dd>
+          </div>
+        </dl>
+        <pre class="policy-code"><code>await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+  body: JSON.stringify({
+    videoId: '&lt;youtube-video-id&gt;',
+    name: 'Example video',
+    title: 'Example title',
+    artist: 'Example artist',
+  }),
+});</code></pre>
+        <pre class="policy-code"><code>const queue = await fetch(`${baseUrl}/rooms/${roomCode}/queue`, {
+  headers: { Authorization: `Bearer ${apiKey}` },
+}).then((response) => response.json());
+
+await fetch(`${baseUrl}/rooms/${roomCode}/queue/order`, {
+  method: 'PUT',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+  body: JSON.stringify({
+    basePlaylistRevision: queue.playlistRevision,
+    queueItemIds: queue.items.map((item) => item.queueItemId).reverse(),
+  }),
+});</code></pre>
+        <p>
+          Queue mutations return the updated sanitized queue. Reordering rejects a stale playlist revision; fetch the
+          queue again instead of retrying an old order blindly. Queue writes remain available while the room is
+          sleeping and do not start playback automatically.
+        </p>
+      </section>
+
+      <section>
+        <h2>7. Upload Audio</h2>
+        <p>
+          Uploads use a three-step flow. The audio body goes directly to a short-lived signed R2 URL and never passes
+          through the Developer API Worker.
+        </p>
+        <p>
+          A reservation requires <code>name</code>, <code>byteLength</code>, and <code>mime</code>. Optional metadata is
+          <code>title</code>, <code>artist</code>, <code>thumbnail</code>, and a lowercase 64-character
+          <code>sha256</code> hint.
+        </p>
+        <dl>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/media/uploads</span></dt>
+            <dd>
+              Reserve capacity and receive an opaque asset ID, signed PUT URL, exact required headers,
+              <code>uploadExpiresAtMs</code>, and the later <code>completionExpiresAtMs</code> grace deadline.
+            </dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">PUT</span><span class="api-path">{upload.url}</span></dt>
+            <dd>Send the exact declared number of bytes directly to R2 using every returned header.</dd>
+          </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/media/uploads/{assetId}/complete</span></dt>
+            <dd>Verify the object, finalize it, and append exactly one audio item to the playlist.</dd>
+          </div>
+        </dl>
+        <pre class="policy-code"><code>const reservationResponse = await fetch(
+  `${baseUrl}/rooms/${roomCode}/media/uploads`,
+  {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      name: 'music.flac',
+      byteLength: audioBuffer.byteLength,
+      mime: 'audio/flac',
+      title: 'Example title',
+      artist: 'Example artist',
+    }),
+  },
+);
+
+const reservation = await reservationResponse.json();
+
+await fetch(reservation.upload.url, {
+  method: reservation.upload.method,
+  headers: reservation.upload.headers,
+  body: audioBuffer,
+  redirect: 'manual',
+});
+
+await fetch(
+  `${baseUrl}/rooms/${roomCode}/media/uploads/${reservation.assetId}/complete`,
+  {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+  },
+);</code></pre>
+        <p class="api-note">
+          Treat the signed upload URL as a temporary credential. Do not log it, follow redirects, alter its query
+          string, omit returned headers, or send a different content length. Completing an upload appends the item but
+          never starts playback automatically.
+        </p>
+      </section>
+
+      <section>
+        <h2>8. Limits and Supported Media</h2>
+        <dl>
+          <div>
+            <dt>Storage</dt>
+            <dd>Up to 200 MiB per asset and 1 GiB of persistent media per PRO room.</dd>
+          </div>
+          <div>
+            <dt>Upload issuance</dt>
+            <dd>Up to two active reservations per key and ten new reservations per hour.</dd>
+          </div>
+          <div>
+            <dt>Audio candidates</dt>
+            <dd>
+              MP3, WAV, FLAC, M4A, AAC, OGG/OGA, Opus, WebM audio, AIF/AIFF, and CAF are accepted as candidates.
+              Actual decoding support still depends on each playback device and browser.
+            </dd>
+          </div>
+          <div>
+            <dt>Request rate</dt>
+            <dd>
+              Read and mutation limits are applied per key and room. A <code>429</code> response includes
+              <code>Retry-After</code>; wait for that duration before retrying.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section>
+        <h2>9. Responses and Errors</h2>
+        <p>
+          JSON responses include <code>X-Request-Id</code>. Keep that value when reporting a failure. Error responses
+          use a stable code, human-readable message, request ID, and <code>retryable</code> flag.
+        </p>
+        <pre class="policy-code"><code>{
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "Too many requests. Try again later.",
+    "requestId": "req_&lt;request-id&gt;",
+    "retryable": true
+  }
+}</code></pre>
+        <dl>
+          <div><dt>400 / 401 / 403</dt><dd>Invalid input, invalid key, missing scope, or a forbidden browser-origin request.</dd></div>
+          <div><dt>404 / 409</dt><dd>Unavailable resource, stale queue state, quota conflict, or a command that cannot run in the current room state.</dd></div>
+          <div><dt>400</dt><dd>The request shape is invalid, including an unsupported or oversized upload declaration.</dd></div>
+          <div><dt>429 / 503</dt><dd>Rate limited, temporarily disabled, or an unavailable backend. Retry only when the response says it is safe.</dd></div>
+        </dl>
+      </section>
+
+      <section>
+        <h2>10. Compatibility and Contact</h2>
+        <p>
+          The URL major version is <code>v1</code>. New optional response fields may be added compatibly; clients should
+          ignore fields they do not recognize. Removing a field or changing its meaning requires a new major version.
+        </p>
+        <p>
+          For API key issuance, revocation, or integration questions, contact
+          <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>.
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="policy-footer">
+    <div class="policy-footer__inner">
+      <span>© 2026 MUSIXQUARE</span>
+      <nav aria-label="Footer">
+        <a href="/about">About</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/faq">FAQ</a>
+        <a href="/history">History</a>
+        <a href="/designsystem">Design System</a>
+        <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+
+</html>

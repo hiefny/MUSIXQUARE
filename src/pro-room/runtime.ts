@@ -45,6 +45,7 @@ import type {
   DataConnection,
   DeveloperCommandFrame,
   DeveloperCommandResultCode,
+  DeveloperInvalidationFrame,
   PlaylistItem,
   PlaylistWireItem,
   QueueItemId,
@@ -1942,6 +1943,28 @@ registerHandler(MSG.PRO_ROOM_INVALIDATED, (data, conn: DataConnection) => {
   if (!invalidationHighWater.offer(data, current ?? { revision: -1, playlistRevision: -1 })) return;
   scheduleCoordinatorInvalidationRefresh();
 });
+
+function acceptDeveloperInvalidation(frame: DeveloperInvalidationFrame): void {
+  const context = getState('room.context');
+  const current = playlistManager?.snapshot;
+  if (
+    context.kind !== 'pro' ||
+    !isCoordinator() ||
+    context.roomId !== frame.roomCode ||
+    context.epoch !== frame.coordinatorEpoch ||
+    (frame.revision <= (current?.revision ?? -1) &&
+      frame.playlistRevision <= (current?.playlistRevision ?? -1))
+  ) {
+    return;
+  }
+
+  if (!invalidationHighWater.offer(frame, current ?? { revision: -1, playlistRevision: -1 })) {
+    return;
+  }
+  scheduleCoordinatorInvalidationRefresh();
+}
+
+bus.on('network:developer-invalidation', acceptDeveloperInvalidation);
 
 bus.on('network:developer-command', (frame) => {
   void developerControl.handle(frame).catch((error) => {

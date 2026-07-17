@@ -752,11 +752,70 @@ function renderProRoomApiKey(roomCode, key, refresh) {
   return item;
 }
 
+function renderProRoomApiShell(roomCode, panel) {
+  panel.replaceChildren();
+  panel.classList.add('is-loading');
+  panel.setAttribute('aria-busy', 'true');
+
+  const head = document.createElement('div');
+  head.className = 'pro-room-api-head';
+  const heading = document.createElement('div');
+  const title = document.createElement('strong');
+  title.textContent = 'Developer API';
+  const description = document.createElement('span');
+  description.textContent = 'Issue room-bound credentials for servers, bots, and integrations.';
+  heading.append(title, description);
+  const count = document.createElement('span');
+  count.className = 'pro-room-api-skeleton-line is-count';
+  count.setAttribute('aria-hidden', 'true');
+  head.append(heading, count);
+
+  const form = document.createElement('div');
+  form.className = 'pro-room-api-form is-loading';
+  form.setAttribute('aria-hidden', 'true');
+  for (const labelText of ['Integration name', 'Access', 'Expires']) {
+    const field = document.createElement('div');
+    field.className = 'pro-room-api-field';
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    const control = document.createElement('span');
+    control.className = 'pro-room-api-skeleton-control';
+    field.append(label, control);
+    form.append(field);
+  }
+  const issue = document.createElement('span');
+  issue.className = 'pro-room-api-skeleton-button';
+  form.append(issue);
+
+  const status = document.createElement('p');
+  status.className = 'pro-room-api-status';
+  status.dataset.proRoomApiStatus = roomCode;
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.textContent = 'Loading API keys...';
+
+  const list = document.createElement('div');
+  list.className = 'pro-room-api-key-list';
+  list.setAttribute('aria-hidden', 'true');
+  const key = document.createElement('div');
+  key.className = 'pro-room-api-key is-loading';
+  for (const className of ['is-identity', 'is-metadata', 'is-scopes', 'is-action']) {
+    const placeholder = document.createElement('span');
+    placeholder.className = `pro-room-api-skeleton-line ${className}`;
+    key.append(placeholder);
+  }
+  list.append(key);
+
+  panel.append(head, form, status, list);
+}
+
 function renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message = '', isError = false) {
   const keys = Array.isArray(payload?.keys) ? payload.keys : [];
   const activeCount = keys.filter((key) => key?.status === 'active').length;
   const maxActiveKeys = Number.isSafeInteger(payload?.maxActiveKeys) ? payload.maxActiveKeys : 3;
   panel.replaceChildren();
+  panel.classList.remove('is-loading');
+  panel.removeAttribute('aria-busy');
 
   const head = document.createElement('div');
   head.className = 'pro-room-api-head';
@@ -1120,6 +1179,7 @@ function renderProRoomRow(room) {
   const apiPanel = document.createElement('section');
   apiPanel.className = 'pro-room-api-panel';
   apiPanel.dataset.proRoomApiPanel = roomCode;
+  apiPanel.setAttribute('aria-label', `${roomCode} Developer API`);
   const isTerminal = rawStatus === 'decommissioning' || rawStatus === 'decommissioned';
   const cached = proRoomApiCache.get(roomCode);
   if (isTerminal) {
@@ -1129,11 +1189,7 @@ function renderProRoomRow(room) {
     apiPanel.append(unavailable);
   } else if (cached) renderProRoomApiPanel(roomCode, rawStatus, apiPanel, cached);
   else {
-    const loading = document.createElement('p');
-    loading.className = 'pro-room-api-status';
-    loading.dataset.proRoomApiStatus = roomCode;
-    loading.textContent = 'Open this room to load API keys.';
-    apiPanel.append(loading);
+    renderProRoomApiShell(roomCode, apiPanel);
   }
   const dangerZone = renderProRoomDangerZone(roomCode, rawStatus);
   expanded.append(controls, apiPanel, dangerZone);

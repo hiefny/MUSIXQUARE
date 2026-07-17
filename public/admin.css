@@ -874,6 +874,10 @@ p {
   background: var(--bg);
 }
 
+.pro-room-api-panel.is-loading {
+  overflow: hidden;
+}
+
 .pro-room-api-head,
 .pro-room-api-secret-copy {
   display: flex;
@@ -938,6 +942,53 @@ p {
 
 .pro-room-api-form button {
   height: 38px;
+}
+
+.pro-room-api-skeleton-control,
+.pro-room-api-skeleton-button,
+.pro-room-api-skeleton-line {
+  display: block;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  animation: pro-room-api-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.pro-room-api-skeleton-control,
+.pro-room-api-skeleton-button {
+  height: 38px;
+  border-radius: var(--radius);
+}
+
+.pro-room-api-skeleton-button {
+  width: 104px;
+}
+
+.pro-room-api-skeleton-line {
+  width: 72%;
+  height: 30px;
+}
+
+.pro-room-api-skeleton-line.is-count {
+  width: 62px;
+  height: 10px;
+}
+
+.pro-room-api-key.is-loading {
+  pointer-events: none;
+}
+
+.pro-room-api-skeleton-line.is-metadata {
+  width: 84%;
+}
+
+.pro-room-api-skeleton-line.is-scopes {
+  width: 90%;
+}
+
+.pro-room-api-skeleton-line.is-action {
+  width: 78px;
+  height: 34px;
+  justify-self: end;
 }
 
 .pro-room-api-status {
@@ -1067,6 +1118,17 @@ p {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
   outline: none;
+}
+
+@keyframes pro-room-api-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.88;
+  }
+
+  50% {
+    opacity: 0.46;
+  }
 }
 
 .pro-room-empty {
@@ -1642,6 +1704,10 @@ p {
     justify-content: flex-start;
   }
 
+  .pro-room-api-skeleton-line.is-action {
+    justify-self: start;
+  }
+
   .metric-grid,
   .trend-list,
   .signal-grid {
@@ -1755,6 +1821,7 @@ p {
   }
 
   .pro-room-api-form button,
+  .pro-room-api-skeleton-button,
   .pro-room-api-key-actions button,
   .pro-room-api-secret-row button {
     width: 100%;
@@ -1762,6 +1829,12 @@ p {
 
   .pro-room-api-key-actions {
     display: grid;
+  }
+
+  .pro-room-api-skeleton-line.is-action {
+    width: 100%;
+    height: 38px;
+    justify-self: stretch;
   }
 
   .pro-room-claim-copy {
@@ -1810,5 +1883,11 @@ p {
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+  }
+
+  .pro-room-api-skeleton-control,
+  .pro-room-api-skeleton-button,
+  .pro-room-api-skeleton-line {
+    animation: none;
   }
 }

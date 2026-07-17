@@ -175,6 +175,11 @@ describe('admin PRO room operations dashboard', () => {
     };
     let issuedBody: unknown;
     let revoked = false;
+    let apiKeyListReads = 0;
+    let resolveInitialApiKeys: ((response: Response) => void) | undefined;
+    const initialApiKeys = new Promise<Response>((resolve) => {
+      resolveInitialApiKeys = resolve;
+    });
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
@@ -208,6 +213,8 @@ describe('admin PRO room operations dashboard', () => {
           issuedBody = JSON.parse(String(init.body));
           return Response.json({ roomCode: '000001', apiKey, key: keyRecord });
         }
+        apiKeyListReads += 1;
+        if (apiKeyListReads === 1) return initialApiKeys;
         return Response.json({
           roomCode: '000001',
           maxActiveKeys: 3,
@@ -250,12 +257,27 @@ describe('admin PRO room operations dashboard', () => {
 
     room.open = true;
     room.dispatchEvent(new Event('toggle'));
+    const loadingPanel = room.querySelector<HTMLElement>('[data-pro-room-api-panel="000001"]');
+    expect(loadingPanel?.getAttribute('aria-busy')).toBe('true');
+    expect(loadingPanel?.querySelector('.pro-room-api-form.is-loading')).not.toBeNull();
+    expect(loadingPanel?.querySelector('.pro-room-api-key.is-loading')).not.toBeNull();
+    expect(loadingPanel?.querySelector('[role="status"]')?.textContent).toBe('Loading API keys...');
+    expect(loadingPanel?.querySelector('[data-pro-room-api-form="000001"]')).toBeNull();
+    resolveInitialApiKeys?.(
+      Response.json({
+        roomCode: '000001',
+        maxActiveKeys: 3,
+        keys: [keyRecord],
+      }),
+    );
     await vi.waitFor(() => {
       expect(
         room.querySelector<HTMLFormElement>('[data-pro-room-api-form="000001"]'),
       ).not.toBeNull();
       expect(room.querySelector('.pro-room-api-key')?.textContent).toContain('Friend bot');
     });
+    expect(loadingPanel?.hasAttribute('aria-busy')).toBe(false);
+    expect(loadingPanel?.querySelector('.pro-room-api-form.is-loading')).toBeNull();
 
     const form = room.querySelector<HTMLFormElement>('[data-pro-room-api-form="000001"]');
     const label = form?.elements.namedItem('label') as HTMLInputElement | null;

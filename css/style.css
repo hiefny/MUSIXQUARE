@@ -4813,7 +4813,9 @@
   /* BOT replies keep one request-owned bubble mounted while its typing
      indicator becomes the final response. */
   .chat-bubble.bot {
-    background: #15803d;
+    /* Match the primary blue bubble's perceived brightness while keeping the
+       BOT identity distinctly green and white text equally legible. */
+    background: #159b4a;
     color: #fff;
   }
 

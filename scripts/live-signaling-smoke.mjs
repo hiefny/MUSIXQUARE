@@ -20,6 +20,19 @@ export class StaleSignalingVersionError extends Error {
   }
 }
 
+export function classifyHostSocketOpenError(error, expectedVersion) {
+  const message = error instanceof Error ? error.message : String(error);
+  // The immediately previous rolling contract required the host secret in
+  // the WebSocket URL and therefore rejects the new first-frame handshake
+  // with HTTP 400 before it can expose workerVersionId. Only a release that
+  // knows the exact version it just deployed may treat that response as edge
+  // propagation staleness; ordinary/manual smoke runs still surface the 400.
+  if (expectedVersion && message === 'Unexpected server response: 400') {
+    return new StaleSignalingVersionError(expectedVersion, null);
+  }
+  return error;
+}
+
 export function assertPeerOpenVersion(message, expectedVersion, label, retryIfStale = false) {
   if (!expectedVersion) return;
   const actualVersion =
@@ -38,7 +51,7 @@ function socketUrl(roomId, role, peerId) {
   return url.toString();
 }
 
-function createSocketInbox(url, label) {
+function createSocketInbox(url, label, mapOpenError = (error) => error) {
   const socket = new WebSocket(url, { origin: APP_ORIGIN });
   const queued = [];
   const waiters = new Set();
@@ -58,7 +71,7 @@ function createSocketInbox(url, label) {
     });
     socket.once('error', (error) => {
       clearTimeout(timer);
-      reject(error);
+      reject(mapOpenError(error));
     });
   });
 
@@ -217,6 +230,7 @@ async function runRoomAttempt(password, expectedVersion) {
   const host = createSocketInbox(
     socketUrl(roomId, 'host', hostPeerId),
     `${password ? 'protected' : 'passwordless'} host`,
+    (error) => classifyHostSocketOpenError(error, expectedVersion),
   );
   const guestSockets = new Set();
   const createGuest = (peerId, label) => {

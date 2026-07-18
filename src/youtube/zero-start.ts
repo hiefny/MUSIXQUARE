@@ -241,6 +241,8 @@ type LocalRun = {
   timelineLeadMs: number;
   externalFallbackRequested: boolean;
   hostFallbackEligible: boolean;
+  /** True only after this run has captured and begun controlling player audio/playback. */
+  ownsPlayerState: boolean;
   originalMuted: boolean;
   originalVolume: number;
   calibrationEligible: boolean;
@@ -760,7 +762,7 @@ class YouTubeZeroStartController {
       for (const peerId of barrier.expectedGuestIds) this.#deps.sendToPeer(peerId, abort);
     }
     this.#debug('cancel', { runId: run?.runId ?? barrier?.runId, reason });
-    if (run && run.phase !== 'playing' && run.phase !== 'error') {
+    if (run?.ownsPlayerState && run.phase !== 'playing' && run.phase !== 'error') {
       // WARMING uses a hard mute, not a paused iframe. Restoring the user's
       // audio state before stopping would leak the warm-up audio whenever
       // authority/reconnect/supersede cancels the run.
@@ -866,6 +868,7 @@ class YouTubeZeroStartController {
       timelineLeadMs: lead.timelineLeadMs,
       externalFallbackRequested: false,
       hostFallbackEligible: false,
+      ownsPlayerState: true,
       originalMuted,
       originalVolume,
       calibrationEligible:
@@ -926,6 +929,7 @@ class YouTubeZeroStartController {
       timelineLeadMs: lead.timelineLeadMs,
       externalFallbackRequested: false,
       hostFallbackEligible: false,
+      ownsPlayerState: false,
       originalMuted,
       originalVolume,
       calibrationEligible: false,
@@ -1347,7 +1351,7 @@ class YouTubeZeroStartController {
     // state first so a missing iframe cannot leave the play button and UI loop
     // blocked forever.
     this.#clearTimers();
-    this.#stopPlaybackBestEffort();
+    if (run.ownsPlayerState) this.#stopPlaybackBestEffort();
     this.#restoreOriginalAudioBestEffort(run);
     run.phase = 'error';
     this.#emitState();
@@ -1496,7 +1500,7 @@ class YouTubeZeroStartController {
   #failLocalPrepare(run: LocalRun, reason: string, error?: unknown): void {
     if (!this.#isCurrentRun(run)) return;
     this.#clearTimers();
-    this.#stopPlaybackBestEffort();
+    if (run.ownsPlayerState) this.#stopPlaybackBestEffort();
     this.#restoreOriginalAudioBestEffort(run);
     run.phase = 'error';
     this.#deps.onError?.(reason, error);
@@ -1523,7 +1527,7 @@ class YouTubeZeroStartController {
   }
 
   #cancelLocalOnly(stopPlayback = false): void {
-    if (stopPlayback) this.#stopPlaybackBestEffort();
+    if (stopPlayback && this.#localRun?.ownsPlayerState) this.#stopPlaybackBestEffort();
     if (this.#localRun) this.#restoreOriginalAudioBestEffort(this.#localRun);
     this.#clearTimers();
     this.#localRun = null;
@@ -1545,6 +1549,7 @@ class YouTubeZeroStartController {
   }
 
   #restoreOriginalAudioBestEffort(run: LocalRun): void {
+    if (!run.ownsPlayerState) return;
     if (run.phase === 'playing' || run.phase === 'error') return;
     const player = this.#deps.getPlayer();
     if (!player) return;

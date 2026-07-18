@@ -253,6 +253,70 @@ describe('YouTubeZeroStartController', () => {
     expect(player.getVolume()).toBe(71);
   });
 
+  it('does not mutate a late player when a waiting-ready guest falls back', () => {
+    const player = makeFakeYtPlayer({ __muted: true, __volume: 23 });
+    const fallback = vi.fn();
+    let playerVisible = false;
+    const controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => (playerVisible ? (player as YouTubeZeroStartPlayer) : null),
+      isPlayerReady: () => playerVisible,
+      isAudioUnlocked: () => false,
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'ios',
+      sendToPeer: () => false,
+      sendToHost: () => true,
+      onFallbackRequired: fallback,
+    });
+    const prepareAtHost = Date.now();
+
+    expect(
+      controller.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'cold-late-player-run',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+        prepareAtHost,
+        decisionAtHost: prepareAtHost + 2_300,
+        startDeadlineAtHost: prepareAtHost + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({ phase: 'waiting-ready' });
+
+    // WebKit may expose the persistent iframe before its gesture gate opens.
+    // The waiting run has not captured or controlled it, so cohort exclusion
+    // must hand off without pausing it or rewriting the user's audio state.
+    playerVisible = true;
+    vi.advanceTimersByTime(100);
+    expect(
+      controller.handleCommit(HOST_ID, {
+        type: 'youtube-zero-start-commit',
+        version: 1,
+        runId: 'cold-late-player-run',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        startAtHost: prepareAtHost + 3_000,
+        reason: 'guest-timeout',
+        cohort: [HOST_ID],
+      }),
+    ).toBe(true);
+
+    expect(fallback).toHaveBeenCalledOnce();
+    expect(player.__log).toEqual([]);
+    expect(player.isMuted()).toBe(true);
+    expect(player.getVolume()).toBe(23);
+  });
+
   it('advertises and deduplicates runtime readiness across cold and ready states', () => {
     const player = makeFakeYtPlayer();
     const outbound: YouTubeZeroStartWireMessage[] = [];

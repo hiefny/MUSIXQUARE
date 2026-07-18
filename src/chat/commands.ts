@@ -13,6 +13,7 @@ import {
   MSG,
   RESERVED_NAMES,
   HOST_SELF_NAMES,
+  BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
 } from '../core/constants.ts';
 import { getOtherDeviceLabels } from '../network/guards.ts';
 import { sendToHost } from '../network/peer.ts';
@@ -479,11 +480,13 @@ function getBotRateLimitRetryAfter(error: unknown): number | null {
   if (
     typeof retryAfterSeconds !== 'number' ||
     !Number.isFinite(retryAfterSeconds) ||
-    retryAfterSeconds <= 0
+    retryAfterSeconds <= 0 ||
+    retryAfterSeconds > BOT_RATE_LIMIT_MAX_RETRY_SECONDS
   ) {
     return null;
   }
-  return Math.max(1, Math.ceil(retryAfterSeconds));
+  const rounded = Math.max(1, Math.ceil(retryAfterSeconds));
+  return rounded <= BOT_RATE_LIMIT_MAX_RETRY_SECONDS ? rounded : null;
 }
 
 async function runBotCommand(rawArgs: string, requestId?: string): Promise<void> {

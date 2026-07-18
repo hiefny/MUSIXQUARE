@@ -228,6 +228,43 @@ describe('/bot beta command', () => {
     });
   });
 
+  it('settles the BOT bubble for the remainder of a room-wide 24-hour limit', async () => {
+    enterBotRoom();
+    mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce({
+      code: 'RATE_LIMITED',
+      retryAfterSeconds: 70_000.2,
+    });
+
+    executeCommand(
+      { name: 'bot', args: ['next'], rawArgs: 'next' },
+      { botRequestId: requestId },
+    );
+
+    await vi.waitFor(() => {
+      expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, {
+        kind: 'rate_limited',
+        retryAfterSeconds: 70_001,
+      });
+    });
+  });
+
+  it('degrades an out-of-contract rate-limit delay to a generic failure', async () => {
+    enterBotRoom();
+    mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce({
+      code: 'RATE_LIMITED',
+      retryAfterSeconds: 86_401,
+    });
+
+    executeCommand(
+      { name: 'bot', args: ['next'], rawArgs: 'next' },
+      { botRequestId: requestId },
+    );
+
+    await vi.waitFor(() => {
+      expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, { kind: 'failed' });
+    });
+  });
+
   it('shows failure feedback without leaking the server error', async () => {
     enterBotRoom();
     mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce(new Error('secret upstream detail'));

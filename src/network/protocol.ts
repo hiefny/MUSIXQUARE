@@ -12,6 +12,7 @@ import {
   CHUNK_SIZE,
   REMOTE_SHARE_AES_GCM_TAG_BYTES,
   REMOTE_SHARE_MAX_BYTES,
+  BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
 } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import { isQueueItemId, parsePlaylistSnapshot } from '../player/queue-model.ts';
@@ -139,7 +140,7 @@ function isBotChatResult(value: unknown): boolean {
         hasExactKeys(result, ['kind', 'retryAfterSeconds']) &&
         Number.isSafeInteger(result.retryAfterSeconds) &&
         (result.retryAfterSeconds as number) >= 1 &&
-        (result.retryAfterSeconds as number) <= 3600
+        (result.retryAfterSeconds as number) <= BOT_RATE_LIMIT_MAX_RETRY_SECONDS
       );
     default:
       return false;

@@ -100,6 +100,10 @@ export const PEER_NAME_PREFIX = 'Peer';
 // frames; these cap rendered/relayed payloads).
 export const MAX_MSG_LENGTH = 500;
 export const MAX_SENDER_LABEL_LENGTH = 30;
+/** PRO BOT rate-limit responses can carry the remainder of a 24-hour room
+ * window. Keep the API parser and P2P terminal-result validators aligned so a
+ * legitimate daily-limit response always replaces the typing placeholder. */
+export const BOT_RATE_LIMIT_MAX_RETRY_SECONDS = 24 * 60 * 60;
 
 // ─── Message Types (P2P Protocol) ──────────────────────────────────
 export const MSG = {

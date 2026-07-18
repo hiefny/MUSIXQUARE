@@ -13,6 +13,7 @@ import {
   PEER_NAME_PREFIX,
   MAX_MSG_LENGTH,
   MAX_SENDER_LABEL_LENGTH,
+  BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
 } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { broadcast, safeSend } from '../network/peer-state.ts';
@@ -158,7 +159,7 @@ function normalizeBotChatResult(result: BotChatResult): BotChatResult | null {
     case 'rate_limited':
       return Number.isSafeInteger(result.retryAfterSeconds) &&
         result.retryAfterSeconds >= 1 &&
-        result.retryAfterSeconds <= 3600
+        result.retryAfterSeconds <= BOT_RATE_LIMIT_MAX_RETRY_SECONDS
         ? { kind: 'rate_limited', retryAfterSeconds: result.retryAfterSeconds }
         : null;
     default:

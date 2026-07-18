@@ -360,6 +360,32 @@ describe('PRO BOT chat correlation', () => {
     });
   });
 
+  it('completes a typing bubble for a room-wide daily rate-limit response', () => {
+    enterBotRoom('member');
+    setState('network.myId', 'member-daily-limit');
+    const send = vi.fn();
+    setState('network.hostConn', {
+      peer: 'remote-host',
+      open: true,
+      send,
+    } as unknown as DataConnection);
+    const id = requestId('j');
+
+    expect(beginLocalBotChatRequest(id)).toBe(true);
+    expect(
+      publishBotChatResult(id, { kind: 'rate_limited', retryAfterSeconds: 70_000 }),
+    ).toBe(true);
+
+    expect(upsertBotChatMessage).toHaveBeenNthCalledWith(1, id, 'typing');
+    expect(upsertBotChatMessage).toHaveBeenNthCalledWith(2, id, 'complete', expect.any(String));
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.CHAT_BOT_RESULT,
+      requestId: id,
+      senderId: 'member-daily-limit',
+      result: { kind: 'rate_limited', retryAfterSeconds: 70_000 },
+    });
+  });
+
   it('broadcasts one terminal result when the coordinator itself is the requester', () => {
     enterBotRoom('coordinator');
     setState('network.myId', 'host-bot-local');

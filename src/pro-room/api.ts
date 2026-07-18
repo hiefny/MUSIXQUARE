@@ -35,6 +35,7 @@ import {
   type ProRoomQueueModeSnapshot,
   type ProRoomRepeatMode,
 } from './queue-mode.ts';
+import { BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -472,14 +473,18 @@ async function readJson(response: Response, maxBytes: number): Promise<unknown> 
 function parseRetryAfter(response: Response, payload: unknown): number | null {
   const header = response.headers.get('retry-after');
   const headerSeconds = header === null ? Number.NaN : Number(header);
-  if (Number.isSafeInteger(headerSeconds) && headerSeconds >= 0 && headerSeconds <= 86_400) {
+  if (
+    Number.isSafeInteger(headerSeconds) &&
+    headerSeconds >= 0 &&
+    headerSeconds <= BOT_RATE_LIMIT_MAX_RETRY_SECONDS
+  ) {
     return headerSeconds;
   }
   if (
     isRecord(payload) &&
     Number.isSafeInteger(payload.retryAfterSeconds) &&
     (payload.retryAfterSeconds as number) >= 0 &&
-    (payload.retryAfterSeconds as number) <= 86_400
+    (payload.retryAfterSeconds as number) <= BOT_RATE_LIMIT_MAX_RETRY_SECONDS
   ) {
     return payload.retryAfterSeconds as number;
   }

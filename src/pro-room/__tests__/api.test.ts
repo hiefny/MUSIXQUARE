@@ -840,6 +840,46 @@ describe('PRO room cookie session API', () => {
     expect(JSON.stringify(error)).not.toContain(CLAIM_TOKEN);
     expect(JSON.stringify(error)).not.toContain('private claim');
   });
+
+  it('preserves the full remainder of a 24-hour BOT rate-limit window', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(
+        { error: 'RATE_LIMITED' },
+        { status: 429, headers: { 'retry-after': '86400' } },
+      ),
+    );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    const error = await client
+      .createSession({ code: ROOM_CODE, pin: '12345678', displayName: 'Friend' })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      retryAfterSeconds: 86_400,
+    });
+  });
+
+  it('drops an out-of-contract retry delay instead of forwarding it to chat', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(
+        { error: 'RATE_LIMITED' },
+        { status: 429, headers: { 'retry-after': '86401' } },
+      ),
+    );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    const error = await client
+      .createSession({ code: ROOM_CODE, pin: '12345678', displayName: 'Friend' })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      retryAfterSeconds: null,
+    });
+  });
 });
 
 describe('PRO room effects API', () => {

@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v181';
+const CACHE_VERSION = 'v182';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
@@ -236,6 +236,19 @@ function isCacheableRequest(request) {
   return true;
 }
 
+async function cacheResponse(cacheName, request, response) {
+  try {
+    // Clone before the first await. The response may be returned to and
+    // consumed by the page while CacheStorage.open() is still pending.
+    const cacheCopy = response.clone();
+    const cache = await caches.open(cacheName);
+    await cache.put(request, cacheCopy);
+  } catch (_) {
+    // Cache writes are best-effort, but the promise is still kept alive by
+    // the fetch event so a successful write cannot be abandoned mid-flight.
+  }
+}
+
 // Network-first for navigations, cache-first for static assets
 self.addEventListener('fetch', (event) => {
   const request = event.request;
@@ -243,18 +256,25 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation (HTML): network-first, fallback to cached index
   if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
+    const networkResponse = fetch(request);
+    const cacheUpdate = networkResponse
+      .then((fresh) => {
+        if (!fresh.ok || fresh.status === 206) return undefined;
+        return cacheResponse(RUNTIME_CACHE, request, fresh);
+      })
+      .catch(() => undefined);
+
+    // Register background work while the fetch event is still dispatching.
+    // Calling waitUntil only after an awaited cache/network lookup is not
+    // portable, and leaving Cache.put unchained lets the worker be suspended
+    // before the offline fallback is actually written.
+    event.waitUntil(cacheUpdate);
     event.respondWith(
       (async () => {
         try {
-          const fresh = await fetch(request);
-          if (fresh.ok && fresh.status !== 206) {
-            const cache = await caches.open(RUNTIME_CACHE);
-            // Populate the fallback without delaying the network response.
-            cache.put(request, fresh.clone()).catch(() => {
-              /* ignore */
-            });
-          }
-          return fresh;
+          // Cache population runs under waitUntil and does not delay the
+          // network response returned to the navigation.
+          return await networkResponse;
         } catch (_) {
           // Fallback to cached index or cached navigation
           const cached = await caches.match(request, { cacheName: RUNTIME_CACHE });
@@ -270,6 +290,15 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Same-origin static: cache-first with background update
+  const networkResponse = fetch(request).catch(() => null);
+  const cacheUpdate = networkResponse.then((response) => {
+    // Partial responses must never enter the static cache.
+    if (!response || response.status === 206 || (!response.ok && response.type !== 'opaque')) {
+      return undefined;
+    }
+    return cacheResponse(STATIC_CACHE, request, response);
+  });
+  event.waitUntil(cacheUpdate);
   event.respondWith(
     (async () => {
       // Prefer the active generation for stable paths. If it misses, keep
@@ -279,30 +308,12 @@ self.addEventListener('fetch', (event) => {
         (await caches.match(request, { cacheName: STATIC_CACHE })) ||
         (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
         (await caches.match(request));
-      const fetchAndUpdate = (async () => {
-        try {
-          const response = await fetch(request);
-          // Partial responses must never enter the static cache.
-          if (response && response.status !== 206 && (response.ok || response.type === 'opaque')) {
-            const cache = await caches.open(STATIC_CACHE);
-            // Cache without surfacing a background-write rejection.
-            cache.put(request, response.clone()).catch(() => {
-              /* ignore */
-            });
-          }
-          return response;
-        } catch (_) {
-          return null;
-        }
-      })();
 
       if (cached) {
-        // Revalidate a cache hit in the background.
-        event.waitUntil(fetchAndUpdate);
         return cached;
       }
 
-      const fresh = await fetchAndUpdate;
+      const fresh = await networkResponse;
       return fresh || new Response('Offline', { status: 503, statusText: 'Offline' });
     })(),
   );

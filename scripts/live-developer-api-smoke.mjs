@@ -5,9 +5,17 @@ import { pathToFileURL } from 'node:url';
 
 const API_ORIGIN = 'https://api.musixquare.com';
 const RETRY_DELAYS_MS = Object.freeze([0, 1_000, 2_000, 4_000, 8_000]);
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function fetchWithTimeout(input, init = {}) {
+  return fetch(input, {
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
 }
 
 function idempotencyKey(operation) {
@@ -23,7 +31,7 @@ function authorizationHeaders(apiKey, extra = {}) {
 }
 
 async function apiJson(path, apiKey, init = {}, expectedStatus = 200) {
-  const response = await fetch(`${API_ORIGIN}${path}`, {
+  const response = await fetchWithTimeout(`${API_ORIGIN}${path}`, {
     cache: 'no-store',
     ...init,
     headers: authorizationHeaders(apiKey, init.headers),
@@ -133,7 +141,7 @@ async function deleteQueueItem(apiKey, roomCode, queueItemId, operation) {
 }
 
 async function readHealth() {
-  const response = await fetch(`${API_ORIGIN}/health`, {
+  const response = await fetchWithTimeout(`${API_ORIGIN}/health`, {
     cache: 'no-store',
     headers: { Accept: 'application/json' },
   });
@@ -186,7 +194,7 @@ function assertNoPrivateFields(value, label) {
 }
 
 export async function assertDeveloperApiOff() {
-  const response = await fetch(`${API_ORIGIN}/v1/rooms/000001`, {
+  const response = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/000001`, {
     cache: 'no-store',
     headers: { Accept: 'application/json' },
   });
@@ -212,7 +220,7 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   let queueMode = null;
   let effectsEtag = '';
   for (const suffix of ['', '/playback', '/queue', '/effects', '/queue-mode']) {
-    const response = await fetch(`${API_ORIGIN}/v1/rooms/${roomCode}${suffix}`, {
+    const response = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${roomCode}${suffix}`, {
       cache: 'no-store',
       headers: { Accept: 'application/json', Authorization: authorization },
     });
@@ -239,7 +247,7 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   if (!roomEtag) throw new Error('Developer API room response omitted ETag');
   if (!effects || !effectsEtag) throw new Error('Developer API effects response omitted ETag');
   if (!queueMode) throw new Error('Developer API queue-mode response was not observed');
-  const notModified = await fetch(`${API_ORIGIN}/v1/rooms/${roomCode}`, {
+  const notModified = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${roomCode}`, {
     cache: 'no-store',
     headers: {
       Accept: 'application/json',
@@ -250,7 +258,7 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   if (notModified.status !== 304 || notModified.body !== null) {
     throw new Error(`Developer API ETag smoke returned HTTP ${notModified.status}`);
   }
-  const browserOrigin = await fetch(`${API_ORIGIN}/v1/rooms/${roomCode}`, {
+  const browserOrigin = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${roomCode}`, {
     cache: 'no-store',
     headers: { Authorization: authorization, Origin: 'https://example.invalid' },
   });
@@ -258,7 +266,7 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
     throw new Error('Developer API browser-origin boundary smoke failed');
   }
   const otherRoom = roomCode === '000000' ? '000001' : '000000';
-  const mismatch = await fetch(`${API_ORIGIN}/v1/rooms/${otherRoom}`, {
+  const mismatch = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${otherRoom}`, {
     cache: 'no-store',
     headers: { Authorization: authorization },
   });
@@ -352,7 +360,7 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   if (uploadUrl.protocol !== 'https:') {
     throw new Error('Developer API media reservation returned an unsafe upload URL');
   }
-  const uploadResponse = await fetch(uploadUrl, {
+  const uploadResponse = await fetchWithTimeout(uploadUrl, {
     method: 'PUT',
     headers: reservation.upload.headers,
     body: wav,

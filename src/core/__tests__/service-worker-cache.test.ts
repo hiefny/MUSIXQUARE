@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v181';
-const RETIRED_CACHE_VERSION = 'v180';
+const ACTIVE_CACHE_VERSION = 'v182';
+const RETIRED_CACHE_VERSION = 'v181';
 
 type FetchListener = (event: {
   request: Request;
@@ -82,16 +82,33 @@ describe('service worker cache policy', () => {
   });
 
   async function dispatch(request: Request): Promise<Response> {
+    const { response, work } = await dispatchWithWork(request);
+    await Promise.all(work);
+    return response;
+  }
+
+  async function dispatchWithWork(request: Request): Promise<{
+    response: Response;
+    work: Array<Promise<unknown>>;
+    waitUntilWasSynchronous: boolean;
+  }> {
     let responsePromise: Promise<Response> | undefined;
+    const work: Array<Promise<unknown>> = [];
+    let listenerReturned = false;
+    let waitUntilWasSynchronous = true;
     fetchListener({
       request,
       respondWith: (response) => {
         responsePromise = response;
       },
-      waitUntil: vi.fn(),
+      waitUntil: (promise) => {
+        if (listenerReturned) waitUntilWasSynchronous = false;
+        work.push(promise);
+      },
     });
+    listenerReturned = true;
     expect(responsePromise).toBeDefined();
-    return await responsePromise!;
+    return { response: await responsePromise!, work, waitUntilWasSynchronous };
   }
 
   function expectIgnored(request: Request): void {
@@ -137,12 +154,76 @@ describe('service worker cache policy', () => {
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
+  it('keeps a navigation cache write alive without delaying the response', async () => {
+    let finishCacheWrite: (() => void) | undefined;
+    cachePut.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCacheWrite = resolve;
+      }),
+    );
+    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
+
+    const { response, work, waitUntilWasSynchronous } = await dispatchWithWork(
+      new Request('https://musixquare.com/session', { headers: { accept: 'text/html' } }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(waitUntilWasSynchronous).toBe(true);
+    expect(work).toHaveLength(1);
+    expect(cachePut).toHaveBeenCalledOnce();
+
+    let completed = false;
+    const completion = Promise.all(work).then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+
+    finishCacheWrite?.();
+    await completion;
+    expect(completed).toBe(true);
+  });
+
+  it('clones a navigation response before an asynchronous cache open', async () => {
+    let finishCacheOpen: ((cache: { put: typeof cachePut }) => void) | undefined;
+    cacheOpen.mockReturnValue(
+      new Promise((resolve) => {
+        finishCacheOpen = resolve;
+      }),
+    );
+    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
+
+    const { response, work } = await dispatchWithWork(
+      new Request('https://musixquare.com/session', { headers: { accept: 'text/html' } }),
+    );
+    expect(await response.text()).toBe('<!doctype html>');
+
+    finishCacheOpen?.({ put: cachePut });
+    await Promise.all(work);
+    expect(cachePut).toHaveBeenCalledOnce();
+  });
+
   it('uses the static cache for same-origin assets', async () => {
     fetchMock.mockResolvedValue(new Response('asset', { status: 200 }));
 
     await dispatch(new Request('https://musixquare.com/assets/app.js'));
 
     expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
+    expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it('registers static revalidation work before the fetch listener returns', async () => {
+    cacheMatch.mockResolvedValue(new Response('cached asset', { status: 200 }));
+    fetchMock.mockResolvedValue(new Response('fresh asset', { status: 200 }));
+
+    const { response, work, waitUntilWasSynchronous } = await dispatchWithWork(
+      new Request('https://musixquare.com/assets/app.js'),
+    );
+    await Promise.all(work);
+
+    expect(await response.text()).toBe('cached asset');
+    expect(waitUntilWasSynchronous).toBe(true);
+    expect(work).toHaveLength(1);
     expect(cachePut).toHaveBeenCalledOnce();
   });
 

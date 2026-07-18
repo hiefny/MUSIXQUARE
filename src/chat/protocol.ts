@@ -339,7 +339,6 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   let senderLabel = (data.senderLabel as string) || (data.sender as string) || PEER_NAME_PREFIX;
   if (senderLabel.length > MAX_SENDER_LABEL_LENGTH)
     senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
-  const displayName = formatChatDisplayName(senderLabel);
   let text = (data.text as string) || '';
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
 
@@ -377,14 +376,22 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     data.isOp = isOp;
     data.senderId = senderPeerId;
     if (peerEntry) {
-      data.senderLabel = peerEntry.label.substring(0, MAX_SENDER_LABEL_LENGTH);
+      senderLabel = peerEntry.label.substring(0, MAX_SENDER_LABEL_LENGTH);
       data.joinOrder = peerEntry.joinOrder;
+    } else {
+      // An authenticated connection can race the first device-list commit,
+      // but its untrusted frame still must not choose the coordinator's local
+      // display name. Keep a neutral fallback until authoritative state lands.
+      senderLabel = PEER_NAME_PREFIX;
+      delete data.joinOrder;
     }
+    data.senderLabel = senderLabel;
   } else {
     // Guest: trust broadcast data (host already sanitized it)
     badge = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
   }
 
+  const displayName = formatChatDisplayName(senderLabel);
   const joinOrder = typeof data.joinOrder === 'number' ? data.joinOrder : undefined;
   addChatMessage(displayName, text, isMine, badge, joinOrder);
 
@@ -404,10 +411,26 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     delete data.botRequestId;
   }
 
-  // Broadcast to other peers (Host only), excluding the sender to avoid duplicates.
+  // Broadcast a canonical payload to other peers (Host only), excluding the
+  // sender to avoid duplicates. Never fan out the inbound object itself: the
+  // CHAT validator intentionally validates the known fields, so an attacker
+  // could otherwise attach a large unknown property and multiply it across
+  // every downstream connection even though the rendered text is bounded.
   if (!hostConn) {
     const senderPeerId = conn?.peer || '';
-    bus.emit('network:broadcast-except', senderPeerId, data);
+    const relayPayload: Record<string, unknown> = {
+      type: MSG.CHAT,
+      senderId: senderPeerId,
+      sender: senderLabel,
+      senderLabel,
+      isHost: false,
+      isOp: badge === 'op',
+      text,
+      ts: typeof data.ts === 'number' && Number.isFinite(data.ts) ? data.ts : Date.now(),
+    };
+    if (typeof joinOrder === 'number') relayPayload.joinOrder = joinOrder;
+    if (isValidBotRequest) relayPayload.botRequestId = botRequestId;
+    bus.emit('network:broadcast-except', senderPeerId, relayPayload);
   }
 }
 
@@ -542,16 +565,27 @@ function handleChatWhisper(data: Record<string, unknown>, conn?: DataConnection)
     const peers = getState('network.connectedPeers');
     const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
     if (!peerEntry) return;
-    data.senderId = senderPeerId;
-    data.senderLabel = peerEntry.label.substring(0, MAX_SENDER_LABEL_LENGTH);
-    data.joinOrder = peerEntry.joinOrder;
+    const senderLabel = peerEntry.label.substring(0, MAX_SENDER_LABEL_LENGTH);
+    const relayPayload = {
+      type: MSG.CHAT_WHISPER,
+      senderId: senderPeerId,
+      senderLabel,
+      targetId,
+      text: textIn,
+      ts: typeof data.ts === 'number' && Number.isFinite(data.ts) ? data.ts : Date.now(),
+      joinOrder: peerEntry.joinOrder,
+    };
 
     if (targetId === myId) {
-      addWhisperMessage(data.senderLabel as string, data.text as string, false);
+      addWhisperMessage(senderLabel, textIn, false);
     } else {
       const connMap = getState('network.activeHostConnByPeerId');
       const targetConn = connMap.get(targetId);
-      if (targetConn) targetConn.send(data);
+      // Relay only the protocol's known fields. The validator intentionally
+      // permits rolling-compatible input shapes, so forwarding the inbound
+      // object itself would let an authenticated peer attach an arbitrary
+      // nested payload and amplify it through the coordinator to its target.
+      if (targetConn) targetConn.send(relayPayload);
     }
     return;
   }

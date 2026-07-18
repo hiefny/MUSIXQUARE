@@ -54,6 +54,11 @@ commit and tool versions, and deploys that same artifact. Its Cloudflare
 deployment message contains the Git SHA and Actions run ID, and the resulting
 deployment status JSON is retained with the run.
 
+Validation also runs the chunk-pump and playback-lifecycle static ratchets named
+in their design contracts. They are release gates rather than optional local
+checks, so a refactor cannot bypass the shared transfer pump or introduce an
+unreviewed playback-state writer while ordinary unit tests still pass.
+
 Immediately before each Worker deploy, the workflow verifies that both the
 production deployment ID and its 100% version still match the state captured
 during preparation. If a manual or external deploy changed either value, the
@@ -67,16 +72,51 @@ version already restored ends the retry without issuing a duplicate command.
 Retry attempts remain in the Actions log, and the final rollback/conflict report
 is retained in the deployment artifact and Actions summary.
 
+After every selected live smoke succeeds, the workflow queries all Workers
+attempted by the run one final time. Their deployment ID, 100% version, and
+release message must still match the recorded release. This closes the window
+where a local or external deployment could replace an earlier Worker after its
+individual smoke; a mismatch fails the release and the conflict-aware recovery
+will not overwrite the newer deployment.
+
+Every live-smoke step has a five-minute hard ceiling. The PRO-room, Developer
+API, and remote-share HTTP probes additionally abort each individual request
+after 30 seconds, while retaining their existing edge-propagation retry delays;
+the signaling and browser smokes keep their own shorter protocol/navigation
+timeouts. These limits are intentionally far above the tiny synthetic payloads'
+normal latency, but prevent a half-open response from delaying automatic
+recovery for the runner's six-hour default job lifetime.
+
 When a release includes a Developer API D1 migration, recovery runs the schema
-rollback with the D1-only token and the Worker rollback with the Worker-only
-token. Both recovery commands are attempted even if the first one fails, so a
-D1 control-plane error cannot prevent already-deployed Workers from being
-restored.
+rollback and Worker rollback as separate steps. Each step receives only its own
+least-privilege token; neither recovery script can read the other's credential.
+Both recovery commands are attempted even if the first one fails. If the
+effects-scope schema cannot be restored, recovery leaves the public Developer
+API Worker on its schema-compatible version instead of restoring a legacy
+Worker that rejects the remaining scope bits; independent Workers still return
+to their previous versions. The release remains failed and reports the withheld
+target for operator review.
+
+The app and signaling rollback also has a compatibility fence. The current
+signaling Worker accepts both first-frame host authentication and the temporary
+legacy URL form, but the previous signaling Worker cannot authenticate a new
+app that no longer places its secret in the URL. If app rollback is attempted
+but cannot be verified as restored, recovery therefore keeps the current
+signaling Worker and reports a partial failure instead of creating a known
+broken new-app/old-signaling pairing.
+
+The same dependency is fenced in the forward direction. An app-only production
+release runs the live signaling smoke before touching the app Worker, and the
+local `deploy:app` command does the same. A signaling protocol change must be
+deployed and smoked first (normally with release target `all`); the preflight
+fails closed while production still serves an incompatible signaling contract.
 
 If the rollback report records a conflict or exhausted retry, inspect the live
-version before taking manual action. A failure that occurs only after this
-recovery step, while uploading artifacts or writing the Actions summary, does
-not roll back an otherwise healthy release.
+version before taking manual action. Deployment records and the Actions summary
+are written even when recovery itself fails, after which an explicit final gate
+keeps the release failed. A failure that occurs only after the recovery step,
+while uploading artifacts or writing the Actions summary, does not roll back an
+otherwise healthy release.
 
 Cloudflare's separate Git-triggered app deployment is intentionally disabled;
 do not enable it while the GitHub release workflow is authoritative. Keeping
@@ -99,12 +139,14 @@ token that expires on 2027-07-16. Rotate it before expiry and update the
 environment secret named `CLOUDFLARE_API_TOKEN`; never copy a local Wrangler
 OAuth credential into GitHub. Keep D1 writes on a separate account token in
 `CLOUDFLARE_D1_API_TOKEN`, restricted to this account with the `D1:Edit`
-permission. The release workflow probes that token before any Worker deploy
-when a D1 change is requested, so a missing or under-scoped credential stops
-without rolling production forward and back. Keep base-schema changes additive
-and backward-compatible because Worker rollback does not reverse a successfully
-committed D1 schema import; tracked destructive changes need their own explicit
-migration and rollback pair.
+permission. The Worker token is injected only into Wrangler status, deployment,
+final-verification, and recovery steps; dependency installation, artifact
+verification, and live-smoke code never receive it. The release workflow probes
+the D1 token before any Worker deploy when a D1 change is requested, so a
+missing or under-scoped credential stops without rolling production forward and
+back. Keep base-schema changes additive and backward-compatible because Worker
+rollback does not reverse a successfully committed D1 schema import; tracked
+destructive changes need their own explicit migration and rollback pair.
 
 ### Worker scope and order
 
@@ -175,6 +217,14 @@ Current behavior:
 | PWA/background tab                          | Delivery depends on when the browser wakes the page and allows the update check. Treat this as browser-controlled.                                                                                                                                                                                                                                                                                                                                |
 
 Bumping `CACHE_VERSION` in `public/service-worker.js` creates fresh active app-shell caches and is the current lightweight way to make existing clients notice an app-shell migration. Prior generations are retired only after the page/worker readiness handshake confirms that no live tab still needs them (or when activation sees no live window clients). It still does not create a guaranteed instant reload for every active/background client.
+
+`npm run guard:sw-cache-version` enforces this migration boundary for committed
+PWA runtime changes. A feature commit may be followed by a separate version-bump
+commit, or may include the bump itself; the guard passes once the latest bump
+covers the resulting app tree. Cloudflare Worker code, repository documentation,
+and test-only changes do not require a bump. The check intentionally fails on a
+shallow clone because it cannot prove where the latest bump occurred, so CI and
+release validation must check out full git history (`fetch-depth: 0`).
 
 ## Emergency Hotfix
 

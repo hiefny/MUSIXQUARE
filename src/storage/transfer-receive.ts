@@ -484,6 +484,82 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
   return !!hostConn && conn === hostConn;
 }
 
+const FILE_CHUNK_RATE_EXEMPT_KEYS: ReadonlySet<string> = new Set([
+  'type',
+  'chunk',
+  'chunkIndex',
+  'queueItemId',
+  'sessionId',
+  'total',
+  'name',
+  'size',
+  'mime',
+]);
+
+/**
+ * High-rate FILE_CHUNK frames may bypass the generic peer bucket only after an
+ * exact main receive tuple is active. The first surviving chunk can still
+ * bootstrap a lost FILE_START through the normal 60-frame bucket; subsequent
+ * chunks become exempt once applyFileChunk establishes this state.
+ */
+export function isActiveHostFileChunkForRateLimit(
+  data: Readonly<Record<string, unknown>>,
+  conn: DataConnection,
+): boolean {
+  if (getState('network.appRole') !== 'guest' || conn.open !== true || !isHostBroadcast(conn)) {
+    return false;
+  }
+  if (getState('transfer.state') !== TRANSFER_STATE.RECEIVING) return false;
+
+  const keys = Object.keys(data);
+  if (
+    data.type !== MSG.FILE_CHUNK ||
+    keys.some((key) => !FILE_CHUNK_RATE_EXEMPT_KEYS.has(key)) ||
+    keys.length < 8 ||
+    keys.length > 9 ||
+    (Object.prototype.hasOwnProperty.call(data, 'mime') && typeof data.mime !== 'string')
+  ) {
+    return false;
+  }
+
+  const sessionId = data.sessionId;
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : null;
+  const chunkIndex = data.chunkIndex;
+  const chunk = data.chunk;
+  const meta = getState('transfer.meta');
+  const total = Number(meta?.total);
+  const size = Number(meta?.size);
+  const byteLength =
+    chunk instanceof Uint8Array || isArrayBuffer(chunk) ? chunk.byteLength : Number.NaN;
+  const expectedByteLength =
+    Number.isSafeInteger(chunkIndex) &&
+    Number.isSafeInteger(total) &&
+    Number.isSafeInteger(size) &&
+    (chunkIndex as number) === total - 1
+      ? size - CHUNK_SIZE * (total - 1)
+      : CHUNK_SIZE;
+  return (
+    Number.isSafeInteger(sessionId) &&
+    (sessionId as number) > 0 &&
+    sessionId === getState('transfer.localSessionId') &&
+    Number(meta?.sessionId) === sessionId &&
+    !!queueItemId &&
+    meta?.queueItemId === queueItemId &&
+    typeof data.name === 'string' &&
+    data.name.length > 0 &&
+    data.name === meta?.name &&
+    data.total === total &&
+    data.size === size &&
+    Number.isSafeInteger(chunkIndex) &&
+    (chunkIndex as number) >= 0 &&
+    Number.isSafeInteger(total) &&
+    total > 0 &&
+    (chunkIndex as number) < total &&
+    Number.isSafeInteger(byteLength) &&
+    byteLength === expectedByteLength
+  );
+}
+
 function replayLoadedSameFile(data: Record<string, unknown>): boolean {
   const resident = getState('files.current');
   const requestedQueueItemId = incomingQueueItemId(data);

@@ -24,6 +24,7 @@ Events:
 | -------------------------- | ---------------------------------------------------------------------------------------- |
 | `room_opened`              | A host created a fresh room.                                                             |
 | `host_reconnected`         | A host reclaimed or refreshed an existing room.                                          |
+| `host_legacy_url_auth`     | An older cached host authenticated through the temporary query compatibility path.       |
 | `guest_joined`             | A guest successfully joined.                                                             |
 | `guest_host_unavailable`   | A guest tried to join a missing room.                                                    |
 | `guest_auth_pending`       | A password-protected guest reached the password prompt.                                  |
@@ -32,7 +33,7 @@ Events:
 | `guest_reconnect_denied`   | A same-identity reconnect used the wrong or missing reconnect secret.                    |
 | `guest_reconnect_conflict` | A reconnect collided with another pending or live owner of that identity.                |
 | `guest_room_full`          | A new guest was rejected because the room reached its active-guest limit.                |
-| `guest_pending_capacity`   | An unauthenticated connection was rejected because the pending-socket limit was reached. |
+| `guest_pending_capacity`   | A connection was rejected because every bounded pending slot was already authenticating. |
 | `guest_identity_capacity`  | A new identity was rejected because the reconnect-binding limit was reached.             |
 | `ws_message_oversized`     | A WebSocket frame or validated signaling payload exceeded its size limit.                |
 | `ws_message_rate_limited`  | A guest exceeded the per-connection signaling message rate.                              |
@@ -40,6 +41,32 @@ Events:
 Metric writes are deferred with the Worker execution context, so D1 latency is
 not part of the room admission path. They are operational counters rather than
 an authentication or billing source of truth.
+
+## Legacy Host Authentication Removal
+
+Current standard-room clients send the random host ownership secret in their
+first WebSocket frame. They never put it in the URL. The signaling Worker
+temporarily still accepts the old `?secret=` query contract because an already
+open or deferred-update PWA can reconnect while the Worker is rolling forward.
+Do not log full standard-room WebSocket URLs while this bridge exists.
+
+Deploy the signaling Worker before the app. That order lets both the new
+first-frame client and an older cached query client use the new Worker during
+the rollout without putting the current client's credential back into its URL.
+
+Remove the query parser and `host_legacy_url_auth` event only after all of these
+conditions hold:
+
+1. The app/service-worker release containing first-frame host authentication
+   has been in production for at least 30 days; record its deployed SHA and
+   cache version in the release log.
+2. `host_legacy_url_auth` has remained zero for seven consecutive days.
+3. A live smoke confirms first-frame host creation and reconnect against the
+   then-current signaling Worker.
+
+The removal must delete only the legacy query branch. The `host-auth` first
+frame, its timeout, and the rule that a candidate cannot replace the live host
+before successful authentication remain permanent.
 
 ## Cloudflare Setup
 
@@ -110,7 +137,7 @@ https://musixquare.com/admin
 - The same scheduled event independently retains 365 days of PRO admin audit
   metadata. Audit cleanup failure does not cancel metrics cleanup or Soro
   refresh and never weakens claim issuance auditing.
-- Historical event names that are no longer in the 14-event inventory are
+- Historical event names that are no longer in the 15-event inventory are
   ignored by current dashboard summaries. Keep them only while their audit
   value is useful.
 

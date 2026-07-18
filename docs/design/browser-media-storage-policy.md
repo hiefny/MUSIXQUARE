@@ -70,6 +70,15 @@ retains integrity limits for positive safe sizes, exact chunk totals, 64 KiB
 frames, and at most 200,000 chunks. These are protocol bounds, not predictive
 RAM admission.
 
+Inbound `FILE_CHUNK` and `PRELOAD_CHUNK` frames bypass the generic per-peer
+message bucket only after the receiver can bind the frame to the exact current
+host connection and an active `(sessionId, queueItemId)` transfer. The frame
+index and byte length must also remain inside the declared transfer bounds.
+Unknown sessions, stale connections, mismatched queue occurrences, and chunks
+that arrive before their transfer header use the ordinary message bucket. This
+keeps legitimate high-throughput media flowing without turning a message type
+alone into an unlimited ingress exemption.
+
 The accepted tradeoff is explicit: files that conservative estimates previously
 rejected are now attempted, but a memory-constrained browser may reject an
 allocation, terminate the tab/PWA, or be killed by the OS. The discarded

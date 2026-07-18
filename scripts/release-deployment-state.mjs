@@ -79,6 +79,7 @@ function pathsFor(target, directory) {
     preflight: resolve(base, `${target}-preflight.json`),
     after: resolve(base, `${target}.json`),
     state: resolve(base, `${target}-state.json`),
+    finalCurrent: resolve(base, `${target}-final-current.json`),
     rollbackCurrent: resolve(base, `${target}-rollback-current.json`),
     rollback: resolve(base, `${target}-rollback.json`),
   };
@@ -313,6 +314,106 @@ function attemptedStates(directory) {
     .sort((left, right) => right.rollbackOrder - left.rollbackOrder);
 }
 
+function verifyCurrentRelease(directory, options = {}) {
+  const reportPath = resolve(directory, 'final-verification-report.json');
+  const report = {
+    schemaVersion: SCHEMA_VERSION,
+    startedAt: new Date().toISOString(),
+    status: 'pending',
+    results: [],
+  };
+  let failed = false;
+  const query = options.queryCurrent || queryCurrent;
+  const states = attemptedStates(directory).reverse();
+
+  if (states.length === 0) {
+    report.status = 'failed';
+    report.results.push({
+      target: 'release-state',
+      status: 'failed',
+      error: 'No attempted Worker deployment state was found for final verification.',
+    });
+    failed = true;
+  }
+
+  for (const state of states) {
+    const result = {
+      target: state.target,
+      expectedDeploymentId: state.afterDeploymentId || null,
+      expectedVersionId: state.afterVersionId || null,
+      expectedMessage: state.releaseMessage || null,
+      status: 'pending',
+    };
+    report.results.push(result);
+
+    if (
+      state.ownedByRelease !== true ||
+      !state.afterDeploymentId ||
+      !state.afterVersionId ||
+      !state.releaseMessage
+    ) {
+      result.status = 'failed';
+      result.error =
+        'The attempted deployment was not completely recorded as owned by this release.';
+      failed = true;
+      continue;
+    }
+
+    try {
+      const current = query(
+        state.target,
+        state.config,
+        pathsFor(state.target, directory).finalCurrent,
+        options.queryOptions,
+      );
+      result.currentDeploymentId = current.deploymentId || null;
+      result.currentVersionId = current.versionId || null;
+      result.currentMessage = current.message || null;
+
+      const matchesRelease =
+        current.deploymentId === state.afterDeploymentId &&
+        current.versionId === state.afterVersionId &&
+        current.message === state.releaseMessage;
+      if (!matchesRelease) {
+        result.status = 'conflict';
+        result.error =
+          'Current production no longer matches the deployment recorded by this release.';
+        failed = true;
+        continue;
+      }
+
+      result.status = 'verified';
+    } catch (error) {
+      result.status = 'failed';
+      result.error = error instanceof Error ? error.message : String(error);
+      failed = true;
+    }
+  }
+
+  report.completedAt = new Date().toISOString();
+  report.status = failed ? 'failed' : 'verified';
+  writeJson(reportPath, report);
+  console.log(`Final deployment verification: ${reportPath} (${report.status})`);
+  if (failed) {
+    throw new Error(
+      'Final production deployment verification failed; another deployment may have replaced this release.',
+    );
+  }
+  return report;
+}
+
+function rollbackSkipTargets(value = process.env.MXQR_ROLLBACK_SKIP_TARGETS) {
+  if (!value?.trim()) return new Set();
+  const targets = new Set(
+    value
+      .split(/[\s,]+/)
+      .map((target) => target.trim())
+      .filter(Boolean),
+  );
+  for (const target of targets) targetDefinition(target);
+  return targets;
+}
+
 function rollbackDisposition(state, current) {
   if (current.versionId === state.beforeVersionId) return 'already-restored';
   const isRecordedDeployment =
@@ -322,6 +423,21 @@ function rollbackDisposition(state, current) {
     (!state.afterDeploymentId || current.deploymentId === state.afterDeploymentId);
   const isReleaseMessageMatch = current.message === state.releaseMessage;
   return isRecordedDeployment || isReleaseMessageMatch ? 'rollback' : 'conflict';
+}
+
+function rollbackDependencyBlock(target, states, results) {
+  // First-frame host authentication is deliberately forward-compatible:
+  // the new signaling Worker accepts both the new frame and the legacy URL,
+  // while the legacy Worker cannot authenticate a new app that omits the URL
+  // secret. If app recovery is uncertain, retaining the new signaling Worker
+  // is the only combination that keeps both cached and current clients usable.
+  if (target !== 'signaling' || !states.some((state) => state.target === 'app')) return null;
+  const appResult = results.find((result) => result.target === 'app');
+  if (appResult && ['restored', 'already-restored'].includes(appResult.status)) return null;
+  return {
+    dependency: 'app',
+    dependencyStatus: appResult?.status || 'not-processed',
+  };
 }
 
 function rollback(directory) {
@@ -335,8 +451,10 @@ function rollback(directory) {
   let failed = false;
 
   let states;
+  let skipTargets;
   try {
     states = attemptedStates(directory);
+    skipTargets = rollbackSkipTargets();
   } catch (error) {
     report.status = 'partial-failure';
     report.results.push({
@@ -359,6 +477,25 @@ function rollback(directory) {
       status: 'pending',
     };
     report.results.push(result);
+
+    if (skipTargets.has(state.target)) {
+      result.status = 'skipped-schema-incompatible';
+      result.error =
+        'Automatic Worker rollback was skipped because its required schema rollback did not complete.';
+      failed = true;
+      continue;
+    }
+
+    const dependencyBlock = rollbackDependencyBlock(state.target, states, report.results);
+    if (dependencyBlock) {
+      result.status = 'skipped-dependent-app-not-restored';
+      result.error =
+        `Automatic signaling rollback was withheld because app recovery is ` +
+        `${dependencyBlock.dependencyStatus}; the new signaling Worker remains compatible ` +
+        'with both cached and current app clients.';
+      failed = true;
+      continue;
+    }
 
     try {
       const rollbackMessage =
@@ -431,7 +568,7 @@ function summary(directory) {
 function main() {
   const [mode, targetArgument, directoryArgument] = process.argv.slice(2);
   const directory = resolve(
-    mode === 'rollback' || mode === 'summary'
+    mode === 'verify-current' || mode === 'rollback' || mode === 'summary'
       ? targetArgument || DEFAULT_DIRECTORY
       : directoryArgument || DEFAULT_DIRECTORY,
   );
@@ -441,11 +578,12 @@ function main() {
   else if (mode === 'attempt') markAttempt(targetArgument, directory);
   else if (mode === 'record') record(targetArgument, directory);
   else if (mode === 'version') recordedVersion(targetArgument, directory);
+  else if (mode === 'verify-current') verifyCurrentRelease(directory);
   else if (mode === 'rollback') rollback(directory);
   else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | <rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | <verify-current|rollback|summary> [directory]',
     );
   }
 }
@@ -462,6 +600,9 @@ export {
   queryCurrent,
   retrySync,
   rollbackDisposition,
+  rollbackDependencyBlock,
+  rollbackSkipTargets,
   runRollbackWithRetry,
+  verifyCurrentRelease,
   verifyProductionVersion,
 };

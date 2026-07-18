@@ -42,8 +42,9 @@ Downloads do not write to KV.
 - Signed upload session and completion tokens.
 - Direct-to-R2 presigned PUT upload path.
 - R2 object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour by default.
-- Standard-room temporary R2 quota: 1 GiB per six-digit room code, counting all
-  active encrypted objects under that room's R2 prefix. Session creation checks
+- Standard-room temporary R2 quota: 1 GiB per generated room code in the exact
+  `100000`-`999999` range, counting all active encrypted objects under that
+  room's R2 prefix. Session creation checks
   capacity early; completion checks it again so concurrent uploads cannot
   publish an over-quota object. Failed uploads issue best-effort authenticated
   cleanup, while expiry and the bucket lifecycle remain cleanup backstops. A
@@ -67,11 +68,14 @@ Downloads do not write to KV.
   to `0` disables this storage guard. Reaching it stops only the R2 route;
   same-network direct file delivery remains available. This per-room guard
   does not replace account-wide R2 usage monitoring or billing alerts. The
-  six-digit room code is client-supplied rather than a server-issued storage
+  standard room code is client-supplied rather than a server-issued storage
   entitlement, so this is an operational normal-client limit, not an
   abuse-resistant account cost ceiling. Capability, IP throttling, and WAF
   remain the abuse controls; a future hard entitlement requires a
   signaling-issued room upload capability.
+- The Worker rejects missing, malformed, and `0xxxxx` room IDs before issuing a
+  presigned URL. The complete `0xxxxx` namespace is reserved for PRO rooms,
+  whose persistent media uses the separate PRO bucket and control plane.
 - App-issued capability token required on `POST /session` in production. With
   Turnstile disabled, the app Worker issues it only after a signed,
   IP/scope-bound proof-of-work challenge; Origin/Host headers are not proof.

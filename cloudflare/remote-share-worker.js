@@ -46,6 +46,10 @@ const CAPABILITY_SCOPE = 'remote-share';
 const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
 const SESSION_JSON_BODY_MAX_BYTES = 8 * 1024;
 const COMPLETE_JSON_BODY_MAX_BYTES = 8 * 1024;
+// Standard ephemeral rooms are generated only in the 100000-999999 range.
+// The complete 0xxxxx namespace belongs to persistent PRO rooms and must never
+// share this temporary encrypted-object bucket or its per-room quota keys.
+const STANDARD_ROOM_CODE_RE = /^[1-9]\d{5}$/;
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
@@ -479,9 +483,8 @@ async function verifySignedToken(token, secret) {
   }
 }
 
-function safeRoomId(value) {
-  const raw = String(value || 'room').slice(0, 64);
-  return raw.replace(/[^a-zA-Z0-9_-]/g, '_') || 'room';
+function standardRoomId(value) {
+  return typeof value === 'string' && STANDARD_ROOM_CODE_RE.test(value) ? value : null;
 }
 
 function metadataString(value, fallback = '') {
@@ -614,13 +617,14 @@ async function handleSession(request, env) {
   if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
   const body = parsedBody.value;
 
-  const roomId = safeRoomId(body?.roomId);
+  const roomId = standardRoomId(body?.roomId);
   const sessionId = Number(body?.sessionId);
   const queueItemId = safeQueueItemId(body?.queueItemId);
   const size = Number(body?.size);
   const encryptedSize = Number(body?.encryptedSize);
 
   if (
+    !roomId ||
     !Number.isSafeInteger(sessionId) ||
     sessionId <= 0 ||
     !queueItemId ||
@@ -758,13 +762,14 @@ async function handleComplete(request, env) {
   const body = parsedBody.value;
 
   const payload = await verifySignedToken(body?.completeToken, secret);
-  const roomId = safeRoomId(body?.roomId);
+  const roomId = standardRoomId(body?.roomId);
   const objectId = String(body?.objectId || '');
   const now = Date.now();
   const issuedAt = Number(payload?.iat);
   const tokenExpiresAt = Number(payload?.exp);
   const objectExpiresAt = Number(payload?.expiresAt);
   if (
+    !roomId ||
     !payload ||
     payload.v !== 2 ||
     payload.kind !== 'complete' ||
@@ -862,8 +867,9 @@ async function handleComplete(request, env) {
 }
 
 function objectKey(roomId, objectId) {
-  const room = safeRoomId(roomId);
+  const room = standardRoomId(roomId);
   if (
+    !room ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(objectId)
   ) {
     return null;
@@ -898,7 +904,7 @@ async function handleDownload(request, env, roomId, objectId) {
     !Number.isSafeInteger(encryptedSize) ||
     encryptedSize !== plaintextSize + AES_GCM_TAG_BYTES ||
     object.size !== encryptedSize ||
-    storedRoomId !== safeRoomId(roomId) ||
+    storedRoomId !== standardRoomId(roomId) ||
     storedObjectId !== objectId
   ) {
     await env.REMOTE_SHARE_BUCKET.delete(key);

@@ -2,6 +2,7 @@ const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_CODE_PATTERN = /^0\d{5}$/;
 const HOST_RECLAIM_GRACE_MS = 60_000;
+const HOST_AUTH_TIMEOUT_MS = 10_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
 const ATTACHMENT_VERSION = 1;
@@ -13,6 +14,11 @@ const ICE_CANDIDATE_MAX_BYTES = 4 * 1024;
 // 100 connected devices. Pending sockets use a separate, short-lived budget
 // for simultaneous unauthenticated handshakes.
 const MAX_ROOM_GUESTS = 99;
+// Host ownership is authenticated after the WebSocket upgrade so its bearer
+// secret never appears in the URL. Keep this pre-auth surface small and rotate
+// only another unauthenticated host candidate; an authenticated host is never
+// displaced before the new candidate proves the same room secret.
+const MAX_PENDING_HOST_SOCKETS = 4;
 // Every guest briefly occupies this unauthenticated state while proving its
 // reconnect secret, including passwordless rooms. Keep the burst budget equal
 // to the public guest capacity so a legitimate 100-device venue is not
@@ -651,6 +657,14 @@ function validateIncomingMessage(message, role) {
     return 'ignore';
   }
 
+  if (role === 'host-pending') {
+    return hasExactKeys(message, ['type', 'secret']) &&
+      message.type === 'host-auth' &&
+      isValidPeerId(message.secret)
+      ? 'valid'
+      : 'ignore';
+  }
+
   if (role === 'pending') {
     if (message.type !== 'guest-auth') return 'ignore';
     if (typeof message.password !== 'string') return 'ignore';
@@ -751,6 +765,10 @@ function send(ws, message) {
 
 function sendChecked(ws, message) {
   try {
+    // Cloudflare exposes the standard numeric readyState values. A closed
+    // hibernatable socket may discard send() without throwing, so a successful
+    // call alone is not proof that peer-open can reach the candidate.
+    if (typeof ws.readyState === 'number' && ws.readyState !== 1) return false;
     ws.send(JSON.stringify(message));
     return true;
   } catch {
@@ -899,15 +917,28 @@ function normalizeAttachment(value) {
   }
 
   if (value.role === 'host') {
-    if (value.auth !== 'ok' || typeof value.secret !== 'string' || !value.secret) return null;
-    return {
-      v: ATTACHMENT_VERSION,
-      role: 'host',
-      roomId: value.roomId,
-      peerId: value.peerId,
-      secret: value.secret,
-      auth: 'ok',
-    };
+    if (value.auth === 'ok' && typeof value.secret === 'string' && value.secret) {
+      return {
+        v: ATTACHMENT_VERSION,
+        role: 'host',
+        roomId: value.roomId,
+        peerId: value.peerId,
+        secret: value.secret,
+        auth: 'ok',
+      };
+    }
+    if (value.auth === 'pending') {
+      return {
+        v: ATTACHMENT_VERSION,
+        role: 'host',
+        roomId: value.roomId,
+        peerId: value.peerId,
+        auth: 'pending',
+        authDeadline: Number.isFinite(value.authDeadline) ? value.authDeadline : 0,
+        authStarted: value.authStarted === true,
+      };
+    }
+    return null;
   }
 
   const guestMessageBucket =
@@ -939,6 +970,7 @@ function normalizeAttachment(value) {
       peerId: value.peerId,
       auth: 'pending',
       authDeadline: Number.isFinite(value.authDeadline) ? value.authDeadline : 0,
+      authStarted: value.authStarted === true,
       ...guestMessageBucket,
     };
   }
@@ -970,12 +1002,17 @@ export class MusixquareRoom {
     this.proRoomMeta = null;
     this.host = null;
     this.hostPeerId = null;
+    this.pendingHosts = new Set();
     this.guests = new Map();
     this.pendingGuests = new Set();
     this.guestBindings = null;
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
-    this.guestAdmissionSync = Promise.resolve();
+    // Standard-room host metadata and guest reconnect bindings describe one
+    // room epoch. Serialize their admission/leave mutations together so an
+    // awaited host reconnect write cannot be overwritten by a stale host close
+    // or an overlapping empty-room cleanup.
+    this.standardAdmissionSync = Promise.resolve();
     this.proAdmissionSync = Promise.resolve();
     this.alarmSync = Promise.resolve();
     this.proSocketsValidated = false;
@@ -1000,12 +1037,10 @@ export class MusixquareRoom {
   }
 
   admittedGuestIds() {
-    const admitted = new Set(this.guests.keys());
-    for (const socket of this.pendingGuests) {
-      const attachment = readAttachment(socket);
-      if (attachment?.role === 'guest') admitted.add(attachment.peerId);
-    }
-    return admitted;
+    // Pending sockets are handshake attempts, not connected devices. Counting
+    // them here lets silent unauthenticated clients consume all 99 legitimate
+    // guest slots for the full authentication timeout.
+    return new Set(this.guests.keys());
   }
 
   consumeGuestMessageToken(ws, now = Date.now()) {
@@ -1051,6 +1086,18 @@ export class MusixquareRoom {
     const attachment = readAttachment(ws);
     if (!attachment) return;
     if (attachment.role === 'host') {
+      if (attachment.auth === 'pending') {
+        if (this.pendingHosts.size >= MAX_PENDING_HOST_SOCKETS) {
+          closeWithError(ws, 'room-full', 'HOST_PENDING_LIMIT_REACHED', 1008);
+          return;
+        }
+        if (Date.now() > attachment.authDeadline) {
+          closeSocket(ws, 1011, 'host auth timeout (hibernation)');
+          return;
+        }
+        this.pendingHosts.add(ws);
+        return;
+      }
       this.host = ws;
       this.hostPeerId = attachment.peerId;
       return;
@@ -1309,14 +1356,14 @@ export class MusixquareRoom {
       const stored = await this.state.storage.get(ROOM_META_KEY);
       this.roomMeta = normalizeRoomMeta(stored);
     }
-    await this.clearExpiredHostRelease();
     return this.roomMeta;
   }
 
   async saveRoomMeta(meta) {
-    this.roomMeta = normalizeRoomMeta(meta);
-    await this.state.storage.put(ROOM_META_KEY, this.roomMeta);
-    return this.roomMeta;
+    const normalized = normalizeRoomMeta(meta);
+    await this.state.storage.put(ROOM_META_KEY, normalized);
+    this.roomMeta = normalized;
+    return normalized;
   }
 
   async clearRoomMeta() {
@@ -1351,14 +1398,22 @@ export class MusixquareRoom {
     return { v: 1, entries };
   }
 
-  enqueueGuestAdmission(task) {
-    const run = this.guestAdmissionSync.then(task, task);
-    this.guestAdmissionSync = run.catch(() => {});
+  enqueueStandardAdmission(task) {
+    const run = this.standardAdmissionSync.then(task, task);
+    this.standardAdmissionSync = run.catch(() => {});
     return run;
   }
 
+  enqueueHostAdmission(task) {
+    return this.enqueueStandardAdmission(task);
+  }
+
+  enqueueGuestAdmission(task) {
+    return this.enqueueStandardAdmission(task);
+  }
+
   async clearExpiredHostRelease() {
-    const meta = this.roomMeta || defaultRoomMeta();
+    const meta = await this.loadRoomMeta();
     if (this.host || !meta.hostReleaseAt || meta.hostReleaseAt > Date.now()) return meta;
 
     // A room epoch ends when the host reclaim grace expires. Any hibernated
@@ -1375,7 +1430,7 @@ export class MusixquareRoom {
 
   nextMaintenanceAlarmAt() {
     let earliest = null;
-    for (const sock of this.pendingGuests) {
+    for (const sock of [...this.pendingHosts, ...this.pendingGuests]) {
       const attachment = readAttachment(sock);
       if (typeof attachment?.authDeadline !== 'number') continue;
       // Fire just after the deadline so the strict `now > authDeadline`
@@ -1484,7 +1539,7 @@ export class MusixquareRoom {
     if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
     }
-    if (role === 'host' && !isValidPeerId(secret)) {
+    if (role === 'host' && secret && !isValidPeerId(secret)) {
       return json({ error: 'Bad request' }, 400);
     }
 
@@ -1492,7 +1547,13 @@ export class MusixquareRoom {
     const [client, server] = Object.values(pair);
 
     if (role === 'host') {
-      await this.acceptHost(server, roomId, peerId, secret);
+      if (secret) {
+        // Temporary rolling compatibility for cached app shells that still put
+        // the host secret in the query. Current clients use first-frame auth.
+        await this.enqueueHostAdmission(() => this.acceptHost(server, roomId, peerId, secret));
+      } else {
+        this.acceptPendingHost(server, roomId, peerId);
+      }
     } else if (role === 'guest') {
       await this.acceptGuest(server, roomId, peerId);
     } else {
@@ -1537,6 +1598,7 @@ export class MusixquareRoom {
     }
     this.host = null;
     this.hostPeerId = null;
+    this.pendingHosts.clear();
     this.guests.clear();
     this.pendingGuests.clear();
     this.roomMeta = null;
@@ -1713,6 +1775,7 @@ export class MusixquareRoom {
     }
     this.host = null;
     this.hostPeerId = null;
+    this.pendingHosts.clear();
     this.guests.clear();
     this.pendingGuests.clear();
     await this.clearGuestBindings();
@@ -1868,25 +1931,65 @@ export class MusixquareRoom {
     });
   }
 
-  async acceptHost(ws, roomId, peerId, secret) {
-    const meta = await this.loadRoomMeta();
-    if (!secret) {
-      this.acceptSocket(ws, null, ['role:host']);
-      closeWithError(ws, 'invalid-id', 'MISSING_ROOM_SECRET');
+  acceptPendingHost(ws, roomId, peerId) {
+    if (!this.reservePendingHostSlot()) {
+      this.acceptSocket(ws, null, ['role:host', 'rejected:pending-capacity']);
+      closeWithError(ws, 'room-full', 'HOST_PENDING_LIMIT_REACHED', 1008);
       return;
     }
+
+    const attachment = {
+      v: ATTACHMENT_VERSION,
+      role: 'host',
+      roomId,
+      peerId,
+      auth: 'pending',
+      authDeadline: Date.now() + HOST_AUTH_TIMEOUT_MS,
+    };
+    this.acceptSocket(ws, attachment, ['role:host', `peer:${peerId}`, 'auth:pending']);
+    this.pendingHosts.add(ws);
+    this.scheduleMaintenanceAlarm();
+  }
+
+  reservePendingHostSlot() {
+    if (this.pendingHosts.size < MAX_PENDING_HOST_SOCKETS) return true;
+    for (const pending of this.pendingHosts) {
+      const attachment = readAttachment(pending);
+      if (attachment?.auth !== 'pending' || attachment.authStarted) continue;
+      this.pendingHosts.delete(pending);
+      closeSocket(pending, 1013, 'HOST_AUTH_CANDIDATE_REPLACED');
+      this.scheduleMaintenanceAlarm();
+      return true;
+    }
+    return false;
+  }
+
+  async acceptHost(ws, roomId, peerId, secret) {
+    const accepted = await this.completeHostAccept(ws, roomId, peerId, secret, false);
+    if (accepted) this.recordMetric('host_legacy_url_auth');
+  }
+
+  async completeHostAccept(ws, roomId, peerId, secret, alreadyAccepted) {
+    // The caller owns standardAdmissionSync. Expire the previous epoch in the
+    // same queue before reading the ownership snapshot used by this claim.
+    const meta = await this.clearExpiredHostRelease();
+    if (!secret) {
+      if (!alreadyAccepted) this.acceptSocket(ws, null, ['role:host']);
+      this.pendingHosts.delete(ws);
+      closeWithError(ws, 'invalid-id', 'MISSING_ROOM_SECRET');
+      this.scheduleMaintenanceAlarm();
+      return false;
+    }
     if (meta.roomSecret && meta.roomSecret !== secret) {
-      this.acceptSocket(ws, null, ['role:host']);
+      if (!alreadyAccepted) this.acceptSocket(ws, null, ['role:host']);
+      this.pendingHosts.delete(ws);
       closeWithError(ws, 'id-taken', 'ROOM_ALREADY_ACTIVE');
-      return;
+      this.scheduleMaintenanceAlarm();
+      return false;
     }
 
     const isNewRoom = !meta.roomSecret;
     if (isNewRoom) await this.clearGuestBindings();
-    if (this.host && this.host !== ws) {
-      closeSocket(this.host, 1012, 'HOST_REPLACED');
-    }
-
     const attachment = {
       v: ATTACHMENT_VERSION,
       role: 'host',
@@ -1895,23 +1998,44 @@ export class MusixquareRoom {
       secret,
       auth: 'ok',
     };
-    this.acceptSocket(ws, attachment, ['role:host', `peer:${peerId}`]);
-    this.host = ws;
-    this.hostPeerId = peerId;
+    // Persist the authenticated owner before replacing the live host. A failed
+    // storage write must leave the already-authenticated host untouched.
     await this.saveRoomMeta({
       ...meta,
       roomSecret: secret,
       hostPeerId: peerId,
       hostReleaseAt: 0,
     });
+    if (alreadyAccepted) ws.serializeAttachment(attachment);
+    else this.acceptSocket(ws, attachment, ['role:host', `peer:${peerId}`]);
+
+    // A socket can close while the Durable Object storage write is awaited.
+    // Prove the accepted candidate is still reachable before replacing the
+    // live host; otherwise restore the prior metadata inside the same queue.
+    if (
+      (alreadyAccepted && !this.pendingHosts.has(ws)) ||
+      !sendChecked(ws, {
+        type: 'peer-open',
+        peerId: roomId,
+        roomId,
+        ...workerVersionFields(this.env),
+      })
+    ) {
+      this.pendingHosts.delete(ws);
+      await this.saveRoomMeta(meta);
+      closeSocket(ws, 1011, 'HOST_AUTH_SOCKET_CLOSED');
+      this.scheduleMaintenanceAlarm();
+      return false;
+    }
+
+    this.pendingHosts.delete(ws);
+    const previous = this.host;
+    this.host = ws;
+    this.hostPeerId = peerId;
+    if (previous && previous !== ws) closeSocket(previous, 1012, 'HOST_REPLACED');
     this.scheduleMaintenanceAlarm();
     this.recordMetric(isNewRoom ? 'room_opened' : 'host_reconnected');
-    send(ws, {
-      type: 'peer-open',
-      peerId: roomId,
-      roomId,
-      ...workerVersionFields(this.env),
-    });
+    return true;
   }
 
   async acceptGuest(ws, roomId, peerId) {
@@ -1930,7 +2054,7 @@ export class MusixquareRoom {
       this.recordMetric('guest_room_full');
       return;
     }
-    if (this.pendingGuests.size >= MAX_PENDING_GUEST_SOCKETS) {
+    if (!this.reservePendingGuestSlot()) {
       this.acceptSocket(ws, null, ['role:guest', 'rejected:pending-capacity']);
       closeWithError(ws, 'room-full', 'ROOM_PENDING_LIMIT_REACHED', 1008);
       this.recordMetric('guest_pending_capacity');
@@ -1942,6 +2066,25 @@ export class MusixquareRoom {
     // for passwordless rooms, so this adds no user-visible round trip.
     this.acceptPendingGuest(ws, roomId, peerId);
     if (meta.roomPassword) this.recordMetric('guest_auth_pending');
+  }
+
+  reservePendingGuestSlot() {
+    if (this.pendingGuests.size < MAX_PENDING_GUEST_SOCKETS) return true;
+
+    // Give every new connection one bounded chance to present its first auth
+    // frame. Rotate the oldest *silent* candidate, but never a socket whose
+    // validated guest-auth frame is already serialized in the admission queue.
+    // This keeps the pending set bounded while preventing 99 silent sockets
+    // from starving a legitimate join or reconnect for the full 10 seconds.
+    for (const pending of this.pendingGuests) {
+      const attachment = readAttachment(pending);
+      if (attachment?.auth !== 'pending' || attachment.authStarted) continue;
+      this.pendingGuests.delete(pending);
+      closeSocket(pending, 1013, 'PENDING_GUEST_SLOT_ROTATED');
+      this.scheduleMaintenanceAlarm();
+      return true;
+    }
+    return false;
   }
 
   acceptPendingGuest(ws, roomId, peerId) {
@@ -1971,20 +2114,29 @@ export class MusixquareRoom {
 
   async alarm() {
     const now = Date.now();
-    for (const sock of [...this.pendingGuests]) {
-      const att = readAttachment(sock);
-      if (typeof att?.authDeadline === 'number' && now > att.authDeadline) {
-        this.pendingGuests.delete(sock);
-        this.recordMetric('guest_auth_timeout', now);
-        try {
-          sock.close(1011, 'auth timeout (sweep)');
-        } catch {
-          /* already closed */
+    await this.enqueueStandardAdmission(async () => {
+      for (const sock of [...this.pendingHosts]) {
+        const att = readAttachment(sock);
+        if (typeof att?.authDeadline === 'number' && now > att.authDeadline) {
+          this.pendingHosts.delete(sock);
+          closeSocket(sock, 1011, 'host auth timeout (sweep)');
         }
       }
-    }
-    // The same alarm also expires host metadata after reconnect grace.
-    await this.loadRoomMeta();
+      for (const sock of [...this.pendingGuests]) {
+        const att = readAttachment(sock);
+        if (typeof att?.authDeadline === 'number' && now > att.authDeadline) {
+          this.pendingGuests.delete(sock);
+          this.recordMetric('guest_auth_timeout', now);
+          try {
+            sock.close(1011, 'auth timeout (sweep)');
+          } catch {
+            /* already closed */
+          }
+        }
+      }
+      // The same alarm also expires host metadata after reconnect grace.
+      await this.clearExpiredHostRelease();
+    });
     await this.scheduleMaintenanceAlarm();
   }
 
@@ -2038,6 +2190,9 @@ export class MusixquareRoom {
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
+    const isPendingHost = attachment.role === 'host' && attachment.auth === 'pending';
+    const isPendingGuest = attachment.role === 'guest' && attachment.auth === 'pending';
+
     if (attachment.roomKind === 'pro') {
       const meta = await this.loadProRoomMeta();
       const current =
@@ -2066,10 +2221,31 @@ export class MusixquareRoom {
       return;
     }
 
+    // Authentication is a one-frame protocol. Once a validated attempt owns
+    // the serialized admission queue, do not parse or enqueue any later frame.
+    // Keep this check after the absolute frame-size boundary and guest bucket:
+    // in-flight auth must not become a temporary ingress exemption.
+    if ((isPendingHost || isPendingGuest) && attachment.authStarted) return;
+
     const message = this.parse(raw);
-    if (!message) return;
+    if (!message) {
+      if (isPendingHost || isPendingGuest) {
+        const reason = isPendingHost
+          ? 'HOST_AUTH_FIRST_FRAME_INVALID'
+          : 'GUEST_AUTH_FIRST_FRAME_INVALID';
+        closeWithError(ws, 'invalid-id', reason, 1008);
+        await this.webSocketClose(ws);
+      }
+      return;
+    }
     const role =
-      attachment.role === 'host' ? 'host' : attachment.auth === 'pending' ? 'pending' : 'guest';
+      attachment.role === 'host'
+        ? attachment.auth === 'pending'
+          ? 'host-pending'
+          : 'host'
+        : attachment.auth === 'pending'
+          ? 'pending'
+          : 'guest';
     const validation = validateIncomingMessage(message, role);
     if (validation === 'oversized') {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
@@ -2077,11 +2253,24 @@ export class MusixquareRoom {
       this.recordMetric('ws_message_oversized');
       return;
     }
-    if (validation !== 'valid') return;
-
-    if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
+    if (validation !== 'valid') {
+      if (isPendingHost || isPendingGuest) {
+        const reason = isPendingHost
+          ? 'HOST_AUTH_FIRST_FRAME_INVALID'
+          : 'GUEST_AUTH_FIRST_FRAME_INVALID';
+        closeWithError(ws, 'invalid-id', reason, 1008);
+        await this.webSocketClose(ws);
+      }
+      return;
+    }
 
     if (attachment.role === 'host') {
+      if (attachment.auth === 'pending') {
+        if (!this.pendingHosts.has(ws)) return;
+        await this.handleHostAuth(ws, message, attachment);
+        return;
+      }
+      if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
       if (this.host !== ws) return;
       await this.handleHostMessage(ws, message, attachment);
       return;
@@ -2093,12 +2282,58 @@ export class MusixquareRoom {
       return;
     }
 
+    if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
+
     if (this.guests.get(attachment.peerId) !== ws) return;
     this.handleGuestMessage(attachment.peerId, message);
   }
 
+  async handleHostAuth(ws, message, attachment) {
+    const currentAttachment = readAttachment(ws) || attachment;
+    if (currentAttachment.authStarted) return;
+    ws.serializeAttachment({ ...currentAttachment, authStarted: true });
+    try {
+      return await this.enqueueHostAdmission(() => this.finishHostAuth(ws, message, attachment));
+    } catch (error) {
+      // A transient storage failure did not consume the one allowed attempt.
+      // Reset the marker only if this exact candidate is still pending so a
+      // deliberate retry can be accepted without allowing an in-flight queue
+      // amplification.
+      const latest = readAttachment(ws);
+      if (this.pendingHosts.has(ws) && latest?.role === 'host' && latest.auth === 'pending') {
+        ws.serializeAttachment({ ...latest, authStarted: false });
+      }
+      throw error;
+    }
+  }
+
+  async finishHostAuth(ws, message, attachment) {
+    if (!this.pendingHosts.has(ws)) return;
+    if (Date.now() > attachment.authDeadline) {
+      this.pendingHosts.delete(ws);
+      this.scheduleMaintenanceAlarm();
+      closeWithError(ws, 'host-auth-timeout', 'HOST_AUTH_TIMEOUT', 1008);
+      return;
+    }
+    await this.completeHostAccept(ws, attachment.roomId, attachment.peerId, message.secret, true);
+  }
+
   async handleGuestAuth(ws, message, attachment) {
-    return this.enqueueGuestAdmission(() => this.finishGuestAuth(ws, message, attachment));
+    // consumeGuestMessageToken() may have persisted a newer bucket earlier in
+    // this event. Merge the marker into that attachment instead of restoring
+    // the stale pre-consumption snapshot passed by webSocketMessage().
+    const currentAttachment = readAttachment(ws) || attachment;
+    if (currentAttachment.authStarted) return;
+    ws.serializeAttachment({ ...currentAttachment, authStarted: true });
+    try {
+      return await this.enqueueGuestAdmission(() => this.finishGuestAuth(ws, message, attachment));
+    } catch (error) {
+      const latest = readAttachment(ws);
+      if (this.pendingGuests.has(ws) && latest?.role === 'guest' && latest.auth === 'pending') {
+        ws.serializeAttachment({ ...latest, authStarted: false });
+      }
+      throw error;
+    }
   }
 
   async finishGuestAuth(ws, message, attachment) {
@@ -2130,6 +2365,17 @@ export class MusixquareRoom {
       this.scheduleMaintenanceAlarm();
       this.recordMetric('guest_auth_failed');
       closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
+      return;
+    }
+
+    // Socket admission and frame authentication are separate events. Recheck
+    // the admitted-device ceiling inside the serialized auth queue so a burst
+    // of valid pending guests can never race past the 99-guest product limit.
+    if (!this.guests.has(attachment.peerId) && this.guests.size >= MAX_ROOM_GUESTS) {
+      this.pendingGuests.delete(ws);
+      this.scheduleMaintenanceAlarm();
+      this.recordMetric('guest_room_full');
+      closeWithError(ws, 'room-full', 'ROOM_GUEST_LIMIT_REACHED', 1008);
       return;
     }
 
@@ -2197,12 +2443,21 @@ export class MusixquareRoom {
     if (message.type === 'room-password-set') {
       if (attachment.roomKind === 'pro') return;
       const password = typeof message.password === 'string' ? message.password : '';
-      const meta = await this.loadRoomMeta();
-      await this.saveRoomMeta({
-        ...meta,
-        roomPassword: /^\d{8}$/.test(password) ? password : '',
+      return this.enqueueHostAdmission(async () => {
+        if (this.host !== ws) return;
+        const meta = await this.loadRoomMeta();
+        if (
+          this.host !== ws ||
+          meta.roomSecret !== attachment.secret ||
+          meta.hostPeerId !== attachment.peerId
+        ) {
+          return;
+        }
+        await this.saveRoomMeta({
+          ...meta,
+          roomPassword: /^\d{8}$/.test(password) ? password : '',
+        });
       });
-      return;
     }
     if (this.host !== ws) return;
     const guest = this.guests.get(message.to);
@@ -2223,14 +2478,18 @@ export class MusixquareRoom {
         }
         return;
       }
-      await this.releaseHost(ws, attachment);
-      return;
-    }
-
-    if (attachment.auth === 'pending') {
-      this.pendingGuests.delete(ws);
-      await this.scheduleMaintenanceAlarm();
-      return;
+      return this.enqueueHostAdmission(async () => {
+        // Re-read after queued authentication: the close event may have
+        // captured a pending attachment that was promoted while awaiting this
+        // same admission queue.
+        const current = readAttachment(ws) || attachment;
+        if (current.auth === 'pending') {
+          this.pendingHosts.delete(ws);
+          await this.scheduleMaintenanceAlarm();
+          return;
+        }
+        await this.releaseHost(ws, current);
+      });
     }
 
     if (attachment.roomKind === 'pro') {
@@ -2240,7 +2499,19 @@ export class MusixquareRoom {
       return;
     }
 
-    await this.removeGuest(attachment.peerId, ws);
+    return this.enqueueGuestAdmission(async () => {
+      // A close can arrive while guest-auth is awaiting its reconnect binding.
+      // Re-read after that queued admission: if it won, remove the promoted
+      // socket; otherwise reclaim only the still-pending slot. This prevents a
+      // closed socket from becoming a permanent admitted guest.
+      const current = readAttachment(ws) || attachment;
+      if (current.auth === 'pending') {
+        this.pendingGuests.delete(ws);
+        await this.scheduleMaintenanceAlarm();
+        return;
+      }
+      await this.finishRemoveGuest(current.peerId, ws);
+    });
   }
 
   async webSocketError(ws) {
@@ -2248,9 +2519,17 @@ export class MusixquareRoom {
   }
 
   async releaseHost(ws, attachment) {
-    if (this.host && this.host !== ws) return;
+    // The caller owns standardAdmissionSync. Exact identity prevents a stale
+    // close from releasing a replacement host that won while the event waited.
+    if (this.host !== ws) return;
     const meta = await this.loadRoomMeta();
-    if (meta.roomSecret !== attachment.secret || meta.hostPeerId !== attachment.peerId) return;
+    if (
+      this.host !== ws ||
+      meta.roomSecret !== attachment.secret ||
+      meta.hostPeerId !== attachment.peerId
+    ) {
+      return;
+    }
 
     this.host = null;
     this.hostPeerId = null;
@@ -2372,7 +2651,7 @@ export default {
     if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
     }
-    if (role === 'host' && !isValidPeerId(secret)) {
+    if (role === 'host' && secret && !isValidPeerId(secret)) {
       return json({ error: 'Bad request' }, 400);
     }
     if (!(await checkRateLimit(request, 'ws-open'))) {

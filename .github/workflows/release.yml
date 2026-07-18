@@ -42,6 +42,10 @@ jobs:
     steps:
       - name: Checkout exact release commit
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # Release validation must prove that this commit is covered by the
+          # latest CACHE_VERSION bump, including a separate follow-up bump.
+          fetch-depth: 0
 
       - name: Validate release options
         if: inputs.apply_developer_api_d1 && inputs.target != 'all' && inputs.target != 'developer-api'
@@ -66,6 +70,9 @@ jobs:
 
       - name: Worker syntax check
         run: npm run check:workers
+
+      - name: Playback and storage static invariants
+        run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
       - name: Unit tests
         run: npm test
@@ -104,7 +111,6 @@ jobs:
       name: production
       url: https://musixquare.com
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       RELEASE_MESSAGE: git:${{ github.sha }} run:${{ github.run_id }} target:${{ inputs.target }}
       RELEASE_ROLLBACK_MESSAGE: rollback:${{ github.sha }} run:${{ github.run_id }} attempt:${{ github.run_attempt }}
@@ -139,6 +145,8 @@ jobs:
         run: npm run release:verify
 
       - name: Verify Cloudflare credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
 
       - name: Verify Developer API D1 migration credentials
@@ -162,6 +170,8 @@ jobs:
       - name: Record current remote-share deployment
         if: inputs.target == 'all' || inputs.target == 'remote-share'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.remote-share.toml --json \
@@ -171,6 +181,8 @@ jobs:
       - name: Deploy and record remote-share Worker
         if: inputs.target == 'all' || inputs.target == 'remote-share'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node scripts/release-deployment-state.mjs preflight remote-share
           node scripts/release-deployment-state.mjs attempt remote-share
@@ -195,11 +207,14 @@ jobs:
 
       - name: Smoke remote-share Worker
         if: inputs.target == 'all' || inputs.target == 'remote-share'
+        timeout-minutes: 5
         run: npm run smoke:live:remote-share
 
       - name: Record current signaling deployment
         if: inputs.target == 'all' || inputs.target == 'signaling'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.signaling.toml --json \
@@ -210,6 +225,8 @@ jobs:
         id: signaling_deployment
         if: inputs.target == 'all' || inputs.target == 'signaling'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node scripts/release-deployment-state.mjs preflight signaling
           node scripts/release-deployment-state.mjs attempt signaling
@@ -236,6 +253,7 @@ jobs:
 
       - name: Smoke signaling Worker
         if: inputs.target == 'all' || inputs.target == 'signaling'
+        timeout-minutes: 5
         env:
           MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}
         run: npm run smoke:live:signaling
@@ -243,6 +261,8 @@ jobs:
       - name: Record current PRO room deployment
         if: inputs.target == 'all' || inputs.target == 'pro-room'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.pro-room.toml --json \
@@ -253,6 +273,8 @@ jobs:
         id: pro_room_deployment
         if: inputs.target == 'all' || inputs.target == 'pro-room'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node scripts/release-deployment-state.mjs preflight pro-room
           node scripts/release-deployment-state.mjs attempt pro-room
@@ -279,6 +301,7 @@ jobs:
 
       - name: Smoke PRO room Worker
         if: inputs.target == 'all' || inputs.target == 'pro-room'
+        timeout-minutes: 5
         env:
           MXQR_EXPECTED_PRO_ROOM_VERSION: ${{ steps.pro_room_deployment.outputs.version_id }}
         run: npm run smoke:live:pro-room
@@ -286,6 +309,8 @@ jobs:
       - name: Record current Developer API facade deployment
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.developer-api-facade.toml --json \
@@ -295,6 +320,8 @@ jobs:
       - name: Deploy and record Developer API facade Worker
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node scripts/release-deployment-state.mjs preflight developer-api-facade
           node scripts/release-deployment-state.mjs attempt developer-api-facade
@@ -320,6 +347,8 @@ jobs:
       - name: Record current Developer API deployment
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.developer-api.toml --json \
@@ -336,6 +365,8 @@ jobs:
         id: developer_api_deployment
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node scripts/release-deployment-state.mjs preflight developer-api
           node scripts/release-deployment-state.mjs attempt developer-api
@@ -370,15 +401,23 @@ jobs:
 
       - name: Smoke Developer API Worker
         if: inputs.target == 'all' || inputs.target == 'developer-api'
+        timeout-minutes: 5
         env:
           MXQR_DEVELOPER_API_SMOKE_KEY: ${{ secrets.MXQR_DEVELOPER_API_SMOKE_KEY }}
           MXQR_DEVELOPER_API_SMOKE_ROOM: '000001'
           MXQR_EXPECTED_DEVELOPER_API_VERSION: ${{ steps.developer_api_deployment.outputs.version_id }}
         run: npm run smoke:live:developer-api
 
+      - name: Verify current signaling contract before app-only release
+        if: inputs.target == 'app'
+        timeout-minutes: 5
+        run: npm run smoke:live:signaling
+
       - name: Record current app deployment
         if: inputs.target == 'all' || inputs.target == 'app'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.app.toml --json \
@@ -388,6 +427,8 @@ jobs:
       - name: Deploy and record app Worker with immutable dist
         if: inputs.target == 'all' || inputs.target == 'app'
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node scripts/release-deployment-state.mjs preflight app
           node scripts/release-deployment-state.mjs attempt app
@@ -412,34 +453,46 @@ jobs:
 
       - name: Smoke app session endpoint
         if: inputs.target == 'all' || inputs.target == 'app'
+        timeout-minutes: 5
         run: npm run smoke:live:app-session
 
-      - name: Restore schema and deployments after a failed release
-        id: rollback
+      - name: Verify release still owns current production deployments
+        id: final_verification
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/release-deployment-state.mjs verify-current
+
+      - name: Restore Developer API schema after a failed release
+        id: schema_rollback
+        if: (failure() || cancelled()) && inputs.apply_developer_api_d1
+        continue-on-error: true
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL: release-artifacts/deployments/developer-api-effects-scope.json
+        run: npm run developer-api:effects-scopes:release-rollback
+
+      - name: Restore Worker deployments after a failed release
+        id: worker_rollback
         if: failure() || cancelled()
         continue-on-error: true
         shell: bash
         env:
-          CLOUDFLARE_WORKER_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
-          MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL: release-artifacts/deployments/developer-api-effects-scope.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          set +e
-          schema_exit=0
-          if [[ "${{ inputs.apply_developer_api_d1 }}" == "true" ]]; then
-            CLOUDFLARE_API_TOKEN="$CLOUDFLARE_D1_API_TOKEN" \
-              npm run developer-api:effects-scopes:release-rollback
-            schema_exit=$?
+          rollback_skip_targets=""
+          if [[ "${{ steps.schema_rollback.outcome }}" == "failure" || \
+                "${{ steps.schema_rollback.outcome }}" == "cancelled" ]]; then
+            # A pre-effects Developer API Worker rejects the 64/128 scope bits
+            # that can remain when the D1 rollback is incomplete. Preserve the
+            # schema-compatible public Worker while restoring every independent
+            # target in the normal reverse order.
+            rollback_skip_targets="developer-api"
           fi
 
-          CLOUDFLARE_API_TOKEN="$CLOUDFLARE_WORKER_API_TOKEN" \
+          MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets" \
             node scripts/release-deployment-state.mjs rollback
-          worker_exit=$?
-          set -e
-
-          if (( schema_exit != 0 || worker_exit != 0 )); then
-            exit 1
-          fi
+          echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"
 
       - name: Upload deployment records
         if: always()
@@ -460,5 +513,20 @@ jobs:
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs on manual dispatch)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API effects-scope schema changed: \`${{ steps.developer_api_effects_scope_migration.outputs.applied || 'false' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Final production ownership verification: \`${{ steps.final_verification.outcome || 'not-run' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Recovery schema outcome: \`${{ steps.schema_rollback.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Recovery Worker outcome: \`${{ steps.worker_rollback.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Recovery schema-compatibility fence: \`${{ steps.worker_rollback.outputs.skipped_targets || 'none' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"
           node scripts/release-deployment-state.mjs summary
+
+      - name: Fail release when automatic recovery is incomplete
+        if: >-
+          always() &&
+          (steps.schema_rollback.outcome == 'failure' ||
+           steps.schema_rollback.outcome == 'cancelled' ||
+           steps.worker_rollback.outcome == 'failure' ||
+           steps.worker_rollback.outcome == 'cancelled')
+        run: |
+          echo "::error::Automatic release recovery was incomplete. Inspect the rollback report before any manual action."
+          exit 1

@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, PEER_NAME_PREFIX } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
   beginLocalBotChatRequest,
@@ -21,7 +21,7 @@ import {
   sendLatestPinnedNotice,
   sendSystemMessage,
 } from '../protocol.ts';
-import { upsertBotChatMessage } from '../../ui/chat-render.ts';
+import { addChatMessage, upsertBotChatMessage } from '../../ui/chat-render.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 // Mock renderer functions only. Keep the wire caps
@@ -59,7 +59,14 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
       relayed.push(data as Record<string, unknown>);
     });
     void handleData(
-      { type: MSG.CHAT, text, ts: ++_ts, senderId: guestConn.peer, senderLabel: 'GUEST 1' },
+      {
+        type: MSG.CHAT,
+        text,
+        ts: ++_ts,
+        senderId: guestConn.peer,
+        senderLabel: 'GUEST 1',
+        joinOrder: 999,
+      },
       guestConn,
     );
     return relayed;
@@ -70,6 +77,24 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
 
     expect(relayed).toHaveLength(1);
     expect((relayed[0].text as string).length).toBe(500);
+  });
+
+  it('never renders or relays a raw sender label before the peer list is authoritative', () => {
+    const relayed = sendChat('hello');
+
+    expect(addChatMessage).toHaveBeenCalledWith(
+      PEER_NAME_PREFIX,
+      'hello',
+      false,
+      undefined,
+      undefined,
+    );
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0]).toMatchObject({
+      senderId: guestConn.peer,
+      senderLabel: PEER_NAME_PREFIX,
+    });
+    expect(relayed[0]).not.toHaveProperty('joinOrder');
   });
 
   it('relays truncated text with the filter on too (guards the branch re-coupling)', () => {
@@ -84,6 +109,38 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     const relayed = sendChat('z'.repeat(5000)); // over the 4000 wire cap
 
     expect(relayed).toHaveLength(0);
+  });
+
+  it('does not amplify unknown inbound fields through host fan-out', () => {
+    const relayed: Array<Record<string, unknown>> = [];
+    bus.on('network:broadcast-except', (_peerId, data) => {
+      relayed.push(data as Record<string, unknown>);
+    });
+
+    void handleData(
+      {
+        type: MSG.CHAT,
+        text: 'bounded',
+        ts: ++_ts,
+        senderId: guestConn.peer,
+        senderLabel: 'SPOOFED',
+        junk: 'x'.repeat(100_000),
+        nested: { junk: 'y'.repeat(100_000) },
+      },
+      guestConn,
+    );
+
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0]).toEqual({
+      type: MSG.CHAT,
+      senderId: guestConn.peer,
+      sender: PEER_NAME_PREFIX,
+      senderLabel: PEER_NAME_PREFIX,
+      isHost: false,
+      isOp: false,
+      text: 'bounded',
+      ts: _ts,
+    });
   });
 });
 
@@ -155,6 +212,76 @@ describe('automatic system-message channel', () => {
   });
 });
 
+describe('host whisper relay canonicalization', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    registerChatProtocolHandlers();
+    setState('network.appRole', 'host');
+    setState('network.myId', 'host-id');
+  });
+
+  it('does not forward spoofed identity or unknown nested fields to the target', async () => {
+    const senderConn = { peer: 'guest-sender', open: true } as DataConnection;
+    const targetSend = vi.fn();
+    const targetConn = {
+      peer: 'guest-target',
+      open: true,
+      send: targetSend,
+    } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-sender',
+        label: 'GUEST 1',
+        joinOrder: 1,
+        status: 'connected',
+        conn: senderConn,
+      },
+      {
+        id: 'guest-target',
+        label: 'GUEST 2',
+        joinOrder: 2,
+        status: 'connected',
+        conn: targetConn,
+      },
+    ]);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([
+        ['guest-sender', senderConn],
+        ['guest-target', targetConn],
+      ]),
+    );
+
+    await handleData(
+      {
+        type: MSG.CHAT_WHISPER,
+        senderId: 'host-id',
+        senderLabel: 'HOST',
+        targetId: 'guest-target',
+        text: 'bounded whisper',
+        ts: 1234,
+        joinOrder: 999,
+        junk: 'x'.repeat(100_000),
+        nested: { junk: 'y'.repeat(100_000) },
+      },
+      senderConn,
+    );
+
+    expect(targetSend).toHaveBeenCalledTimes(1);
+    expect(targetSend).toHaveBeenCalledWith({
+      type: MSG.CHAT_WHISPER,
+      senderId: 'guest-sender',
+      senderLabel: 'GUEST 1',
+      targetId: 'guest-target',
+      text: 'bounded whisper',
+      ts: 1234,
+      joinOrder: 1,
+    });
+  });
+});
+
 describe('PRO BOT chat correlation', () => {
   const requestId = (suffix: string): string => `mxqr-pro-${suffix.repeat(48).slice(0, 48)}`;
 
@@ -215,6 +342,7 @@ describe('PRO BOT chat correlation', () => {
     );
 
     expect(upsertBotChatMessage).toHaveBeenCalledWith(id, 'typing');
+    expect(addChatMessage).toHaveBeenCalledWith('GUEST 1', expect.any(String), false, 'op', 1);
     expect(relayed).toHaveLength(1);
     expect(relayed[0]).toMatchObject({
       type: MSG.CHAT,

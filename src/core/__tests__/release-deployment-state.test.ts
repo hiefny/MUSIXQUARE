@@ -12,6 +12,9 @@ import {
   retrySync,
   runRollbackWithRetry,
   rollbackDisposition,
+  rollbackDependencyBlock,
+  rollbackSkipTargets,
+  verifyCurrentRelease,
   verifyProductionVersion,
 } from '../../../scripts/release-deployment-state.mjs';
 
@@ -496,6 +499,250 @@ describe('release deployment rollback state', () => {
       'pro-room',
       'signaling',
       'remote-share',
+    ]);
+  });
+
+  it('withholds legacy signaling when an attempted app was not safely restored', () => {
+    const states = [{ target: 'app' }, { target: 'signaling' }];
+
+    expect(rollbackDependencyBlock('signaling', states, [])).toEqual({
+      dependency: 'app',
+      dependencyStatus: 'not-processed',
+    });
+    expect(
+      rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'conflict' }]),
+    ).toEqual({ dependency: 'app', dependencyStatus: 'conflict' });
+    expect(
+      rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'failed' }]),
+    ).toEqual({ dependency: 'app', dependencyStatus: 'failed' });
+    expect(
+      rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'already-restored' }]),
+    ).toBeNull();
+    expect(
+      rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'restored' }]),
+    ).toBeNull();
+    expect(rollbackDependencyBlock('signaling', [{ target: 'signaling' }], [])).toBeNull();
+  });
+
+  it('verifies every attempted Worker still matches the release after live smoke', () => {
+    const directory = createDirectory();
+    for (const [target, versionId] of [
+      ['remote-share', 'share-after'],
+      ['app', 'app-after'],
+    ] as const) {
+      writeFileSync(
+        resolve(directory, `${target}-state.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          target,
+          config: `cloudflare/wrangler.${target}.toml`,
+          attempted: true,
+          ownedByRelease: true,
+          releaseMessage: 'release-message',
+          afterDeploymentId: `deployment-${versionId}`,
+          afterVersionId: versionId,
+        }),
+      );
+    }
+
+    const report = verifyCurrentRelease(directory, {
+      queryCurrent: (target: string) => {
+        const versionId = target === 'app' ? 'app-after' : 'share-after';
+        return {
+          deploymentId: `deployment-${versionId}`,
+          versionId,
+          message: 'release-message',
+        };
+      },
+    });
+
+    expect(report.status).toBe('verified');
+    expect(report.results).toEqual([
+      expect.objectContaining({ target: 'remote-share', status: 'verified' }),
+      expect.objectContaining({ target: 'app', status: 'verified' }),
+    ]);
+  });
+
+  it('fails final verification when another deployment replaces the recorded release', () => {
+    const directory = createDirectory();
+    writeFileSync(
+      resolve(directory, 'app-state.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        target: 'app',
+        config: 'cloudflare/wrangler.app.toml',
+        attempted: true,
+        ownedByRelease: true,
+        releaseMessage: 'release-message',
+        afterDeploymentId: 'deployment-after',
+        afterVersionId: 'after',
+      }),
+    );
+
+    expect(() =>
+      verifyCurrentRelease(directory, {
+        queryCurrent: () => ({
+          deploymentId: 'deployment-external',
+          versionId: 'after',
+          message: 'manual-deploy',
+        }),
+      }),
+    ).toThrow('another deployment may have replaced this release');
+
+    const report = JSON.parse(
+      readFileSync(resolve(directory, 'final-verification-report.json'), 'utf8'),
+    ) as {
+      status: string;
+      results: Array<{ target: string; status: string }>;
+    };
+    expect(report.status).toBe('failed');
+    expect(report.results).toEqual([
+      expect.objectContaining({ target: 'app', status: 'conflict' }),
+    ]);
+  });
+
+  it('keeps the Worker deployment token out of setup and smoke steps', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const deployStart = workflow.indexOf('  deploy:');
+    const deploySteps = workflow.indexOf('    steps:', deployStart);
+    expect(workflow.slice(deployStart, deploySteps)).not.toContain(
+      'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}',
+    );
+
+    for (const stepName of [
+      'Verify Cloudflare credentials',
+      'Record current remote-share deployment',
+      'Deploy and record remote-share Worker',
+      'Record current signaling deployment',
+      'Deploy and record signaling Worker',
+      'Record current PRO room deployment',
+      'Deploy and record PRO room Worker',
+      'Record current Developer API facade deployment',
+      'Deploy and record Developer API facade Worker',
+      'Record current Developer API deployment',
+      'Deploy and record Developer API Worker',
+      'Record current app deployment',
+      'Deploy and record app Worker with immutable dist',
+      'Verify release still owns current production deployments',
+    ]) {
+      const stepStart = workflow.indexOf(`- name: ${stepName}`);
+      const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
+      const step = workflow.slice(stepStart, nextStep < 0 ? workflow.length : nextStep);
+      expect(stepStart, stepName).toBeGreaterThan(-1);
+      expect(step, stepName).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
+    }
+
+    const lastSmoke = workflow.indexOf('Smoke app session endpoint');
+    const finalVerification = workflow.indexOf(
+      'Verify release still owns current production deployments',
+    );
+    const schemaRollback = workflow.indexOf('Restore Developer API schema after a failed release');
+    const workerRollback = workflow.indexOf('Restore Worker deployments after a failed release');
+    expect(finalVerification).toBeGreaterThan(lastSmoke);
+    expect(schemaRollback).toBeGreaterThan(finalVerification);
+    expect(workerRollback).toBeGreaterThan(schemaRollback);
+    expect(workflow).toContain("steps.final_verification.outcome || 'not-run'");
+
+    const schemaStep = workflow.slice(schemaRollback, workerRollback);
+    const workerStepEnd = workflow.indexOf('\n      - name:', workerRollback + 1);
+    const workerStep = workflow.slice(workerRollback, workerStepEnd);
+    expect(schemaStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
+    expect(schemaStep).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
+    expect(workerStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
+    expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
+  });
+
+  it('runs documented storage and playback static invariants in CI and release validation', () => {
+    for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+      const workflow = readFileSync(resolve(workflowPath), 'utf8');
+      expect(workflow, workflowPath).toContain('npm run guard:chunk-pump');
+      expect(workflow, workflowPath).toContain('npm run guard:lifecycle-writes');
+    }
+  });
+
+  it('proves first-frame signaling compatibility before an app-only deployment', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const preflight = workflow.indexOf('Verify current signaling contract before app-only release');
+    const appDeploy = workflow.indexOf('Deploy and record app Worker with immutable dist');
+    expect(preflight).toBeGreaterThan(-1);
+    expect(preflight).toBeLessThan(appDeploy);
+    const nextStep = workflow.indexOf('\n      - name:', preflight + 1);
+    const preflightStep = workflow.slice(preflight, nextStep);
+    expect(preflightStep).toContain("if: inputs.target == 'app'");
+    expect(preflightStep).toContain('run: npm run smoke:live:signaling');
+
+    const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(packageJson.scripts['deploy:app']).toMatch(/^npm run smoke:live:signaling && /);
+  });
+
+  it('bounds production live-smoke requests and step runtimes before rollback', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    for (const stepName of [
+      'Smoke remote-share Worker',
+      'Smoke signaling Worker',
+      'Smoke PRO room Worker',
+      'Smoke Developer API Worker',
+      'Smoke app session endpoint',
+    ]) {
+      const stepStart = workflow.indexOf(`- name: ${stepName}`);
+      const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
+      const step = workflow.slice(stepStart, nextStep < 0 ? workflow.length : nextStep);
+      expect(stepStart, stepName).toBeGreaterThan(-1);
+      expect(step, stepName).toContain('timeout-minutes: 5');
+    }
+
+    for (const scriptPath of [
+      'scripts/live-pro-room-smoke.mjs',
+      'scripts/live-developer-api-smoke.mjs',
+      'scripts/live-remote-share-smoke.ts',
+    ]) {
+      const source = readFileSync(resolve(scriptPath), 'utf8');
+      expect(source, scriptPath).toContain('const REQUEST_TIMEOUT_MS = 30_000;');
+      expect(source, scriptPath).toContain('AbortSignal.timeout(REQUEST_TIMEOUT_MS)');
+      expect(source.match(/\bfetch\(/g), scriptPath).toHaveLength(1);
+      expect(source.match(/\bfetchWithTimeout\(/g)?.length, scriptPath).toBeGreaterThan(1);
+    }
+  });
+
+  it('fails closed on unknown rollback skip targets', () => {
+    expect([...rollbackSkipTargets('developer-api, app')]).toEqual(['developer-api', 'app']);
+    expect(() => rollbackSkipTargets('unknown-worker')).toThrow(
+      'Unknown release target: unknown-worker',
+    );
+  });
+
+  it('records a schema-incompatible Worker as withheld from automatic rollback', () => {
+    const directory = createDirectory();
+    writeFileSync(
+      resolve(directory, 'developer-api-state.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        target: 'developer-api',
+        config: 'cloudflare/wrangler.developer-api.toml',
+        attempted: true,
+        beforeVersionId: 'legacy-before',
+        afterVersionId: 'effects-after',
+      }),
+    );
+
+    const result = runScript(['rollback', directory], {
+      MXQR_ROLLBACK_SKIP_TARGETS: 'developer-api',
+    });
+
+    expect(result.status).not.toBe(0);
+    const report = JSON.parse(readFileSync(resolve(directory, 'rollback-report.json'), 'utf8')) as {
+      status: string;
+      results: Array<{ target: string; status: string; error?: string }>;
+    };
+    expect(report.status).toBe('partial-failure');
+    expect(report.results).toEqual([
+      expect.objectContaining({
+        target: 'developer-api',
+        status: 'skipped-schema-incompatible',
+        error: expect.stringContaining('required schema rollback did not complete'),
+      }),
     ]);
   });
 });

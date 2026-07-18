@@ -615,7 +615,9 @@ describe('pre-admission preload buffer bounds', () => {
     setState('playlist.items', [makeFileTrack('newest.mp3', Q0)]);
 
     for (let sessionId = 1; sessionId <= 5; sessionId++) {
-      for (let index = 0; index < 20; index++) {
+      // Stay below the generic 60-frame peer burst. Unknown/pre-header chunks
+      // deliberately do not receive the active-transfer rate-limit exemption.
+      for (let index = 0; index < 11; index++) {
         await handleData(
           {
             type: MSG.PRELOAD_CHUNK,
@@ -630,9 +632,9 @@ describe('pre-admission preload buffer bounds', () => {
     }
 
     expect(getPreloadMemoryStats()).toMatchObject({
-      reorderSessions: 3,
-      reorderChunks: 60,
-      reorderBytes: 60,
+      reorderSessions: 4,
+      reorderChunks: 44,
+      reorderBytes: 44,
     });
 
     await handleData(
@@ -641,13 +643,13 @@ describe('pre-admission preload buffer bounds', () => {
         sessionId: 5,
         queueItemId: Q0,
         name: 'newest.mp3',
-        total: 20,
-        size: 19 * CHUNK_SIZE + 1,
+        total: 11,
+        size: 10 * CHUNK_SIZE + 1,
       },
       hostConn,
     );
     await vi.runOnlyPendingTimersAsync();
-    expect(getState('preload.sessionState').get(5)?.progress).toBe(20);
+    expect(getState('preload.sessionState').get(5)?.progress).toBe(11);
 
     setState('network.sessionCode', '');
     const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');

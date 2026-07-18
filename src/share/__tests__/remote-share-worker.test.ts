@@ -27,6 +27,10 @@ interface R2CorsRule {
 const r2CorsPolicy = JSON.parse(
   await readFile(new URL('../../../cloudflare/r2-cors.remote-share.json', import.meta.url), 'utf8'),
 ) as { rules: R2CorsRule[] };
+const liveSmokeSource = await readFile(
+  new URL('../../../scripts/live-remote-share-smoke.ts', import.meta.url),
+  'utf8',
+);
 
 function directPutCorsRule(): R2CorsRule | undefined {
   return r2CorsPolicy.rules.find((rule) =>
@@ -229,6 +233,11 @@ afterEach(() => {
 });
 
 describe('remote-share Worker capability gate', () => {
+  it('keeps the live smoke inside the same standard-room namespace', () => {
+    expect(liveSmokeSource).toContain('randomInt(100_000, 1_000_000)');
+    expect(liveSmokeSource).not.toContain('`live-smoke-${');
+  });
+
   it('keeps checked-in R2 CORS aligned with every Worker production origin range', async () => {
     const corsRule = directPutCorsRule();
     expect(corsRule).toBeDefined();
@@ -387,6 +396,113 @@ describe('remote-share Worker capability gate', () => {
     for (const header of [...uploadHeaderNames, 'content-length']) {
       expect(signedHeaders.has(header)).toBe(true);
     }
+  });
+
+  it('accepts only generated standard room codes and rejects the reserved PRO namespace', async () => {
+    const token = await createCapabilityToken();
+    const rateLimitStore = {
+      get: vi.fn(async () => null),
+      put: vi.fn(async () => undefined),
+    };
+
+    for (const roomId of [
+      undefined,
+      '',
+      'room',
+      '12345',
+      '1234567',
+      '12345x',
+      '000000',
+      '099999',
+    ]) {
+      const response = await workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+          },
+          body: sessionRequestBody({ roomId }),
+        }),
+        directUploadEnv({ REMOTE_SHARE_RATE_LIMIT: rateLimitStore }),
+      );
+
+      expect(response.status, `roomId=${String(roomId)}`).toBe(400);
+      expect(await response.json()).toEqual({ error: 'invalid upload session request' });
+    }
+
+    // Invalid room IDs fail before consuming rate-limit writes or touching R2.
+    expect(rateLimitStore.get).not.toHaveBeenCalled();
+    expect(rateLimitStore.put).not.toHaveBeenCalled();
+  });
+
+  it('does not resolve download or cleanup object keys in the reserved PRO namespace', async () => {
+    const objectId = '00000000-0000-4000-8000-000000000001';
+    const bucket = {
+      get: vi.fn(async () => null),
+      head: vi.fn(async () => null),
+      delete: vi.fn(async () => undefined),
+    };
+
+    const download = await workerModule.default.fetch(
+      request(`/download/000001/${objectId}`),
+      env({ REMOTE_SHARE_BUCKET: bucket }),
+    );
+    const cleanup = await workerModule.default.fetch(
+      request(`/object/000001/${objectId}`, { method: 'DELETE' }),
+      env({ REMOTE_SHARE_BUCKET: bucket }),
+    );
+
+    expect(download.status).toBe(404);
+    expect(cleanup.status).toBe(200);
+    expect(await cleanup.json()).toEqual({ ok: true });
+    expect(bucket.get).not.toHaveBeenCalled();
+    expect(bucket.head).not.toHaveBeenCalled();
+    expect(bucket.delete).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reserved PRO room code before completion can touch R2', async () => {
+    const capability = await createCapabilityToken();
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': capability,
+        },
+        body: sessionRequestBody(),
+      }),
+      directUploadEnv(),
+    );
+    const session = (await sessionResponse.json()) as {
+      objectId: string;
+      completeToken: string;
+    };
+    expect(sessionResponse.status).toBe(200);
+
+    const bucket = {
+      head: vi.fn(async () => null),
+      delete: vi.fn(async () => undefined),
+    };
+    const completion = await workerModule.default.fetch(
+      request('/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: '000001',
+          objectId: session.objectId,
+          completeToken: session.completeToken,
+        }),
+      }),
+      directUploadEnv({ REMOTE_SHARE_BUCKET: bucket }),
+    );
+
+    expect(completion.status).toBe(403);
+    expect(await completion.json()).toEqual({ error: 'invalid upload completion' });
+    expect(bucket.head).not.toHaveBeenCalled();
+    expect(bucket.delete).not.toHaveBeenCalled();
   });
 
   it('stores an HMAC pseudonym instead of a plaintext IP in rate-limit KV keys', async () => {

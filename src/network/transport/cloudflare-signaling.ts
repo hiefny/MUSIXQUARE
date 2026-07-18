@@ -687,12 +687,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return url;
   }
 
-  private buildSocketUrl(
-    roomId: string,
-    role: 'host' | 'guest',
-    peerId: string,
-    secret?: string,
-  ): string {
+  private buildSocketUrl(roomId: string, role: 'host' | 'guest', peerId: string): string {
     const base = new URL(this.requireSignalingUrl());
     if (base.protocol === 'http:') base.protocol = 'ws:';
     else if (base.protocol === 'https:') base.protocol = 'wss:';
@@ -710,9 +705,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return base.toString();
     }
     base.pathname = `${base.pathname.replace(/\/+$/, '')}/${encodeURIComponent(roomId)}/ws`;
+    // A standard room's host secret is a bearer credential. Keep the URL
+    // limited to routing identifiers so edge logs, traces, and diagnostics can
+    // never capture it; the host proves ownership in the first WebSocket frame.
+    base.search = '';
     base.searchParams.set('role', role);
     base.searchParams.set('peerId', peerId);
-    if (secret) base.searchParams.set('secret', secret);
     return base.toString();
   }
 
@@ -776,15 +774,21 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     let socket: WebSocket;
     try {
-      socket = new WebSocket(
-        this.buildSocketUrl(this.hostRoomId, 'host', this.id, this.hostSecret),
-      );
+      socket = new WebSocket(this.buildSocketUrl(this.hostRoomId, 'host', this.id));
     } catch (error) {
       this.emit('error', error);
       return;
     }
 
     this.hostSocket = socket;
+    socket.addEventListener('open', () => {
+      if (this.proSignalingAccess) return;
+      try {
+        socket.send(JSON.stringify({ type: 'host-auth', secret: this.hostSecret }));
+      } catch (error) {
+        this.emit('error', error);
+      }
+    });
     socket.addEventListener('message', (event) => {
       this.handleHostMessage(event.data).catch((error) => this.emit('error', error));
     });

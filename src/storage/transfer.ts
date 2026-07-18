@@ -4,7 +4,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, TRANSFER_STATE } from '../core/constants.ts';
-import { registerHandlers } from '../network/protocol.ts';
+import { registerHandlers, registerInboundRateLimitExemptionGuard } from '../network/protocol.ts';
 import { resetAllStoredFiles } from './storage.ts';
 import {
   cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal,
@@ -17,6 +17,7 @@ import {
   handleFileChunk,
   handleFileEnd,
   handleFileWait,
+  isActiveHostFileChunkForRateLimit,
   resetIncomingTransferAuthority,
 } from './transfer-receive.ts';
 
@@ -37,6 +38,7 @@ export { isArrayBuffer } from './transfer-shared.ts';
 // ─── Register Handlers ──────────────────────────────────────────────
 
 export function initTransfer(): void {
+  registerInboundRateLimitExemptionGuard(MSG.FILE_CHUNK, isActiveHostFileChunkForRateLimit);
   registerHandlers({
     [MSG.FILE_PREPARE]: handleFilePrepare,
     [MSG.FILE_START]: handleFileStart,

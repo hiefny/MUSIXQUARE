@@ -945,7 +945,13 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
         expect(response.status).toBe(200);
       }
     }
-  }, 20_000);
+    // This deliberately executes 900 independently authenticated Worker
+    // requests. WebCrypto shares a finite worker pool with Vitest, so a full
+    // file-parallel run can take materially longer than the same spec in
+    // isolation even though the assertions and production limits are
+    // unchanged. Keep the regression realistic without making the suite
+    // timing-sensitive to the runner's current CPU contention.
+  }, 60_000);
 });
 
 describe('Cloudflare app worker JSON body limits', () => {
@@ -1512,6 +1518,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 31 * 24 * 60, event: 'guest_joined', count: 99 },
         { bucket_minute: nowMinute - 29 * 24 * 60, event: 'guest_joined', count: 4 },
         { bucket_minute: nowMinute - 5, event: 'room_opened', count: 3 },
+        { bucket_minute: nowMinute - 5, event: 'host_legacy_url_auth', count: 2 },
         { bucket_minute: nowMinute - 4, event: 'guest_joined', count: 7 },
         { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
         { bucket_minute: nowMinute - 2, event: 'guest_room_full', count: 2 },
@@ -1563,6 +1570,7 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     expect(metrics.status).toBe(200);
     expect(payload.summary?.last24?.room_opened).toBe(3);
+    expect(payload.summary?.last24?.host_legacy_url_auth).toBe(2);
     expect(payload.summary?.last24?.guest_joined).toBe(7);
     expect(payload.summary?.last24?.guest_room_full).toBe(2);
     expect(payload.summary?.last24?.guest_reconnect_denied).toBe(5);
@@ -3538,6 +3546,7 @@ describe('Cloudflare app worker invite route', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('X-Invite-Rewrite')).toBe('123456');
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(response.headers.get('Cache-Control')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(html).toContain('Session 123456 - MUSIXQUARE');
@@ -3554,6 +3563,7 @@ describe('Cloudflare app worker invite route', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('X-Invite-Rewrite')).toBe('123456');
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(response.headers.get('Cache-Control')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(await response.text()).toBe('');

@@ -5,12 +5,12 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
-    "node": ">=20.18.1"
+    "node": "^20.19.0 || ^22.13.0 || >=24"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:checked": "npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build",
+    "build:checked": "npm run guard:sw-cache-version && npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "promo:render": "tsx .workshop/promo/render.ts",
@@ -23,6 +23,7 @@
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
     "guard:font-assets": "node scripts/check-app-font.mjs",
     "guard:font-build": "node scripts/check-app-font.mjs --dist",
+    "guard:sw-cache-version": "node scripts/check-sw-cache-version.mjs",
     "guard:developer-api-boundaries": "node scripts/check-developer-api-boundaries.mjs",
     "check:pro-room-worker": "node --check cloudflare/pro-room-worker.js",
     "check:developer-api-workers": "node --check cloudflare/developer-api-worker.js && node --check cloudflare/developer-api-facade-worker.js && npm run guard:developer-api-boundaries",
@@ -49,7 +50,7 @@
     "deploy:developer-api": "npm run check:developer-api-workers && npm run developer-api:schema:remote && npm run wrangler -- deploy --config cloudflare/wrangler.developer-api.toml",
     "deploy:developer-api-stack": "npm run check:developer-api-workers && npm run wrangler -- deploy --config cloudflare/wrangler.developer-api-facade.toml && npm run developer-api:schema:remote && npm run wrangler -- deploy --config cloudflare/wrangler.developer-api.toml && npm run developer-api:effects-scopes:remote",
     "deploy:signaling": "npm run wrangler -- deploy --config cloudflare/wrangler.signaling.toml",
-    "deploy:app": "npm run build:checked && npm run wrangler -- deploy --config cloudflare/wrangler.app.toml",
+    "deploy:app": "npm run smoke:live:signaling && npm run build:checked && npm run wrangler -- deploy --config cloudflare/wrangler.app.toml",
     "deploy:all-workers": "npm run check:workers && npm run build:checked && npm run deploy:remote-share && npm run deploy:signaling && npm run wrangler -- deploy --config cloudflare/wrangler.pro-room.toml && npm run wrangler -- deploy --config cloudflare/wrangler.developer-api-facade.toml && npm run developer-api:schema:remote && npm run wrangler -- deploy --config cloudflare/wrangler.developer-api.toml && npm run developer-api:effects-scopes:remote && npm run wrangler -- deploy --config cloudflare/wrangler.app.toml",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.e2e.json",
     "lint": "eslint src/",

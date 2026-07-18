@@ -55,6 +55,8 @@ import {
 //   500ms favors lower cross-device variance at the upper end of that range.
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const SYSTEM_AUDIO_RECEIVE_WATCHDOG = 'sys-audio-guest-receive-watchdog';
+const SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX = 'sys-audio-guest-replacement-watchdog';
+const SYSTEM_AUDIO_CHANNELS = ['L', 'R', 'DUAL', 'STEREO', 'SYNCED'] as const;
 // A 9+ device share can require one bounded SFU publication retry before the
 // guest subscription is ready. Keep the watchdog finite, but leave enough
 // headroom for a busy venue/NAT so a healthy large-room join is not mistaken
@@ -81,6 +83,7 @@ let _gotStereo = false;
 let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
 let _initialUnmuteWaitSeq = 0;
+const _replacementWatchdogs = new Map<string, MediaConnection>();
 
 interface GuestChannelDebug {
   channel: string;
@@ -111,6 +114,45 @@ let _debugWatchdogActive = false;
 function errorToDebugString(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function currentMediaConnection(channel: string): MediaConnection | null {
+  if (channel === 'L') return _mediaConnL;
+  if (channel === 'R') return _mediaConnR;
+  if (channel === 'DUAL') return _mediaConnDual;
+  if (channel === 'STEREO') return _mediaConnStereo;
+  if (channel === 'SYNCED') return _mediaConnSynced;
+  return null;
+}
+
+function setCurrentMediaConnection(channel: string, mediaConn: MediaConnection | null): boolean {
+  if (channel === 'L') _mediaConnL = mediaConn;
+  else if (channel === 'R') _mediaConnR = mediaConn;
+  else if (channel === 'DUAL') _mediaConnDual = mediaConn;
+  else if (channel === 'STEREO') _mediaConnStereo = mediaConn;
+  else if (channel === 'SYNCED') _mediaConnSynced = mediaConn;
+  else return false;
+  return true;
+}
+
+function closeMediaConnection(mediaConn: MediaConnection | null): void {
+  if (!mediaConn) return;
+  try {
+    mediaConn.close();
+  } catch {
+    /* noop */
+  }
+}
+
+function replaceCurrentMediaConnection(channel: string, mediaConn: MediaConnection): boolean {
+  const previous = currentMediaConnection(channel);
+  if (!setCurrentMediaConnection(channel, mediaConn)) return false;
+  if (previous && previous !== mediaConn) closeMediaConnection(previous);
+  return true;
+}
+
+function isCurrentMediaConnection(channel: string, mediaConn: MediaConnection): boolean {
+  return currentMediaConnection(channel) === mediaConn;
 }
 
 function getDebugChannel(channel: string): GuestChannelDebug {
@@ -167,6 +209,38 @@ function armReceiveWatchdog(): void {
     },
     SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
   );
+}
+
+function replacementWatchdogName(channel: string): string {
+  return `${SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX}-${channel}`;
+}
+
+function clearReplacementWatchdog(channel: string, mediaConn?: MediaConnection): void {
+  if (mediaConn && _replacementWatchdogs.get(channel) !== mediaConn) return;
+  _replacementWatchdogs.delete(channel);
+  clearManagedTimer(replacementWatchdogName(channel));
+}
+
+function armReplacementWatchdog(channel: string, mediaConn: MediaConnection): void {
+  _replacementWatchdogs.set(channel, mediaConn);
+  setManagedTimer(
+    replacementWatchdogName(channel),
+    () => {
+      if (_replacementWatchdogs.get(channel) !== mediaConn) return;
+      _replacementWatchdogs.delete(channel);
+      if (!isCurrentMediaConnection(channel, mediaConn)) return;
+
+      log.warn(`[SysAudioGuest] Timed out waiting for replacement ${channel} stream`);
+      bus.emit('system-audio:receive-timeout');
+      cleanupGuestSystemAudio();
+      bus.emit('ui:show-toast', t('system_audio.receive_failed'));
+    },
+    SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+  );
+}
+
+function clearAllReplacementWatchdogs(): void {
+  for (const channel of SYSTEM_AUDIO_CHANNELS) clearReplacementWatchdog(channel);
 }
 
 function describeAudioTracks(tracks: MediaStreamTrack[]): string {
@@ -321,60 +395,31 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   debug.error = undefined;
   debug.pc = mediaConn.peerConnection;
 
-  if (channel === 'L') {
-    if (_mediaConnL) {
-      try {
-        _mediaConnL.close();
-      } catch {
-        /* noop */
-      }
-    }
-    _mediaConnL = mediaConn;
-  } else if (channel === 'R') {
-    if (_mediaConnR) {
-      try {
-        _mediaConnR.close();
-      } catch {
-        /* noop */
-      }
-    }
-    _mediaConnR = mediaConn;
-  } else if (channel === 'DUAL' || channel === 'SYNCED') {
-    if (channel === 'DUAL') {
-      if (_mediaConnDual) {
-        try {
-          _mediaConnDual.close();
-        } catch {
-          /* noop */
-        }
-      }
-      _mediaConnDual = mediaConn;
-    } else {
-      if (_mediaConnSynced) {
-        try {
-          _mediaConnSynced.close();
-        } catch {
-          /* noop */
-        }
-      }
-      _mediaConnSynced = mediaConn;
-    }
-  } else if (channel === 'STEREO') {
-    if (_mediaConnStereo) {
-      try {
-        _mediaConnStereo.close();
-      } catch {
-        /* noop */
-      }
-    }
-    _mediaConnStereo = mediaConn;
+  const previousConnection = currentMediaConnection(channel);
+  if (!replaceCurrentMediaConnection(channel, mediaConn)) {
+    log.warn(`[SysAudioGuest] Ignored unsupported channel call: ${channel}`);
+    closeMediaConnection(mediaConn);
+    return;
+  }
+  if (
+    previousConnection &&
+    previousConnection !== mediaConn &&
+    getState('systemAudio.isReceiving')
+  ) {
+    // The old graph remains connected until the new stream is attached, but a
+    // same-channel PeerJS replacement can close its predecessor before ever
+    // emitting `stream`. Track the exact successor independently of the
+    // initial receive watchdog so a silent handoff cannot leave a permanent
+    // receiving=true / no-audio state.
+    armReplacementWatchdog(channel, mediaConn);
   }
 
   if (channel === 'STEREO' || channel === 'DUAL' || channel === 'SYNCED') {
     applySdpMunge(mediaConn);
   }
 
-  mediaConn.on('stream', async (remoteStream: MediaStream) => {
+  const attachStream = async (remoteStream: MediaStream): Promise<void> => {
+    if (!isCurrentMediaConnection(channel, mediaConn)) return;
     log.info(`[SysAudioGuest] Received ${channel} stream`);
     const streamTracks = remoteStream.getAudioTracks();
     log.info(`[SysAudioGuest] ${channel} stream tracks: ${describeAudioTracks(streamTracks)}`);
@@ -383,7 +428,11 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       (track) => `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`,
     );
     debug.pc = mediaConn.peerConnection;
+    if (streamTracks.length === 0) {
+      throw new Error('zero-audio-tracks');
+    }
     await waitForInitialUnmute(channel, streamTracks);
+    if (!isCurrentMediaConnection(channel, mediaConn)) return;
 
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the
@@ -403,12 +452,12 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     await initAudio();
+    if (!isCurrentMediaConnection(channel, mediaConn)) return;
     const ctx = getAudioContext();
     const widener = getWidener();
     if (!widener) {
       log.error('[SysAudioGuest] Audio graph not ready');
-      debug.graphError = 'audio-graph-not-ready';
-      return;
+      throw new Error('audio-graph-not-ready');
     }
 
     if (channel === 'STEREO') {
@@ -432,11 +481,6 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
       if (channel === 'DUAL' || channel === 'SYNCED') {
         const tracks = remoteStream.getAudioTracks();
-        if (tracks.length === 0) {
-          log.warn(`[SysAudioGuest] ${channel} stream received but 0 tracks found`);
-          debug.graphError = 'zero-audio-tracks';
-          return;
-        }
 
         if (_sourceL) {
           try {
@@ -534,6 +578,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
     debug.graphAt = Date.now();
     debug.graphError = undefined;
+    clearReplacementWatchdog(channel, mediaConn);
 
     // Update state once at least one stream is connected
     if (!getState('systemAudio.isReceiving')) {
@@ -543,33 +588,42 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       bus.emit('visualizer:start');
       log.info(`[SysAudioGuest] System audio connected to graph (${channel})`);
     }
+  };
+
+  mediaConn.on('stream', (remoteStream: MediaStream) => {
+    void attachStream(remoteStream).catch((error: unknown) => {
+      // A replacement connection can win while initial unmute/audio init is
+      // awaiting. A stale rejection must never tear down its successor.
+      if (!isCurrentMediaConnection(channel, mediaConn)) return;
+      debug.graphError = errorToDebugString(error);
+      log.warn(`[SysAudioGuest] ${channel} stream graph failed:`, error);
+      cleanupGuestSystemAudio();
+      bus.emit('ui:show-toast', t('system_audio.receive_failed'));
+    });
   });
 
   mediaConn.on('close', () => {
+    if (!isCurrentMediaConnection(channel, mediaConn)) return;
     log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
     debug.closedAt = Date.now();
+    clearReplacementWatchdog(channel, mediaConn);
+    setCurrentMediaConnection(channel, null);
     if (channel === 'DUAL' || channel === 'SYNCED') {
       _gotL = false;
       _gotR = false;
-      if (channel === 'DUAL') _mediaConnDual = null;
-      else {
-        _mediaConnSynced = null;
-        _gotSynced = false;
-      }
+      if (channel === 'SYNCED') _gotSynced = false;
     } else if (channel === 'L') {
       _gotL = false;
-      _mediaConnL = null;
     } else if (channel === 'R') {
       _gotR = false;
-      _mediaConnR = null;
     } else if (channel === 'STEREO') {
       _gotStereo = false;
-      _mediaConnStereo = null;
     }
     if (!_gotL && !_gotR && !_gotStereo && !_gotSynced) cleanupGuestSystemAudio();
   });
 
   mediaConn.on('error', (err: unknown) => {
+    if (!isCurrentMediaConnection(channel, mediaConn)) return;
     log.warn(`[SysAudioGuest] ${channel} error:`, err);
     debug.error = errorToDebugString(err);
   });
@@ -594,6 +648,7 @@ export function cleanupGuestSystemAudio(): void {
   _debugLastCleanupAt = Date.now();
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
   clearReceiveWatchdog();
+  clearAllReplacementWatchdogs();
   if (_sourceL) {
     try {
       _sourceL.disconnect();
@@ -628,46 +683,21 @@ export function cleanupGuestSystemAudio(): void {
     }
     _merger = null;
   }
-  if (_mediaConnL) {
-    try {
-      _mediaConnL.close();
-    } catch {
-      /* noop */
-    }
-    _mediaConnL = null;
-  }
-  if (_mediaConnR) {
-    try {
-      _mediaConnR.close();
-    } catch {
-      /* noop */
-    }
-    _mediaConnR = null;
-  }
-  if (_mediaConnDual) {
-    try {
-      _mediaConnDual.close();
-    } catch {
-      /* noop */
-    }
-    _mediaConnDual = null;
-  }
-  if (_mediaConnStereo) {
-    try {
-      _mediaConnStereo.close();
-    } catch {
-      /* noop */
-    }
-    _mediaConnStereo = null;
-  }
-  if (_mediaConnSynced) {
-    try {
-      _mediaConnSynced.close();
-    } catch {
-      /* noop */
-    }
-    _mediaConnSynced = null;
-  }
+  // Clear identities before close() so synchronous/stale close events cannot
+  // recursively clean the graph or null a replacement connection.
+  const mediaConnections = new Set([
+    _mediaConnL,
+    _mediaConnR,
+    _mediaConnDual,
+    _mediaConnStereo,
+    _mediaConnSynced,
+  ]);
+  _mediaConnL = null;
+  _mediaConnR = null;
+  _mediaConnDual = null;
+  _mediaConnStereo = null;
+  _mediaConnSynced = null;
+  for (const mediaConn of mediaConnections) closeMediaConnection(mediaConn);
   _gotL = false;
   _gotR = false;
   _gotStereo = false;

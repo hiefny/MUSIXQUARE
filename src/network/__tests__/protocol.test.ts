@@ -18,6 +18,7 @@ import {
   verifyOperator,
   handleData,
   initProtocol,
+  registerInboundRateLimitExemptionGuard,
 } from '../protocol.ts';
 import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
 
@@ -1265,8 +1266,25 @@ describe('inbound per-peer rate limit', () => {
     }
     expect(control).toHaveBeenCalledTimes(60);
 
-    // Chunk frames bypass the bucket — transfer-layer backpressure throttles
-    // them, and dropping them here would stall legitimate transfers.
+    // Unowned chunk frames no longer bypass the bucket merely because of their
+    // message type.
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        chunk: new Uint8Array(16),
+        chunkIndex: 0,
+        queueItemId: QUEUE_ITEM_ID,
+        sessionId: 1,
+      },
+      conn,
+    );
+    expect(chunk).not.toHaveBeenCalled();
+
+    let activeTransfer = true;
+    registerInboundRateLimitExemptionGuard(
+      MSG.PRELOAD_CHUNK,
+      (_message, candidate) => activeTransfer && candidate === conn,
+    );
     await handleData(
       {
         type: MSG.PRELOAD_CHUNK,
@@ -1278,6 +1296,7 @@ describe('inbound per-peer rate limit', () => {
       conn,
     );
     expect(chunk).toHaveBeenCalledTimes(1);
+    activeTransfer = false;
 
     vi.advanceTimersByTime(50);
     await handleData({ type: 'rate-limit-control-probe' }, conn);

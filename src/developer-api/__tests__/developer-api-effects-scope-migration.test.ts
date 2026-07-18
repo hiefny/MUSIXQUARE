@@ -77,25 +77,40 @@ describe('Developer API effects-scope migration', () => {
     expect(workflow).toContain('MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL');
     expect(workflow).toContain('apply_developer_api_d1:');
     expect(workflow).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
-    expect(workflow).toContain('CLOUDFLARE_WORKER_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
-    expect(workflow).toContain('CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
     expect(workflow).toContain(
       'UPDATE mxqr_developer_api_keys SET updated_at = updated_at WHERE 0',
     );
 
-    const rollbackBlock = workflow.slice(
-      workflow.indexOf('Restore schema and deployments after a failed release'),
-      workflow.indexOf('Upload deployment records'),
+    const schemaRollbackStart = workflow.indexOf(
+      'Restore Developer API schema after a failed release',
     );
-    const schemaRollback = rollbackBlock.indexOf('CLOUDFLARE_API_TOKEN="$CLOUDFLARE_D1_API_TOKEN"');
-    const workerRollback = rollbackBlock.indexOf(
-      'CLOUDFLARE_API_TOKEN="$CLOUDFLARE_WORKER_API_TOKEN"',
+    const workerRollbackStart = workflow.indexOf(
+      'Restore Worker deployments after a failed release',
     );
-    expect(schemaRollback).toBeGreaterThan(-1);
-    expect(workerRollback).toBeGreaterThan(schemaRollback);
-    expect(rollbackBlock).toContain('schema_exit=$?');
-    expect(rollbackBlock).toContain('worker_exit=$?');
-    expect(rollbackBlock).toContain('schema_exit != 0 || worker_exit != 0');
+    const uploadStart = workflow.indexOf('Upload deployment records');
+    const schemaRollbackBlock = workflow.slice(schemaRollbackStart, workerRollbackStart);
+    const workerRollbackBlock = workflow.slice(workerRollbackStart, uploadStart);
+    expect(schemaRollbackStart).toBeGreaterThan(smoke);
+    expect(workerRollbackStart).toBeGreaterThan(schemaRollbackStart);
+    expect(schemaRollbackBlock).toContain(
+      'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}',
+    );
+    expect(schemaRollbackBlock).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
+    expect(workerRollbackBlock).toContain(
+      'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}',
+    );
+    expect(workerRollbackBlock).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
+    expect(workerRollbackBlock).toContain('rollback_skip_targets="developer-api"');
+    expect(workerRollbackBlock).toContain('MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets"');
+
+    const recoveryFailureGate = workflow.indexOf(
+      'Fail release when automatic recovery is incomplete',
+    );
+    expect(recoveryFailureGate).toBeGreaterThan(workflow.indexOf('Release summary'));
+    expect(workflow).toContain("steps.schema_rollback.outcome == 'failure'");
+    expect(workflow).toContain("steps.worker_rollback.outcome == 'failure'");
+    expect(workflow).toContain("steps.schema_rollback.outcome || 'not-requested'");
+    expect(workflow).toContain("steps.worker_rollback.outcome || 'not-requested'");
 
     const credentialProbe = workflow.indexOf('Verify Developer API D1 migration credentials');
     const firstDeploymentRecord = workflow.indexOf('Record current remote-share deployment');

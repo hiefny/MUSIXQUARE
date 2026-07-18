@@ -238,7 +238,7 @@ function callGuest(guestPeerId: string): void {
           action: 'close',
           metadataType: readMetadataType(mc.metadata),
         });
-        _mediaConns.delete(guestPeerId);
+        if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
       });
       mc.on('error', (error: unknown) => {
         pushDebugCall({
@@ -252,7 +252,7 @@ function callGuest(guestPeerId: string): void {
         } catch {
           /* noop */
         }
-        _mediaConns.delete(guestPeerId);
+        if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
       });
 
       log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: original stereo stream`);
@@ -285,7 +285,7 @@ function callGuest(guestPeerId: string): void {
         action: 'close',
         metadataType: readMetadataType(mc.metadata),
       });
-      _mediaConns.delete(guestPeerId);
+      if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
     });
     mc.on('error', (error: unknown) => {
       pushDebugCall({
@@ -299,7 +299,7 @@ function callGuest(guestPeerId: string): void {
       } catch {
         /* noop */
       }
-      _mediaConns.delete(guestPeerId);
+      if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
     });
 
     log.info(

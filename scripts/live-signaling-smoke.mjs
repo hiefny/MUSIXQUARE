@@ -31,11 +31,10 @@ export function assertPeerOpenVersion(message, expectedVersion, label, retryIfSt
   );
 }
 
-function socketUrl(roomId, role, peerId, secret = '') {
+function socketUrl(roomId, role, peerId) {
   const url = new URL(`${SIGNALING_ORIGIN}/${roomId}/ws`);
   url.searchParams.set('role', role);
   url.searchParams.set('peerId', peerId);
-  if (secret) url.searchParams.set('secret', secret);
   return url.toString();
 }
 
@@ -216,7 +215,7 @@ async function runRoomAttempt(password, expectedVersion) {
   const reconnectSecret = randomBytes(32).toString('base64url');
   const wrongReconnectSecret = randomBytes(32).toString('base64url');
   const host = createSocketInbox(
-    socketUrl(roomId, 'host', hostPeerId, hostSecret),
+    socketUrl(roomId, 'host', hostPeerId),
     `${password ? 'protected' : 'passwordless'} host`,
   );
   const guestSockets = new Set();
@@ -230,6 +229,9 @@ async function runRoomAttempt(password, expectedVersion) {
 
   try {
     await host.opened;
+    // Exercise the current production contract: the host bearer credential is
+    // the first WebSocket frame and never part of an edge-loggable URL.
+    host.socket.send(JSON.stringify({ type: 'host-auth', secret: hostSecret }));
     const hostOpen = await waitForType(host, 'peer-open');
     assertPeerOpenVersion(hostOpen, expectedVersion, 'host peer-open', true);
     if (hostOpen.roomId !== roomId) throw new Error('host room mismatch');

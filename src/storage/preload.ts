@@ -19,7 +19,7 @@ import {
   readStoredFile,
   retainStoredFileAdmission,
 } from './storage.ts';
-import { registerHandlers } from '../network/protocol.ts';
+import { registerHandlers, registerInboundRateLimitExemptionGuard } from '../network/protocol.ts';
 import {
   beginFileRequest,
   completeFileRequest,
@@ -66,6 +66,7 @@ import {
   hasProRoomPlaylistFilePreload,
   preloadProRoomPlaylistFile,
 } from '../pro-room/legacy-media-hooks.ts';
+import { isArrayBuffer } from './transfer-shared.ts';
 
 /**
  * One-switch rollback for the persistent-room R2 prefetch policy. Keep this
@@ -1148,6 +1149,56 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
   return !!hostConn && conn === hostConn;
 }
 
+/** Exempt only chunks for a bounded, non-finalized preload owned by hostConn. */
+function isActiveHostPreloadChunkForRateLimit(
+  data: Readonly<Record<string, unknown>>,
+  conn: DataConnection,
+): boolean {
+  if (
+    getState('network.appRole') !== 'guest' ||
+    conn.open !== true ||
+    !isHostBroadcast(conn) ||
+    data.type !== MSG.PRELOAD_CHUNK ||
+    Object.keys(data).length !== 5
+  ) {
+    return false;
+  }
+  const sessionId = data.sessionId;
+  const queueItemId = data.queueItemId;
+  const chunkIndex = data.chunkIndex;
+  const chunk = data.chunk;
+  if (
+    !Number.isSafeInteger(sessionId) ||
+    (sessionId as number) <= 0 ||
+    typeof queueItemId !== 'string' ||
+    !queueItemId ||
+    !Number.isSafeInteger(chunkIndex) ||
+    (chunkIndex as number) < 0 ||
+    (!(chunk instanceof Uint8Array) && !isArrayBuffer(chunk)) ||
+    chunk.byteLength > CHUNK_SIZE
+  ) {
+    return false;
+  }
+
+  const session = getState('preload.sessionState').get(sessionId as number);
+  const expectedByteLength =
+    session && (chunkIndex as number) === session.total - 1
+      ? session.size - CHUNK_SIZE * (session.total - 1)
+      : CHUNK_SIZE;
+  return (
+    !!session &&
+    !session.skipped &&
+    !session.finalized &&
+    session.queueItemId === queueItemId &&
+    Number.isSafeInteger(session.total) &&
+    session.total > 0 &&
+    (chunkIndex as number) < session.total &&
+    chunk.byteLength === expectedByteLength
+  );
+}
+
+export const isActiveHostPreloadChunkForRateLimitForTests = isActiveHostPreloadChunkForRateLimit;
+
 function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
@@ -1977,6 +2028,7 @@ export function initPreload(): void {
     initialRoomContext.kind === 'pro' && initialRoomContext.role === 'coordinator'
       ? initialRoomContext.roomId
       : null;
+  registerInboundRateLimitExemptionGuard(MSG.PRELOAD_CHUNK, isActiveHostPreloadChunkForRateLimit);
   registerHandlers({
     [MSG.PRO_FILE_PRELOAD]: handleProRoomFilePreload,
     [MSG.PRELOAD_START]: handlePreloadStart,

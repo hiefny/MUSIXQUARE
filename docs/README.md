@@ -7,6 +7,8 @@ or a substitute for the current source and tests.
 
 ## Current References
 
+- [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — current
+  cross-domain audit method, confirmed corrections, and residual boundaries.
 - [PRO room architecture and operations](design/pro-room-architecture-and-operations.md) —
   persistent-room ADR, Cloudflare runbook, offline activation, rollback, and
   physical-device QA gate.

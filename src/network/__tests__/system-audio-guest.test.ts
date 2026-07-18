@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import type { DataConnection, TrackMeta } from '../../types/index.ts';
+import type { DataConnection, MediaConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { markQueueAuthorityReady } from '../queue-authority.ts';
 import {
@@ -17,6 +17,8 @@ import {
   setSystemAudioReceiving,
 } from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
+import { getAudioContext } from '../../audio/context.ts';
+import { getWidener, initAudio } from '../../audio/engine.ts';
 import {
   freezeGuestSystemAudioSfuRoute,
   resetGuestSystemAudioShareRoute,
@@ -81,11 +83,53 @@ vi.mock('../webrtc-audio-decoder-primer.ts', () => ({
   primeWebRtcAudioDecoder: vi.fn(() => null),
 }));
 
+function createMediaConnection(peer = 'host') {
+  const handlers = new Map<string, (...args: unknown[]) => unknown>();
+  const mediaConn = {
+    peer,
+    metadata: { type: 'system-audio' },
+    peerConnection: null,
+    answer: vi.fn(),
+    close: vi.fn(),
+    on: vi.fn((event: string, handler: (...args: unknown[]) => unknown) => {
+      handlers.set(event, handler);
+    }),
+  } as unknown as MediaConnection;
+  return {
+    mediaConn,
+    emit(event: string, ...args: unknown[]): unknown {
+      return handlers.get(event)?.(...args);
+    },
+  };
+}
+
+function emptyAudioStream(): MediaStream {
+  return { getAudioTracks: () => [] } as unknown as MediaStream;
+}
+
+function audioStreamWithTrack(): MediaStream {
+  const track = {
+    id: 'audio-track-1',
+    kind: 'audio',
+    readyState: 'live',
+    muted: false,
+  } as MediaStreamTrack;
+  return { getAudioTracks: () => [track] } as unknown as MediaStream;
+}
+
+async function flushAsyncStreamHandler(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe('system audio guest receive watchdog', () => {
   const hostConn = { open: true, peer: 'host' } as DataConnection;
   const watchdogName = 'sys-audio-guest-receive-watchdog';
+  const stereoReplacementWatchdogName = 'sys-audio-guest-replacement-watchdog-STEREO';
 
   beforeEach(() => {
+    cleanupGuestSystemAudio();
     resetState();
     bus.clear();
     vi.clearAllMocks();
@@ -202,5 +246,187 @@ describe('system audio guest receive watchdog', () => {
     expect(getState('systemAudio.isReceiving')).toBe(false);
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('immediately cleans an initAudio rejection and permits a fresh direct-call retry', async () => {
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    const toast = vi.fn();
+    bus.on('ui:show-toast', toast);
+    setState('player.currentTrackMeta', previousMeta);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    vi.mocked(initAudio).mockRejectedValueOnce(new Error('audio init failed'));
+    const failed = createMediaConnection();
+    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    expect(failed.emit('stream', audioStreamWithTrack())).toBeUndefined();
+    await flushAsyncStreamHandler();
+
+    expect(failed.mediaConn.close).toHaveBeenCalledTimes(1);
+    expect(timerMocks.timers.has(watchdogName)).toBe(false);
+    expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(toast).toHaveBeenCalledWith('system_audio.receive_failed');
+
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    vi.mocked(getAudioContext).mockReturnValue({
+      createMediaStreamSource: vi.fn(() => source),
+    } as unknown as AudioContext);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const retry = createMediaConnection();
+    bus.emit('system-audio:incoming-call', retry.mediaConn, 'STEREO');
+    retry.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(timerMocks.timers.has(watchdogName)).toBe(false);
+    expect(retry.mediaConn.close).not.toHaveBeenCalled();
+  });
+
+  it('treats a missing audio graph as an immediate receive failure', async () => {
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    setState('player.currentTrackMeta', previousMeta);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    vi.mocked(getWidener).mockReturnValueOnce(null);
+
+    const failed = createMediaConnection();
+    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    failed.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(failed.mediaConn.close).toHaveBeenCalledTimes(1);
+    expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(timerMocks.timers.has(watchdogName)).toBe(false);
+  });
+
+  it('rejects an empty stream before publishing receive state', async () => {
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const failed = createMediaConnection();
+    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    failed.emit('stream', emptyAudioStream());
+    await flushAsyncStreamHandler();
+
+    expect(failed.mediaConn.close).toHaveBeenCalledTimes(1);
+    expect(initAudio).not.toHaveBeenCalled();
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(timerMocks.timers.has(watchdogName)).toBe(false);
+  });
+
+  it('does not let a stale async stream failure tear down its replacement connection', async () => {
+    let rejectFirstInit!: (error: Error) => void;
+    const firstInit = new Promise<void>((_resolve, reject) => {
+      rejectFirstInit = reject;
+    });
+    vi.mocked(initAudio)
+      .mockImplementationOnce(() => firstInit)
+      .mockResolvedValueOnce(undefined);
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    vi.mocked(getAudioContext).mockReturnValue({
+      createMediaStreamSource: vi.fn(() => source),
+    } as unknown as AudioContext);
+    const toast = vi.fn();
+    bus.on('ui:show-toast', toast);
+
+    setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const stale = createMediaConnection();
+    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    stale.emit('stream', audioStreamWithTrack());
+    await Promise.resolve();
+    expect(initAudio).toHaveBeenCalledTimes(1);
+
+    const replacement = createMediaConnection();
+    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    replacement.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+
+    rejectFirstInit(new Error('stale init failed'));
+    await flushAsyncStreamHandler();
+
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(replacement.mediaConn.close).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('publishes a replacement identity before a synchronous stale close callback', async () => {
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    vi.mocked(getAudioContext).mockReturnValue({
+      createMediaStreamSource: vi.fn(() => source),
+    } as unknown as AudioContext);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const stale = createMediaConnection();
+    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    vi.mocked(stale.mediaConn.close).mockImplementation(() => {
+      stale.emit('close');
+    });
+
+    const replacement = createMediaConnection();
+    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    replacement.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(stale.mediaConn.close).toHaveBeenCalledTimes(1);
+    expect(replacement.mediaConn.close).not.toHaveBeenCalled();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('fails a silent same-channel replacement instead of remaining permanently receiving', async () => {
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    vi.mocked(getAudioContext).mockReturnValue({
+      createMediaStreamSource: vi.fn(() => source),
+    } as unknown as AudioContext);
+    const toast = vi.fn();
+    bus.on('ui:show-toast', toast);
+    setState('player.currentTrackMeta', previousMeta);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    const active = createMediaConnection();
+    bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+    active.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+
+    const silentReplacement = createMediaConnection();
+    bus.emit('system-audio:incoming-call', silentReplacement.mediaConn, 'STEREO');
+
+    expect(active.mediaConn.close).toHaveBeenCalledTimes(1);
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(timerMocks.delays.get(stereoReplacementWatchdogName)).toBe(30_000);
+
+    timerMocks.timers.get(stereoReplacementWatchdogName)?.();
+
+    expect(silentReplacement.mediaConn.close).toHaveBeenCalledTimes(1);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+    expect(toast).toHaveBeenCalledWith('system_audio.receive_failed');
+  });
+
+  it('cancels the exact replacement watchdog only after its graph attaches', async () => {
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    vi.mocked(getAudioContext).mockReturnValue({
+      createMediaStreamSource: vi.fn(() => source),
+    } as unknown as AudioContext);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    const active = createMediaConnection();
+    bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+    active.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    const replacement = createMediaConnection();
+    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    const staleWatchdog = timerMocks.timers.get(stereoReplacementWatchdogName);
+    expect(staleWatchdog).toBeTypeOf('function');
+
+    replacement.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+    expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(false);
+
+    staleWatchdog?.();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(replacement.mediaConn.close).not.toHaveBeenCalled();
   });
 });

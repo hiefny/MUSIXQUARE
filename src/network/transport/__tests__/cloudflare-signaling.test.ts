@@ -222,7 +222,9 @@ class ContractWorkerState {
     put: async (key: string, value: unknown): Promise<void> => {
       this.values.set(key, structuredClone(value));
     },
+    getAlarm: async (): Promise<null> => null,
     setAlarm: async (): Promise<void> => {},
+    deleteAlarm: async (): Promise<void> => {},
   };
 
   acceptWebSocket(socket: ContractWorkerSocket): void {
@@ -241,6 +243,7 @@ type ContractWorkerRoom = {
     peerId: string,
     secret: string,
   ): Promise<void>;
+  acceptPendingHost(socket: ContractWorkerSocket, roomId: string, peerId: string): void;
   acceptGuest(socket: ContractWorkerSocket, roomId: string, peerId: string): Promise<void>;
   webSocketMessage(socket: ContractWorkerSocket, raw: string): Promise<void>;
 };
@@ -873,12 +876,16 @@ describe('Cloudflare client/Worker signaling contract', () => {
       hostClientSocket.dispatch('open');
       const hostUrl = new URL(hostClientSocket.url);
       const hostServerSocket = new ContractWorkerSocket();
-      await room.acceptHost(
-        hostServerSocket,
-        '123456',
-        hostUrl.searchParams.get('peerId') || '',
-        hostUrl.searchParams.get('secret') || '',
-      );
+      expect([...hostUrl.searchParams.keys()]).toEqual(['role', 'peerId']);
+      expect(hostUrl.searchParams.get('secret')).toBeNull();
+      const hostAuthFrame = sentOfType(hostClientSocket, 'host-auth')[0];
+      expect(hostAuthFrame).toEqual({
+        type: 'host-auth',
+        secret: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+      });
+      room.acceptPendingHost(hostServerSocket, '123456', hostUrl.searchParams.get('peerId') || '');
+      expect(workerSentOfType(hostServerSocket, 'peer-open')).toHaveLength(0);
+      await room.webSocketMessage(hostServerSocket, JSON.stringify(hostAuthFrame));
 
       hostClientSocket.dispatch('message', hostServerSocket.sent[0]);
       await flushAsync();
@@ -911,9 +918,8 @@ describe('Cloudflare client/Worker signaling contract', () => {
       });
       await room.webSocketMessage(guestServerSocket, JSON.stringify(authFrame));
 
-      // In a passwordless room the Worker admitted the guest before the
-      // client's no-op guest-auth; in a protected room it admits after auth.
-      // Both paths must converge on the same peer-open/offer contract.
+      // Passwordless and protected rooms both authenticate the reconnect proof
+      // before converging on the same peer-open/offer contract.
       expect(guestServerSocket.closed).toBe(false);
       const peerOpen = workerSentOfType(guestServerSocket, 'peer-open')[0];
       expect(peerOpen).toMatchObject({ type: 'peer-open', roomId: '123456' });
@@ -957,6 +963,27 @@ describe('Cloudflare client/Worker signaling contract', () => {
       hostPeer.destroy();
     },
   );
+
+  it('reuses the RAM-only host proof in frames without exposing it on reconnect URLs', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const first = FakeWebSocket.instances[0];
+    first.dispatch('open');
+    const firstAuth = sentOfType(first, 'host-auth')[0];
+
+    expect(new URL(first.url).searchParams.get('secret')).toBeNull();
+    expect(firstAuth?.secret).toMatch(/^[A-Za-z0-9_-]{32}$/);
+
+    first.close();
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+
+    expect(new URL(reopened.url).searchParams.get('secret')).toBeNull();
+    expect(sentOfType(reopened, 'host-auth')[0]).toEqual(firstAuth);
+    peer.destroy();
+  });
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {

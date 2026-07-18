@@ -926,13 +926,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
 // ~1–3k msg/s range, which is still high enough to degrade UX.
 //
 // Token-bucket per peer: 60 burst, 1 token every 50ms (≈20 msg/s steady
-// state). Chunks bypass the bucket — transfer-send already throttles via
-// `bufferedAmount` and chunk rates are naturally high-legitimate-traffic.
+// state). High-rate chunks bypass it only when their feature module proves an
+// exact, active, host-authorized transfer identity.
 const INBOUND_BURST = 60;
 const INBOUND_REFILL_MS = 50;
 const _inboundBuckets = new Map<string, { tokens: number; lastRefill: number }>();
-
-const RATE_LIMIT_EXEMPT: ReadonlySet<string> = new Set<string>([MSG.FILE_CHUNK, MSG.PRELOAD_CHUNK]);
 
 type InboundRateLimitExemptionGuard = (
   msg: Readonly<Record<string, unknown>>,
@@ -957,7 +955,6 @@ function isInboundRateLimitExempt(
   msg: Readonly<Record<string, unknown>>,
   conn: DataConnection,
 ): boolean {
-  if (RATE_LIMIT_EXEMPT.has(msgType)) return true;
   const guard = _conditionalRateLimitExemptions.get(msgType);
   if (!guard) return false;
   try {
@@ -1085,8 +1082,9 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
     return;
   }
 
-  // Generic per-peer rate-limit — chunks bypass (high-legitimate-rate, bounded
-  // by transfer-layer backpressure). Silently drops frames over the cap.
+  // Generic per-peer rate-limit. A high-rate feature bypasses it only when its
+  // registered guard proves the exact active transfer; all other frames spend
+  // from the ordinary bucket and are silently dropped once it is exhausted.
   if (
     conn?.peer &&
     !isInboundRateLimitExempt(msgType, msg, conn) &&

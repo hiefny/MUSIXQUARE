@@ -20,6 +20,21 @@ shared jitter-buffer target intended to reduce cross-device variance; it is not
 a measured per-platform compensation and therefore is not added to the
 platform-delta column below.
 
+### P2P receive replacement and failure contract
+
+The active P2P system-audio `MediaConnection` is an identity-fenced resource.
+Every asynchronous stream-attachment step rechecks that the connection is
+still current before publishing audio state. Replacing a connection publishes
+the replacement identity before closing its predecessor, so a synchronous
+stale `close` callback cannot clear the successor.
+
+If the current stream cannot initialize its audio graph, has no usable tracks,
+or otherwise rejects during asynchronous attachment, the guest immediately
+cleans up the failed receive state and shows the receive-failed toast. A later
+call can then retry without waiting for PeerJS to emit a separate `error` or
+`close`. A failure from a superseded connection is a no-op and must not tear
+down the replacement.
+
 ## Current Compensation Table
 
 | Playback mode | Platform | Hidden compensation | UI manual default | Why | File | Section / symbol | Last updated | Status |

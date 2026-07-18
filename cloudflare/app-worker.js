@@ -115,6 +115,7 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'room_opened', label: 'Rooms opened' },
   { key: 'guest_joined', label: 'Guest joins' },
   { key: 'host_reconnected', label: 'Host reconnects' },
+  { key: 'host_legacy_url_auth', label: 'Legacy host URL auth' },
   { key: 'guest_host_unavailable', label: 'Guest host-missing errors' },
   { key: 'guest_auth_pending', label: 'Password prompts' },
   { key: 'guest_auth_failed', label: 'Password failures' },
@@ -122,7 +123,7 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_reconnect_denied', label: 'Guest reconnect denials' },
   { key: 'guest_reconnect_conflict', label: 'Guest reconnect conflicts' },
   { key: 'guest_room_full', label: 'Room-full rejections' },
-  { key: 'guest_pending_capacity', label: 'Pending guest limit rejections' },
+  { key: 'guest_pending_capacity', label: 'Pending guest handshake rejections' },
   { key: 'guest_identity_capacity', label: 'Guest identity limit rejections' },
   { key: 'ws_message_oversized', label: 'Oversized signaling messages' },
   { key: 'ws_message_rate_limited', label: 'Rate-limited signaling messages' },
@@ -5086,6 +5087,10 @@ async function serveInvitePage(request, env, code) {
   const inviteHeaders = {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-cache',
+    // Invite URLs can expose a live or persistent room code when shared in a
+    // crawlable context. Keep rich Open Graph previews, but do not let search
+    // engines turn private entry points into search results.
+    'X-Robots-Tag': 'noindex, nofollow',
     'X-Invite-Rewrite': code,
   };
   if (request.method === 'HEAD') {

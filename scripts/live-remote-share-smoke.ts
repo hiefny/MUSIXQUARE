@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 
 import { decryptToFile, encryptFile } from '../src/share/crypto.js';
 
@@ -10,6 +10,7 @@ const DEFAULT_BYTES = 32;
 const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
 const FILE_MIME = 'audio/wav';
+const REQUEST_TIMEOUT_MS = 30_000;
 
 interface RemoteShareSession {
   uploadUrl: string;
@@ -20,6 +21,13 @@ interface RemoteShareSession {
   cleanupToken: string;
   queueItemId: string;
   sessionId: number;
+}
+
+function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
 }
 
 function parseByteCount(): number {
@@ -54,7 +62,7 @@ async function requestCapabilityToken(): Promise<string> {
   if (process.env.MXQR_CAPABILITY_TOKEN) return process.env.MXQR_CAPABILITY_TOKEN.trim();
 
   const config = await readJson(
-    await fetch(`${APP_ORIGIN}/api/security-config`, {
+    await fetchWithTimeout(`${APP_ORIGIN}/api/security-config`, {
       headers: { Accept: 'application/json', Origin: APP_ORIGIN },
     }),
     'security config',
@@ -64,7 +72,7 @@ async function requestCapabilityToken(): Promise<string> {
   let proofOfWork: { challenge: string; solution: string } | undefined;
   if (config.proofOfWorkRequired === true) {
     const challenge = await readJson(
-      await fetch(`${APP_ORIGIN}/api/capability-challenge`, {
+      await fetchWithTimeout(`${APP_ORIGIN}/api/capability-challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
         body: JSON.stringify({ scopes: ['remote-share'] }),
@@ -102,7 +110,7 @@ async function requestCapabilityToken(): Promise<string> {
     proofOfWork = { challenge: challenge.challenge, solution: String(solution) };
   }
 
-  const response = await fetch(`${APP_ORIGIN}/api/capability-token`, {
+  const response = await fetchWithTimeout(`${APP_ORIGIN}/api/capability-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
     body: JSON.stringify({ scopes: ['remote-share'], ...(proofOfWork ? { proofOfWork } : {}) }),
@@ -122,7 +130,7 @@ async function requestSession(
   sourceFile: File,
   encryptedBlob: Blob,
 ): Promise<RemoteShareSession> {
-  const response = await fetch(`${REMOTE_ORIGIN}/session`, {
+  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/session`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -206,7 +214,7 @@ function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): vo
 
 async function assertUploadCors(session: RemoteShareSession): Promise<void> {
   const requestedHeaders = Object.keys(session.uploadHeaders).join(',');
-  const response = await fetch(session.uploadUrl, {
+  const response = await fetchWithTimeout(session.uploadUrl, {
     method: 'OPTIONS',
     headers: {
       Origin: APP_ORIGIN,
@@ -238,7 +246,7 @@ async function completeUpload(
   session: RemoteShareSession,
   roomId: string,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${REMOTE_ORIGIN}/complete`, {
+  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/complete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
     body: JSON.stringify({
@@ -252,7 +260,7 @@ async function completeUpload(
 }
 
 async function cleanup(session: RemoteShareSession, roomId: string): Promise<Response> {
-  return fetch(`${REMOTE_ORIGIN}/object/${roomId}/${session.objectId}`, {
+  return fetchWithTimeout(`${REMOTE_ORIGIN}/object/${roomId}/${session.objectId}`, {
     method: 'DELETE',
     headers: {
       Origin: APP_ORIGIN,
@@ -263,7 +271,10 @@ async function cleanup(session: RemoteShareSession, roomId: string): Promise<Res
 
 async function main(): Promise<void> {
   const byteCount = parseByteCount();
-  const roomId = `live-smoke-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  // Exercise the same namespace the product can actually allocate. The object
+  // UUID still makes concurrent smoke objects unique if two runs pick the same
+  // six-digit room code.
+  const roomId = String(randomInt(100_000, 1_000_000));
   const queueItemId = randomUUID();
   const sessionId = Date.now();
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
@@ -289,7 +300,7 @@ async function main(): Promise<void> {
     assertUploadMetadata(session, sourceFile);
     await assertUploadCors(session);
 
-    const upload = await fetch(session.uploadUrl, {
+    const upload = await fetchWithTimeout(session.uploadUrl, {
       method: 'PUT',
       headers: { ...session.uploadHeaders, Origin: APP_ORIGIN },
       body: encrypted.encryptedBlob,
@@ -313,7 +324,7 @@ async function main(): Promise<void> {
       throw new Error('invalid remote-share completion response');
     }
 
-    const download = await fetch(completedDescriptor.downloadUrl, {
+    const download = await fetchWithTimeout(completedDescriptor.downloadUrl, {
       headers: { Origin: APP_ORIGIN },
     });
     assertAllowedOrigin(download, 'remote-share download');
@@ -343,7 +354,7 @@ async function main(): Promise<void> {
     await readJson(deleted, 'remote-share cleanup');
     cleaned = true;
 
-    const afterDelete = await fetch(completedDescriptor.downloadUrl, {
+    const afterDelete = await fetchWithTimeout(completedDescriptor.downloadUrl, {
       headers: { Origin: APP_ORIGIN },
     });
     assertAllowedOrigin(afterDelete, 'remote-share deleted-object lookup');

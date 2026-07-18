@@ -38,6 +38,7 @@ describe('Developer API live canary smoke', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+        expect(init.signal).toBeInstanceOf(AbortSignal);
         const url = new URL(String(input));
         const method = init.method || 'GET';
         calls.push(`${method} ${url.origin}${url.pathname}`);

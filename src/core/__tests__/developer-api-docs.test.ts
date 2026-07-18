@@ -3,6 +3,43 @@ import { describe, expect, it } from 'vitest';
 
 const DOC_PATH = '.workshop/developers/developers.html';
 const OPENAPI_PATH = 'public/developers/openapi.yaml';
+const WORKER_PATH = 'cloudflare/developer-api-worker.js';
+
+const PUBLIC_ERROR_CONTRACT = [
+  ['API_DISABLED', 503, true],
+  ['API_NOT_CONFIGURED', 503, true],
+  ['ASSET_CAPACITY_EXCEEDED', 409, false],
+  ['BACKEND_UNAVAILABLE', 503, true],
+  ['BROWSER_ORIGIN_FORBIDDEN', 403, false],
+  ['COMMAND_CAPACITY_EXCEEDED', 409, false],
+  ['COORDINATOR_INCOMPATIBLE', 409, false],
+  ['FORBIDDEN', 403, false],
+  ['IDEMPOTENCY_CONFLICT', 409, false],
+  ['IDEMPOTENCY_KEY_REQUIRED', 400, false],
+  ['INTERNAL_RESPONSE_INVALID', 503, true],
+  ['INVALID_REQUEST', 400, false],
+  ['NOT_FOUND', 404, false],
+  ['NO_MEDIA', 409, false],
+  ['PLAYLIST_CAPACITY_EXCEEDED', 409, false],
+  ['PLAYLIST_REVISION_CONFLICT', 409, false],
+  ['QUEUE_MODE_REVISION_CONFLICT', 409, false],
+  ['RATE_LIMITED', 429, true],
+  ['RESERVATION_CAPACITY_EXCEEDED', 409, false],
+  ['ROOM_QUOTA_EXCEEDED', 409, false],
+  ['ROOM_SLEEPING', 409, false],
+  ['ROOM_STATE_CAPACITY_EXCEEDED', 409, false],
+  ['UNAUTHORIZED', 401, false],
+  ['UPLOAD_INCOMPLETE', 409, true],
+  ['UPLOAD_MISMATCH', 409, false],
+] as const;
+
+function extractDeclarationBlock(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+  expect(endIndex).toBeGreaterThan(startIndex);
+  return source.slice(startIndex + start.length, endIndex);
+}
 
 describe('Developer API public documentation', () => {
   it('uses the shared policy-page shell and canonical public URL', async () => {
@@ -220,6 +257,52 @@ describe('Developer API public documentation', () => {
     expect(spec).toContain('QueueItemAddedBy:');
     expect(spec).toContain("addedBy: { $ref: '#/components/schemas/QueueItemAddedBy' }");
     expect(spec).not.toMatch(/required: \[[^\]]*addedBy/);
+  });
+
+  it('publishes the complete runtime error and asynchronous command result catalogs', async () => {
+    const [html, spec, worker] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+      readFile(WORKER_PATH, 'utf8'),
+    ]);
+
+    const errorMessages = extractDeclarationBlock(
+      worker,
+      'const ERROR_MESSAGES = Object.freeze({',
+      '\n});',
+    );
+    const runtimeErrorCodes = [...errorMessages.matchAll(/^\s{2}([A-Z][A-Z0-9_]+):/gm)]
+      .map((match) => match[1])
+      .sort();
+    expect(runtimeErrorCodes).toEqual(PUBLIC_ERROR_CONTRACT.map(([code]) => code).sort());
+
+    for (const [code, status, retryable] of PUBLIC_ERROR_CONTRACT) {
+      expect(html).toContain(`data-api-error-code="${code}"`);
+      expect(html).toContain(
+        `<dt><code>${code}</code> &middot; ${status} &middot; retryable: ${retryable}</dt>`,
+      );
+      expect(spec).toContain(`        - ${code}`);
+      expect(spec).toContain(`        ${code}: { httpStatus: ${status}, retryable: ${retryable} }`);
+    }
+
+    const resultCodesBlock = extractDeclarationBlock(
+      worker,
+      'const COMMAND_RESULT_CODES = new Set([',
+      '\n]);',
+    );
+    const runtimeResultCodes = [...resultCodesBlock.matchAll(/'([a-z_]+)'/g)].map(
+      (match) => match[1],
+    );
+    const documentedResultCodes = [...html.matchAll(/data-command-result-code="([a-z_]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(documentedResultCodes).toEqual(runtimeResultCodes);
+    for (const code of runtimeResultCodes) expect(spec).toContain(`        - ${code}`);
+
+    expect(html).toContain('Immediate non-2xx responses use the uppercase codes below');
+    expect(html).toContain('inspect its lowercase <code>resultCode</code>');
+    expect(spec).toContain("code: { $ref: '#/components/schemas/ApiErrorCode' }");
+    expect(spec).toContain("resultCode: { $ref: '#/components/schemas/CommandResultCode' }");
   });
 
   it('links to the Developer API page from each shared document footer', async () => {

@@ -585,7 +585,7 @@ await Promise.all(workers);</code></pre>
         </dl>
       </section>
 
-      <section>
+      <section id="errors">
         <h2>10. Responses and Errors</h2>
         <p>
           JSON responses include <code>X-Request-Id</code>. Keep that value when reporting a failure. Error responses
@@ -599,11 +599,166 @@ await Promise.all(workers);</code></pre>
     "retryable": true
   }
 }</code></pre>
-        <dl>
-          <div><dt>400 / 401 / 403</dt><dd>Invalid input, invalid key, missing scope, or a forbidden browser-origin request.</dd></div>
-          <div><dt>404 / 409</dt><dd>Unavailable resource, stale queue state, quota conflict, or a command that cannot run in the current room state.</dd></div>
-          <div><dt>400</dt><dd>The request shape is invalid, including an unsupported or oversized upload declaration.</dd></div>
-          <div><dt>429 / 503</dt><dd>Rate limited, temporarily disabled, or an unavailable backend. Retry only when the response says it is safe.</dd></div>
+        <p class="api-note">
+          Immediate non-2xx responses use the uppercase codes below. A command that was accepted with
+          <code>202</code> is different: poll it and inspect its lowercase <code>resultCode</code>. Never treat a
+          lowercase command result as an HTTP error code. Retry automatically only when <code>retryable</code> is
+          <code>true</code>, and honor <code>Retry-After</code> when it is present.
+        </p>
+        <p><strong>Immediate HTTP error codes</strong></p>
+        <dl aria-label="Developer API HTTP error codes">
+          <div data-api-error-code="API_DISABLED">
+            <dt><code>API_DISABLED</code> &middot; 503 &middot; retryable: true</dt>
+            <dd>The Developer API is disabled. Retry with backoff or contact the room operator if it persists.</dd>
+          </div>
+          <div data-api-error-code="API_NOT_CONFIGURED">
+            <dt><code>API_NOT_CONFIGURED</code> &middot; 503 &middot; retryable: true</dt>
+            <dd>The API deployment is temporarily incomplete or unavailable. Retry with backoff.</dd>
+          </div>
+          <div data-api-error-code="ASSET_CAPACITY_EXCEEDED">
+            <dt><code>ASSET_CAPACITY_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The room cannot register another stored media asset. Remove unused file-backed items before trying a new upload.</dd>
+          </div>
+          <div data-api-error-code="BACKEND_UNAVAILABLE">
+            <dt><code>BACKEND_UNAVAILABLE</code> &middot; 503 &middot; retryable: true</dt>
+            <dd>A required MUSIXQUARE backend did not respond. Retry with backoff and retain the request ID if the failure continues.</dd>
+          </div>
+          <div data-api-error-code="BROWSER_ORIGIN_FORBIDDEN">
+            <dt><code>BROWSER_ORIGIN_FORBIDDEN</code> &middot; 403 &middot; retryable: false</dt>
+            <dd>The request came directly from a browser origin. Move the API call and key to a trusted server.</dd>
+          </div>
+          <div data-api-error-code="COMMAND_CAPACITY_EXCEEDED">
+            <dt><code>COMMAND_CAPACITY_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>Too many playback commands are still active. Let existing commands settle, read current state, then submit a new intent with a new idempotency key.</dd>
+          </div>
+          <div data-api-error-code="COORDINATOR_INCOMPATIBLE">
+            <dt><code>COORDINATOR_INCOMPATIBLE</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The active room coordinator cannot execute this command version. Update or reload the active MUSIXQUARE client.</dd>
+          </div>
+          <div data-api-error-code="FORBIDDEN">
+            <dt><code>FORBIDDEN</code> &middot; 403 &middot; retryable: false</dt>
+            <dd>The key lacks a required scope. Use a key issued with the required permission; repeating the same request will not help.</dd>
+          </div>
+          <div data-api-error-code="IDEMPOTENCY_CONFLICT">
+            <dt><code>IDEMPOTENCY_CONFLICT</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The idempotency key was already used with a different request. Reconcile current state before creating a new key for a new intent.</dd>
+          </div>
+          <div data-api-error-code="IDEMPOTENCY_KEY_REQUIRED">
+            <dt><code>IDEMPOTENCY_KEY_REQUIRED</code> &middot; 400 &middot; retryable: false</dt>
+            <dd>A mutation is missing a valid <code>Idempotency-Key</code>. Add a unique key that satisfies the documented header format.</dd>
+          </div>
+          <div data-api-error-code="INTERNAL_RESPONSE_INVALID">
+            <dt><code>INTERNAL_RESPONSE_INVALID</code> &middot; 503 &middot; retryable: true</dt>
+            <dd>A backend returned a response that failed the public contract check. Retry with backoff and retain the request ID.</dd>
+          </div>
+          <div data-api-error-code="INVALID_REQUEST">
+            <dt><code>INVALID_REQUEST</code> &middot; 400 &middot; retryable: false</dt>
+            <dd>The request body, header, value, declared upload, or size is invalid. Correct it against the OpenAPI schema before resubmitting.</dd>
+          </div>
+          <div data-api-error-code="NOT_FOUND">
+            <dt><code>NOT_FOUND</code> &middot; 404 &middot; retryable: false</dt>
+            <dd>The route, room, queue item, command, asset, or upload is unavailable to this key. Re-read the relevant collection and identifiers.</dd>
+          </div>
+          <div data-api-error-code="NO_MEDIA">
+            <dt><code>NO_MEDIA</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>No playable item is currently selected. Choose a queue item in the app or submit <code>play_item</code> with a valid <code>queueItemId</code>.</dd>
+          </div>
+          <div data-api-error-code="PLAYLIST_CAPACITY_EXCEEDED">
+            <dt><code>PLAYLIST_CAPACITY_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The persistent playlist is full. Remove queue items before adding more.</dd>
+          </div>
+          <div data-api-error-code="PLAYLIST_REVISION_CONFLICT">
+            <dt><code>PLAYLIST_REVISION_CONFLICT</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The playlist changed after the supplied base revision. Read the queue again, recompute the mutation, and use a new idempotency key.</dd>
+          </div>
+          <div data-api-error-code="QUEUE_MODE_REVISION_CONFLICT">
+            <dt><code>QUEUE_MODE_REVISION_CONFLICT</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>Repeat or shuffle state changed after the supplied base revision. Read <code>/queue-mode</code> again before sending a new explicit update.</dd>
+          </div>
+          <div data-api-error-code="RATE_LIMITED">
+            <dt><code>RATE_LIMITED</code> &middot; 429 &middot; retryable: true</dt>
+            <dd>The key, room, or ingress limit was exceeded. Wait for the response's <code>Retry-After</code> duration before retrying.</dd>
+          </div>
+          <div data-api-error-code="RESERVATION_CAPACITY_EXCEEDED">
+            <dt><code>RESERVATION_CAPACITY_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>This key has too many unfinished upload reservations. Complete outstanding uploads or wait for abandoned reservations to expire.</dd>
+          </div>
+          <div data-api-error-code="ROOM_QUOTA_EXCEEDED">
+            <dt><code>ROOM_QUOTA_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The upload would exceed the PRO room storage quota. Remove stored file items before reserving another upload.</dd>
+          </div>
+          <div data-api-error-code="ROOM_SLEEPING">
+            <dt><code>ROOM_SLEEPING</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>No active coordinator can execute playback or effect commands. Have a participant open the room first; state reads and queue-mode updates remain available.</dd>
+          </div>
+          <div data-api-error-code="ROOM_STATE_CAPACITY_EXCEEDED">
+            <dt><code>ROOM_STATE_CAPACITY_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The bounded persistent room record cannot accept this change. Reduce playlist or stored state before submitting a new mutation.</dd>
+          </div>
+          <div data-api-error-code="UNAUTHORIZED">
+            <dt><code>UNAUTHORIZED</code> &middot; 401 &middot; retryable: false</dt>
+            <dd>The Bearer key is missing, malformed, expired, revoked, or unknown. Obtain a valid room-bound key.</dd>
+          </div>
+          <div data-api-error-code="UPLOAD_INCOMPLETE">
+            <dt><code>UPLOAD_INCOMPLETE</code> &middot; 409 &middot; retryable: true</dt>
+            <dd>The signed direct upload is not visible as complete yet. Honor <code>Retry-After</code>, then retry completion for the same reservation.</dd>
+          </div>
+          <div data-api-error-code="UPLOAD_MISMATCH">
+            <dt><code>UPLOAD_MISMATCH</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The uploaded object does not match its reservation. Verify size, digest, and upload target, then create a fresh reservation if needed.</dd>
+          </div>
+        </dl>
+        <p><strong>Accepted command result codes</strong></p>
+        <p>
+          A successful <code>POST /commands</code> returns <code>202</code> and a command ID. Poll that command until it
+          is terminal. Before submitting another intent after any non-success result, read canonical playback and
+          queue state first.
+        </p>
+        <dl aria-label="Developer API asynchronous command result codes">
+          <div data-command-result-code="applied">
+            <dt><code>applied</code></dt>
+            <dd>The coordinator executed the requested intent successfully.</dd>
+          </div>
+          <div data-command-result-code="already_applied">
+            <dt><code>already_applied</code></dt>
+            <dd>The canonical room state already matched the requested intent; treat this as success.</dd>
+          </div>
+          <div data-command-result-code="busy">
+            <dt><code>busy</code></dt>
+            <dd>The coordinator was handling an incompatible transition. Read current state before deciding whether a new command is still needed.</dd>
+          </div>
+          <div data-command-result-code="no_media">
+            <dt><code>no_media</code></dt>
+            <dd>The selected media was no longer available when the coordinator executed the accepted command.</dd>
+          </div>
+          <div data-command-result-code="stale_queue">
+            <dt><code>stale_queue</code></dt>
+            <dd>The current queue item changed between command acceptance and execution. Read the queue and playback state again.</dd>
+          </div>
+          <div data-command-result-code="unsupported_mode">
+            <dt><code>unsupported_mode</code></dt>
+            <dd>The requested operation is not supported by the current media mode.</dd>
+          </div>
+          <div data-command-result-code="expired">
+            <dt><code>expired</code></dt>
+            <dd>The command did not reach a terminal coordinator acknowledgement before its deadline.</dd>
+          </div>
+          <div data-command-result-code="execution_failed">
+            <dt><code>execution_failed</code></dt>
+            <dd>The coordinator received the command but could not complete the media operation.</dd>
+          </div>
+          <div data-command-result-code="coordinator_changed">
+            <dt><code>coordinator_changed</code></dt>
+            <dd>A coordinator handoff fenced the in-flight command. Read current state before creating a new intent.</dd>
+          </div>
+          <div data-command-result-code="coordinator_incompatible">
+            <dt><code>coordinator_incompatible</code></dt>
+            <dd>The coordinator that received the command did not support its control version.</dd>
+          </div>
+          <div data-command-result-code="coordinator_unavailable">
+            <dt><code>coordinator_unavailable</code></dt>
+            <dd>No coordinator remained available to execute the accepted command.</dd>
+          </div>
         </dl>
       </section>
 

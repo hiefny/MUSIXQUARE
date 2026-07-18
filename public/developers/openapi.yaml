@@ -633,19 +633,37 @@ components:
         createdAtMs: { type: integer, minimum: 0 }
         expiresAtMs: { type: integer, minimum: 0 }
         completedAtMs: { type: integer, minimum: 0 }
-        resultCode:
-          enum:
-            - applied
-            - already_applied
-            - busy
-            - no_media
-            - stale_queue
-            - unsupported_mode
-            - expired
-            - execution_failed
-            - coordinator_changed
-            - coordinator_incompatible
-            - coordinator_unavailable
+        resultCode: { $ref: '#/components/schemas/CommandResultCode' }
+    CommandResultCode:
+      type: string
+      description: |
+        Terminal result for a command that was already accepted with HTTP 202. These lowercase values are not
+        immediate HTTP error codes. applied and already_applied are successful; all other values require the client
+        to read canonical playback and queue state before deciding whether to submit a new intent.
+      enum:
+        - applied
+        - already_applied
+        - busy
+        - no_media
+        - stale_queue
+        - unsupported_mode
+        - expired
+        - execution_failed
+        - coordinator_changed
+        - coordinator_incompatible
+        - coordinator_unavailable
+      x-result-catalog:
+        applied: { terminalStatus: applied, successful: true }
+        already_applied: { terminalStatus: applied, successful: true }
+        busy: { terminalStatus: rejected, successful: false }
+        no_media: { terminalStatus: rejected, successful: false }
+        stale_queue: { terminalStatus: rejected, successful: false }
+        unsupported_mode: { terminalStatus: rejected, successful: false }
+        expired: { terminalStatus: expired, successful: false }
+        execution_failed: { terminalStatus: rejected, successful: false }
+        coordinator_changed: { terminalStatus: rejected, successful: false }
+        coordinator_incompatible: { terminalStatus: rejected, successful: false }
+        coordinator_unavailable: { terminalStatus: rejected, successful: false }
     QueueItemId:
       type: string
       format: uuid
@@ -871,6 +889,64 @@ components:
         queueItem: { $ref: '#/components/schemas/QueueItem' }
         playlistRevision: { type: integer, minimum: 0 }
         quota: { $ref: '#/components/schemas/Quota' }
+    ApiErrorCode:
+      type: string
+      description: |
+        Stable code returned inside error.code for an immediate non-2xx HTTP response. The associated HTTP status
+        and retryable flag are part of the public contract below. Honor Retry-After for RATE_LIMITED and
+        UPLOAD_INCOMPLETE. Full remediation guidance is published at https://musixquare.com/developers#errors.
+      enum:
+        - API_DISABLED
+        - API_NOT_CONFIGURED
+        - ASSET_CAPACITY_EXCEEDED
+        - BACKEND_UNAVAILABLE
+        - BROWSER_ORIGIN_FORBIDDEN
+        - COMMAND_CAPACITY_EXCEEDED
+        - COORDINATOR_INCOMPATIBLE
+        - FORBIDDEN
+        - IDEMPOTENCY_CONFLICT
+        - IDEMPOTENCY_KEY_REQUIRED
+        - INTERNAL_RESPONSE_INVALID
+        - INVALID_REQUEST
+        - NOT_FOUND
+        - NO_MEDIA
+        - PLAYLIST_CAPACITY_EXCEEDED
+        - PLAYLIST_REVISION_CONFLICT
+        - QUEUE_MODE_REVISION_CONFLICT
+        - RATE_LIMITED
+        - RESERVATION_CAPACITY_EXCEEDED
+        - ROOM_QUOTA_EXCEEDED
+        - ROOM_SLEEPING
+        - ROOM_STATE_CAPACITY_EXCEEDED
+        - UNAUTHORIZED
+        - UPLOAD_INCOMPLETE
+        - UPLOAD_MISMATCH
+      x-error-catalog:
+        API_DISABLED: { httpStatus: 503, retryable: true }
+        API_NOT_CONFIGURED: { httpStatus: 503, retryable: true }
+        ASSET_CAPACITY_EXCEEDED: { httpStatus: 409, retryable: false }
+        BACKEND_UNAVAILABLE: { httpStatus: 503, retryable: true }
+        BROWSER_ORIGIN_FORBIDDEN: { httpStatus: 403, retryable: false }
+        COMMAND_CAPACITY_EXCEEDED: { httpStatus: 409, retryable: false }
+        COORDINATOR_INCOMPATIBLE: { httpStatus: 409, retryable: false }
+        FORBIDDEN: { httpStatus: 403, retryable: false }
+        IDEMPOTENCY_CONFLICT: { httpStatus: 409, retryable: false }
+        IDEMPOTENCY_KEY_REQUIRED: { httpStatus: 400, retryable: false }
+        INTERNAL_RESPONSE_INVALID: { httpStatus: 503, retryable: true }
+        INVALID_REQUEST: { httpStatus: 400, retryable: false }
+        NOT_FOUND: { httpStatus: 404, retryable: false }
+        NO_MEDIA: { httpStatus: 409, retryable: false }
+        PLAYLIST_CAPACITY_EXCEEDED: { httpStatus: 409, retryable: false }
+        PLAYLIST_REVISION_CONFLICT: { httpStatus: 409, retryable: false }
+        QUEUE_MODE_REVISION_CONFLICT: { httpStatus: 409, retryable: false }
+        RATE_LIMITED: { httpStatus: 429, retryable: true }
+        RESERVATION_CAPACITY_EXCEEDED: { httpStatus: 409, retryable: false }
+        ROOM_QUOTA_EXCEEDED: { httpStatus: 409, retryable: false }
+        ROOM_SLEEPING: { httpStatus: 409, retryable: false }
+        ROOM_STATE_CAPACITY_EXCEEDED: { httpStatus: 409, retryable: false }
+        UNAUTHORIZED: { httpStatus: 401, retryable: false }
+        UPLOAD_INCOMPLETE: { httpStatus: 409, retryable: true }
+        UPLOAD_MISMATCH: { httpStatus: 409, retryable: false }
     Error:
       type: object
       additionalProperties: false
@@ -881,7 +957,7 @@ components:
           additionalProperties: false
           required: [code, message, requestId, retryable]
           properties:
-            code: { type: string }
+            code: { $ref: '#/components/schemas/ApiErrorCode' }
             message: { type: string }
             requestId: { type: string }
             retryable: { type: boolean }

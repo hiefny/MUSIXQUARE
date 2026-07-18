@@ -599,10 +599,18 @@ export interface ProtocolMap {
     isManual?: boolean;
     title?: string;
   };
-  'youtube-zero-start-capability': {
-    version: 1;
-    platform: YouTubeZeroStartPlatform;
-  };
+  'youtube-zero-start-capability':
+    | {
+        /** Legacy support-only advertisement. Never implies runtime readiness. */
+        version: 1;
+        platform: YouTubeZeroStartPlatform;
+      }
+    | {
+        /** Runtime-aware advertisement used by the bounded zero-start barrier. */
+        version: 2;
+        platform: YouTubeZeroStartPlatform;
+        ready: boolean;
+      };
   'youtube-zero-start-prepare': {
     version: 1;
     runId: string;
@@ -1203,6 +1211,7 @@ interface BaseEventMap {
    * for this event before starting rendezvous sync on a fresh player.
    */
   'youtube:player-ready': [];
+  'youtube:zero-start-readiness-changed': [];
   'youtube:broadcast-sync': [];
   'youtube:apply-manual-sync': [];
   'youtube:set-coordinator-manual-offset': [requestedOffsetSeconds: number];

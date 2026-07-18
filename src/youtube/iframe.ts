@@ -801,6 +801,7 @@ function createYouTubePlayer(
     if (prime) {
       setYtPriming(false);
       setYtPrimed(true);
+      bus.emit('youtube:zero-start-readiness-changed');
       setYtLoadInProgress(false);
       return;
     }
@@ -1215,6 +1216,7 @@ function onYouTubePlayerError(event: { data: number }): void {
     setYtPriming(false);
     setYtPrimeBouncePending(false);
     setYtPrimed(false);
+    bus.emit('youtube:zero-start-readiness-changed');
     clearManagedTimer('yt-prime-bounce-timeout');
     setYtLoadInProgress(false);
     return;
@@ -1329,6 +1331,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   if (isYtPrimeBouncePending() && state === YT.PlayerState.PLAYING) {
     setYtPrimeBouncePending(false);
     setYtPrimed(true);
+    bus.emit('youtube:zero-start-readiness-changed');
     clearManagedTimer('yt-prime-bounce-timeout');
     setYtAutoplayIntent(false);
     try {
@@ -1380,7 +1383,10 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // A successful PLAYING transition proves that this persistent iOS iframe
     // has crossed WebKit's user-gesture gate. Record it for future mode and
     // room transitions instead of relying on stopYouTubeMode to guess.
-    if (IS_IOS) setYtPrimed(true);
+    if (IS_IOS && !isYtPrimed()) {
+      setYtPrimed(true);
+      bus.emit('youtube:zero-start-readiness-changed');
+    }
 
     // Host: If playlist sub-item data is still missing, attempt immediate snapshot.
     // This allows immediate Next/Prev navigation and highlights as soon as playback starts.

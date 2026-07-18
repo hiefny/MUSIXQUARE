@@ -98,6 +98,7 @@ interface YouTubeZeroStartBeginInput {
 
 type YouTubeZeroStartPhase =
   | 'idle'
+  | 'waiting-ready'
   | 'muting'
   | 'warming'
   | 'settling'
@@ -262,8 +263,9 @@ type HostBarrier = {
 };
 
 type CapabilityRecord = {
-  version: 1;
+  version: 1 | 2;
   platform: YouTubeZeroStartPlatform;
+  ready: boolean;
 };
 
 const defaultScheduler: YouTubeZeroStartScheduler = {
@@ -339,6 +341,11 @@ class YouTubeZeroStartController {
   #sequence = 0;
   #lastGuestSequence = 0;
   #lastBusy = false;
+  #lastAdvertisedCapability: {
+    hostPeerId: string;
+    platform: YouTubeZeroStartPlatform;
+    ready: boolean;
+  } | null = null;
 
   constructor(dependencies: YouTubeZeroStartDependencies) {
     this.#deps = dependencies;
@@ -347,18 +354,47 @@ class YouTubeZeroStartController {
 
   advertiseCapability(): boolean {
     if (this.#deps.getRole() !== 'guest') return false;
-    return this.#deps.sendToHost({
+    const hostPeerId = this.#deps.getHostPeerId();
+    if (!hostPeerId) return false;
+    const platform = this.#deps.getLocalPlatform();
+    const ready =
+      this.#deps.isPlayerReady() &&
+      this.#deps.isAudioUnlocked() &&
+      this.#deps.isClockCalibrated() &&
+      this.#deps.getPlayer() !== null;
+    const previous = this.#lastAdvertisedCapability;
+    if (
+      previous?.hostPeerId === hostPeerId &&
+      previous.platform === platform &&
+      previous.ready === ready
+    ) {
+      return true;
+    }
+    const sent = this.#deps.sendToHost({
       type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
-      version: 1,
-      platform: this.#deps.getLocalPlatform(),
+      version: 2,
+      platform,
+      ready,
     });
+    if (sent) this.#lastAdvertisedCapability = { hostPeerId, platform, ready };
+    return sent;
   }
 
   handleCapability(senderPeerId: string, message: YouTubeZeroStartCapabilityMessage): boolean {
-    if (this.#deps.getRole() !== 'host' || message.version !== 1) return false;
+    if (this.#deps.getRole() !== 'host') return false;
     if (!this.#deps.getLiveGuestPeerIds().includes(senderPeerId)) return false;
-    this.#capabilities.set(senderPeerId, { version: 1, platform: message.platform });
-    this.#debug('capability', { senderPeerId, platform: message.platform });
+    const ready = message.version === 2 ? message.ready : false;
+    this.#capabilities.set(senderPeerId, {
+      version: message.version,
+      platform: message.platform,
+      ready,
+    });
+    this.#debug('capability', {
+      senderPeerId,
+      version: message.version,
+      platform: message.platform,
+      ready,
+    });
     return true;
   }
 
@@ -367,7 +403,15 @@ class YouTubeZeroStartController {
     if (!this.#deps.isPlayerReady() || !this.#deps.isAudioUnlocked()) return false;
     const liveGuests = this.#uniqueLiveGuestIds();
     if (liveGuests.length === 0 || liveGuests.length > 99) return false;
-    return liveGuests.every((peerId) => this.#capabilities.get(peerId)?.version === 1);
+    return liveGuests.every((peerId) => {
+      const capability = this.#capabilities.get(peerId);
+      // v2 proves that the guest understands the runtime-readiness contract
+      // and can hold an early PREPARE while its cold iframe/clock settles.
+      // `ready` remains useful for diagnostics and stale-state downgrades, but
+      // the bounded guest wait lets the very first transition succeed instead
+      // of forcing one legacy warm-up cycle first.
+      return capability?.version === 2;
+    });
   }
 
   beginHostTransition(input: YouTubeZeroStartBeginInput): boolean {
@@ -462,10 +506,18 @@ class YouTubeZeroStartController {
       videoId: message.videoId,
       subIndex: message.subIndex,
     });
-    if (!this.#deps.isPlayerReady() || !this.#deps.isAudioUnlocked() || !this.#deps.getPlayer()) {
-      this.#localRun = this.#createFailedRun(message);
-      this.#deps.onError?.('player-unavailable');
+    if (!this.#isPrepareRuntimeReady()) {
+      const run = this.#createFailedRun(message);
+      run.phase = 'waiting-ready';
+      this.#localRun = run;
       this.#emitState();
+      this.#debug('waiting-ready', {
+        runId: message.runId,
+        playerReady: this.#deps.isPlayerReady(),
+        audioUnlocked: this.#deps.isAudioUnlocked(),
+        clockCalibrated: this.#deps.isClockCalibrated(),
+      });
+      this.#later(() => this.#waitForRuntimeReady(run, message), 0);
       return true;
     }
     return this.#beginLocalPrepare(message);
@@ -725,6 +777,7 @@ class YouTubeZeroStartController {
     this.cancel('authority-changed', false);
     this.#capabilities.clear();
     this.#learnedTimelineLeads.clear();
+    this.#lastAdvertisedCapability = null;
     this.#sequence = 0;
     this.#lastGuestSequence = 0;
   }
@@ -759,7 +812,10 @@ class YouTubeZeroStartController {
     };
   }
 
-  #beginLocalPrepare(message: YouTubeZeroStartPrepareMessage): boolean {
+  #beginLocalPrepare(
+    message: YouTubeZeroStartPrepareMessage,
+    startedPrepareAtLocal = this.#now(),
+  ): boolean {
     const player = this.#deps.getPlayer();
     if (!player || !this.#deps.isPlayerReady() || !this.#deps.isAudioUnlocked()) return false;
 
@@ -790,7 +846,7 @@ class YouTubeZeroStartController {
       decisionAtHost: message.decisionAtHost,
       startDeadlineAtHost: message.startDeadlineAtHost,
       hostPlatform: message.hostPlatform,
-      startedPrepareAtLocal: this.#now(),
+      startedPrepareAtLocal,
       phase: 'muting',
       stableChecks: 0,
       settleAttempts: 0,
@@ -874,6 +930,25 @@ class YouTubeZeroStartController {
       originalVolume,
       calibrationEligible: false,
     };
+  }
+
+  #waitForRuntimeReady(
+    run: LocalRun,
+    message: YouTubeZeroStartPrepareMessage,
+  ): void {
+    if (!this.#isCurrentRun(run) || run.phase !== 'waiting-ready') return;
+    if (this.#isPrepareRuntimeReady()) {
+      const startedPrepareAtLocal = run.startedPrepareAtLocal;
+      if (!this.#beginLocalPrepare(message, startedPrepareAtLocal)) {
+        this.#failLocalPrepare(run, 'player-unavailable');
+      }
+      return;
+    }
+    if (this.#now() - run.startedPrepareAtLocal >= YOUTUBE_ZERO_START_TIMING.guestTotalWaitMs) {
+      this.#failLocalPrepare(run, 'player-unavailable');
+      return;
+    }
+    this.#later(() => this.#waitForRuntimeReady(run, message), 50);
   }
 
   #waitForHardMute(run: LocalRun, attempt: number): void {
@@ -1488,6 +1563,14 @@ class YouTubeZeroStartController {
     } catch {
       return '';
     }
+  }
+
+  #isPrepareRuntimeReady(): boolean {
+    return (
+      this.#deps.isPlayerReady() &&
+      this.#deps.isAudioUnlocked() &&
+      this.#deps.getPlayer() !== null
+    );
   }
 
   #isKnownPlayerState(state: number): boolean {

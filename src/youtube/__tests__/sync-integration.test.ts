@@ -262,8 +262,9 @@ function advertiseZeroStartCapability(conn: ReturnType<typeof installLiveZeroSta
   handler(
     {
       type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
-      version: 1,
+      version: 2,
       platform: 'other',
+      ready: true,
     },
     conn,
   );
@@ -1020,7 +1021,7 @@ describe('YouTube Sync — Regression Integration', () => {
               runId: 'fallback-successor-run',
               sequence: 2,
               queueItemId: QUEUE_ITEM_ID,
-              videoId: ZERO_START_VIDEO_ID,
+              videoId: 'dQw4w9WgXcQ',
               subIndex: 0,
               prepareAtHost: Date.now(),
               decisionAtHost: Date.now() + 2_300,
@@ -1055,11 +1056,18 @@ describe('YouTube Sync — Regression Integration', () => {
         });
         vi.advanceTimersByTime(10_000);
 
-        expect(
-          recoveredPlayer.__log.filter(
-            (call) => call.op === 'loadVideoById' || call.op === 'playVideo',
-          ),
-        ).toHaveLength(0);
+        const mediaCalls = recoveredPlayer.__log.filter(
+          (call) => call.op === 'loadVideoById' || call.op === 'playVideo',
+        );
+        if (invalidation === 'new PREPARE') {
+          // The stale fallback stays revoked, while the newer cold PREPARE is
+          // allowed to resume against the recovered player.
+          expect(mediaCalls).toEqual([
+            expect.objectContaining({ op: 'loadVideoById', args: ['dQw4w9WgXcQ', 0] }),
+          ]);
+        } else {
+          expect(mediaCalls).toHaveLength(0);
+        }
       },
     );
   });

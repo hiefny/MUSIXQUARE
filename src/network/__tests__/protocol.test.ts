@@ -302,6 +302,12 @@ describe('YouTube zero-start protocol validation', () => {
         platform: 'android',
       },
       {
+        type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+        version: 2,
+        platform: 'ios',
+        ready: true,
+      },
+      {
         type: MSG.YOUTUBE_ZERO_START_PREPARE,
         ...identity,
         videoId: YOUTUBE_VIDEO_ID,
@@ -399,8 +405,27 @@ describe('YouTube zero-start protocol validation', () => {
     };
     const malformedFrames = [
       { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 2, platform: 'android' },
+      {
+        type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+        version: 2,
+        platform: 'android',
+        ready: 'yes',
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+        version: 3,
+        platform: 'android',
+        ready: true,
+      },
       { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 1, platform: 'windows' },
       { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 1, platform: 'ios', extra: true },
+      {
+        type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+        version: 2,
+        platform: 'ios',
+        ready: true,
+        extra: true,
+      },
       { ...basePrepare, runId: '../bad-run' },
       { ...basePrepare, sequence: 0 },
       { ...basePrepare, videoId: 'too-short' },

@@ -102,6 +102,19 @@ afterEach(() => {
 });
 
 describe('joinSession reconnect racing', () => {
+  it('requests shared-clock calibration immediately when the active host connection opens', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const immediatePing = vi.fn();
+    bus.on('sync:request-immediate-ping', immediatePing);
+
+    joinSession('HOST01');
+    conns[0].fire('open');
+
+    expect(mocks.startWorkerTimer).toHaveBeenCalledWith('sync', 1000);
+    expect(immediatePing).toHaveBeenCalledOnce();
+  });
+
   it.each(['close', 'error'] as const)(
     'turns a PRO host-connection %s into one topology recovery without a network error',
     (event) => {

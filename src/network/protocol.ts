@@ -495,8 +495,10 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isFiniteNumber(d.time) &&
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   [MSG.YOUTUBE_ZERO_START_CAPABILITY]: (d) =>
-    hasExactKeys(d, ['type', 'version', 'platform']) &&
-    d.version === 1 &&
+    ((d.version === 1 && hasExactKeys(d, ['type', 'version', 'platform'])) ||
+      (d.version === 2 &&
+        hasExactKeys(d, ['type', 'version', 'platform', 'ready']) &&
+        typeof d.ready === 'boolean')) &&
     isYouTubeZeroStartPlatform(d.platform),
   [MSG.YOUTUBE_ZERO_START_PREPARE]: (d) =>
     hasExactKeys(d, [

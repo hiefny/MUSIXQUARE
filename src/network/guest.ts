@@ -367,6 +367,10 @@ export function joinSession(
 
     // Start unified sync timer (replaces separate heartbeat + ping timers)
     startWorkerTimer('sync', 1000);
+    // Calibrate the shared clock immediately instead of making a freshly
+    // joined guest wait for the first 1s worker tick. The runtime-aware
+    // YouTube zero-start READY bit stays false until this first pong lands.
+    bus.emit('sync:request-immediate-ping');
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).

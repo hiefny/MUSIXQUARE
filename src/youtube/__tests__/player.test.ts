@@ -148,6 +148,87 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('zero-start runtime capability', () => {
+    it('upgrades the first guest advertisement only after player and clock readiness converge', async () => {
+      const stateMod = await import('../_state.ts');
+      const { initYouTube } = await import('../player.ts');
+      const { safeSend } = await import('../../network/peer.ts');
+      const { registerPing, processSyncPong, resetClockState } = await import(
+        '../../network/shared-clock.ts'
+      );
+      const safeSendMock = vi.mocked(safeSend);
+      safeSendMock.mockReturnValue(true);
+      resetClockState();
+      setState('network.appRole', 'guest');
+      setState('network.myId', 'guest-runtime-ready');
+      const hostConnection = {
+        peer: 'host-runtime-ready',
+        open: true,
+      } as DataConnection;
+      setState('network.hostConn', hostConnection);
+
+      initYouTube();
+      expect(safeSendMock).toHaveBeenCalledWith(
+        hostConnection,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+          version: 2,
+          ready: false,
+        }),
+      );
+      safeSendMock.mockClear();
+
+      let muted = false;
+      let volume = 100;
+      stateMod.setYouTubePlayer({
+        loadVideoById: vi.fn(),
+        loadPlaylist: vi.fn(),
+        cuePlaylist: vi.fn(),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        stopVideo: vi.fn(),
+        destroy: vi.fn(),
+        seekTo: vi.fn(),
+        getCurrentTime: vi.fn(() => 0),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 2),
+        getPlaylistIndex: vi.fn(() => 0),
+        getVideoData: vi.fn(() => ({ video_id: 'M7lc1UVf-VE' })),
+        getPlaylist: vi.fn(() => []),
+        setVolume: vi.fn((next: number) => {
+          volume = next;
+        }),
+        getVolume: vi.fn(() => volume),
+        mute: vi.fn(() => {
+          muted = true;
+        }),
+        unMute: vi.fn(() => {
+          muted = false;
+        }),
+        isMuted: vi.fn(() => muted),
+        getVideoLoadedFraction: vi.fn(() => 1),
+      });
+      bus.emit('youtube:player-ready');
+      expect(safeSendMock).not.toHaveBeenCalled();
+
+      registerPing(1);
+      expect(processSyncPong(1, Date.now())).not.toBeNull();
+      bus.emit('sync:latency-update', 0);
+
+      expect(safeSendMock).toHaveBeenCalledOnce();
+      expect(safeSendMock).toHaveBeenCalledWith(
+        hostConnection,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+          version: 2,
+          platform: 'other',
+          ready: true,
+        }),
+      );
+      resetClockState();
+    });
+  });
+
   describe('local media-session toggle', () => {
     it('marks local pause and clears it through rendezvous resume', async () => {
       const yt = {

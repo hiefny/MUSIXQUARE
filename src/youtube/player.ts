@@ -711,6 +711,11 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   const container = document.getElementById('youtube-player-container');
   if (container && !retainPlayer) container.replaceChildren();
 
+  // A non-iOS teardown destroys the runtime that the latest capability
+  // described. Publish the downgrade immediately so the next transition's
+  // bounded wait starts from an accurate readiness snapshot.
+  advertiseYouTubeZeroStartCapability();
+
   // Remove iOS sync overlay if present (prevents orphaned overlay on mode exit)
   const iosOverlay = document.getElementById('youtube-ios-sync-overlay');
   if (iosOverlay) iosOverlay.remove();
@@ -1217,6 +1222,12 @@ export function initYouTube(): void {
       advertiseYouTubeZeroStartCapability();
     }
   };
+
+  const advertiseZeroStartRuntimeReadiness = (): void => {
+    const hostConnection = getState('network.hostConn');
+    if (getYouTubeZeroStartRole() !== 'guest' || !hostConnection?.open) return;
+    advertiseYouTubeZeroStartCapability();
+  };
   zeroStartAuthoritySignature = getZeroStartAuthoritySignature();
 
   function requestStandardOperatorYouTubeAdd(sourceUrl: string, title: string): boolean {
@@ -1452,6 +1463,9 @@ export function initYouTube(): void {
   bus.on('state:room.context', reconcileZeroStartAuthority);
   bus.on('state:network.appRole', reconcileZeroStartAuthority);
   bus.on('state:network.hostConn', reconcileZeroStartAuthority);
+  bus.on('youtube:player-ready', advertiseZeroStartRuntimeReadiness);
+  bus.on('youtube:zero-start-readiness-changed', advertiseZeroStartRuntimeReadiness);
+  bus.on('sync:latency-update', advertiseZeroStartRuntimeReadiness);
   bus.on('network:peer-connection-replaced', (peerId) => {
     const snapshot = getYouTubeZeroStartSnapshot();
     const target =

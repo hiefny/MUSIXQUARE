@@ -526,6 +526,37 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
 });
 
 describe('persistent prime transition supersession', () => {
+  it('publishes runtime readiness when the iOS gesture bounce reaches PLAYING', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const stateMod = await import('../_state.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const readinessChanged = vi.fn();
+    bus.on('youtube:zero-start-readiness-changed', readinessChanged);
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Prime target',
+        videoId: 'realVideo01',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('realVideo01', null, false, 0);
+    stateMod.setYtPrimed(false);
+    stateMod.setYtPrimeBouncePending(true);
+
+    handle.fireStateChange(1);
+
+    expect(stateMod.isYtPrimed()).toBe(true);
+    expect(stateMod.isYtPrimeBouncePending()).toBe(false);
+    expect(readinessChanged).toHaveBeenCalledOnce();
+    expect(player.pauseVideo).toHaveBeenCalled();
+  });
+
   it('does not project a late silent-prime PLAYING event into the real room track', async () => {
     const player = createMockYtPlayer();
     const handle = installYtNamespace(player);

@@ -151,7 +151,7 @@ describe('YouTubeZeroStartController', () => {
     vi.useRealTimers();
   });
 
-  it('requires at least one live guest and v1 capability from every live guest', () => {
+  it('requires runtime-aware v2 capability from every live guest', () => {
     const player = makeFakeYtPlayer();
     let liveGuests: string[] = [];
     const controller = new YouTubeZeroStartController({
@@ -178,7 +178,131 @@ describe('YouTubeZeroStartController', () => {
       version: 1,
       platform: 'ios',
     });
+    expect(controller.canBeginHostTransition()).toBe(false);
+    controller.handleCapability(GUEST_ID, {
+      type: 'youtube-zero-start-capability',
+      version: 2,
+      platform: 'ios',
+      ready: false,
+    });
     expect(controller.canBeginHostTransition()).toBe(true);
+    controller.handleCapability(GUEST_ID, {
+      type: 'youtube-zero-start-capability',
+      version: 2,
+      platform: 'ios',
+      ready: true,
+    });
+    expect(controller.canBeginHostTransition()).toBe(true);
+  });
+
+  it('arms the first PREPARE when a cold iOS guest becomes ready inside the bounded wait', () => {
+    const player = makeFakeYtPlayer({ __autoPlayOnLoad: true, __muted: false, __volume: 71 });
+    const outbound: YouTubeZeroStartWireMessage[] = [];
+    let runtimeReady = false;
+    let controller!: YouTubeZeroStartController;
+    controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => (runtimeReady ? (player as YouTubeZeroStartPlayer) : null),
+      isPlayerReady: () => runtimeReady,
+      isAudioUnlocked: () => runtimeReady,
+      isClockCalibrated: () => runtimeReady,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'ios',
+      sendToPeer: () => false,
+      sendToHost: (message) => {
+        outbound.push(message);
+        return true;
+      },
+    });
+    player.__onStateChange = ({ data }) => controller.handlePlayerStateChange(data);
+    const prepareAtHost = Date.now();
+
+    expect(
+      controller.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'cold-first-run',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+        prepareAtHost,
+        decisionAtHost: prepareAtHost + 2_300,
+        startDeadlineAtHost: prepareAtHost + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({ phase: 'waiting-ready' });
+
+    vi.advanceTimersByTime(350);
+    expect(outbound).toHaveLength(0);
+    runtimeReady = true;
+    vi.advanceTimersByTime(750);
+
+    expect(outbound.find((message) => message.type === 'youtube-zero-start-armed')).toMatchObject({
+      runId: 'cold-first-run',
+      audioUnlocked: true,
+      platform: 'ios',
+    });
+    expect(controller.getSnapshot()).toMatchObject({ phase: 'armed' });
+    expect(player.isMuted()).toBe(false);
+    expect(player.getVolume()).toBe(71);
+  });
+
+  it('advertises and deduplicates runtime readiness across cold and ready states', () => {
+    const player = makeFakeYtPlayer();
+    const outbound: YouTubeZeroStartWireMessage[] = [];
+    let playerReady = false;
+    let audioUnlocked = false;
+    let clockCalibrated = false;
+    const controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => (playerReady ? (player as YouTubeZeroStartPlayer) : null),
+      isPlayerReady: () => playerReady,
+      isAudioUnlocked: () => audioUnlocked,
+      isClockCalibrated: () => clockCalibrated,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'ios',
+      sendToPeer: () => false,
+      sendToHost: (message) => {
+        outbound.push(message);
+        return true;
+      },
+    });
+
+    expect(controller.advertiseCapability()).toBe(true);
+    expect(outbound).toEqual([
+      {
+        type: 'youtube-zero-start-capability',
+        version: 2,
+        platform: 'ios',
+        ready: false,
+      },
+    ]);
+
+    playerReady = true;
+    audioUnlocked = true;
+    expect(controller.advertiseCapability()).toBe(true);
+    expect(outbound).toHaveLength(1);
+
+    clockCalibrated = true;
+    expect(controller.advertiseCapability()).toBe(true);
+    expect(controller.advertiseCapability()).toBe(true);
+    expect(outbound.at(-1)).toMatchObject({ version: 2, ready: true });
+    expect(outbound).toHaveLength(2);
+
+    playerReady = false;
+    expect(controller.advertiseCapability()).toBe(true);
+    expect(outbound.at(-1)).toMatchObject({ version: 2, ready: false });
+    expect(outbound).toHaveLength(3);
   });
 
   it('hard-mutes before load, restores intentional audio state, and releases an all-ready cohort together', () => {
@@ -772,8 +896,9 @@ describe('YouTubeZeroStartController', () => {
     });
     controller.handleCapability(GUEST_ID, {
       type: 'youtube-zero-start-capability',
-      version: 1,
+      version: 2,
       platform: 'other',
+      ready: true,
     });
     const beganAt = Date.now();
     expect(
@@ -830,7 +955,7 @@ describe('YouTubeZeroStartController', () => {
     ).toBe(true);
     expect(controller.getSnapshot()).toMatchObject({
       runId: 'missing-player-run',
-      phase: 'error',
+      phase: 'waiting-ready',
     });
 
     expect(
@@ -849,7 +974,7 @@ describe('YouTubeZeroStartController', () => {
     expect(fallback).toHaveBeenCalledWith(
       expect.objectContaining({
         runId: 'missing-player-run',
-        reason: 'prepare-failed',
+        reason: 'cohort-excluded',
         startAtHost: prepareAtHost + 3_000,
       }),
     );

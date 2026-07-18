@@ -45,6 +45,6 @@ jobs:
       - name: Build and verify production bundle
         run: npm run build:checked
 
-      # E2E suite lives in its own workflow (e2e.yml, nightly/manual).
+      # E2E suite lives in its own manually dispatched workflow (e2e.yml).
       # The serial suite is intentionally long-running; keep fast CI gating
       # to typecheck + lint + unit tests + build, and run E2E on demand.

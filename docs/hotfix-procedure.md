@@ -44,9 +44,10 @@ or make the database briefly unavailable because of an unnecessary schema
 import.
 
 The complete serial Playwright suite is intentionally not a production deploy
-gate. It runs nightly at 03:00 KST and can also be started manually from the
-`Full E2E` workflow. Review failures there as regression signals, while using
-the release smoke plus real-device verification for the production decision.
+gate or a scheduled job. Start it manually from the `Full E2E` workflow when a
+change warrants the extra coverage. Review failures there as regression
+signals, while using the release smoke plus real-device verification for the
+production decision.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its Cloudflare
@@ -65,6 +66,12 @@ if a prior command succeeded despite a lost response, seeing the previous
 version already restored ends the retry without issuing a duplicate command.
 Retry attempts remain in the Actions log, and the final rollback/conflict report
 is retained in the deployment artifact and Actions summary.
+
+When a release includes a Developer API D1 migration, recovery runs the schema
+rollback with the D1-only token and the Worker rollback with the Worker-only
+token. Both recovery commands are attempted even if the first one fails, so a
+D1 control-plane error cannot prevent already-deployed Workers from being
+restored.
 
 If the rollback report records a conflict or exhausted retry, inspect the live
 version before taking manual action. A failure that occurs only after this

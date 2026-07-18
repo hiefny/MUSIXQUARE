@@ -420,11 +420,26 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          CLOUDFLARE_API_TOKEN: ${{ inputs.apply_developer_api_d1 && secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_WORKER_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL: release-artifacts/deployments/developer-api-effects-scope.json
         run: |
-          npm run developer-api:effects-scopes:release-rollback
-          node scripts/release-deployment-state.mjs rollback
+          set +e
+          schema_exit=0
+          if [[ "${{ inputs.apply_developer_api_d1 }}" == "true" ]]; then
+            CLOUDFLARE_API_TOKEN="$CLOUDFLARE_D1_API_TOKEN" \
+              npm run developer-api:effects-scopes:release-rollback
+            schema_exit=$?
+          fi
+
+          CLOUDFLARE_API_TOKEN="$CLOUDFLARE_WORKER_API_TOKEN" \
+            node scripts/release-deployment-state.mjs rollback
+          worker_exit=$?
+          set -e
+
+          if (( schema_exit != 0 || worker_exit != 0 )); then
+            exit 1
+          fi
 
       - name: Upload deployment records
         if: always()
@@ -442,7 +457,7 @@ jobs:
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly/manual)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs on manual dispatch)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API effects-scope schema changed: \`${{ steps.developer_api_effects_scope_migration.outputs.applied || 'false' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"

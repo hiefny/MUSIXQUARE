@@ -17,6 +17,8 @@ import {
 import * as youtubeIframe from '../../youtube/iframe.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../ownership.ts';
 import {
+  applyPlaylistQueueModeState,
+  capturePlaylistQueueModeState,
   setRepeatMode,
   setShuffle,
   getShuffleNextPlayableQueueItemId,
@@ -27,6 +29,7 @@ import {
   playNextTrack,
   playPrevTrack,
   playTrack,
+  reconcileShuffleOrderForCurrentPlaylist,
 } from '../playlist.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
 import { getCurrentAudioBuffer, getCurrentLoadEpoch, setCurrentAudioBuffer } from '../_state.ts';
@@ -672,6 +675,53 @@ describe('shuffle row order helpers', () => {
     setShuffle(true, false);
 
     expect(advanceToShuffleNextQueueItemId()).toBe(getState('playlist.items')[0]?.queueItemId);
+  });
+
+  it('restores the exact persisted shuffle permutation and repeat mode', () => {
+    const items = getState('playlist.items');
+    selectIndex(0);
+    const persistedOrder = [items[2]!.queueItemId, items[0]!.queueItemId, items[1]!.queueItemId];
+
+    expect(
+      applyPlaylistQueueModeState({
+        repeatMode: 1,
+        shuffleEnabled: true,
+        shuffleOrder: persistedOrder,
+      }),
+    ).toBe(true);
+
+    expect(capturePlaylistQueueModeState()).toEqual({
+      repeatMode: 1,
+      shuffleEnabled: true,
+      shuffleOrder: persistedOrder,
+    });
+    expect(advanceToShuffleNextQueueItemId()).toBe(items[1]!.queueItemId);
+  });
+
+  it('preserves surviving shuffle order across removal and rejects stale permutations', () => {
+    const items = getState('playlist.items');
+    const persistedOrder = [items[2]!.queueItemId, items[0]!.queueItemId, items[1]!.queueItemId];
+    expect(
+      applyPlaylistQueueModeState({
+        repeatMode: 2,
+        shuffleEnabled: true,
+        shuffleOrder: persistedOrder,
+      }),
+    ).toBe(true);
+
+    setState('playlist.items', [items[0]!, items[2]!]);
+    reconcileShuffleOrderForCurrentPlaylist();
+    expect(capturePlaylistQueueModeState().shuffleOrder).toEqual([
+      items[2]!.queueItemId,
+      items[0]!.queueItemId,
+    ]);
+    expect(
+      applyPlaylistQueueModeState({
+        repeatMode: 1,
+        shuffleEnabled: true,
+        shuffleOrder: persistedOrder,
+      }),
+    ).toBe(false);
   });
 });
 

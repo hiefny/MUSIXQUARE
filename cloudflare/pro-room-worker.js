@@ -711,6 +711,7 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
       coordinatorParticipantId: null,
       participants: {},
     },
+    queueMode: initialQueueModeState(),
     systemAudio: initialSystemAudioState(),
     effects: initialEffectsState(),
     quota: {
@@ -732,6 +733,106 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
     developerCommands: {},
     developerCommandIdempotency: {},
   };
+}
+
+function initialQueueModeState() {
+  return {
+    revision: 0,
+    updatedAtMs: 0,
+    repeatMode: 0,
+    shuffleEnabled: false,
+    shuffleOrder: [],
+  };
+}
+
+function parseQueueModeValues(value, playlist, stored = false) {
+  const keys = stored
+    ? ['revision', 'updatedAtMs', 'repeatMode', 'shuffleEnabled', 'shuffleOrder']
+    : ['repeatMode', 'shuffleEnabled', 'shuffleOrder'];
+  if (!hasExactKeys(value, keys)) return null;
+  if (
+    (stored &&
+      (!isSafeNonNegativeInteger(value.revision) ||
+        !isSafeNonNegativeInteger(value.updatedAtMs))) ||
+    (value.repeatMode !== 0 && value.repeatMode !== 1 && value.repeatMode !== 2) ||
+    typeof value.shuffleEnabled !== 'boolean' ||
+    !Array.isArray(value.shuffleOrder) ||
+    value.shuffleOrder.length > PLAYLIST_MAX_ITEMS
+  ) {
+    return null;
+  }
+  const liveIds = new Set(playlist.map((item) => item.queueItemId));
+  const seen = new Set();
+  const shuffleOrder = [];
+  for (const queueItemId of value.shuffleOrder) {
+    if (
+      !QUEUE_ITEM_ID_RE.test(queueItemId || '') ||
+      !liveIds.has(queueItemId) ||
+      seen.has(queueItemId)
+    ) {
+      return null;
+    }
+    seen.add(queueItemId);
+    shuffleOrder.push(queueItemId);
+  }
+  if (
+    (!value.shuffleEnabled && shuffleOrder.length !== 0) ||
+    (value.shuffleEnabled && shuffleOrder.length !== playlist.length)
+  ) {
+    return null;
+  }
+  return {
+    ...(stored ? { revision: value.revision, updatedAtMs: value.updatedAtMs } : {}),
+    repeatMode: value.repeatMode,
+    shuffleEnabled: value.shuffleEnabled,
+    shuffleOrder,
+  };
+}
+
+function normalizeStoredQueueMode(value, playlist) {
+  return parseQueueModeValues(value, playlist, true);
+}
+
+function publicQueueMode(room) {
+  return {
+    schemaVersion: 1,
+    view: 'queue-mode',
+    roomCode: room.roomCode,
+    revision: room.queueMode.revision,
+    playlistRevision: room.playlistRevision,
+    updatedAtMs: room.queueMode.updatedAtMs,
+    repeatMode: room.queueMode.repeatMode,
+    shuffleEnabled: room.queueMode.shuffleEnabled,
+    shuffleOrder: [...room.queueMode.shuffleOrder],
+  };
+}
+
+function reconcileQueueModePlaylist(room, nowMs = Date.now()) {
+  const current = room.queueMode;
+  const nextOrder = current.shuffleEnabled
+    ? [
+        ...current.shuffleOrder.filter((queueItemId) =>
+          room.playlist.some((item) => item.queueItemId === queueItemId),
+        ),
+        ...room.playlist
+          .map((item) => item.queueItemId)
+          .filter((queueItemId) => !current.shuffleOrder.includes(queueItemId)),
+      ]
+    : [];
+  if (
+    nextOrder.length === current.shuffleOrder.length &&
+    nextOrder.every((queueItemId, index) => queueItemId === current.shuffleOrder[index])
+  ) {
+    return false;
+  }
+  if (current.revision >= Number.MAX_SAFE_INTEGER) throw new RoomStateCapacityError();
+  room.queueMode = {
+    ...current,
+    revision: current.revision + 1,
+    updatedAtMs: nowMs,
+    shuffleOrder: nextOrder,
+  };
+  return true;
 }
 
 function initialEffectsState() {
@@ -1868,6 +1969,7 @@ export class MusixquareProRoom {
     this.mutationTail = Promise.resolve();
     this.systemAudioMigrationPending = false;
     this.effectsMigrationPending = false;
+    this.queueModeMigrationPending = false;
     this.developerCommandMigrationPending = false;
     this.persistedPlaylistSignatures = new Map();
     this.hasV2Persistence = false;
@@ -1875,6 +1977,7 @@ export class MusixquareProRoom {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
       this.normalizeLoadedEffects();
+      this.normalizeLoadedQueueMode();
       this.normalizeLoadedDeveloperCommands();
     };
     if (typeof state.blockConcurrencyWhile === 'function') state.blockConcurrencyWhile(load);
@@ -1901,6 +2004,7 @@ export class MusixquareProRoom {
     if (!this.room.stagingTombstones) this.room.stagingTombstones = {};
     this.normalizeLoadedSystemAudio();
     this.normalizeLoadedEffects();
+    this.normalizeLoadedQueueMode();
     this.normalizeLoadedDeveloperCommands();
     if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
       this.room.playback.youtubeVideoId = null;
@@ -1945,6 +2049,19 @@ export class MusixquareProRoom {
     // same neutral DSP state as a fresh client, without changing snapshot v1.
     this.room.effects = initialEffectsState();
     this.effectsMigrationPending = true;
+  }
+
+  normalizeLoadedQueueMode() {
+    if (!this.room) return;
+    const normalized = normalizeStoredQueueMode(this.room.queueMode, this.room.playlist || []);
+    if (normalized) {
+      this.room.queueMode = normalized;
+      return;
+    }
+    // Queue behavior predates this rolling-deploy-safe resource. Preserve the
+    // old product default until a coordinator explicitly changes it.
+    this.room.queueMode = initialQueueModeState();
+    this.queueModeMigrationPending = true;
   }
 
   normalizeLoadedDeveloperCommands() {
@@ -2314,6 +2431,10 @@ export class MusixquareProRoom {
           return this.handleGetEffects(request);
         if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
           return this.handleUpdateEffects(request);
+        if (request.method === 'GET' && url.pathname === `${prefix}/queue-mode`)
+          return this.handleGetQueueMode(request);
+        if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
+          return this.handleUpdateQueueMode(request);
         if (request.method === 'GET' && url.pathname === `${prefix}/system-audio`)
           return this.handleGetSystemAudio(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
@@ -2722,6 +2843,7 @@ export class MusixquareProRoom {
     }
 
     if (playlistChanged) {
+      reconcileQueueModePlaylist(this.room, nowMs);
       this.room.playlistRevision += 1;
       this.room.revision += 1;
       this.reconcileAssetGarbageCollection(nowMs);
@@ -3601,6 +3723,76 @@ export class MusixquareProRoom {
     };
     await this.persist();
     return jsonResponse(publicEffects(this.room));
+  }
+
+  async handleGetQueueMode(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    if (request.body && (request.headers.get('content-length') || '') !== '0') {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    return jsonResponse(publicQueueMode(this.room));
+  }
+
+  async handleUpdateQueueMode(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 128 * 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, [
+        'coordinatorEpoch',
+        'playlistRevision',
+        'repeatMode',
+        'shuffleEnabled',
+        'shuffleOrder',
+      ]) ||
+      !isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) ||
+      !isSafeNonNegativeInteger(parsed.value.playlistRevision)
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    if (
+      this.room.presence.coordinatorParticipantId !== auth.session.participantId ||
+      this.room.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch
+    ) {
+      return errorResponse('COORDINATOR_EPOCH_MISMATCH', 409);
+    }
+    if (parsed.value.playlistRevision !== this.room.playlistRevision) {
+      return jsonResponse(
+        { error: 'PLAYLIST_REVISION_CONFLICT', queueMode: publicQueueMode(this.room) },
+        409,
+      );
+    }
+    const queueMode = parseQueueModeValues(
+      {
+        repeatMode: parsed.value.repeatMode,
+        shuffleEnabled: parsed.value.shuffleEnabled,
+        shuffleOrder: parsed.value.shuffleOrder,
+      },
+      this.room.playlist,
+    );
+    if (!queueMode) return errorResponse('INVALID_QUEUE_MODE', 400);
+    if (
+      queueMode.repeatMode === this.room.queueMode.repeatMode &&
+      queueMode.shuffleEnabled === this.room.queueMode.shuffleEnabled &&
+      queueMode.shuffleOrder.length === this.room.queueMode.shuffleOrder.length &&
+      queueMode.shuffleOrder.every(
+        (queueItemId, index) => queueItemId === this.room.queueMode.shuffleOrder[index],
+      )
+    ) {
+      return jsonResponse(publicQueueMode(this.room));
+    }
+    if (this.room.queueMode.revision >= Number.MAX_SAFE_INTEGER) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+    this.room.queueMode = {
+      revision: this.room.queueMode.revision + 1,
+      updatedAtMs: Date.now(),
+      ...queueMode,
+    };
+    await this.persist();
+    return jsonResponse(publicQueueMode(this.room));
   }
 
   systemAudioResponse(extra = {}) {
@@ -5097,13 +5289,14 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_QUEUE_ITEM_ID', 400);
     }
+    const nowMs = Date.now();
     const playback = parsePlayback(
       playbackInput,
       playlistById,
       currentQueueItemId,
       this.room.presence.coordinatorEpoch,
       this.room.playback,
-      Date.now(),
+      nowMs,
     );
     if (!playback) {
       return errorResponse('INVALID_PLAYBACK', 400);
@@ -5114,8 +5307,11 @@ export class MusixquareProRoom {
     this.room.playlist = playlist;
     this.room.currentQueueItemId = currentQueueItemId;
     this.room.playback = playback;
-    this.reconcileAssetGarbageCollection(Date.now());
-    if (playlistChanged) this.room.playlistRevision += 1;
+    this.reconcileAssetGarbageCollection(nowMs);
+    if (playlistChanged) {
+      reconcileQueueModePlaylist(this.room, nowMs);
+      this.room.playlistRevision += 1;
+    }
     this.room.revision += 1;
     const responseBody = { snapshot: publicSnapshot(this.room, auth.session) };
     this.storeSnapshotIdempotency(scope, key, fingerprint, this.room.revision);
@@ -5439,6 +5635,7 @@ export class MusixquareProRoom {
     let changed =
       this.systemAudioMigrationPending ||
       this.effectsMigrationPending ||
+      this.queueModeMigrationPending ||
       this.developerCommandMigrationPending ||
       this.reconcileSystemAudio(nowMs);
     changed = this.reconcileAssetGarbageCollection(nowMs) || changed;
@@ -5588,6 +5785,7 @@ export class MusixquareProRoom {
       await this.persist();
       this.systemAudioMigrationPending = false;
       this.effectsMigrationPending = false;
+      this.queueModeMigrationPending = false;
       this.developerCommandMigrationPending = false;
     }
     return changed;
@@ -5600,6 +5798,7 @@ export class MusixquareProRoom {
       if (!this.room) return;
       this.normalizeLoadedSystemAudio();
       this.normalizeLoadedEffects();
+      this.normalizeLoadedQueueMode();
       this.normalizeLoadedDeveloperCommands();
       await this.prune(Date.now());
       await this.scheduleAlarm();

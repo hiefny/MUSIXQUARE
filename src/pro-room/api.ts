@@ -30,6 +30,11 @@ import {
   type ProRoomEffectsSnapshot,
   type RoomEffectsState,
 } from '../core/room-effects.ts';
+import {
+  parseProRoomQueueModeSnapshot,
+  type ProRoomQueueModeSnapshot,
+  type ProRoomRepeatMode,
+} from './queue-mode.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -185,6 +190,15 @@ interface UpdateProRoomEffectsInput {
   code: string;
   coordinatorEpoch: number;
   effects: RoomEffectsState;
+}
+
+interface UpdateProRoomQueueModeInput {
+  code: string;
+  coordinatorEpoch: number;
+  playlistRevision: number;
+  repeatMode: ProRoomRepeatMode;
+  shuffleEnabled: boolean;
+  shuffleOrder: string[];
 }
 
 interface AckProRoomDeveloperCommandInput {
@@ -928,6 +942,46 @@ export class ProRoomApiClient {
       activeRoomCode: input.code,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
       parser: (value) => parseProRoomEffectsSnapshot(value, input.code),
+    });
+  }
+
+  getQueueMode(code: string, signal?: AbortSignal): Promise<ProRoomQueueModeSnapshot> {
+    const path = roomPath(code);
+    return this.#request(`${path}/queue-mode`, {
+      signal,
+      activeRoomCode: code,
+      maxResponseBytes: 128 * 1024,
+      parser: (value) => parseProRoomQueueModeSnapshot(value, code),
+    });
+  }
+
+  updateQueueMode(
+    input: UpdateProRoomQueueModeInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomQueueModeSnapshot> {
+    const path = roomPath(input.code);
+    if (!Number.isSafeInteger(input.coordinatorEpoch) || input.coordinatorEpoch < 1) {
+      throw new ProRoomApiError('INVALID_COORDINATOR_EPOCH');
+    }
+    if (!Number.isSafeInteger(input.playlistRevision) || input.playlistRevision < 0) {
+      throw new ProRoomApiError('INVALID_PLAYLIST_REVISION');
+    }
+    if (input.repeatMode !== 0 && input.repeatMode !== 1 && input.repeatMode !== 2) {
+      throw new ProRoomApiError('INVALID_REPEAT_MODE');
+    }
+    return this.#request(`${path}/queue-mode`, {
+      method: 'PUT',
+      body: {
+        coordinatorEpoch: input.coordinatorEpoch,
+        playlistRevision: input.playlistRevision,
+        repeatMode: input.repeatMode,
+        shuffleEnabled: input.shuffleEnabled,
+        shuffleOrder: input.shuffleOrder,
+      },
+      signal,
+      activeRoomCode: input.code,
+      maxResponseBytes: 128 * 1024,
+      parser: (value) => parseProRoomQueueModeSnapshot(value, input.code),
     });
   }
 

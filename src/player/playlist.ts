@@ -160,6 +160,11 @@ async function restoreProRoomFilePlayback(
 
 let _shuffleOrder: QueueItemId[] = [];
 let _shufflePosition = 0;
+interface PlaylistQueueModeState {
+  repeatMode: 0 | 1 | 2;
+  shuffleEnabled: boolean;
+  shuffleOrder: QueueItemId[];
+}
 const DEMO_ALLOWED_SETTING_TYPES = new Set<string>([
   'eq',
   MSG.VBASS,
@@ -172,12 +177,34 @@ function isQueueIdle(): boolean {
   return isPlaybackIdleCompat();
 }
 
-function generateShuffleOrder(): void {
+function installShuffleOrder(order: readonly QueueItemId[]): boolean {
+  const changed =
+    order.length !== _shuffleOrder.length ||
+    order.some((queueItemId, index) => queueItemId !== _shuffleOrder[index]);
+  _shuffleOrder = [...order];
+  const currentQueueItemId = getCurrentQueueItemId();
+  const position = currentQueueItemId ? _shuffleOrder.indexOf(currentQueueItemId) : -1;
+  _shufflePosition = position >= 0 ? position : 0;
+  if (changed) bus.emit('playlist:shuffle-order-changed');
+  return changed;
+}
+
+function isExactShufflePermutation(order: readonly QueueItemId[]): boolean {
+  const playlist = getState('playlist.items') || [];
+  if (order.length !== playlist.length) return false;
+  const liveIds = new Set(playlist.map((item) => item.queueItemId));
+  const seen = new Set<QueueItemId>();
+  return order.every((queueItemId) => {
+    if (!liveIds.has(queueItemId) || seen.has(queueItemId)) return false;
+    seen.add(queueItemId);
+    return true;
+  });
+}
+
+function generateShuffleOrder(): boolean {
   const playlist = getState('playlist.items') || [];
   if (playlist.length === 0) {
-    _shuffleOrder = [];
-    _shufflePosition = 0;
-    return;
+    return installShuffleOrder([]);
   }
   const order = playlist.map((item) => item.queueItemId);
   // Fisher-Yates in-place shuffle
@@ -185,22 +212,28 @@ function generateShuffleOrder(): void {
     const j = Math.floor(Math.random() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
   }
-  _shuffleOrder = order;
-  // Align the cursor to wherever the current track now lives in the new order
-  const currentQueueItemId = getCurrentQueueItemId();
-  const pos = currentQueueItemId ? order.indexOf(currentQueueItemId) : -1;
-  _shufflePosition = pos >= 0 ? pos : 0;
+  return installShuffleOrder(order);
+}
+
+export function reconcileShuffleOrderForCurrentPlaylist(): void {
+  const playlist = getState('playlist.items') || [];
+  const liveIds = new Set(playlist.map((item) => item.queueItemId));
+  if (_shuffleOrder.length === playlist.length && _shuffleOrder.every((id) => liveIds.has(id))) {
+    installShuffleOrder(_shuffleOrder);
+    return;
+  }
+  const survivingOrder = _shuffleOrder.filter((queueItemId) => liveIds.has(queueItemId));
+  const survivingIds = new Set(survivingOrder);
+  const hasNewItems = playlist.some((item) => !survivingIds.has(item.queueItemId));
+  // Preserve the established random traversal across removal/reorder. Adding
+  // new occurrences intentionally starts a fresh pass, matching the existing
+  // MUSIXQUARE shuffle behavior.
+  if (!hasNewItems) installShuffleOrder(survivingOrder);
+  else generateShuffleOrder();
 }
 
 function ensureShuffleOrderValid(): void {
-  const playlist = getState('playlist.items') || [];
-  const liveIds = new Set(playlist.map((item) => item.queueItemId));
-  if (
-    _shuffleOrder.length !== playlist.length ||
-    _shuffleOrder.some((queueItemId) => !liveIds.has(queueItemId))
-  ) {
-    generateShuffleOrder();
-  }
+  reconcileShuffleOrderForCurrentPlaylist();
 }
 
 /**
@@ -324,9 +357,38 @@ export function advanceToShufflePreviousQueueItemId(): QueueItemId | null {
   return _shuffleOrder[prevPos] ?? null;
 }
 
-function resetShuffleOrder(): void {
-  _shuffleOrder = [];
-  _shufflePosition = 0;
+function resetShuffleOrder(): boolean {
+  return installShuffleOrder([]);
+}
+
+export function capturePlaylistQueueModeState(): PlaylistQueueModeState {
+  const repeatMode = getState('playlist.repeatMode');
+  const normalizedRepeatMode: 0 | 1 | 2 = repeatMode === 1 || repeatMode === 2 ? repeatMode : 0;
+  const shuffleEnabled = !!getState('playlist.isShuffle');
+  if (shuffleEnabled) ensureShuffleOrderValid();
+  return {
+    repeatMode: normalizedRepeatMode,
+    shuffleEnabled,
+    shuffleOrder: shuffleEnabled ? [..._shuffleOrder] : [],
+  };
+}
+
+export function applyPlaylistQueueModeState(
+  state: PlaylistQueueModeState,
+  notify = false,
+): boolean {
+  if (
+    (state.repeatMode !== 0 && state.repeatMode !== 1 && state.repeatMode !== 2) ||
+    typeof state.shuffleEnabled !== 'boolean' ||
+    !Array.isArray(state.shuffleOrder) ||
+    (state.shuffleEnabled && !isExactShufflePermutation(state.shuffleOrder)) ||
+    (!state.shuffleEnabled && state.shuffleOrder.length !== 0)
+  ) {
+    return false;
+  }
+  setRepeatMode(state.repeatMode, notify);
+  setShuffle(state.shuffleEnabled, notify, state.shuffleOrder);
+  return true;
 }
 
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
@@ -391,7 +453,11 @@ export function toggleShuffle(): void {
   }
 }
 
-export function setShuffle(enabled: boolean, notify = true): void {
+export function setShuffle(
+  enabled: boolean,
+  notify = true,
+  restoredOrder?: readonly QueueItemId[],
+): void {
   const prevEnabled = getState('playlist.isShuffle');
   setState('playlist.isShuffle', enabled);
   const btn = document.getElementById('btn-shuffle');
@@ -400,13 +466,16 @@ export function setShuffle(enabled: boolean, notify = true): void {
 
   // Re-seed the Fisher-Yates permutation whenever shuffle turns ON so that
   // prev/next traverse a fresh random order. On OFF, drop the stale order.
-  if (enabled) generateShuffleOrder();
-  else resetShuffleOrder();
+  const orderChanged = enabled
+    ? restoredOrder !== undefined && isExactShufflePermutation(restoredOrder)
+      ? installShuffleOrder(restoredOrder)
+      : generateShuffleOrder()
+    : resetShuffleOrder();
 
   // Preload was chosen under the opposite mode — the stale hint may point to
   // a track that is no longer the "next" under the new mode (sequential vs
   // shuffled). Regenerate on host only.
-  if (enabled !== prevEnabled) {
+  if (enabled !== prevEnabled || orderChanged) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       clearPreloadState();

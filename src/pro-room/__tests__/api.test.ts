@@ -829,6 +829,80 @@ describe('PRO room effects API', () => {
   });
 });
 
+describe('PRO room queue mode API', () => {
+  const firstQueueItemId = '11111111-1111-4111-8111-111111111111';
+  const secondQueueItemId = '22222222-2222-4222-8222-222222222222';
+  const projection = {
+    schemaVersion: 1 as const,
+    view: 'queue-mode' as const,
+    roomCode: ROOM_CODE,
+    revision: 4,
+    playlistRevision: 7,
+    updatedAtMs: 1_800_000_000_000,
+    repeatMode: 1 as const,
+    shuffleEnabled: true,
+    shuffleOrder: [secondQueueItemId, firstQueueItemId],
+  };
+
+  it('reads and coordinator-updates the dedicated persistent resource', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(projection))
+      .mockResolvedValueOnce(jsonResponse({ ...projection, revision: 5 }));
+
+    await expect(client.getQueueMode(ROOM_CODE)).resolves.toEqual(projection);
+    await expect(
+      client.updateQueueMode({
+        code: ROOM_CODE,
+        coordinatorEpoch: 2,
+        playlistRevision: 7,
+        repeatMode: 1,
+        shuffleEnabled: true,
+        shuffleOrder: [secondQueueItemId, firstQueueItemId],
+      }),
+    ).resolves.toEqual({ ...projection, revision: 5 });
+
+    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/queue-mode`,
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/queue-mode`,
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      coordinatorEpoch: 2,
+      playlistRevision: 7,
+      repeatMode: 1,
+      shuffleEnabled: true,
+      shuffleOrder: [secondQueueItemId, firstQueueItemId],
+    });
+  });
+
+  it('rejects malformed local input and non-canonical server order', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+
+    expect(() =>
+      client.updateQueueMode({
+        code: ROOM_CODE,
+        coordinatorEpoch: 2,
+        playlistRevision: -1,
+        repeatMode: 0,
+        shuffleEnabled: false,
+        shuffleOrder: [],
+      }),
+    ).toThrow('PRO_ROOM_API_INVALID_PLAYLIST_REVISION');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ ...projection, shuffleOrder: [firstQueueItemId, firstQueueItemId] }),
+    );
+    await expect(client.getQueueMode(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+});
+
 describe('PRO room system-audio lease API', () => {
   const leaseId = 'L'.repeat(43);
   const publication: ProRoomSystemAudioPublication = {

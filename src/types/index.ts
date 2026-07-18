@@ -1107,6 +1107,7 @@ interface BaseEventMap {
   'playlist:next-track': [];
   'playlist:toggle-repeat': [];
   'playlist:toggle-shuffle': [];
+  'playlist:shuffle-order-changed': [];
   'playlist:play-track': [queueItemId: QueueItemId, subIndex?: number];
 
   // ── UI ────────────────────────────────────────────────────────────

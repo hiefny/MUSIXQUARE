@@ -24,9 +24,12 @@ import {
   reserveEncodedReceiveMemoryWithinBudget,
 } from '../player/decode-admission.ts';
 import {
+  applyPlaylistQueueModeState,
+  capturePlaylistQueueModeState,
   clearPreloadState,
   getShuffleNextPlayableQueueItemId,
   playTrack,
+  reconcileShuffleOrderForCurrentPlaylist,
 } from '../player/playlist.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import {
@@ -65,6 +68,7 @@ import {
   type RecoverProRoomOwnerInput,
 } from './api.ts';
 import type { ProRoomR2Source, ProRoomSnapshot } from './contracts.ts';
+import type { ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import {
   registerProRoomLegacyMediaHooks,
   restoreProRoomLegacyPlayback,
@@ -114,6 +118,8 @@ const PLAYBACK_CHECKPOINT_TIMER = 'pro-room-playback-checkpoint';
 const PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-playback-checkpoint-debounce';
 const EFFECTS_CHECKPOINT_DEBOUNCE_MS = 350;
 const EFFECTS_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-effects-checkpoint-debounce';
+const QUEUE_MODE_CHECKPOINT_DEBOUNCE_MS = 350;
+const QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-queue-mode-checkpoint-debounce';
 const PLAYBACK_RESTORE_TIMEOUT_MS = 120_000;
 const PLAYBACK_RESTORE_TIMEOUT_TIMER = 'pro-room-playback-restore-timeout';
 const INVALIDATION_REFRESH_MIN_INTERVAL_MS = 5_000;
@@ -153,6 +159,9 @@ let pendingEffectsBroadcast: {
   commandId: string;
   coordinatorEpoch: number;
 } | null = null;
+let queueModeMutationTail: Promise<void> = Promise.resolve();
+let suppressQueueModeCheckpoint = false;
+let lastQueueModeCoordinatorEpoch = -1;
 let suppressPlaybackCheckpoint = false;
 let lastPlaybackRestoreKey = '';
 let terminalRecoveryInFlight = false;
@@ -477,6 +486,7 @@ async function applyProjectedPlaylist(
     if (outcome === 'invalid' || outcome === 'stale' || outcome === 'conflict') {
       throw new Error(`PRO_ROOM_PLAYLIST_PROJECTION_${outcome.toUpperCase()}`);
     }
+    if (getState('playlist.isShuffle')) reconcileShuffleOrderForCurrentPlaylist();
     reconcileRemovedProRoomQueueState(removedQueueItemIds);
     playlistSignature = nextSignature;
     attachCachedFiles(snapshot);
@@ -1023,6 +1033,10 @@ function resetPlaylistRuntime(): void {
   lastEffectsCoordinatorEpoch = -1;
   pendingEffectsBroadcast = null;
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
+  queueModeMutationTail = Promise.resolve();
+  suppressQueueModeCheckpoint = false;
+  lastQueueModeCoordinatorEpoch = -1;
+  clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   suppressPlaybackCheckpoint = false;
   lastPlaybackRestoreKey = '';
   pendingPlaybackRestore = null;
@@ -1363,6 +1377,127 @@ async function refreshPersistedEffects(
   return enqueueEffectsMutation(() => refreshPersistedEffectsUnlocked(snapshot, options));
 }
 
+function queueModeMatchesPlaylist(
+  queueMode: ProRoomQueueModeSnapshot,
+  snapshot: ProRoomSnapshot,
+): boolean {
+  if (
+    queueMode.roomCode !== snapshot.roomCode ||
+    queueMode.playlistRevision !== snapshot.playlistRevision
+  ) {
+    return false;
+  }
+  if (!queueMode.shuffleEnabled) return queueMode.shuffleOrder.length === 0;
+  if (queueMode.shuffleOrder.length !== snapshot.playlist.length) return false;
+  const liveIds = new Set(snapshot.playlist.map((item) => item.queueItemId));
+  return (
+    queueMode.shuffleOrder.every((queueItemId) => liveIds.delete(queueItemId)) && liveIds.size === 0
+  );
+}
+
+function enqueueQueueModeMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = queueModeMutationTail.then(operation, operation);
+  queueModeMutationTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function persistQueueModeCheckpoint(): Promise<void> {
+  const manager = playlistManager;
+  const lease = playlistRuntimeLease;
+  const signal = playlistRuntimeAbort?.signal;
+  if (!active || suppressQueueModeCheckpoint || !manager || !lease || !signal || !isCoordinator()) {
+    return;
+  }
+  await enqueueQueueModeMutation(async () => {
+    if (
+      !active ||
+      suppressQueueModeCheckpoint ||
+      !isPlaylistLeaseCurrent(lease) ||
+      signal.aborted ||
+      !isCoordinator()
+    ) {
+      return;
+    }
+    const snapshot = manager.snapshot;
+    if (!snapshot) return;
+    const local = capturePlaylistQueueModeState();
+    await api.updateQueueMode(
+      {
+        code: snapshot.roomCode,
+        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+        playlistRevision: snapshot.playlistRevision,
+        repeatMode: local.repeatMode,
+        shuffleEnabled: local.shuffleEnabled,
+        shuffleOrder: local.shuffleOrder,
+      },
+      signal,
+    );
+    if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+    lastQueueModeCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
+  });
+}
+
+function scheduleQueueModeCheckpoint(): void {
+  if (!active || suppressQueueModeCheckpoint || !isCoordinator()) return;
+  clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
+  setManagedTimer(
+    QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER,
+    () => {
+      void persistQueueModeCheckpoint().catch((error) => {
+        log.warn('[PRO] Queue mode checkpoint failed', error);
+      });
+    },
+    QUEUE_MODE_CHECKPOINT_DEBOUNCE_MS,
+  );
+}
+
+async function refreshPersistedQueueMode(
+  snapshot: ProRoomSnapshot,
+  options: { broadcast?: boolean } = {},
+): Promise<boolean> {
+  const lease = playlistRuntimeLease;
+  if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease))
+    return false;
+  return enqueueQueueModeMutation(async () => {
+    const accepted = await api.getQueueMode(snapshot.roomCode, playlistRuntimeAbort?.signal);
+    const currentSnapshot = playlistManager?.snapshot;
+    if (
+      !isPlaylistLeaseCurrent(lease) ||
+      !currentSnapshot ||
+      currentSnapshot.roomCode !== snapshot.roomCode ||
+      !queueModeMatchesPlaylist(accepted, currentSnapshot)
+    ) {
+      return false;
+    }
+    suppressQueueModeCheckpoint = true;
+    try {
+      if (
+        !applyPlaylistQueueModeState(
+          {
+            repeatMode: accepted.repeatMode,
+            shuffleEnabled: accepted.shuffleEnabled,
+            shuffleOrder: accepted.shuffleOrder,
+          },
+          false,
+        )
+      ) {
+        return false;
+      }
+      lastQueueModeCoordinatorEpoch = currentSnapshot.presence.coordinatorEpoch;
+      if (options.broadcast && isCoordinator()) {
+        broadcast({ type: MSG.REPEAT_MODE, value: accepted.repeatMode });
+        broadcast({ type: MSG.SHUFFLE_MODE, value: accepted.shuffleEnabled });
+      }
+      return true;
+    } finally {
+      suppressQueueModeCheckpoint = false;
+    }
+  });
+}
+
 function showPlaybackRestoreHint(): void {
   if (!pendingPlaybackRestore || !suppressPlaybackCheckpoint) return;
   bus.emit('ui:show-toast', t('pro.resume_tap'));
@@ -1495,6 +1630,7 @@ function stopLifecycle(): void {
   clearManagedTimer(SIGNALING_REFRESH_TIMER);
   clearManagedTimer(PLAYBACK_CHECKPOINT_TIMER);
   clearManagedTimer(PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER);
+  clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
   clearManagedTimer(INVALIDATION_REFRESH_TIMER);
   invalidationRefreshScheduled = false;
@@ -1800,6 +1936,15 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
             log.warn('[PRO] Room effects refresh failed', error);
           });
         }
+        if (snapshot.presence.coordinatorEpoch !== lastQueueModeCoordinatorEpoch) {
+          await refreshPersistedQueueMode(snapshot, { broadcast: isCoordinator() }).catch(
+            (error) => {
+              // The dedicated resource is deliberately optional during a
+              // rolling Worker/app deployment. A later heartbeat retries it.
+              log.warn('[PRO] Queue mode refresh failed', error);
+            },
+          );
+        }
         if (
           pendingEffectsBroadcast !== null &&
           pendingEffectsBroadcast.coordinatorEpoch !== snapshot.presence.coordinatorEpoch
@@ -1956,6 +2101,11 @@ async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSna
       // Keep room entry compatible during a staggered Worker/app rollout.
       // The next heartbeat retries the authoritative effects read.
       log.warn('[PRO] Initial room effects refresh failed', error);
+    });
+    await refreshPersistedQueueMode(snapshot).catch((error) => {
+      // Keep entry compatible while the Worker endpoint rolls out. The first
+      // heartbeat retries without discarding playlist/playback restoration.
+      log.warn('[PRO] Initial queue mode refresh failed', error);
     });
   } catch (error) {
     await controller.leave().catch(() => undefined);
@@ -2130,6 +2280,11 @@ for (const event of [
     schedulePlaybackCheckpoint();
   });
 }
+
+for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as const) {
+  bus.on(event, () => scheduleQueueModeCheckpoint());
+}
+bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint());
 
 for (const event of [
   'state:audio.reverbMix',

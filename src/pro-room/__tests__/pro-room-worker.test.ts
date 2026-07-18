@@ -6004,3 +6004,208 @@ describe('persistent PRO room audio effects', () => {
     });
   });
 });
+
+describe('persistent PRO room repeat and shuffle mode', () => {
+  const firstQueueItemId = '11111111-1111-4111-8111-111111111111';
+  const secondQueueItemId = '22222222-2222-4222-8222-222222222222';
+  const thirdQueueItemId = '33333333-3333-4333-8333-333333333333';
+  const items = [
+    {
+      queueItemId: firstQueueItemId,
+      name: 'First video',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    },
+    {
+      queueItemId: secondQueueItemId,
+      name: 'Second video',
+      source: { kind: 'youtube', videoId: '9bZkp7q19f0' },
+    },
+    {
+      queueItemId: thirdQueueItemId,
+      name: 'Third video',
+      source: { kind: 'youtube', videoId: 'M7lc1UVf-VE' },
+    },
+  ];
+
+  it('persists the exact shuffle traversal outside strict snapshot v1', async () => {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, items, 'queue-mode-seed')).status).toBe(200);
+    const current = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const before = await responseJson(
+      await context.worker.fetch(request('/queue-mode', {}, context.ownerCookie)),
+    );
+    expect(before).toEqual({
+      schemaVersion: 1,
+      view: 'queue-mode',
+      roomCode: ROOM_CODE,
+      revision: 0,
+      playlistRevision: current.snapshot.playlistRevision,
+      updatedAtMs: 0,
+      repeatMode: 0,
+      shuffleEnabled: false,
+      shuffleOrder: [],
+    });
+
+    const shuffleOrder = [thirdQueueItemId, firstQueueItemId, secondQueueItemId];
+    const update = await context.worker.fetch(
+      jsonRequest(
+        '/queue-mode',
+        'PUT',
+        {
+          coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+          playlistRevision: current.snapshot.playlistRevision,
+          repeatMode: 1,
+          shuffleEnabled: true,
+          shuffleOrder,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(update.status).toBe(200);
+    await expect(update.json()).resolves.toMatchObject({
+      revision: 1,
+      repeatMode: 1,
+      shuffleEnabled: true,
+      shuffleOrder,
+    });
+
+    const publicSnapshot = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(parseProRoomSnapshot(publicSnapshot.snapshot)).not.toBeNull();
+    expect(publicSnapshot.snapshot).not.toHaveProperty('queueMode');
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    await expect(
+      responseJson(await restarted.fetch(request('/queue-mode', {}, context.ownerCookie))),
+    ).resolves.toMatchObject({
+      revision: 1,
+      repeatMode: 1,
+      shuffleEnabled: true,
+      shuffleOrder,
+    });
+  });
+
+  it('migrates an existing room to neutral queue behavior without changing its playlist', async () => {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, items, 'queue-mode-migration-seed')).status).toBe(200);
+    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, unknown>;
+    };
+    delete stored.core.queueMode;
+    context.state.storage.data.set('pro-room:v2:core', stored);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const response = await restarted.fetch(request('/queue-mode', {}, context.ownerCookie));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      revision: 0,
+      repeatMode: 0,
+      shuffleEnabled: false,
+      shuffleOrder: [],
+    });
+    const persisted = context.state.storage.data.get('pro-room:v2:core') as {
+      core: { queueMode?: unknown };
+      playlistOrder: unknown[];
+    };
+    expect(persisted.core.queueMode).toBeDefined();
+    expect(persisted.playlistOrder).toHaveLength(items.length);
+  });
+
+  it('preserves surviving order and appends new rows when the playlist changes', async () => {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, items, 'queue-mode-reconcile-seed')).status).toBe(200);
+    const current = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const shuffleOrder = [thirdQueueItemId, firstQueueItemId, secondQueueItemId];
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            '/queue-mode',
+            'PUT',
+            {
+              coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+              playlistRevision: current.snapshot.playlistRevision,
+              repeatMode: 2,
+              shuffleEnabled: true,
+              shuffleOrder,
+            },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    expect((await replacePlaylist(context, [items[0], items[2]], 'queue-mode-remove')).status).toBe(
+      200,
+    );
+    const afterRemoval = await responseJson(
+      await context.worker.fetch(request('/queue-mode', {}, context.ownerCookie)),
+    );
+    expect(afterRemoval).toMatchObject({
+      repeatMode: 2,
+      shuffleEnabled: true,
+      shuffleOrder: [thirdQueueItemId, firstQueueItemId],
+    });
+
+    expect((await replacePlaylist(context, items, 'queue-mode-add')).status).toBe(200);
+    const afterAddition = await responseJson(
+      await context.worker.fetch(request('/queue-mode', {}, context.ownerCookie)),
+    );
+    expect(afterAddition.shuffleOrder).toEqual([
+      thirdQueueItemId,
+      firstQueueItemId,
+      secondQueueItemId,
+    ]);
+    expect(afterAddition.revision).toBeGreaterThan(afterRemoval.revision);
+  });
+
+  it('fences writes to the exact coordinator epoch and playlist revision', async () => {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, items, 'queue-mode-fence')).status).toBe(200);
+    const current = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const body = {
+      coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+      playlistRevision: current.snapshot.playlistRevision,
+      repeatMode: 1,
+      shuffleEnabled: true,
+      shuffleOrder: [secondQueueItemId, thirdQueueItemId, firstQueueItemId],
+    };
+
+    const wrongEpoch = await context.worker.fetch(
+      jsonRequest(
+        '/queue-mode',
+        'PUT',
+        { ...body, coordinatorEpoch: body.coordinatorEpoch + 1 },
+        context.ownerCookie,
+      ),
+    );
+    expect(wrongEpoch.status).toBe(409);
+
+    const wrongPlaylistRevision = await context.worker.fetch(
+      jsonRequest(
+        '/queue-mode',
+        'PUT',
+        { ...body, playlistRevision: body.playlistRevision + 1 },
+        context.ownerCookie,
+      ),
+    );
+    expect(wrongPlaylistRevision.status).toBe(409);
+    await expect(wrongPlaylistRevision.json()).resolves.toMatchObject({
+      error: 'PLAYLIST_REVISION_CONFLICT',
+      queueMode: { revision: 0, repeatMode: 0, shuffleEnabled: false },
+    });
+  });
+});

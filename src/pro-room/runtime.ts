@@ -2199,11 +2199,14 @@ export function getProRoomBootstrap(code: string, signal?: AbortSignal): Promise
 /** Submit a beta BOT request through the already-authenticated tab-local API client. */
 export function requestActiveProRoomBotCommand(
   prompt: string,
-  signal?: AbortSignal,
+  requestIdOrSignal?: string | AbortSignal,
+  maybeSignal?: AbortSignal,
 ): Promise<ProRoomBotCommandResult> {
   const code = controller.snapshot?.roomCode;
   if (code !== '000001') throw new ProRoomApiError('BOT_UNAVAILABLE');
-  const requestId = createProRoomIdempotencyKey();
+  const requestId =
+    typeof requestIdOrSignal === 'string' ? requestIdOrSignal : createProRoomIdempotencyKey();
+  const signal = typeof requestIdOrSignal === 'string' ? maybeSignal : requestIdOrSignal;
   return api.runBotCommand({ code, prompt, requestId }, signal);
 }
 

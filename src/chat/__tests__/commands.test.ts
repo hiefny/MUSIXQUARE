@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   rememberPinnedNotice: vi.fn(),
   showToast: vi.fn(),
   requestActiveProRoomBotCommand: vi.fn(),
+  beginLocalBotChatRequest: vi.fn(() => true),
+  publishBotChatResult: vi.fn(() => true),
 }));
 
 vi.mock('../../ui/chat-render.ts', () => ({
@@ -20,13 +22,22 @@ vi.mock('../../ui/chat-render.ts', () => ({
 }));
 vi.mock('../../network/peer.ts', () => ({ sendToHost: mocks.sendToHost }));
 vi.mock('../debug-console.ts', () => ({ cmdDebug: mocks.cmdDebug }));
-vi.mock('../protocol.ts', () => ({ rememberPinnedNotice: mocks.rememberPinnedNotice }));
+vi.mock('../protocol.ts', () => ({
+  rememberPinnedNotice: mocks.rememberPinnedNotice,
+  beginLocalBotChatRequest: mocks.beginLocalBotChatRequest,
+  publishBotChatResult: mocks.publishBotChatResult,
+}));
 vi.mock('../../ui/toast.ts', () => ({ showToast: mocks.showToast }));
 vi.mock('../../pro-room/runtime.ts', () => ({
   requestActiveProRoomBotCommand: mocks.requestActiveProRoomBotCommand,
 }));
 
-import { parseCommand, executeCommand, getAvailableCommands } from '../commands.ts';
+import {
+  parseCommand,
+  executeCommand,
+  getAvailableCommands,
+  shouldBroadcastCommand,
+} from '../commands.ts';
 
 beforeEach(() => {
   resetState();
@@ -94,6 +105,8 @@ describe('getAvailableCommands permission filtering', () => {
 });
 
 describe('/bot beta command', () => {
+  const requestId = `mxqr-pro-${'a'.repeat(48)}`;
+
   function enterBotRoom(): void {
     setState('room.context', {
       kind: 'pro',
@@ -116,6 +129,8 @@ describe('/bot beta command', () => {
 
     enterBotRoom();
     expect(getAvailableCommands().map((command) => command.name)).toContain('bot');
+    expect(shouldBroadcastCommand(parseCommand('/bot next')!)).toBe(true);
+    expect(shouldBroadcastCommand(parseCommand('/bot')!)).toBe(false);
   });
 
   it('uses the authoritative added count instead of the model summary', async () => {
@@ -127,17 +142,27 @@ describe('/bot beta command', () => {
       playbackChanged: false,
     });
 
-    executeCommand({
-      name: 'bot',
-      args: ['인기곡', '3개'],
-      rawArgs: '  인기곡 3개 추가해줘  ',
-    });
+    executeCommand(
+      {
+        name: 'bot',
+        args: ['인기곡', '3개'],
+        rawArgs: '  인기곡 3개 추가해줘  ',
+      },
+      { botRequestId: requestId },
+    );
 
-    expect(mocks.addSystemChatMessage).toHaveBeenCalledOnce();
+    expect(mocks.addSystemChatMessage).not.toHaveBeenCalled();
+    expect(mocks.beginLocalBotChatRequest).toHaveBeenCalledWith(requestId);
     await vi.waitFor(() => {
-      expect(mocks.requestActiveProRoomBotCommand).toHaveBeenCalledWith('인기곡 3개 추가해줘');
-      expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith('BOT이 3곡을 추가했어요');
-      expect(mocks.showToast).toHaveBeenCalledOnce();
+      expect(mocks.requestActiveProRoomBotCommand).toHaveBeenCalledWith(
+        '인기곡 3개 추가해줘',
+        requestId,
+      );
+      expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, {
+        kind: 'added',
+        count: 3,
+        playbackChanged: false,
+      });
     });
   });
 
@@ -150,12 +175,17 @@ describe('/bot beta command', () => {
       playbackChanged: true,
     });
 
-    executeCommand({ name: 'bot', args: ['play'], rawArgs: '한 곡 추가하고 재생해줘' });
+    executeCommand(
+      { name: 'bot', args: ['play'], rawArgs: '한 곡 추가하고 재생해줘' },
+      { botRequestId: requestId },
+    );
 
     await vi.waitFor(() => {
-      expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith(
-        'BOT이 1곡을 추가하고 재생을 시작했어요',
-      );
+      expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, {
+        kind: 'added',
+        count: 1,
+        playbackChanged: true,
+      });
     });
   });
 
@@ -168,10 +198,16 @@ describe('/bot beta command', () => {
       playbackChanged: true,
     });
 
-    executeCommand({ name: 'bot', args: ['shuffle'], rawArgs: '셔플 켜줘' });
+    executeCommand(
+      { name: 'bot', args: ['shuffle'], rawArgs: '셔플 켜줘' },
+      { botRequestId: requestId },
+    );
 
     await vi.waitFor(() => {
-      expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith('셔플을 켰어요.');
+      expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, {
+        kind: 'answer',
+        text: '셔플을 켰어요.',
+      });
     });
   });
 
@@ -182,15 +218,13 @@ describe('/bot beta command', () => {
       retryAfterSeconds: 12.2,
     });
 
-    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' });
+    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });
 
     await vi.waitFor(() => {
-      expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith(
-        'BOT 요청 한도에 도달했어요. 13초 후 다시 시도해 주세요',
-      );
-      expect(mocks.showToast).toHaveBeenLastCalledWith(
-        'BOT 요청 한도에 도달했어요. 13초 후 다시 시도해 주세요',
-      );
+      expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, {
+        kind: 'rate_limited',
+        retryAfterSeconds: 13,
+      });
     });
   });
 
@@ -198,13 +232,12 @@ describe('/bot beta command', () => {
     enterBotRoom();
     mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce(new Error('secret upstream detail'));
 
-    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' });
+    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });
 
     await vi.waitFor(() => {
-      expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(2);
-      expect(mocks.showToast).toHaveBeenCalledOnce();
+      expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, { kind: 'failed' });
     });
-    expect(mocks.addSystemChatMessage.mock.calls.flat().join(' ')).not.toContain(
+    expect(mocks.publishBotChatResult.mock.calls.flat().join(' ')).not.toContain(
       'secret upstream detail',
     );
   });

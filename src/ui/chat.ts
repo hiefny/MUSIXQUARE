@@ -19,9 +19,11 @@ import { getRoleLabelByChannelMode } from './player-controls.ts';
 import {
   parseCommand,
   executeCommand,
+  shouldBroadcastCommand,
   getAvailableCommands,
   getCommandArgHint,
 } from '../chat/commands.ts';
+import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import { clearLatestPinnedNotice, registerChatProtocolHandlers } from '../chat/protocol.ts';
 import {
@@ -379,15 +381,16 @@ export function sendChatMessage(): void {
   _lastSentTs = now;
 
   // ── Command intercept ──
-  const cmd = parseCommand(text);
-  if (cmd) {
+  const initialCommand = parseCommand(text);
+  const isVisibleBotCommand = initialCommand ? shouldBroadcastCommand(initialCommand) : false;
+  if (initialCommand && !isVisibleBotCommand) {
     input.contentEditable = 'false';
     input.replaceChildren();
     void input.offsetHeight; // Force reflow
     input.contentEditable = 'true';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
-    executeCommand(cmd);
+    executeCommand(initialCommand);
     return;
   }
 
@@ -422,6 +425,14 @@ export function sendChatMessage(): void {
     text = filterProfanity(text);
   }
 
+  // Reparse the final, bounded/filtered text so the model receives exactly
+  // what every participant sees in the ordinary chat bubble.
+  const visibleBotCommand = isVisibleBotCommand ? parseCommand(text) : null;
+  const botRequestId =
+    visibleBotCommand && shouldBroadcastCommand(visibleBotCommand)
+      ? createProRoomIdempotencyKey()
+      : undefined;
+
   const senderLabel = _getChatLabelBase();
   const displayName = formatChatDisplayName(senderLabel);
   const myJoinOrder = getState('network.myJoinOrder') ?? 0;
@@ -438,12 +449,17 @@ export function sendChatMessage(): void {
     text: text,
     ts: Date.now(),
     joinOrder: myJoinOrder,
+    ...(botRequestId ? { botRequestId } : {}),
   };
 
   if (!hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else {
     sendToHost(chatMsg);
+  }
+
+  if (botRequestId && visibleBotCommand) {
+    executeCommand(visibleBotCommand, { botRequestId });
   }
 
   // iOS Korean IME reset: a contentEditable toggle alone leaves the

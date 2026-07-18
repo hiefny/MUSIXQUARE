@@ -16,6 +16,7 @@ import {
 } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { broadcast, safeSend } from '../network/peer-state.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { filterProfanity } from './profanity.ts';
@@ -25,6 +26,7 @@ import {
   addWhisperMessage,
   addNoticeChatMessage,
   formatChatDisplayName,
+  upsertBotChatMessage,
 } from '../ui/chat-render.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -86,6 +88,138 @@ export function sendLatestPinnedNotice(conn: DataConnection | null | undefined):
 // ─── Dedup ───────────────────────────────────────────────────────
 
 const _recentMsgIds = new Set<string>();
+
+export type BotChatResult =
+  | { kind: 'answer'; text: string }
+  | { kind: 'added'; count: number; playbackChanged: boolean }
+  | { kind: 'failed' }
+  | { kind: 'rate_limited'; retryAfterSeconds: number };
+
+type BotChatRequest = {
+  ownerId: string;
+  state: 'pending' | 'complete';
+  expiresAt: number;
+};
+
+const BOT_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const BOT_REQUEST_TTL_MS = 60_000;
+const BOT_REQUEST_MAX_ITEMS = 100;
+const _botChatRequests = new Map<string, BotChatRequest>();
+
+function isBotBetaRoom(): boolean {
+  const room = getRoomContext();
+  return room.kind === 'pro' && room.roomId === '000001';
+}
+
+function isBotCommandText(text: string): boolean {
+  const match = /^\/bot(?:\s+)([\s\S]+)$/i.exec(text);
+  return !!match && match[1]!.trim().length > 0;
+}
+
+function cleanupBotChatRequests(now = Date.now()): void {
+  for (const [requestId, request] of _botChatRequests) {
+    if (request.expiresAt <= now) _botChatRequests.delete(requestId);
+  }
+  while (_botChatRequests.size > BOT_REQUEST_MAX_ITEMS) {
+    const oldest = _botChatRequests.keys().next().value as string | undefined;
+    if (!oldest) break;
+    _botChatRequests.delete(oldest);
+  }
+}
+
+function rememberBotChatRequest(requestId: string, ownerId: string): boolean {
+  if (!isBotBetaRoom() || !BOT_REQUEST_ID_RE.test(requestId) || !ownerId) return false;
+  const now = Date.now();
+  cleanupBotChatRequests(now);
+  const existing = _botChatRequests.get(requestId);
+  if (existing && existing.ownerId !== ownerId) return false;
+  if (existing?.state === 'complete') return false;
+  _botChatRequests.set(requestId, {
+    ownerId,
+    state: 'pending',
+    expiresAt: now + BOT_REQUEST_TTL_MS,
+  });
+  cleanupBotChatRequests(now);
+  return true;
+}
+
+function normalizeBotChatResult(result: BotChatResult): BotChatResult | null {
+  switch (result.kind) {
+    case 'answer': {
+      const text = result.text.trim();
+      return text && text.length <= MAX_MSG_LENGTH ? { kind: 'answer', text } : null;
+    }
+    case 'added':
+      return Number.isSafeInteger(result.count) && result.count >= 1 && result.count <= 3
+        ? { kind: 'added', count: result.count, playbackChanged: result.playbackChanged === true }
+        : null;
+    case 'failed':
+      return { kind: 'failed' };
+    case 'rate_limited':
+      return Number.isSafeInteger(result.retryAfterSeconds) &&
+        result.retryAfterSeconds >= 1 &&
+        result.retryAfterSeconds <= 3600
+        ? { kind: 'rate_limited', retryAfterSeconds: result.retryAfterSeconds }
+        : null;
+    default:
+      return null;
+  }
+}
+
+function localizeBotChatResult(result: BotChatResult): string {
+  switch (result.kind) {
+    case 'answer':
+      return result.text;
+    case 'added':
+      return t(result.playbackChanged ? 'chat.bot_added_and_playing' : 'chat.bot_added_tracks', {
+        count: result.count,
+      });
+    case 'failed':
+      return t('chat.bot_failed');
+    case 'rate_limited':
+      return t('chat.bot_rate_limited', { seconds: result.retryAfterSeconds });
+  }
+}
+
+function completeBotChatRequest(requestId: string, result: BotChatResult): boolean {
+  const now = Date.now();
+  cleanupBotChatRequests(now);
+  const request = _botChatRequests.get(requestId);
+  if (!request || request.state !== 'pending' || request.expiresAt <= now) return false;
+  request.state = 'complete';
+  request.expiresAt = now + BOT_REQUEST_TTL_MS;
+  upsertBotChatMessage(requestId, 'complete', localizeBotChatResult(result));
+  return true;
+}
+
+/** Register the requester's locally rendered BOT placeholder before the API call. */
+export function beginLocalBotChatRequest(requestId: string): boolean {
+  const myId = getState('network.myId') || '';
+  if (!rememberBotChatRequest(requestId, myId)) return false;
+  upsertBotChatMessage(requestId, 'typing');
+  return true;
+}
+
+/** Complete the local BOT bubble and relay one terminal result through chat authority. */
+export function publishBotChatResult(requestId: string, result: BotChatResult): boolean {
+  if (!isBotBetaRoom()) return false;
+  const normalized = normalizeBotChatResult(result);
+  const myId = getState('network.myId') || '';
+  const request = _botChatRequests.get(requestId);
+  if (!normalized || !request || request.ownerId !== myId) return false;
+  if (!completeBotChatRequest(requestId, normalized)) return false;
+
+  const frame = {
+    type: MSG.CHAT_BOT_RESULT,
+    requestId,
+    senderId: myId,
+    result: normalized,
+  } as const;
+  const hostConn = getState('network.hostConn');
+  if (hostConn) safeSend(hostConn, frame);
+  else broadcast(frame);
+  return true;
+}
 
 // ─── Server-side Rate Limit (host only) ─────────────────────────
 //
@@ -173,7 +307,10 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   }
 
   const myId = getState('network.myId') || '';
-  const senderId = (data.senderId as string) || '';
+  // On the coordinator, the connection is the identity. Never let an inbound
+  // guest frame claim the coordinator's own senderId and trigger the local
+  // echo shortcut before authoritative identity rewriting.
+  const senderId = !hostConn ? conn?.peer || '' : (data.senderId as string) || '';
   const isMine = senderId === myId;
 
   // Already displayed locally in sendChatMessage() — drop echo-back
@@ -247,11 +384,60 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   const joinOrder = typeof data.joinOrder === 'number' ? data.joinOrder : undefined;
   addChatMessage(displayName, text, isMine, badge, joinOrder);
 
+  // A valid BOT command remains an ordinary user chat row. Its opaque request
+  // id only adds a separate, update-in-place BOT response bubble. On the host,
+  // bind that id to the authenticated connection identity before fan-out;
+  // guests trust the already-sanitized senderId from their host connection.
+  const botRequestId = typeof data.botRequestId === 'string' ? data.botRequestId : '';
+  const botOwnerId = !hostConn ? conn?.peer || '' : (data.senderId as string) || '';
+  const isValidBotRequest =
+    !!botRequestId && isBotCommandText(text) && rememberBotChatRequest(botRequestId, botOwnerId);
+  if (isValidBotRequest) {
+    upsertBotChatMessage(botRequestId, 'typing');
+  } else if (!hostConn && Object.prototype.hasOwnProperty.call(data, 'botRequestId')) {
+    // Do not propagate BOT metadata outside the beta room, on non-BOT text,
+    // or when an id is already owned by another participant.
+    delete data.botRequestId;
+  }
+
   // Broadcast to other peers (Host only), excluding the sender to avoid duplicates.
   if (!hostConn) {
     const senderPeerId = conn?.peer || '';
     bus.emit('network:broadcast-except', senderPeerId, data);
   }
+}
+
+function handleChatBotResult(data: Record<string, unknown>, conn: DataConnection): void {
+  if (!isBotBetaRoom()) return;
+  const normalized = normalizeBotChatResult(data.result as BotChatResult);
+  if (!normalized) return;
+
+  const hostConn = getState('network.hostConn');
+  const requestId = data.requestId as string;
+  const claimedOwnerId = data.senderId as string;
+  cleanupBotChatRequests();
+  const request = _botChatRequests.get(requestId);
+  if (!request || request.state !== 'pending' || request.ownerId !== claimedOwnerId) return;
+
+  if (!hostConn) {
+    // Coordinator: only the same authenticated peer that introduced the
+    // ordinary /bot CHAT row may complete it. A terminal frame is accepted
+    // once, then fanned out without echoing to the requester (already updated
+    // locally when its API call completed).
+    const senderPeerId = conn?.peer || '';
+    if (!senderPeerId || senderPeerId !== claimedOwnerId) return;
+    if (!completeBotChatRequest(requestId, normalized)) return;
+    data.senderId = senderPeerId;
+    data.result = normalized;
+    bus.emit('network:broadcast-except', senderPeerId, data);
+    return;
+  }
+
+  // Member: terminal BOT results are authority frames and therefore only
+  // arrive from the current coordinator connection. The earlier CHAT mapping
+  // still binds them to the original requester across coordinator handoff.
+  if (!isFromHost(conn)) return;
+  completeBotChatRequest(requestId, normalized);
 }
 
 // ─── Admin Handlers ──────────────────────────────────────────────
@@ -515,6 +701,7 @@ export function registerChatProtocolHandlers(): void {
     [MSG.CHAT_SLOWMODE]: handleChatSlowmode,
     [MSG.CHAT_FILTER]: handleChatFilter,
     [MSG.CHAT_SYSTEM]: handleChatSystem,
+    [MSG.CHAT_BOT_RESULT]: handleChatBotResult,
   });
 
   // Drop rate-limit buckets for peers that leave, so the map doesn't

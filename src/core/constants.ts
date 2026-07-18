@@ -216,6 +216,7 @@ export const MSG = {
   CHAT_SLOWMODE: 'chat-slowmode',
   CHAT_FILTER: 'chat-filter',
   CHAT_SYSTEM: 'chat-system',
+  CHAT_BOT_RESULT: 'chat-bot-result',
   REQUEST_CHAT_COMMAND: 'request-chat-command',
 } as const;
 

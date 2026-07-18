@@ -148,6 +148,58 @@ describe('registerHandlers', () => {
   });
 });
 
+describe('BOT chat frame validation', () => {
+  const requestId = `mxqr-pro-${'a'.repeat(48)}`;
+  const conn = makeConnection('guest-bot-1');
+
+  it('accepts ordinary chat with an optional API-safe BOT request id', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.CHAT, handler);
+
+    await handleData({ type: MSG.CHAT, text: '/bot play jazz', botRequestId: requestId }, conn);
+    await handleData({ type: MSG.CHAT, text: 'ordinary chat' }, conn);
+    for (const botRequestId of ['', 'short', `mxqr-pro-${'!'.repeat(48)}`, 'a'.repeat(129)]) {
+      await handleData({ type: MSG.CHAT, text: '/bot rejected', botRequestId }, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts only exact, bounded terminal BOT result unions', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.CHAT_BOT_RESULT, handler);
+    const base = {
+      type: MSG.CHAT_BOT_RESULT,
+      requestId,
+      senderId: 'guest-bot-1',
+    };
+
+    for (const result of [
+      { kind: 'answer', text: 'Done' },
+      { kind: 'added', count: 3, playbackChanged: true },
+      { kind: 'failed' },
+      { kind: 'rate_limited', retryAfterSeconds: 30 },
+    ]) {
+      await handleData({ ...base, result }, conn);
+    }
+    expect(handler).toHaveBeenCalledTimes(4);
+
+    for (const invalid of [
+      { ...base, result: { kind: 'answer', text: '' } },
+      { ...base, result: { kind: 'answer', text: 'x'.repeat(501) } },
+      { ...base, result: { kind: 'added', count: 4, playbackChanged: false } },
+      { ...base, result: { kind: 'failed', text: 'smuggled' } },
+      { ...base, result: { kind: 'rate_limited', retryAfterSeconds: 0 } },
+      { ...base, senderId: '<spoof>', result: { kind: 'failed' } },
+      { ...base, requestId: 'short', result: { kind: 'failed' } },
+      { ...base, result: { kind: 'failed' }, extra: true },
+    ]) {
+      await handleData(invalid, conn);
+    }
+    expect(handler).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe('verifyOperator', () => {
   it('returns false when connection is null', () => {
     expect(verifyOperator(null as unknown as DataConnection)).toBe(false);

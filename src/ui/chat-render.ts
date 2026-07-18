@@ -354,6 +354,122 @@ export function addSystemChatMessage(text: string): void {
   if (isAtBottom) container.scrollTop = container.scrollHeight;
 }
 
+// ─── Render: BOT Message ─────────────────────────────────────────
+
+type BotChatMessageState = 'typing' | 'complete';
+
+function findBotChatGroup(container: HTMLElement, requestId: string): HTMLElement | null {
+  for (const candidate of container.querySelectorAll<HTMLElement>('.chat-group.bot')) {
+    if (candidate.dataset.botRequestId === requestId) return candidate;
+  }
+  return null;
+}
+
+function renderBotTypingIndicator(target: HTMLElement): void {
+  const indicator = document.createElement('span');
+  indicator.className = 'chat-bot-typing';
+  indicator.setAttribute('aria-hidden', 'true');
+
+  for (let index = 0; index < 3; index += 1) {
+    const dot = document.createElement('span');
+    dot.className = 'chat-bot-typing-dot';
+    indicator.appendChild(dot);
+  }
+
+  target.replaceChildren(indicator);
+}
+
+function createBotChatGroup(requestId: string): HTMLElement {
+  const now = new Date();
+  const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+  const group = document.createElement('div');
+  group.className = 'chat-group chat-enter others bot';
+  group.dataset.botRequestId = requestId;
+  group.dataset.botState = 'typing';
+
+  const senderNode = document.createElement('div');
+  senderNode.className = 'chat-sender';
+  senderNode.textContent = 'BOT';
+  group.appendChild(senderNode);
+
+  const row = document.createElement('div');
+  row.className = 'chat-row';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble others bot is-typing';
+  bubble.setAttribute('role', 'status');
+  bubble.setAttribute('aria-live', 'polite');
+  bubble.setAttribute('aria-atomic', 'true');
+  bubble.setAttribute('aria-busy', 'true');
+  bubble.setAttribute('aria-label', t('chat.bot_processing'));
+
+  const chatTextDiv = document.createElement('div');
+  chatTextDiv.className = 'chat-text';
+  renderBotTypingIndicator(chatTextDiv);
+  bubble.appendChild(chatTextDiv);
+
+  const timeNode = document.createElement('div');
+  timeNode.className = 'chat-time';
+  timeNode.innerText = timeStr;
+
+  row.appendChild(bubble);
+  row.appendChild(timeNode);
+  group.appendChild(row);
+  return group;
+}
+
+/**
+ * Create or update the single BOT bubble owned by a request.
+ *
+ * Typing calls are idempotent. The first terminal call replaces the typing
+ * indicator in the existing bubble and emits one render event; later terminal
+ * replays are ignored so retries cannot duplicate preview/unread updates.
+ */
+export function upsertBotChatMessage(
+  requestId: string,
+  state: BotChatMessageState,
+  text = '',
+): void {
+  const normalizedRequestId = requestId.trim();
+  if (!normalizedRequestId) return;
+
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  const isAtBottom = isContainerAtBottom(container);
+
+  const empty = container.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  const drawer = document.getElementById('chat-drawer');
+  if (drawer) drawer.classList.add('has-messages');
+
+  let group = findBotChatGroup(container, normalizedRequestId);
+  if (!group) {
+    group = createBotChatGroup(normalizedRequestId);
+    container.appendChild(group);
+  }
+
+  if (state === 'complete' && group.dataset.botState !== 'complete') {
+    const bubble = group.querySelector<HTMLElement>('.chat-bubble.bot');
+    const chatText = bubble?.querySelector<HTMLElement>('.chat-text');
+    if (bubble && chatText) {
+      // Keep model-authored content inert: BOT replies never create embedded
+      // controls or timestamp actions from their text.
+      chatText.textContent = text;
+      bubble.classList.remove('is-typing');
+      bubble.classList.add('is-complete');
+      bubble.setAttribute('aria-busy', 'false');
+      bubble.removeAttribute('aria-label');
+      group.dataset.botState = 'complete';
+      bus.emit('chat:message-rendered', 'BOT', text, false);
+    }
+  }
+
+  pruneOldMessages(container);
+  if (isAtBottom) container.scrollTop = container.scrollHeight;
+}
+
 // ─── Render: Whisper Message ─────────────────────────────────────
 
 export function addWhisperMessage(peerLabel: string, text: string, isSent: boolean): void {

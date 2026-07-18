@@ -59,6 +59,10 @@ const REMOTE_OBJECT_ID_RE =
 // Keep member-management requests to one small opaque identifier so callers
 // cannot smuggle a connection object or other coordinator-owned state.
 const PRO_PEER_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+// Shared with the authenticated PRO API idempotency-key contract. BOT chat
+// correlation ids are opaque, bounded tokens; they never contain a room or
+// participant identity.
+const BOT_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 // Host-created, opaque transition identity. The production generator uses
 // URL-safe base36/UUID-like components; keeping the wire alphabet narrow also
 // prevents control characters from reaching diagnostics and map keys.
@@ -107,6 +111,39 @@ function hasExactKeys(
     required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
     Object.keys(value).every((key) => allowed.has(key))
   );
+}
+
+function isBotChatResult(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  switch (result.kind) {
+    case 'answer':
+      return (
+        hasExactKeys(result, ['kind', 'text']) &&
+        typeof result.text === 'string' &&
+        result.text.trim().length > 0 &&
+        result.text.length <= 500
+      );
+    case 'added':
+      return (
+        hasExactKeys(result, ['kind', 'count', 'playbackChanged']) &&
+        Number.isSafeInteger(result.count) &&
+        (result.count as number) >= 1 &&
+        (result.count as number) <= 3 &&
+        typeof result.playbackChanged === 'boolean'
+      );
+    case 'failed':
+      return hasExactKeys(result, ['kind']);
+    case 'rate_limited':
+      return (
+        hasExactKeys(result, ['kind', 'retryAfterSeconds']) &&
+        Number.isSafeInteger(result.retryAfterSeconds) &&
+        (result.retryAfterSeconds as number) >= 1 &&
+        (result.retryAfterSeconds as number) <= 3600
+      );
+    default:
+      return false;
+  }
 }
 
 // Max 200,000 chunks ≈ 12.2 GiB at 64 KiB/chunk; prevents an unbounded total.
@@ -802,7 +839,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // is killing multi-KB/MB
   // amplification frames at the door (defense-in-depth behind the host-side
   // write-back truncation in chat/protocol.ts).
-  [MSG.CHAT]: (d) => typeof d.text === 'string' && d.text.length <= 4000,
+  [MSG.CHAT]: (d) =>
+    typeof d.text === 'string' &&
+    d.text.length <= 4000 &&
+    (d.botRequestId === undefined ||
+      (typeof d.botRequestId === 'string' && BOT_REQUEST_ID_RE.test(d.botRequestId))),
   [MSG.CHAT_WHISPER]: (d) =>
     typeof d.text === 'string' && d.text.length <= 4000 && typeof d.targetId === 'string',
   // text is required for back-compat fallback; i18nKey/i18nParams are optional
@@ -817,6 +858,13 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     d.text.length <= 4000 &&
     (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
     (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
+  [MSG.CHAT_BOT_RESULT]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'senderId', 'result']) &&
+    typeof d.requestId === 'string' &&
+    BOT_REQUEST_ID_RE.test(d.requestId) &&
+    typeof d.senderId === 'string' &&
+    PRO_PEER_ID_RE.test(d.senderId) &&
+    isBotChatResult(d.result),
   [MSG.OPERATOR_TOAST]: (d) =>
     typeof d.text === 'string' &&
     d.text.length <= 300 &&

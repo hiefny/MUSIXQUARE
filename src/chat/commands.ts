@@ -17,16 +17,21 @@ import {
 import { getOtherDeviceLabels } from '../network/guards.ts';
 import { sendToHost } from '../network/peer.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
 import { t } from '../i18n/index.ts';
 import {
   addSystemChatMessage,
   addWhisperMessage,
   addNoticeChatMessage,
 } from '../ui/chat-render.ts';
-import { showToast } from '../ui/toast.ts';
 import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
-import { rememberPinnedNotice } from './protocol.ts';
+import {
+  beginLocalBotChatRequest,
+  publishBotChatResult,
+  rememberPinnedNotice,
+  type BotChatResult,
+} from './protocol.ts';
 import { cmdDebug } from './debug-console.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -37,11 +42,16 @@ interface ParsedCommand {
   rawArgs: string;
 }
 
+interface CommandExecutionContext {
+  /** Shared by the visible CHAT request, the server call, and its BOT reply. */
+  botRequestId?: string;
+}
+
 type Permission = 'host' | 'host+op' | 'all';
 
 interface CommandDef {
   permission: Permission;
-  execute: (args: string[], rawArgs: string) => void;
+  execute: (args: string[], rawArgs: string, context?: CommandExecutionContext) => void;
   usage: string;
   description: string;
   suggestWhen?: () => boolean;
@@ -476,7 +486,7 @@ function getBotRateLimitRetryAfter(error: unknown): number | null {
   return Math.max(1, Math.ceil(retryAfterSeconds));
 }
 
-async function runBotCommand(rawArgs: string): Promise<void> {
+async function runBotCommand(rawArgs: string, requestId?: string): Promise<void> {
   if (!isBotBetaRoom()) {
     addSystemChatMessage(t('chat.bot_unavailable'));
     return;
@@ -491,36 +501,39 @@ async function runBotCommand(rawArgs: string): Promise<void> {
     return;
   }
 
+  const resolvedRequestId = requestId ?? createProRoomIdempotencyKey();
+  if (!beginLocalBotChatRequest(resolvedRequestId)) {
+    addSystemChatMessage(t('chat.bot_failed'));
+    return;
+  }
+
   _botRequestInFlight = true;
-  addSystemChatMessage(t('chat.bot_processing'));
   try {
     const { requestActiveProRoomBotCommand } = await import('../pro-room/runtime.ts');
-    const result = await requestActiveProRoomBotCommand(prompt);
+    const result = await requestActiveProRoomBotCommand(prompt, resolvedRequestId);
     if (!isBotBetaRoom()) return;
-    const message =
+    const terminal: BotChatResult =
       result.addedCount > 0
-        ? t(result.playbackChanged ? 'chat.bot_added_and_playing' : 'chat.bot_added_tracks', {
+        ? {
+            kind: 'added',
             count: result.addedCount,
-          })
-        : result.summary;
-    addSystemChatMessage(message);
-    showToast(t('chat.bot_completed'));
+            playbackChanged: result.playbackChanged,
+          }
+        : { kind: 'answer', text: result.summary };
+    publishBotChatResult(resolvedRequestId, terminal);
   } catch (error) {
     if (!isBotBetaRoom()) return;
     const retryAfterSeconds = getBotRateLimitRetryAfter(error);
-    const message =
-      retryAfterSeconds === null
-        ? t('chat.bot_failed')
-        : t('chat.bot_rate_limited', { seconds: retryAfterSeconds });
-    addSystemChatMessage(message);
-    showToast(message);
+    const terminal: BotChatResult =
+      retryAfterSeconds === null ? { kind: 'failed' } : { kind: 'rate_limited', retryAfterSeconds };
+    publishBotChatResult(resolvedRequestId, terminal);
   } finally {
     _botRequestInFlight = false;
   }
 }
 
-function cmdBot(_args: string[], rawArgs: string): void {
-  void runBotCommand(rawArgs);
+function cmdBot(_args: string[], rawArgs: string, context?: CommandExecutionContext): void {
+  void runBotCommand(rawArgs, context?.botRequestId);
 }
 
 // ─── Command Registry ───────────────────────────────────────────
@@ -685,7 +698,17 @@ export function getCommandArgHint(cmdName: string): string {
   return spaceIdx === -1 ? '' : def.usage.slice(spaceIdx + 1);
 }
 
-export function executeCommand(cmd: ParsedCommand): void {
+/**
+ * Only a valid, locally executable BOT request is intentionally visible as
+ * ordinary room chat. Every other slash command remains a local command.
+ */
+export function shouldBroadcastCommand(cmd: ParsedCommand): boolean {
+  return (
+    cmd.name === 'bot' && isBotBetaRoom() && cmd.rawArgs.trim().length > 0 && !_botRequestInFlight
+  );
+}
+
+export function executeCommand(cmd: ParsedCommand, context?: CommandExecutionContext): void {
   const def = _resolveCommand(cmd.name);
   if (!def) {
     addSystemChatMessage(t('chat.cmd_unknown', { cmd: cmd.name }));
@@ -695,5 +718,6 @@ export function executeCommand(cmd: ParsedCommand): void {
     addSystemChatMessage(t('chat.cmd_no_permission'));
     return;
   }
-  def.execute(cmd.args, cmd.rawArgs);
+  if (context) def.execute(cmd.args, cmd.rawArgs, context);
+  else def.execute(cmd.args, cmd.rawArgs);
 }

@@ -9,6 +9,11 @@ import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 const requestActiveProRoomBotCommand = vi.hoisted(() => vi.fn());
+const botProtocolMocks = vi.hoisted(() => ({
+  beginLocalBotChatRequest: vi.fn(() => true),
+  publishBotChatResult: vi.fn(() => true),
+  rememberPinnedNotice: vi.fn(),
+}));
 
 window.matchMedia =
   window.matchMedia ||
@@ -31,6 +36,14 @@ vi.mock('../../network/peer.ts', () => ({
 
 vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn(),
+}));
+
+vi.mock('../../chat/protocol.ts', () => ({
+  beginLocalBotChatRequest: botProtocolMocks.beginLocalBotChatRequest,
+  publishBotChatResult: botProtocolMocks.publishBotChatResult,
+  rememberPinnedNotice: botProtocolMocks.rememberPinnedNotice,
+  clearLatestPinnedNotice: vi.fn(),
+  registerChatProtocolHandlers: vi.fn(),
 }));
 
 vi.mock('../../pro-room/runtime.ts', () => ({
@@ -58,6 +71,7 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   requestActiveProRoomBotCommand.mockReset();
+  botProtocolMocks.beginLocalBotChatRequest.mockReturnValue(true);
   document.body.innerHTML = '';
 });
 
@@ -336,7 +350,7 @@ describe('Chat Module', () => {
       );
     });
 
-    it('intercepts /bot without sending the prompt as a regular CHAT frame', async () => {
+    it('shows and sends /bot as ordinary chat while executing it only once locally', async () => {
       renderSendShell('/bot 인기곡 3개 추가해줘');
       setState('room.context', {
         kind: 'pro',
@@ -348,6 +362,7 @@ describe('Chat Module', () => {
         capabilities: ['queue.mutate', 'playback.control'],
       });
       setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.myId', 'guest-1');
       requestActiveProRoomBotCommand.mockResolvedValueOnce({
         ok: true,
         summary: '3곡을 추가했어요.',
@@ -361,14 +376,29 @@ describe('Chat Module', () => {
       sendChatMessage();
 
       await vi.waitFor(() => {
-        expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith('인기곡 3개 추가해줘');
-        expect(
-          Array.from(document.querySelectorAll<HTMLElement>('#chat-messages .chat-text')).map(
-            (element) => element.textContent,
-          ),
-        ).toContain('chat.bot_added_tracks');
+        expect(requestActiveProRoomBotCommand).toHaveBeenCalledOnce();
       });
-      expect(sendToHost).not.toHaveBeenCalled();
+      const outbound = vi.mocked(sendToHost).mock.calls[0]?.[0] as {
+        text?: string;
+        botRequestId?: string;
+      };
+      expect(outbound).toMatchObject({ text: '/bot 인기곡 3개 추가해줘' });
+      expect(outbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
+      expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith(
+        '인기곡 3개 추가해줘',
+        outbound.botRequestId,
+      );
+      expect(botProtocolMocks.beginLocalBotChatRequest).toHaveBeenCalledWith(outbound.botRequestId);
+      expect(botProtocolMocks.publishBotChatResult).toHaveBeenCalledWith(outbound.botRequestId, {
+        kind: 'added',
+        count: 3,
+        playbackChanged: false,
+      });
+      expect(
+        Array.from(document.querySelectorAll<HTMLElement>('#chat-messages .chat-text')).map(
+          (element) => element.textContent,
+        ),
+      ).toContain('/bot 인기곡 3개 추가해줘');
       expect(broadcast).not.toHaveBeenCalled();
       expect(document.getElementById('chat-input')?.textContent).toBe('');
     });

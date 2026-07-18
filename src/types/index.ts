@@ -693,6 +693,17 @@ export interface ProtocolMap {
     text: string;
     ts: number;
     joinOrder?: number;
+    /** Correlates a visible `/bot` request with its single terminal BOT reply. */
+    botRequestId?: string;
+  };
+  'chat-bot-result': {
+    requestId: string;
+    senderId: string;
+    result:
+      | { kind: 'answer'; text: string }
+      | { kind: 'added'; count: number; playbackChanged: boolean }
+      | { kind: 'failed' }
+      | { kind: 'rate_limited'; retryAfterSeconds: number };
   };
 
   // ── Rename ──────────────────────────────────────────────────────

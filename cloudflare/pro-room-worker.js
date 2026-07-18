@@ -44,7 +44,14 @@ const DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 
 const SCHEMA_VERSION = 1;
+// `pro-room:v1` remains a rollback shadow for rooms that still fit in the old
+// single-record budget. The live v2 representation keeps the bounded core and
+// playlist rows in separate keys so a large queue cannot crowd media
+// completion metadata out of the Durable Object record.
 const STORAGE_KEY = 'pro-room:v1';
+const STORAGE_V2_CORE_KEY = 'pro-room:v2:core';
+const STORAGE_V2_PLAYLIST_PREFIX = 'pro-room:v2:playlist:';
+const STORAGE_V2_SCHEMA_VERSION = 2;
 const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYLIST_MAX_ITEMS = 1000;
@@ -70,10 +77,17 @@ const DEVELOPER_COMMAND_MAX_ACTIVE_ITEMS = 8;
 // One room-bound API key may issue 30 commands/minute; 384 entries preserve a
 // full ten-minute window even across a fixed-window rate-limit boundary.
 const DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS = 384;
-// Durable Object KV rejects a single key + value above 2 MiB. Keep enough
-// headroom for storage encoding overhead and future schema additions.
+// SQLite-backed Durable Object KV rejects a single value above 2 MiB. Keep
+// enough headroom for storage encoding overhead and future schema additions.
+// Playlist rows are stored independently and therefore have their own public
+// snapshot budget below the client's 4 MiB response ceiling.
 const STATE_MAX_BYTES = 1200 * 1024;
-const REQUEST_MAX_BYTES = 1500 * 1024;
+const PLAYLIST_STATE_MAX_BYTES = 3 * 1024 * 1024;
+const PLAYLIST_ITEM_MAX_BYTES = 128 * 1024;
+// Both the rolling-release full snapshot and the v2 compact mutation must be
+// able to carry every playlist accepted by the 3 MiB persisted-state budget.
+// Keep the endpoint bounded while matching the browser client's JSON ceiling.
+const REQUEST_MAX_BYTES = 4 * 1024 * 1024;
 const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
 const UNLOAD_CLOSE_REQUEST_MAX_BYTES = 4 * 1024;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -1676,6 +1690,94 @@ function serializedStateByteLength(room) {
   return encoder.encode(JSON.stringify(room)).byteLength;
 }
 
+function playlistStorageKey(queueItemId) {
+  return `${STORAGE_V2_PLAYLIST_PREFIX}${queueItemId}`;
+}
+
+function playlistItemSignature(item) {
+  return JSON.stringify(item);
+}
+
+function parseStoredPlaylistItem(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { developerOwnerKeyId, ...publicValue } = value;
+  const parsed = parsePlaylistItem(publicValue);
+  if (!parsed) return null;
+  if (developerOwnerKeyId === undefined) return parsed;
+  return DEVELOPER_API_KEY_ID_RE.test(developerOwnerKeyId)
+    ? { ...parsed, developerOwnerKeyId }
+    : null;
+}
+
+function splitPersistentRoomState(room) {
+  const { playlist: _playlist, ...core } = room;
+  return {
+    schemaVersion: STORAGE_V2_SCHEMA_VERSION,
+    core,
+    playlistOrder: room.playlist.map((item) => item.queueItemId),
+  };
+}
+
+function serializedCoreStateByteLength(room) {
+  return encoder.encode(JSON.stringify(splitPersistentRoomState(room))).byteLength;
+}
+
+function serializedPlaylistStateByteLength(room) {
+  return encoder.encode(JSON.stringify(room.playlist)).byteLength;
+}
+
+function validStoredV2Core(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    value.schemaVersion !== STORAGE_V2_SCHEMA_VERSION ||
+    !value.core ||
+    typeof value.core !== 'object' ||
+    Array.isArray(value.core) ||
+    !Array.isArray(value.playlistOrder) ||
+    value.playlistOrder.length > PLAYLIST_MAX_ITEMS
+  ) {
+    return false;
+  }
+  const ids = new Set();
+  for (const queueItemId of value.playlistOrder) {
+    if (!QUEUE_ITEM_ID_RE.test(queueItemId || '') || ids.has(queueItemId)) return false;
+    ids.add(queueItemId);
+  }
+  return true;
+}
+
+async function putStorageEntries(storage, entries) {
+  for (let offset = 0; offset < entries.length; offset += 128) {
+    const batch = Object.fromEntries(entries.slice(offset, offset + 128));
+    if (Object.keys(batch).length > 0) await storage.put(batch);
+  }
+}
+
+async function getStorageEntries(storage, keys) {
+  const values = new Map();
+  for (let offset = 0; offset < keys.length; offset += 128) {
+    const batch = keys.slice(offset, offset + 128);
+    if (batch.length === 0) continue;
+    if (batch.length === 1) {
+      values.set(batch[0], await storage.get(batch[0]));
+      continue;
+    }
+    const loaded = await storage.get(batch);
+    if (!(loaded instanceof Map)) throw new Error('PRO_ROOM_PERSISTENCE_V2_BATCH_INVALID');
+    for (const key of batch) values.set(key, loaded.get(key));
+  }
+  return values;
+}
+
+async function deleteStorageKeys(storage, keys) {
+  for (let offset = 0; offset < keys.length; offset += 128) {
+    const batch = keys.slice(offset, offset + 128);
+    if (batch.length > 0) await storage.delete(batch);
+  }
+}
+
 function assertBoundedRoomState(room) {
   if (
     Object.keys(room.presence.participants).length > PRESENCE_MAX_ITEMS ||
@@ -1690,7 +1792,11 @@ function assertBoundedRoomState(room) {
     Object.keys(room.developerCommands || {}).length > DEVELOPER_COMMAND_MAX_ITEMS ||
     Object.keys(room.developerCommandIdempotency || {}).length >
       DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS ||
-    serializedStateByteLength(room) > STATE_MAX_BYTES
+    serializedCoreStateByteLength(room) > STATE_MAX_BYTES ||
+    serializedPlaylistStateByteLength(room) > PLAYLIST_STATE_MAX_BYTES ||
+    room.playlist.some(
+      (item) => encoder.encode(playlistItemSignature(item)).byteLength > PLAYLIST_ITEM_MAX_BYTES,
+    )
   ) {
     throw new RoomStateCapacityError();
   }
@@ -1763,8 +1869,10 @@ export class MusixquareProRoom {
     this.systemAudioMigrationPending = false;
     this.effectsMigrationPending = false;
     this.developerCommandMigrationPending = false;
+    this.persistedPlaylistSignatures = new Map();
+    this.hasV2Persistence = false;
     const load = async () => {
-      this.room = (await this.storage.get(STORAGE_KEY)) || null;
+      await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
       this.normalizeLoadedEffects();
       this.normalizeLoadedDeveloperCommands();
@@ -1897,15 +2005,81 @@ export class MusixquareProRoom {
     } catch (error) {
       if (!(error instanceof RoomStateCapacityError)) throw error;
       this.room = rollbackRoom;
-      await this.storage.put(STORAGE_KEY, this.room);
-      await this.scheduleAlarm();
+      await this.persist();
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
   }
 
+  async loadRoomFromStorage() {
+    const storedV2 = await this.storage.get(STORAGE_V2_CORE_KEY);
+    if (storedV2 !== undefined && storedV2 !== null) {
+      if (!validStoredV2Core(storedV2)) {
+        throw new Error('PRO_ROOM_PERSISTENCE_V2_CORE_INVALID');
+      }
+      const playlistKeys = storedV2.playlistOrder.map(playlistStorageKey);
+      const storedPlaylist = await getStorageEntries(this.storage, playlistKeys);
+      const playlist = [];
+      for (const queueItemId of storedV2.playlistOrder) {
+        const item = parseStoredPlaylistItem(
+          storedPlaylist.get(playlistStorageKey(queueItemId)),
+        );
+        if (!item || item.queueItemId !== queueItemId) {
+          throw new Error('PRO_ROOM_PERSISTENCE_V2_PLAYLIST_INVALID');
+        }
+        playlist.push(item);
+      }
+      const room = { ...storedV2.core, playlist };
+      assertBoundedRoomState(room);
+      this.room = room;
+      this.persistedPlaylistSignatures = new Map(
+        playlist.map((item) => [item.queueItemId, playlistItemSignature(item)]),
+      );
+      this.hasV2Persistence = true;
+      return;
+    }
+
+    this.room = (await this.storage.get(STORAGE_KEY)) || null;
+    this.persistedPlaylistSignatures = new Map();
+    this.hasV2Persistence = false;
+  }
+
   async persist() {
     assertBoundedRoomState(this.room);
-    await this.storage.put(STORAGE_KEY, this.room);
+    const storedCore = splitPersistentRoomState(this.room);
+    const nextSignatures = new Map(
+      this.room.playlist.map((item) => [item.queueItemId, playlistItemSignature(item)]),
+    );
+    const changedEntries = this.room.playlist
+      .filter(
+        (item) =>
+          !this.hasV2Persistence ||
+          this.persistedPlaylistSignatures.get(item.queueItemId) !==
+            nextSignatures.get(item.queueItemId),
+      )
+      .map((item) => [playlistStorageKey(item.queueItemId), item]);
+    const removedKeys = [...this.persistedPlaylistSignatures.keys()]
+      .filter((queueItemId) => !nextSignatures.has(queueItemId))
+      .map(playlistStorageKey);
+    const legacyShadowFits = serializedStateByteLength(this.room) <= STATE_MAX_BYTES;
+    const write = async (storage) => {
+      await putStorageEntries(storage, changedEntries);
+      await deleteStorageKeys(storage, removedKeys);
+      await storage.put(STORAGE_V2_CORE_KEY, storedCore);
+      // Keep an exact rollback shadow while it is representable by the old
+      // single-record format. Once it no longer fits, retain the last valid
+      // shadow instead of deleting the only state an older Worker understands.
+      if (legacyShadowFits) await storage.put(STORAGE_KEY, this.room);
+    };
+    if (typeof this.storage.transaction === 'function') {
+      await this.storage.transaction((transaction) => write(transaction));
+    } else {
+      // Unit-test and local compatibility fallback. Production SQLite-backed
+      // Durable Objects provide transaction(), which makes row/core changes
+      // atomic.
+      await write(this.storage);
+    }
+    this.persistedPlaylistSignatures = nextSignatures;
+    this.hasV2Persistence = true;
     await this.scheduleAlarm();
   }
 
@@ -2152,6 +2326,8 @@ export class MusixquareProRoom {
           return this.handleReleaseSystemAudio(request);
         if (request.method === 'PUT' && url.pathname === `${prefix}/snapshot`)
           return this.handleUpdateSnapshot(request);
+        if (request.method === 'POST' && url.pathname === `${prefix}/snapshot/compact`)
+          return this.handleCompactSnapshotMutation(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
           return this.handleCreateReservation(request);
         const complete = url.pathname.match(
@@ -2747,7 +2923,7 @@ export class MusixquareProRoom {
       return errorResponse('PLAYLIST_CAPACITY_EXCEEDED', 409);
     }
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
-    if (serializedStateByteLength(this.room) > STATE_MAX_BYTES - 32 * 1024) {
+    if (serializedCoreStateByteLength(this.room) > STATE_MAX_BYTES - 32 * 1024) {
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
     const expectedObjectMetadata = {
@@ -4696,7 +4872,7 @@ export class MusixquareProRoom {
     if (record.kind === 'developer-queue') {
       // The action is replayed from a compact receipt, while the response is
       // regenerated from authoritative state. Storing a full queue snapshot
-      // per API mutation would duplicate up to 1.2 MiB in the room's 24-hour
+      // per API mutation would duplicate up to 3 MiB in the room's 24-hour
       // idempotency ledger and make an otherwise healthy room unwritable.
       if (!DEVELOPER_API_KEY_ID_RE.test(developerRequesterKeyId || '')) {
         return errorResponse('ROOM_STATE_INVALID', 503);
@@ -4805,6 +4981,102 @@ export class MusixquareProRoom {
     }
     const parsedPlaylist = parsePlaylist(body.playlist);
     if (!parsedPlaylist) return errorResponse('INVALID_PLAYLIST', 400);
+    return this.commitParticipantSnapshot({
+      auth,
+      key,
+      scope,
+      fingerprint,
+      playlist: parsedPlaylist,
+      currentQueueItemId: body.currentQueueItemId,
+      playbackInput: body.playback,
+    });
+  }
+
+  async handleCompactSnapshotMutation(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const key = this.readIdempotencyKey(request);
+    if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
+    const parsed = await this.parseBody(request, REQUEST_MAX_BYTES);
+    if (parsed.response) return parsed.response;
+    const body = parsed.value;
+    if (
+      !hasExactKeys(body, [
+        'baseRevision',
+        'playlistOrder',
+        'upserts',
+        'currentQueueItemId',
+        'playback',
+      ])
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const scope = `participant:${auth.session.participantId}:snapshot`;
+    const fingerprint = await this.idempotencyFingerprint(scope, body);
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
+    if (replay) return replay;
+    if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
+    if (body.baseRevision !== this.room.revision) {
+      return jsonResponse(
+        { error: 'REVISION_CONFLICT', snapshot: publicSnapshot(this.room, auth.session) },
+        409,
+      );
+    }
+    if (
+      body.playlistOrder !== null &&
+      (!Array.isArray(body.playlistOrder) || body.playlistOrder.length > PLAYLIST_MAX_ITEMS)
+    ) {
+      return errorResponse('INVALID_PLAYLIST', 400);
+    }
+    const playlistOrder = [];
+    const requestedIds = new Set();
+    const requestedOrder =
+      body.playlistOrder === null
+        ? this.room.playlist.map((item) => item.queueItemId)
+        : body.playlistOrder;
+    for (const queueItemId of requestedOrder) {
+      if (!QUEUE_ITEM_ID_RE.test(queueItemId || '') || requestedIds.has(queueItemId)) {
+        return errorResponse('INVALID_PLAYLIST', 400);
+      }
+      requestedIds.add(queueItemId);
+      playlistOrder.push(queueItemId);
+    }
+    const upserts = parsePlaylist(body.upserts);
+    if (!upserts) return errorResponse('INVALID_PLAYLIST', 400);
+    const upsertsById = new Map();
+    for (const item of upserts) {
+      if (!requestedIds.has(item.queueItemId)) return errorResponse('INVALID_PLAYLIST', 400);
+      upsertsById.set(item.queueItemId, item);
+    }
+    const existingById = new Map(
+      this.room.playlist.map((item) => [item.queueItemId, publicPlaylistItem(item)]),
+    );
+    const playlist = [];
+    for (const queueItemId of playlistOrder) {
+      const item = upsertsById.get(queueItemId) || existingById.get(queueItemId);
+      if (!item) return errorResponse('INVALID_PLAYLIST', 400);
+      playlist.push(item);
+    }
+    return this.commitParticipantSnapshot({
+      auth,
+      key,
+      scope,
+      fingerprint,
+      playlist,
+      currentQueueItemId: body.currentQueueItemId,
+      playbackInput: body.playback,
+    });
+  }
+
+  async commitParticipantSnapshot({
+    auth,
+    key,
+    scope,
+    fingerprint,
+    playlist: parsedPlaylist,
+    currentQueueItemId,
+    playbackInput,
+  }) {
     const previousPlaylistById = new Map(
       this.room.playlist.map((item) => [item.queueItemId, item]),
     );
@@ -4820,16 +5092,15 @@ export class MusixquareProRoom {
     );
     const playlistById = new Map(playlist.map((item) => [item.queueItemId, item]));
     if (
-      body.currentQueueItemId !== null &&
-      (!QUEUE_ITEM_ID_RE.test(body.currentQueueItemId) ||
-        !playlistById.has(body.currentQueueItemId))
+      currentQueueItemId !== null &&
+      (!QUEUE_ITEM_ID_RE.test(currentQueueItemId) || !playlistById.has(currentQueueItemId))
     ) {
       return errorResponse('INVALID_QUEUE_ITEM_ID', 400);
     }
     const playback = parsePlayback(
-      body.playback,
+      playbackInput,
       playlistById,
-      body.currentQueueItemId,
+      currentQueueItemId,
       this.room.presence.coordinatorEpoch,
       this.room.playback,
       Date.now(),
@@ -4841,7 +5112,7 @@ export class MusixquareProRoom {
 
     const playlistChanged = JSON.stringify(playlist) !== JSON.stringify(this.room.playlist);
     this.room.playlist = playlist;
-    this.room.currentQueueItemId = body.currentQueueItemId;
+    this.room.currentQueueItemId = currentQueueItemId;
     this.room.playback = playback;
     this.reconcileAssetGarbageCollection(Date.now());
     if (playlistChanged) this.room.playlistRevision += 1;
@@ -4998,7 +5269,7 @@ export class MusixquareProRoom {
       return errorResponse('RESERVATION_OWNER_REQUIRED', 403);
     }
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
-    if (serializedStateByteLength(this.room) > STATE_MAX_BYTES - 8 * 1024) {
+    if (serializedCoreStateByteLength(this.room) > STATE_MAX_BYTES - 8 * 1024) {
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
     let object;
@@ -5325,7 +5596,7 @@ export class MusixquareProRoom {
   async alarm() {
     await this.withMutation(async () => {
       if (this.ready) await this.ready;
-      if (!this.room) this.room = (await this.storage.get(STORAGE_KEY)) || null;
+      if (!this.room) await this.loadRoomFromStorage();
       if (!this.room) return;
       this.normalizeLoadedSystemAudio();
       this.normalizeLoadedEffects();

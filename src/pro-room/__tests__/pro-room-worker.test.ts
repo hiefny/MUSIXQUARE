@@ -67,12 +67,41 @@ class FakeStorage {
   readonly data = new Map<string, unknown>();
   alarm: number | null = null;
 
-  async get(key: string): Promise<unknown> {
+  async get(key: string | string[]): Promise<unknown> {
+    if (Array.isArray(key)) {
+      return new Map(key.map((entryKey) => [entryKey, structuredClone(this.data.get(entryKey))]));
+    }
     return structuredClone(this.data.get(key));
   }
 
-  async put(key: string, value: unknown): Promise<void> {
-    this.data.set(key, structuredClone(value));
+  async put(key: string | Record<string, unknown>, value?: unknown): Promise<void> {
+    if (typeof key === 'string') {
+      this.data.set(key, structuredClone(value));
+      return;
+    }
+    for (const [entryKey, entryValue] of Object.entries(key)) {
+      this.data.set(entryKey, structuredClone(entryValue));
+    }
+  }
+
+  async delete(key: string | string[]): Promise<number | boolean> {
+    if (Array.isArray(key)) {
+      let deleted = 0;
+      for (const entryKey of key) deleted += this.data.delete(entryKey) ? 1 : 0;
+      return deleted;
+    }
+    return this.data.delete(key);
+  }
+
+  async transaction<T>(callback: (transaction: FakeStorage) => Promise<T>): Promise<T> {
+    const before = structuredClone([...this.data.entries()]);
+    try {
+      return await callback(this);
+    } catch (error) {
+      this.data.clear();
+      for (const [key, value] of before) this.data.set(key, value);
+      throw error;
+    }
   }
 
   async setAlarm(value: number): Promise<void> {
@@ -4527,11 +4556,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(envelope.snapshot.playback.updatedAtMs).toBeLessThanOrEqual(Date.now());
   });
 
-  it('atomically rejects a legal-shape snapshot that exceeds the bounded DO state budget', async () => {
+  it('persists a playlist above the legacy single-record budget and restores it from v2 rows', async () => {
     const { worker, state, ownerCookie } = await activatedRoom();
     const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
     const longText = 'x'.repeat(1_900);
-    const playlist = Array.from({ length: 160 }, (_, index) => ({
+    const playlist = Array.from({ length: 220 }, (_, index) => ({
       queueItemId: `${index.toString(16).padStart(8, '0')}-0000-4000-8000-${index
         .toString(16)
         .padStart(12, '0')}`,
@@ -4541,32 +4570,300 @@ describe('persistent PRO room authentication, presence, and state', () => {
       thumbnail: longText,
       source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
     }));
-    const rejected = await worker.fetch(
+    const mutation = {
+      baseRevision: before.snapshot.revision,
+      playlist,
+      currentQueueItemId: null,
+      playback: before.snapshot.playback,
+    };
+    expect(new TextEncoder().encode(JSON.stringify(mutation)).byteLength).toBeGreaterThan(
+      1_500 * 1024,
+    );
+    const accepted = await worker.fetch(
+      jsonRequest('/snapshot', 'PUT', mutation, ownerCookie, `${IDEMPOTENCY_KEY}-state-budget`),
+    );
+    expect(accepted.status).toBe(200);
+    const after = await responseJson(accepted);
+    expect(after.snapshot.playlist).toHaveLength(220);
+    expect(state.storage.data.get('pro-room:v2:core')).toBeDefined();
+    // The old record remains the last exact rollback shadow instead of being
+    // overwritten with an over-budget value.
+    const legacyShadow = state.storage.data.get('pro-room:v1') as StoredRoom;
+    expect(legacyShadow.revision).toBe(before.snapshot.revision);
+    expect(legacyShadow.playlist).toEqual([]);
+
+    const restarted = new MusixquareProRoom(state as never, environment() as never);
+    const restored = await responseJson(
+      await restarted.fetch(request('/snapshot', {}, ownerCookie)),
+    );
+    expect(restored.snapshot.playlist).toEqual(playlist);
+  });
+
+  it('migrates a legacy v1 room on its next successful mutation', async () => {
+    const { state, bucket, ownerCookie } = await activatedRoom();
+    for (const key of [...state.storage.data.keys()]) {
+      if (key.startsWith('pro-room:v2:')) state.storage.data.delete(key);
+    }
+    const restarted = new MusixquareProRoom(state as never, environment(bucket) as never);
+    const before = await responseJson(await restarted.fetch(request('/snapshot', {}, ownerCookie)));
+    const item = {
+      queueItemId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+      name: 'Migrated row',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    };
+    const mutated = await restarted.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: before.snapshot.revision,
-          playlist,
+          playlistOrder: [item.queueItemId],
+          upserts: [item],
           currentQueueItemId: null,
           playback: before.snapshot.playback,
         },
         ownerCookie,
-        `${IDEMPOTENCY_KEY}-state-budget`,
+        `${IDEMPOTENCY_KEY}-v1-migration`,
       ),
     );
-    expect(rejected.status).toBe(409);
-    expect(await responseJson(rejected)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
-    const after = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
-    expect(after.snapshot.revision).toBe(before.snapshot.revision);
-    expect(after.snapshot.playlist).toEqual([]);
-    const stored = state.storage.data.get('pro-room:v1') as StoredRoom;
-    expect(stored.revision).toBe(before.snapshot.revision);
-    expect(stored.playlist).toEqual([]);
+
+    expect(mutated.status).toBe(200);
+    expect(state.storage.data.get('pro-room:v2:core')).toBeDefined();
+    expect(state.storage.data.get(`pro-room:v2:playlist:${item.queueItemId}`)).toEqual(item);
+    expect((state.storage.data.get('pro-room:v1') as StoredRoom).playlist).toEqual([item]);
+  });
+
+  it('rejects a playlist above the bounded public snapshot budget before writing v2 rows', async () => {
+    const { worker, state } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: Record<string, any>;
+      persist(): Promise<void>;
+    };
+    const beforeCore = structuredClone(state.storage.data.get('pro-room:v2:core'));
+    const longText = 'x'.repeat(2_000);
+    internal.room.playlist = Array.from({ length: 400 }, (_, index) => ({
+      queueItemId: `${index.toString(16).padStart(8, '0')}-0000-4000-8000-${index
+        .toString(16)
+        .padStart(12, '0')}`,
+      name: longText,
+      title: longText,
+      artist: longText,
+      thumbnail: longText,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    }));
+
+    await expect(internal.persist()).rejects.toMatchObject({ name: 'RoomStateCapacityError' });
+    expect(state.storage.data.get('pro-room:v2:core')).toEqual(beforeCore);
+  });
+
+  it('rolls back playlist rows and core together when a v2 transaction fails', async () => {
+    const { worker, state } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: StoredRoom & { playlist: any[] };
+      persist(): Promise<void>;
+    };
+    const before = structuredClone([...state.storage.data.entries()]);
+    const item = {
+      queueItemId: 'eeeeeeee-eeee-4eee-beee-eeeeeeeeeeee',
+      name: 'Atomic row',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    };
+    internal.room.playlist = [item];
+    const originalPut = state.storage.put.bind(state.storage);
+    let failCoreOnce = true;
+    state.storage.put = async (key, value) => {
+      if (failCoreOnce && key === 'pro-room:v2:core') {
+        failCoreOnce = false;
+        throw new Error('simulated core write failure');
+      }
+      return originalPut(key, value);
+    };
+
+    await expect(internal.persist()).rejects.toThrow('simulated core write failure');
+    expect([...state.storage.data.entries()]).toEqual(before);
+    expect(state.storage.data.has(`pro-room:v2:playlist:${item.queueItemId}`)).toBe(false);
+
+    state.storage.put = originalPut;
+    await internal.persist();
+    expect(state.storage.data.get(`pro-room:v2:playlist:${item.queueItemId}`)).toEqual(item);
+    expect(
+      (state.storage.data.get('pro-room:v2:core') as Record<string, any>).playlistOrder,
+    ).toEqual([item.queueItemId]);
+  });
+
+  it('applies compact participant mutations without resending unchanged row metadata', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const item = {
+      queueItemId: '11111111-1111-4111-8111-111111111111',
+      name: 'A'.repeat(2_000),
+      title: 'First title',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    };
+    const first = await worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: before.snapshot.revision,
+          playlistOrder: [item.queueItemId],
+          upserts: [item],
+          currentQueueItemId: null,
+          playback: before.snapshot.playback,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-compact-first`,
+      ),
+    );
+    expect(first.status).toBe(200);
+    const accepted = await responseJson(first);
+    expect(accepted.snapshot.playlist).toEqual([item]);
+
+    const second = await worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: accepted.snapshot.revision,
+          playlistOrder: null,
+          upserts: [],
+          currentQueueItemId: null,
+          playback: accepted.snapshot.playback,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-compact-checkpoint`,
+      ),
+    );
+    expect(second.status).toBe(200);
+    expect((await responseJson(second)).snapshot.playlist).toEqual([item]);
+  });
+
+  it('accepts a bounded compact upsert batch above the retired 512 KiB ceiling', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const longText = 'x'.repeat(2_000);
+    const upserts = Array.from({ length: 80 }, (_, index) => ({
+      queueItemId: `${index.toString(16).padStart(8, '0')}-1111-4111-8111-${index
+        .toString(16)
+        .padStart(12, '0')}`,
+      name: longText,
+      title: longText,
+      artist: longText,
+      thumbnail: longText,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    }));
+    const body = {
+      baseRevision: before.snapshot.revision,
+      playlistOrder: upserts.map((item) => item.queueItemId),
+      upserts,
+      currentQueueItemId: null,
+      playback: before.snapshot.playback,
+    };
+    expect(new TextEncoder().encode(JSON.stringify(body)).byteLength).toBeGreaterThan(512 * 1024);
+
+    const response = await worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        body,
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-compact-large-batch`,
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect((await responseJson(response)).snapshot.playlist).toHaveLength(80);
   });
 });
 
 describe('persistent PRO room private media accounting', () => {
+  it('completes and indexes a local upload beside a playlist above the legacy state budget', async () => {
+    const { worker, bucket, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: StoredRoom & {
+        playlistRevision: number;
+        playlist: any[];
+      };
+      persist(): Promise<void>;
+    };
+    const longText = 'x'.repeat(1_900);
+    internal.room.playlist = Array.from({ length: 160 }, (_, index) => ({
+      queueItemId: `${index.toString(16).padStart(8, '0')}-0000-4000-8000-${index
+        .toString(16)
+        .padStart(12, '0')}`,
+      name: longText,
+      title: longText,
+      artist: longText,
+      thumbnail: longText,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    }));
+    internal.room.playlistRevision += 1;
+    internal.room.revision += 1;
+    await internal.persist();
+
+    const reserve = await worker.fetch(
+      jsonRequest(
+        '/media/reservations',
+        'POST',
+        { byteLength: 1024, name: 'Track.flac', mime: 'audio/flac' },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-large-playlist-reserve`,
+      ),
+    );
+    expect(reserve.status).toBe(200);
+    const reservation = await responseJson(reserve);
+    const asset = internal.room.assets[reservation.reservation.assetId]!;
+    bucket.objects.set(asset.stagingObjectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-asset': reservation.reservation.assetId,
+        'mxqr-version': '1',
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+    const complete = await worker.fetch(
+      request(
+        `/media/${reservation.reservation.assetId}/complete`,
+        {
+          method: 'POST',
+          headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-large-playlist-complete` },
+        },
+        ownerCookie,
+      ),
+    );
+    expect(complete.status).toBe(200);
+    const completed = await responseJson(complete);
+    const snapshot = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const queueItemId = 'ffffffff-ffff-4fff-bfff-ffffffffffff';
+    const indexed = await worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: snapshot.snapshot.revision,
+          playlistOrder: [
+            ...snapshot.snapshot.playlist.map((item: any) => item.queueItemId),
+            queueItemId,
+          ],
+          upserts: [
+            {
+              queueItemId,
+              name: 'Track.flac',
+              source: completed.asset,
+            },
+          ],
+          currentQueueItemId: snapshot.snapshot.currentQueueItemId,
+          playback: snapshot.snapshot.playback,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-large-playlist-index`,
+      ),
+    );
+    expect(indexed.status).toBe(200);
+    expect((await responseJson(indexed)).snapshot.playlist).toHaveLength(161);
+  });
+
   it('reserves, HEAD-validates, downloads, and safely deletes a private R2 asset', async () => {
     const { worker, state, bucket, ownerCookie } = await activatedRoom();
     const reserve = await worker.fetch(
@@ -5566,12 +5863,11 @@ describe('persistent PRO room audio effects', () => {
 
   it('migrates pre-effects rooms to a neutral dedicated resource', async () => {
     const context = await activatedRoom();
-    const stored = structuredClone(context.state.storage.data.get('pro-room:v1')) as Record<
-      string,
-      unknown
-    >;
-    delete stored.effects;
-    context.state.storage.data.set('pro-room:v1', stored);
+    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, unknown>;
+    };
+    delete stored.core.effects;
+    context.state.storage.data.set('pro-room:v2:core', stored);
 
     const restarted = new MusixquareProRoom(
       context.state as never,
@@ -5584,7 +5880,11 @@ describe('persistent PRO room audio effects', () => {
       effects: defaultEffects,
     });
     expect(
-      (context.state.storage.data.get('pro-room:v1') as Record<string, unknown>).effects,
+      (
+        context.state.storage.data.get('pro-room:v2:core') as {
+          core: Record<string, unknown>;
+        }
+      ).core.effects,
     ).toBeDefined();
   });
 

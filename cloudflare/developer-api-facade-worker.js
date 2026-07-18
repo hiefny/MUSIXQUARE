@@ -10,7 +10,10 @@ const REQUEST_MAX_BYTES = 64 * 1024;
 // A valid public 64 KiB queue mutation gains a small authenticated envelope.
 const QUEUE_MUTATION_REQUEST_MAX_BYTES = 128 * 1024;
 // Room and queue projections can legally contain the bounded 1,000-item list.
-const PROJECTION_RESPONSE_MAX_BYTES = 1_500 * 1024;
+// PRO room v2 keeps playlist rows outside the 1.2 MiB core record and bounds
+// the public queue projection below 3 MiB. Preserve framing headroom while
+// allowing the unchanged Developer API contract to read that larger queue.
+const PROJECTION_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
 const MUTATION_RESPONSE_MAX_BYTES = 64 * 1024;
 const ROOM_CODE_RE = /^0\d{5}$/;

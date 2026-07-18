@@ -121,6 +121,17 @@ follow the coordinated deployment contract in
 [`design/queue-item-identity-and-reorder.md`](design/queue-item-identity-and-reorder.md); a mixed
 old/new app and Worker pair is unsupported and must not be rolled out as an ordinary hotfix.
 
+The PRO room persistence-v2 rollout is backward-compatible only in the forward
+direction: deploy the PRO Worker before the app so cached clients can continue
+using the legacy full-snapshot route while updated clients begin using compact
+mutations. The public Developer API contract is unchanged, but deploy its
+facade and public Worker before the app whenever their larger queue-response
+bounds are part of the release. After any room has exceeded the legacy 1.2 MiB
+single-record budget, do not roll the PRO Worker back to a pre-v2 version as a
+routine code-only rollback. That older Worker can read only the last exact v1
+shadow, which may be stale; use a v2-aware forward fix or an explicit operator
+data-restore procedure instead.
+
 Before an emergency local deploy, save the version reported by
 `npm run wrangler -- deployments status --config <config> --json`. Confirm that the
 saved version is compatible with every migration already applied before using

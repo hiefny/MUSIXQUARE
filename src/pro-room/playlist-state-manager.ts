@@ -1,4 +1,4 @@
-import type { UpdateProRoomSnapshotInput } from './api.ts';
+import type { UpdateProRoomCompactSnapshotInput, UpdateProRoomSnapshotInput } from './api.ts';
 import {
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
   type ProRoomPlaybackCheckpoint,
@@ -26,6 +26,10 @@ type ProjectedPlaylist = ReturnType<ProRoomPlaylistProjection['project']>;
 interface ProRoomPlaylistStateApi {
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   updateSnapshot(input: UpdateProRoomSnapshotInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  updateCompactSnapshot?(
+    input: UpdateProRoomCompactSnapshotInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot>;
 }
 
 interface ProRoomPlaylistMediaTransfer {
@@ -203,6 +207,12 @@ function isRevisionConflict(error: unknown): boolean {
   if (error === null || typeof error !== 'object') return false;
   const candidate = error as { code?: unknown; status?: unknown };
   return candidate.status === 409 && candidate.code === 'REVISION_CONFLICT';
+}
+
+function isCompactMutationUnavailable(error: unknown): boolean {
+  if (error === null || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; status?: unknown };
+  return candidate.status === 404 && candidate.code === 'NOT_FOUND';
 }
 
 function defaultQueueItemId(): QueueItemId {
@@ -702,17 +712,55 @@ export class ProRoomPlaylistStateManager {
     if (mutation.playlist.length > PRO_ROOM_MAX_PLAYLIST_ITEMS) {
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_LIMIT_REACHED');
     }
-    const input: UpdateProRoomSnapshotInput = {
-      code: this.#code,
-      baseRevision: base.revision,
-      playlist: clonePlaylist(mutation.playlist),
-      currentQueueItemId: mutation.currentQueueItemId,
-      playback: clonePlayback(mutation.playback),
-      idempotencyKey: this.#nextIdempotencyKey(),
-    };
+    const idempotencyKey = this.#nextIdempotencyKey();
     let incoming: ProRoomSnapshot;
     try {
-      incoming = await this.#api.updateSnapshot(input, signal);
+      if (this.#api.updateCompactSnapshot) {
+        const baseById = new Map(base.playlist.map((item) => [item.queueItemId, item]));
+        const baseOrder = base.playlist.map((item) => item.queueItemId);
+        const nextOrder = mutation.playlist.map((item) => item.queueItemId);
+        const compactInput: UpdateProRoomCompactSnapshotInput = {
+          code: this.#code,
+          baseRevision: base.revision,
+          playlistOrder: jsonEqual(baseOrder, nextOrder) ? null : nextOrder,
+          upserts: clonePlaylist(
+            mutation.playlist.filter((item) => !jsonEqual(baseById.get(item.queueItemId), item)),
+          ),
+          currentQueueItemId: mutation.currentQueueItemId,
+          playback: clonePlayback(mutation.playback),
+          idempotencyKey,
+        };
+        try {
+          incoming = await this.#api.updateCompactSnapshot(compactInput, signal);
+        } catch (error) {
+          // During a Worker-first rolling release the method is always
+          // available. Retain one exact fallback for a cached new client that
+          // briefly reaches the previous Worker version; no other failure may
+          // be retried through the larger legacy request.
+          if (!isCompactMutationUnavailable(error)) throw error;
+          incoming = await this.#api.updateSnapshot(
+            {
+              code: this.#code,
+              baseRevision: base.revision,
+              playlist: clonePlaylist(mutation.playlist),
+              currentQueueItemId: mutation.currentQueueItemId,
+              playback: clonePlayback(mutation.playback),
+              idempotencyKey,
+            },
+            signal,
+          );
+        }
+      } else {
+        const legacyInput: UpdateProRoomSnapshotInput = {
+          code: this.#code,
+          baseRevision: base.revision,
+          playlist: clonePlaylist(mutation.playlist),
+          currentQueueItemId: mutation.currentQueueItemId,
+          playback: clonePlayback(mutation.playback),
+          idempotencyKey,
+        };
+        incoming = await this.#api.updateSnapshot(legacyInput, signal);
+      }
     } catch (error) {
       if (isRevisionConflict(error)) return { outcome: 'conflict', error };
       throw error;

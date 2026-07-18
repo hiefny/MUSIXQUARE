@@ -235,8 +235,28 @@ changes the PRO room's durable media quota.
 The Durable Object persists the canonical playlist, current queue occurrence,
 playback checkpoint (including the exact YouTube playlist sub-item), revision
 numbers, bounded sessions, presence/coordinator epoch, media ledger, and compact
-idempotency records. The serialized state is rejected atomically before it can
-exceed the conservative 1.2 MiB budget beneath Cloudflare's 2 MiB value limit.
+idempotency records. Persistence schema v2 keeps the non-playlist core under a
+conservative 1.2 MiB value budget and stores each canonical playlist row under
+its own key. The public playlist has a separate 3 MiB serialized budget beneath
+the browser and Developer API 4 MiB response boundary. A v2 core record contains
+only stable row order, so a large YouTube queue cannot prevent an R2 reservation
+or completion record from being committed.
+
+The first successful mutation of a legacy room writes v2 atomically. While the
+entire room still fits the old single-record budget, the Worker also refreshes
+an exact `pro-room:v1` rollback shadow. After a room grows beyond that budget,
+the last valid shadow is retained rather than overwritten or deleted; v2 stays
+authoritative. A rollback to a pre-v2 Worker after that point therefore requires
+an operator data-restore decision and must not be treated as a routine code-only
+rollback.
+
+Browser queue mutations use the compact snapshot endpoint. It sends stable row
+order only when order changes and upserts only rows whose metadata/source
+changed. Playback checkpoints and metadata-only changes omit order entirely.
+The legacy full-snapshot endpoint remains available for cached clients during a
+Worker-first rolling release. Public Developer API routes and payloads are
+unchanged; their internal response bounds match the larger v2 queue projection.
+
 When the final participant leaves, the room becomes `sleeping` and freezes the
 playing position. The next participant wakes the room from that checkpoint.
 
@@ -580,6 +600,9 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 6. Verify a valid file up to 200 MiB can reserve while a 200 MiB + 1 byte request
    is rejected before upload. Exercise enough concurrent reservations to
    confirm the displayed ledger never exceeds 1 GiB; cancel them afterward.
+   Also populate more than 100 metadata-rich YouTube rows, upload a local file,
+   and confirm R2 completion and compact playlist indexing both succeed without
+   clearing the existing queue.
 7. Complete an upload but do not append it. After the 15-minute grace, confirm
    R2 cleanup releases used quota. Repeat while referencing the asset twice;
    removing one playlist item must not delete the shared asset.
@@ -605,6 +628,8 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 - No unexplained tab reload, PWA termination, WebContent crash, stuck loader,
   duplicate playback, or permanent coordinator disagreement.
 - No playlist/revision loss across an empty-room sleep and later wake.
+- A queue above the legacy 1.2 MiB single-record budget survives Worker restart,
+  accepts local-file completion, and remains readable through the Developer API.
 - No unauthorized access with a room code alone, and no claim/PIN in logs or
   query strings.
 - `usedBytes + reservedBytes` never exceeds 1 GiB and never decreases before a

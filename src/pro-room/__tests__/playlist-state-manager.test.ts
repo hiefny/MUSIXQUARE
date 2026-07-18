@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProRoomApiError, type UpdateProRoomSnapshotInput } from '../api.ts';
+import {
+  ProRoomApiError,
+  type UpdateProRoomCompactSnapshotInput,
+  type UpdateProRoomSnapshotInput,
+} from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
@@ -165,6 +169,93 @@ function factories(queueItemIds: string[] = [A, B, C, D]) {
 }
 
 describe('PRO room playlist state manager', () => {
+  it('uses compact mutations and upserts only changed playlist rows', async () => {
+    const initial = activeSnapshot({
+      playlistRevision: 1,
+      playlist: [youtube(A), youtube(B, 'bbbbbbbbbbb')],
+    });
+    const updateSnapshot = vi.fn();
+    const updateCompactSnapshot = vi.fn(
+      async (input: UpdateProRoomCompactSnapshotInput): Promise<ProRoomSnapshot> => {
+        const existing = new Map(initial.playlist.map((item) => [item.queueItemId, item]));
+        for (const item of input.upserts) existing.set(item.queueItemId, item);
+        return activeSnapshot({
+          ...initial,
+          revision: initial.revision + 1,
+          playlistRevision: initial.playlistRevision + 1,
+          playlist: (input.playlistOrder ?? initial.playlist.map((item) => item.queueItemId)).map(
+            (queueItemId) => existing.get(queueItemId)!,
+          ),
+          currentQueueItemId: input.currentQueueItemId,
+          playback: input.playback,
+        });
+      },
+    );
+    const api = {
+      getSnapshot: vi.fn(async () => initial),
+      updateSnapshot,
+      updateCompactSnapshot,
+    } satisfies ProRoomPlaylistStateApi;
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    await manager.updateMetadata(B, { title: 'Changed title' });
+
+    expect(updateSnapshot).not.toHaveBeenCalled();
+    expect(updateCompactSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playlistOrder: null,
+        upserts: [expect.objectContaining({ queueItemId: B, title: 'Changed title' })],
+      }),
+      undefined,
+    );
+  });
+
+  it('falls back once when a cached client reaches a pre-compact Worker', async () => {
+    const initial = activeSnapshot({ playlistRevision: 1, playlist: [youtube(A)] });
+    const updateCompactSnapshot = vi.fn(async () => {
+      throw new ProRoomApiError('NOT_FOUND', 404);
+    });
+    const updateSnapshot = vi.fn(async (input: UpdateProRoomSnapshotInput) =>
+      activeSnapshot({
+        ...initial,
+        revision: initial.revision + 1,
+        playlistRevision: initial.playlistRevision + 1,
+        playlist: input.playlist,
+        currentQueueItemId: input.currentQueueItemId,
+        playback: input.playback,
+      }),
+    );
+    const api = {
+      getSnapshot: vi.fn(async () => initial),
+      updateSnapshot,
+      updateCompactSnapshot,
+    } satisfies ProRoomPlaylistStateApi;
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    await manager.updateMetadata(A, { title: 'Legacy bridge' });
+
+    expect(updateCompactSnapshot).toHaveBeenCalledOnce();
+    expect(updateSnapshot).toHaveBeenCalledOnce();
+    expect(updateSnapshot.mock.calls[0]![0].playlist[0]).toMatchObject({
+      queueItemId: A,
+      title: 'Legacy bridge',
+    });
+  });
+
   it('projects every accepted authoritative snapshot through the injected sink', async () => {
     const initial = activeSnapshot({
       playlistRevision: 1,

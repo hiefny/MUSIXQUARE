@@ -169,6 +169,18 @@ export interface UpdateProRoomSnapshotInput {
   idempotencyKey: string;
 }
 
+export interface UpdateProRoomCompactSnapshotInput {
+  code: string;
+  baseRevision: number;
+  /** Stable queue identity/order; metadata is sent only for changed rows. */
+  /** `null` keeps the existing order for playback/metadata-only mutations. */
+  playlistOrder: string[] | null;
+  upserts: ProRoomPlaylistWireItem[];
+  currentQueueItemId: string | null;
+  playback: ProRoomPlaybackCheckpoint;
+  idempotencyKey: string;
+}
+
 interface UpdateProRoomEffectsInput {
   code: string;
   coordinatorEpoch: number;
@@ -1153,6 +1165,40 @@ export class ProRoomApiClient {
       body: {
         baseRevision: input.baseRevision,
         playlist: input.playlist,
+        currentQueueItemId: input.currentQueueItemId,
+        playback: input.playback,
+      },
+      signal,
+      activeRoomCode: input.code,
+      parser: (value) => parseSnapshotEnvelope(value, input.code),
+    });
+  }
+
+  updateCompactSnapshot(
+    input: UpdateProRoomCompactSnapshotInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot> {
+    const path = roomPath(input.code);
+    if (!isSafeNonNegativeInteger(input.baseRevision)) {
+      throw new ProRoomApiError('INVALID_REVISION');
+    }
+    if (input.currentQueueItemId !== null && !isProRoomQueueItemId(input.currentQueueItemId)) {
+      throw new ProRoomApiError('INVALID_QUEUE_ITEM_ID');
+    }
+    if (
+      input.playlistOrder !== null &&
+      (input.playlistOrder.some((queueItemId) => !isProRoomQueueItemId(queueItemId)) ||
+        new Set(input.playlistOrder).size !== input.playlistOrder.length)
+    ) {
+      throw new ProRoomApiError('INVALID_PLAYLIST');
+    }
+    return this.#request(`${path}/snapshot/compact`, {
+      method: 'POST',
+      idempotencyKey: input.idempotencyKey,
+      body: {
+        baseRevision: input.baseRevision,
+        playlistOrder: input.playlistOrder,
+        upserts: input.upserts,
         currentQueueItemId: input.currentQueueItemId,
         playback: input.playback,
       },

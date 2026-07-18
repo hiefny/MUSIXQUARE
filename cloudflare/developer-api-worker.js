@@ -18,7 +18,7 @@ const COMMAND_REQUEST_MAX_BYTES = 1_024;
 const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
 const QUEUE_MUTATION_REQUEST_MAX_BYTES = 64 * 1024;
 const MEDIA_UPLOAD_REQUEST_MAX_BYTES = 16 * 1024;
-const MUTATION_RESPONSE_MAX_BYTES = 1_500 * 1024;
+const MUTATION_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const QUEUE_ITEM_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
@@ -33,9 +33,10 @@ const PLAYLIST_MAX_ITEMS = 1_000;
 const YOUTUBE_BATCH_MAX_ITEMS = 100;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
-// PRO room state is itself capped at 1.2 MiB. Leave bounded framing room for
-// the projection envelope so every valid 1,000-item queue remains readable.
-const FACADE_RESPONSE_MAX_BYTES = 1_500 * 1024;
+// The PRO room core remains capped at 1.2 MiB, while its independently stored
+// public playlist is capped below 3 MiB. Leave bounded framing room so every
+// accepted queue remains readable through the unchanged public API contract.
+const FACADE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const RATE_REQUEST_MAX_BYTES = 4 * 1024;
 const RATE_STATE_MAX_ITEMS = 256;
 const INGRESS_LIMIT_PER_MINUTE = 120;

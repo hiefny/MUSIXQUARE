@@ -701,6 +701,37 @@ describe('PRO room cookie session API', () => {
     });
   });
 
+  it('sends compact snapshot mutations with only stable order and changed rows', async () => {
+    const snapshot = activeSnapshot();
+    const changed = { ...snapshot.playlist[0]!, title: 'Resolved title' };
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValue(jsonResponse({ snapshot: { ...snapshot, revision: 4 } }));
+
+    await client.updateCompactSnapshot({
+      code: ROOM_CODE,
+      baseRevision: snapshot.revision,
+      playlistOrder: [QUEUE_ITEM_ID],
+      upserts: [changed],
+      currentQueueItemId: snapshot.currentQueueItemId,
+      playback: snapshot.playback,
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/snapshot/compact`);
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
+    expect(JSON.parse(String(init.body))).toEqual({
+      baseRevision: snapshot.revision,
+      playlistOrder: [QUEUE_ITEM_ID],
+      upserts: [changed],
+      currentQueueItemId: snapshot.currentQueueItemId,
+      playback: snapshot.playback,
+    });
+  });
+
   it('redacts server detail and submitted secrets from API errors', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse(

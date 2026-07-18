@@ -65,6 +65,7 @@ import {
   type ActivateProRoomInput,
   type CreateProRoomSessionInput,
   type EnterProRoomPresenceOptions,
+  type ProRoomBotCommandResult,
   type ProRoomBootstrap,
   type RecoverProRoomOwnerInput,
 } from './api.ts';
@@ -2193,6 +2194,17 @@ function startLifecycle(): void {
 
 export function getProRoomBootstrap(code: string, signal?: AbortSignal): Promise<ProRoomBootstrap> {
   return api.getBootstrap(code, signal);
+}
+
+/** Submit a beta BOT request through the already-authenticated tab-local API client. */
+export function requestActiveProRoomBotCommand(
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<ProRoomBotCommandResult> {
+  const code = controller.snapshot?.roomCode;
+  if (code !== '000001') throw new ProRoomApiError('BOT_UNAVAILABLE');
+  const requestId = createProRoomIdempotencyKey();
+  return api.runBotCommand({ code, prompt, requestId }, signal);
 }
 
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {

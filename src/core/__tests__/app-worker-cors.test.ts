@@ -1193,8 +1193,11 @@ describe('Cloudflare app worker YouTube search proxy', () => {
   it('decodes HTML entities in YouTube result metadata', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        Response.json({
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const upstreamUrl = new URL(String(input));
+        expect(upstreamUrl.searchParams.has('key')).toBe(false);
+        expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('test-key');
+        return Response.json({
           items: [
             {
               id: { videoId: 'dQw4w9WgXcQ' },
@@ -1208,8 +1211,8 @@ describe('Cloudflare app worker YouTube search proxy', () => {
               },
             },
           ],
-        }),
-      ),
+        });
+      }),
     );
 
     const response = await appWorker.fetch(
@@ -1247,13 +1250,15 @@ describe('Cloudflare app worker YouTube playlist entry proxy', () => {
     );
 
   it('returns the first concrete public entry with an exact, minimal response shape', async () => {
-    const upstreamFetch = vi.fn(async (input: RequestInfo | URL) => {
+    const upstreamFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       expect(`${url.origin}${url.pathname}`).toBe(
         'https://www.googleapis.com/youtube/v3/playlistItems',
       );
       expect(url.searchParams.get('playlistId')).toBe('PL_VALID_01');
       expect(url.searchParams.get('maxResults')).toBe('50');
+      expect(url.searchParams.has('key')).toBe(false);
+      expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('test-key');
       return Response.json({
         items: [
           {

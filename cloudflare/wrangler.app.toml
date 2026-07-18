@@ -68,6 +68,7 @@ service = "musixquare-pro-room"
 [vars]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"
+GEMINI_BOT_MODEL = "gemini-3.5-flash"
 CLOUDFLARE_TURN_TTL = "172800"
 # Human verification is disabled. Capability minting instead uses a short-lived,
 # IP/scope-bound proof-of-work challenge plus per-IP rate limits.
@@ -80,5 +81,6 @@ MXQR_TURNSTILE_DISABLED = "true"
 # Required production secrets:
 # - MXQR_CAPABILITY_SECRET
 # - MXQR_DEVELOPER_API_KEY_PEPPER (same >=32-character value as Developer API Worker)
+# - GEMINI_API_KEY (server-only key for the 000001 PRO-room BOT beta)
 # Local/emergency only; production guards reject these:
 # - MXQR_ALLOW_UNGUARDED_PAID_APIS = "true"

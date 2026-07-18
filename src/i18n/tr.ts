@@ -302,6 +302,13 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Yeni bir mesaj göndermek için lütfen {{sec}} saniye bekleyin',
   'chat.cmd_notice_prefix': 'Duyuru',
   'chat.system_sender': 'SİSTEM',
+  'chat.bot_unavailable': 'BOT yalnızca 000001 PRO odasında kullanılabilir',
+  'chat.bot_processing': 'BOT isteği işliyor...',
+  'chat.bot_completed': 'BOT isteği tamamlandı',
+  'chat.bot_failed': 'BOT isteği tamamlayamadı',
+  'chat.bot_added_tracks': 'BOT tarafından eklenen parça: {{count}}',
+  'chat.bot_added_and_playing': 'BOT tarafından eklenen parça: {{count}}. Oynatma başladı',
+  'chat.bot_rate_limited': 'BOT istek sınırına ulaşıldı. {{seconds}} sn sonra tekrar deneyin',
   'chat.decode_skip_system_message':
     'Bazı cihazlar şarkının kodunu çözemediğinden sonraki şarkıya geçiliyor',
   'chat.system_audio_started_system_message':
@@ -333,6 +340,7 @@ const tr: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
+  'chat.cmd_u_bot': '/bot [istek]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
@@ -348,6 +356,7 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_u_unmute': '/unmute [cihaz]',
   'chat.cmd_d_help': 'Komut listesini gösterir',
   'chat.cmd_d_users': 'Bağlı kullanıcıların listesini gösterir',
+  'chat.cmd_d_bot': 'Yapay zekâdan oynatma listesini yönetmesini iste',
   'chat.cmd_d_clear': 'Sohbet geçmişini temizler',
   'chat.cmd_d_filter': 'Uygunsuz kelime filtresini açar/kapatır',
   'chat.cmd_d_freeze': 'Sohbeti dondurur/çözer',

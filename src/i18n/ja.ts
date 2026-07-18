@@ -573,6 +573,14 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '送信する前に {{sec}}秒お待ちください',
   'chat.cmd_notice_prefix': 'お知らせ',
   'chat.system_sender': 'システム',
+  'chat.bot_unavailable': 'BOTはPROルーム000001でのみ利用できます',
+  'chat.bot_processing': 'BOTがリクエストを処理しています…',
+  'chat.bot_completed': 'BOTのリクエストが完了しました',
+  'chat.bot_failed': 'BOTはリクエストを完了できませんでした',
+  'chat.bot_added_tracks': 'BOTが{{count}}曲を追加しました',
+  'chat.bot_added_and_playing': 'BOTが{{count}}曲を追加して再生を開始しました',
+  'chat.bot_rate_limited':
+    'BOTのリクエスト上限に達しました。{{seconds}}秒後にもう一度お試しください',
   'chat.decode_skip_system_message':
     '一部のデバイスで再生できないため、次のトラックへスキップします',
   'chat.system_audio_started_system_message':
@@ -602,6 +610,7 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_users_me': '自分',
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
+  'chat.cmd_u_bot': '/bot [リクエスト]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
@@ -617,6 +626,7 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_u_unmute': '/unmute [デバイス]',
   'chat.cmd_d_help': 'コマンド一覧',
   'chat.cmd_d_users': '接続中ユーザーを表示',
+  'chat.cmd_d_bot': 'AIにプレイリスト操作を依頼',
   'chat.cmd_d_clear': 'チャット履歴を消去',
   'chat.cmd_d_filter': '不適切表現フィルター',
   'chat.cmd_d_freeze': 'チャットを凍結',

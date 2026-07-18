@@ -43,8 +43,11 @@ const MAX_REQUEST_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_RESPONSE_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_ERROR_JSON_BYTES = 16 * 1024;
 const MAX_BOOTSTRAP_JSON_BYTES = 8 * 1024;
+const MAX_BOT_RESPONSE_JSON_BYTES = 8 * 1024;
 const MAX_NAME_LENGTH = 2048;
 const MAX_DISPLAY_NAME_LENGTH = 64;
+const MAX_BOT_PROMPT_LENGTH = 500;
+const MAX_BOT_SUMMARY_LENGTH = 2000;
 const MAX_URL_LENGTH = 8192;
 const MAX_UPLOAD_HEADERS = 16;
 const MAX_UPLOAD_HEADER_VALUE_LENGTH = 2048;
@@ -113,6 +116,19 @@ export interface ProRoomSignalingAccess {
 export interface ProRoomPresenceIdentity {
   participantId: string;
   presenceIncarnationId: string;
+}
+
+interface ProRoomBotCommandInput {
+  code: string;
+  prompt: string;
+  requestId: string;
+}
+
+export interface ProRoomBotCommandResult {
+  ok: true;
+  summary: string;
+  addedCount: number;
+  playbackChanged: boolean;
 }
 
 export interface ProRoomSystemAudioLeaseGrant {
@@ -510,6 +526,29 @@ function parseSystemAudioLeaseGrant(value: unknown): ProRoomSystemAudioLeaseGran
 
 function parseOk(value: unknown): true | null {
   return isRecord(value) && hasExactKeys(value, ['ok']) && value.ok === true ? true : null;
+}
+
+function parseBotCommandResult(value: unknown): ProRoomBotCommandResult | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['ok', 'summary', 'addedCount', 'playbackChanged']) ||
+    value.ok !== true ||
+    typeof value.summary !== 'string' ||
+    value.summary.trim().length < 1 ||
+    value.summary.length > MAX_BOT_SUMMARY_LENGTH ||
+    !Number.isSafeInteger(value.addedCount) ||
+    (value.addedCount as number) < 0 ||
+    (value.addedCount as number) > 1000 ||
+    typeof value.playbackChanged !== 'boolean'
+  ) {
+    return null;
+  }
+  return {
+    ok: true,
+    summary: value.summary.trim(),
+    addedCount: value.addedCount as number,
+    playbackChanged: value.playbackChanged,
+  };
 }
 
 function parseQuota(value: unknown): ProRoomQuotaSnapshot | null {
@@ -1204,6 +1243,28 @@ export class ProRoomApiClient {
       activeRoomCode: input.code,
       parser: parseOk,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+    });
+  }
+
+  runBotCommand(
+    input: ProRoomBotCommandInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomBotCommandResult> {
+    if (input.code !== '000001') throw new ProRoomApiError('BOT_UNAVAILABLE');
+    const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
+    if (!prompt || prompt.length > MAX_BOT_PROMPT_LENGTH) {
+      throw new ProRoomApiError('INVALID_BOT_PROMPT');
+    }
+    const requestId = validateIdempotencyKey(input.requestId);
+    const path = roomPath(input.code);
+    return this.#request(`${path}/bot/commands`, {
+      method: 'POST',
+      body: { prompt, requestId },
+      idempotencyKey: requestId,
+      signal,
+      activeRoomCode: input.code,
+      parser: parseBotCommandResult,
+      maxResponseBytes: MAX_BOT_RESPONSE_JSON_BYTES,
     });
   }
 

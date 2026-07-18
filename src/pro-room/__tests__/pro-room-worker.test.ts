@@ -594,6 +594,218 @@ function completeInternalDeveloperUpload(
   );
 }
 
+function internalBotRequest(
+  worker: MusixquareProRoom,
+  path: 'context' | 'execute',
+  body: Record<string, unknown>,
+  cookie: string,
+  options: { includePresence?: boolean } = {},
+): Promise<Response> {
+  const headers = new Headers({
+    'content-type': 'application/json',
+    cookie,
+    'x-mxqr-pro-room-code': ROOM_CODE,
+  });
+  if (options.includePresence !== false) {
+    const presence = presenceByCookie.get(cookie);
+    if (!presence) throw new Error('missing test presence identity');
+    headers.set('x-mxqr-pro-participant-id', presence.participantId);
+    headers.set('x-mxqr-pro-presence-incarnation', presence.presenceIncarnationId);
+  }
+  return worker.fetch(
+    new Request(`https://pro-room.internal/internal/bot/${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+describe('PRO room server BOT boundary', () => {
+  it('requires the current active presence before exposing bounded context', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const response = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: 'bot-context-presence-0001', prompt: 'test' },
+      ownerCookie,
+      { includePresence: false },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'PRESENCE_SUPERSEDED' });
+  });
+
+  it('replays one context receipt without charging it twice and rate-limits new turns', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const requestIds = ['bot-context-rate-0001', 'bot-context-rate-0002', 'bot-context-rate-0003'];
+    for (const requestId of requestIds) {
+      const response = await internalBotRequest(
+        worker,
+        'context',
+        { roomCode: ROOM_CODE, requestId, prompt: `request ${requestId}` },
+        ownerCookie,
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const replay = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: requestIds[0], prompt: `request ${requestIds[0]}` },
+      ownerCookie,
+    );
+    expect(replay.status).toBe(409);
+    await expect(replay.json()).resolves.toEqual({ error: 'BOT_REQUEST_IN_PROGRESS' });
+
+    const conflict = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: requestIds[0], prompt: 'different request' },
+      ownerCookie,
+    );
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+
+    const limited = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: 'bot-context-rate-0004', prompt: 'fourth request' },
+      ownerCookie,
+    );
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
+    await expect(limited.json()).resolves.toEqual({ error: 'RATE_LIMITED' });
+  });
+
+  it('adds a bounded YouTube batch exactly once for one executed request', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const requestId = 'bot-execute-add-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'add one test song' },
+      ownerCookie,
+    );
+    expect(context.status).toBe(200);
+    const contextPayload = await responseJson(context);
+    const body = {
+      roomCode: ROOM_CODE,
+      requestId,
+      leaseToken: contextPayload.leaseToken,
+      plan: {
+        intent: 'add_youtube',
+        trackQueries: ['Test Artist Test Song official audio'],
+        playAddedIndex: -1,
+        answer: '한 곡을 추가했어요.',
+      },
+      tracks: [
+        {
+          videoId: 'dQw4w9WgXcQ',
+          name: 'Test Song',
+          title: 'Test Song',
+          artist: 'Test Artist',
+        },
+      ],
+    };
+
+    const first = await internalBotRequest(worker, 'execute', body, ownerCookie);
+    expect(first.status).toBe(200);
+    const firstPayload = await responseJson(first);
+    expect(firstPayload).toEqual({
+      ok: true,
+      summary: 'Added 1 track.',
+      addedCount: 1,
+      playbackChanged: false,
+    });
+    expect(internal.room.playlist).toHaveLength(1);
+    expect(internal.room.playlist[0]).toMatchObject({
+      name: 'Test Song',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      developerOwnerKeyId: 'MxqrGeminiBot001',
+    });
+    const revisionAfterFirst = internal.room.revision;
+    const playlistRevisionAfterFirst = internal.room.playlistRevision;
+
+    const terminalContextReplay = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'add one test song' },
+      ownerCookie,
+    );
+    expect(terminalContextReplay.status).toBe(200);
+    await expect(terminalContextReplay.json()).resolves.toEqual({ replay: firstPayload });
+
+    const replay = await internalBotRequest(worker, 'execute', body, ownerCookie);
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toEqual(firstPayload);
+    expect(internal.room.playlist).toHaveLength(1);
+    expect(internal.room.revision).toBe(revisionAfterFirst);
+    expect(internal.room.playlistRevision).toBe(playlistRevisionAfterFirst);
+
+    const conflict = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        ...body,
+        plan: { ...body.plan, answer: '다른 요청이에요.' },
+      },
+      ownerCookie,
+    );
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(internal.room.playlist).toHaveLength(1);
+  });
+
+  it('dispatches play_existing once and replays the terminal BOT receipt', async () => {
+    const { worker, ownerCookie, internal, queueItemId, dispatchFetch } =
+      await preparedDeveloperCommandRoom();
+    const requestId = 'bot-play-existing-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'play the queued song' },
+      ownerCookie,
+    );
+    expect(context.status).toBe(200);
+    const contextPayload = await responseJson(context);
+    const body = {
+      roomCode: ROOM_CODE,
+      requestId,
+      leaseToken: contextPayload.leaseToken,
+      plan: {
+        intent: 'play_existing',
+        queueItemId,
+        answer: '이 곡을 재생할게요.',
+      },
+      tracks: [],
+    };
+
+    const first = await internalBotRequest(worker, 'execute', body, ownerCookie);
+    expect(first.status).toBe(200);
+    const firstPayload = await responseJson(first);
+    expect(firstPayload).toEqual({
+      ok: true,
+      summary: '이 곡을 재생할게요.',
+      addedCount: 0,
+      playbackChanged: true,
+    });
+    expect(Object.values(internal.room.developerCommands)).toHaveLength(1);
+    expect(Object.values(internal.room.developerCommands)[0]).toMatchObject({
+      keyId: 'MxqrGeminiBot001',
+      command: { type: 'play_item', queueItemId },
+    });
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+
+    const replay = await internalBotRequest(worker, 'execute', body, ownerCookie);
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toEqual(firstPayload);
+    expect(Object.values(internal.room.developerCommands)).toHaveLength(1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('PRO room private Developer API projections', () => {
   it('exposes only bounded room, playback, and queue fields', async () => {
     vi.useFakeTimers();

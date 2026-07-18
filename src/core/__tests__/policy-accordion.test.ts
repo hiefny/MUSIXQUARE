@@ -20,7 +20,7 @@ async function readDocument(path: string, url: string): Promise<JSDOM> {
 describe('policy-page accordions', () => {
   it.each([
     [DEVELOPER_DOC_PATH, 'https://musixquare.com/developers', 11],
-    [FAQ_PATH, 'https://musixquare.com/faq', 7],
+    [FAQ_PATH, 'https://musixquare.com/faq', 8],
   ])('uses accessible section-level disclosures in %s', async (path, url, expectedCount) => {
     const dom = await readDocument(path, url);
     const { document } = dom.window;
@@ -43,6 +43,38 @@ describe('policy-page accordions', () => {
       expect(summary?.querySelector(':scope > h2')).not.toBeNull();
       expect(summary?.querySelector('button')).toBeNull();
       expect(accordion.children.length).toBeGreaterThan(1);
+    }
+  });
+
+  it('documents the bounded PRO-room AI BOT beta data boundary', async () => {
+    const [faq, privacy] = await Promise.all([
+      readDocument(FAQ_PATH, 'https://musixquare.com/faq'),
+      readDocument(PRIVACY_PATH, 'https://musixquare.com/privacy'),
+    ]);
+    const aiBot = faq.window.document.querySelector<HTMLDetailsElement>(
+      'details#ai-bot-beta.policy-accordion',
+    );
+
+    expect(aiBot).not.toBeNull();
+    expect(aiBot?.open).toBe(false);
+
+    const disclosure = [
+      aiBot?.textContent ?? '',
+      privacy.window.document.body.textContent ?? '',
+    ].join(' ');
+    for (const phrase of [
+      'PRO room 000001',
+      '/bot',
+      'Google Gemini API',
+      'minimum playlist metadata',
+      'stored media URLs',
+      'full chat history',
+      'API keys',
+      'participant lists',
+      'sensitive information',
+      'allowlist',
+    ]) {
+      expect(disclosure).toContain(phrase);
     }
   });
 

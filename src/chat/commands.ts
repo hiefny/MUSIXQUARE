@@ -16,12 +16,14 @@ import {
 } from '../core/constants.ts';
 import { getOtherDeviceLabels } from '../network/guards.ts';
 import { sendToHost } from '../network/peer.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 import { t } from '../i18n/index.ts';
 import {
   addSystemChatMessage,
   addWhisperMessage,
   addNoticeChatMessage,
 } from '../ui/chat-render.ts';
+import { showToast } from '../ui/toast.ts';
 import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { rememberPinnedNotice } from './protocol.ts';
@@ -42,6 +44,7 @@ interface CommandDef {
   execute: (args: string[], rawArgs: string) => void;
   usage: string;
   description: string;
+  suggestWhen?: () => boolean;
   hidden?: boolean; // Hidden from /help output
   hideFromSuggest?: boolean; // Hidden from autocomplete dropdown
 }
@@ -398,6 +401,7 @@ function cmdHelp(): void {
 
   for (const [, def] of _allCommandEntries()) {
     if (def.hidden) continue;
+    if (def.suggestWhen && !def.suggestWhen()) continue;
     if (
       def.permission === 'all' ||
       (def.permission === 'host' && role === 'host') ||
@@ -450,6 +454,75 @@ function cmdUsers(): void {
   addSystemChatMessage(lines.join('\n'));
 }
 
+function isBotBetaRoom(): boolean {
+  const room = getRoomContext();
+  return room.kind === 'pro' && room.roomId === '000001';
+}
+
+let _botRequestInFlight = false;
+
+function getBotRateLimitRetryAfter(error: unknown): number | null {
+  if (error === null || typeof error !== 'object') return null;
+  const candidate = error as { code?: unknown; retryAfterSeconds?: unknown };
+  if (candidate.code !== 'RATE_LIMITED') return null;
+  const retryAfterSeconds = candidate.retryAfterSeconds;
+  if (
+    typeof retryAfterSeconds !== 'number' ||
+    !Number.isFinite(retryAfterSeconds) ||
+    retryAfterSeconds <= 0
+  ) {
+    return null;
+  }
+  return Math.max(1, Math.ceil(retryAfterSeconds));
+}
+
+async function runBotCommand(rawArgs: string): Promise<void> {
+  if (!isBotBetaRoom()) {
+    addSystemChatMessage(t('chat.bot_unavailable'));
+    return;
+  }
+  const prompt = rawArgs.trim();
+  if (!prompt) {
+    addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_bot') }));
+    return;
+  }
+  if (_botRequestInFlight) {
+    addSystemChatMessage(t('chat.bot_processing'));
+    return;
+  }
+
+  _botRequestInFlight = true;
+  addSystemChatMessage(t('chat.bot_processing'));
+  try {
+    const { requestActiveProRoomBotCommand } = await import('../pro-room/runtime.ts');
+    const result = await requestActiveProRoomBotCommand(prompt);
+    if (!isBotBetaRoom()) return;
+    const message =
+      result.addedCount > 0
+        ? t(result.playbackChanged ? 'chat.bot_added_and_playing' : 'chat.bot_added_tracks', {
+            count: result.addedCount,
+          })
+        : result.summary;
+    addSystemChatMessage(message);
+    showToast(t('chat.bot_completed'));
+  } catch (error) {
+    if (!isBotBetaRoom()) return;
+    const retryAfterSeconds = getBotRateLimitRetryAfter(error);
+    const message =
+      retryAfterSeconds === null
+        ? t('chat.bot_failed')
+        : t('chat.bot_rate_limited', { seconds: retryAfterSeconds });
+    addSystemChatMessage(message);
+    showToast(message);
+  } finally {
+    _botRequestInFlight = false;
+  }
+}
+
+function cmdBot(_args: string[], rawArgs: string): void {
+  void runBotCommand(rawArgs);
+}
+
 // ─── Command Registry ───────────────────────────────────────────
 
 // usage/description use i18n keys, resolved at access time via getAvailableCommands()
@@ -469,6 +542,13 @@ const COMMANDS_DEF: Record<
     execute: cmdUsers,
     usageKey: 'chat.cmd_u_users',
     descKey: 'chat.cmd_d_users',
+  },
+  bot: {
+    permission: 'all',
+    execute: cmdBot,
+    usageKey: 'chat.cmd_u_bot',
+    descKey: 'chat.cmd_d_bot',
+    suggestWhen: isBotBetaRoom,
   },
   clear: {
     permission: 'host+op',
@@ -589,6 +669,7 @@ export function getAvailableCommands(
   const query = filter.toLowerCase();
   for (const [name, def] of _allCommandEntries()) {
     if (def.hideFromSuggest) continue;
+    if (def.suggestWhen && !def.suggestWhen()) continue;
     if (!hasPermission(def.permission)) continue;
     if (query && !name.startsWith(query)) continue;
     result.push({ name, usage: def.usage, description: def.description });

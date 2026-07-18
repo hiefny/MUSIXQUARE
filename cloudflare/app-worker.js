@@ -1,3 +1,5 @@
+import { handleProBotRequest } from './pro-bot.js';
+
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
@@ -203,10 +205,7 @@ function facadeProRoomSetCookie(value, roomCode) {
   } else {
     return null;
   }
-  return rewritten.replace(
-    /;\s*Path=\/(?=;|$)/i,
-    `; Path=${proRoomFacadeCookiePath(roomCode)}`,
-  );
+  return rewritten.replace(/;\s*Path=\/(?=;|$)/i, `; Path=${proRoomFacadeCookiePath(roomCode)}`);
 }
 
 function withFacadeProRoomCookies(response, roomCode) {
@@ -229,6 +228,16 @@ async function handleProRoomFacade(request, env, url) {
   const route = url.pathname.match(PRO_ROOM_FACADE_PATH_RE);
   if (!isHealth && !route) {
     return json({ error: 'PRO_ROOM_ROUTE_NOT_FOUND' }, 404, { 'Cache-Control': 'no-store' });
+  }
+
+  if (route) {
+    const [, upstreamPath, roomCode] = route;
+    if (upstreamPath === `/v1/rooms/${roomCode}/bot/commands`) {
+      return handleProBotRequest(request, env, {
+        roomCode,
+        forwardedCookies: forwardedProRoomCookies(request.headers.get('Cookie'), roomCode),
+      });
+    }
   }
 
   if (isHealth) {
@@ -302,9 +311,7 @@ async function handleProRoomFacade(request, env, url) {
   }
   let response;
   try {
-    response = await env.PRO_ROOM_PUBLIC_API.fetch(
-      new Request(upstreamUrl, upstreamInit),
-    );
+    response = await env.PRO_ROOM_PUBLIC_API.fetch(new Request(upstreamUrl, upstreamInit));
   } catch {
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
   }
@@ -1590,7 +1597,12 @@ function d1MutationChanged(result) {
 function developerApiAdminErrorChainIncludes(error, needle) {
   let current = error;
   for (let depth = 0; current && depth < 4; depth += 1) {
-    if (String(current?.message || current).toLowerCase().includes(needle)) return true;
+    if (
+      String(current?.message || current)
+        .toLowerCase()
+        .includes(needle)
+    )
+      return true;
     current = current?.cause;
   }
   return false;
@@ -2166,7 +2178,8 @@ async function handleAdminProRoomState(request, env, pathname) {
   }
 
   const action = targetStatus === 'suspended' ? 'room.suspend' : 'room.resume';
-  const internalPath = targetStatus === 'suspended' ? '/internal/admin/suspend' : '/internal/admin/resume';
+  const internalPath =
+    targetStatus === 'suspended' ? '/internal/admin/suspend' : '/internal/admin/resume';
   const changed = await callProRoomAdminObject(env, roomCode, internalPath);
   const payload = changed.payload;
   if (!changed.response?.ok) {
@@ -3290,7 +3303,6 @@ async function handleYoutubeSearch(request, env) {
   if (!query) return json({ error: 'Missing query' }, 400, headers);
 
   const params = new URLSearchParams({
-    key: apiKey,
     part: 'snippet',
     type: 'video',
     videoEmbeddable: 'true',
@@ -3308,7 +3320,9 @@ async function handleYoutubeSearch(request, env) {
   }
 
   try {
-    const response = await fetch(`${YOUTUBE_SEARCH_API}?${params.toString()}`);
+    const response = await fetch(`${YOUTUBE_SEARCH_API}?${params.toString()}`, {
+      headers: { 'x-goog-api-key': apiKey },
+    });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const upstreamError = normalizeUpstreamError(payload);
@@ -3366,7 +3380,6 @@ async function handleYoutubePlaylistEntry(request, env) {
   const playlistId = playlistIds[0];
 
   const params = new URLSearchParams({
-    key: apiKey,
     part: 'snippet,contentDetails,status',
     playlistId,
     // One quota unit resolves up to 50 rows. Scan the first page so a private
@@ -3377,7 +3390,9 @@ async function handleYoutubePlaylistEntry(request, env) {
   });
 
   try {
-    const response = await fetch(`${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`);
+    const response = await fetch(`${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`, {
+      headers: { 'x-goog-api-key': apiKey },
+    });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const upstreamError = normalizeUpstreamError(payload);
@@ -5143,9 +5158,7 @@ function cacheHeadersForPath(pathname, assetPathname = pathname) {
       '/developers',
       '/history',
       '/designsystem',
-    ].includes(
-      pathname.toLowerCase().replace(/\/$/, ''),
-    )
+    ].includes(pathname.toLowerCase().replace(/\/$/, ''))
   ) {
     return {
       'Cache-Control': 'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',

@@ -8,6 +8,8 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 
+const requestActiveProRoomBotCommand = vi.hoisted(() => vi.fn());
+
 window.matchMedia =
   window.matchMedia ||
   vi
@@ -31,6 +33,10 @@ vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn(),
 }));
 
+vi.mock('../../pro-room/runtime.ts', () => ({
+  requestActiveProRoomBotCommand,
+}));
+
 vi.mock('../toast.ts', () => ({
   showToast: vi.fn(),
 }));
@@ -50,6 +56,8 @@ vi.mock('../../youtube/oembed.ts', () => ({
 beforeEach(() => {
   resetState();
   bus.clear();
+  vi.clearAllMocks();
+  requestActiveProRoomBotCommand.mockReset();
   document.body.innerHTML = '';
 });
 
@@ -326,6 +334,43 @@ describe('Chat Module', () => {
       expect(sendToHost).toHaveBeenCalledWith(
         expect.objectContaining({ senderLabel: 'Peer', text: 'guest payload', isHost: false }),
       );
+    });
+
+    it('intercepts /bot without sending the prompt as a regular CHAT frame', async () => {
+      renderSendShell('/bot 인기곡 3개 추가해줘');
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'participant_00001',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['queue.mutate', 'playback.control'],
+      });
+      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      requestActiveProRoomBotCommand.mockResolvedValueOnce({
+        ok: true,
+        summary: '3곡을 추가했어요.',
+        addedCount: 3,
+        playbackChanged: false,
+      });
+      const broadcast = vi.fn();
+      bus.on('network:broadcast', broadcast);
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+
+      await vi.waitFor(() => {
+        expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith('인기곡 3개 추가해줘');
+        expect(
+          Array.from(document.querySelectorAll<HTMLElement>('#chat-messages .chat-text')).map(
+            (element) => element.textContent,
+          ),
+        ).toContain('chat.bot_added_tracks');
+      });
+      expect(sendToHost).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+      expect(document.getElementById('chat-input')?.textContent).toBe('');
     });
   });
 });

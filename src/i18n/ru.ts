@@ -304,6 +304,13 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Подождите {{sec}} сек. перед отправкой следующего сообщения',
   'chat.cmd_notice_prefix': 'Объявление',
   'chat.system_sender': 'СИСТЕМА',
+  'chat.bot_unavailable': 'BOT доступен только в PRO-комнате 000001',
+  'chat.bot_processing': 'BOT обрабатывает запрос...',
+  'chat.bot_completed': 'Запрос BOT выполнен',
+  'chat.bot_failed': 'BOT не удалось выполнить запрос',
+  'chat.bot_added_tracks': 'BOT добавил треки: {{count}}',
+  'chat.bot_added_and_playing': 'BOT добавил треки: {{count}}. Воспроизведение запущено',
+  'chat.bot_rate_limited': 'Достигнут лимит запросов BOT. Повторите попытку через {{seconds}} с',
   'chat.decode_skip_system_message':
     'Некоторые устройства не смогли декодировать трек. Переход к следующему треку...',
   'chat.system_audio_started_system_message':
@@ -335,6 +342,7 @@ const ru: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
+  'chat.cmd_u_bot': '/bot [запрос]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
@@ -350,6 +358,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_u_unmute': '/unmute [устройство]',
   'chat.cmd_d_help': 'Показывает список доступных команд',
   'chat.cmd_d_users': 'Показывает список подключенных пользователей',
+  'chat.cmd_d_bot': 'Попросить ИИ управлять плейлистом',
   'chat.cmd_d_clear': 'Очищает историю чата',
   'chat.cmd_d_filter': 'Включает/выключает фильтр ненормативной лексики',
   'chat.cmd_d_freeze': 'Замораживает/размораживает групповой чат',

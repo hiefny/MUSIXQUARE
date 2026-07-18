@@ -564,6 +564,91 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('submits a 000001 BOT command with idempotency and the active presence fence', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ok: true,
+        summary: '인기곡 3개를 추가했어요.',
+        addedCount: 3,
+        playbackChanged: false,
+      }),
+    );
+
+    await expect(
+      client.runBotCommand({
+        code: ROOM_CODE,
+        prompt: '  지금 한국에서 인기 있는 곡 3개 추가해줘  ',
+        requestId: IDEMPOTENCY_KEY,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      summary: '인기곡 3개를 추가했어요.',
+      addedCount: 3,
+      playbackChanged: false,
+    });
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/bot/commands`);
+    expect(init).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({
+        prompt: '지금 한국에서 인기 있는 곡 3개 추가해줘',
+        requestId: IDEMPOTENCY_KEY,
+      }),
+    });
+    const headers = new Headers(init.headers);
+    expect(headers.get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
+    expect(headers.get('x-mxqr-pro-participant-id')).toBe(
+      activeSnapshot().viewer!.participantId,
+    );
+    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe(
+      activeSnapshot().viewer!.presenceIncarnationId,
+    );
+  });
+
+  it('rejects unavailable or malformed BOT commands before fetch', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    expect(() =>
+      client.runBotCommand({
+        code: '000000',
+        prompt: 'play something',
+        requestId: IDEMPOTENCY_KEY,
+      }),
+    ).toThrow('PRO_ROOM_API_BOT_UNAVAILABLE');
+    expect(() =>
+      client.runBotCommand({ code: ROOM_CODE, prompt: '   ', requestId: IDEMPOTENCY_KEY }),
+    ).toThrow('PRO_ROOM_API_INVALID_BOT_PROMPT');
+    expect(() =>
+      client.runBotCommand({ code: ROOM_CODE, prompt: 'x', requestId: 'short' }),
+    ).toThrow('PRO_ROOM_API_INVALID_IDEMPOTENCY_KEY');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed BOT command responses', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ok: true,
+        summary: 'done',
+        addedCount: -1,
+        playbackChanged: false,
+      }),
+    );
+
+    await expect(
+      client.runBotCommand({ code: ROOM_CODE, prompt: 'next', requestId: IDEMPOTENCY_KEY }),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('uses one small credentialed keepalive request for a confirmed unload close', async () => {
     const snapshot = activeSnapshot();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));

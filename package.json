@@ -26,7 +26,7 @@
     "guard:developer-api-boundaries": "node scripts/check-developer-api-boundaries.mjs",
     "check:pro-room-worker": "node --check cloudflare/pro-room-worker.js",
     "check:developer-api-workers": "node --check cloudflare/developer-api-worker.js && node --check cloudflare/developer-api-facade-worker.js && npm run guard:developer-api-boundaries",
-    "check:workers": "node --check cloudflare/app-worker.js && node --check cloudflare/signaling-worker.js && node --check cloudflare/remote-share-worker.js && node --check cloudflare/pro-room-worker.js && npm run check:developer-api-workers",
+    "check:workers": "node --check cloudflare/app-worker.js && node --check cloudflare/pro-bot.js && node --check cloudflare/signaling-worker.js && node --check cloudflare/remote-share-worker.js && node --check cloudflare/pro-room-worker.js && npm run check:developer-api-workers",
     "smoke:live:signaling": "node scripts/live-signaling-smoke.mjs",
     "smoke:live:pro-room": "node scripts/live-pro-room-smoke.mjs",
     "smoke:live:developer-api": "node scripts/live-developer-api-smoke.mjs",

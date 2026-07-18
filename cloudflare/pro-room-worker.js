@@ -42,6 +42,9 @@ const DEVELOPER_AUDIO_EXTENSIONS = new Set([
 const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 const DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
+const BOT_BETA_ROOM_CODE = '000001';
+const BOT_DEVELOPER_KEY_ID = 'MxqrGeminiBot001';
+const BOT_REQUEST_ID_RE = IDEMPOTENCY_KEY_RE;
 
 const SCHEMA_VERSION = 1;
 // `pro-room:v1` remains a rollback shadow for rooms that still fit in the old
@@ -56,6 +59,12 @@ const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYLIST_MAX_ITEMS = 1000;
 const DEVELOPER_YOUTUBE_BATCH_MAX_ITEMS = 100;
+const BOT_MAX_TRACK_ITEMS = 3;
+const BOT_MEMBER_MINUTE_LIMIT = 3;
+const BOT_ROOM_DAY_LIMIT = 20;
+const BOT_MEMBER_MINUTE_MS = 60 * 1000;
+const BOT_ROOM_DAY_MS = 24 * 60 * 60 * 1000;
+const BOT_REQUEST_LEASE_MS = 45 * 1000;
 // The elected coordinator is one of the 100 connected devices. Signaling
 // separately admits at most 99 non-coordinator members for the same ceiling.
 const PRESENCE_MAX_ITEMS = 100;
@@ -890,7 +899,9 @@ const EFFECT_REVERB_FIELDS = Object.freeze({
 });
 
 function boundedEffectNumber(value, minimum, maximum) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+  return (
+    typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
+  );
 }
 
 function parseEffectsReverb(value, complete = true) {
@@ -926,8 +937,7 @@ function parseEffectsVirtualBass(value) {
 }
 
 function parseEffectsVirtualSurround(value) {
-  return hasExactKeys(value, ['widthPercent']) &&
-    boundedEffectNumber(value.widthPercent, 0, 200)
+  return hasExactKeys(value, ['widthPercent']) && boundedEffectNumber(value.widthPercent, 0, 200)
     ? { widthPercent: value.widthPercent }
     : null;
 }
@@ -982,9 +992,7 @@ function normalizeStoredEffects(value) {
     return null;
   }
   const effects = parseRoomEffects(value.effects);
-  return effects
-    ? { revision: value.revision, updatedAtMs: value.updatedAtMs, effects }
-    : null;
+  return effects ? { revision: value.revision, updatedAtMs: value.updatedAtMs, effects } : null;
 }
 
 function publicEffects(room) {
@@ -1435,14 +1443,9 @@ function parseDeveloperQueueMutation(value) {
     }
     const items = value.items.map((item) => {
       if (
-        !hasExactKeys(
-          item,
-          ['videoId', 'name'],
-          ['playlistId', 'title', 'artist', 'thumbnail'],
-        ) ||
+        !hasExactKeys(item, ['videoId', 'name'], ['playlistId', 'title', 'artist', 'thumbnail']) ||
         !YOUTUBE_VIDEO_ID_RE.test(item.videoId || '') ||
-        (item.playlistId !== undefined &&
-          !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
+        (item.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
       ) {
         return null;
       }
@@ -1492,6 +1495,91 @@ function parseDeveloperQueueMutation(value) {
     };
   }
   return null;
+}
+
+function parseBotPlan(value) {
+  if (
+    !hasExactKeys(
+      value,
+      ['intent'],
+      [
+        'trackQueries',
+        'playAddedIndex',
+        'queueItemId',
+        'playbackCommand',
+        'repeatMode',
+        'shuffleEnabled',
+        'answer',
+      ],
+    ) ||
+    !['add_youtube', 'play_existing', 'playback', 'queue_mode', 'answer'].includes(value.intent)
+  ) {
+    return null;
+  }
+  const answer = value.answer === undefined ? undefined : boundedString(value.answer, 240, true);
+  if (value.answer !== undefined && answer === null) return null;
+  if (value.intent === 'add_youtube') {
+    if (
+      !Array.isArray(value.trackQueries) ||
+      value.trackQueries.length < 1 ||
+      value.trackQueries.length > BOT_MAX_TRACK_ITEMS ||
+      value.trackQueries.some((query) => boundedString(query, 160) === null)
+    ) {
+      return null;
+    }
+    const playAddedIndex = value.playAddedIndex === undefined ? -1 : value.playAddedIndex;
+    if (
+      !Number.isSafeInteger(playAddedIndex) ||
+      playAddedIndex < -1 ||
+      playAddedIndex >= value.trackQueries.length
+    ) {
+      return null;
+    }
+    return {
+      intent: value.intent,
+      trackQueries: value.trackQueries.map((query) => boundedString(query, 160)),
+      playAddedIndex,
+      ...(answer ? { answer } : {}),
+    };
+  }
+  if (value.intent === 'play_existing') {
+    return QUEUE_ITEM_ID_RE.test(value.queueItemId || '')
+      ? { intent: value.intent, queueItemId: value.queueItemId, ...(answer ? { answer } : {}) }
+      : null;
+  }
+  if (value.intent === 'playback') {
+    return ['play', 'pause', 'next'].includes(value.playbackCommand)
+      ? {
+          intent: value.intent,
+          playbackCommand: value.playbackCommand,
+          ...(answer ? { answer } : {}),
+        }
+      : null;
+  }
+  if (value.intent === 'queue_mode') {
+    if (
+      (value.repeatMode === undefined && value.shuffleEnabled === undefined) ||
+      (value.repeatMode !== undefined && !['off', 'all', 'one'].includes(value.repeatMode)) ||
+      (value.shuffleEnabled !== undefined && typeof value.shuffleEnabled !== 'boolean')
+    ) {
+      return null;
+    }
+    return {
+      intent: value.intent,
+      ...(value.repeatMode === undefined ? {} : { repeatMode: value.repeatMode }),
+      ...(value.shuffleEnabled === undefined ? {} : { shuffleEnabled: value.shuffleEnabled }),
+      ...(answer ? { answer } : {}),
+    };
+  }
+  return answer ? { intent: value.intent, answer } : null;
+}
+
+function parseBotTracks(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > BOT_MAX_TRACK_ITEMS) return null;
+  const mutation = parseDeveloperQueueMutation({ type: 'add_youtube_batch', items: value });
+  return mutation?.type === 'add_youtube_batch' && mutation.items.length === value.length
+    ? mutation.items
+    : null;
 }
 
 function isDeveloperAudioCandidate(name, mime) {
@@ -2178,9 +2266,7 @@ export class MusixquareProRoom {
       const storedPlaylist = await getStorageEntries(this.storage, playlistKeys);
       const playlist = [];
       for (const queueItemId of storedV2.playlistOrder) {
-        const item = parseStoredPlaylistItem(
-          storedPlaylist.get(playlistStorageKey(queueItemId)),
-        );
+        const item = parseStoredPlaylistItem(storedPlaylist.get(playlistStorageKey(queueItemId)));
         if (!item || item.queueItemId !== queueItemId) {
           throw new Error('PRO_ROOM_PERSISTENCE_V2_PLAYLIST_INVALID');
         }
@@ -2366,6 +2452,21 @@ export class MusixquareProRoom {
     if (url.search || url.hash || request.url.length > 8192) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    if (url.pathname.startsWith('/internal/bot/')) {
+      if (request.method !== 'POST') return errorResponse('NOT_FOUND', 404);
+      return this.withMutation(async () => {
+        await this.prune(Date.now());
+        return this.withStateCapacityRollback(async () => {
+          if (url.pathname === '/internal/bot/context') {
+            return this.handleInternalBotContext(request);
+          }
+          if (url.pathname === '/internal/bot/execute') {
+            return this.handleInternalBotExecute(request);
+          }
+          return errorResponse('NOT_FOUND', 404);
+        });
+      });
+    }
     if (url.pathname.startsWith('/internal/admin/')) {
       if (request.method === 'GET' && url.pathname === '/internal/admin/status') {
         return jsonResponse({
@@ -2520,6 +2621,288 @@ export class MusixquareProRoom {
           ? 'suspended'
           : 'pin_required';
     return jsonResponse({ roomCode: this.room.roomCode, status });
+  }
+
+  botRateLimitResponse(key, limit, nowMs) {
+    const current = this.room.rateLimits[key];
+    if (!current || current.resetAtMs <= nowMs || current.count < limit) return null;
+    return errorResponse('RATE_LIMITED', 429, {
+      'retry-after': String(Math.max(1, Math.ceil((current.resetAtMs - nowMs) / 1000))),
+    });
+  }
+
+  recordBotRateLimit(key, windowMs, nowMs) {
+    const current = this.room.rateLimits[key];
+    if (!current || current.resetAtMs <= nowMs) {
+      if (!current && Object.keys(this.room.rateLimits).length >= RATE_LIMIT_MAX_ITEMS) {
+        const oldest = Object.entries(this.room.rateLimits).sort(
+          ([, left], [, right]) => left.resetAtMs - right.resetAtMs,
+        )[0]?.[0];
+        if (oldest) delete this.room.rateLimits[oldest];
+      }
+      this.room.rateLimits[key] = { count: 1, resetAtMs: nowMs + windowMs };
+      return;
+    }
+    current.count += 1;
+  }
+
+  publicBotContext(auth) {
+    const playlist = this.room.playlist.slice(0, 100).map((item) => ({
+      queueItemId: item.queueItemId,
+      kind: item.source.kind === 'youtube' ? 'youtube' : 'audio',
+      name: item.name.slice(0, 160),
+      ...(typeof item.title === 'string' ? { title: item.title.slice(0, 160) } : {}),
+      ...(typeof item.artist === 'string' ? { artist: item.artist.slice(0, 160) } : {}),
+    }));
+    return {
+      actorName: queueAdditionActorName(auth.session.displayName, 'Peer'),
+      room: {
+        playlistRevision: this.room.playlistRevision,
+        currentQueueItemId: this.room.currentQueueItemId,
+        playbackState: this.room.playback.state,
+        repeatMode:
+          this.room.queueMode.repeatMode === 2
+            ? 'one'
+            : this.room.queueMode.repeatMode === 1
+              ? 'all'
+              : 'off',
+        shuffleEnabled: this.room.queueMode.shuffleEnabled,
+        playlist,
+      },
+    };
+  }
+
+  async handleInternalBotContext(request) {
+    if (
+      this.room.roomCode !== BOT_BETA_ROOM_CODE ||
+      !this.room.provisioned ||
+      this.room.status !== 'active'
+    ) {
+      return errorResponse('BOT_ROOM_ONLY', 400);
+    }
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 2 * 1024);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, ['roomCode', 'requestId', 'prompt']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !BOT_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
+      boundedString(parsed.value.prompt, 500) === null
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+
+    const scope = `bot-context:${auth.tokenHash}`;
+    const fingerprint = await this.idempotencyFingerprint(scope, {
+      roomCode: this.room.roomCode,
+      prompt: boundedString(parsed.value.prompt, 500),
+    });
+    const storageKey = `${scope}:${parsed.value.requestId}`;
+    const receipt = this.room.idempotency[storageKey];
+    if (receipt && !constantTimeEqual(receipt.fingerprint, fingerprint)) {
+      return errorResponse('IDEMPOTENCY_CONFLICT', 409);
+    }
+    const nowMs = Date.now();
+    if (receipt) {
+      const executeReceipt =
+        this.room.idempotency[`bot-execute:${auth.tokenHash}:${parsed.value.requestId}`];
+      if (executeReceipt?.body) return jsonResponse({ replay: executeReceipt.body });
+      const leaseExpiresAtMs = receipt.body?.leaseExpiresAtMs;
+      return errorResponse(
+        Number.isSafeInteger(leaseExpiresAtMs) && leaseExpiresAtMs > nowMs
+          ? 'BOT_REQUEST_IN_PROGRESS'
+          : 'BOT_REQUEST_EXPIRED',
+        409,
+        Number.isSafeInteger(leaseExpiresAtMs) && leaseExpiresAtMs > nowMs
+          ? { 'retry-after': String(Math.max(1, Math.ceil((leaseExpiresAtMs - nowMs) / 1000))) }
+          : {},
+      );
+    }
+
+    const leaseToken = randomToken(24);
+    {
+      const minuteKey = `bot-minute:${auth.tokenHash}`;
+      const dayKey = `bot-day:${this.room.roomCode}`;
+      const minuteLimit = this.botRateLimitResponse(minuteKey, BOT_MEMBER_MINUTE_LIMIT, nowMs);
+      if (minuteLimit) return minuteLimit;
+      const dayLimit = this.botRateLimitResponse(dayKey, BOT_ROOM_DAY_LIMIT, nowMs);
+      if (dayLimit) return dayLimit;
+      this.recordBotRateLimit(minuteKey, BOT_MEMBER_MINUTE_MS, nowMs);
+      this.recordBotRateLimit(dayKey, BOT_ROOM_DAY_MS, nowMs);
+      this.storeIdempotency(
+        scope,
+        parsed.value.requestId,
+        fingerprint,
+        { leaseToken, leaseExpiresAtMs: nowMs + BOT_REQUEST_LEASE_MS },
+        200,
+        nowMs + BOT_ROOM_DAY_MS,
+      );
+      await this.persist();
+    }
+    return jsonResponse({ leaseToken, ...this.publicBotContext(auth) });
+  }
+
+  async runBotDeveloperCommand(requestId, command) {
+    const response = await this.handleInternalDeveloperCommandCreate(
+      new Request('https://pro-room.internal/internal/developer/v1/commands/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: this.room.roomCode,
+          keyId: BOT_DEVELOPER_KEY_ID,
+          idempotencyKey: `${requestId}.command`,
+          command,
+        }),
+      }),
+    );
+    return response.ok;
+  }
+
+  async handleInternalBotExecute(request) {
+    if (
+      this.room.roomCode !== BOT_BETA_ROOM_CODE ||
+      !this.room.provisioned ||
+      this.room.status !== 'active'
+    ) {
+      return errorResponse('BOT_ROOM_ONLY', 400);
+    }
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 64 * 1024);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, ['roomCode', 'requestId', 'leaseToken', 'plan', 'tracks']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !BOT_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
+      !OPAQUE_ID_RE.test(parsed.value.leaseToken || '') ||
+      !Array.isArray(parsed.value.tracks)
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    const plan = parseBotPlan(parsed.value.plan);
+    if (!plan) return errorResponse('INVALID_REQUEST', 400);
+    const tracks =
+      plan.intent === 'add_youtube'
+        ? parseBotTracks(parsed.value.tracks)
+        : parsed.value.tracks.length === 0
+          ? []
+          : null;
+    if (!tracks) return errorResponse('INVALID_REQUEST', 400);
+
+    const contextScope = `bot-context:${auth.tokenHash}`;
+    const contextReceipt = this.room.idempotency[`${contextScope}:${parsed.value.requestId}`];
+    if (
+      !contextReceipt ||
+      !constantTimeEqual(contextReceipt.body?.leaseToken, parsed.value.leaseToken)
+    ) {
+      return errorResponse('BOT_CONTEXT_REQUIRED', 409);
+    }
+
+    const scope = `bot-execute:${auth.tokenHash}`;
+    const fingerprint = await this.idempotencyFingerprint(scope, { plan, tracks });
+    const replay = this.replayIdempotency(scope, parsed.value.requestId, fingerprint);
+    if (replay) return replay;
+    if (
+      !Number.isSafeInteger(contextReceipt.body?.leaseExpiresAtMs) ||
+      contextReceipt.body.leaseExpiresAtMs <= Date.now()
+    ) {
+      return errorResponse('BOT_CONTEXT_REQUIRED', 409);
+    }
+
+    let addedCount = 0;
+    let playbackChanged = false;
+    if (plan.intent === 'add_youtube') {
+      const queueResponse = await this.handleInternalDeveloperQueueMutation(
+        new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: this.room.roomCode,
+            keyId: BOT_DEVELOPER_KEY_ID,
+            idempotencyKey: `${parsed.value.requestId}.queue`,
+            actorName: queueAdditionActorName(`${auth.session.displayName} · BOT`, 'BOT'),
+            mutation: { type: 'add_youtube_batch', items: tracks },
+          }),
+        }),
+      );
+      if (!queueResponse.ok) return errorResponse('BOT_ACTION_FAILED', 409);
+      addedCount = tracks.length;
+      if (plan.playAddedIndex >= 0) {
+        const targetVideoId = tracks[plan.playAddedIndex]?.videoId;
+        const target = [...this.room.playlist]
+          .reverse()
+          .find(
+            (item) =>
+              item.source.kind === 'youtube' &&
+              item.source.videoId === targetVideoId &&
+              item.developerOwnerKeyId === BOT_DEVELOPER_KEY_ID,
+          );
+        if (target) {
+          playbackChanged = await this.runBotDeveloperCommand(parsed.value.requestId, {
+            type: 'play_item',
+            queueItemId: target.queueItemId,
+          });
+        }
+      }
+    } else if (plan.intent === 'play_existing') {
+      if (!this.room.playlist.some((item) => item.queueItemId === plan.queueItemId)) {
+        return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
+      }
+      playbackChanged = await this.runBotDeveloperCommand(parsed.value.requestId, {
+        type: 'play_item',
+        queueItemId: plan.queueItemId,
+      });
+      if (!playbackChanged) return errorResponse('BOT_ACTION_FAILED', 409);
+    } else if (plan.intent === 'playback') {
+      playbackChanged = await this.runBotDeveloperCommand(parsed.value.requestId, {
+        type: plan.playbackCommand,
+      });
+      if (!playbackChanged) return errorResponse('BOT_ACTION_FAILED', 409);
+    } else if (plan.intent === 'queue_mode') {
+      const queueModeResponse = await this.handleInternalDeveloperQueueModeUpdate(
+        new Request('https://pro-room.internal/internal/developer/v1/queue-mode/update', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: this.room.roomCode,
+            keyId: BOT_DEVELOPER_KEY_ID,
+            idempotencyKey: `${parsed.value.requestId}.mode`,
+            queueMode: {
+              baseRevision: this.room.queueMode.revision,
+              repeatMode:
+                plan.repeatMode ||
+                (this.room.queueMode.repeatMode === 2
+                  ? 'one'
+                  : this.room.queueMode.repeatMode === 1
+                    ? 'all'
+                    : 'off'),
+              shuffleEnabled:
+                plan.shuffleEnabled === undefined
+                  ? this.room.queueMode.shuffleEnabled
+                  : plan.shuffleEnabled,
+            },
+          }),
+        }),
+      );
+      if (!queueModeResponse.ok) return errorResponse('BOT_ACTION_FAILED', 409);
+    }
+
+    const fallbackSummary =
+      addedCount > 0
+        ? `Added ${addedCount} track${addedCount === 1 ? '' : 's'}${playbackChanged ? ' and started playback' : ''}.`
+        : playbackChanged
+          ? 'Playback updated.'
+          : 'Done.';
+    const responseBody = {
+      ok: true,
+      summary: addedCount > 0 ? fallbackSummary : plan.answer || fallbackSummary,
+      addedCount,
+      playbackChanged,
+    };
+    this.storeIdempotency(scope, parsed.value.requestId, fingerprint, responseBody);
+    await this.persist();
+    return jsonResponse(responseBody);
   }
 
   async handleInternalDeveloperRead(request) {
@@ -3367,7 +3750,10 @@ export class MusixquareProRoom {
       return;
     }
     const normalizedAddition =
-      addition && Number.isSafeInteger(addition.count) && addition.count >= 1 && addition.count <= 1000
+      addition &&
+      Number.isSafeInteger(addition.count) &&
+      addition.count >= 1 &&
+      addition.count <= 1000
         ? {
             type: 'pro-queue-addition',
             version: DEVELOPER_CONTROL_VERSION,
@@ -3387,9 +3773,7 @@ export class MusixquareProRoom {
       developerControlVersion: DEVELOPER_CONTROL_VERSION,
       revision: this.room.revision,
       playlistRevision: this.room.playlistRevision,
-      ...(normalizedAddition
-        ? { addition: normalizedAddition }
-        : {}),
+      ...(normalizedAddition ? { addition: normalizedAddition } : {}),
     });
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(dispatch);
   }

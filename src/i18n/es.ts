@@ -584,6 +584,14 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Espera {{sec}} segundos antes de enviar',
   'chat.cmd_notice_prefix': 'Aviso',
   'chat.system_sender': 'SISTEMA',
+  'chat.bot_unavailable': 'BOT solo está disponible en la sala PRO 000001',
+  'chat.bot_processing': 'BOT está procesando la solicitud...',
+  'chat.bot_completed': 'Solicitud de BOT completada',
+  'chat.bot_failed': 'BOT no pudo completar la solicitud',
+  'chat.bot_added_tracks': 'Pistas añadidas por BOT: {{count}}',
+  'chat.bot_added_and_playing': 'Pistas añadidas por BOT: {{count}}. Reproducción iniciada',
+  'chat.bot_rate_limited':
+    'Se alcanzó el límite de solicitudes de BOT. Reinténtalo en {{seconds}} s',
   'chat.decode_skip_system_message':
     'Pista omitida: formato no compatible en algunos dispositivos.',
   'chat.system_audio_started_system_message':
@@ -613,6 +621,7 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_users_me': 'yo',
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
+  'chat.cmd_u_bot': '/bot [solicitud]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
@@ -628,6 +637,7 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_u_unmute': '/unmute [dispositivo]',
   'chat.cmd_d_help': 'Lista de comandos',
   'chat.cmd_d_users': 'Ver usuarios conectados',
+  'chat.cmd_d_bot': 'Pedir a la IA que gestione la lista',
   'chat.cmd_d_clear': 'Borrar historial del chat',
   'chat.cmd_d_filter': 'Filtro de lenguaje ofensivo',
   'chat.cmd_d_freeze': 'Congelar chat',

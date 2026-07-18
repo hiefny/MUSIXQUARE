@@ -141,7 +141,7 @@ describe('YouTube input i18n state', () => {
     document.body.innerHTML = `
       <div id="youtube-preview"></div>
       <div id="youtube-preview-status"></div>
-      <div id="youtube-search-results"></div>
+      <div id="youtube-search-results" role="group" aria-label="Search results"></div>
       <button id="youtube-play-btn"></button>
     `;
     setLanguageMode('ko');
@@ -279,7 +279,7 @@ describe('YouTube search result rendering sink', () => {
     document.body.innerHTML = `
       <div id="youtube-preview"></div>
       <div id="youtube-preview-status"></div>
-      <div id="youtube-search-results"></div>
+      <div id="youtube-search-results" role="group" aria-label="Search results"></div>
       <button id="youtube-play-btn"></button>
     `;
     vi.stubGlobal(
@@ -312,6 +312,10 @@ describe('YouTube search result rendering sink', () => {
     expect(titleEl?.textContent).toBe('Tom & Jerry <img src=x onerror=boom()>');
     expect(titleEl?.children).toHaveLength(0);
     expect(document.querySelectorAll('#youtube-search-results img')).toHaveLength(1);
+    const resultButton = document.querySelector<HTMLElement>('.yt-search-result');
+    expect(document.getElementById('youtube-search-results')?.getAttribute('role')).toBe('group');
+    expect(resultButton?.getAttribute('role')).toBeNull();
+    expect(resultButton?.getAttribute('aria-pressed')).toBe('true');
 
     // The first result auto-selects for the query that produced it; a changed
     // input invalidates the selection (stale-pick guard in the play button path).

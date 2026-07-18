@@ -115,7 +115,8 @@ function installLanguageSettingsDom(): void {
           <div
             class="language-list"
             id="language-list"
-            role="listbox"
+            role="group"
+            aria-labelledby="language-dialog-title"
             data-custom-scroll
             data-custom-scroll-contained
           ></div>
@@ -353,6 +354,13 @@ describe('initSettings language controls', () => {
     expect(document.querySelector('.language-dialog > .cscroll-track')).not.toBeNull();
     expect(document.querySelector('.language-dialog-beta-badge')?.textContent?.trim()).toBe('BETA');
     expect(document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang).toBe('ko');
+    expect(document.getElementById('language-list')?.getAttribute('role')).toBe('group');
+    expect(document.querySelector('.language-option')?.getAttribute('role')).toBeNull();
+    expect(
+      document
+        .querySelector<HTMLElement>('.language-option[data-lang="ko"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
   });
 
   it('switches between explicit selection and system language mode', () => {
@@ -363,6 +371,16 @@ describe('initSettings language controls', () => {
     document.querySelector<HTMLElement>('.language-option[data-lang="en"]')?.click();
 
     expect(localStorage.getItem('musixquare-lang')).toBe('en');
+    expect(
+      document
+        .querySelector<HTMLElement>('.language-option[data-lang="en"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(
+      document
+        .querySelector<HTMLElement>('.language-option[data-lang="ko"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('false');
     expect(document.getElementById('btn-language-select')?.classList.contains('active')).toBe(true);
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       true,
@@ -389,6 +407,35 @@ describe('initSettings language controls', () => {
     overlay.click();
 
     expect(overlay.classList.contains('show')).toBe(true);
+  });
+
+  it('restores focus to the language button when Done closes the dialog', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+    trigger.focus();
+    trigger.click();
+    document.getElementById('btn-language-dialog-done')?.click();
+
+    expect(document.activeElement).toBe(trigger);
+    expect(document.getElementById('language-dialog-overlay')?.getAttribute('aria-hidden')).toBe(
+      'true',
+    );
+  });
+
+  it('closes on Escape and restores focus to the language button', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+    const overlay = document.getElementById('language-dialog-overlay')!;
+    trigger.focus();
+    trigger.click();
+    overlay.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(document.activeElement).toBe(trigger);
   });
 });
 

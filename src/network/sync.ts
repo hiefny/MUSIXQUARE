@@ -834,11 +834,6 @@ export function initSync(): void {
     bus.emit('sync:request-immediate-ping');
   });
 
-  bus.on('sync:close-manual', () => {
-    const overlay = document.getElementById('manual-sync-overlay');
-    if (overlay) overlay.classList.remove('show');
-  });
-
   // sync:display-update handler is in player-controls.ts (UI module) to maintain
   // network → UI separation. This module only emits the event.
 

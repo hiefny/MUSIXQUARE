@@ -18,6 +18,7 @@ import { showToast } from './toast.ts';
 import { switchTab } from './tabs.ts';
 import {
   updateOverlayOpenClass,
+  syncOverlayState,
   animateTransition,
   copyTextToClipboard,
   updateTitleWithMarquee,
@@ -77,6 +78,7 @@ const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 const LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS = 200;
 let _ytPlayButtonLoading = false;
 let _filePlayButtonLoading = false;
+let _manualSyncPreviousFocus: HTMLElement | null = null;
 
 function isFilePlayButtonLoading(): boolean {
   const lifecycle = getState('playback.lifecycle');
@@ -562,12 +564,77 @@ function openManualSyncOverlay(): void {
 
   bus.emit('sync:display-update');
   const overlay = document.getElementById('manual-sync-overlay');
-  if (overlay) overlay.classList.add('show');
+  if (!overlay) return;
+
+  if (!overlay.classList.contains('show')) {
+    _manualSyncPreviousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : document.getElementById('btn-sync');
+  }
+
+  overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+  syncOverlayState('manual-sync-overlay');
+  setManagedTimer(
+    'manual-sync-focus',
+    () => {
+      if (!overlay.classList.contains('show')) return;
+      document.getElementById('btn-sync-done')?.focus();
+    },
+    0,
+  );
 }
 
 function closeManualSyncOverlay(): void {
   const overlay = document.getElementById('manual-sync-overlay');
-  if (overlay) overlay.classList.remove('show');
+  if (!overlay) return;
+  const wasShown = overlay.classList.contains('show');
+  clearManagedTimer('manual-sync-focus');
+  overlay.classList.remove('show');
+  overlay.setAttribute('aria-hidden', 'true');
+  syncOverlayState();
+
+  const previousFocus = _manualSyncPreviousFocus;
+  _manualSyncPreviousFocus = null;
+  if (!wasShown) return;
+
+  const fallback = document.getElementById('btn-sync');
+  const target = previousFocus?.isConnected ? previousFocus : fallback;
+  target?.focus();
+}
+
+function handleManualSyncOverlayKeydown(event: KeyboardEvent): void {
+  const overlay = document.getElementById('manual-sync-overlay');
+  if (!overlay?.classList.contains('show')) return;
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    closeManualSyncOverlay();
+    return;
+  }
+
+  if (event.key !== 'Tab') return;
+  const focusables = Array.from(
+    overlay.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+  if (focusables.length === 0) return;
+
+  const first = focusables[0]!;
+  const last = focusables[focusables.length - 1]!;
+  const active = document.activeElement;
+  if (event.shiftKey) {
+    if (active === first || !overlay.contains(active)) {
+      event.preventDefault();
+      last.focus();
+    }
+  } else if (active === last || !overlay.contains(active)) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 function canUseManualSyncPanel(): boolean {
@@ -776,6 +843,12 @@ export function initPlayerControls(): void {
     const el = document.getElementById(id);
     if (el) el.addEventListener(evt, fn);
   };
+
+  const manualSyncOverlay = document.getElementById('manual-sync-overlay');
+  if (manualSyncOverlay && manualSyncOverlay.dataset.keyboardBound !== '1') {
+    manualSyncOverlay.dataset.keyboardBound = '1';
+    manualSyncOverlay.addEventListener('keydown', handleManualSyncOverlayKeydown);
+  }
 
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
@@ -1287,6 +1360,7 @@ export function initPlayerControls(): void {
     if (manualEl) manualEl.innerText = fmtMs(Math.round(localOffset * 1000));
     if (autoEl) autoEl.innerText = fmtMs(Math.round(getClockOffset()));
   });
+  _busScope.on('sync:close-manual', closeManualSyncOverlay);
 
   const closeManualSyncIfInvalid = () => {
     const overlay = document.getElementById('manual-sync-overlay');

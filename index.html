@@ -178,6 +178,7 @@
       class="tab-content active"
       role="tabpanel"
       aria-labelledby="nav-play"
+      tabindex="-1"
       data-custom-scroll
     >
       <div class="tab-header play-header-desktop">
@@ -363,6 +364,7 @@
       class="tab-content"
       role="tabpanel"
       aria-labelledby="nav-playlist"
+      tabindex="-1"
       data-custom-scroll
     >
       <div class="tab-header">
@@ -417,6 +419,7 @@
       class="tab-content"
       role="tabpanel"
       aria-labelledby="nav-connect"
+      tabindex="-1"
       data-custom-scroll
     >
       <div class="tab-header tab-header-spread">
@@ -504,6 +507,7 @@
       class="tab-content"
       role="tabpanel"
       aria-labelledby="nav-guide"
+      tabindex="-1"
       data-custom-scroll
     >
       <div class="tab-header tab-header-spread-pad">
@@ -614,6 +618,7 @@
       class="tab-content"
       role="tabpanel"
       aria-labelledby="nav-settings"
+      tabindex="-1"
       data-custom-scroll
     >
       <div class="tab-header tab-header-spread">
@@ -2475,7 +2480,8 @@
         <div
           class="language-list"
           id="language-list"
-          role="listbox"
+          role="group"
+          aria-labelledby="language-dialog-title"
           data-custom-scroll
           data-custom-scroll-contained
         ></div>
@@ -2494,8 +2500,14 @@
       <span id="toast-msg"></span>
     </div>
 
-    <div class="manual-sync-overlay" id="manual-sync-overlay">
-      <div class="sync-glass-panel">
+    <div class="manual-sync-overlay" id="manual-sync-overlay" aria-hidden="true">
+      <div
+        class="sync-glass-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label=""
+        data-i18n-aria-label="common.sync"
+      >
         <div class="sync-dual-display">
           <div class="sync-col">
             <span class="sync-col-label" data-i18n="player.auto_sync_label"></span>
@@ -2894,7 +2906,7 @@
           <div
             id="youtube-search-results"
             class="yt-search-results"
-            role="listbox"
+            role="group"
             data-custom-scroll
             data-i18n-aria-label="youtube.search_results"
             hidden

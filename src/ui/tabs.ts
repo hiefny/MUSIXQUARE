@@ -22,6 +22,8 @@ export function switchTab(tabId: string): void {
     });
     const tabEl = document.getElementById(`tab-${tabId}`);
     if (tabEl) tabEl.classList.add('active');
+    const skipLink = document.querySelector<HTMLAnchorElement>('.skip-link');
+    if (skipLink && tabEl) skipLink.href = `#${tabEl.id}`;
     // Select nav item by data-tab attribute instead of index to avoid
     // DOM-order coupling with the hardcoded array.
     const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
@@ -70,6 +72,24 @@ export function initTabs(): void {
   const navItems = Array.from(
     document.querySelectorAll<HTMLElement>('.bottom-nav .nav-item[data-tab]'),
   );
+
+  const skipLink = document.querySelector<HTMLAnchorElement>('.skip-link');
+  if (skipLink && skipLink.dataset.skipLinkBound !== '1') {
+    skipLink.dataset.skipLinkBound = '1';
+    skipLink.addEventListener('click', (event) => {
+      const target =
+        document.querySelector<HTMLElement>('.tab-content.active') ||
+        document.getElementById('tab-play');
+      if (!target) return;
+
+      event.preventDefault();
+      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+      target.focus();
+    });
+  }
+
+  const activePanel = document.querySelector<HTMLElement>('.tab-content.active');
+  if (skipLink && activePanel?.id) skipLink.href = `#${activePanel.id}`;
 
   // Maintain the roving tabindex required by the WAI-ARIA tabs pattern.
   navItems.forEach((el) => {

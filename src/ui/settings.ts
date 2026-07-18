@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
   REVERB_DEFAULT_DECAY,
   REVERB_DEFAULT_PREDELAY,
@@ -638,7 +638,7 @@ function refreshLanguageControls(): void {
   document.querySelectorAll<HTMLElement>('.language-option[data-lang]').forEach((option) => {
     const active = option.dataset.lang === resolved;
     option.classList.toggle('active', active);
-    option.setAttribute('aria-selected', active ? 'true' : 'false');
+    option.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
 }
 
@@ -660,7 +660,7 @@ function renderLanguageOptions(): void {
     option.type = 'button';
     option.className = 'language-option';
     option.dataset.lang = lang.code;
-    option.setAttribute('role', 'option');
+    option.setAttribute('aria-pressed', 'false');
 
     const label = document.createElement('span');
     label.className = 'language-option-label';
@@ -724,12 +724,18 @@ function bindLanguageScrollMask(): void {
   list.addEventListener('scroll', () => updateLanguageScrollMask(), { passive: true });
 }
 
+let _languageDialogPreviousFocus: HTMLElement | null = null;
+
 function openLanguageDialog(): void {
   renderLanguageOptions();
   refreshLanguageControls();
 
   const overlay = document.getElementById('language-dialog-overlay');
   if (!overlay) return;
+  _languageDialogPreviousFocus =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : document.getElementById('btn-language-select');
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('language-dialog-overlay');
@@ -752,9 +758,19 @@ function openLanguageDialog(): void {
 function closeLanguageDialog(): void {
   const overlay = document.getElementById('language-dialog-overlay');
   if (!overlay) return;
+  const wasShown = overlay.classList.contains('show');
+  clearManagedTimer('language-dialog-focus');
   overlay.classList.remove('show');
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
+
+  const previousFocus = _languageDialogPreviousFocus;
+  _languageDialogPreviousFocus = null;
+  if (!wasShown) return;
+
+  const fallback = document.getElementById('btn-language-select');
+  const target = previousFocus?.isConnected ? previousFocus : fallback;
+  target?.focus();
 }
 
 export function initSettings(): void {
@@ -778,7 +794,9 @@ export function initSettings(): void {
   $on('btn-language-dialog-done', 'click', () => closeLanguageDialog());
   const languageOverlay = document.getElementById('language-dialog-overlay');
   languageOverlay?.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeLanguageDialog();
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    closeLanguageDialog();
   });
   refreshLanguageControls();
 

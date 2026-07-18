@@ -367,7 +367,7 @@ function selectSearchResult(result: YouTubeSearchResult, query: string): void {
     for (const el of Array.from(resultsEl.querySelectorAll<HTMLElement>('.yt-search-result'))) {
       const isSelected = el.dataset.videoId === result.videoId;
       el.classList.toggle('selected', isSelected);
-      el.setAttribute('aria-selected', String(isSelected));
+      el.setAttribute('aria-pressed', String(isSelected));
     }
   }
 
@@ -389,8 +389,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
     btn.type = 'button';
     btn.className = 'yt-search-result';
     btn.dataset.videoId = result.videoId;
-    btn.setAttribute('role', 'option');
-    btn.setAttribute('aria-selected', 'false');
+    btn.setAttribute('aria-pressed', 'false');
 
     const thumb = document.createElement('img');
     thumb.className = 'yt-search-thumb';

@@ -20,14 +20,15 @@ beforeEach(() => {
   resetState();
   bus.clear();
   document.body.innerHTML = `
+    <a class="skip-link" href="#tab-play">Skip to content</a>
     <nav class="bottom-nav">
       <button class="nav-item active" data-tab="play" aria-selected="true">Play</button>
       <button class="nav-item" data-tab="settings" aria-selected="false">Settings</button>
       <button class="nav-item" data-tab="devices" aria-selected="false">Devices</button>
     </nav>
-    <div id="tab-play" class="tab-content active"><div class="tab-body"></div></div>
-    <div id="tab-settings" class="tab-content"></div>
-    <div id="tab-devices" class="tab-content"></div>
+    <div id="tab-play" class="tab-content active" role="tabpanel" tabindex="-1"><div class="tab-body"></div></div>
+    <div id="tab-settings" class="tab-content" role="tabpanel" tabindex="-1"></div>
+    <div id="tab-devices" class="tab-content" role="tabpanel" tabindex="-1"></div>
   `;
 });
 
@@ -94,5 +95,24 @@ describe('initTabs', () => {
     initTabs();
     bus.emit('ui:switch-tab', 'settings');
     expect(document.getElementById('tab-settings')!.classList.contains('active')).toBe(true);
+  });
+
+  it('moves focus past navigation into the visible tab panel', () => {
+    initTabs();
+
+    document.querySelector<HTMLAnchorElement>('.skip-link')?.click();
+
+    expect(document.activeElement).toBe(document.getElementById('tab-play'));
+  });
+
+  it('updates the skip target and focuses the newly active panel', () => {
+    initTabs();
+    switchTab('settings');
+
+    const skipLink = document.querySelector<HTMLAnchorElement>('.skip-link')!;
+    expect(skipLink.getAttribute('href')).toBe('#tab-settings');
+    skipLink.click();
+
+    expect(document.activeElement).toBe(document.getElementById('tab-settings'));
   });
 });

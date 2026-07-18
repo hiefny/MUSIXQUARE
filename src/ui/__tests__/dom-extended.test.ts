@@ -166,6 +166,7 @@ describe('initOverlayObservers', () => {
       <div id="media-source-overlay"></div>
       <div id="youtube-url-overlay"></div>
       <div id="dialog-overlay"></div>
+      <div id="manual-sync-overlay"></div>
     `;
     __resetModalStackForTests();
   });
@@ -211,6 +212,7 @@ describe('initOverlayObservers — modal stack', () => {
       <div id="youtube-url-overlay"></div>
       <div id="dialog-overlay"></div>
       <div id="language-dialog-overlay"></div>
+      <div id="manual-sync-overlay"></div>
     `;
     __resetModalStackForTests();
     initOverlayObservers();
@@ -224,6 +226,7 @@ describe('initOverlayObservers — modal stack', () => {
     expect(isInert('setup-overlay')).toBe(false);
     expect(isInert('dialog-overlay')).toBe(false);
     expect(isInert('language-dialog-overlay')).toBe(false);
+    expect(isInert('manual-sync-overlay')).toBe(false);
   });
 
   it('inerts everything except setup when setup becomes active', async () => {
@@ -312,6 +315,19 @@ describe('initOverlayObservers — modal stack', () => {
     expect(isInert('non-modal')).toBe(true);
     expect(isInert('setup-overlay')).toBe(true);
     expect(isInert('dialog-overlay')).toBe(false);
+  });
+
+  it('treats manual sync as a centered modal without hiding page chrome', () => {
+    const manualSyncOverlay = document.getElementById('manual-sync-overlay')!;
+
+    manualSyncOverlay.classList.add('show');
+    syncOverlayState('manual-sync-overlay');
+
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
+    expect(isInert('manual-sync-overlay')).toBe(false);
+    expect(isInert('hdr')).toBe(true);
+    expect(isInert('non-modal')).toBe(true);
+    expect(manualSyncOverlay.style.zIndex).toBe('6000');
   });
 
   it('promotes a common dialog over an already open language dialog', () => {

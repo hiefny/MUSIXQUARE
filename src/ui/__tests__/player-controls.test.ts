@@ -707,7 +707,16 @@ describe('initPlayerControls sync button', () => {
       <button id="btn-sync"></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
-      <div id="manual-sync-overlay"></div>
+      <div id="manual-sync-overlay" aria-hidden="true">
+        <div role="dialog" aria-modal="true" aria-label="Sync">
+          <button id="btn-nudge-minus10">-10</button>
+          <button id="btn-nudge-minus1">-1</button>
+          <button id="btn-nudge-plus1">+1</button>
+          <button id="btn-nudge-plus10">+10</button>
+          <button id="btn-auto-sync">Reset</button>
+          <button id="btn-sync-done">Done</button>
+        </div>
+      </div>
       <span id="manual-sync-value"></span>
       <span id="auto-sync-value"></span>
     `;
@@ -989,5 +998,62 @@ describe('initPlayerControls sync button', () => {
     setCurrentAudioBuffer(null);
 
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+  });
+
+  it('makes the manual panel modal, traps Tab, closes on Escape, and restores focus', async () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    const trigger = document.getElementById('btn-sync') as HTMLButtonElement;
+    const overlay = document.getElementById('manual-sync-overlay')!;
+    const first = document.getElementById('btn-nudge-minus10') as HTMLButtonElement;
+    const done = document.getElementById('btn-sync-done') as HTMLButtonElement;
+    trigger.focus();
+
+    initPlayerControls();
+    trigger.click();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(overlay.getAttribute('aria-hidden')).toBe('false');
+    expect(trigger.hasAttribute('inert')).toBe(true);
+    expect(document.activeElement).toBe(done);
+
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(first);
+
+    first.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
+    );
+    expect(document.activeElement).toBe(done);
+
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    expect(trigger.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('routes the Done event through the shared manual-overlay close path', () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    const trigger = document.getElementById('btn-sync') as HTMLButtonElement;
+    const overlay = document.getElementById('manual-sync-overlay')!;
+    trigger.focus();
+    initPlayerControls();
+    trigger.click();
+
+    bus.emit('sync:close-manual');
+
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    expect(document.activeElement).toBe(trigger);
   });
 });

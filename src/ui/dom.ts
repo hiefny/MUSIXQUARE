@@ -120,6 +120,7 @@ const OVERLAYS = [
   { id: 'youtube-url-overlay', cls: 'active', fullscreen: true },
   { id: 'dialog-overlay', cls: 'show', fullscreen: false },
   { id: 'language-dialog-overlay', cls: 'show', fullscreen: false },
+  { id: 'manual-sync-overlay', cls: 'show', fullscreen: false },
 ] as const satisfies readonly OverlayDef[];
 type OverlayId = (typeof OVERLAYS)[number]['id'];
 
@@ -139,7 +140,6 @@ function isShown(o: OverlayDef): boolean {
  */
 export function isAnyOverlayShown(): boolean {
   if (OVERLAYS.some(isShown)) return true;
-  if (document.getElementById('manual-sync-overlay')?.classList.contains('show')) return true;
   if (document.getElementById('youtube-ios-sync-overlay')) return true;
   return document.querySelector('.debug-memory-overlay') !== null;
 }

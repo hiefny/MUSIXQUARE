@@ -25,7 +25,9 @@ describe('policy-page accordions', () => {
     const dom = await readDocument(path, url);
     const { document } = dom.window;
     const accordions = Array.from(
-      document.querySelectorAll<HTMLDetailsElement>('article.policy-doc > details.policy-accordion'),
+      document.querySelectorAll<HTMLDetailsElement>(
+        'article.policy-doc > details.policy-accordion',
+      ),
     );
 
     expect(accordions).toHaveLength(expectedCount);
@@ -51,7 +53,9 @@ describe('policy-page accordions', () => {
       readDocument(TERMS_PATH, 'https://musixquare.com/terms'),
     ]);
 
-    expect(developers.window.document.querySelector('details#errors.policy-accordion')).not.toBeNull();
+    expect(
+      developers.window.document.querySelector('details#errors.policy-accordion'),
+    ).not.toBeNull();
     for (const document of [privacy.window.document, terms.window.document]) {
       expect(document.querySelector('.policy-accordion')).toBeNull();
       expect(document.querySelector('script[src="/policy-accordion.js"]')).toBeNull();
@@ -59,10 +63,7 @@ describe('policy-page accordions', () => {
   });
 
   it('opens a hash target, preserves other open sections, and keeps the URL shareable', async () => {
-    const dom = await readDocument(
-      DEVELOPER_DOC_PATH,
-      'https://musixquare.com/developers#errors',
-    );
+    const dom = await readDocument(DEVELOPER_DOC_PATH, 'https://musixquare.com/developers#errors');
     const scrollIntoView = vi.fn();
     dom.window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
     dom.window.eval(await readFile(SCRIPT_PATH, 'utf8'));
@@ -95,8 +96,19 @@ describe('policy-page accordions', () => {
     expect(css).toContain('.policy-accordion__summary:focus-visible');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('@media print');
-    expect(css).toContain(
-      '.policy-accordion:not([open]) > :not(.policy-accordion__summary)',
+    expect(css).toContain('.policy-accordion:not([open]) > :not(.policy-accordion__summary)');
+  });
+
+  it('emphasizes only open headings and removes the introductory divider', async () => {
+    const css = await readFile(STYLE_PATH, 'utf8');
+
+    expect(css).toContain('.policy-shell:has(> .policy-doc > .policy-accordion) > .policy-hero');
+    expect(css).toContain('.policy-doc > .policy-accordion:first-child');
+    expect(css).toMatch(
+      /\.policy-accordion__summary h2\s*\{[^}]*color: var\(--text-sub\);[^}]*font-weight: 500;/s,
+    );
+    expect(css).toMatch(
+      /\.policy-accordion\[open\] > \.policy-accordion__summary h2\s*\{[^}]*color: var\(--text-main\);[^}]*font-weight: 700;/s,
     );
   });
 });

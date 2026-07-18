@@ -83,6 +83,10 @@ a {
   border-bottom: 1px solid var(--divider);
 }
 
+.policy-shell:has(> .policy-doc > .policy-accordion) > .policy-hero {
+  border-bottom: 0;
+}
+
 .policy-kicker {
   margin: 0 0 18px;
   color: var(--accent);
@@ -133,6 +137,10 @@ a {
 .policy-accordion {
   border-top: 1px solid var(--divider);
   scroll-margin-top: 12px;
+}
+
+.policy-doc > .policy-accordion:first-child {
+  border-top: 0;
 }
 
 .policy-accordion:last-child {
@@ -190,6 +198,16 @@ a {
 
 .policy-accordion__summary h2 {
   margin: 0;
+  color: var(--text-sub);
+  font-weight: 500;
+  transition:
+    color 160ms ease,
+    font-weight 160ms ease;
+}
+
+.policy-accordion[open] > .policy-accordion__summary h2 {
+  color: var(--text-main);
+  font-weight: 700;
 }
 
 .policy-accordion[open] > .policy-accordion__summary {
@@ -402,7 +420,8 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .policy-accordion__summary::after {
+  .policy-accordion__summary::after,
+  .policy-accordion__summary h2 {
     transition: none;
   }
 }

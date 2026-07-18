@@ -237,6 +237,26 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.guest.getSnapshot().phase).toBe('idle');
   });
 
+  it('restores a mute choice made while the next track is warming', () => {
+    const harness = makeHarness({ hostVolume: 72 });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+
+    vi.advanceTimersByTime(1);
+    expect(harness.host.getSnapshot().phase).toBe('warming');
+    harness.host.updateDesiredAudioState({ muted: true, volume: 0 });
+
+    vi.advanceTimersByTime(619);
+    expect(harness.hostPlayer.getVolume()).toBe(0);
+    expect(harness.hostPlayer.isMuted()).toBe(true);
+  });
+
   it('pauses a hard-muted warm-up before restoring audio on cancellation', () => {
     const harness = makeHarness({ hostVolume: 64 });
     expect(harness.guest.advertiseCapability()).toBe(true);

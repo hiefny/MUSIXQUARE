@@ -191,6 +191,31 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('YouTube volume bridge', () => {
+    it('maps zero volume to iframe hard mute and restores it for non-zero volume', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const player = {
+        setVolume: vi.fn(),
+        mute: vi.fn(),
+        unMute: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(player);
+      initYouTube();
+
+      bus.emit('youtube:set-volume', 0);
+
+      expect(player.setVolume).toHaveBeenLastCalledWith(0);
+      expect(player.mute).toHaveBeenCalledOnce();
+      expect(player.unMute).not.toHaveBeenCalled();
+
+      bus.emit('youtube:set-volume', 63.4);
+
+      expect(player.setVolume).toHaveBeenLastCalledWith(63);
+      expect(player.unMute).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('synchronized pause ownership', () => {
     it('cancels an older delayed PLAY rendezvous before broadcasting PAUSE', async () => {
       const stateMod = await import('../_state.ts');

@@ -2468,8 +2468,28 @@ export function initYouTube(): void {
   bus.on('youtube:set-volume', (volumePercent) => {
     const player = getYouTubePlayer();
     if (player?.setVolume && Number.isFinite(volumePercent)) {
-      updateYouTubeZeroStartDesiredAudioState({ volume: volumePercent });
-      player.setVolume(volumePercent);
+      const clampedVolume = Math.max(0, Math.min(100, Math.round(volumePercent)));
+      const shouldMute = clampedVolume === 0;
+      updateYouTubeZeroStartDesiredAudioState({
+        muted: shouldMute,
+        volume: clampedVolume,
+      });
+      player.setVolume(clampedVolume);
+
+      // iOS ignores the iframe's software volume in many playback states, but
+      // the IFrame API's binary mute state remains effective after audio has
+      // been unlocked. Keep the ordinary MUSIXQUARE mute toggle in lockstep
+      // with that hard mute. While zero-start is warming the next track, only
+      // an unmute must be deferred; its controller restores the latest desired
+      // state before arming. Once audio restoration begins, direct changes are
+      // safe again and are included in the controller's verification poll.
+      const zeroStartPhase = getYouTubeZeroStartSnapshot().phase;
+      const zeroStartOwnsHardMute =
+        zeroStartPhase === 'muting' ||
+        zeroStartPhase === 'warming' ||
+        zeroStartPhase === 'settling';
+      if (shouldMute) player.mute?.();
+      else if (!zeroStartOwnsHardMute) player.unMute?.();
     }
   });
 

@@ -841,6 +841,48 @@ describe('PRO room server BOT boundary', () => {
     expect(Object.values(internal.room.developerCommands)).toHaveLength(1);
     expect(dispatchFetch).toHaveBeenCalledTimes(1);
   });
+
+  it('accepts a server-issued Base64URL BOT lease with a symbol prefix', async () => {
+    const { worker, ownerCookie, internal } = await preparedDeveloperCommandRoom();
+    const requestId = 'bot-base64url-lease-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'answer without changing playback' },
+      ownerCookie,
+    );
+    expect(context.status).toBe(200);
+
+    // randomToken(24) can naturally produce a leading `_`. Pin the receipt to
+    // that valid shape so this regression test does not itself depend on
+    // random chance.
+    const leaseToken = `_${'A'.repeat(31)}`;
+    const receipt = Object.entries(internal.room.idempotency).find(([key]) =>
+      key.endsWith(`:${requestId}`),
+    )?.[1] as { body?: { leaseToken?: string } } | undefined;
+    expect(receipt?.body).toBeDefined();
+    if (!receipt?.body) throw new Error('missing BOT context receipt');
+    receipt.body.leaseToken = leaseToken;
+
+    const response = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken,
+        plan: { intent: 'answer', answer: '처리했어요.' },
+        tracks: [],
+      },
+      ownerCookie,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      summary: '처리했어요.',
+    });
+  });
 });
 
 describe('PRO room private Developer API projections', () => {

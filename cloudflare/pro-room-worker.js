@@ -45,6 +45,11 @@ const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const BOT_BETA_ROOM_CODE = '000001';
 const BOT_DEVELOPER_KEY_ID = 'MxqrGeminiBot001';
 const BOT_REQUEST_ID_RE = IDEMPOTENCY_KEY_RE;
+// A 24-byte random token is encoded as exactly 32 Base64URL characters. Unlike
+// public resource identifiers, Base64URL tokens may legitimately begin with
+// `-` or `_`; rejecting those values would make a server-issued BOT lease fail
+// nondeterministically on its next request.
+const BOT_LEASE_TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
 
 const SCHEMA_VERSION = 1;
 // `pro-room:v1` remains a rollback shadow for rooms that still fit in the old
@@ -2778,7 +2783,7 @@ export class MusixquareProRoom {
       !hasExactKeys(parsed.value, ['roomCode', 'requestId', 'leaseToken', 'plan', 'tracks']) ||
       parsed.value.roomCode !== this.room.roomCode ||
       !BOT_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
-      !OPAQUE_ID_RE.test(parsed.value.leaseToken || '') ||
+      !BOT_LEASE_TOKEN_RE.test(parsed.value.leaseToken || '') ||
       !Array.isArray(parsed.value.tracks)
     ) {
       return parsed.response || errorResponse('INVALID_REQUEST', 400);

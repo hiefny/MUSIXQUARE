@@ -964,9 +964,10 @@ export async function playTrack(
         previousQueueItemId !== null &&
         previousQueueItemId !== queueItemId &&
         Boolean(broadcastVideoId);
-      if (isNewYouTubeOccurrence && broadcastVideoId) {
-        prepareSameVideoOccurrenceRestart(queueItemId, broadcastVideoId);
-      }
+      const sameVideoOccurrenceRestartPrepared =
+        isNewYouTubeOccurrence && broadcastVideoId
+          ? prepareSameVideoOccurrenceRestart(queueItemId, broadcastVideoId)
+          : false;
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
@@ -1023,9 +1024,13 @@ export async function playTrack(
           targetTime: 0,
           subIndex: subIndex ?? 0,
           videoId: broadcastVideoId ?? undefined,
-          skipSeek: true,
+          // Distinct videos are freshly cued at 0, but two queue occurrences
+          // may intentionally reuse one resident iframe without cueing it.
+          // Zero-start performs its own load in capable cohorts; its legacy
+          // fallback must still seek the reused iframe back to 0 explicitly.
+          skipSeek: !sameVideoOccurrenceRestartPrepared,
         });
-        if (isNewYouTubeOccurrence && broadcastVideoId) {
+        if (sameVideoOccurrenceRestartPrepared && broadcastVideoId) {
           handoffSameVideoOccurrenceRestart(queueItemId, broadcastVideoId);
         }
       }

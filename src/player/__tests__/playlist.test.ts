@@ -957,6 +957,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
       isTrackTransition: true,
       zeroStart: true,
       videoId: 'SAME_VIDEO_1',
+      targetTime: 0,
+      skipSeek: false,
     });
   });
 

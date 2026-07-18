@@ -410,6 +410,40 @@ describe('YouTube Sync — Regression Integration', () => {
       );
     });
 
+    it('seeks a reused same-video queue occurrence to zero on the legacy fallback', async () => {
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 180,
+        __videoId: ZERO_START_VIDEO_ID,
+      });
+      // A solo coordinator intentionally uses the compatible rendezvous path;
+      // the same branch also covers mixed/stale client cohorts.
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+
+      initYouTube();
+      vi.mocked(broadcast).mockClear();
+      bus.emit('youtube:auto-play', {
+        zeroStart: true,
+        isTrackTransition: true,
+        state: 1,
+        targetTime: 0,
+        videoId: ZERO_START_VIDEO_ID,
+        subIndex: 0,
+        skipSeek: false,
+      });
+
+      expect(player.__log.some((entry) => entry.op === 'seekTo' && entry.args[0] === 0)).toBe(true);
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_STATE,
+          state: 1,
+          time: 0,
+          videoId: ZERO_START_VIDEO_ID,
+        }),
+      );
+    });
+
     it.each([
       ['seek', 42],
       ['resume', 12],

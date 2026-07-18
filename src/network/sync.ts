@@ -52,6 +52,7 @@ import {
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 import { getRoomContext, verifyPeerCapability } from '../rooms/authority.ts';
+import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -122,7 +123,7 @@ function isProCoordinatorManualSyncEndpoint(): boolean {
 
 function canApplyManualSyncAction(): boolean {
   if (!hasManualSyncEndpoint()) return false;
-  if (isPlaybackModeYouTube()) return true;
+  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 

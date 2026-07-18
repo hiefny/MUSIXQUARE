@@ -187,6 +187,12 @@ export const MSG = {
   YOUTUBE_SUB_TITLE_UPDATE: 'youtube-sub-title-update',
   YOUTUBE_STOP: 'youtube-stop',
   YOUTUBE_SYNC: 'youtube-sync',
+  YOUTUBE_ZERO_START_ABORT: 'youtube-zero-start-abort',
+  YOUTUBE_ZERO_START_ARMED: 'youtube-zero-start-armed',
+  YOUTUBE_ZERO_START_CAPABILITY: 'youtube-zero-start-capability',
+  YOUTUBE_ZERO_START_COMMIT: 'youtube-zero-start-commit',
+  YOUTUBE_ZERO_START_PREPARE: 'youtube-zero-start-prepare',
+  YOUTUBE_ZERO_START_TIMELINE: 'youtube-zero-start-timeline',
   // ── Shared Clock ───────────────────────────────────────────────
   SYNC_PING: 'sync-ping',
   SYNC_PONG: 'sync-pong',

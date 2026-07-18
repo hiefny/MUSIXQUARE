@@ -26,6 +26,12 @@ import type { YouTubePlayerInstance } from '../_state.ts';
 
 const QUEUE_ITEM_ID = '88888888-8888-4888-8888-888888888888';
 
+const zeroStartFacade = vi.hoisted(() => ({
+  handlePlayerState: vi.fn(() => false),
+  inFlight: false,
+  active: false,
+}));
+
 // ─── Mocks (cloned from indexing-lifecycle.test.ts — keep in sync) ─────────
 
 vi.mock('../../core/log.ts', () => ({
@@ -99,6 +105,13 @@ vi.mock('../sync.ts', () => ({
   initYouTubeSync: vi.fn(),
   resetYouTubeSyncState: vi.fn(),
   suppressDriftUntil: vi.fn(),
+}));
+
+vi.mock('../zero-start.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../zero-start.ts')>()),
+  handleYouTubeZeroStartPlayerState: zeroStartFacade.handlePlayerState,
+  isYouTubeZeroStartInFlight: vi.fn(() => zeroStartFacade.inFlight),
+  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
 }));
 
 vi.mock('../../ui/toast.ts', () => ({
@@ -208,6 +221,10 @@ beforeEach(async () => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  zeroStartFacade.inFlight = false;
+  zeroStartFacade.active = false;
+  zeroStartFacade.handlePlayerState.mockReset();
+  zeroStartFacade.handlePlayerState.mockReturnValue(false);
   const stateMod = await import('../_state.ts');
   stateMod.resetYouTubeModuleState();
 
@@ -537,5 +554,94 @@ describe('persistent prime transition supersession', () => {
     expect(broadcastMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.YOUTUBE_STATE }),
     );
+  });
+});
+
+describe('zero-start iframe projection barrier', () => {
+  async function startPlainYouTubeVideo(player: YouTubePlayerInstance): Promise<YtTestHandle> {
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Zero start video',
+        videoId: 'zeroStart01',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'zeroStart01' });
+    loadYouTubeVideo('zeroStart01', null, true, 0);
+    return handle;
+  }
+
+  it('consumes warm-up states before UI, ownership, and room broadcast projection', async () => {
+    const player = createMockYtPlayer();
+    const handle = await startPlainYouTubeVideo(player);
+    const playStateUpdates = vi.fn();
+    bus.on('ui:update-play-state', playStateUpdates);
+    broadcastMock.mockClear();
+    zeroStartFacade.inFlight = true;
+    zeroStartFacade.active = true;
+    zeroStartFacade.handlePlayerState.mockReturnValue(true);
+
+    for (const state of [1, 2, 3, 5]) handle.fireStateChange(state);
+
+    expect(zeroStartFacade.handlePlayerState.mock.calls.map(([state]) => state)).toEqual([
+      1, 2, 3, 5,
+    ]);
+    expect(getState('playback.activity')).toBe('playing');
+    expect(playStateUpdates).not.toHaveBeenCalled();
+    expect(broadcastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.YOUTUBE_STATE }),
+    );
+  });
+
+  it('projects the real release PLAYING once without emitting a second legacy release', async () => {
+    const player = createMockYtPlayer();
+    const handle = await startPlainYouTubeVideo(player);
+    const playStateUpdates = vi.fn();
+    bus.on('ui:update-play-state', playStateUpdates);
+    broadcastMock.mockClear();
+    zeroStartFacade.inFlight = false;
+    zeroStartFacade.active = true;
+    zeroStartFacade.handlePlayerState.mockReturnValue(false);
+
+    handle.fireStateChange(1);
+
+    expect(getState('playback.activity')).toBe('playing');
+    expect(playStateUpdates).toHaveBeenCalledTimes(1);
+    expect(playStateUpdates).toHaveBeenCalledWith(true);
+    expect(
+      broadcastMock.mock.calls.filter(([message]) => message.type === MSG.YOUTUBE_STATE),
+    ).toHaveLength(0);
+  });
+
+  it('keeps the legacy UI heartbeat and auto-advance loop inert while in-flight', async () => {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getCurrentTime!).mockReturnValue(9.5);
+    vi.mocked(player.getDuration!).mockReturnValue(10);
+    vi.mocked(player.getPlayerState!).mockReturnValue(1);
+    vi.mocked(player.getPlaylistIndex!).mockReturnValue(0);
+    const handle = await startPlainYouTubeVideo(player);
+    handle.fireReady();
+    const uiTick = lastTimerCallback('youtubeUILoop');
+    expect(uiTick).toBeDefined();
+
+    const timeUpdates = vi.fn();
+    const autoAdvance = vi.fn();
+    bus.on('ui:time-update', timeUpdates);
+    bus.on('youtube:try-next-internal', autoAdvance);
+    setManagedTimerMock.mockClear();
+    zeroStartFacade.inFlight = true;
+    zeroStartFacade.active = true;
+
+    uiTick!();
+
+    expect(timeUpdates).not.toHaveBeenCalled();
+    expect(autoAdvance).not.toHaveBeenCalled();
+    expect(setManagedTimerMock.mock.calls.some(([name]) => name === 'youtubeSyncLoop')).toBe(false);
   });
 });

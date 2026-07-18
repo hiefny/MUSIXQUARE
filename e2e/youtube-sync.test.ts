@@ -21,7 +21,12 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { readPlaybackProjection, waitForPlaybackProjection } from './helpers/wait.ts';
-import { installFakeYt, readFakeYtLog, clearFakeYtLog } from './helpers/fake-yt.ts';
+import {
+  installFakeYt,
+  readFakeYtLog,
+  clearFakeYtLog,
+  waitForFakeYtOp,
+} from './helpers/fake-yt.ts';
 
 // Deterministic fake URL — fake-yt stub accepts any videoId
 const YT_VIDEO_URL = 'https://www.youtube.com/watch?v=FAKE_VIDEO_ID';
@@ -51,19 +56,6 @@ async function hostLoadYouTube(page: Page, url: string): Promise<void> {
     // youtube:auto-play → the standard two-stage scheduleYtAutoSync path.
     bus.emit('youtube:load-from-chat', u);
   }, url);
-}
-
-async function waitForYtLogOp(page: Page, op: string, timeout = 20_000): Promise<void> {
-  await page.waitForFunction(
-    (expectedOp) => {
-      const log = (window as unknown as Record<string, unknown>).__fakeYtLog as
-        | Array<{ op: string }>
-        | undefined;
-      return log?.some((e) => e.op === expectedOp) ?? false;
-    },
-    op,
-    { timeout },
-  );
 }
 
 // Surface page console errors into test output for diagnostics.
@@ -134,14 +126,14 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
 
     // The host action is immediate; the later Stage 2 aligns guests.
-    await waitForYtLogOp(pair.hostPage, 'playVideo', 20_000);
+    await waitForFakeYtOp(pair.hostPage, 'playVideo');
 
     // Guest playback projection must have flipped to PLAYING_YOUTUBE (set by
     // setEngineMode inside loadYouTubeVideo when handleYouTubePlay runs)
     await waitForPlaybackProjection(pair.guestPage, 'PLAYING_YOUTUBE', 20_000);
 
     // Guest fake player should receive playVideo from handleYouTubeState.
-    await waitForYtLogOp(pair.guestPage, 'playVideo', 20_000);
+    await waitForFakeYtOp(pair.guestPage, 'playVideo');
 
     const hostLog = await readFakeYtLog(pair.hostPage);
     const guestLog = await readFakeYtLog(pair.guestPage);
@@ -183,7 +175,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
       undefined,
       { timeout: 20_000 },
     );
-    await waitForYtLogOp(pair.guestPage, 'playVideo', 20_000);
+    await waitForFakeYtOp(pair.guestPage, 'playVideo');
 
     await clearFakeYtLog(pair.guestPage);
 
@@ -221,8 +213,8 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
       );
     });
 
-    await waitForYtLogOp(pair.guestPage, 'seekTo', 20_000);
-    await waitForYtLogOp(pair.guestPage, 'playVideo', 20_000);
+    await waitForFakeYtOp(pair.guestPage, 'seekTo');
+    await waitForFakeYtOp(pair.guestPage, 'playVideo');
 
     const guestOps = (await readFakeYtLog(pair.guestPage)).map((entry) => entry.op);
     expect(guestOps).toContain('seekTo');

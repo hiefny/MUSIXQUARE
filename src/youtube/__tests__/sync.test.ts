@@ -8,6 +8,7 @@ import type { DataConnection } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
+const zeroStartFacade = vi.hoisted(() => ({ active: false }));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -34,11 +35,16 @@ vi.mock('../_state.ts', async (importOriginal) => {
   return { ...actual, getYouTubePlayer: vi.fn(() => null) };
 });
 
+vi.mock('../zero-start.ts', () => ({
+  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   clearAllManagedTimers();
   resetState();
   bus.clear();
+  zeroStartFacade.active = false;
   setState('playlist.items', [
     {
       queueItemId: QUEUE_ITEM_ID,
@@ -342,6 +348,35 @@ describe('YouTube Sync', () => {
 
       broadcastYouTubeSync(true);
       expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ time: 42.5 }));
+    });
+
+    it('does not seek the PRO coordinator player while zero-start owns the iframe', async () => {
+      const playerMod = await import('../_state.ts');
+      const player = {
+        getCurrentTime: vi.fn(() => 42.5),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 2),
+        seekTo: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
+      setPlaybackYouTubePlaying();
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'coordinator',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      const { initYouTubeSync } = await import('../sync.ts');
+      initYouTubeSync();
+      zeroStartFacade.active = true;
+
+      bus.emit('youtube:set-coordinator-manual-offset', 0.125);
+
+      expect(player.seekTo).not.toHaveBeenCalled();
+      expect(getState('sync.youtubeLocalOffset')).toBe(0);
     });
 
     it('keeps one canonical anchor across rapid coordinator nudges while seekTo is stale', async () => {

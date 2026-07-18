@@ -23,6 +23,8 @@ import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.t
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
+const ZERO_START_RUN_ID = 'mzero-7-a1b2c3';
+const YOUTUBE_VIDEO_ID = 'a1B2c3D4e5F';
 
 beforeEach(() => {
   resetState();
@@ -279,6 +281,207 @@ describe('YOUTUBE_PLAYLIST_INFO validation', () => {
     );
 
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('YouTube zero-start protocol validation', () => {
+  const identity = {
+    version: 1 as const,
+    runId: ZERO_START_RUN_ID,
+    sequence: 7,
+    queueItemId: QUEUE_ITEM_ID,
+  };
+
+  it('dispatches every strict v1 zero-start frame', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('zero-start-valid');
+    const frames = [
+      {
+        type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+        version: 1,
+        platform: 'android',
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_PREPARE,
+        ...identity,
+        videoId: YOUTUBE_VIDEO_ID,
+        subIndex: null,
+        prepareAtHost: 1_000.25,
+        decisionAtHost: 3_300.25,
+        startDeadlineAtHost: 4_000.25,
+        hostPlatform: 'other',
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_ARMED,
+        ...identity,
+        videoId: YOUTUBE_VIDEO_ID,
+        preparedMs: 1_381.5,
+        warmLatencyMs: 338.25,
+        positionSec: 0.02,
+        playerState: 2,
+        audioUnlocked: true,
+        muted: false,
+        volume: 100,
+        loadedFraction: 0.081,
+        startLeadMs: 250,
+        audibleBaseLeadMs: 250,
+        timelineLeadMs: 0,
+        platform: 'android',
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_COMMIT,
+        ...identity,
+        videoId: YOUTUBE_VIDEO_ID,
+        startAtHost: 4_000.25,
+        reason: 'all-ready',
+        cohort: ['host-peer', 'guest-peer'],
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_ABORT,
+        ...identity,
+        reason: 'superseded',
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_TIMELINE,
+        ...identity,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostTime: 6_000.75,
+        positionSec: 2.125,
+        playerState: 1,
+      },
+    ];
+
+    for (const frame of frames) {
+      registerHandler(frame.type, handler);
+      await handleData(frame, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(frames.length);
+  });
+
+  it('drops malformed or extended zero-start frames before dispatch', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('zero-start-invalid');
+    const basePrepare = {
+      type: MSG.YOUTUBE_ZERO_START_PREPARE,
+      ...identity,
+      videoId: YOUTUBE_VIDEO_ID,
+      subIndex: 0,
+      prepareAtHost: 1_000,
+      decisionAtHost: 3_300,
+      startDeadlineAtHost: 4_000,
+      hostPlatform: 'other',
+    };
+    const baseArmed = {
+      type: MSG.YOUTUBE_ZERO_START_ARMED,
+      ...identity,
+      videoId: YOUTUBE_VIDEO_ID,
+      preparedMs: 1_200,
+      warmLatencyMs: 300,
+      positionSec: 0,
+      playerState: 2,
+      audioUnlocked: true,
+      muted: false,
+      volume: 100,
+      loadedFraction: 0.1,
+      startLeadMs: 250,
+      audibleBaseLeadMs: 250,
+      timelineLeadMs: 0,
+      platform: 'android',
+    };
+    const baseCommit = {
+      type: MSG.YOUTUBE_ZERO_START_COMMIT,
+      ...identity,
+      videoId: YOUTUBE_VIDEO_ID,
+      startAtHost: 4_000,
+      reason: 'all-ready',
+      cohort: ['host-peer', 'guest-peer'],
+    };
+    const malformedFrames = [
+      { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 2, platform: 'android' },
+      { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 1, platform: 'windows' },
+      { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 1, platform: 'ios', extra: true },
+      { ...basePrepare, runId: '../bad-run' },
+      { ...basePrepare, sequence: 0 },
+      { ...basePrepare, videoId: 'too-short' },
+      { ...basePrepare, subIndex: 5000 },
+      { ...basePrepare, decisionAtHost: 999 },
+      { ...basePrepare, startDeadlineAtHost: 20_001 },
+      { ...basePrepare, prepareAtHost: Number.POSITIVE_INFINITY },
+      { ...basePrepare, hostPlatform: 'windows' },
+      { ...basePrepare, unexpected: 'field' },
+      { ...baseArmed, preparedMs: -1 },
+      { ...baseArmed, playerState: 4 },
+      { ...baseArmed, audioUnlocked: 'yes' },
+      { ...baseArmed, volume: 101 },
+      { ...baseArmed, loadedFraction: 1.01 },
+      { ...baseArmed, startLeadMs: 601 },
+      { ...baseArmed, timelineLeadMs: Number.NaN },
+      { ...baseCommit, startAtHost: Number.NEGATIVE_INFINITY },
+      { ...baseCommit, reason: 'ready' },
+      { ...baseCommit, cohort: [] },
+      { ...baseCommit, cohort: ['same-peer', 'same-peer'] },
+      { ...baseCommit, cohort: ['peer with spaces'] },
+      {
+        type: MSG.YOUTUBE_ZERO_START_ABORT,
+        ...identity,
+        reason: 'unknown-reason',
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_TIMELINE,
+        ...identity,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostTime: 6_000,
+        positionSec: -0.1,
+        playerState: 1,
+      },
+      {
+        type: MSG.YOUTUBE_ZERO_START_TIMELINE,
+        ...identity,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostTime: Number.NaN,
+        positionSec: 2,
+        playerState: 1,
+      },
+    ];
+
+    for (const type of [
+      MSG.YOUTUBE_ZERO_START_CAPABILITY,
+      MSG.YOUTUBE_ZERO_START_PREPARE,
+      MSG.YOUTUBE_ZERO_START_ARMED,
+      MSG.YOUTUBE_ZERO_START_COMMIT,
+      MSG.YOUTUBE_ZERO_START_ABORT,
+      MSG.YOUTUBE_ZERO_START_TIMELINE,
+    ]) {
+      registerHandler(type, handler);
+    }
+    for (const frame of malformedFrames) await handleData(frame, conn);
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('caps the release cohort at 100 unique bounded peer identifiers', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('zero-start-cohort-cap');
+    registerHandler(MSG.YOUTUBE_ZERO_START_COMMIT, handler);
+    const commit = {
+      type: MSG.YOUTUBE_ZERO_START_COMMIT,
+      ...identity,
+      videoId: YOUTUBE_VIDEO_ID,
+      startAtHost: 4_000,
+      reason: 'guest-timeout',
+    };
+
+    await handleData(
+      { ...commit, cohort: Array.from({ length: 100 }, (_, index) => `peer-${index}`) },
+      conn,
+    );
+    await handleData(
+      { ...commit, cohort: Array.from({ length: 101 }, (_, index) => `peer-${index}`) },
+      conn,
+    );
+
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });
 

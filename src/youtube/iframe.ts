@@ -66,6 +66,11 @@ import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
 import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, toCanonicalYouTubeTime } from './local-offset.ts';
 import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
+import {
+  handleYouTubeZeroStartPlayerState,
+  isYouTubeZeroStartInFlight,
+  isYouTubeZeroStartProtocolActive,
+} from './zero-start.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -817,7 +822,18 @@ function createYouTubePlayer(
           startSeconds: 0,
         });
       } else if (videoId) {
-        existingPlayer.loadVideoById(videoId);
+        // A synchronized track transition must not let the persistent iframe
+        // emit a few audible frames before the rendezvous barrier is armed.
+        // Cue first when autoplay is disabled; the zero-start coordinator
+        // performs the hard-muted load/warm cycle once every participant has
+        // received the same transition intent. Older clients still recover
+        // through the existing state/sync messages if the room falls back to
+        // the legacy path.
+        if (!autoplay && existingPlayer.cueVideoById) {
+          existingPlayer.cueVideoById(videoId, 0);
+        } else {
+          existingPlayer.loadVideoById(videoId);
+        }
       }
       // onStateChange handles pausing through the _ytAutoplayIntent flag.
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
@@ -1163,8 +1179,13 @@ function _finishScrape(ids: string[] | null): void {
     if (pid) updateSubItemIds(pid, ids);
     log.debug('[YouTube] Scrape captured IDs — switching to single-video mode');
     setYouTubeSubIndex(subIdx);
-    player.loadVideoById?.(ids[subIdx] || ids[0], 0);
-    if (getYtAutoplayIntent() && player.playVideo) player.playVideo();
+    const targetVideoId = ids[subIdx] || ids[0];
+    if (!getYtAutoplayIntent() && player.cueVideoById) {
+      player.cueVideoById(targetVideoId, 0);
+    } else {
+      player.loadVideoById?.(targetVideoId, 0);
+      if (getYtAutoplayIntent() && player.playVideo) player.playVideo();
+    }
     return;
   }
 
@@ -1173,8 +1194,12 @@ function _finishScrape(ids: string[] | null): void {
   const entryVideoId = currentTrack?.videoId as string | undefined;
   if (entryVideoId) {
     setYouTubeSubIndex(0);
-    player.loadVideoById?.(entryVideoId, 0);
-    if (getYtAutoplayIntent() && player.playVideo) player.playVideo();
+    if (!getYtAutoplayIntent() && player.cueVideoById) {
+      player.cueVideoById(entryVideoId, 0);
+    } else {
+      player.loadVideoById?.(entryVideoId, 0);
+      if (getYtAutoplayIntent() && player.playVideo) player.playVideo();
+    }
   }
 }
 
@@ -1341,6 +1366,14 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     return;
   }
 
+  // The zero-start controller owns every transient player state produced by
+  // its hard-muted warm-up. Consume those events before they can mutate the
+  // ordinary playback projection, UI, queue progression, or room broadcast.
+  // On the real release PLAYING the controller first closes its in-flight
+  // phase and returns false, so that one event continues through the normal
+  // path below exactly once.
+  if (handleYouTubeZeroStartPlayerState(state)) return;
+
   if (!isPlaybackModeYouTube() && !indexing) return;
 
   if (state === YT.PlayerState.PLAYING) {
@@ -1430,6 +1463,16 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       // _ifr.isScrapingPlaylist stays true until _finishScrape runs so a
       // second CUED transition during the poll doesn't double-trigger.
       _pollScrapePlaylist(_ifr.scrapeSession, -1, 0);
+      return;
+    }
+
+    // Persistent-player transitions now cue the incoming video before any
+    // shared start. A reused iframe does not emit onReady again, so CUED is
+    // the deterministic hand-off point for the pending zero-start/legacy
+    // rendezvous intent armed by playlist.ts.
+    const pendingAutoSync = consumePendingAutoSyncOnReady();
+    if (pendingAutoSync) {
+      bus.emit('youtube:auto-play', pendingAutoSync);
     }
     return;
   } else if (state === YT.PlayerState.ENDED) {
@@ -1464,6 +1507,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
           targetTime: 0,
           skipSeek: false,
           isTrackTransition: false,
+          zeroStart: true,
         });
         return;
       }
@@ -1523,7 +1567,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // scheduleYtAutoSync already broadcasts the authoritative state+hostPlayAt
   // at the start of its sequence, so suppressing these in-flight auxiliary
   // broadcasts is safe.
-  const syncInFlight = !!getManagedTimer('yt-auto-sync');
+  const syncInFlight = isYouTubeZeroStartProtocolActive() || !!getManagedTimer('yt-auto-sync');
   const coordinatorNudgeInFlight = !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
   // Deduplicate by state as well as time. A time-only cooldown would swallow a
@@ -1560,6 +1604,14 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 function updateYouTubeUI(): void {
   const player = getYouTubePlayer();
   if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) return;
+
+  // While zero-start is preparing/armed/scheduled/starting, the controller
+  // is the sole owner of the iframe timeline. The legacy UI loop must not
+  // heal a heartbeat, project the warm-up position, or mistake a transient
+  // CUED/BUFFERING state for unavailable/native auto-advance. The real
+  // release PLAYING closes `inFlight` synchronously in the state handler,
+  // after which the ordinary loop resumes without a second code path.
+  if (isYouTubeZeroStartInFlight()) return;
 
   // The UI loop and heartbeat have separate timer keys. If any unrelated
   // cleanup accidentally clears only the heartbeat, keep an active host from
@@ -1637,6 +1689,7 @@ function updateYouTubeUI(): void {
           // guests re-enter the fresh other-to-yt setup phase together. STAGE2
           // (2s) is the right delay — `isTrackTransition: false` keeps this off
           // the onStateChange `?? true` conservative-fallback path.
+          loadYouTubeVideo(videoId || null, playlistId || null, false, subIndex);
           setPendingAutoSyncOnReady(true, {
             isTrackTransition: false,
             targetTime: recoveryTime,
@@ -1644,7 +1697,6 @@ function updateYouTubeUI(): void {
             videoId: videoId || undefined,
             skipSeek: false,
           });
-          loadYouTubeVideo(videoId || null, playlistId || null, false, subIndex);
         } else {
           loadYouTubeVideo(videoId || null, playlistId || null, false, subIndex);
           _ifr.guestRendezvousAfterReady = true;
@@ -1692,11 +1744,7 @@ function updateYouTubeUI(): void {
       const vTitle = videoData?.title;
       if (vTitle) {
         updatePlaybackTrackTitle(vTitle);
-        persistResolvedProYouTubeTitle(
-          getCurrentQueueItemId(),
-          videoData?.video_id || '',
-          vTitle,
-        );
+        persistResolvedProYouTubeTitle(getCurrentQueueItemId(), videoData?.video_id || '', vTitle);
       }
     }
 
@@ -1842,11 +1890,7 @@ function updateYouTubeUI(): void {
       if (vData?.title && vData.title !== _ifr.lastVideoTitle) {
         _ifr.lastVideoTitle = vData.title;
         updatePlaybackTrackTitle(vData.title);
-        persistResolvedProYouTubeTitle(
-          getCurrentQueueItemId(),
-          vData.video_id || '',
-          vData.title,
-        );
+        persistResolvedProYouTubeTitle(getCurrentQueueItemId(), vData.video_id || '', vData.title);
       }
       currentVideoId = vData?.video_id || '';
 

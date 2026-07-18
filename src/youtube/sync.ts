@@ -71,6 +71,7 @@ import {
   LATENCY_CLAMP_MAX_MS,
   LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
+import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
 
@@ -167,6 +168,14 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   const hostConn = getState('network.hostConn');
   const queueItemId = getCurrentQueueItemId();
   if (!player || hostConn || !player.getCurrentTime || !queueItemId) return;
+
+  // Zero-start has its own bounded prepare/commit/timeline protocol. Do not
+  // let either the periodic legacy heartbeat or an incidental manual legacy
+  // projection publish the hard-muted warm-up position. Explicit user
+  // actions cancel zero-start before reaching this broadcaster, so the
+  // established seek/pause path remains unchanged once the controller is no
+  // longer in flight.
+  if (isYouTubeZeroStartProtocolActive()) return;
 
   // Dedup heartbeats that immediately follow a manual broadcast. Manual
   // broadcasts always pass through (the caller explicitly asked for a
@@ -459,6 +468,7 @@ function runManualOffsetApplyRendezvous(): void {
 
 function setCoordinatorManualYouTubeOffset(requestedOffsetSeconds: number): void {
   if (
+    isYouTubeZeroStartProtocolActive() ||
     !isProCoordinatorYouTubeEndpoint() ||
     !Number.isFinite(requestedOffsetSeconds) ||
     !isPlaybackModeYouTube()
@@ -732,6 +742,10 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const notifyProgress = (message: string): void => {
     if (!opts.suppressProgressToast) notify(message);
   };
+  if (isYouTubeZeroStartProtocolActive()) {
+    notify(t('toast.sync_not_ready'));
+    return { status: 'not-ready' };
+  }
   const player = getYouTubePlayer();
   if (!player || !isPlaybackModeYouTube()) {
     notify(t('toast.sync_not_ready'));

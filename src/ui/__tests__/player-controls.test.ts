@@ -23,6 +23,8 @@ import {
 const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
+const zeroStartFacade = vi.hoisted(() => ({ active: false }));
+
 const proSystemAudio = vi.hoisted(() => ({
   view: {
     roomCode: '000001',
@@ -45,6 +47,10 @@ const proSystemAudio = vi.hoisted(() => ({
 vi.mock('../../youtube/sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
   guestRendezvousSync: vi.fn(),
+}));
+
+vi.mock('../../youtube/zero-start.ts', () => ({
+  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
 }));
 
 vi.mock('../toast.ts', () => ({
@@ -81,6 +87,7 @@ beforeEach(() => {
   });
   proSystemAudio.ownerName = null;
   proSystemAudio.coordinatorCompatible = true;
+  zeroStartFacade.active = false;
   document.body.innerHTML = '';
 });
 
@@ -754,6 +761,21 @@ describe('initPlayerControls sync button', () => {
     );
   });
 
+  it('blocks guest YouTube sync while zero-start owns the iframe', () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    zeroStartFacade.active = true;
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(guestRendezvousSync).not.toHaveBeenCalled();
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+  });
+
   it('sends a YouTube rendezvous request when the host presses sync', () => {
     renderSyncControls();
     setState('playback.mode', 'youtube');
@@ -768,6 +790,19 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith(
       'Precision sync requested.\nAdjust manual sync on a guest device.',
     );
+  });
+
+  it('does not report a host sync success while zero-start is active', () => {
+    renderSyncControls();
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    zeroStartFacade.active = true;
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(broadcastYouTubeSync).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
   it('opens the same local YouTube nudge panel for a PRO coordinator', () => {
@@ -791,6 +826,29 @@ describe('initPlayerControls sync button', () => {
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
     expect(guestRendezvousSync).not.toHaveBeenCalled();
+  });
+
+  it('keeps the PRO coordinator nudge panel closed during zero-start', () => {
+    renderSyncControls();
+    setState('network.appRole', 'host');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-0',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    zeroStartFacade.active = true;
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
   it('does not treat a closed YouTube host connection as either host or guest sync', () => {

@@ -52,7 +52,7 @@ import {
   sendFilePrepareByDelivery,
 } from '../storage/transfer.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
-import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
+import { cancelYtAutoSync, setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
@@ -802,6 +802,10 @@ export async function playTrack(
       // Destroying the iframe forces a "tap to play" on mobile.
       const isYtToYt = isYouTubeOwner();
       const wasPreparingFile = isFilePipelineBusyForPlay();
+      // A new YouTube selection owns the persistent iframe from this point.
+      // Cancel any old zero-start release before cueing the incoming video so
+      // an already-scheduled playVideo() cannot fire against the new target.
+      cancelYtAutoSync();
       if (!isYtToYt) {
         stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
         if (wasPreparingFile) {
@@ -825,11 +829,15 @@ export async function playTrack(
       const hostIds = subMap[item.playlistId as string]?.ids;
       const broadcastVideoId = (hostIds && hostIds[subIndex ?? 0]) || (item.videoId ?? null);
 
-      // Compute autoplay once so the host iframe and guest broadcast agree.
-      // Only the first YouTube entry in a fresh session waits for a user tap.
+      // Every shared YouTube transition is loaded paused first. This keeps a
+      // persistent iframe from leaking a short burst of the incoming video
+      // before the coordinator can choose zero-start or the compatible
+      // legacy rendezvous path. The first entry still waits for the user's
+      // explicit play tap; later entries arm playback immediately after the
+      // paused load becomes usable.
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       const isAlreadyYt = isYouTubeOwner();
-      const shouldAutoplay = !(isFirstTrackLoad && !isAlreadyYt);
+      const shouldAutoplay = false;
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
@@ -882,6 +890,7 @@ export async function playTrack(
         // stop existing media, which clears stale pending sync first.
         setPendingAutoSyncOnReady(true, {
           isTrackTransition: isAlreadyYt,
+          zeroStart: true,
           targetTime: 0,
           subIndex: subIndex ?? 0,
           videoId: broadcastVideoId ?? undefined,

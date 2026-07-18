@@ -1307,18 +1307,10 @@ describe('YouTube Player', () => {
       ]);
 
       expect(
-        persistResolvedProYouTubeTitleForTests(
-          SECOND_QUEUE_ITEM_ID,
-          'VIDEO_ID_02',
-          'Iframe title',
-        ),
+        persistResolvedProYouTubeTitleForTests(SECOND_QUEUE_ITEM_ID, 'VIDEO_ID_02', 'Iframe title'),
       ).toBe(false);
       expect(
-        persistResolvedProYouTubeTitleForTests(
-          SECOND_QUEUE_ITEM_ID,
-          'WRONG_VIDEO',
-          'Iframe title',
-        ),
+        persistResolvedProYouTubeTitleForTests(SECOND_QUEUE_ITEM_ID, 'WRONG_VIDEO', 'Iframe title'),
       ).toBe(false);
       setState('playlist.items', [
         {
@@ -1334,11 +1326,7 @@ describe('YouTube Player', () => {
         role: 'member',
       });
       expect(
-        persistResolvedProYouTubeTitleForTests(
-          SECOND_QUEUE_ITEM_ID,
-          'VIDEO_ID_02',
-          'Iframe title',
-        ),
+        persistResolvedProYouTubeTitleForTests(SECOND_QUEUE_ITEM_ID, 'VIDEO_ID_02', 'Iframe title'),
       ).toBe(false);
       expect(updateTrackMetadata).not.toHaveBeenCalled();
     });

@@ -125,6 +125,15 @@ export type QueueItemId = string;
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
+export type YouTubeZeroStartPlatform = 'ios' | 'android' | 'other';
+export type YouTubeZeroStartCommitReason = 'all-ready' | 'guest-timeout' | 'host-delayed';
+export type YouTubeZeroStartAbortReason =
+  | 'superseded'
+  | 'cancelled'
+  | 'authority-changed'
+  | 'player-unavailable'
+  | 'prepare-failed';
+
 export interface PlaylistWireItem {
   queueItemId: QueueItemId;
   type: 'file' | 'youtube';
@@ -589,6 +598,69 @@ export interface ProtocolMap {
     hostClock?: number;
     isManual?: boolean;
     title?: string;
+  };
+  'youtube-zero-start-capability': {
+    version: 1;
+    platform: YouTubeZeroStartPlatform;
+  };
+  'youtube-zero-start-prepare': {
+    version: 1;
+    runId: string;
+    sequence: number;
+    queueItemId: QueueItemId;
+    videoId: string;
+    subIndex: number | null;
+    prepareAtHost: number;
+    decisionAtHost: number;
+    startDeadlineAtHost: number;
+    hostPlatform: YouTubeZeroStartPlatform;
+  };
+  'youtube-zero-start-armed': {
+    version: 1;
+    runId: string;
+    sequence: number;
+    queueItemId: QueueItemId;
+    videoId: string;
+    preparedMs: number;
+    warmLatencyMs: number;
+    positionSec: number;
+    playerState: number;
+    audioUnlocked: boolean;
+    muted: boolean;
+    volume: number;
+    loadedFraction: number;
+    startLeadMs: number;
+    audibleBaseLeadMs: number;
+    timelineLeadMs: number;
+    platform: YouTubeZeroStartPlatform;
+  };
+  /** One authoritative release packet; no separate START frame is used. */
+  'youtube-zero-start-commit': {
+    version: 1;
+    runId: string;
+    sequence: number;
+    queueItemId: QueueItemId;
+    videoId: string;
+    startAtHost: number;
+    reason: YouTubeZeroStartCommitReason;
+    cohort: string[];
+  };
+  'youtube-zero-start-abort': {
+    version: 1;
+    runId: string;
+    sequence: number;
+    queueItemId: QueueItemId;
+    reason: YouTubeZeroStartAbortReason;
+  };
+  'youtube-zero-start-timeline': {
+    version: 1;
+    runId: string;
+    sequence: number;
+    queueItemId: QueueItemId;
+    videoId: string;
+    hostTime: number;
+    positionSec: number;
+    playerState: number;
   };
   'youtube-sub-title-update': { playlistId: string; subIdx: number; title: string };
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
@@ -1103,6 +1175,8 @@ interface BaseEventMap {
       | boolean
       | {
           isTrackTransition?: boolean;
+          /** Fresh shared 0-second start; eligible for the zero-start barrier. */
+          zeroStart?: boolean;
           targetTime?: number;
           subIndex?: number;
           videoId?: string;

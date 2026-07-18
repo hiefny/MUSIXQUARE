@@ -39,6 +39,7 @@ const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
 }));
+const zeroStartFacade = vi.hoisted(() => ({ active: false }));
 
 vi.mock('../../player/transport.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../player/transport.ts')>();
@@ -47,6 +48,10 @@ vi.mock('../../player/transport.ts', async (importOriginal) => {
     play: transportMocks.play,
   };
 });
+
+vi.mock('../../youtube/zero-start.ts', () => ({
+  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
+}));
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -58,6 +63,7 @@ beforeEach(() => {
   resetInboundRateLimit('guest-1');
   transportMocks.play.mockReset();
   transportMocks.play.mockResolvedValue(undefined);
+  zeroStartFacade.active = false;
   setLocalFilePaused(false);
 });
 
@@ -156,6 +162,22 @@ describe('manual sync nudge routing', () => {
 
     vi.advanceTimersByTime(1);
     expect(applySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects YouTube nudge and reset actions while zero-start owns the iframe', () => {
+    initSync();
+    const applySpy = vi.fn();
+    bus.on('youtube:apply-manual-sync', applySpy);
+    setPlaybackYouTubePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+    setState('sync.youtubeLocalOffset', 0.25);
+    zeroStartFacade.active = true;
+
+    bus.emit('sync:nudge', 10);
+    bus.emit('sync:auto-sync');
+
+    expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+    expect(applySpy).not.toHaveBeenCalled();
   });
 
   it('lets a PRO coordinator nudge its decoded local file without hostConn', () => {

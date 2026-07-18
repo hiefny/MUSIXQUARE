@@ -41,6 +41,9 @@ export interface YouTubePlayerInstance {
   setVolume(volume: number): void;
   mute?(): void;
   unMute?(): void;
+  isMuted?(): boolean;
+  getVolume?(): number;
+  getVideoLoadedFraction?(): number;
 }
 
 /**

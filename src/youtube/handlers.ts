@@ -14,7 +14,7 @@ import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
-import { scheduleYtAutoSync } from './player.ts';
+import { scheduleYtAutoSync, tryBeginYouTubeZeroStart } from './player.ts';
 import { toCanonicalYouTubeTime } from './local-offset.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
@@ -133,9 +133,18 @@ export function handleRequestYouTubePlay(
 
   const player = getYouTubePlayer();
   if (player?.getCurrentTime) {
-    scheduleYtAutoSync(
-      toCanonicalYouTubeTime(player.getCurrentTime() || 0, player.getDuration?.() || 0),
+    const currentTime = toCanonicalYouTubeTime(
+      player.getCurrentTime() || 0,
+      player.getDuration?.() || 0,
     );
+    const videoId = player.getVideoData?.()?.video_id || '';
+    if (
+      currentTime <= 0.12 &&
+      tryBeginYouTubeZeroStart(videoId, getState('youtube.currentSubIndex') ?? null)
+    ) {
+      return;
+    }
+    scheduleYtAutoSync(currentTime);
   }
 }
 
@@ -173,9 +182,18 @@ export function handleRequestYouTubeToggle(
       scheduleYtAutoSync(time, { state: 2 });
     } else {
       // Play
-      scheduleYtAutoSync(
-        toCanonicalYouTubeTime(player.getCurrentTime?.() || 0, player.getDuration?.() || 0),
+      const currentTime = toCanonicalYouTubeTime(
+        player.getCurrentTime?.() || 0,
+        player.getDuration?.() || 0,
       );
+      const videoId = player.getVideoData?.()?.video_id || '';
+      if (
+        currentTime <= 0.12 &&
+        tryBeginYouTubeZeroStart(videoId, getState('youtube.currentSubIndex') ?? null)
+      ) {
+        return;
+      }
+      scheduleYtAutoSync(currentTime);
     }
   } catch (e) {
     log.error('[YouTube] Toggle error:', e);
@@ -213,8 +231,10 @@ export function handleRequestYouTubeSubSeek(
       log.warn(`[YouTube] request-sub-seek: no videoId at subIdx=${subIdx} in subItemsMap`);
       return;
     }
-    player.loadVideoById(targetVideoId);
     setYouTubeSubIndex(subIdx);
+
+    if (tryBeginYouTubeZeroStart(targetVideoId, subIdx)) return;
+    player.loadVideoById(targetVideoId);
 
     scheduleYtAutoSync(0, {
       subIndex: subIdx,

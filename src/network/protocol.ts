@@ -59,6 +59,11 @@ const REMOTE_OBJECT_ID_RE =
 // Keep member-management requests to one small opaque identifier so callers
 // cannot smuggle a connection object or other coordinator-owned state.
 const PRO_PEER_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+// Host-created, opaque transition identity. The production generator uses
+// URL-safe base36/UUID-like components; keeping the wire alphabet narrow also
+// prevents control characters from reaching diagnostics and map keys.
+const YOUTUBE_ZERO_START_RUN_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const PRO_SYSTEM_AUDIO_PUBLIC_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const OPERATOR_FILE_UPLOAD_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -72,6 +77,8 @@ const isNonNegSafeInt = (v: unknown): v is number =>
   typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const isPositiveSafeInt = (v: unknown): v is number =>
   typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+const isNonNegFiniteSafeNumber = (v: unknown): v is number =>
+  isFiniteNumber(v) && v >= 0 && v <= Number.MAX_SAFE_INTEGER;
 
 function isSafeOperatorUploadFileName(value: unknown): value is string {
   if (
@@ -143,6 +150,36 @@ const isBoundedNumber = (v: unknown, min: number, max: number): boolean =>
   isFiniteNumber(v) && v >= min && v <= max;
 const isReverbPreset = (v: unknown): boolean => v === 'off' || v === 'studio' || v === 'arena';
 const isRepeatMode = (v: unknown): boolean => v === 0 || v === 1 || v === 2;
+
+const isYouTubeZeroStartPlatform = (value: unknown): boolean =>
+  value === 'ios' || value === 'android' || value === 'other';
+const isYouTubePlayerState = (value: unknown): boolean =>
+  value === -1 || value === 0 || value === 1 || value === 2 || value === 3 || value === 5;
+const isYouTubePosition = (value: unknown): boolean => isBoundedNumber(value, 0, 31_536_000);
+const isYouTubeZeroStartRunId = (value: unknown): boolean =>
+  typeof value === 'string' && YOUTUBE_ZERO_START_RUN_ID_RE.test(value);
+const isYouTubeVideoId = (value: unknown): boolean =>
+  typeof value === 'string' && YOUTUBE_VIDEO_ID_RE.test(value);
+const isYouTubeZeroStartLead = (value: unknown): boolean => isBoundedNumber(value, -600, 600);
+
+function hasYouTubeZeroStartIdentity(data: Record<string, unknown>): boolean {
+  return (
+    data.version === 1 &&
+    isYouTubeZeroStartRunId(data.runId) &&
+    isPositiveSafeInt(data.sequence) &&
+    isQueueItemId(data.queueItemId)
+  );
+}
+
+function isYouTubeZeroStartCohort(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 100 &&
+    value.every((peerId) => typeof peerId === 'string' && PRO_PEER_ID_RE.test(peerId)) &&
+    new Set(value).size === value.length
+  );
+}
 
 function isProSystemAudioPublication(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -457,6 +494,111 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isFiniteNumber(d.state) &&
     isFiniteNumber(d.time) &&
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
+  [MSG.YOUTUBE_ZERO_START_CAPABILITY]: (d) =>
+    hasExactKeys(d, ['type', 'version', 'platform']) &&
+    d.version === 1 &&
+    isYouTubeZeroStartPlatform(d.platform),
+  [MSG.YOUTUBE_ZERO_START_PREPARE]: (d) =>
+    hasExactKeys(d, [
+      'type',
+      'version',
+      'runId',
+      'sequence',
+      'queueItemId',
+      'videoId',
+      'subIndex',
+      'prepareAtHost',
+      'decisionAtHost',
+      'startDeadlineAtHost',
+      'hostPlatform',
+    ]) &&
+    hasYouTubeZeroStartIdentity(d) &&
+    isYouTubeVideoId(d.videoId) &&
+    (d.subIndex === null || (isNonNegInt(d.subIndex) && (d.subIndex as number) < 5000)) &&
+    isNonNegFiniteSafeNumber(d.prepareAtHost) &&
+    isNonNegFiniteSafeNumber(d.decisionAtHost) &&
+    isNonNegFiniteSafeNumber(d.startDeadlineAtHost) &&
+    (d.prepareAtHost as number) <= (d.decisionAtHost as number) &&
+    (d.decisionAtHost as number) <= (d.startDeadlineAtHost as number) &&
+    (d.startDeadlineAtHost as number) - (d.prepareAtHost as number) <= 10_000 &&
+    isYouTubeZeroStartPlatform(d.hostPlatform),
+  [MSG.YOUTUBE_ZERO_START_ARMED]: (d) =>
+    hasExactKeys(d, [
+      'type',
+      'version',
+      'runId',
+      'sequence',
+      'queueItemId',
+      'videoId',
+      'preparedMs',
+      'warmLatencyMs',
+      'positionSec',
+      'playerState',
+      'audioUnlocked',
+      'muted',
+      'volume',
+      'loadedFraction',
+      'startLeadMs',
+      'audibleBaseLeadMs',
+      'timelineLeadMs',
+      'platform',
+    ]) &&
+    hasYouTubeZeroStartIdentity(d) &&
+    isYouTubeVideoId(d.videoId) &&
+    isBoundedNumber(d.preparedMs, 0, 60_000) &&
+    isBoundedNumber(d.warmLatencyMs, 0, 60_000) &&
+    isYouTubePosition(d.positionSec) &&
+    isYouTubePlayerState(d.playerState) &&
+    typeof d.audioUnlocked === 'boolean' &&
+    typeof d.muted === 'boolean' &&
+    isBoundedNumber(d.volume, 0, 100) &&
+    isBoundedNumber(d.loadedFraction, 0, 1) &&
+    isYouTubeZeroStartLead(d.startLeadMs) &&
+    isYouTubeZeroStartLead(d.audibleBaseLeadMs) &&
+    isYouTubeZeroStartLead(d.timelineLeadMs) &&
+    isYouTubeZeroStartPlatform(d.platform),
+  [MSG.YOUTUBE_ZERO_START_COMMIT]: (d) =>
+    hasExactKeys(d, [
+      'type',
+      'version',
+      'runId',
+      'sequence',
+      'queueItemId',
+      'videoId',
+      'startAtHost',
+      'reason',
+      'cohort',
+    ]) &&
+    hasYouTubeZeroStartIdentity(d) &&
+    isYouTubeVideoId(d.videoId) &&
+    isNonNegFiniteSafeNumber(d.startAtHost) &&
+    (d.reason === 'all-ready' || d.reason === 'guest-timeout' || d.reason === 'host-delayed') &&
+    isYouTubeZeroStartCohort(d.cohort),
+  [MSG.YOUTUBE_ZERO_START_ABORT]: (d) =>
+    hasExactKeys(d, ['type', 'version', 'runId', 'sequence', 'queueItemId', 'reason']) &&
+    hasYouTubeZeroStartIdentity(d) &&
+    (d.reason === 'superseded' ||
+      d.reason === 'cancelled' ||
+      d.reason === 'authority-changed' ||
+      d.reason === 'player-unavailable' ||
+      d.reason === 'prepare-failed'),
+  [MSG.YOUTUBE_ZERO_START_TIMELINE]: (d) =>
+    hasExactKeys(d, [
+      'type',
+      'version',
+      'runId',
+      'sequence',
+      'queueItemId',
+      'videoId',
+      'hostTime',
+      'positionSec',
+      'playerState',
+    ]) &&
+    hasYouTubeZeroStartIdentity(d) &&
+    isYouTubeVideoId(d.videoId) &&
+    isNonNegFiniteSafeNumber(d.hostTime) &&
+    isYouTubePosition(d.positionSec) &&
+    isYouTubePlayerState(d.playerState),
   // subIdx is capped at 5000 (YouTube playlist max, matches YOUTUBE_PLAYLIST_INFO
   // ids cap) — the handler pads youtube.subItemsMap[pid].titles up to subIdx, so
   // an uncapped index would grow that array to billions of empty slots (OOM).

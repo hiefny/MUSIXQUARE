@@ -92,7 +92,7 @@ const TEST_ONLY_BASELINE_COUNT = 17;
 // unit-test-imported symbols (self-ref
 // precedence places them here, not in TEST-ONLY) plus the types/index.ts
 // barrel. Fails only if the count GROWS; update manually when it shrinks.
-const SELF_ONLY_BASELINE_COUNT = 52;
+const SELF_ONLY_BASELINE_COUNT = 51;
 
 // ── Walk / strip helpers (mirrors check-bus-pairing.mjs) ─────────
 

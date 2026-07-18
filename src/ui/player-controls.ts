@@ -32,6 +32,7 @@ import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
+import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
@@ -575,7 +576,7 @@ function canUseManualSyncPanel(): boolean {
   const isProCoordinator = room.kind === 'pro' && room.role === 'coordinator';
   if (!hostConn?.open && !isProCoordinator) return false;
   if (isPlaybackModeSystemAudio()) return false;
-  if (isPlaybackModeYouTube()) return true;
+  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
@@ -583,6 +584,15 @@ function handleMainSyncBtn(): void {
   // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
   if (isPlaybackModeSystemAudio()) {
     showToast(t('toast.sync_not_in_system_audio'));
+    return;
+  }
+
+  // The zero-start controller temporarily owns the iframe from PREPARE until
+  // its release/calibration window ends. A manual rendezvous or local nudge in
+  // that interval can seek the warmed video underneath the scheduled COMMIT.
+  if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) {
+    closeManualSyncOverlay();
+    showToast(t('toast.sync_not_ready'));
     return;
   }
 

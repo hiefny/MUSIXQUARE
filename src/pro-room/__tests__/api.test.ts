@@ -603,9 +603,7 @@ describe('PRO room cookie session API', () => {
     });
     const headers = new Headers(init.headers);
     expect(headers.get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
-    expect(headers.get('x-mxqr-pro-participant-id')).toBe(
-      activeSnapshot().viewer!.participantId,
-    );
+    expect(headers.get('x-mxqr-pro-participant-id')).toBe(activeSnapshot().viewer!.participantId);
     expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe(
       activeSnapshot().viewer!.presenceIncarnationId,
     );
@@ -842,12 +840,14 @@ describe('PRO room cookie session API', () => {
   });
 
   it('preserves a bounded old-Worker response during a rolling policy update', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse(
-        { error: 'RATE_LIMITED' },
-        { status: 429, headers: { 'retry-after': '86400' } },
-      ),
-    );
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: 'RATE_LIMITED' },
+          { status: 429, headers: { 'retry-after': '86400' } },
+        ),
+      );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     const error = await client
@@ -862,12 +862,14 @@ describe('PRO room cookie session API', () => {
   });
 
   it('drops an out-of-contract retry delay instead of forwarding it to chat', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse(
-        { error: 'RATE_LIMITED' },
-        { status: 429, headers: { 'retry-after': '86401' } },
-      ),
-    );
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: 'RATE_LIMITED' },
+          { status: 429, headers: { 'retry-after': '86401' } },
+        ),
+      );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     const error = await client

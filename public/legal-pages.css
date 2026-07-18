@@ -130,6 +130,84 @@ a {
   letter-spacing: 0;
 }
 
+.policy-accordion {
+  border-top: 1px solid var(--divider);
+  scroll-margin-top: 12px;
+}
+
+.policy-accordion:last-child {
+  border-bottom: 1px solid var(--divider);
+}
+
+.policy-accordion + .policy-accordion {
+  margin-top: 0;
+}
+
+.policy-accordion[open] {
+  padding-bottom: 52px;
+}
+
+.policy-accordion__summary {
+  position: relative;
+  min-height: 68px;
+  padding: 20px 48px 20px 0;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.policy-accordion__summary::-webkit-details-marker {
+  display: none;
+}
+
+.policy-accordion__summary::after {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  content: "";
+  transform: translateY(-70%) rotate(45deg);
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.policy-accordion__summary:hover::after,
+.policy-accordion__summary:focus-visible::after {
+  border-color: var(--text-main);
+}
+
+.policy-accordion__summary:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.policy-accordion__summary h2 {
+  margin: 0;
+}
+
+.policy-accordion[open] > .policy-accordion__summary {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 3;
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg);
+}
+
+.policy-accordion[open] > .policy-accordion__summary::after {
+  transform: translateY(-30%) rotate(225deg);
+}
+
+.policy-accordion > .policy-accordion__summary + * {
+  margin-top: 28px;
+}
+
 .policy-doc p,
 .policy-doc dd {
   color: var(--text-sub);
@@ -310,5 +388,41 @@ a {
 
   .policy-doc section + section {
     margin-top: 46px;
+  }
+
+  .policy-accordion[open] {
+    padding-bottom: 42px;
+  }
+
+  .policy-accordion__summary {
+    min-height: 60px;
+    padding-top: 17px;
+    padding-bottom: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .policy-accordion__summary::after {
+    transition: none;
+  }
+}
+
+@media print {
+  .policy-accordion,
+  .policy-accordion[open] {
+    padding-bottom: 32px;
+  }
+
+  .policy-accordion > .policy-accordion__summary {
+    position: static;
+    border-bottom: 0;
+  }
+
+  .policy-accordion > .policy-accordion__summary::after {
+    display: none;
+  }
+
+  .policy-accordion:not([open]) > :not(.policy-accordion__summary) {
+    display: block !important;
   }
 }

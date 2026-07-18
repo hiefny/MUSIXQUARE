@@ -32,6 +32,7 @@
   <link rel="icon" href="/designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="/css/pretendard.css">
   <link rel="stylesheet" href="/legal-pages.css">
+  <script defer src="/policy-accordion.js"></script>
   <!-- Cloudflare Web Analytics -->
   <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'></script>
   <!-- End Cloudflare Web Analytics -->
@@ -54,8 +55,8 @@
     </section>
 
     <article class="policy-doc">
-      <section>
-        <h2>1. Overview</h2>
+      <details class="policy-accordion" id="overview" open>
+        <summary class="policy-accordion__summary"><h2>1. Overview</h2></summary>
         <p>
           The MUSIXQUARE Developer API reads room state, controls playback and room-wide audio effects, manages the
           persistent playlist, and uploads audio to a PRO room. Each key is bound to one room and only receives its
@@ -70,10 +71,10 @@
         <p>
           Machine-readable reference: <a href="/developers/openapi.yaml">OpenAPI 3.1 specification</a>.
         </p>
-      </section>
+      </details>
 
-      <section>
-        <h2>2. Authentication</h2>
+      <details class="policy-accordion" id="authentication">
+        <summary class="policy-accordion__summary"><h2>2. Authentication</h2></summary>
         <p>Send the room-bound key as a Bearer credential on every versioned request.</p>
         <pre class="policy-code"><code>Authorization: Bearer mxqr_live_&lt;key-id&gt;.&lt;secret&gt;</code></pre>
         <dl>
@@ -96,10 +97,10 @@
             </dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>3. Quick Start</h2>
+      <details class="policy-accordion" id="quick-start">
+        <summary class="policy-accordion__summary"><h2>3. Quick Start</h2></summary>
         <p>Node.js 18 or later includes the <code>fetch</code> API used below.</p>
         <pre class="policy-code"><code>const baseUrl = 'https://api.musixquare.com/v1';
 const roomCode = process.env.MXQR_ROOM_CODE;
@@ -113,10 +114,10 @@ const response = await fetch(`${baseUrl}/rooms/${roomCode}`, {
 
 if (!response.ok) throw new Error(await response.text());
 console.log(await response.json());</code></pre>
-      </section>
+      </details>
 
-      <section>
-        <h2>4. Read Room State</h2>
+      <details class="policy-accordion" id="read-room-state">
+        <summary class="policy-accordion__summary"><h2>4. Read Room State</h2></summary>
         <dl>
           <div>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}</span></dt>
@@ -160,10 +161,10 @@ console.log(await response.json());</code></pre>
           Read responses include an <code>ETag</code>. Send it later as <code>If-None-Match</code>; an unchanged
           representation returns <code>304 Not Modified</code> without a JSON body.
         </p>
-      </section>
+      </details>
 
-      <section>
-        <h2>5. Control Playback</h2>
+      <details class="policy-accordion" id="control-playback">
+        <summary class="policy-accordion__summary"><h2>5. Control Playback</h2></summary>
         <dl>
           <div>
             <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/commands</span></dt>
@@ -196,10 +197,10 @@ console.log(command.commandId, command.status);</code></pre>
           accepted before every device has finished downloading and decoding it; read playback state before issuing an
           immediately dependent command.
         </p>
-      </section>
+      </details>
 
-      <section>
-        <h2>6. Control Audio Effects</h2>
+      <details class="policy-accordion" id="control-audio-effects">
+        <summary class="policy-accordion__summary"><h2>6. Control Audio Effects</h2></summary>
         <p>
           Submit <code>set_effects</code> through the same command endpoint and poll the returned command ID through
           <code>/commands/{commandId}</code>. The request is a partial update: omitted effects and omitted reverb
@@ -279,10 +280,10 @@ console.log(command.commandId, command.status);</code></pre>
           cutoff, or manual sync. YouTube playback is unaffected. During system-audio sharing, the sender hears the
           original source while receivers hear the configured effects.
         </p>
-      </section>
+      </details>
 
-      <section>
-        <h2>7. Manage the Playlist</h2>
+      <details class="policy-accordion" id="manage-playlist">
+        <summary class="policy-accordion__summary"><h2>7. Manage the Playlist</h2></summary>
         <dl>
           <div>
             <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/queue/items</span></dt>
@@ -460,10 +461,10 @@ const updatedQueueMode = await queueModeResponse.json();</code></pre>
           wake. The exact shuffle order is server-owned and intentionally hidden: it is preserved while shuffle stays
           enabled, generated when shuffle changes from off to on, and cleared when shuffle is disabled.
         </p>
-      </section>
+      </details>
 
-      <section>
-        <h2>8. Upload Audio</h2>
+      <details class="policy-accordion" id="upload-audio">
+        <summary class="policy-accordion__summary"><h2>8. Upload Audio</h2></summary>
         <p>
           Uploads use a three-step flow. The audio body goes directly to a short-lived signed R2 URL and never passes
           through the Developer API Worker.
@@ -555,10 +556,10 @@ await Promise.all(workers);</code></pre>
           later file fails. Record each returned asset and queue item so your integration can retry or remove it
           explicitly.
         </p>
-      </section>
+      </details>
 
-      <section>
-        <h2>9. Limits and Supported Media</h2>
+      <details class="policy-accordion" id="limits-and-supported-media">
+        <summary class="policy-accordion__summary"><h2>9. Limits and Supported Media</h2></summary>
         <dl>
           <div>
             <dt>Storage</dt>
@@ -583,10 +584,10 @@ await Promise.all(workers);</code></pre>
             </dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section id="errors">
-        <h2>10. Responses and Errors</h2>
+      <details class="policy-accordion" id="errors">
+        <summary class="policy-accordion__summary"><h2>10. Responses and Errors</h2></summary>
         <p>
           JSON responses include <code>X-Request-Id</code>. Keep that value when reporting a failure. Error responses
           use a stable code, human-readable message, request ID, and <code>retryable</code> flag.
@@ -760,10 +761,10 @@ await Promise.all(workers);</code></pre>
             <dd>No coordinator remained available to execute the accepted command.</dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>11. Compatibility and Contact</h2>
+      <details class="policy-accordion" id="compatibility-and-contact">
+        <summary class="policy-accordion__summary"><h2>11. Compatibility and Contact</h2></summary>
         <p>
           The URL major version is <code>v1</code>. New optional response fields may be added compatibly; clients should
           ignore fields they do not recognize. Removing a field or changing its meaning requires a new major version.
@@ -772,7 +773,7 @@ await Promise.all(workers);</code></pre>
           For API key issuance, revocation, or integration questions, contact
           <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>.
         </p>
-      </section>
+      </details>
     </article>
   </main>
 

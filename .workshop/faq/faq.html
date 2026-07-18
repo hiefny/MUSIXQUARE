@@ -30,6 +30,7 @@
   <link rel="icon" href="/designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="/css/pretendard.css">
   <link rel="stylesheet" href="/legal-pages.css">
+  <script defer src="/policy-accordion.js"></script>
   <!-- Cloudflare Web Analytics -->
   <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'></script>
   <!-- End Cloudflare Web Analytics -->
@@ -51,8 +52,8 @@
     </section>
 
     <article class="policy-doc">
-      <section>
-        <h2>1. Getting Started</h2>
+      <details class="policy-accordion" id="getting-started" open>
+        <summary class="policy-accordion__summary"><h2>1. Getting Started</h2></summary>
         <dl>
           <div>
             <dt>What is MUSIXQUARE?</dt>
@@ -71,10 +72,10 @@
             <dd>The host creates a room and shares the 6-digit code. Guests enter the code or use an invite link or QR code; the current flow assigns the Center role initially, and the role can be changed after joining.</dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>2. Channel Routing</h2>
+      <details class="policy-accordion" id="channel-routing">
+        <summary class="policy-accordion__summary"><h2>2. Channel Routing</h2></summary>
         <dl>
           <div>
             <dt>Which speaker role should I choose?</dt>
@@ -89,10 +90,10 @@
             <dd>It is not exposed in the current user interface. An internal 7.1 channel-routing engine exists, but most user audio is stereo, so it is hidden from the product UI after usability review.</dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>3. Connection</h2>
+      <details class="policy-accordion" id="connection">
+        <summary class="policy-accordion__summary"><h2>3. Connection</h2></summary>
         <dl>
           <div>
             <dt>How many people can join?</dt>
@@ -107,10 +108,10 @@
             <dd>The same network is the most stable option, and file and system audio sharing is usually exchanged directly there. For remote participants or in large rooms, this data may route through Cloudflare. Quality can vary depending on the network, VPN, firewall, and browser policies.</dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>4. Local File Mode</h2>
+      <details class="policy-accordion" id="local-file-mode">
+        <summary class="policy-accordion__summary"><h2>4. Local File Mode</h2></summary>
         <dl>
           <div>
             <dt>Who can add local files?</dt>
@@ -129,10 +130,10 @@
             <dd>No. Local File Mode rejects video files so every device uses the same audio playback path. For video, use YouTube watch-together mode.</dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>5. YouTube Mode</h2>
+      <details class="policy-accordion" id="youtube-mode">
+        <summary class="policy-accordion__summary"><h2>5. YouTube Mode</h2></summary>
         <dl>
           <div>
             <dt>Do channel routing or audio effects apply in YouTube mode?</dt>
@@ -147,10 +148,10 @@
             <dd>Those services are not supported because of their service policies. If the host is on a PC, consider using System Audio Sharing for audio sources that can be shared by the browser.</dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>6. System Audio Sharing</h2>
+      <details class="policy-accordion" id="system-audio-sharing">
+        <summary class="policy-accordion__summary"><h2>6. System Audio Sharing</h2></summary>
         <dl>
           <div>
             <dt>Where can I use system audio sharing?</dt>
@@ -165,10 +166,10 @@
             <dd>The host's audio needs time to be processed and transmitted. This mode is meant for muting the host's own speaker, syncing sound through the remaining participant devices, and applying audio effects there.</dd>
           </div>
         </dl>
-      </section>
+      </details>
 
-      <section>
-        <h2>7. Other Issues</h2>
+      <details class="policy-accordion" id="other-issues">
+        <summary class="policy-accordion__summary"><h2>7. Other Issues</h2></summary>
         <dl>
           <div>
             <dt>Sync is not perfectly aligned.</dt>
@@ -183,7 +184,7 @@
             <dd>For questions or requests, contact <a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com">contact@musixquare.com</a>.</dd>
           </div>
         </dl>
-      </section>
+      </details>
     </article>
   </main>
 

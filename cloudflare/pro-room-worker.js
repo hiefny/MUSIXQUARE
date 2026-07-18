@@ -807,6 +807,31 @@ function publicQueueMode(room) {
   };
 }
 
+function developerQueueMode(room) {
+  return {
+    schemaVersion: 1,
+    view: 'queue-mode',
+    roomCode: room.roomCode,
+    revision: room.queueMode.revision,
+    playlistRevision: room.playlistRevision,
+    updatedAtMs: room.queueMode.updatedAtMs,
+    repeatMode:
+      room.queueMode.repeatMode === 2 ? 'one' : room.queueMode.repeatMode === 1 ? 'all' : 'off',
+    shuffleEnabled: room.queueMode.shuffleEnabled,
+  };
+}
+
+function shuffledQueueItemIds(playlist) {
+  const queueItemIds = playlist.map((item) => item.queueItemId);
+  const random = new Uint32Array(1);
+  for (let index = queueItemIds.length - 1; index > 0; index -= 1) {
+    crypto.getRandomValues(random);
+    const swapIndex = random[0] % (index + 1);
+    [queueItemIds[index], queueItemIds[swapIndex]] = [queueItemIds[swapIndex], queueItemIds[index]];
+  }
+  return queueItemIds;
+}
+
 function reconcileQueueModePlaylist(room, nowMs = Date.now()) {
   const current = room.queueMode;
   const nextOrder = current.shuffleEnabled
@@ -1295,6 +1320,7 @@ function developerProjection(room, projection, nowMs, requesterKeyId) {
     };
   }
   if (projection === 'effects') return publicEffects(room);
+  if (projection === 'queue-mode') return developerQueueMode(room);
   return null;
 }
 
@@ -2378,6 +2404,9 @@ export class MusixquareProRoom {
           if (url.pathname === '/internal/developer/v1/queue/mutate') {
             return this.handleInternalDeveloperQueueMutation(request);
           }
+          if (url.pathname === '/internal/developer/v1/queue-mode/update') {
+            return this.handleInternalDeveloperQueueModeUpdate(request);
+          }
           if (url.pathname === '/internal/developer/v1/media/uploads/create') {
             return this.handleInternalDeveloperMediaUploadCreate(request);
           }
@@ -2488,7 +2517,7 @@ export class MusixquareProRoom {
       !hasExactKeys(parsed.value, ['projection'], ['keyId']) ||
       (parsed.value.keyId !== undefined &&
         !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '')) ||
-      !['room', 'playback', 'queue', 'effects'].includes(parsed.value.projection)
+      !['room', 'playback', 'queue', 'effects', 'queue-mode'].includes(parsed.value.projection)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
@@ -2872,6 +2901,73 @@ export class MusixquareProRoom {
       );
     }
     return jsonResponse(responseBody, responseStatus);
+  }
+
+  async handleInternalDeveloperQueueModeUpdate(request) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
+    const parsed = await this.parseBody(request, 4 * 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'queueMode']) ||
+      parsed.value.roomCode !== this.room.roomCode ||
+      !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
+      !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '') ||
+      !parsed.value.queueMode ||
+      typeof parsed.value.queueMode !== 'object' ||
+      Array.isArray(parsed.value.queueMode) ||
+      !hasExactKeys(parsed.value.queueMode, ['baseRevision', 'repeatMode', 'shuffleEnabled']) ||
+      !isSafeNonNegativeInteger(parsed.value.queueMode.baseRevision) ||
+      !['off', 'all', 'one'].includes(parsed.value.queueMode.repeatMode) ||
+      typeof parsed.value.queueMode.shuffleEnabled !== 'boolean'
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+
+    const mutation = parsed.value.queueMode;
+    const scope = `developer:${parsed.value.keyId}:queue-mode:update`;
+    const fingerprint = await this.idempotencyFingerprint(scope, mutation);
+    const replay = this.replayIdempotency(scope, parsed.value.idempotencyKey, fingerprint);
+    if (replay) return replay;
+    if (mutation.baseRevision !== this.room.queueMode.revision) {
+      return errorResponse('QUEUE_MODE_REVISION_CONFLICT', 409);
+    }
+
+    const repeatMode = mutation.repeatMode === 'one' ? 2 : mutation.repeatMode === 'all' ? 1 : 0;
+    const shuffleEnabled = mutation.shuffleEnabled;
+    const changed =
+      repeatMode !== this.room.queueMode.repeatMode ||
+      shuffleEnabled !== this.room.queueMode.shuffleEnabled;
+    if (
+      changed &&
+      (this.room.queueMode.revision >= Number.MAX_SAFE_INTEGER ||
+        this.room.revision >= Number.MAX_SAFE_INTEGER)
+    ) {
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    }
+
+    if (changed) {
+      const nowMs = Date.now();
+      this.room.queueMode = {
+        revision: this.room.queueMode.revision + 1,
+        updatedAtMs: nowMs,
+        repeatMode,
+        shuffleEnabled,
+        shuffleOrder: shuffleEnabled
+          ? this.room.queueMode.shuffleEnabled
+            ? [...this.room.queueMode.shuffleOrder]
+            : shuffledQueueItemIds(this.room.playlist)
+          : [],
+      };
+      this.room.revision += 1;
+    }
+
+    const responseBody = developerQueueMode(this.room);
+    this.storeIdempotency(scope, parsed.value.idempotencyKey, fingerprint, responseBody);
+    await this.persist();
+    if (changed) this.scheduleDeveloperInvalidationHint();
+    return jsonResponse(responseBody);
   }
 
   async handleInternalDeveloperMediaUploadCreate(request) {
@@ -3742,12 +3838,14 @@ export class MusixquareProRoom {
     if (
       !hasExactKeys(parsed.value, [
         'coordinatorEpoch',
+        'baseRevision',
         'playlistRevision',
         'repeatMode',
         'shuffleEnabled',
         'shuffleOrder',
       ]) ||
       !isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) ||
+      !isSafeNonNegativeInteger(parsed.value.baseRevision) ||
       !isSafeNonNegativeInteger(parsed.value.playlistRevision)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
@@ -3761,6 +3859,12 @@ export class MusixquareProRoom {
     if (parsed.value.playlistRevision !== this.room.playlistRevision) {
       return jsonResponse(
         { error: 'PLAYLIST_REVISION_CONFLICT', queueMode: publicQueueMode(this.room) },
+        409,
+      );
+    }
+    if (parsed.value.baseRevision !== this.room.queueMode.revision) {
+      return jsonResponse(
+        { error: 'QUEUE_MODE_REVISION_CONFLICT', queueMode: publicQueueMode(this.room) },
         409,
       );
     }

@@ -195,6 +195,7 @@ interface UpdateProRoomEffectsInput {
 interface UpdateProRoomQueueModeInput {
   code: string;
   coordinatorEpoch: number;
+  baseRevision: number;
   playlistRevision: number;
   repeatMode: ProRoomRepeatMode;
   shuffleEnabled: boolean;
@@ -963,6 +964,9 @@ export class ProRoomApiClient {
     if (!Number.isSafeInteger(input.coordinatorEpoch) || input.coordinatorEpoch < 1) {
       throw new ProRoomApiError('INVALID_COORDINATOR_EPOCH');
     }
+    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) {
+      throw new ProRoomApiError('INVALID_REVISION');
+    }
     if (!Number.isSafeInteger(input.playlistRevision) || input.playlistRevision < 0) {
       throw new ProRoomApiError('INVALID_PLAYLIST_REVISION');
     }
@@ -973,6 +977,7 @@ export class ProRoomApiClient {
       method: 'PUT',
       body: {
         coordinatorEpoch: input.coordinatorEpoch,
+        baseRevision: input.baseRevision,
         playlistRevision: input.playlistRevision,
         repeatMode: input.repeatMode,
         shuffleEnabled: input.shuffleEnabled,

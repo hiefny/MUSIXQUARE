@@ -140,6 +140,13 @@ console.log(await response.json());</code></pre>
               while the PRO room is sleeping.
             </dd>
           </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/queue-mode</span></dt>
+            <dd>
+              Canonical repeat and shuffle settings. Requires <code>playback:read</code> and remains available while
+              the PRO room is sleeping.
+            </dd>
+          </div>
         </dl>
         <p>
           When present, <code>addedBy</code> is <code>participant</code> for an item added directly in the app,
@@ -319,6 +326,14 @@ console.log(command.commandId, command.status);</code></pre>
               <code>basePlaylistRevision</code> returned by the latest queue read.
             </dd>
           </div>
+          <div>
+            <dt class="api-endpoint"><span class="api-method">PUT</span><span class="api-path">/rooms/{roomCode}/queue-mode</span></dt>
+            <dd>
+              Replace repeat and shuffle settings with an explicit desired state. Requires
+              <code>playback:control</code>, a unique <code>Idempotency-Key</code>, and the revision returned by the
+              latest queue-mode read.
+            </dd>
+          </div>
         </dl>
         <pre class="policy-code"><code>await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
   method: 'POST',
@@ -398,6 +413,30 @@ await fetch(`${baseUrl}/rooms/${roomCode}/queue/order`, {
     queueItemIds: queue.items.map((item) => item.queueItemId).reverse(),
   }),
 });</code></pre>
+        <pre class="policy-code"><code>const queueMode = await fetch(`${baseUrl}/rooms/${roomCode}/queue-mode`, {
+  headers: { Authorization: `Bearer ${apiKey}` },
+}).then((response) =&gt; response.json());
+
+const queueModeResponse = await fetch(`${baseUrl}/rooms/${roomCode}/queue-mode`, {
+  method: 'PUT',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+  body: JSON.stringify({
+    baseRevision: queueMode.revision,
+    repeatMode: 'all',
+    shuffleEnabled: true,
+  }),
+});
+
+if (queueModeResponse.status === 409) {
+  // Read the latest state, decide again, then retry with its revision and a new key.
+  throw new Error('Queue mode changed concurrently');
+}
+
+const updatedQueueMode = await queueModeResponse.json();</code></pre>
         <p>
           Collection <code>DELETE /queue/items</code> clears every person's and every integration's item;
           <code>DELETE /queue/items/owned</code> removes only items owned by the current API credential; item
@@ -407,6 +446,19 @@ await fetch(`${baseUrl}/rooms/${roomCode}/queue/order`, {
           of retrying an old order blindly. Queue writes remain available while the room is sleeping and do not start
           playback automatically. A full clear always stops current playback; an owned cleanup stops it only when it
           removes the selected item.
+        </p>
+        <p>
+          Queue mode is an explicit setter, not a toggle: every update supplies
+          <code>baseRevision</code>, <code>repeatMode</code> (<code>off</code>, <code>all</code>, or
+          <code>one</code>), and <code>shuffleEnabled</code>. On
+          <code>409 QUEUE_MODE_REVISION_CONFLICT</code>, read <code>/queue-mode</code> again, reconsider the desired
+          state, and retry with the fresh revision and a new idempotency key. Use the same key only when replaying the
+          exact same request after an uncertain transport result.
+        </p>
+        <p>
+          Queue-mode reads and writes work while the PRO room is sleeping, and the stored state applies on its next
+          wake. The exact shuffle order is server-owned and intentionally hidden: it is preserved while shuffle stays
+          enabled, generated when shuffle changes from off to on, and cleared when shuffle is disabled.
         </p>
       </section>
 

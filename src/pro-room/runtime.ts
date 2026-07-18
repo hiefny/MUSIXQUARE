@@ -120,6 +120,7 @@ const EFFECTS_CHECKPOINT_DEBOUNCE_MS = 350;
 const EFFECTS_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-effects-checkpoint-debounce';
 const QUEUE_MODE_CHECKPOINT_DEBOUNCE_MS = 350;
 const QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-queue-mode-checkpoint-debounce';
+const QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
 const PLAYBACK_RESTORE_TIMEOUT_MS = 120_000;
 const PLAYBACK_RESTORE_TIMEOUT_TIMER = 'pro-room-playback-restore-timeout';
 const INVALIDATION_REFRESH_MIN_INTERVAL_MS = 5_000;
@@ -160,8 +161,11 @@ let pendingEffectsBroadcast: {
   coordinatorEpoch: number;
 } | null = null;
 let queueModeMutationTail: Promise<void> = Promise.resolve();
+let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
 let suppressQueueModeCheckpoint = false;
 let lastQueueModeCoordinatorEpoch = -1;
+let queueModeCheckpointDirty = false;
+let queueModeCheckpointRetryAttempt = 0;
 let suppressPlaybackCheckpoint = false;
 let lastPlaybackRestoreKey = '';
 let terminalRecoveryInFlight = false;
@@ -1034,8 +1038,11 @@ function resetPlaylistRuntime(): void {
   pendingEffectsBroadcast = null;
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   queueModeMutationTail = Promise.resolve();
+  acceptedQueueMode = null;
   suppressQueueModeCheckpoint = false;
   lastQueueModeCoordinatorEpoch = -1;
+  queueModeCheckpointDirty = false;
+  queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   suppressPlaybackCheckpoint = false;
   lastPlaybackRestoreKey = '';
@@ -1423,25 +1430,100 @@ async function persistQueueModeCheckpoint(): Promise<void> {
     }
     const snapshot = manager.snapshot;
     if (!snapshot) return;
+    const pendingLocal = capturePlaylistQueueModeState();
+    const previousAccepted = acceptedQueueMode;
+    if (
+      !acceptedQueueMode ||
+      acceptedQueueMode.roomCode !== snapshot.roomCode ||
+      !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
+    ) {
+      await refreshPersistedQueueModeUnlocked(snapshot, { broadcast: isCoordinator() });
+      const canonical = acceptedQueueMode;
+      const canonicalSemanticUnchanged =
+        previousAccepted !== null &&
+        canonical !== null &&
+        canonical.repeatMode === previousAccepted.repeatMode &&
+        canonical.shuffleEnabled === previousAccepted.shuffleEnabled;
+      const localSemanticChanged =
+        previousAccepted !== null &&
+        (pendingLocal.repeatMode !== previousAccepted.repeatMode ||
+          pendingLocal.shuffleEnabled !== previousAccepted.shuffleEnabled);
+      if (canonicalSemanticUnchanged && localSemanticChanged && canonical) {
+        suppressQueueModeCheckpoint = true;
+        try {
+          applyPlaylistQueueModeState(
+            {
+              repeatMode: pendingLocal.repeatMode,
+              shuffleEnabled: pendingLocal.shuffleEnabled,
+              shuffleOrder:
+                pendingLocal.shuffleEnabled && canonical.shuffleEnabled
+                  ? canonical.shuffleOrder
+                  : pendingLocal.shuffleOrder,
+            },
+            false,
+          );
+        } finally {
+          suppressQueueModeCheckpoint = false;
+        }
+      }
+    }
+    const baseRevision = acceptedQueueMode?.revision;
+    if (baseRevision === undefined) return;
     const local = capturePlaylistQueueModeState();
-    await api.updateQueueMode(
-      {
-        code: snapshot.roomCode,
-        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
-        playlistRevision: snapshot.playlistRevision,
-        repeatMode: local.repeatMode,
-        shuffleEnabled: local.shuffleEnabled,
-        shuffleOrder: local.shuffleOrder,
-      },
-      signal,
-    );
+    let accepted: ProRoomQueueModeSnapshot;
+    try {
+      accepted = await api.updateQueueMode(
+        {
+          code: snapshot.roomCode,
+          coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+          baseRevision,
+          playlistRevision: snapshot.playlistRevision,
+          repeatMode: local.repeatMode,
+          shuffleEnabled: local.shuffleEnabled,
+          shuffleOrder: local.shuffleOrder,
+        },
+        signal,
+      );
+    } catch (error) {
+      if (
+        error instanceof ProRoomApiError &&
+        (error.code === 'QUEUE_MODE_REVISION_CONFLICT' ||
+          error.code === 'PLAYLIST_REVISION_CONFLICT')
+      ) {
+        await refreshPersistedQueueModeUnlocked(snapshot, { broadcast: isCoordinator() });
+        queueModeCheckpointDirty = false;
+        queueModeCheckpointRetryAttempt = 0;
+        return;
+      }
+      if (
+        queueModeCheckpointDirty &&
+        queueModeCheckpointRetryAttempt < QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS.length
+      ) {
+        const delay = QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS[queueModeCheckpointRetryAttempt];
+        queueModeCheckpointRetryAttempt += 1;
+        setManagedTimer(
+          QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER,
+          () =>
+            void persistQueueModeCheckpoint().catch((retryError) => {
+              log.warn('[PRO] Queue mode checkpoint retry failed', retryError);
+            }),
+          delay,
+        );
+      }
+      throw error;
+    }
     if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+    acceptedQueueMode = accepted;
     lastQueueModeCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
+    queueModeCheckpointDirty = false;
+    queueModeCheckpointRetryAttempt = 0;
   });
 }
 
 function scheduleQueueModeCheckpoint(): void {
   if (!active || suppressQueueModeCheckpoint || !isCoordinator()) return;
+  queueModeCheckpointDirty = true;
+  queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   setManagedTimer(
     QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER,
@@ -1454,48 +1536,55 @@ function scheduleQueueModeCheckpoint(): void {
   );
 }
 
-async function refreshPersistedQueueMode(
+async function refreshPersistedQueueModeUnlocked(
   snapshot: ProRoomSnapshot,
   options: { broadcast?: boolean } = {},
 ): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease))
     return false;
-  return enqueueQueueModeMutation(async () => {
-    const accepted = await api.getQueueMode(snapshot.roomCode, playlistRuntimeAbort?.signal);
-    const currentSnapshot = playlistManager?.snapshot;
+  const accepted = await api.getQueueMode(snapshot.roomCode, playlistRuntimeAbort?.signal);
+  const currentSnapshot = playlistManager?.snapshot;
+  if (
+    !isPlaylistLeaseCurrent(lease) ||
+    !currentSnapshot ||
+    currentSnapshot.roomCode !== snapshot.roomCode ||
+    !queueModeMatchesPlaylist(accepted, currentSnapshot)
+  ) {
+    return false;
+  }
+  const changed = acceptedQueueMode?.revision !== accepted.revision;
+  suppressQueueModeCheckpoint = true;
+  try {
     if (
-      !isPlaylistLeaseCurrent(lease) ||
-      !currentSnapshot ||
-      currentSnapshot.roomCode !== snapshot.roomCode ||
-      !queueModeMatchesPlaylist(accepted, currentSnapshot)
+      !applyPlaylistQueueModeState(
+        {
+          repeatMode: accepted.repeatMode,
+          shuffleEnabled: accepted.shuffleEnabled,
+          shuffleOrder: accepted.shuffleOrder,
+        },
+        false,
+      )
     ) {
       return false;
     }
-    suppressQueueModeCheckpoint = true;
-    try {
-      if (
-        !applyPlaylistQueueModeState(
-          {
-            repeatMode: accepted.repeatMode,
-            shuffleEnabled: accepted.shuffleEnabled,
-            shuffleOrder: accepted.shuffleOrder,
-          },
-          false,
-        )
-      ) {
-        return false;
-      }
-      lastQueueModeCoordinatorEpoch = currentSnapshot.presence.coordinatorEpoch;
-      if (options.broadcast && isCoordinator()) {
-        broadcast({ type: MSG.REPEAT_MODE, value: accepted.repeatMode });
-        broadcast({ type: MSG.SHUFFLE_MODE, value: accepted.shuffleEnabled });
-      }
-      return true;
-    } finally {
-      suppressQueueModeCheckpoint = false;
+    acceptedQueueMode = accepted;
+    lastQueueModeCoordinatorEpoch = currentSnapshot.presence.coordinatorEpoch;
+    if (changed && options.broadcast && isCoordinator()) {
+      broadcast({ type: MSG.REPEAT_MODE, value: accepted.repeatMode });
+      broadcast({ type: MSG.SHUFFLE_MODE, value: accepted.shuffleEnabled });
     }
-  });
+    return true;
+  } finally {
+    suppressQueueModeCheckpoint = false;
+  }
+}
+
+async function refreshPersistedQueueMode(
+  snapshot: ProRoomSnapshot,
+  options: { broadcast?: boolean } = {},
+): Promise<boolean> {
+  return enqueueQueueModeMutation(() => refreshPersistedQueueModeUnlocked(snapshot, options));
 }
 
 function showPlaybackRestoreHint(): void {
@@ -1936,7 +2025,10 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
             log.warn('[PRO] Room effects refresh failed', error);
           });
         }
-        if (snapshot.presence.coordinatorEpoch !== lastQueueModeCoordinatorEpoch) {
+        if (
+          isCoordinator() ||
+          snapshot.presence.coordinatorEpoch !== lastQueueModeCoordinatorEpoch
+        ) {
           await refreshPersistedQueueMode(snapshot, { broadcast: isCoordinator() }).catch(
             (error) => {
               // The dedicated resource is deliberately optional during a
@@ -2344,6 +2436,9 @@ async function runCoordinatorInvalidationRefresh(): Promise<void> {
   const refresh = (async () => {
     const snapshot = await controller.refresh();
     await acceptPlaylistSnapshot(snapshot);
+    if (isPlaylistLeaseCurrent(lease) && isCoordinator()) {
+      await refreshPersistedQueueMode(snapshot, { broadcast: true });
+    }
   })();
   coordinatorRefresh = refresh;
   try {

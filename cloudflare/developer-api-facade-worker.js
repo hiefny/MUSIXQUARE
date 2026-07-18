@@ -60,6 +60,7 @@ const BACKEND_ERROR_MAP = Object.freeze({
   COMMAND_CAPACITY_EXCEEDED: { error: 'COMMAND_CAPACITY_EXCEEDED', status: 409 },
   PLAYLIST_CAPACITY_EXCEEDED: { error: 'PLAYLIST_CAPACITY_EXCEEDED', status: 409 },
   PLAYLIST_REVISION_CONFLICT: { error: 'PLAYLIST_REVISION_CONFLICT', status: 409 },
+  QUEUE_MODE_REVISION_CONFLICT: { error: 'QUEUE_MODE_REVISION_CONFLICT', status: 409 },
   ASSET_CAPACITY_EXCEEDED: { error: 'ASSET_CAPACITY_EXCEEDED', status: 409 },
   RESERVATION_CAPACITY_EXCEEDED: { error: 'RESERVATION_CAPACITY_EXCEEDED', status: 409 },
   ROOM_QUOTA_EXCEEDED: { error: 'ROOM_QUOTA_EXCEEDED', status: 409 },
@@ -373,7 +374,51 @@ function sanitizeProjection(value, projection, roomCode) {
       effects,
     };
   }
+  if (projection === 'queue-mode') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'revision',
+        'playlistRevision',
+        'updatedAtMs',
+        'repeatMode',
+        'shuffleEnabled',
+      ]) ||
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      !isSafeNonNegativeInteger(value.updatedAtMs) ||
+      !['off', 'all', 'one'].includes(value.repeatMode) ||
+      typeof value.shuffleEnabled !== 'boolean'
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      view: 'queue-mode',
+      roomCode,
+      revision: value.revision,
+      playlistRevision: value.playlistRevision,
+      updatedAtMs: value.updatedAtMs,
+      repeatMode: value.repeatMode,
+      shuffleEnabled: value.shuffleEnabled,
+    };
+  }
   return null;
+}
+
+function parseQueueModeUpdate(value) {
+  return hasExactKeys(value, ['baseRevision', 'repeatMode', 'shuffleEnabled']) &&
+    isSafeNonNegativeInteger(value.baseRevision) &&
+    ['off', 'all', 'one'].includes(value.repeatMode) &&
+    typeof value.shuffleEnabled === 'boolean'
+    ? {
+        baseRevision: value.baseRevision,
+        repeatMode: value.repeatMode,
+        shuffleEnabled: value.shuffleEnabled,
+      }
+    : null;
 }
 
 function parseDeveloperCommand(value) {
@@ -415,7 +460,9 @@ const EFFECT_REVERB_FIELDS = Object.freeze({
 });
 
 function boundedFiniteNumber(value, minimum, maximum) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+  return (
+    typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
+  );
 }
 
 function parseReverbPatch(value, requireComplete = false) {
@@ -425,7 +472,8 @@ function parseReverbPatch(value, requireComplete = false) {
   if (
     keys.length === 0 ||
     keys.some((key) => !allowed.includes(key)) ||
-    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+    (requireComplete &&
+      (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
   ) {
     return null;
   }
@@ -458,8 +506,7 @@ function parseVirtualBass(value) {
 }
 
 function parseVirtualSurround(value) {
-  return hasExactKeys(value, ['widthPercent']) &&
-    boundedFiniteNumber(value.widthPercent, 0, 200)
+  return hasExactKeys(value, ['widthPercent']) && boundedFiniteNumber(value.widthPercent, 0, 200)
     ? { widthPercent: value.widthPercent }
     : null;
 }
@@ -471,7 +518,8 @@ function parseEffects(value, requireComplete) {
   if (
     keys.length === 0 ||
     keys.some((key) => !allowed.includes(key)) ||
-    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+    (requireComplete &&
+      (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
   ) {
     return null;
   }
@@ -553,14 +601,9 @@ function parseQueueMutation(value) {
     }
     const items = value.items.map((item) => {
       if (
-        !hasExactKeys(
-          item,
-          ['videoId', 'name'],
-          ['playlistId', 'title', 'artist', 'thumbnail'],
-        ) ||
+        !hasExactKeys(item, ['videoId', 'name'], ['playlistId', 'title', 'artist', 'thumbnail']) ||
         !YOUTUBE_VIDEO_ID_RE.test(item.videoId || '') ||
-        (item.playlistId !== undefined &&
-          !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
+        (item.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
       ) {
         return null;
       }
@@ -573,9 +616,7 @@ function parseQueueMutation(value) {
           }
         : null;
     });
-    return items.some((item) => item === null)
-      ? null
-      : { type: 'add_youtube_batch', items };
+    return items.some((item) => item === null) ? null : { type: 'add_youtube_batch', items };
   }
   if (value.type === 'remove') {
     return hasExactKeys(value, ['type', 'queueItemId']) &&
@@ -864,6 +905,7 @@ export default {
         '/internal/v1/read',
         '/internal/v1/commands/create',
         '/internal/v1/commands/status',
+        '/internal/v1/queue-mode/update',
         '/internal/v1/queue/mutate',
         '/internal/v1/media/uploads/create',
         '/internal/v1/media/uploads/complete',
@@ -892,7 +934,7 @@ export default {
         !hasExactKeys(body, ['roomCode', 'projection'], ['keyId']) ||
         !ROOM_CODE_RE.test(body.roomCode) ||
         (body.keyId !== undefined && !API_KEY_ID_RE.test(body.keyId || '')) ||
-        !['room', 'playback', 'queue', 'effects'].includes(body.projection)
+        !['room', 'playback', 'queue', 'effects', 'queue-mode'].includes(body.projection)
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
       }
@@ -908,6 +950,42 @@ export default {
       }
       const sanitized = sanitizeProjection(value, body.projection, body.roomCode);
       return sanitized
+        ? jsonResponse(sanitized)
+        : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+    }
+
+    if (url.pathname === '/internal/v1/queue-mode/update') {
+      if (
+        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'queueMode']) ||
+        !API_KEY_ID_RE.test(body.keyId || '') ||
+        !ROOM_CODE_RE.test(body.roomCode || '') ||
+        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
+      ) {
+        return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      }
+      const queueMode = parseQueueModeUpdate(body.queueMode);
+      if (!queueMode) return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        '/internal/developer/v1/queue-mode/update',
+        {
+          roomCode: body.roomCode,
+          keyId: body.keyId,
+          idempotencyKey: body.idempotencyKey,
+          queueMode,
+        },
+      );
+      if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      const value = await readJsonResponse(called.response, COMMAND_RESPONSE_MAX_BYTES);
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      const sanitized = sanitizeProjection(value, 'queue-mode', body.roomCode);
+      return called.response.status === 200 && sanitized
         ? jsonResponse(sanitized)
         : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
     }
@@ -956,11 +1034,7 @@ export default {
 
     if (url.pathname === '/internal/v1/queue/mutate') {
       if (
-        !hasExactKeys(
-          body,
-          ['keyId', 'roomCode', 'idempotencyKey', 'mutation'],
-          ['actorName'],
-        ) ||
+        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'mutation'], ['actorName']) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '') ||

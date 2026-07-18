@@ -89,7 +89,10 @@ const ERROR_MESSAGES = Object.freeze({
   NOT_FOUND: 'The requested resource was not found.',
   ASSET_CAPACITY_EXCEEDED: 'The room cannot accept another media asset right now.',
   PLAYLIST_CAPACITY_EXCEEDED: 'The room playlist is full.',
-  PLAYLIST_REVISION_CONFLICT: 'The playlist changed. Read it again and retry with the new revision.',
+  PLAYLIST_REVISION_CONFLICT:
+    'The playlist changed. Read it again and retry with the new revision.',
+  QUEUE_MODE_REVISION_CONFLICT:
+    'The repeat or shuffle state changed. Read it again and retry with the new revision.',
   RESERVATION_CAPACITY_EXCEEDED: 'This API key has too many unfinished uploads.',
   ROOM_QUOTA_EXCEEDED: 'The PRO room storage quota would be exceeded.',
   ROOM_STATE_CAPACITY_EXCEEDED: 'The room state cannot accept this change right now.',
@@ -517,6 +520,19 @@ function parseDeveloperCommand(value) {
   return null;
 }
 
+function parseQueueModeUpdate(value) {
+  return hasExactKeys(value, ['baseRevision', 'repeatMode', 'shuffleEnabled']) &&
+    isSafeNonNegativeInteger(value.baseRevision) &&
+    ['off', 'all', 'one'].includes(value.repeatMode) &&
+    typeof value.shuffleEnabled === 'boolean'
+    ? {
+        baseRevision: value.baseRevision,
+        repeatMode: value.repeatMode,
+        shuffleEnabled: value.shuffleEnabled,
+      }
+    : null;
+}
+
 const EFFECT_REVERB_FIELDS = Object.freeze({
   mixPercent: [0, 100],
   decaySeconds: [0.1, 30],
@@ -526,7 +542,9 @@ const EFFECT_REVERB_FIELDS = Object.freeze({
 });
 
 function boundedFiniteNumber(value, minimum, maximum) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+  return (
+    typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
+  );
 }
 
 function parseReverbPatch(value, requireComplete = false) {
@@ -536,7 +554,8 @@ function parseReverbPatch(value, requireComplete = false) {
   if (
     keys.length === 0 ||
     keys.some((key) => !allowed.includes(key)) ||
-    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+    (requireComplete &&
+      (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
   ) {
     return null;
   }
@@ -569,8 +588,7 @@ function parseVirtualBass(value) {
 }
 
 function parseVirtualSurround(value) {
-  return hasExactKeys(value, ['widthPercent']) &&
-    boundedFiniteNumber(value.widthPercent, 0, 200)
+  return hasExactKeys(value, ['widthPercent']) && boundedFiniteNumber(value.widthPercent, 0, 200)
     ? { widthPercent: value.widthPercent }
     : null;
 }
@@ -582,7 +600,8 @@ function parseEffects(value, requireComplete) {
   if (
     keys.length === 0 ||
     keys.some((key) => !allowed.includes(key)) ||
-    (requireComplete && (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+    (requireComplete &&
+      (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
   ) {
     return null;
   }
@@ -921,6 +940,28 @@ function validateFacadePayload(value, expectedView, roomCode) {
     }
     return value;
   }
+  if (expectedView === 'queue-mode') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'revision',
+        'playlistRevision',
+        'updatedAtMs',
+        'repeatMode',
+        'shuffleEnabled',
+      ]) ||
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      !isSafeNonNegativeInteger(value.updatedAtMs) ||
+      !['off', 'all', 'one'].includes(value.repeatMode) ||
+      typeof value.shuffleEnabled !== 'boolean'
+    ) {
+      return null;
+    }
+    return value;
+  }
   return null;
 }
 
@@ -1045,7 +1086,9 @@ function validateUploadCompletionPayload(value, roomCode, expectedAssetId) {
 
 function parseRoute(method, url) {
   if (method === 'GET') {
-    const readMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})(?:\/(playback|queue|effects))?$/);
+    const readMatch = url.pathname.match(
+      /^\/v1\/rooms\/(0\d{5})(?:\/(playback|queue|effects|queue-mode))?$/,
+    );
     if (readMatch) {
       const view = readMatch[2] || 'room';
       return {
@@ -1059,7 +1102,9 @@ function parseRoute(method, url) {
               ? SCOPE_PLAYBACK_READ
               : view === 'queue'
                 ? SCOPE_QUEUE_READ
-                : SCOPE_EFFECTS_READ,
+                : view === 'effects'
+                  ? SCOPE_EFFECTS_READ
+                  : SCOPE_PLAYBACK_READ,
       };
     }
     const statusMatch = url.pathname.match(
@@ -1098,9 +1143,7 @@ function parseRoute(method, url) {
         requiredScope: SCOPE_QUEUE_WRITE,
       };
     }
-    const queueBatchMatch = url.pathname.match(
-      /^\/v1\/rooms\/(0\d{5})\/queue\/items\/batch$/,
-    );
+    const queueBatchMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue\/items\/batch$/);
     if (queueBatchMatch) {
       return {
         kind: 'queue-add-batch',
@@ -1159,6 +1202,14 @@ function parseRoute(method, url) {
       : null;
   }
   if (method === 'PUT') {
+    const queueModeMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue-mode$/);
+    if (queueModeMatch) {
+      return {
+        kind: 'queue-mode-update',
+        roomCode: queueModeMatch[1],
+        requiredScope: SCOPE_PLAYBACK_CONTROL,
+      };
+    }
     const orderMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/queue\/order$/);
     return orderMatch
       ? {
@@ -1224,7 +1275,12 @@ async function authenticatedCommandLimit(env, principal) {
 }
 
 async function authenticatedQueueWriteLimit(env, principal) {
-  return callLimiter(env, `room:${principal.roomCode}`, 'authenticated-queue-write', principal.keyId);
+  return callLimiter(
+    env,
+    `room:${principal.roomCode}`,
+    'authenticated-queue-write',
+    principal.keyId,
+  );
 }
 
 async function authenticatedMediaUploadCreateLimit(env, principal) {
@@ -1281,6 +1337,7 @@ const COMMAND_ERROR_STATUSES = Object.freeze({
   ASSET_CAPACITY_EXCEEDED: 409,
   PLAYLIST_CAPACITY_EXCEEDED: 409,
   PLAYLIST_REVISION_CONFLICT: 409,
+  QUEUE_MODE_REVISION_CONFLICT: 409,
   RESERVATION_CAPACITY_EXCEEDED: 409,
   ROOM_QUOTA_EXCEEDED: 409,
   ROOM_STATE_CAPACITY_EXCEEDED: 409,
@@ -1388,15 +1445,7 @@ function auditWriteBestEffort(
        (request_id, key_id, room_code, action, result, status_code, created_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
   )
-    .bind(
-      requestId,
-      principal.keyId,
-      principal.roomCode,
-      action,
-      result,
-      statusCode,
-      nowMs,
-    )
+    .bind(requestId, principal.keyId, principal.roomCode, action, result, statusCode, nowMs)
     .run()
     .catch(() => {});
   context.waitUntil(audit);
@@ -1432,11 +1481,7 @@ function ifNoneMatchMatches(value, currentEtag) {
     index += 1;
     while (index < value.length && value[index] !== '"') {
       const code = value.charCodeAt(index);
-      if (
-        code !== 0x21 &&
-        !(code >= 0x23 && code <= 0x7e) &&
-        !(code >= 0x80 && code <= 0xff)
-      ) {
+      if (code !== 0x21 && !(code >= 0x23 && code <= 0x7e) && !(code >= 0x80 && code <= 0xff)) {
         return false;
       }
       index += 1;
@@ -1474,6 +1519,7 @@ async function handleApiRequest(request, env, context, requestId) {
   if (!route) return errorResponse('NOT_FOUND', 404, requestId);
   const writeRoute = [
     'command-create',
+    'queue-mode-update',
     'queue-add',
     'queue-add-batch',
     'queue-clear',
@@ -1520,7 +1566,7 @@ async function handleApiRequest(request, env, context, requestId) {
   if (!authentication.principal) return errorResponse('UNAUTHORIZED', 401, requestId);
   const principal = authentication.principal;
   const limiter =
-    route.kind === 'command-create'
+    route.kind === 'command-create' || route.kind === 'queue-mode-update'
       ? await authenticatedCommandLimit(env, principal)
       : route.kind === 'queue-add' ||
           route.kind === 'queue-add-batch' ||
@@ -1533,7 +1579,7 @@ async function handleApiRequest(request, env, context, requestId) {
           ? await authenticatedMediaUploadCreateLimit(env, principal)
           : route.kind === 'media-complete'
             ? await authenticatedMediaUploadCompleteLimit(env, principal)
-          : await authenticatedReadLimit(env, principal);
+            : await authenticatedReadLimit(env, principal);
   if (!limiter) return errorResponse('BACKEND_UNAVAILABLE', 503, requestId, { retryable: true });
   const limiterHeaders = rateHeaders(limiter);
   if (!limiter.allowed) {
@@ -1555,6 +1601,7 @@ async function handleApiRequest(request, env, context, requestId) {
 
   if (
     route.kind === 'queue-add' ||
+    route.kind === 'queue-mode-update' ||
     route.kind === 'queue-add-batch' ||
     route.kind === 'queue-clear' ||
     route.kind === 'queue-clear-owned' ||
@@ -1575,7 +1622,22 @@ async function handleApiRequest(request, env, context, requestId) {
     let expectedStatus;
     let validator;
     let auditAction;
-    if (route.kind === 'queue-add') {
+    if (route.kind === 'queue-mode-update') {
+      const queueMode = parseQueueModeUpdate(
+        await readRequestJsonLimited(request, COMMAND_REQUEST_MAX_BYTES),
+      );
+      if (!queueMode) return errorResponse('INVALID_REQUEST', 400, requestId);
+      path = '/internal/v1/queue-mode/update';
+      body = {
+        keyId: principal.keyId,
+        roomCode: route.roomCode,
+        idempotencyKey,
+        queueMode,
+      };
+      expectedStatus = 200;
+      validator = (value, roomCode) => validateFacadePayload(value, 'queue-mode', roomCode);
+      auditAction = 'playback.queue_mode.update';
+    } else if (route.kind === 'queue-add') {
       const mutation = parseYouTubeQueueItem(
         await readRequestJsonLimited(request, MEDIA_UPLOAD_REQUEST_MAX_BYTES),
       );
@@ -1675,14 +1737,7 @@ async function handleApiRequest(request, env, context, requestId) {
       auditAction = 'media.upload.complete';
     }
 
-    const facade = await facadeMutation(
-      env,
-      path,
-      body,
-      route.roomCode,
-      expectedStatus,
-      validator,
-    );
+    const facade = await facadeMutation(env, path, body, route.roomCode, expectedStatus, validator);
     const auditAtMs = Date.now();
     if (facade.configurationError) {
       auditWriteBestEffort(
@@ -1713,9 +1768,7 @@ async function handleApiRequest(request, env, context, requestId) {
           facade.status === 429 ||
           facade.status === 503 ||
           facade.errorCode === 'UPLOAD_INCOMPLETE',
-        ...(facade.errorCode === 'UPLOAD_INCOMPLETE'
-          ? { headers: { 'retry-after': '1' } }
-          : {}),
+        ...(facade.errorCode === 'UPLOAD_INCOMPLETE' ? { headers: { 'retry-after': '1' } } : {}),
       });
     }
     if (facade.backendError || facade.invalidResponse || !facade.payload) {

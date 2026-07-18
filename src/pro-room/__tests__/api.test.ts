@@ -857,6 +857,7 @@ describe('PRO room queue mode API', () => {
       client.updateQueueMode({
         code: ROOM_CODE,
         coordinatorEpoch: 2,
+        baseRevision: 4,
         playlistRevision: 7,
         repeatMode: 1,
         shuffleEnabled: true,
@@ -870,6 +871,7 @@ describe('PRO room queue mode API', () => {
     ]);
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       coordinatorEpoch: 2,
+      baseRevision: 4,
       playlistRevision: 7,
       repeatMode: 1,
       shuffleEnabled: true,
@@ -886,6 +888,7 @@ describe('PRO room queue mode API', () => {
       client.updateQueueMode({
         code: ROOM_CODE,
         coordinatorEpoch: 2,
+        baseRevision: 4,
         playlistRevision: -1,
         repeatMode: 0,
         shuffleEnabled: false,

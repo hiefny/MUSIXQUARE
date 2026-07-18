@@ -94,6 +94,67 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/queue-mode:
+    get:
+      operationId: getQueueMode
+      description: |
+        Returns the canonical repeat and shuffle settings. Requires playback:read. The state remains readable
+        while the PRO room is sleeping and persists across sleep/wake cycles and coordinator handoffs. The
+        server-owned exact shuffle order is intentionally not exposed.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Canonical repeat and shuffle settings.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueModeState' }
+        '304': { description: Representation is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+    put:
+      operationId: updateQueueMode
+      description: |
+        Replaces the repeat and shuffle settings with one explicit desired state. Requires playback:control and
+        a unique Idempotency-Key. Read this resource first and send its revision as baseRevision. This is not a
+        toggle operation: all three request fields are required. A stale baseRevision returns 409
+        QUEUE_MODE_REVISION_CONFLICT; read the latest state, decide the desired state again, and retry with the new
+        revision and a new Idempotency-Key. The update is available while the room is sleeping and applies when it
+        next wakes. The server preserves its hidden exact order while shuffle remains enabled, generates one when
+        shuffle changes from disabled to enabled, and clears it when shuffle is disabled.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QueueModeUpdate' }
+      responses:
+        '200':
+          description: Updated canonical settings, including an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueModeState' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The supplied queue-mode revision is stale, or the idempotency key conflicts with another request.
+            For QUEUE_MODE_REVISION_CONFLICT, GET the latest queue mode before retrying.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/queue:
     get:
       operationId: getQueue
@@ -488,6 +549,37 @@ components:
         revision: { type: integer, minimum: 0 }
         updatedAtMs: { type: integer, minimum: 0 }
         effects: { $ref: '#/components/schemas/RoomEffects' }
+    QueueModeState:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          schemaVersion,
+          view,
+          roomCode,
+          revision,
+          playlistRevision,
+          updatedAtMs,
+          repeatMode,
+          shuffleEnabled,
+        ]
+      properties:
+        schemaVersion: { const: 1 }
+        view: { const: queue-mode }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        revision: { type: integer, minimum: 0 }
+        playlistRevision: { type: integer, minimum: 0 }
+        updatedAtMs: { type: integer, minimum: 0 }
+        repeatMode: { enum: [off, all, one] }
+        shuffleEnabled: { type: boolean }
+    QueueModeUpdate:
+      type: object
+      additionalProperties: false
+      required: [baseRevision, repeatMode, shuffleEnabled]
+      properties:
+        baseRevision: { type: integer, minimum: 0 }
+        repeatMode: { enum: [off, all, one] }
+        shuffleEnabled: { type: boolean }
     RoomEffects:
       type: object
       additionalProperties: false

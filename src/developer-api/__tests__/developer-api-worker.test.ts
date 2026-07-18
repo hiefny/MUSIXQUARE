@@ -116,6 +116,19 @@ function effectsPayload() {
   };
 }
 
+function queueModePayload() {
+  return {
+    schemaVersion: 1,
+    view: 'queue-mode',
+    roomCode: ROOM_CODE,
+    revision: 6,
+    playlistRevision: 4,
+    updatedAtMs: OBSERVED_AT_MS,
+    repeatMode: 'all',
+    shuffleEnabled: true,
+  };
+}
+
 function commandPayload(
   status: 'pending' | 'dispatched' | 'applied' | 'rejected' | 'expired' = 'pending',
 ) {
@@ -282,19 +295,23 @@ async function createEnvironment(
         ? commandPayload()
         : path === '/internal/v1/commands/status'
           ? commandPayload('applied')
-          : path === '/internal/v1/media/uploads/create'
-            ? uploadPayload()
-            : path === '/internal/v1/media/uploads/complete'
-              ? uploadCompletionPayload()
-              : path === '/internal/v1/queue/mutate'
-                ? queuePayload()
-                : body.projection === 'playback'
-                  ? playbackPayload()
-                  : body.projection === 'queue'
-                    ? queuePayload()
-                    : body.projection === 'effects'
-                      ? effectsPayload()
-                      : roomPayload());
+          : path === '/internal/v1/queue-mode/update'
+            ? queueModePayload()
+            : path === '/internal/v1/media/uploads/create'
+              ? uploadPayload()
+              : path === '/internal/v1/media/uploads/complete'
+                ? uploadCompletionPayload()
+                : path === '/internal/v1/queue/mutate'
+                  ? queuePayload()
+                  : body.projection === 'playback'
+                    ? playbackPayload()
+                    : body.projection === 'queue'
+                      ? queuePayload()
+                      : body.projection === 'effects'
+                        ? effectsPayload()
+                        : body.projection === 'queue-mode'
+                          ? queueModePayload()
+                          : roomPayload());
     const defaultStatus =
       path === '/internal/v1/commands/create'
         ? 202
@@ -548,6 +565,46 @@ describe('Developer API read-only public Worker', () => {
     );
     expect(forbidden.status).toBe(403);
     expect(playbackOnly.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('returns repeat and shuffle state through playback:read without exposing shuffle order', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['playback:read'] });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`),
+      setup.env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toMatch(/^"mxqr-queue-mode-[A-Za-z0-9_-]{43}"$/);
+    await expect(response.json()).resolves.toEqual(queueModePayload());
+    expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      projection: 'queue-mode',
+    });
+
+    const queueReadOnly = await createEnvironment({
+      scopeMask: developerApiScopes['queue:read'],
+    });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`),
+      queueReadOnly.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(queueReadOnly.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a queue-mode facade response carries private shuffle order', async () => {
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['playback:read'],
+      facadePayload: { ...queueModePayload(), shuffleOrder: [QUEUE_ITEM_ID] },
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`),
+      setup.env,
+    );
+    expect(response.status).toBe(503);
+    expect(await errorCode(response)).toBe('INTERNAL_RESPONSE_INVALID');
   });
 
   it('fails closed when the effects facade projection is partial or carries private fields', async () => {
@@ -1504,6 +1561,126 @@ describe('Developer API read-only public Worker', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: 'UPLOAD_INCOMPLETE', retryable: true },
     });
+  });
+
+  it('updates repeat and shuffle together with playback control, idempotency, and revision fencing', async () => {
+    const setup = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const queueMode = { baseRevision: 5, repeatMode: 'all', shuffleEnabled: true };
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify(queueMode),
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(queueModePayload());
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-command',
+    ]);
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/queue-mode/update');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      queueMode,
+    });
+  });
+
+  it('requires playback:control and an exact full queue-mode update body', async () => {
+    const readOnly = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:read'],
+    });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify({ baseRevision: 5, repeatMode: 'all', shuffleEnabled: true }),
+      }),
+      readOnly.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(readOnly.facadeFetch).not.toHaveBeenCalled();
+
+    const invalidBodies = [
+      { repeatMode: 'all', shuffleEnabled: true },
+      { baseRevision: -1, repeatMode: 'all', shuffleEnabled: true },
+      { baseRevision: 1.5, repeatMode: 'all', shuffleEnabled: true },
+      { baseRevision: 5, repeatMode: 'track', shuffleEnabled: true },
+      { baseRevision: 5, repeatMode: 'all', shuffleEnabled: 1 },
+      { baseRevision: 5, repeatMode: 'all', shuffleEnabled: true, shuffleOrder: [] },
+    ];
+    for (const body of invalidBodies) {
+      const setup = await createEnvironment({
+        mode: 'enabled',
+        scopeMask: developerApiScopes['playback:control'],
+      });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': IDEMPOTENCY_KEY,
+          },
+          body: JSON.stringify(body),
+        }),
+        setup.env,
+      );
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe('INVALID_REQUEST');
+      expect(setup.facadeFetch).not.toHaveBeenCalled();
+    }
+
+    const missingIdempotency = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const missingKeyResponse = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ baseRevision: 5, repeatMode: 'all', shuffleEnabled: true }),
+      }),
+      missingIdempotency.env,
+    );
+    expect(missingKeyResponse.status).toBe(400);
+    expect(await errorCode(missingKeyResponse)).toBe('IDEMPOTENCY_KEY_REQUIRED');
+  });
+
+  it('surfaces stale queue-mode updates as a revision conflict', async () => {
+    const setup = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+      facadePayload: { error: 'QUEUE_MODE_REVISION_CONFLICT' },
+      facadeStatus: 409,
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue-mode`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': IDEMPOTENCY_KEY,
+        },
+        body: JSON.stringify({ baseRevision: 4, repeatMode: 'one', shuffleEnabled: false }),
+      }),
+      setup.env,
+    );
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe('QUEUE_MODE_REVISION_CONFLICT');
   });
 
   it('creates an allowlisted playback command with idempotency, rate, and audit controls', async () => {

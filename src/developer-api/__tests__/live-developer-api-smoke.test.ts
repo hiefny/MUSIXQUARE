@@ -126,6 +126,22 @@ describe('Developer API live canary smoke', () => {
             { ETag: '"effects-etag"' },
           );
         }
+        if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/queue-mode`) {
+          return json(
+            {
+              schemaVersion: 1,
+              view: 'queue-mode',
+              roomCode: ROOM,
+              revision: 0,
+              playlistRevision: 1,
+              updatedAtMs: 0,
+              repeatMode: 'off',
+              shuffleEnabled: false,
+            },
+            200,
+            { ETag: '"queue-mode-etag"' },
+          );
+        }
         if (method === 'POST' && url.pathname === `/v1/rooms/${ROOM}/queue/items`) {
           youtubePresent = true;
           return json(
@@ -228,6 +244,7 @@ describe('Developer API live canary smoke', () => {
     expect(youtubePresent).toBe(false);
     expect(audioPresent).toBe(false);
     expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`);
+    expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/queue-mode`);
     expect(calls).toContain('PUT https://storage.example/upload');
     expect(calls.at(-1)).toBe(
       `DELETE https://api.musixquare.com/v1/rooms/${ROOM}/queue/items/${AUDIO_ITEM_ID}`,

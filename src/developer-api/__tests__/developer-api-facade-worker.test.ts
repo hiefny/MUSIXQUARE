@@ -33,6 +33,19 @@ function effectsPayload() {
   };
 }
 
+function queueModePayload() {
+  return {
+    schemaVersion: 1,
+    view: 'queue-mode',
+    roomCode: ROOM_CODE,
+    revision: 6,
+    playlistRevision: 4,
+    updatedAtMs: 1_784_262_910_000,
+    repeatMode: 'all',
+    shuffleEnabled: true,
+  };
+}
+
 function request(body: unknown, options: RequestInit = {}, path = '/internal/v1/read'): Request {
   const headers = new Headers(options.headers);
   if (!headers.has('content-type')) headers.set('content-type', 'application/json');
@@ -162,6 +175,129 @@ describe('private Developer API facade', () => {
       keyId: KEY_ID,
       projection: 'effects',
     });
+  });
+
+  it('forwards and sanitizes the exact queue-mode projection', async () => {
+    const rooms = namespace(() => Response.json(queueModePayload()));
+    const response = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'queue-mode' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(queueModePayload());
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      keyId: KEY_ID,
+      projection: 'queue-mode',
+    });
+  });
+
+  it('forwards one exact queue-mode update and never exposes private shuffle order', async () => {
+    const rooms = namespace(() => Response.json(queueModePayload()));
+    const queueMode = { baseRevision: 5, repeatMode: 'all', shuffleEnabled: true };
+    const response = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, queueMode },
+        {},
+        '/internal/v1/queue-mode/update',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(queueModePayload());
+    expect(rooms.seen).toHaveLength(1);
+    const forwarded = rooms.seen[0]!;
+    expect(new URL(forwarded.url).pathname).toBe('/internal/developer/v1/queue-mode/update');
+    expect([...forwarded.headers.keys()].sort()).toEqual(['content-type', 'x-mxqr-pro-room-code']);
+    await expect(forwarded.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      queueMode,
+    });
+
+    const privateRooms = namespace(() =>
+      Response.json({ ...queueModePayload(), shuffleOrder: [QUEUE_ITEM_ID] }),
+    );
+    const privateResponse = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, queueMode },
+        {},
+        '/internal/v1/queue-mode/update',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: privateRooms },
+    );
+    expect(privateResponse.status).toBe(503);
+    await expect(privateResponse.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+  });
+
+  it('rejects malformed queue-mode updates before the PRO room boundary', async () => {
+    const invalidQueueModes = [
+      { repeatMode: 'all', shuffleEnabled: true },
+      { baseRevision: -1, repeatMode: 'all', shuffleEnabled: true },
+      { baseRevision: 1.5, repeatMode: 'all', shuffleEnabled: true },
+      { baseRevision: 5, repeatMode: 'invalid', shuffleEnabled: true },
+      { baseRevision: 5, repeatMode: 'all', shuffleEnabled: 'true' },
+      { baseRevision: 5, repeatMode: 'all', shuffleEnabled: true, shuffleOrder: [] },
+    ];
+    for (const queueMode of invalidQueueModes) {
+      const rooms = namespace(() => Response.json(queueModePayload()));
+      const response = await facadeWorker.fetch(
+        request(
+          { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, queueMode },
+          {},
+          '/internal/v1/queue-mode/update',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+      expect(rooms.seen).toHaveLength(0);
+    }
+  });
+
+  it('maps queue-mode revision conflicts without leaking backend payloads', async () => {
+    const rooms = namespace(() =>
+      Response.json(
+        { error: 'QUEUE_MODE_REVISION_CONFLICT', queueMode: queueModePayload() },
+        { status: 409 },
+      ),
+    );
+    const response = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: IDEMPOTENCY_KEY,
+          queueMode: { baseRevision: 5, repeatMode: 'one', shuffleEnabled: false },
+        },
+        {},
+        '/internal/v1/queue-mode/update',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'BACKEND_UNAVAILABLE' });
+
+    const exactRooms = namespace(() =>
+      Response.json({ error: 'QUEUE_MODE_REVISION_CONFLICT' }, { status: 409 }),
+    );
+    const exact = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: IDEMPOTENCY_KEY,
+          queueMode: { baseRevision: 5, repeatMode: 'one', shuffleEnabled: false },
+        },
+        {},
+        '/internal/v1/queue-mode/update',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: exactRooms },
+    );
+    expect(exact.status).toBe(409);
+    await expect(exact.json()).resolves.toEqual({ error: 'QUEUE_MODE_REVISION_CONFLICT' });
   });
 
   it('forwards a canonical command to one fixed PRO room path and strips private response fields', async () => {

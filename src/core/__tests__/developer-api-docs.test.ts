@@ -24,6 +24,7 @@ describe('Developer API public documentation', () => {
       '/rooms/{roomCode}',
       '/rooms/{roomCode}/playback',
       '/rooms/{roomCode}/effects',
+      '/rooms/{roomCode}/queue-mode',
       '/rooms/{roomCode}/queue',
       '/rooms/{roomCode}/commands',
       '/rooms/{roomCode}/commands/{commandId}',
@@ -59,6 +60,7 @@ describe('Developer API public documentation', () => {
       '/v1/rooms/{roomCode}:',
       '/v1/rooms/{roomCode}/playback:',
       '/v1/rooms/{roomCode}/effects:',
+      '/v1/rooms/{roomCode}/queue-mode:',
       '/v1/rooms/{roomCode}/queue:',
       '/v1/rooms/{roomCode}/commands:',
       '/v1/rooms/{roomCode}/commands/{commandId}:',
@@ -128,6 +130,32 @@ describe('Developer API public documentation', () => {
 
     const numberedHeadings = [...html.matchAll(/<h2>(\d+)\./g)].map((match) => Number(match[1]));
     expect(numberedHeadings).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  });
+
+  it('documents optimistic, explicit queue-mode control without exposing shuffle order', async () => {
+    const [html, spec] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+    ]);
+
+    expect(html).toContain('/rooms/{roomCode}/queue-mode');
+    expect(html).toContain('Queue mode is an explicit setter, not a toggle');
+    expect(html).toContain('<code>409 QUEUE_MODE_REVISION_CONFLICT</code>');
+    expect(html).toContain('work while the PRO room is sleeping');
+    expect(html).toContain('The exact shuffle order is server-owned and intentionally hidden');
+    expect(html).toContain("repeatMode: 'all'");
+    expect(html).toContain('baseRevision: queueMode.revision');
+
+    expect(spec).toContain('operationId: getQueueMode');
+    expect(spec).toContain('operationId: updateQueueMode');
+    expect(spec).toContain('QueueModeState:');
+    expect(spec).toContain('QueueModeUpdate:');
+    expect(spec).toContain('required: [baseRevision, repeatMode, shuffleEnabled]');
+    expect(spec).toContain('repeatMode: { enum: [off, all, one] }');
+    expect(spec).toContain('Requires playback:read');
+    expect(spec).toContain('Requires playback:control');
+    expect(spec).toContain('QUEUE_MODE_REVISION_CONFLICT');
+    expect(spec).not.toMatch(/^\s+shuffleOrder:/m);
   });
 
   it('documents atomic YouTube batches and bounded non-atomic audio upload concurrency', async () => {

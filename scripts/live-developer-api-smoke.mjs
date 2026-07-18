@@ -106,6 +106,23 @@ function assertEffectsProjection(payload, roomCode, label) {
   return payload;
 }
 
+function assertQueueModeProjection(payload, roomCode, label) {
+  if (
+    payload?.schemaVersion !== 1 ||
+    payload?.view !== 'queue-mode' ||
+    payload?.roomCode !== roomCode ||
+    !Number.isSafeInteger(payload?.revision) ||
+    !Number.isSafeInteger(payload?.playlistRevision) ||
+    !Number.isSafeInteger(payload?.updatedAtMs) ||
+    !['off', 'all', 'one'].includes(payload?.repeatMode) ||
+    typeof payload?.shuffleEnabled !== 'boolean'
+  ) {
+    throw new Error(`${label} returned an invalid queue-mode projection`);
+  }
+  assertNoPrivateFields(payload, label);
+  return payload;
+}
+
 async function deleteQueueItem(apiKey, roomCode, queueItemId, operation) {
   const { payload } = await apiJson(
     `/v1/rooms/${roomCode}/queue/items/${encodeURIComponent(queueItemId)}`,
@@ -192,8 +209,9 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   let playback = null;
   let queue = null;
   let effects = null;
+  let queueMode = null;
   let effectsEtag = '';
-  for (const suffix of ['', '/playback', '/queue', '/effects']) {
+  for (const suffix of ['', '/playback', '/queue', '/effects', '/queue-mode']) {
     const response = await fetch(`${API_ORIGIN}/v1/rooms/${roomCode}${suffix}`, {
       cache: 'no-store',
       headers: { Accept: 'application/json', Authorization: authorization },
@@ -211,13 +229,16 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
       playback = payload;
     } else if (suffix === '/queue') {
       queue = assertQueueProjection(payload, roomCode, 'Developer API queue smoke');
-    } else {
+    } else if (suffix === '/effects') {
       effects = assertEffectsProjection(payload, roomCode, 'Developer API effects smoke');
       effectsEtag = response.headers.get('etag') || '';
+    } else {
+      queueMode = assertQueueModeProjection(payload, roomCode, 'Developer API queue-mode smoke');
     }
   }
   if (!roomEtag) throw new Error('Developer API room response omitted ETag');
   if (!effects || !effectsEtag) throw new Error('Developer API effects response omitted ETag');
+  if (!queueMode) throw new Error('Developer API queue-mode response was not observed');
   const notModified = await fetch(`${API_ORIGIN}/v1/rooms/${roomCode}`, {
     cache: 'no-store',
     headers: {

@@ -436,7 +436,7 @@ function playlistItem(
 
 function internalDeveloperRead(
   worker: MusixquareProRoom,
-  projection: 'room' | 'playback' | 'queue' | 'effects',
+  projection: 'room' | 'playback' | 'queue' | 'effects' | 'queue-mode',
   keyId = DEVELOPER_KEY_ID,
 ): Promise<Response> {
   return worker.fetch(
@@ -447,6 +447,24 @@ function internalDeveloperRead(
         'x-mxqr-pro-room-code': ROOM_CODE,
       },
       body: JSON.stringify({ projection, keyId }),
+    }),
+  );
+}
+
+function updateInternalDeveloperQueueMode(
+  worker: MusixquareProRoom,
+  keyId: string,
+  idempotencyKey: string,
+  queueMode: Record<string, unknown>,
+): Promise<Response> {
+  return worker.fetch(
+    new Request('https://pro-room.internal/internal/developer/v1/queue-mode/update', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+      },
+      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, queueMode }),
     }),
   );
 }
@@ -6055,6 +6073,7 @@ describe('persistent PRO room repeat and shuffle mode', () => {
         'PUT',
         {
           coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+          baseRevision: 0,
           playlistRevision: current.snapshot.playlistRevision,
           repeatMode: 1,
           shuffleEnabled: true,
@@ -6135,6 +6154,7 @@ describe('persistent PRO room repeat and shuffle mode', () => {
             'PUT',
             {
               coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+              baseRevision: 0,
               playlistRevision: current.snapshot.playlistRevision,
               repeatMode: 2,
               shuffleEnabled: true,
@@ -6170,6 +6190,113 @@ describe('persistent PRO room repeat and shuffle mode', () => {
     expect(afterAddition.revision).toBeGreaterThan(afterRemoval.revision);
   });
 
+  it('lets the Developer API atomically set and replay canonical queue mode', async () => {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, items, 'developer-queue-mode')).status).toBe(200);
+    const internal = context.worker as unknown as {
+      room: StoredRoom;
+      env: Record<string, unknown>;
+    };
+    const roomRevisionBefore = internal.room.revision;
+
+    const before = await internalDeveloperRead(context.worker, 'queue-mode');
+    expect(before.status).toBe(200);
+    await expect(before.json()).resolves.toEqual({
+      schemaVersion: 1,
+      view: 'queue-mode',
+      roomCode: ROOM_CODE,
+      revision: 0,
+      playlistRevision: internal.room.playlistRevision,
+      updatedAtMs: 0,
+      repeatMode: 'off',
+      shuffleEnabled: false,
+    });
+
+    const mutation = { baseRevision: 0, repeatMode: 'all', shuffleEnabled: true };
+    const first = await updateInternalDeveloperQueueMode(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-queue-mode-0001',
+      mutation,
+    );
+    expect(first.status).toBe(200);
+    const firstBody = await responseJson(first);
+    expect(firstBody).toMatchObject({
+      view: 'queue-mode',
+      revision: 1,
+      repeatMode: 'all',
+      shuffleEnabled: true,
+    });
+    expect(firstBody).not.toHaveProperty('shuffleOrder');
+    expect(new Set(internal.room.queueMode.shuffleOrder)).toEqual(
+      new Set(items.map((item) => item.queueItemId)),
+    );
+    expect(internal.room.revision).toBe(roomRevisionBefore + 1);
+    const storedOrder = [...internal.room.queueMode.shuffleOrder];
+
+    const replay = await updateInternalDeveloperQueueMode(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-queue-mode-0001',
+      mutation,
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toEqual(firstBody);
+    expect(internal.room.queueMode.shuffleOrder).toEqual(storedOrder);
+    expect(internal.room.queueMode.revision).toBe(1);
+
+    const stale = await updateInternalDeveloperQueueMode(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-queue-mode-0002',
+      mutation,
+    );
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({ error: 'QUEUE_MODE_REVISION_CONFLICT' });
+  });
+
+  it('preserves an enabled shuffle order and clears it only when explicitly disabled', async () => {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, items, 'developer-queue-mode-preserve')).status).toBe(
+      200,
+    );
+    const internal = context.worker as unknown as { room: StoredRoom };
+    expect(
+      (
+        await updateInternalDeveloperQueueMode(
+          context.worker,
+          DEVELOPER_KEY_ID,
+          'developer-queue-mode-preserve-1',
+          { baseRevision: 0, repeatMode: 'off', shuffleEnabled: true },
+        )
+      ).status,
+    ).toBe(200);
+    const enabledOrder = [...internal.room.queueMode.shuffleOrder];
+
+    const repeatOnly = await updateInternalDeveloperQueueMode(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-queue-mode-preserve-2',
+      { baseRevision: 1, repeatMode: 'one', shuffleEnabled: true },
+    );
+    expect(repeatOnly.status).toBe(200);
+    expect(internal.room.queueMode.shuffleOrder).toEqual(enabledOrder);
+
+    const disabled = await updateInternalDeveloperQueueMode(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-queue-mode-preserve-3',
+      { baseRevision: 2, repeatMode: 'one', shuffleEnabled: false },
+    );
+    expect(disabled.status).toBe(200);
+    expect(internal.room.queueMode).toMatchObject({
+      revision: 3,
+      repeatMode: 2,
+      shuffleEnabled: false,
+      shuffleOrder: [],
+    });
+  });
+
   it('fences writes to the exact coordinator epoch and playlist revision', async () => {
     const context = await activatedRoom();
     expect((await replacePlaylist(context, items, 'queue-mode-fence')).status).toBe(200);
@@ -6178,6 +6305,7 @@ describe('persistent PRO room repeat and shuffle mode', () => {
     );
     const body = {
       coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+      baseRevision: 0,
       playlistRevision: current.snapshot.playlistRevision,
       repeatMode: 1,
       shuffleEnabled: true,
@@ -6205,6 +6333,20 @@ describe('persistent PRO room repeat and shuffle mode', () => {
     expect(wrongPlaylistRevision.status).toBe(409);
     await expect(wrongPlaylistRevision.json()).resolves.toMatchObject({
       error: 'PLAYLIST_REVISION_CONFLICT',
+      queueMode: { revision: 0, repeatMode: 0, shuffleEnabled: false },
+    });
+
+    const wrongQueueModeRevision = await context.worker.fetch(
+      jsonRequest(
+        '/queue-mode',
+        'PUT',
+        { ...body, baseRevision: body.baseRevision + 1 },
+        context.ownerCookie,
+      ),
+    );
+    expect(wrongQueueModeRevision.status).toBe(409);
+    await expect(wrongQueueModeRevision.json()).resolves.toMatchObject({
+      error: 'QUEUE_MODE_REVISION_CONFLICT',
       queueMode: { revision: 0, repeatMode: 0, shuffleEnabled: false },
     });
   });

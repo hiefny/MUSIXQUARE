@@ -61,9 +61,9 @@ const PLAYLIST_MAX_ITEMS = 1000;
 const DEVELOPER_YOUTUBE_BATCH_MAX_ITEMS = 100;
 const BOT_MAX_TRACK_ITEMS = 3;
 const BOT_MEMBER_MINUTE_LIMIT = 3;
-const BOT_ROOM_DAY_LIMIT = 20;
+const BOT_ROOM_HOUR_LIMIT = 100;
 const BOT_MEMBER_MINUTE_MS = 60 * 1000;
-const BOT_ROOM_DAY_MS = 24 * 60 * 60 * 1000;
+const BOT_ROOM_HOUR_MS = 60 * 60 * 1000;
 const BOT_REQUEST_LEASE_MS = 45 * 1000;
 // The elected coordinator is one of the 100 connected devices. Signaling
 // separately admits at most 99 non-coordinator members for the same ceiling.
@@ -2723,20 +2723,23 @@ export class MusixquareProRoom {
     const leaseToken = randomToken(24);
     {
       const minuteKey = `bot-minute:${auth.tokenHash}`;
-      const dayKey = `bot-day:${this.room.roomCode}`;
+      const hourKey = `bot-room-hour-v1:${this.room.roomCode}`;
       const minuteLimit = this.botRateLimitResponse(minuteKey, BOT_MEMBER_MINUTE_LIMIT, nowMs);
       if (minuteLimit) return minuteLimit;
-      const dayLimit = this.botRateLimitResponse(dayKey, BOT_ROOM_DAY_LIMIT, nowMs);
-      if (dayLimit) return dayLimit;
+      const hourLimit = this.botRateLimitResponse(hourKey, BOT_ROOM_HOUR_LIMIT, nowMs);
+      if (hourLimit) return hourLimit;
       this.recordBotRateLimit(minuteKey, BOT_MEMBER_MINUTE_MS, nowMs);
-      this.recordBotRateLimit(dayKey, BOT_ROOM_DAY_MS, nowMs);
+      this.recordBotRateLimit(hourKey, BOT_ROOM_HOUR_MS, nowMs);
+      // The former daily policy used a different key. Remove its inert room
+      // state as soon as the new policy records a request.
+      delete this.room.rateLimits[`bot-day:${this.room.roomCode}`];
       this.storeIdempotency(
         scope,
         parsed.value.requestId,
         fingerprint,
         { leaseToken, leaseExpiresAtMs: nowMs + BOT_REQUEST_LEASE_MS },
         200,
-        nowMs + BOT_ROOM_DAY_MS,
+        nowMs + IDEMPOTENCY_TTL_MS,
       );
       await this.persist();
     }

@@ -580,7 +580,7 @@ const id: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT tidak dapat menyelesaikan permintaan',
   'chat.bot_added_tracks': 'Lagu yang ditambahkan BOT: {{count}}',
   'chat.bot_added_and_playing': 'Lagu yang ditambahkan BOT: {{count}}. Pemutaran dimulai',
-  'chat.bot_rate_limited': 'Batas permintaan BOT tercapai. Coba lagi dalam {{seconds}} detik',
+  'chat.bot_rate_limited': 'Batas permintaan BOT tercapai. Coba lagi dalam {{duration}}',
   'chat.decode_skip_system_message':
     'Beberapa perangkat tidak dapat memutar track ini. Beralih ke track berikutnya.',
   'chat.system_audio_started_system_message':

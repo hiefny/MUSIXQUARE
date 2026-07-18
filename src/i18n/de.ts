@@ -584,7 +584,7 @@ const de: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT konnte die Anfrage nicht ausführen',
   'chat.bot_added_tracks': 'Vom BOT hinzugefügte Titel: {{count}}',
   'chat.bot_added_and_playing': 'Vom BOT hinzugefügte Titel: {{count}}. Wiedergabe gestartet',
-  'chat.bot_rate_limited': 'BOT-Anfragelimit erreicht. Bitte in {{seconds}} s erneut versuchen',
+  'chat.bot_rate_limited': 'BOT-Anfragelimit erreicht. Bitte in {{duration}} erneut versuchen',
   'chat.decode_skip_system_message':
     'Titel wird übersprungen: Das Format wird auf einigen Geräten nicht unterstützt.',
   'chat.system_audio_started_system_message':

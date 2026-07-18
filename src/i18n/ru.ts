@@ -310,7 +310,7 @@ const ru: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT не удалось выполнить запрос',
   'chat.bot_added_tracks': 'BOT добавил треки: {{count}}',
   'chat.bot_added_and_playing': 'BOT добавил треки: {{count}}. Воспроизведение запущено',
-  'chat.bot_rate_limited': 'Достигнут лимит запросов BOT. Повторите попытку через {{seconds}} с',
+  'chat.bot_rate_limited': 'Достигнут лимит запросов BOT. Повторите попытку через {{duration}}',
   'chat.decode_skip_system_message':
     'Некоторые устройства не смогли декодировать трек. Переход к следующему треку...',
   'chat.system_audio_started_system_message':

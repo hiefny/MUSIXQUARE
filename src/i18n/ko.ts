@@ -304,7 +304,7 @@ const ko = {
   'chat.bot_failed': 'BOT 요청을 처리하지 못했어요',
   'chat.bot_added_tracks': 'BOT이 {{count}}곡을 추가했어요',
   'chat.bot_added_and_playing': 'BOT이 {{count}}곡을 추가하고 재생을 시작했어요',
-  'chat.bot_rate_limited': 'BOT 요청 한도에 도달했어요. {{seconds}}초 후 다시 시도해 주세요',
+  'chat.bot_rate_limited': 'BOT 요청 한도에 도달했어요. {{duration}} 후 다시 시도해 주세요',
   'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어가요.',
   'chat.system_audio_started_system_message':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',

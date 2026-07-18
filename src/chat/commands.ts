@@ -34,6 +34,7 @@ import {
   type BotChatResult,
 } from './protocol.ts';
 import { cmdDebug } from './debug-console.ts';
+import { extractBotPrompt } from './bot-syntax.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -671,6 +672,11 @@ function _allCommandEntries(): [string, CommandDef][] {
 
 export function parseCommand(input: string): ParsedCommand | null {
   if (!input.startsWith('/')) return null;
+  if (input.startsWith('//') && (input === '//' || extractBotPrompt(input) !== null)) {
+    const rawArgs = input.slice(2);
+    const args = rawArgs.trim() ? rawArgs.trim().split(/\s+/) : [];
+    return { name: 'bot', args, rawArgs };
+  }
   const spaceIdx = input.indexOf(' ');
   const name = (spaceIdx === -1 ? input.slice(1) : input.slice(1, spaceIdx)).toLowerCase();
   const rawArgs = spaceIdx === -1 ? '' : input.slice(spaceIdx + 1);

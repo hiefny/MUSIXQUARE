@@ -177,7 +177,7 @@ describe('PRO BOT chat correlation', () => {
     registerChatProtocolHandlers();
   });
 
-  it('renders an ordinary request then relays its authoritative BOT correlation id', async () => {
+  it('accepts the compact // request and relays its authoritative BOT correlation id', async () => {
     enterBotRoom('coordinator');
     setState('network.myId', 'host-bot');
     const conn = { peer: 'guest-bot-ordinary', open: true } as DataConnection;
@@ -207,7 +207,7 @@ describe('PRO BOT chat correlation', () => {
         type: MSG.CHAT,
         senderId: 'spoofed-owner',
         senderLabel: 'SPOOFED',
-        text: '/bot 셔플재생 켜줘',
+        text: '//셔플재생 켜줘',
         ts: 20_001,
         botRequestId: id,
       },
@@ -360,7 +360,7 @@ describe('PRO BOT chat correlation', () => {
     });
   });
 
-  it('completes a typing bubble for a room-wide daily rate-limit response', () => {
+  it('completes a typing bubble for a bounded legacy rate-limit response', () => {
     enterBotRoom('member');
     setState('network.myId', 'member-daily-limit');
     const send = vi.fn();
@@ -372,9 +372,9 @@ describe('PRO BOT chat correlation', () => {
     const id = requestId('j');
 
     expect(beginLocalBotChatRequest(id)).toBe(true);
-    expect(
-      publishBotChatResult(id, { kind: 'rate_limited', retryAfterSeconds: 70_000 }),
-    ).toBe(true);
+    expect(publishBotChatResult(id, { kind: 'rate_limited', retryAfterSeconds: 70_000 })).toBe(
+      true,
+    );
 
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(1, id, 'typing');
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(2, id, 'complete', expect.any(String));

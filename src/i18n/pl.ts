@@ -310,7 +310,7 @@ const pl: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT nie mógł wykonać żądania',
   'chat.bot_added_tracks': 'Utwory dodane przez BOT: {{count}}',
   'chat.bot_added_and_playing': 'Utwory dodane przez BOT: {{count}}. Odtwarzanie rozpoczęte',
-  'chat.bot_rate_limited': 'Osiągnięto limit żądań BOT. Spróbuj ponownie za {{seconds}} s',
+  'chat.bot_rate_limited': 'Osiągnięto limit żądań BOT. Spróbuj ponownie za {{duration}}',
   'chat.decode_skip_system_message':
     'Niektóre urządzenia nie mogły odtworzyć tego utworu. Przejście do kolejnego utworu...',
   'chat.system_audio_started_system_message':

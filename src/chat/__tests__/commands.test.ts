@@ -68,6 +68,21 @@ describe('parseCommand', () => {
     expect(parseCommand('hello world')).toBeNull();
     expect(parseCommand('')).toBeNull();
   });
+
+  it('parses the compact // BOT alias without exposing its slashes to the prompt', () => {
+    expect(parseCommand('//강남스타일 틀어줘')).toEqual({
+      name: 'bot',
+      args: ['강남스타일', '틀어줘'],
+      rawArgs: '강남스타일 틀어줘',
+    });
+    expect(parseCommand('// 셔플 켜줘')).toEqual({
+      name: 'bot',
+      args: ['셔플', '켜줘'],
+      rawArgs: ' 셔플 켜줘',
+    });
+    expect(shouldBroadcastCommand(parseCommand('//')!)).toBe(false);
+    expect(parseCommand('///not-a-bot')?.name).toBe('//not-a-bot');
+  });
 });
 
 describe('executeCommand permission gating', () => {
@@ -228,17 +243,14 @@ describe('/bot beta command', () => {
     });
   });
 
-  it('settles the BOT bubble for the remainder of a room-wide 24-hour limit', async () => {
+  it('settles a cached old Worker response during the rolling policy update', async () => {
     enterBotRoom();
     mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce({
       code: 'RATE_LIMITED',
       retryAfterSeconds: 70_000.2,
     });
 
-    executeCommand(
-      { name: 'bot', args: ['next'], rawArgs: 'next' },
-      { botRequestId: requestId },
-    );
+    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });
 
     await vi.waitFor(() => {
       expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, {
@@ -255,10 +267,7 @@ describe('/bot beta command', () => {
       retryAfterSeconds: 86_401,
     });
 
-    executeCommand(
-      { name: 'bot', args: ['next'], rawArgs: 'next' },
-      { botRequestId: requestId },
-    );
+    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });
 
     await vi.waitFor(() => {
       expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, { kind: 'failed' });

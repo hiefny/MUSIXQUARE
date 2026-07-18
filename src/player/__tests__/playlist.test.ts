@@ -15,6 +15,7 @@ import {
   stopYouTubeMode,
 } from '../../youtube/player.ts';
 import * as youtubeIframe from '../../youtube/iframe.ts';
+import { setYouTubePlayer } from '../../youtube/_state.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../ownership.ts';
 import {
   applyPlaylistQueueModeState,
@@ -75,9 +76,11 @@ beforeEach(() => {
   bus.clear();
   setPendingAutoSyncOnReady(false);
   registerProRoomLegacyMediaHooks(null);
+  setYouTubePlayer(null);
 });
 
 afterEach(() => {
+  setYouTubePlayer(null);
   registerProRoomLegacyMediaHooks(null);
   clearAllManagedTimers();
   vi.useRealTimers();
@@ -892,6 +895,39 @@ describe('playTrack YouTube auto-rendezvous', () => {
       videoId: 'NEW_VIDEO_01',
       skipSeek: true,
     });
+  });
+
+  it('restarts the current YouTube occurrence without reloading its iframe', async () => {
+    setPlaybackYouTubePlaying();
+    setState('player.isFirstTrackLoad', false);
+    const video = youtubeItem('Current Video', 'CURRENT_VIDEO_01');
+    setState('playlist.items', [video]);
+    selectIndex(0);
+    setState('youtube.currentSubIndex', 0);
+    setYouTubePlayer({
+      getVideoData: () => ({ video_id: 'CURRENT_VIDEO_01' }),
+    } as never);
+    const autoPlay = vi.fn();
+    const load = vi.fn();
+    const outbound = vi.fn();
+    bus.on('youtube:auto-play', autoPlay);
+    bus.on('youtube:load', load);
+    bus.on('network:broadcast', outbound);
+
+    await playTrack(video.queueItemId);
+
+    expect(autoPlay).toHaveBeenCalledOnce();
+    expect(autoPlay).toHaveBeenCalledWith({
+      isTrackTransition: false,
+      zeroStart: true,
+      targetTime: 0,
+      videoId: 'CURRENT_VIDEO_01',
+      subIndex: 0,
+      skipSeek: false,
+    });
+    expect(load).not.toHaveBeenCalled();
+    expect(outbound).not.toHaveBeenCalled();
+    expect(getState('playlist.currentQueueItemId')).toBe(video.queueItemId);
   });
 
   it('directly hands off a new queue occurrence of the resident YouTube video', async () => {

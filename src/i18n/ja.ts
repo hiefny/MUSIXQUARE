@@ -580,7 +580,7 @@ const ja: Record<I18nKey, string> = {
   'chat.bot_added_tracks': 'BOTが{{count}}曲を追加しました',
   'chat.bot_added_and_playing': 'BOTが{{count}}曲を追加して再生を開始しました',
   'chat.bot_rate_limited':
-    'BOTのリクエスト上限に達しました。{{seconds}}秒後にもう一度お試しください',
+    'BOTのリクエスト上限に達しました。{{duration}}後にもう一度お試しください',
   'chat.decode_skip_system_message':
     '一部のデバイスで再生できないため、次のトラックへスキップします',
   'chat.system_audio_started_system_message':

@@ -558,7 +558,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT 無法完成要求',
   'chat.bot_added_tracks': 'BOT 已新增 {{count}} 首歌曲',
   'chat.bot_added_and_playing': 'BOT 已新增 {{count}} 首歌曲並開始播放',
-  'chat.bot_rate_limited': '已達 BOT 要求上限，請在 {{seconds}} 秒後再試',
+  'chat.bot_rate_limited': '已達 BOT 要求上限，請在 {{duration}}後再試',
   'chat.decode_skip_system_message': '跳過此曲目：部分裝置不支援該格式。',
   'chat.system_audio_started_system_message':
     '系統音訊分享已啟動。主持人與參與者裝置之間有些微延遲是正常現象。為避免回音，建議儘量降低來源裝置音量。',

@@ -591,7 +591,7 @@ const es: Record<I18nKey, string> = {
   'chat.bot_added_tracks': 'Pistas añadidas por BOT: {{count}}',
   'chat.bot_added_and_playing': 'Pistas añadidas por BOT: {{count}}. Reproducción iniciada',
   'chat.bot_rate_limited':
-    'Se alcanzó el límite de solicitudes de BOT. Reinténtalo en {{seconds}} s',
+    'Se alcanzó el límite de solicitudes de BOT. Reinténtalo en {{duration}}',
   'chat.decode_skip_system_message':
     'Pista omitida: formato no compatible en algunos dispositivos.',
   'chat.system_audio_started_system_message':

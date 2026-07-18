@@ -306,7 +306,7 @@ const en: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT could not complete the request',
   'chat.bot_added_tracks': 'Tracks added by BOT: {{count}}',
   'chat.bot_added_and_playing': 'Tracks added by BOT: {{count}}. Playback started',
-  'chat.bot_rate_limited': 'BOT request limit reached. Wait {{seconds}}s and try again',
+  'chat.bot_rate_limited': 'BOT request limit reached. Wait {{duration}} and try again',
   'chat.decode_skip_system_message': 'Skipping track: unsupported format on some devices.',
   'chat.system_audio_started_system_message':
     'System audio sharing has started. A slight latency between host and guest devices is normal. We recommend lowering the host device volume to avoid echoes.',

@@ -590,7 +590,7 @@ const ptBr: Record<I18nKey, string> = {
   'chat.bot_added_tracks': 'Faixas adicionadas pelo BOT: {{count}}',
   'chat.bot_added_and_playing': 'Faixas adicionadas pelo BOT: {{count}}. Reprodução iniciada',
   'chat.bot_rate_limited':
-    'O limite de solicitações do BOT foi atingido. Tente novamente em {{seconds}} s',
+    'O limite de solicitações do BOT foi atingido. Tente novamente em {{duration}}',
   'chat.decode_skip_system_message':
     'Alguns dispositivos não conseguem reproduzir esta faixa. Pulando para a próxima.',
   'chat.system_audio_started_system_message':

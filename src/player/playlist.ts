@@ -52,7 +52,11 @@ import {
   sendFilePrepareByDelivery,
 } from '../storage/transfer.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
-import { cancelYtAutoSync, setPendingAutoSyncOnReady } from '../youtube/player.ts';
+import {
+  cancelYtAutoSync,
+  getYouTubePlayer,
+  setPendingAutoSyncOnReady,
+} from '../youtube/player.ts';
 import {
   handoffSameVideoOccurrenceRestart,
   prepareSameVideoOccurrenceRestart,
@@ -576,6 +580,49 @@ export async function playTrack(
     item.type !== 'youtube' &&
     (!!item.file || (isProRoomPersistentPlaylistFile(queueItemId) && !!_residentFile));
   const _bufferMatchesTrack = !!getCurrentAudioBuffer() && _resident?.queueItemId === queueItemId;
+
+  // Re-clicking the exact YouTube occurrence is a replay request, not a new
+  // iframe load. Reusing youtube:load here can stop/cue the already-resident
+  // video without a matching occurrence handoff, producing an ENDED/error
+  // callback that incorrectly advances the playlist. Keep the iframe intact
+  // and restart the synchronized timeline through the existing zero-start
+  // barrier (or its established rendezvous fallback).
+  if (
+    !options.proRestore &&
+    !hostConn &&
+    _isSameTrack &&
+    item.type === 'youtube' &&
+    isYouTubeOwner()
+  ) {
+    const requestedSubIndex = subIndex ?? 0;
+    const subMap = getState('youtube.subItemsMap') || {};
+    const requestedVideoId =
+      (item.playlistId ? subMap[item.playlistId]?.ids?.[requestedSubIndex] : null) ||
+      item.videoId ||
+      null;
+    const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
+    const player = getYouTubePlayer();
+    let residentVideoId: string;
+    try {
+      residentVideoId = player?.getVideoData?.()?.video_id || '';
+    } catch {
+      residentVideoId = '';
+    }
+    const samePlaylistPosition = !item.playlistId || currentSubIndex === requestedSubIndex;
+
+    if (requestedVideoId && residentVideoId === requestedVideoId && samePlaylistPosition) {
+      cancelYtAutoSync();
+      bus.emit('youtube:auto-play', {
+        isTrackTransition: false,
+        zeroStart: true,
+        targetTime: 0,
+        videoId: requestedVideoId,
+        subIndex: requestedSubIndex,
+        skipSeek: false,
+      });
+      return;
+    }
+  }
 
   if (
     !options.proRestore &&

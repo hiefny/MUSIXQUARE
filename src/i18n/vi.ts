@@ -573,7 +573,7 @@ const vi: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT không thể hoàn tất yêu cầu',
   'chat.bot_added_tracks': 'Số bài hát BOT đã thêm: {{count}}',
   'chat.bot_added_and_playing': 'BOT đã thêm {{count}} bài hát và bắt đầu phát',
-  'chat.bot_rate_limited': 'Đã đạt giới hạn yêu cầu BOT. Hãy thử lại sau {{seconds}} giây',
+  'chat.bot_rate_limited': 'Đã đạt giới hạn yêu cầu BOT. Hãy thử lại sau {{duration}}',
   'chat.decode_skip_system_message':
     'Một số thiết bị không phát được bài này, đang chuyển sang bài tiếp theo',
   'chat.system_audio_started_system_message':

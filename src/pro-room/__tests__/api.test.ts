@@ -841,7 +841,7 @@ describe('PRO room cookie session API', () => {
     expect(JSON.stringify(error)).not.toContain('private claim');
   });
 
-  it('preserves the full remainder of a 24-hour BOT rate-limit window', async () => {
+  it('preserves a bounded old-Worker response during a rolling policy update', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse(
         { error: 'RATE_LIMITED' },

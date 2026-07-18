@@ -402,5 +402,46 @@ describe('Chat Module', () => {
       expect(broadcast).not.toHaveBeenCalled();
       expect(document.getElementById('chat-input')?.textContent).toBe('');
     });
+
+    it('shows //request verbatim while sending only its prompt to the BOT API', async () => {
+      renderSendShell('//강남스타일 틀어줘');
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'participant_00001',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['queue.mutate', 'playback.control'],
+      });
+      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.myId', 'guest-1');
+      requestActiveProRoomBotCommand.mockResolvedValueOnce({
+        ok: true,
+        summary: '재생할게요',
+        addedCount: 0,
+        playbackChanged: true,
+      });
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+
+      await vi.waitFor(() => expect(requestActiveProRoomBotCommand).toHaveBeenCalledOnce());
+      const outbound = vi.mocked(sendToHost).mock.calls[0]?.[0] as {
+        text?: string;
+        botRequestId?: string;
+      };
+      expect(outbound.text).toBe('//강남스타일 틀어줘');
+      expect(outbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
+      expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith(
+        '강남스타일 틀어줘',
+        outbound.botRequestId,
+      );
+      expect(
+        Array.from(document.querySelectorAll<HTMLElement>('#chat-messages .chat-text')).map(
+          (element) => element.textContent,
+        ),
+      ).toContain('//강남스타일 틀어줘');
+    });
   });
 });

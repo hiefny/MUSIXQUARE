@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, setState } from '../../core/state.ts';
+import { setPlaybackTrackMeta } from '../../player/ownership.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { ProRoomApiClient, type ProRoomSignalingAccess } from '../api.ts';
 import {
@@ -13,7 +14,11 @@ import {
   type ProRoomR2Source,
   type ProRoomSnapshot,
 } from '../contracts.ts';
-import { preloadProRoomPlaylistFile, resolveProRoomPlaylistFile } from '../legacy-media-hooks.ts';
+import {
+  handleProRoomTrackRemoval,
+  preloadProRoomPlaylistFile,
+  resolveProRoomPlaylistFile,
+} from '../legacy-media-hooks.ts';
 import { ProRoomMediaTransfer } from '../media-transfer.ts';
 import { LegacyProRoomNetworkBridge } from '../network-bridge.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
@@ -292,5 +297,53 @@ describe.sequential('PRO room runtime preload adoption', () => {
     vi.useRealTimers();
     refresh.mockRestore();
     off();
+  });
+
+  it('clears stale playback metadata when an accepted projection empties the room', async () => {
+    setState('playlist.currentQueueItemId', CACHE_QUEUE_ITEM_ID);
+    setPlaybackTrackMeta({
+      type: 'youtube',
+      name: 'Deleted title',
+      title: 'Deleted title',
+      videoId: 'deletedVideo',
+      playlistId: null,
+    });
+    setState('files.current', {
+      queueItemId: CACHE_QUEUE_ITEM_ID,
+      indexHint: 0,
+      name: CACHE_FILE.name,
+      sessionId: 9,
+      blob: CACHE_FILE,
+      mime: CACHE_FILE.type,
+      size: CACHE_FILE.size,
+    });
+    const update = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot')
+      .mockImplementation(async (input) => ({
+        ...roomSnapshot(),
+        revision: input.baseRevision + 1,
+        playlistRevision: input.baseRevision + 1,
+        playlist: [],
+        currentQueueItemId: null,
+        playback: {
+          ...roomSnapshot().playback,
+          revision: 1,
+          queueItemId: null,
+          state: 'idle' as const,
+        },
+      }));
+    const deleteAsset = vi
+      .spyOn(ProRoomMediaTransfer.prototype, 'deleteAsset')
+      .mockResolvedValue(undefined);
+
+    expect(handleProRoomTrackRemoval([CACHE_QUEUE_ITEM_ID, PROMOTE_QUEUE_ITEM_ID])).toBe(true);
+
+    await vi.waitFor(() => expect(getState('playlist.items')).toEqual([]));
+    expect(update).toHaveBeenCalledOnce();
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+    expect(getState('player.currentTrackMeta')).toBeNull();
+    expect(getState('files.current')).toBeNull();
+    deleteAsset.mockRestore();
+    update.mockRestore();
   });
 });

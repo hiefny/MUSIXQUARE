@@ -592,7 +592,7 @@ const fr: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT n’a pas pu traiter la demande',
   'chat.bot_added_tracks': 'Titres ajoutés par le BOT : {{count}}',
   'chat.bot_added_and_playing': 'Titres ajoutés par le BOT : {{count}}. Lecture lancée',
-  'chat.bot_rate_limited': 'Limite de requêtes BOT atteinte. Réessayez dans {{seconds}} s',
+  'chat.bot_rate_limited': 'Limite de requêtes BOT atteinte. Réessayez dans {{duration}}',
   'chat.decode_skip_system_message':
     'Piste ignorée : format non pris en charge sur certains appareils.',
   'chat.system_audio_started_system_message':

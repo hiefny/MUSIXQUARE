@@ -18,7 +18,7 @@ import {
 import { registerHandlers } from '../network/protocol.ts';
 import { broadcast, safeSend } from '../network/peer-state.ts';
 import { getRoomContext } from '../rooms/authority.ts';
-import { t } from '../i18n/index.ts';
+import { getResolvedLanguage, t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { filterProfanity } from './profanity.ts';
 import {
@@ -30,6 +30,8 @@ import {
   upsertBotChatMessage,
 } from '../ui/chat-render.ts';
 import type { DataConnection } from '../types/index.ts';
+import { formatBotRetryDuration } from './bot-rate-limit.ts';
+import { extractBotPrompt } from './bot-syntax.ts';
 
 type PinnedNoticePayload = {
   type: typeof MSG.CHAT_NOTICE;
@@ -113,8 +115,7 @@ function isBotBetaRoom(): boolean {
 }
 
 function isBotCommandText(text: string): boolean {
-  const match = /^\/bot(?:\s+)([\s\S]+)$/i.exec(text);
-  return !!match && match[1]!.trim().length > 0;
+  return extractBotPrompt(text) !== null;
 }
 
 function cleanupBotChatRequests(now = Date.now()): void {
@@ -178,7 +179,9 @@ function localizeBotChatResult(result: BotChatResult): string {
     case 'failed':
       return t('chat.bot_failed');
     case 'rate_limited':
-      return t('chat.bot_rate_limited', { seconds: result.retryAfterSeconds });
+      return t('chat.bot_rate_limited', {
+        duration: formatBotRetryDuration(result.retryAfterSeconds, getResolvedLanguage()),
+      });
   }
 }
 

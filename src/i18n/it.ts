@@ -313,7 +313,7 @@ const it: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT non ha potuto completare la richiesta',
   'chat.bot_added_tracks': 'Brani aggiunti dal BOT: {{count}}',
   'chat.bot_added_and_playing': 'Brani aggiunti dal BOT: {{count}}. Riproduzione avviata',
-  'chat.bot_rate_limited': 'Limite di richieste BOT raggiunto. Riprova tra {{seconds}} s',
+  'chat.bot_rate_limited': 'Limite di richieste BOT raggiunto. Riprova tra {{duration}}',
   'chat.decode_skip_system_message':
     'Alcuni dispositivi non possono riprodurre questo brano. Passaggio al brano successivo.',
   'chat.system_audio_started_system_message':

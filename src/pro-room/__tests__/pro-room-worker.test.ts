@@ -678,6 +678,43 @@ describe('PRO room server BOT boundary', () => {
     await expect(limited.json()).resolves.toEqual({ error: 'RATE_LIMITED' });
   });
 
+  it('enforces 100 room requests in one anchored hour without inheriting the old daily key', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const nowMs = Date.now();
+    internal.room.rateLimits[`bot-day:${ROOM_CODE}`] = {
+      count: 20,
+      resetAtMs: nowMs + 23 * 60 * 60 * 1000,
+    };
+    internal.room.rateLimits[`bot-room-hour-v1:${ROOM_CODE}`] = {
+      count: 99,
+      resetAtMs: nowMs + 60 * 60 * 1000,
+    };
+
+    const hundredth = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: 'bot-context-hour-0100', prompt: 'hundredth' },
+      ownerCookie,
+    );
+    expect(hundredth.status).toBe(200);
+    expect(internal.room.rateLimits[`bot-room-hour-v1:${ROOM_CODE}`]).toMatchObject({
+      count: 100,
+      resetAtMs: nowMs + 60 * 60 * 1000,
+    });
+    expect(internal.room.rateLimits[`bot-day:${ROOM_CODE}`]).toBeUndefined();
+
+    const limited = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: 'bot-context-hour-0101', prompt: 'one too many' },
+      ownerCookie,
+    );
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(Number(limited.headers.get('retry-after'))).toBeLessThanOrEqual(3600);
+  });
+
   it('adds a bounded YouTube batch exactly once for one executed request', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };

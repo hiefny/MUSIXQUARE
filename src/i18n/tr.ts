@@ -308,7 +308,7 @@ const tr: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT isteği tamamlayamadı',
   'chat.bot_added_tracks': 'BOT tarafından eklenen parça: {{count}}',
   'chat.bot_added_and_playing': 'BOT tarafından eklenen parça: {{count}}. Oynatma başladı',
-  'chat.bot_rate_limited': 'BOT istek sınırına ulaşıldı. {{seconds}} sn sonra tekrar deneyin',
+  'chat.bot_rate_limited': 'BOT istek sınırına ulaşıldı. {{duration}} sonra tekrar deneyin',
   'chat.decode_skip_system_message':
     'Bazı cihazlar şarkının kodunu çözemediğinden sonraki şarkıya geçiliyor',
   'chat.system_audio_started_system_message':

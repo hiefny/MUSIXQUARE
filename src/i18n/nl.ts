@@ -310,7 +310,7 @@ const nl: Record<I18nKey, string> = {
   'chat.bot_added_tracks': 'Door BOT toegevoegde nummers: {{count}}',
   'chat.bot_added_and_playing': 'Door BOT toegevoegde nummers: {{count}}. Afspelen gestart',
   'chat.bot_rate_limited':
-    'Limiet voor BOT-verzoeken bereikt. Probeer het over {{seconds}} s opnieuw',
+    'Limiet voor BOT-verzoeken bereikt. Probeer het over {{duration}} opnieuw',
   'chat.decode_skip_system_message': 'Nummer overgeslagen: niet ondersteund op sommige apparaten.',
   'chat.system_audio_started_system_message':
     'Systeem-audio delen is gestart. Een kleine vertraging tussen host en gasten is normaal. Zet het volume van de host zo laag mogelijk om echo te voorkomen.',

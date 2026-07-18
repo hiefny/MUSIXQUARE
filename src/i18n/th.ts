@@ -308,7 +308,7 @@ const th: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT ดำเนินการไม่สำเร็จ',
   'chat.bot_added_tracks': 'BOT เพิ่มเพลงแล้ว {{count}} เพลง',
   'chat.bot_added_and_playing': 'BOT เพิ่มเพลง {{count}} เพลงและเริ่มเล่นแล้ว',
-  'chat.bot_rate_limited': 'ถึงขีดจำกัดคำขอ BOT แล้ว โปรดลองอีกครั้งใน {{seconds}} วินาที',
+  'chat.bot_rate_limited': 'ถึงขีดจำกัดคำขอ BOT แล้ว โปรดลองอีกครั้งใน {{duration}}',
   'chat.decode_skip_system_message': 'บางอุปกรณ์เล่นแทร็กนี้ไม่ได้ กำลังข้ามไปแทร็กถัดไป',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างโฮสต์กับอุปกรณ์ผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์โฮสต์เพื่อเลี่ยงเสียงก้อง',

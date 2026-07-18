@@ -40,7 +40,7 @@ import {
   play,
   seekTo,
 } from '../player/transport.ts';
-import { getPlaybackModeActivity } from '../player/ownership.ts';
+import { getPlaybackModeActivity, setPlaybackTrackMeta } from '../player/ownership.ts';
 import { getYouTubePlayer, isYtLoadInProgress } from '../youtube/_state.ts';
 import {
   isCoordinator,
@@ -506,7 +506,17 @@ async function applyProjectedPlaylist(
       removalTransition,
       isCoordinator(),
       (queueItemId) => bus.emit('playlist:play-track', queueItemId),
-      () => bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true }),
+      () => {
+        bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
+        // PRO mutations bypass playlist.ts's ordinary removal teardown and
+        // the coordinator's later relay is a duplicate revision. Clear the
+        // deleted occurrence's presentation and resident metadata here so an
+        // empty room cannot keep displaying or replaying the former title.
+        setPlaybackTrackMeta(null);
+        setState('files.current', null);
+        setState('transfer.meta', null);
+        if (playlist.length === 0) bus.emit('ui:play-btn-state', false);
+      },
     );
     // PRO mutations are projected through this runtime and therefore bypass
     // playlist.ts's ordinary add/reorder/remove scheduling paths. Re-evaluate

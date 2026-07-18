@@ -36,6 +36,13 @@ Select only the Worker scope changed by the hotfix, then approve the
 candidate must pass the short Chromium release smoke, which boots the app,
 joins a host and guest, and exchanges chat in both directions.
 
+Leave `Apply Developer API D1 schema and one-time migrations` disabled for an
+ordinary Worker release. Enable it only when the approved commit intentionally
+changes the Developer API database schema or its tracked migration SQL. Normal
+releases never contact the D1 control plane, so a code-only deploy cannot fail
+or make the database briefly unavailable because of an unnecessary schema
+import.
+
 The complete serial Playwright suite is intentionally not a production deploy
 gate. It runs nightly at 03:00 KST and can also be started manually from the
 `Full E2E` workflow. Review failures there as regression signals, while using
@@ -80,10 +87,17 @@ After the deploy is live, verify the production URL in a fresh browser session
 and confirm the active version with
 `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
 
-The `production` environment uses an account-owned Cloudflare deployment token
-that expires on 2027-07-16. Rotate it before expiry and update only the
+The `production` environment uses an account-owned Cloudflare Worker deployment
+token that expires on 2027-07-16. Rotate it before expiry and update the
 environment secret named `CLOUDFLARE_API_TOKEN`; never copy a local Wrangler
-OAuth credential into GitHub.
+OAuth credential into GitHub. Keep D1 writes on a separate account token in
+`CLOUDFLARE_D1_API_TOKEN`, restricted to this account with the `D1:Edit`
+permission. The release workflow probes that token before any Worker deploy
+when a D1 change is requested, so a missing or under-scoped credential stops
+without rolling production forward and back. Keep base-schema changes additive
+and backward-compatible because Worker rollback does not reverse a successfully
+committed D1 schema import; tracked destructive changes need their own explicit
+migration and rollback pair.
 
 ### Worker scope and order
 

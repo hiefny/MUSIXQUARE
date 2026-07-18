@@ -15,6 +15,11 @@ on:
           - developer-api
           - remote-share
           - all
+      apply_developer_api_d1:
+        description: Apply Developer API D1 schema and one-time migrations
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -37,6 +42,12 @@ jobs:
     steps:
       - name: Checkout exact release commit
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Validate release options
+        if: inputs.apply_developer_api_d1 && inputs.target != 'all' && inputs.target != 'developer-api'
+        run: |
+          echo "::error::Developer API D1 changes require target 'developer-api' or 'all'."
+          exit 1
 
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -129,6 +140,21 @@ jobs:
 
       - name: Verify Cloudflare credentials
         run: npm run --silent wrangler -- whoami
+
+      - name: Verify Developer API D1 migration credentials
+        if: inputs.apply_developer_api_d1 && (inputs.target == 'all' || inputs.target == 'developer-api')
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote \
+            --command "UPDATE mxqr_developer_api_keys SET updated_at = updated_at WHERE 0" \
+            --config cloudflare/wrangler.developer-api.toml
 
       - name: Prepare deployment records
         run: mkdir -p release-artifacts/deployments
@@ -300,13 +326,17 @@ jobs:
             > release-artifacts/deployments/developer-api-before.json
           node scripts/release-deployment-state.mjs prepare developer-api
 
+      - name: Apply Developer API base schema
+        if: inputs.apply_developer_api_d1 && (inputs.target == 'all' || inputs.target == 'developer-api')
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: npm run developer-api:schema:remote
+
       - name: Deploy and record Developer API Worker
         id: developer_api_deployment
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         shell: bash
         run: |
-          node scripts/release-deployment-state.mjs preflight developer-api
-          npm run developer-api:schema:remote
           node scripts/release-deployment-state.mjs preflight developer-api
           node scripts/release-deployment-state.mjs attempt developer-api
           set +e
@@ -332,8 +362,9 @@ jobs:
 
       - name: Expand Developer API effects scopes
         id: developer_api_effects_scope_migration
-        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        if: inputs.apply_developer_api_d1 && (inputs.target == 'all' || inputs.target == 'developer-api')
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL: release-artifacts/deployments/developer-api-effects-scope.json
         run: npm run developer-api:effects-scopes:remote
 
@@ -389,6 +420,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
+          CLOUDFLARE_API_TOKEN: ${{ inputs.apply_developer_api_d1 && secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
           MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL: release-artifacts/deployments/developer-api-effects-scope.json
         run: |
           npm run developer-api:effects-scopes:release-rollback
@@ -411,6 +443,7 @@ jobs:
           echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly/manual)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API effects-scope schema changed: \`${{ steps.developer_api_effects_scope_migration.outputs.applied || 'false' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"
           node scripts/release-deployment-state.mjs summary

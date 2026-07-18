@@ -58,6 +58,7 @@ describe('Developer API effects-scope migration', () => {
 
   it('orders Worker deployment before migration and schema rollback before Worker rollback', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const baseSchema = workflow.indexOf('Apply Developer API base schema');
     const deploy = workflow.indexOf('Deploy and record Developer API Worker');
     const migrate = workflow.indexOf('Expand Developer API effects scopes');
     const smoke = workflow.indexOf('Smoke Developer API Worker');
@@ -67,11 +68,27 @@ describe('Developer API effects-scope migration', () => {
       rollbackSchema,
     );
 
+    expect(baseSchema).toBeGreaterThan(-1);
+    expect(baseSchema).toBeLessThan(deploy);
     expect(migrate).toBeGreaterThan(deploy);
     expect(smoke).toBeGreaterThan(migrate);
     expect(rollbackSchema).toBeGreaterThan(smoke);
     expect(rollbackWorkers).toBeGreaterThan(rollbackSchema);
     expect(workflow).toContain('MXQR_EFFECTS_SCOPE_RELEASE_JOURNAL');
+    expect(workflow).toContain('apply_developer_api_d1:');
+    expect(workflow).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
+    expect(workflow).toContain(
+      'UPDATE mxqr_developer_api_keys SET updated_at = updated_at WHERE 0',
+    );
+
+    const credentialProbe = workflow.indexOf('Verify Developer API D1 migration credentials');
+    const firstDeploymentRecord = workflow.indexOf('Record current remote-share deployment');
+    expect(credentialProbe).toBeGreaterThan(-1);
+    expect(credentialProbe).toBeLessThan(firstDeploymentRecord);
+
+    const deployBlock = workflow.slice(deploy, migrate);
+    expect(deployBlock).not.toContain('developer-api:schema:remote');
+    expect(workflow.match(/developer-api:schema:remote/g)).toHaveLength(1);
 
     const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
       scripts: Record<string, string>;

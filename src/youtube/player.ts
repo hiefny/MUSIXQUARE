@@ -2483,7 +2483,7 @@ export function initYouTube(): void {
       // an unmute must be deferred; its controller restores the latest desired
       // state before arming. Once audio restoration begins, direct changes are
       // safe again and are included in the controller's verification poll.
-      const zeroStartPhase = getYouTubeZeroStartSnapshot().phase;
+      const zeroStartPhase = getYouTubeZeroStartSnapshot()?.phase;
       const zeroStartOwnsHardMute =
         zeroStartPhase === 'muting' ||
         zeroStartPhase === 'warming' ||

@@ -14,6 +14,7 @@ import {
   setPendingAutoSyncOnReady,
   stopYouTubeMode,
 } from '../../youtube/player.ts';
+import * as youtubeIframe from '../../youtube/iframe.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../ownership.ts';
 import {
   setRepeatMode,
@@ -840,6 +841,36 @@ describe('playTrack YouTube auto-rendezvous', () => {
       subIndex: 0,
       videoId: 'NEW_VIDEO_01',
       skipSeek: true,
+    });
+  });
+
+  it('directly hands off a new queue occurrence of the resident YouTube video', async () => {
+    setPlaybackYouTubePlaying();
+    setState('player.isFirstTrackLoad', false);
+    const firstOccurrence = youtubeItem('First occurrence', 'SAME_VIDEO_1');
+    const secondOccurrence = youtubeItem('Second occurrence', 'SAME_VIDEO_1');
+    setState('playlist.items', [firstOccurrence, secondOccurrence]);
+    selectIndex(0);
+
+    bus.on('youtube:load', () => {});
+    const prepareRestart = vi
+      .spyOn(youtubeIframe, 'prepareSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+    const handoff = vi
+      .spyOn(youtubeIframe, 'handoffSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+
+    await playTrack(secondOccurrence.queueItemId);
+
+    expect(prepareRestart).toHaveBeenCalledOnce();
+    expect(prepareRestart).toHaveBeenCalledWith(secondOccurrence.queueItemId, 'SAME_VIDEO_1');
+    expect(handoff).toHaveBeenCalledOnce();
+    expect(handoff).toHaveBeenCalledWith(secondOccurrence.queueItemId, 'SAME_VIDEO_1');
+    expect(getState('playlist.currentQueueItemId')).toBe(secondOccurrence.queueItemId);
+    expect(consumePendingAutoSyncOnReady()).toMatchObject({
+      isTrackTransition: true,
+      zeroStart: true,
+      videoId: 'SAME_VIDEO_1',
     });
   });
 

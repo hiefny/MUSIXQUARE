@@ -57,7 +57,7 @@ export interface YTPlayerConfig {
   videoId?: string;
   playerVars?: Record<string, string | number>;
   events?: {
-    onReady?: () => void;
+    onReady?: (event: { target: YouTubePlayerInstance }) => void;
     onStateChange?: (event: { data: number }) => void;
     onError?: (event: { data: number }) => void;
   };
@@ -76,6 +76,12 @@ export interface YTNamespace {
 }
 
 let _youtubePlayer: YouTubePlayerInstance | null = null;
+// `new YT.Player()` exposes a facade before the iframe has delivered its
+// asynchronous onReady event. Keep readiness tied to the exact player identity
+// so a superseded iframe's late callback cannot make its replacement look
+// usable to zero-start.
+let _ytPlayerEpoch = 0;
+let _ytPlayerReadyEpoch = -1;
 let _currentYouTubeSessionId = 0;
 let _ytScriptLoading = false;
 let _ytIOSWatchdog: number | null = null;
@@ -142,6 +148,10 @@ export function getYouTubePlayer(): YouTubePlayerInstance | null {
   return _youtubePlayer;
 }
 
+export function isYtPlayerReady(): boolean {
+  return _youtubePlayer !== null && _ytPlayerReadyEpoch === _ytPlayerEpoch;
+}
+
 export function getCurrentSessionId(): number {
   return _currentYouTubeSessionId;
 }
@@ -206,7 +216,17 @@ export function isYtPrimeBouncePending(): boolean {
 // ─── Setters ───────────────────────────────────────────────────────
 
 export function setYouTubePlayer(player: YouTubePlayerInstance | null): void {
+  if (_youtubePlayer === player) return;
   _youtubePlayer = player;
+  _ytPlayerEpoch += 1;
+  _ytPlayerReadyEpoch = -1;
+}
+
+/** Mark only the currently-owned iframe as ready. */
+export function markYtPlayerReady(player: YouTubePlayerInstance): boolean {
+  if (!_youtubePlayer || player !== _youtubePlayer) return false;
+  _ytPlayerReadyEpoch = _ytPlayerEpoch;
+  return true;
 }
 
 export function incrementSessionId(): number {
@@ -298,6 +318,8 @@ export function setYouTubeSubIndex(index: number): void {
  *  sync. */
 export function resetYouTubeModuleState(): void {
   _youtubePlayer = null;
+  _ytPlayerEpoch += 1;
+  _ytPlayerReadyEpoch = -1;
   _currentYouTubeSessionId = 0;
   _ytScriptLoading = false;
   _ytIOSWatchdog = null;

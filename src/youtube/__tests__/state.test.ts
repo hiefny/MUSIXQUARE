@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { PlaylistItem } from '../../types/index.ts';
 import {
+  type YouTubePlayerInstance,
+  isYtPlayerReady,
+  markYtPlayerReady,
+  resetYouTubeModuleState,
+  setYouTubePlayer,
   setSubItemsData,
   setSubItemsLoadError,
   updateSubItemIds,
@@ -12,6 +17,7 @@ import { MAX_PLAYLIST_SUB_ITEMS } from '../constants.ts';
 describe('YouTube subItemsMap cache', () => {
   beforeEach(() => {
     resetState();
+    resetYouTubeModuleState();
   });
 
   it('keeps the current playlist when pruning old entries', () => {
@@ -84,5 +90,36 @@ describe('YouTube subItemsMap cache', () => {
     setSubItemsData('pid-0', ['v0', 'v1', 'v2'], ['A', '', '']);
     updateSubItemTitle('pid-0', 2, 'C');
     expect(getState('youtube.subItemsMap')['pid-0']?.titles[2]).toBe('C');
+  });
+});
+
+describe('YouTube player readiness identity', () => {
+  beforeEach(() => {
+    resetYouTubeModuleState();
+  });
+
+  it('becomes ready only for the current player onReady epoch', () => {
+    const first = {} as YouTubePlayerInstance;
+    const replacement = {} as YouTubePlayerInstance;
+
+    setYouTubePlayer(first);
+    expect(isYtPlayerReady()).toBe(false);
+    expect(markYtPlayerReady(first)).toBe(true);
+    expect(isYtPlayerReady()).toBe(true);
+
+    // Re-publishing the same retained iframe preserves its ready epoch.
+    setYouTubePlayer(first);
+    expect(isYtPlayerReady()).toBe(true);
+
+    setYouTubePlayer(replacement);
+    expect(isYtPlayerReady()).toBe(false);
+    expect(markYtPlayerReady(first)).toBe(false);
+    expect(isYtPlayerReady()).toBe(false);
+    expect(markYtPlayerReady(replacement)).toBe(true);
+    expect(isYtPlayerReady()).toBe(true);
+
+    setYouTubePlayer(null);
+    expect(isYtPlayerReady()).toBe(false);
+    expect(markYtPlayerReady(replacement)).toBe(false);
   });
 });

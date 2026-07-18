@@ -53,6 +53,10 @@ import {
 } from '../storage/transfer.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { cancelYtAutoSync, setPendingAutoSyncOnReady } from '../youtube/player.ts';
+import {
+  handoffSameVideoOccurrenceRestart,
+  prepareSameVideoOccurrenceRestart,
+} from '../youtube/iframe.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
@@ -482,6 +486,7 @@ export async function playTrack(
   clearManagedTimer('decode-fail-advance');
 
   const hostConn = getState('network.hostConn');
+  const previousQueueItemId = getCurrentQueueItemId();
 
   // ─── Fast Path: Host re-clicks currently-playing local file ─────────
   // Skip full reload/rebroadcast/preload-reset. Just reset position to 0
@@ -838,6 +843,14 @@ export async function playTrack(
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       const isAlreadyYt = isYouTubeOwner();
       const shouldAutoplay = false;
+      const isNewYouTubeOccurrence =
+        isAlreadyYt &&
+        previousQueueItemId !== null &&
+        previousQueueItemId !== queueItemId &&
+        Boolean(broadcastVideoId);
+      if (isNewYouTubeOccurrence && broadcastVideoId) {
+        prepareSameVideoOccurrenceRestart(queueItemId, broadcastVideoId);
+      }
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
@@ -896,6 +909,9 @@ export async function playTrack(
           videoId: broadcastVideoId ?? undefined,
           skipSeek: true,
         });
+        if (isNewYouTubeOccurrence && broadcastVideoId) {
+          handoffSameVideoOccurrenceRestart(queueItemId, broadcastVideoId);
+        }
       }
 
       // Keep hybrid playlists warm; preload scanning skips YouTube entries and

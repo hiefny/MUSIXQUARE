@@ -25,6 +25,7 @@ import type { PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
 const QUEUE_ITEM_ID = '88888888-8888-4888-8888-888888888888';
+const SECOND_QUEUE_ITEM_ID = '99999999-9999-4999-8999-999999999999';
 
 const zeroStartFacade = vi.hoisted(() => ({
   handlePlayerState: vi.fn(() => false),
@@ -168,7 +169,7 @@ interface YtTestHandle {
 
 function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
   let capturedOnStateChange: ((event: { data: number }) => void) | undefined;
-  let capturedOnReady: (() => void) | undefined;
+  let capturedOnReady: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnError: ((event: { data: number }) => void) | undefined;
   (window as unknown as { YT: unknown }).YT = {
     Player: vi.fn(function (
@@ -176,7 +177,7 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
       options: {
         events: {
           onStateChange?: (event: { data: number }) => void;
-          onReady?: () => void;
+          onReady?: (event: { target: YouTubePlayerInstance }) => void;
           onError?: (event: { data: number }) => void;
         };
       },
@@ -202,7 +203,7 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
     },
     fireReady: () => {
       if (!capturedOnReady) throw new Error('onReady was never captured');
-      capturedOnReady();
+      capturedOnReady({ target: player });
     },
     fireError: (code: number) => {
       if (!capturedOnError) throw new Error('onError was never captured');
@@ -260,6 +261,23 @@ async function startHostScrapeLoad(
 }
 
 // ─── Scrape poll supersession ──────────────────────────────────────────────
+
+describe('IFrame runtime readiness identity', () => {
+  it('does not expose the synchronous player facade as ready before onReady', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { isYtPlayerReady } = await import('../_state.ts');
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+
+    loadYouTubeVideo('readyEpoch1', null, false, 0);
+    expect(isYtPlayerReady()).toBe(false);
+
+    handle.fireReady();
+    expect(isYtPlayerReady()).toBe(true);
+  });
+});
 
 describe('scrape poll supersession (F-2401)', () => {
   it('a stale scrape poll step must not touch the player after the load was superseded', async () => {
@@ -585,6 +603,277 @@ describe('persistent prime transition supersession', () => {
     expect(broadcastMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.YOUTUBE_STATE }),
     );
+  });
+});
+
+describe('same-video queue occurrence handoff', () => {
+  it('does not depend on a fresh CUED event and ignores the late old callback', async () => {
+    const player = createMockYtPlayer();
+    const cueVideoById = vi.fn();
+    player.cueVideoById = cueVideoById;
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideo01' });
+    const handle = installYtNamespace(player);
+    const {
+      handoffSameVideoOccurrenceRestart,
+      loadYouTubeVideo,
+      prepareSameVideoOccurrenceRestart,
+    } = await import('../iframe.ts');
+    const { setPendingAutoSyncOnReady } = await import('../player.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'First occurrence',
+        videoId: 'sameVideo01',
+      } as unknown as PlaylistItem,
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Second occurrence',
+        videoId: 'sameVideo01',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('sameVideo01', null, false, 0);
+
+    vi.mocked(player.pauseVideo!).mockClear();
+    vi.mocked(player.stopVideo!).mockClear();
+    vi.mocked(player.loadVideoById!).mockClear();
+    vi.mocked(player.loadPlaylist!).mockClear();
+    vi.mocked(player.cuePlaylist!).mockClear();
+    cueVideoById.mockClear();
+    setManagedTimerMock.mockClear();
+
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    expect(prepareSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideo01')).toBe(true);
+    vi.mocked(player.getPlayerState!).mockReturnValue(1);
+    loadYouTubeVideo('sameVideo01', 'resolved-playlist', false, 0);
+
+    expect(player.pauseVideo).toHaveBeenCalledOnce();
+    expect(player.stopVideo).not.toHaveBeenCalled();
+    expect(player.loadVideoById).not.toHaveBeenCalled();
+    expect(player.loadPlaylist).not.toHaveBeenCalled();
+    expect(player.cuePlaylist).not.toHaveBeenCalled();
+    expect(cueVideoById).not.toHaveBeenCalled();
+    const staleFallback = lastTimerCallback('yt-same-video-occurrence-handoff');
+    expect(staleFallback).toBeDefined();
+
+    setPendingAutoSyncOnReady(true, {
+      isTrackTransition: true,
+      zeroStart: true,
+      targetTime: 0,
+      videoId: 'sameVideo01',
+      skipSeek: true,
+    });
+    const autoPlay = vi.fn();
+    bus.on('youtube:auto-play', autoPlay);
+
+    expect(handoffSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideo01')).toBe(true);
+    expect(autoPlay).not.toHaveBeenCalled();
+
+    // The outgoing occurrence's delayed PLAYING cannot consume the new start.
+    handle.fireStateChange(1);
+    expect(autoPlay).not.toHaveBeenCalled();
+
+    vi.mocked(player.getPlayerState!).mockReturnValue(2);
+    handle.fireStateChange(2);
+    expect(autoPlay).toHaveBeenCalledOnce();
+    expect(autoPlay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isTrackTransition: true,
+        zeroStart: true,
+        videoId: 'sameVideo01',
+      }),
+    );
+
+    // A CUED callback from the outgoing occurrence has no pending intent left
+    // to consume, and a manually invoked stale fallback cannot cue it again.
+    handle.fireStateChange(5);
+    staleFallback!();
+    expect(autoPlay).toHaveBeenCalledOnce();
+    expect(cueVideoById).not.toHaveBeenCalled();
+  });
+
+  it('keeps the old cue behavior for a same-video load without playlist handoff', async () => {
+    const player = createMockYtPlayer();
+    const cueVideoById = vi.fn();
+    player.cueVideoById = cueVideoById;
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideo02' });
+    installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Repeated URL',
+        videoId: 'sameVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('sameVideo02', null, false, 0);
+    cueVideoById.mockClear();
+    setManagedTimerMock.mockClear();
+
+    loadYouTubeVideo('sameVideo02', null, false, 0);
+    expect(cueVideoById).not.toHaveBeenCalled();
+
+    lastTimerCallback('yt-same-video-occurrence-handoff')!();
+    expect(cueVideoById).toHaveBeenCalledOnce();
+    expect(cueVideoById).toHaveBeenCalledWith('sameVideo02', 0);
+  });
+
+  it('forces a bounded handoff when PAUSED never arrives', async () => {
+    const player = createMockYtPlayer();
+    player.cueVideoById = vi.fn();
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideo03' });
+    vi.mocked(player.getPlayerState!).mockReturnValue(1);
+    installYtNamespace(player);
+    const {
+      handoffSameVideoOccurrenceRestart,
+      loadYouTubeVideo,
+      prepareSameVideoOccurrenceRestart,
+    } = await import('../iframe.ts');
+    const { isYtLoadInProgress } = await import('../_state.ts');
+    const { setPendingAutoSyncOnReady } = await import('../player.ts');
+    let now = 1_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'First occurrence',
+        videoId: 'sameVideo03',
+      } as unknown as PlaylistItem,
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Second occurrence',
+        videoId: 'sameVideo03',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('sameVideo03', null, false, 0);
+    setManagedTimerMock.mockClear();
+
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    expect(prepareSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideo03')).toBe(true);
+    loadYouTubeVideo('sameVideo03', null, false, 0);
+    setPendingAutoSyncOnReady(true, {
+      isTrackTransition: true,
+      zeroStart: true,
+      videoId: 'sameVideo03',
+    });
+    const autoPlay = vi.fn();
+    bus.on('youtube:auto-play', autoPlay);
+
+    expect(handoffSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideo03')).toBe(true);
+    expect(isYtLoadInProgress()).toBe(true);
+    expect(autoPlay).not.toHaveBeenCalled();
+
+    now += 501;
+    lastTimerCallback('yt-same-video-occurrence-handoff')!();
+    expect(autoPlay).toHaveBeenCalledOnce();
+    expect(isYtLoadInProgress()).toBe(false);
+  });
+
+  it('releases quarantine and loading when pending consumption fails', async () => {
+    const player = createMockYtPlayer();
+    player.cueVideoById = vi.fn();
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideo04' });
+    const handle = installYtNamespace(player);
+    const {
+      handoffSameVideoOccurrenceRestart,
+      loadYouTubeVideo,
+      prepareSameVideoOccurrenceRestart,
+    } = await import('../iframe.ts');
+    const { isYtLoadInProgress } = await import('../_state.ts');
+    const { setPendingAutoSyncOnReady } = await import('../player.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'First occurrence',
+        videoId: 'sameVideo04',
+      } as unknown as PlaylistItem,
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Second occurrence',
+        videoId: 'sameVideo04',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('sameVideo04', null, false, 0);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    expect(prepareSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideo04')).toBe(true);
+    loadYouTubeVideo('sameVideo04', null, false, 0);
+    setPendingAutoSyncOnReady(true, {
+      isTrackTransition: true,
+      zeroStart: true,
+      videoId: 'differentVideo',
+    });
+    const autoPlay = vi.fn();
+    bus.on('youtube:auto-play', autoPlay);
+
+    expect(handoffSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideo04')).toBe(true);
+    expect(autoPlay).not.toHaveBeenCalled();
+    expect(isYtLoadInProgress()).toBe(false);
+
+    zeroStartFacade.handlePlayerState.mockClear();
+    handle.fireStateChange(1);
+    expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledWith(1);
+    setPendingAutoSyncOnReady(false);
+  });
+
+  it('releases a superseded occurrence without cueing or leaving loading active', async () => {
+    const player = createMockYtPlayer();
+    const cueVideoById = vi.fn();
+    player.cueVideoById = cueVideoById;
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideo05' });
+    installYtNamespace(player);
+    const { loadYouTubeVideo, prepareSameVideoOccurrenceRestart } = await import('../iframe.ts');
+    const { isYtLoadInProgress } = await import('../_state.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'First occurrence',
+        videoId: 'sameVideo05',
+      } as unknown as PlaylistItem,
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Second occurrence',
+        videoId: 'sameVideo05',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('sameVideo05', null, false, 0);
+    setManagedTimerMock.mockClear();
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    expect(prepareSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideo05')).toBe(true);
+    loadYouTubeVideo('sameVideo05', null, false, 0);
+    const staleFallback = lastTimerCallback('yt-same-video-occurrence-handoff');
+
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    staleFallback!();
+    expect(cueVideoById).not.toHaveBeenCalled();
+    expect(isYtLoadInProgress()).toBe(false);
   });
 });
 

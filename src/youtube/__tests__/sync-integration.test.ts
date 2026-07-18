@@ -97,6 +97,7 @@ vi.mock('../../network/shared-clock.ts', () => ({
 const getYouTubePlayerMock = vi.fn<[], FakeYtPlayer | null>(() => null);
 vi.mock('../_state.ts', () => ({
   getYouTubePlayer: (...args: unknown[]) => getYouTubePlayerMock(...(args as [])),
+  isYtPlayerReady: () => getYouTubePlayerMock() !== null,
   setYouTubePlayer: vi.fn(),
   getCurrentSessionId: vi.fn(() => youtubeSessionFacade.id),
   incrementSessionId: vi.fn(),
@@ -672,6 +673,92 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
     });
 
+    it('does not transfer an adopted host load to a rebuilt iframe instance', async () => {
+      const handedOffPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: 'OUTGOING_VIDEO',
+        __autoPlayOnLoad: false,
+      });
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube } = await importPlayer();
+
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      vi.advanceTimersByTime(1);
+      expect(handedOffPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
+
+      const rebuiltPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: 'OUTGOING_VIDEO',
+        __autoPlayOnLoad: false,
+      });
+      vi.advanceTimersByTime(10_200);
+
+      expect(rebuiltPlayer.__log.filter((call) => call.op === 'loadVideoById')).toEqual([
+        expect.objectContaining({ args: [ZERO_START_VIDEO_ID, 0] }),
+      ]);
+    });
+
+    it('retries host audio restoration boundedly after a recovery timeout', async () => {
+      const handedOffPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: 'OUTGOING_VIDEO',
+        __muted: false,
+        __volume: 73,
+        __autoPlayOnLoad: false,
+      });
+      let unmuteAttempts = 0;
+      handedOffPlayer.unMute = () => {
+        handedOffPlayer.__log.push({ op: 'unMute', at: Date.now() });
+        unmuteAttempts += 1;
+        if (unmuteAttempts >= 2) handedOffPlayer.__muted = false;
+      };
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube, isYouTubeZeroStartExternalFallbackActive } = await importPlayer();
+
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      vi.advanceTimersByTime(1);
+      getYouTubePlayerMock.mockReturnValue(null);
+      vi.advanceTimersByTime(13_500);
+
+      expect(unmuteAttempts).toBeGreaterThan(1);
+      expect(handedOffPlayer.isMuted()).toBe(false);
+      expect(handedOffPlayer.getVolume()).toBe(73);
+      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+    });
+
+    it('clears host fallback ownership when its queue target is no longer current', async () => {
+      installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
+        __hardMuteFails: true,
+      });
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube, isYouTubeZeroStartExternalFallbackActive } = await importPlayer();
+
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      vi.advanceTimersByTime(320);
+      getYouTubePlayerMock.mockReturnValue(null);
+      vi.advanceTimersByTime(20);
+      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(true);
+
+      setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+      vi.advanceTimersByTime(60);
+
+      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+    });
+
     it('finishes a host fallback cleanly when the player never returns', async () => {
       installPlayer({
         __state: 2,
@@ -937,6 +1024,290 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(recoveredPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
     });
 
+    it('reloads a guest target when the controller handed load belongs to a replaced iframe', async () => {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', mockHostConn as never);
+      const handedOffPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: 'OUTGOING_VIDEO',
+        __autoPlayOnLoad: false,
+      });
+      const { initYouTube } = await importPlayer();
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      const commitHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_COMMIT];
+      const prepareAtHost = Date.now();
+
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'guest-exact-handoff-run',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          subIndex: 0,
+          prepareAtHost,
+          decisionAtHost: prepareAtHost + 2_300,
+          startDeadlineAtHost: prepareAtHost + 3_000,
+          hostPlatform: 'other',
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(1);
+      expect(handedOffPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
+
+      commitHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_COMMIT,
+          version: 1,
+          runId: 'guest-exact-handoff-run',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          startAtHost: prepareAtHost + 3_000,
+          reason: 'guest-timeout',
+          cohort: ['host-only'],
+        },
+        mockHostConn,
+      );
+      const rebuiltPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: 'OUTGOING_VIDEO',
+        __autoPlayOnLoad: false,
+      });
+      vi.advanceTimersByTime(3_500);
+
+      expect(rebuiltPlayer.__log.filter((call) => call.op === 'loadVideoById')).toEqual([
+        expect.objectContaining({ args: [ZERO_START_VIDEO_ID, 0] }),
+      ]);
+      expect(rebuiltPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+    });
+
+    it('requires a fresh PLAYING acknowledgement after guest fallback release', async () => {
+      getYouTubePlayerMock.mockReturnValue(null);
+      await requestGuestExternalFallbackWhilePlayerMissing('fallback-release-watchdog-run');
+      const recoveredPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
+        __muted: false,
+      });
+      recoveredPlayer.playVideo = () => {
+        recoveredPlayer.__log.push({ op: 'playVideo', at: Date.now() });
+        // Simulate WebKit accepting the method call without transitioning.
+      };
+      const { isYouTubeZeroStartExternalFallbackActive } = await importPlayer();
+
+      vi.advanceTimersByTime(5_000);
+
+      expect(recoveredPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+      expect(recoveredPlayer.getPlayerState()).toBe(2);
+      expect(recoveredPlayer.isMuted()).toBe(false);
+      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(getManagedTimer('yt-zero-start-external-fallback')).toBeNull();
+    });
+
+    it('retries guest audio restoration boundedly when fallback preparation times out', async () => {
+      getYouTubePlayerMock.mockReturnValue(null);
+      await requestGuestExternalFallbackWhilePlayerMissing('fallback-audio-cleanup-run');
+      const stuckPlayer = installPlayer({
+        __state: -1,
+        __currentTime: 0,
+        __videoId: 'STALE_VIDEO',
+        __muted: true,
+        __volume: 73,
+      });
+      let unmuteAttempts = 0;
+      stuckPlayer.unMute = () => {
+        stuckPlayer.__log.push({ op: 'unMute', at: Date.now() });
+        unmuteAttempts += 1;
+        if (unmuteAttempts >= 2) stuckPlayer.__muted = false;
+      };
+
+      vi.advanceTimersByTime(4_000);
+
+      expect(unmuteAttempts).toBeGreaterThan(1);
+      expect(stuckPlayer.isMuted()).toBe(false);
+      expect(stuckPlayer.getVolume()).toBe(100);
+      expect(getManagedTimer('yt-zero-start-external-fallback')).toBeNull();
+    });
+
+    it('transfers an old guest fallback to a new PREPARE without stale player mutations', async () => {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', mockHostConn as never);
+      setState('audio.masterVolume', 0.73);
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: 'OUTGOING_VIDEO',
+        __muted: false,
+        __volume: 73,
+        __autoPlayOnLoad: false,
+      });
+      player.unMute = () => {
+        player.__log.push({ op: 'unMute', at: Date.now() });
+        setTimeout(() => {
+          player.__muted = false;
+        }, 250);
+      };
+      const { initYouTube } = await importPlayer();
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      const commitHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_COMMIT];
+      const abortHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_ABORT];
+      const prepareAtHost = Date.now();
+
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'fallback-transfer-old',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          subIndex: 0,
+          prepareAtHost,
+          decisionAtHost: prepareAtHost + 2_300,
+          startDeadlineAtHost: prepareAtHost + 3_000,
+          hostPlatform: 'other',
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(1);
+      commitHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_COMMIT,
+          version: 1,
+          runId: 'fallback-transfer-old',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          startAtHost: prepareAtHost + 3_000,
+          reason: 'guest-timeout',
+          cohort: ['host-only'],
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(0);
+
+      const successorVideoId = 'dQw4w9WgXcQ';
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'fallback-transfer-new',
+          sequence: 2,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: successorVideoId,
+          subIndex: 0,
+          prepareAtHost: Date.now(),
+          decisionAtHost: Date.now() + 2_300,
+          startDeadlineAtHost: Date.now() + 3_000,
+          hostPlatform: 'other',
+        },
+        mockHostConn,
+      );
+      player.__log.length = 0;
+      // Exceed the simulated WebKit unmute latency. No command owned by the
+      // superseded fallback may land after the successor hard-mutes/loads.
+      vi.advanceTimersByTime(300);
+
+      const successorLoadIndex = player.__log.findIndex(
+        (call) => call.op === 'loadVideoById' && call.args?.[0] === successorVideoId,
+      );
+      expect(successorLoadIndex).toBeGreaterThanOrEqual(0);
+      expect(
+        player.__log
+          .slice(successorLoadIndex + 1)
+          .some((call) => call.op === 'pauseVideo' || call.op === 'seekTo' || call.op === 'unMute'),
+      ).toBe(false);
+
+      abortHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_ABORT,
+          version: 1,
+          runId: 'fallback-transfer-new',
+          sequence: 2,
+          queueItemId: QUEUE_ITEM_ID,
+          reason: 'cancelled',
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(1_000);
+
+      expect(player.isMuted()).toBe(false);
+      expect(player.getVolume()).toBe(73);
+    });
+
+    it('adopts a slow target load once and verifies delayed unmute before release', async () => {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', mockHostConn as never);
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 41,
+        __videoId: 'OUTGOING_VIDEO',
+        __muted: false,
+        __volume: 73,
+        __autoPlayOnLoad: false,
+      });
+      player.unMute = () => {
+        player.__log.push({ op: 'unMute', at: Date.now() });
+        setTimeout(() => {
+          player.__muted = false;
+        }, 250);
+      };
+
+      const { initYouTube } = await importPlayer();
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      const commitHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_COMMIT];
+      const prepareAtHost = Date.now();
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'slow-adopt-run',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          subIndex: 0,
+          prepareAtHost,
+          decisionAtHost: prepareAtHost + 2_300,
+          startDeadlineAtHost: prepareAtHost + 3_000,
+          hostPlatform: 'other',
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(1);
+      expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
+      expect(player.isMuted()).toBe(true);
+
+      commitHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_COMMIT,
+          version: 1,
+          runId: 'slow-adopt-run',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          startAtHost: prepareAtHost + 3_000,
+          reason: 'guest-timeout',
+          cohort: ['host-peer'],
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(3_500);
+
+      expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
+      expect(player.__log.filter((call) => call.op === 'unMute').length).toBeGreaterThan(1);
+      expect(player.isMuted()).toBe(false);
+      expect(player.getVolume()).toBe(73);
+      expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+    });
+
     it('does not release a recovered fallback player before the future COMMIT deadline', async () => {
       getYouTubePlayerMock.mockReturnValue(null);
       await requestGuestExternalFallbackWhilePlayerMissing('fallback-future-release-run');
@@ -949,6 +1320,9 @@ describe('YouTube Sync — Regression Integration', () => {
       vi.advanceTimersByTime(2_999);
 
       expect(recoveredPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+      // The target stays hard-muted as well as paused until the authoritative
+      // COMMIT deadline, preventing an async autoplay event from leaking.
+      expect(recoveredPlayer.getPlayerState()).toBe(2);
       expect(recoveredPlayer.isMuted()).toBe(true);
 
       vi.advanceTimersByTime(1);
@@ -977,10 +1351,10 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(recoveredPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
       expect(recoveredPlayer.__log.some((call) => call.op === 'pauseVideo')).toBe(true);
-      expect(recoveredPlayer.__log.some((call) => call.op === 'cueVideoById')).toBe(true);
-      expect(recoveredPlayer.getPlayerState()).toBe(5);
+      expect(recoveredPlayer.__log.some((call) => call.op === 'cueVideoById')).toBe(false);
+      expect(recoveredPlayer.getPlayerState()).toBe(2);
       expect(recoveredPlayer.isMuted()).toBe(false);
-      expect(recoveredPlayer.getVolume()).toBe(73);
+      expect(recoveredPlayer.getVolume()).toBe(100);
     });
 
     it('revokes a fallback load that never becomes ready before its deadline', async () => {
@@ -999,10 +1373,10 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(stuckPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
       expect(stuckPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
       expect(stuckPlayer.__log.some((call) => call.op === 'pauseVideo')).toBe(true);
-      expect(stuckPlayer.__log.some((call) => call.op === 'cueVideoById')).toBe(true);
-      expect(stuckPlayer.getPlayerState()).toBe(5);
+      expect(stuckPlayer.__log.some((call) => call.op === 'cueVideoById')).toBe(false);
+      expect(stuckPlayer.getPlayerState()).toBe(2);
       expect(stuckPlayer.isMuted()).toBe(false);
-      expect(stuckPlayer.getVolume()).toBe(73);
+      expect(stuckPlayer.getVolume()).toBe(100);
     });
 
     it.each(['new PREPARE', 'matching ABORT', 'host connection', 'YouTube session'] as const)(

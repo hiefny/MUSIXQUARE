@@ -29,6 +29,7 @@ import {
 import {
   getYouTubePlayer,
   setYouTubePlayer,
+  markYtPlayerReady,
   getCurrentSessionId,
   incrementSessionId,
   isYtScriptLoading,
@@ -65,7 +66,11 @@ import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
 import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, toCanonicalYouTubeTime } from './local-offset.ts';
-import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
+import {
+  consumePendingAutoSyncOnReady,
+  isYouTubeZeroStartExternalFallbackActive,
+  setPendingAutoSyncOnReady,
+} from './player.ts';
 import {
   handleYouTubeZeroStartPlayerState,
   isYouTubeZeroStartInFlight,
@@ -94,7 +99,12 @@ import {
 } from './constants.ts';
 
 import type { QueueItemId } from '../types/index.ts';
-import type { YTNamespace, YTPlayerConfig, YtIndexingSession } from './_state.ts';
+import type {
+  YouTubePlayerInstance,
+  YTNamespace,
+  YTPlayerConfig,
+  YtIndexingSession,
+} from './_state.ts';
 declare const YT: YTNamespace;
 declare global {
   interface Window {
@@ -106,6 +116,108 @@ declare global {
 
 const PRO_TITLE_PERSIST_RETRY_MS = 5_000;
 const PRO_TITLE_PERSIST_MAX_ATTEMPTS = 3;
+const SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER = 'yt-same-video-occurrence-handoff';
+const SAME_VIDEO_OCCURRENCE_PAUSE_POLL_MS = 20;
+const SAME_VIDEO_OCCURRENCE_PAUSE_TIMEOUT_MS = 500;
+
+/**
+ * A persistent iframe cannot distinguish two queue occurrences that point to
+ * the same YouTube video: cueVideoById(sameId) may be coalesced and any late
+ * CUED event is indistinguishable from the outgoing occurrence. Keep the
+ * exact load generation here so playlist.ts can hand the freshly armed
+ * zero-start intent directly to the rendezvous owner without waiting for an
+ * iframe event that may never arrive.
+ */
+let pendingSameVideoOccurrenceRestart: {
+  sessionId: number;
+  queueItemId: QueueItemId | null;
+  videoId: string;
+  handoffRequested: boolean;
+  handoffDeadlineAt: number;
+} | null = null;
+let preparedSameVideoOccurrenceRestart: {
+  player: YouTubePlayerInstance;
+  queueItemId: QueueItemId;
+  videoId: string;
+} | null = null;
+
+function clearSameVideoOccurrenceRestart(): void {
+  pendingSameVideoOccurrenceRestart = null;
+  clearManagedTimer(SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER);
+}
+
+function releaseSameVideoOccurrenceRestart(
+  restart: NonNullable<typeof pendingSameVideoOccurrenceRestart>,
+): void {
+  if (pendingSameVideoOccurrenceRestart !== restart) return;
+  pendingSameVideoOccurrenceRestart = null;
+  clearManagedTimer(SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER);
+  if (restart.sessionId === getCurrentSessionId()) setYtLoadInProgress(false);
+}
+
+function isCurrentSameVideoOccurrenceRestart(
+  restart: NonNullable<typeof pendingSameVideoOccurrenceRestart>,
+): boolean {
+  return (
+    pendingSameVideoOccurrenceRestart === restart &&
+    restart.sessionId === getCurrentSessionId() &&
+    restart.queueItemId === getCurrentQueueItemId()
+  );
+}
+
+function completeSameVideoOccurrenceHandoff(
+  restart: NonNullable<typeof pendingSameVideoOccurrenceRestart>,
+): boolean {
+  if (!isCurrentSameVideoOccurrenceRestart(restart)) return false;
+  const pending = consumePendingAutoSyncOnReady();
+  if (!pending || (pending.videoId && pending.videoId !== restart.videoId)) {
+    releaseSameVideoOccurrenceRestart(restart);
+    return false;
+  }
+
+  clearSameVideoOccurrenceRestart();
+  setYtLoadInProgress(false);
+  bus.emit('youtube:auto-play', pending);
+  return true;
+}
+
+function continueSameVideoOccurrenceHandoff(
+  restart: NonNullable<typeof pendingSameVideoOccurrenceRestart>,
+): void {
+  if (!isCurrentSameVideoOccurrenceRestart(restart) || !restart.handoffRequested) {
+    releaseSameVideoOccurrenceRestart(restart);
+    return;
+  }
+
+  const player = getYouTubePlayer();
+  if (!player) {
+    releaseSameVideoOccurrenceRestart(restart);
+    return;
+  }
+  let state = -1;
+  try {
+    state = player.getPlayerState?.() ?? -1;
+  } catch {
+    // The bounded retry below owns recovery from a transient unreadable state.
+  }
+
+  if (state === 2 || state === 5 || Date.now() >= restart.handoffDeadlineAt) {
+    completeSameVideoOccurrenceHandoff(restart);
+    return;
+  }
+
+  try {
+    player.pauseVideo?.();
+  } catch {
+    // The timeout still hands control to zero-start, whose hard-mute/load path
+    // has its own bounded failure recovery.
+  }
+  setManagedTimer(
+    SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER,
+    () => continueSameVideoOccurrenceHandoff(restart),
+    SAME_VIDEO_OCCURRENCE_PAUSE_POLL_MS,
+  );
+}
 const persistedResolvedTitleByQueueItem = new Map<
   QueueItemId,
   {
@@ -495,6 +607,7 @@ export function precreateYouTubePlayer(): void {
     clearManagedTimer('youtubeSyncLoop');
     resetYouTubeSyncState();
     setYouTubePlayer(null);
+    bus.emit('youtube:zero-start-readiness-changed');
   }
 
   const container = ensureYouTubePlayerContainer();
@@ -562,6 +675,80 @@ type LoadYouTubeVideoOptions = {
   indexingCallback?: (ids: string[]) => void;
 };
 
+/**
+ * Mark a queue-occurrence transition before youtube:load enters the persistent
+ * iframe. This lets an already-resolved playlist row use the same safe
+ * single-video restart as a plain watch URL instead of waking YouTube's native
+ * playlist engine merely because playlistId is present.
+ */
+export function prepareSameVideoOccurrenceRestart(
+  queueItemId: QueueItemId,
+  videoId: string,
+): boolean {
+  preparedSameVideoOccurrenceRestart = null;
+  const player = getYouTubePlayer();
+  if (!player || !isPlaybackModeYouTube() || getCurrentQueueItemId() !== queueItemId) return false;
+  try {
+    if (player.getVideoData?.()?.video_id !== videoId) return false;
+  } catch {
+    return false;
+  }
+  preparedSameVideoOccurrenceRestart = { player, queueItemId, videoId };
+  return true;
+}
+
+/**
+ * Complete a same-video/different-occurrence transition after playlist.ts has
+ * armed the new occurrence's pending zero-start intent.
+ *
+ * This is deliberately synchronous. The load call and pending-intent arm run
+ * in the same JavaScript task, so a delayed CUED/PLAYING callback from the
+ * outgoing occurrence cannot steal the new intent first. Session, queue, and
+ * resident-video checks make a superseded handoff a harmless no-op.
+ */
+export function handoffSameVideoOccurrenceRestart(
+  queueItemId: QueueItemId,
+  videoId: string,
+): boolean {
+  const restart = pendingSameVideoOccurrenceRestart;
+  if (
+    !restart ||
+    restart.sessionId !== getCurrentSessionId() ||
+    restart.queueItemId !== queueItemId ||
+    restart.queueItemId !== getCurrentQueueItemId() ||
+    restart.videoId !== videoId
+  ) {
+    // A stale caller must not tear down a newer occurrence's restart. Release
+    // only the record that caller could actually own.
+    if (restart?.queueItemId === queueItemId && restart.videoId === videoId) {
+      releaseSameVideoOccurrenceRestart(restart);
+    }
+    return false;
+  }
+
+  const player = getYouTubePlayer();
+  if (!player) {
+    releaseSameVideoOccurrenceRestart(restart);
+    return false;
+  }
+  try {
+    const residentVideoId = player.getVideoData?.()?.video_id || '';
+    if (residentVideoId && residentVideoId !== videoId) {
+      releaseSameVideoOccurrenceRestart(restart);
+      return false;
+    }
+  } catch {
+    releaseSameVideoOccurrenceRestart(restart);
+    return false;
+  }
+
+  restart.handoffRequested = true;
+  restart.handoffDeadlineAt = Date.now() + SAME_VIDEO_OCCURRENCE_PAUSE_TIMEOUT_MS;
+  clearManagedTimer(SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER);
+  continueSameVideoOccurrenceHandoff(restart);
+  return true;
+}
+
 export function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,
@@ -569,6 +756,10 @@ export function loadYouTubeVideo(
   subIndex = 0,
   opts: LoadYouTubeVideoOptions = {},
 ): void {
+  const preparedSameVideoRestart = preparedSameVideoOccurrenceRestart;
+  preparedSameVideoOccurrenceRestart = null;
+  // A newer load always supersedes an unclaimed same-video handoff.
+  clearSameVideoOccurrenceRestart();
   setYtPriming(false);
   setYtPrimeReady(false);
   setYtPrimeBouncePending(false);
@@ -587,11 +778,36 @@ export function loadYouTubeVideo(
   // the iframe resets the user gesture — requiring a tap to play again.
   // loadVideoById/loadPlaylist on the same player preserves the gesture.
   const isYouTubeToYouTube = player?.loadVideoById && isPlaybackModeYouTube();
+  let isSameVideoReuse = false;
+  if (isYouTubeToYouTube && videoId) {
+    try {
+      const preparedRestartMatches =
+        !opts.indexingCallback &&
+        preparedSameVideoRestart?.player === player &&
+        preparedSameVideoRestart.queueItemId === getCurrentQueueItemId() &&
+        preparedSameVideoRestart.videoId === videoId;
+      // Guests always receive a resolved videoId from the coordinator and
+      // force playlistId away below; the host can do the same only when
+      // playlist.ts explicitly proved this is a new occurrence of the
+      // already-resident resolved video. Deferred indexing keeps its native
+      // playlist load until the IDs have actually been discovered.
+      const resolvedSingleVideoLoad =
+        !playlistId || preparedRestartMatches || Boolean(getState('network.hostConn'));
+      isSameVideoReuse = resolvedSingleVideoLoad && player.getVideoData?.()?.video_id === videoId;
+      if (isSameVideoReuse && playlistId && !opts.indexingCallback) playlistId = null;
+    } catch {
+      isSameVideoReuse = false;
+    }
+  }
 
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
     try {
-      player!.stopVideo?.();
+      // stopVideo emits ENDED, while cueVideoById(sameId) may be coalesced.
+      // Pause the resident occurrence instead; zero-start will own the
+      // hard-muted explicit restart after the new queue identity is armed.
+      if (isSameVideoReuse) player!.pauseVideo?.();
+      else player!.stopVideo?.();
     } catch {
       /* noop */
     }
@@ -616,6 +832,7 @@ export function loadYouTubeVideo(
         /* best-effort cleanup */
       }
       setYouTubePlayer(null);
+      bus.emit('youtube:zero-start-readiness-changed');
       const container = document.getElementById('youtube-player-container');
       if (container) resetYouTubePlayerHost(container);
     }
@@ -634,6 +851,15 @@ export function loadYouTubeVideo(
   _ifr.lastStateBroadcast = 0; // Allow immediate first broadcast for new session
   _ifr.lastBroadcastState = -1; // Reset so first state is never treated as duplicate
   const sessionId = incrementSessionId();
+  if (isSameVideoReuse && videoId) {
+    pendingSameVideoOccurrenceRestart = {
+      sessionId,
+      queueItemId: getCurrentQueueItemId(),
+      videoId,
+      handoffRequested: false,
+      handoffDeadlineAt: 0,
+    };
+  }
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
 
@@ -808,6 +1034,7 @@ function createYouTubePlayer(
 
     log.debug('[YouTube] Re-using existing player instance');
     try {
+      const sameVideoRestart = pendingSameVideoOccurrenceRestart;
       if ((needsScrape || indexing) && playlistId) {
         existingPlayer.cuePlaylist({
           list: playlistId,
@@ -830,7 +1057,39 @@ function createYouTubePlayer(
         // received the same transition intent. Older clients still recover
         // through the existing state/sync messages if the room falls back to
         // the legacy path.
-        if (!autoplay && existingPlayer.cueVideoById) {
+        if (
+          sameVideoRestart?.sessionId === getCurrentSessionId() &&
+          sameVideoRestart.videoId === videoId
+        ) {
+          // Do not wait for cueVideoById(sameId): WebKit is allowed to coalesce
+          // it and emit no fresh CUED event. playlist.ts gets the remainder of
+          // this JavaScript task to arm and directly hand off zero-start. Calls
+          // outside playlist playback fall back to the former cue behavior on
+          // the next task, so a repeated URL load cannot be stranded.
+          setManagedTimer(
+            SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER,
+            () => {
+              const restart = pendingSameVideoOccurrenceRestart;
+              if (!restart) return;
+              if (
+                restart.sessionId !== getCurrentSessionId() ||
+                restart.videoId !== videoId ||
+                restart.queueItemId !== getCurrentQueueItemId()
+              ) {
+                releaseSameVideoOccurrenceRestart(restart);
+                return;
+              }
+              releaseSameVideoOccurrenceRestart(restart);
+              try {
+                if (existingPlayer.cueVideoById) existingPlayer.cueVideoById(videoId, 0);
+                else existingPlayer.loadVideoById(videoId, 0);
+              } catch (error) {
+                log.warn('[YouTube] Same-video cue fallback failed', error);
+              }
+            },
+            0,
+          );
+        } else if (!autoplay && existingPlayer.cueVideoById) {
           existingPlayer.cueVideoById(videoId, 0);
         } else {
           existingPlayer.loadVideoById(videoId);
@@ -840,7 +1099,11 @@ function createYouTubePlayer(
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
       if (!needsScrape) {
         setYouTubeSubIndex(subIndex);
-        setYtLoadInProgress(false);
+        // Keep the ordinary readiness poll closed until the new queue
+        // occurrence has observed PAUSED (or its short bounded timeout).
+        // Otherwise player.ts can consume the pending intent from the old
+        // occurrence's PLAYING state before our identity-aware handoff.
+        if (!sameVideoRestart) setYtLoadInProgress(false);
       } else {
         // Safety net: the reuse-path scrape relies on onStateChange(CUED) →
         // _pollScrapePlaylist → _finishScrape to clear isScrapingPlaylist +
@@ -890,6 +1153,7 @@ function createYouTubePlayer(
         /* best-effort */
       }
       setYouTubePlayer(null);
+      bus.emit('youtube:zero-start-readiness-changed');
       const container = document.getElementById('youtube-player-container');
       if (container) resetYouTubePlayerHost(container);
     }
@@ -938,7 +1202,12 @@ function createYouTubePlayer(
 
 // ─── Player Events ─────────────────────────────────────────────────
 
-function onYouTubePlayerReady(): void {
+function onYouTubePlayerReady(event: { target: YouTubePlayerInstance }): void {
+  if (!markYtPlayerReady(event.target)) {
+    log.debug('[YouTube] Ignoring stale player ready event');
+    return;
+  }
+  bus.emit('youtube:zero-start-readiness-changed');
   setYtLoadInProgress(false);
   log.debug('[YouTube] Player ready');
 
@@ -1328,6 +1597,17 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   if (!player) return; // Player destroyed during async state transition
   const state = event.data;
 
+  const sameVideoRestart = pendingSameVideoOccurrenceRestart;
+  if (sameVideoRestart && isCurrentSameVideoOccurrenceRestart(sameVideoRestart)) {
+    // Quarantine callbacks from the outgoing occurrence until pause has
+    // established an ordering boundary. In particular, neither a late CUED
+    // nor a late PLAYING may consume the new queue occurrence's pending start.
+    if (sameVideoRestart.handoffRequested && state === YT.PlayerState.PAUSED) {
+      completeSameVideoOccurrenceHandoff(sameVideoRestart);
+    }
+    return;
+  }
+
   if (isYtPrimeBouncePending() && state === YT.PlayerState.PLAYING) {
     setYtPrimeBouncePending(false);
     setYtPrimed(true);
@@ -1376,6 +1656,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // phase and returns false, so that one event continues through the normal
   // path below exactly once.
   if (handleYouTubeZeroStartPlayerState(state)) return;
+  if (isYouTubeZeroStartExternalFallbackActive()) return;
 
   if (!isPlaybackModeYouTube() && !indexing) return;
 
@@ -1682,6 +1963,7 @@ function updateYouTubeUI(): void {
         /* already dead */
       }
       setYouTubePlayer(null);
+      bus.emit('youtube:zero-start-readiness-changed');
       const container = document.getElementById('youtube-player-container');
       if (container) resetYouTubePlayerHost(container);
       showToast(t('youtube.load_fail'));

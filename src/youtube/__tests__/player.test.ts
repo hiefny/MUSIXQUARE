@@ -153,9 +153,8 @@ describe('YouTube Player', () => {
       const stateMod = await import('../_state.ts');
       const { initYouTube } = await import('../player.ts');
       const { safeSend } = await import('../../network/peer.ts');
-      const { registerPing, processSyncPong, resetClockState } = await import(
-        '../../network/shared-clock.ts'
-      );
+      const { registerPing, processSyncPong, resetClockState } =
+        await import('../../network/shared-clock.ts');
       const safeSendMock = vi.mocked(safeSend);
       safeSendMock.mockReturnValue(true);
       resetClockState();
@@ -180,7 +179,7 @@ describe('YouTube Player', () => {
 
       let muted = false;
       let volume = 100;
-      stateMod.setYouTubePlayer({
+      const player = {
         loadVideoById: vi.fn(),
         loadPlaylist: vi.fn(),
         cuePlaylist: vi.fn(),
@@ -207,7 +206,13 @@ describe('YouTube Player', () => {
         }),
         isMuted: vi.fn(() => muted),
         getVideoLoadedFraction: vi.fn(() => 1),
-      });
+      };
+      stateMod.setYouTubePlayer(player);
+      // The facade exists synchronously, but the iframe runtime is not usable
+      // until its exact instance has delivered onReady.
+      bus.emit('youtube:player-ready');
+      expect(safeSendMock).not.toHaveBeenCalled();
+      expect(stateMod.markYtPlayerReady(player)).toBe(true);
       bus.emit('youtube:player-ready');
       expect(safeSendMock).not.toHaveBeenCalled();
 

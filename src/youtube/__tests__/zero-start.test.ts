@@ -312,6 +312,13 @@ describe('YouTubeZeroStartController', () => {
     ).toBe(true);
 
     expect(fallback).toHaveBeenCalledOnce();
+    expect(fallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        desiredMuted: null,
+        desiredVolume: null,
+        targetLoadIssued: false,
+      }),
+    );
     expect(player.__log).toEqual([]);
     expect(player.isMuted()).toBe(true);
     expect(player.getVolume()).toBe(23);
@@ -423,6 +430,123 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.guest.isProtocolActive()).toBe(false);
     expect(harness.host.getSnapshot().phase).toBe('idle');
     expect(harness.guest.getSnapshot().phase).toBe('idle');
+  });
+
+  it('retries active audio restoration until the iframe reports the desired state', () => {
+    const player = makeFakeYtPlayer({
+      __autoPlayOnLoad: true,
+      __muted: false,
+      __volume: 71,
+    });
+    const outbound: YouTubeZeroStartWireMessage[] = [];
+    let unmuteCalls = 0;
+    const immediateUnmute = player.unMute.bind(player);
+    player.unMute = () => {
+      unmuteCalls += 1;
+      // Model a low-end iframe that accepts but has not reflected the first
+      // postMessage command by the time isMuted() is queried.
+      if (unmuteCalls >= 2) immediateUnmute();
+    };
+    let controller!: YouTubeZeroStartController;
+    controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => player as YouTubeZeroStartPlayer,
+      isPlayerReady: () => true,
+      isAudioUnlocked: () => true,
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'other',
+      sendToPeer: () => false,
+      sendToHost: (message) => {
+        outbound.push(message);
+        return true;
+      },
+    });
+    player.__onStateChange = ({ data }) => controller.handlePlayerStateChange(data);
+    const prepareAtHost = Date.now();
+
+    expect(
+      controller.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'audio-restore-retry',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+        prepareAtHost,
+        decisionAtHost: prepareAtHost + 2_300,
+        startDeadlineAtHost: prepareAtHost + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+
+    vi.advanceTimersByTime(1_000);
+
+    expect(unmuteCalls).toBe(2);
+    expect(player.isMuted()).toBe(false);
+    expect(player.getVolume()).toBe(71);
+    expect(controller.getSnapshot().phase).toBe('armed');
+    expect(outbound.some((message) => message.type === 'youtube-zero-start-armed')).toBe(true);
+  });
+
+  it('retries detached audio cleanup after cancellation without reviving the run', () => {
+    const player = makeFakeYtPlayer({
+      __autoPlayOnLoad: false,
+      __muted: false,
+      __volume: 64,
+    });
+    let unmuteCalls = 0;
+    const immediateUnmute = player.unMute.bind(player);
+    player.unMute = () => {
+      unmuteCalls += 1;
+      if (unmuteCalls >= 2) immediateUnmute();
+    };
+    let controller!: YouTubeZeroStartController;
+    controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => player as YouTubeZeroStartPlayer,
+      isPlayerReady: () => true,
+      isAudioUnlocked: () => true,
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'other',
+      sendToPeer: () => false,
+      sendToHost: () => true,
+    });
+    const prepareAtHost = Date.now();
+    controller.handlePrepare(HOST_ID, {
+      type: 'youtube-zero-start-prepare',
+      version: 1,
+      runId: 'detached-audio-restore-retry',
+      sequence: 1,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+      prepareAtHost,
+      decisionAtHost: prepareAtHost + 2_300,
+      startDeadlineAtHost: prepareAtHost + 3_000,
+      hostPlatform: 'other',
+    });
+    vi.advanceTimersByTime(1);
+    expect(player.isMuted()).toBe(true);
+
+    controller.cancel('cancelled', false);
+    expect(controller.getSnapshot().phase).toBe('idle');
+    vi.advanceTimersByTime(300);
+
+    expect(unmuteCalls).toBe(2);
+    expect(player.isMuted()).toBe(false);
+    expect(player.getVolume()).toBe(64);
+    expect(controller.getSnapshot().phase).toBe('idle');
   });
 
   it('restores a mute choice made while the next track is warming', () => {
@@ -707,7 +831,14 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.host.getSnapshot().phase).toBe('idle');
     expect(harness.guest.getSnapshot().phase).toBe('idle');
     expect(fallback).toHaveBeenCalledTimes(1);
-    expect(fallback).toHaveBeenCalledWith(expect.objectContaining({ reason: 'prepare-timeout' }));
+    expect(fallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'prepare-timeout',
+        desiredMuted: false,
+        desiredVolume: 37,
+        targetLoadIssued: true,
+      }),
+    );
   });
 
   it('bounds a guest warm-up and retains identity for COMMIT recovery', () => {
@@ -848,11 +979,81 @@ describe('YouTubeZeroStartController', () => {
         reason: 'cohort-excluded',
         startAtHost: prepareAtHost + 3_000,
         targetPositionSec: 0,
+        desiredMuted: false,
+        desiredVolume: 100,
+        targetLoadIssued: true,
       }),
     );
+    // Ownership transfers while the target load remains hard-muted. The
+    // application fallback must use the event's desired state instead of
+    // recapturing this transient iframe value.
+    expect(player.isMuted()).toBe(true);
 
     vi.advanceTimersByTime(10_000);
     expect(fallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not advertise an adoptable target load when hard mute failed first', () => {
+    const fallback = vi.fn();
+    const player = makeFakeYtPlayer({
+      __autoPlayOnLoad: true,
+      __hardMuteFails: true,
+      __muted: false,
+      __volume: 58,
+    });
+    const controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => player as YouTubeZeroStartPlayer,
+      isPlayerReady: () => true,
+      isAudioUnlocked: () => true,
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'other',
+      sendToPeer: () => false,
+      sendToHost: () => true,
+      onFallbackRequired: fallback,
+    });
+    const prepareAtHost = Date.now();
+    controller.handlePrepare(HOST_ID, {
+      type: 'youtube-zero-start-prepare',
+      version: 1,
+      runId: 'hard-mute-before-load-failed',
+      sequence: 1,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+      prepareAtHost,
+      decisionAtHost: prepareAtHost + 2_300,
+      startDeadlineAtHost: prepareAtHost + 3_000,
+      hostPlatform: 'other',
+    });
+    vi.advanceTimersByTime(400);
+    expect(controller.getSnapshot().phase).toBe('error');
+    expect(player.__log.some((call) => call.op === 'loadVideoById')).toBe(false);
+
+    controller.handleCommit(HOST_ID, {
+      type: 'youtube-zero-start-commit',
+      version: 1,
+      runId: 'hard-mute-before-load-failed',
+      sequence: 1,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      startAtHost: prepareAtHost + 3_000,
+      reason: 'guest-timeout',
+      cohort: [HOST_ID],
+    });
+
+    expect(fallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        desiredMuted: false,
+        desiredVolume: 58,
+        targetLoadIssued: false,
+      }),
+    );
   });
 
   it('does not leave an armed guest busy forever when COMMIT is missing', () => {

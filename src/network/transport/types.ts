@@ -15,13 +15,14 @@ export type DeveloperCommandResultCode =
 type DeveloperCommand =
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
+  | { readonly type: 'next' }
   | { readonly type: 'seek'; readonly positionSeconds: number }
   | { readonly type: 'play_item'; readonly queueItemId: string }
   | { readonly type: 'set_effects'; readonly effects: RoomEffectsPatch };
 
 export interface DeveloperCommandFrame {
   readonly type: 'developer-command';
-  readonly version: 1 | 2;
+  readonly version: 1 | 2 | 3;
   readonly roomCode: string;
   readonly coordinatorEpoch: number;
   readonly commandId: string;
@@ -101,7 +102,7 @@ export function parseDeveloperCommandFrame(value: unknown): DeveloperCommandFram
       'command',
     ]) ||
     value.type !== 'developer-command' ||
-    (value.version !== 1 && value.version !== 2) ||
+    (value.version !== 1 && value.version !== 2 && value.version !== 3) ||
     typeof value.roomCode !== 'string' ||
     !/^0\d{5}$/.test(value.roomCode) ||
     !isNonNegativeSafeInteger(value.coordinatorEpoch) ||
@@ -122,7 +123,9 @@ export function parseDeveloperCommandFrame(value: unknown): DeveloperCommandFram
 
   let command: DeveloperCommand;
   if (
-    (value.command.type === 'play' || value.command.type === 'pause') &&
+    (value.command.type === 'play' ||
+      value.command.type === 'pause' ||
+      value.command.type === 'next') &&
     hasExactKeys(value.command, ['type'])
   ) {
     command = { type: value.command.type };
@@ -152,7 +155,7 @@ export function parseDeveloperCommandFrame(value: unknown): DeveloperCommandFram
     return null;
   }
 
-  const requiredVersion = command.type === 'set_effects' ? 2 : 1;
+  const requiredVersion = command.type === 'next' ? 3 : command.type === 'set_effects' ? 2 : 1;
   if (value.version !== requiredVersion) return null;
 
   return {

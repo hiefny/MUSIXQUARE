@@ -55,9 +55,21 @@ describe('developer signaling command parser', () => {
     expect(parseDeveloperCommandFrame({ ...frame, version: 1 })).toBeNull();
   });
 
+  it('accepts next only on the v3 command contract', () => {
+    const frame = {
+      ...validFrame(),
+      version: 3 as const,
+      command: { type: 'next' as const },
+    };
+    expect(parseDeveloperCommandFrame(frame)).toEqual(frame);
+    expect(parseDeveloperCommandFrame({ ...frame, version: 1 })).toBeNull();
+    expect(parseDeveloperCommandFrame({ ...frame, version: 2 })).toBeNull();
+    expect(parseDeveloperCommandFrame({ ...validFrame(), version: 3 })).toBeNull();
+  });
+
   it.each([
     ['root extra key', () => ({ ...validFrame(), extra: true })],
-    ['wrong version', () => ({ ...validFrame(), version: 3 })],
+    ['wrong version', () => ({ ...validFrame(), version: 4 })],
     ['standard room code', () => ({ ...validFrame(), roomCode: '100001' })],
     ['zero epoch', () => ({ ...validFrame(), coordinatorEpoch: 0 })],
     ['short command id', () => ({ ...validFrame(), commandId: 'short' })],
@@ -87,6 +99,10 @@ describe('developer signaling command parser', () => {
     [
       'invalid play-item queue id',
       () => ({ ...validFrame(), command: { type: 'play_item', queueItemId: 'track-1' } }),
+    ],
+    [
+      'next extra key',
+      () => ({ ...validFrame(), version: 3, command: { type: 'next', extra: true } }),
     ],
     ['unknown command', () => ({ ...validFrame(), command: { type: 'stop' } })],
   ])('rejects %s', (_label, mutate) => {

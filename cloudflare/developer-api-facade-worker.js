@@ -423,7 +423,7 @@ function parseQueueModeUpdate(value) {
 
 function parseDeveloperCommand(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  if (value.type === 'play' || value.type === 'pause') {
+  if (value.type === 'play' || value.type === 'pause' || value.type === 'next') {
     return hasExactKeys(value, ['type']) ? { type: value.type } : null;
   }
   if (value.type === 'seek') {
@@ -560,6 +560,16 @@ function parseMetadata(value) {
   return metadata;
 }
 
+function canonicalizeYouTubeBatchItems(items) {
+  const seenPlaylistIds = new Set();
+  return items.filter((item) => {
+    if (item.playlistId === undefined) return true;
+    if (seenPlaylistIds.has(item.playlistId)) return false;
+    seenPlaylistIds.add(item.playlistId);
+    return true;
+  });
+}
+
 function parseQueueMutation(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   if (value.type === 'clear') {
@@ -616,7 +626,9 @@ function parseQueueMutation(value) {
           }
         : null;
     });
-    return items.some((item) => item === null) ? null : { type: 'add_youtube_batch', items };
+    return items.some((item) => item === null)
+      ? null
+      : { type: 'add_youtube_batch', items: canonicalizeYouTubeBatchItems(items) };
   }
   if (value.type === 'remove') {
     return hasExactKeys(value, ['type', 'queueItemId']) &&

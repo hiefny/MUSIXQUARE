@@ -352,6 +352,55 @@ describe('private Developer API facade', () => {
     });
   });
 
+  it('forwards only the exact next command to the PRO room boundary', async () => {
+    const createdAtMs = 1_784_262_910_000;
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          commandId: COMMAND_ID,
+          status: 'pending',
+          createdAtMs,
+          expiresAtMs: createdAtMs + 30_000,
+        },
+        { status: 202 },
+      ),
+    );
+    const base = {
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      idempotencyKey: 'request.playback-next-0001',
+    };
+    const response = await facadeWorker.fetch(
+      request({ ...base, command: { type: 'next' } }, {}, '/internal/v1/commands/create'),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(202);
+    expect(rooms.seen).toHaveLength(1);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      ...base,
+      command: { type: 'next' },
+    });
+
+    const rejected = await facadeWorker.fetch(
+      request(
+        {
+          ...base,
+          idempotencyKey: 'request.playback-next-0002',
+          command: { type: 'next', force: true },
+        },
+        {},
+        '/internal/v1/commands/create',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(rooms.seen).toHaveLength(1);
+  });
+
   it('forwards a strictly validated partial effects command', async () => {
     const createdAtMs = 1_784_262_910_000;
     const rooms = namespace(() =>
@@ -607,6 +656,74 @@ describe('private Developer API facade', () => {
       actorName: 'Friend integration',
       idempotencyKey: 'request.queue-batch-0001',
       mutation,
+    });
+  });
+
+  it('normalizes repeated playlist aggregates before crossing the room boundary', async () => {
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          view: 'queue',
+          roomCode: ROOM_CODE,
+          playlistRevision: 9,
+          currentQueueItemId: null,
+          items: [],
+        },
+        { status: 201 },
+      ),
+    );
+    const items = [
+      {
+        videoId: 'dQw4w9WgXcQ',
+        playlistId: 'PL_ALPHA',
+        name: 'Playlist alpha first',
+      },
+      { videoId: 'M7lc1UVf-VE', name: 'Standalone one' },
+      {
+        videoId: '9bZkp7q19f0',
+        playlistId: 'PL_ALPHA',
+        name: 'Playlist alpha duplicate',
+      },
+      {
+        videoId: 'aqz-KE-bpKQ',
+        playlistId: 'PL_BETA',
+        name: 'Playlist beta first',
+      },
+      { videoId: 'ScMzIvxBSi4', name: 'Standalone two' },
+      {
+        videoId: 'jNQXAC9IVRw',
+        playlistId: 'PL_BETA',
+        name: 'Playlist beta duplicate',
+      },
+    ];
+
+    const response = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          actorName: 'Friend integration',
+          idempotencyKey: 'request.queue-batch-playlist-dedupe',
+          mutation: { type: 'add_youtube_batch', items },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(201);
+    expect(rooms.seen).toHaveLength(1);
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      actorName: 'Friend integration',
+      idempotencyKey: 'request.queue-batch-playlist-dedupe',
+      mutation: {
+        type: 'add_youtube_batch',
+        items: [items[0], items[1], items[3], items[4]],
+      },
     });
   });
 

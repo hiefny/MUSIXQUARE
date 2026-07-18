@@ -121,11 +121,13 @@ const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 const PLAYBACK_CLOCK_SKEW_MS = 60_000;
 const RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
-// v1 covers playback/queue invalidations. v2 adds set_effects while retaining
-// v1 frame support so a rolling deploy does not strand an already-open tab.
+// v1 covers direct playback controls and queue invalidations. v2 adds
+// set_effects; v3 adds aggregate-aware next. Older frames remain valid so a
+// rolling deploy does not strand an already-open tab.
 const DEVELOPER_CONTROL_VERSION = 1;
 const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
-const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_EFFECTS_CONTROL_VERSION;
+const DEVELOPER_NEXT_CONTROL_VERSION = 3;
+const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_NEXT_CONTROL_VERSION;
 const DEVELOPER_COMMAND_TTL_MS = 30 * 1000;
 const DEVELOPER_COMMAND_RETRY_MS = 5 * 1000;
 const DEVELOPER_COMMAND_MAX_ATTEMPTS = 3;
@@ -1326,7 +1328,7 @@ function developerProjection(room, projection, nowMs, requesterKeyId) {
 
 function parseDeveloperCommand(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  if (value.type === 'play' || value.type === 'pause') {
+  if (value.type === 'play' || value.type === 'pause' || value.type === 'next') {
     return hasExactKeys(value, ['type']) ? { type: value.type } : null;
   }
   if (value.type === 'seek') {
@@ -1353,9 +1355,9 @@ function parseDeveloperCommand(value) {
 }
 
 function requiredDeveloperControlVersion(command) {
-  return command?.type === 'set_effects'
-    ? DEVELOPER_EFFECTS_CONTROL_VERSION
-    : DEVELOPER_CONTROL_VERSION;
+  if (command?.type === 'next') return DEVELOPER_NEXT_CONTROL_VERSION;
+  if (command?.type === 'set_effects') return DEVELOPER_EFFECTS_CONTROL_VERSION;
+  return DEVELOPER_CONTROL_VERSION;
 }
 
 function supportsDeveloperControl(participant, requiredVersion = DEVELOPER_CONTROL_VERSION) {
@@ -1387,6 +1389,16 @@ function parseDeveloperMetadata(value, requiredName = true) {
     metadata[key] = parsed;
   }
   return metadata;
+}
+
+function canonicalizeDeveloperYouTubeBatchItems(items) {
+  const seenPlaylistIds = new Set();
+  return items.filter((item) => {
+    if (item.playlistId === undefined) return true;
+    if (seenPlaylistIds.has(item.playlistId)) return false;
+    seenPlaylistIds.add(item.playlistId);
+    return true;
+  });
 }
 
 function parseDeveloperQueueMutation(value) {
@@ -1445,7 +1457,10 @@ function parseDeveloperQueueMutation(value) {
     });
     return items.some((item) => item === null)
       ? null
-      : { type: 'add_youtube_batch', items };
+      : {
+          type: 'add_youtube_batch',
+          items: canonicalizeDeveloperYouTubeBatchItems(items),
+        };
   }
   if (value.type === 'remove') {
     return hasExactKeys(value, ['type', 'queueItemId']) &&

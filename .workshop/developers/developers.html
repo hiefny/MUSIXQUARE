@@ -168,7 +168,10 @@ console.log(await response.json());</code></pre>
         <dl>
           <div>
             <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/commands</span></dt>
-            <dd>Submit <code>play</code>, <code>pause</code>, <code>seek</code>, or <code>play_item</code>.</dd>
+            <dd>
+              Submit <code>play</code>, <code>pause</code>, <code>seek</code>, <code>next</code>, or
+              <code>play_item</code>.
+            </dd>
           </div>
           <div>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/commands/{commandId}</span></dt>
@@ -192,6 +195,13 @@ console.log(await response.json());</code></pre>
 
 const command = await response.json();
 console.log(command.commandId, command.status);</code></pre>
+        <p>
+          <code>next</code> behaves like the app's Next button. When the selected top-level item is a YouTube
+          playlist aggregate, it advances to the next video inside that aggregate first. After the aggregate's last
+          video, it advances to the next top-level item using the room's current repeat and shuffle settings.
+          <code>play_item</code> is different: it force-selects the exact top-level item identified by
+          <code>queueItemId</code> instead of traversing from the current item's internal video.
+        </p>
         <p>
           Playback commands require an awake room with a compatible active coordinator. Selecting a large file can be
           accepted before every device has finished downloading and decoding it; read playback state before issuing an
@@ -287,14 +297,20 @@ console.log(command.commandId, command.status);</code></pre>
         <dl>
           <div>
             <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/queue/items</span></dt>
-            <dd>Add one YouTube item using a canonical video ID and display metadata.</dd>
+            <dd>
+              Add one independent YouTube video, or include <code>playlistId</code> to add one YouTube playlist
+              aggregate whose <code>videoId</code> is its entry video.
+            </dd>
           </div>
           <div>
             <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/queue/items/batch</span></dt>
             <dd>
               Atomically add 1&ndash;100 YouTube items in order. If one item is invalid or the complete batch does
               not fit, none are added. The effective limit is whichever comes first: 100 items or a 64 KiB
-              complete JSON request.
+              complete JSON request. Each distinct <code>playlistId</code> creates exactly one top-level playlist:
+              if the same ID appears again, the first occurrence wins and later occurrences do not create additional
+              top-level items. Entries without <code>playlistId</code> remain independent videos, including repeated
+              video IDs.
             </dd>
           </div>
           <div>
@@ -350,6 +366,21 @@ console.log(command.commandId, command.status);</code></pre>
     artist: 'Example artist',
   }),
 });</code></pre>
+        <pre class="policy-code"><code>// Add one YouTube playlist aggregate. Do not expand every child video into the request.
+await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+  body: JSON.stringify({
+    videoId: '&lt;playlist-entry-video-id&gt;',
+    playlistId: '&lt;youtube-playlist-id&gt;',
+    name: 'Example playlist',
+    title: 'Example playlist',
+  }),
+});</code></pre>
         <pre class="policy-code"><code>const batchResponse = await fetch(
   `${baseUrl}/rooms/${roomCode}/queue/items/batch`,
   {
@@ -372,6 +403,12 @@ console.log(command.commandId, command.status);</code></pre>
 
 if (!batchResponse.ok) throw new Error(await batchResponse.text());
 const queueAfterBatch = await batchResponse.json();</code></pre>
+        <p>
+          Batch canonicalization follows request order. For every non-empty <code>playlistId</code>, the first item
+          supplies the aggregate's position, entry <code>videoId</code>, and display metadata; later items with that
+          same ID are absorbed and their metadata is ignored. Every supplied item is still validated atomically, but
+          the number of appended top-level items can therefore be smaller than <code>items.length</code>.
+        </p>
         <pre class="policy-code"><code>const clearResponse = await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
   method: 'DELETE',
   headers: {

@@ -454,7 +454,7 @@ describe('PRO room cookie session API', () => {
       ticketSequence: 7,
     });
     const ticketRequest = fetchMock.mock.calls[0]?.[1];
-    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 2 }));
+    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 3 }));
     const ticketHeaders = new Headers(ticketRequest?.headers);
     expect(ticketHeaders.get('content-type')).toBe('application/json');
     expect(ticketHeaders.get('x-mxqr-pro-participant-id')).toBe(
@@ -494,7 +494,7 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const advertised = fetchMock.mock.calls[0]?.[1];
     const fallback = fetchMock.mock.calls[1]?.[1];
-    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 2 }));
+    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 3 }));
     expect(new Headers(advertised?.headers).get('content-type')).toBe('application/json');
     expect(fallback?.body).toBeUndefined();
     expect(new Headers(fallback?.headers).has('content-type')).toBe(false);

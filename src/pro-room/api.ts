@@ -1161,7 +1161,7 @@ export class ProRoomApiClient {
     const requestTicket = (advertiseDeveloperControl: boolean) =>
       this.#request(`${path}/signaling-tickets`, {
         method: 'POST',
-        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 2 } } : {}),
+        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 3 } } : {}),
         signal,
         activeRoomCode: code,
         maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,

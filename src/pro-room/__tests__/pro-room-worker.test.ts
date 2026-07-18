@@ -939,6 +939,7 @@ describe('PRO room private Developer API projections', () => {
     const mutation = {
       type: 'add_youtube',
       videoId: 'dQw4w9WgXcQ',
+      playlistId: 'PL_SINGLE_KEEP',
       name: 'Never Gonna Give You Up',
       title: 'Never Gonna Give You Up',
       artist: 'Rick Astley',
@@ -969,6 +970,11 @@ describe('PRO room private Developer API projections', () => {
     });
     expect(internal.room.runtime).toBe('sleeping');
     expect(internal.room.playlist).toHaveLength(1);
+    expect(internal.room.playlist[0].source).toEqual({
+      kind: 'youtube',
+      videoId: mutation.videoId,
+      playlistId: mutation.playlistId,
+    });
     expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
     const queueIdempotencyRecord = Object.values(internal.room.idempotency).find(
       (record: any) => record.kind === 'developer-queue',
@@ -1085,6 +1091,108 @@ describe('PRO room private Developer API projections', () => {
     expect(conflict.status).toBe(409);
     expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
     expect(internal.room.playlist).toHaveLength(2);
+  });
+
+  it('keeps flat videos while collapsing each repeated playlist aggregate to its first row', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const keyId = 'C'.repeat(16);
+    const mutation = {
+      type: 'add_youtube_batch',
+      items: [
+        {
+          videoId: 'dQw4w9WgXcQ',
+          playlistId: 'PL_ALPHA',
+          name: 'Playlist alpha first',
+        },
+        { videoId: 'M7lc1UVf-VE', name: 'Standalone one' },
+        {
+          videoId: '9bZkp7q19f0',
+          playlistId: 'PL_ALPHA',
+          name: 'Playlist alpha duplicate',
+        },
+        {
+          videoId: 'aqz-KE-bpKQ',
+          playlistId: 'PL_BETA',
+          name: 'Playlist beta first',
+        },
+        { videoId: 'ScMzIvxBSi4', name: 'Standalone two' },
+        {
+          videoId: 'jNQXAC9IVRw',
+          playlistId: 'PL_BETA',
+          name: 'Playlist beta duplicate',
+        },
+      ],
+    };
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+    };
+
+    const firstResponse = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-playlist-dedupe',
+      mutation,
+    );
+    expect(firstResponse.status).toBe(201);
+    const first = await responseJson(firstResponse);
+    expect(first.items.map((item: any) => item.name)).toEqual([
+      'Playlist alpha first',
+      'Standalone one',
+      'Playlist beta first',
+      'Standalone two',
+    ]);
+    expect(
+      internal.room.playlist.map((item: any) => ({ name: item.name, source: item.source })),
+    ).toEqual([
+      {
+        name: 'Playlist alpha first',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ', playlistId: 'PL_ALPHA' },
+      },
+      {
+        name: 'Standalone one',
+        source: { kind: 'youtube', videoId: 'M7lc1UVf-VE' },
+      },
+      {
+        name: 'Playlist beta first',
+        source: { kind: 'youtube', videoId: 'aqz-KE-bpKQ', playlistId: 'PL_BETA' },
+      },
+      {
+        name: 'Standalone two',
+        source: { kind: 'youtube', videoId: 'ScMzIvxBSi4' },
+      },
+    ]);
+    expect(internal.room.playlist.every((item: any) => item.developerOwnerKeyId === keyId)).toBe(
+      true,
+    );
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+
+    const replay = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-playlist-dedupe',
+      mutation,
+    );
+    expect(replay.status).toBe(201);
+    expect(await responseJson(replay)).toEqual(first);
+    expect(internal.room.playlist).toHaveLength(4);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+
+    const conflict = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-batch-playlist-dedupe',
+      {
+        type: 'add_youtube_batch',
+        items: [{ videoId: 'jNQXAC9IVRw', name: 'Different intent' }],
+      },
+    );
+    expect(conflict.status).toBe(409);
+    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(internal.room.playlist).toHaveLength(4);
   });
 
   it('rejects invalid or over-capacity YouTube batches without a partial append', async () => {
@@ -2456,6 +2564,50 @@ describe('PRO room private Developer API projections', () => {
       }),
     );
     expect(await responseJson(status)).toMatchObject({ status: 'applied', resultCode: 'applied' });
+  });
+
+  it('requires a v3 coordinator and dispatches next as a v3 command frame', async () => {
+    const { worker, ownerCookie, dispatchFetch, internal } = await preparedDeveloperCommandRoom();
+    const v2Capability = await worker.fetch(
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 2 }, ownerCookie),
+    );
+    expect(v2Capability.status).toBe(200);
+
+    const incompatible = await createInternalDeveloperCommand(
+      worker,
+      DEVELOPER_KEY_ID,
+      'developer-next-command-v2-0001',
+      { type: 'next' },
+    );
+    expect(incompatible.status).toBe(409);
+    await expect(incompatible.json()).resolves.toEqual({ error: 'COORDINATOR_INCOMPATIBLE' });
+    expect(dispatchFetch).not.toHaveBeenCalled();
+
+    const v3Capability = await worker.fetch(
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 3 }, ownerCookie),
+    );
+    expect(v3Capability.status).toBe(200);
+
+    const accepted = await createInternalDeveloperCommand(
+      worker,
+      DEVELOPER_KEY_ID,
+      'developer-next-command-v3-0001',
+      { type: 'next' },
+    );
+    expect(accepted.status).toBe(202);
+    const body = await responseJson(accepted);
+    expect(body).toMatchObject({ status: expect.stringMatching(/pending|dispatched/) });
+    expect(internal.room.developerCommands[body.commandId]).toMatchObject({
+      developerControlVersion: 3,
+      command: { type: 'next' },
+    });
+    expect(dispatchFetch).toHaveBeenCalledOnce();
+    await expect(
+      (dispatchFetch.mock.calls[0]?.[0] as Request).clone().json(),
+    ).resolves.toMatchObject({
+      developerControlVersion: 3,
+      frame: { version: 3, command: { type: 'next' } },
+    });
   });
 
   it('keeps command idempotency isolated from a saturated browser ledger and exact after terminal eviction', async () => {

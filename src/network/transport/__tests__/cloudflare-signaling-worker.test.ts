@@ -34,7 +34,7 @@ type ProTicketPayload = {
   coordinatorEpoch: number;
   presenceIncarnationId: string;
   ticketSequence: number;
-  developerControlVersion?: 0 | 1 | 2;
+  developerControlVersion?: 0 | 1 | 2 | 3;
   jti: string;
   iat: number;
   exp: number;
@@ -907,6 +907,52 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const rejected = await dispatch('presence-incarnation-stale');
     expect(rejected.status).toBe(409);
     expect(coordinator.sent).toHaveLength(sentCount);
+  });
+
+  it('dispatches a v3 next command only to a v3-capable coordinator', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await room.fetch(
+      await proWsRequest({
+        role: 'coordinator',
+        participantId: 'coordinator-device',
+        presenceIncarnationId: 'presence-incarnation-0001',
+        jti: 'coordinator-ticket-0001',
+        developerControlVersion: 3,
+      }),
+    );
+    const coordinator = lastServer();
+    const frame = {
+      type: 'developer-command',
+      version: 3,
+      roomCode: '000001',
+      coordinatorEpoch: 1,
+      commandId: 'cmd_1234567890123456789012',
+      expiresAtMs: Date.now() + 30_000,
+      expected: {
+        queueItemId: '11111111-1111-4111-8111-111111111111',
+        playlistRevision: 3,
+        playbackRevision: 7,
+      },
+      command: { type: 'next' },
+    };
+    const accepted = await room.fetch(
+      new Request('https://signaling.internal/internal/developer/v1/dispatch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          coordinatorParticipantId: 'coordinator-device',
+          coordinatorPresenceIncarnationId: 'presence-incarnation-0001',
+          developerControlVersion: 3,
+          frame,
+        }),
+      }),
+    );
+
+    expect(accepted.status).toBe(200);
+    expect(sent(coordinator).at(-1)).toEqual(frame);
   });
 
   it('dispatches a bounded server-only invalidation only to the exact capable coordinator', async () => {

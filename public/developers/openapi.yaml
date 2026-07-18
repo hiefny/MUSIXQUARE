@@ -180,9 +180,12 @@ paths:
       operationId: createRoomCommand
       description: |
         Creates one fenced playback or room-wide audio-effect intent. Playback commands require
-        playback:control; set_effects requires effects:control. An applied play_item command means the
-        coordinator accepted the item; devices may still be loading it. Effect commands require an awake room
-        with a compatible active coordinator even though the canonical effect state remains readable while asleep.
+        playback:control; set_effects requires effects:control. next behaves like the app's Next button: it advances
+        inside the current YouTube playlist aggregate first, then advances to the next top-level queue item using
+        the room's repeat and shuffle settings. play_item instead force-selects the exact top-level queueItemId.
+        An applied play_item command means the coordinator accepted the item; devices may still be loading it.
+        Effect commands require an awake room with a compatible active coordinator even though the canonical effect
+        state remains readable while asleep.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -224,7 +227,10 @@ paths:
   /v1/rooms/{roomCode}/queue/items:
     post:
       operationId: addYouTubeQueueItem
-      description: Adds one canonical YouTube item to the end of the playlist without starting playback.
+      description: |
+        Adds one canonical YouTube item to the end of the playlist without starting playback. Without playlistId,
+        the item is an independent top-level video. With playlistId, the item is one top-level playlist aggregate
+        keyed by that ID and videoId is the aggregate's entry video.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -275,9 +281,14 @@ paths:
       operationId: addYouTubeQueueItemsBatch
       description: |
         Atomically appends between 1 and 100 canonical YouTube items in the supplied order without starting
-        playback. Validation and playlist-capacity checks cover the entire batch: if any item is invalid or the
-        full batch does not fit, no item is appended. One successful batch advances the playlist revision once.
-        The effective limit is whichever is reached first: 100 items or a 64 KiB complete public JSON request.
+        playback. Each distinct playlistId creates exactly one top-level playlist aggregate. When a playlistId
+        repeats, its first occurrence supplies the aggregate's position, entry videoId, and display metadata; later
+        occurrences with that same ID do not create extra top-level items and their metadata is ignored. Entries
+        without playlistId remain independent top-level videos, even when videoId repeats. Every supplied item is
+        still validated atomically, and playlist-capacity checks cover the canonical top-level result: if any item
+        is invalid or that result does not fit, no item is appended. The appended count can therefore be smaller
+        than items.length. One successful batch advances the playlist revision once. The effective limit is
+        whichever is reached first: 100 items or a 64 KiB complete public JSON request.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -478,6 +489,15 @@ components:
           additionalProperties: false
           required: [type]
           properties: { type: { const: pause } }
+        - type: object
+          additionalProperties: false
+          required: [type]
+          properties:
+            type:
+              const: next
+              description: |
+                Behaves like the app's Next button: advances within the current YouTube playlist aggregate first,
+                then advances to the next top-level item under the room's repeat and shuffle settings.
         - type: object
           additionalProperties: false
           required: [type, positionSeconds]
@@ -784,8 +804,18 @@ components:
       additionalProperties: false
       required: [videoId, name]
       properties:
-        videoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
-        playlistId: { type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }
+        videoId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{11}$'
+          description: The independent video ID, or the entry video when playlistId creates a playlist aggregate.
+        playlistId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_-]+$'
+          description: |
+            When present, creates one top-level YouTube playlist aggregate keyed by this ID. When omitted, this
+            request creates one independent top-level video.
         name: { type: string, minLength: 1, maxLength: 512 }
         title: { type: string, minLength: 1, maxLength: 512 }
         artist: { type: string, minLength: 1, maxLength: 512 }
@@ -799,6 +829,9 @@ components:
           type: array
           minItems: 1
           maxItems: 100
+          description: |
+            Supplied order is preserved after canonicalization. For repeated non-empty playlistId values, only the
+            first occurrence creates the top-level aggregate; entries without playlistId always remain independent.
           items: { $ref: '#/components/schemas/YouTubeQueueItemCreate' }
     QueueOrderReplace:
       type: object

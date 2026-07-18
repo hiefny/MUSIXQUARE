@@ -28,6 +28,7 @@ import {
   capturePlaylistQueueModeState,
   clearPreloadState,
   getShuffleNextPlayableQueueItemId,
+  playNextTrack,
   playTrack,
   reconcileShuffleOrderForCurrentPlaylist,
 } from '../player/playlist.ts';
@@ -1834,6 +1835,14 @@ async function executeDeveloperCommand(
 
   const playback = getPlaybackModeActivity();
   if (playback.mode === 'system-audio') return 'unsupported_mode';
+
+  if (command.type === 'next') {
+    // Keep Developer API traversal identical to the visible Next control:
+    // YouTube aggregates advance their internal sub-index first, then the
+    // shared queue/repeat/shuffle path chooses the next top-level item.
+    playNextTrack();
+    return 'applied';
+  }
 
   if (item.source.kind === 'youtube') {
     const player = getYouTubePlayer();

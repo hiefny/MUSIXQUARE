@@ -992,6 +992,60 @@ describe('Developer API read-only public Worker', () => {
     );
   });
 
+  it('collapses repeated playlist aggregates to their first batch occurrence', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const items = [
+      {
+        videoId: 'dQw4w9WgXcQ',
+        playlistId: 'PL_ALPHA',
+        name: 'Playlist alpha first',
+      },
+      { videoId: 'M7lc1UVf-VE', name: 'Standalone one' },
+      {
+        videoId: '9bZkp7q19f0',
+        playlistId: 'PL_ALPHA',
+        name: 'Playlist alpha duplicate',
+      },
+      {
+        videoId: 'aqz-KE-bpKQ',
+        playlistId: 'PL_BETA',
+        name: 'Playlist beta first',
+      },
+      { videoId: 'ScMzIvxBSi4', name: 'Standalone two' },
+      {
+        videoId: 'jNQXAC9IVRw',
+        playlistId: 'PL_BETA',
+        name: 'Playlist beta duplicate',
+      },
+    ];
+
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items/batch`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-batch-playlist-dedupe',
+        },
+        body: JSON.stringify({ items }),
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(201);
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(1);
+    const [, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      actorName: 'Friend integration',
+      idempotencyKey: 'request.queue-batch-playlist-dedupe',
+      mutation: {
+        type: 'add_youtube_batch',
+        items: [items[0], items[1], items[3], items[4]],
+      },
+    });
+  });
+
   it('rejects an empty, oversized, malformed, or unscoped YouTube batch before forwarding', async () => {
     const invalidBodies = [
       { items: [] },
@@ -1719,6 +1773,54 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.stringify(init)).not.toContain(API_KEY);
     await Promise.all(waits);
     expect(setup.database.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('forwards only the exact next playback command', async () => {
+    const setup = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.playback-next-0001',
+        },
+        body: JSON.stringify({ type: 'next' }),
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(202);
+    expect(setup.facadeFetch).toHaveBeenCalledOnce();
+    const [input, init] = setup.facadeFetch.mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe('/internal/v1/commands/create');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keyId: KEY_ID,
+      roomCode: ROOM_CODE,
+      idempotencyKey: 'request.playback-next-0001',
+      command: { type: 'next' },
+    });
+
+    const malformed = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const rejected = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.playback-next-0002',
+        },
+        body: JSON.stringify({ type: 'next', force: true }),
+      }),
+      malformed.env,
+    );
+    expect(rejected.status).toBe(400);
+    expect(await errorCode(rejected)).toBe('INVALID_REQUEST');
+    expect(malformed.facadeFetch).not.toHaveBeenCalled();
   });
 
   it('creates a partial effects command with effects:control without granting playback control', async () => {

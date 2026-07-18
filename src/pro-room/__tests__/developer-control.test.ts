@@ -89,7 +89,7 @@ function frame(
 ): DeveloperCommandFrame {
   return {
     type: 'developer-command',
-    version: command.type === 'set_effects' ? 2 : 1,
+    version: command.type === 'next' ? 3 : command.type === 'set_effects' ? 2 : 1,
     roomCode: '000001',
     coordinatorEpoch: 3,
     commandId,
@@ -151,6 +151,7 @@ describe('PRO developer command executor', () => {
   it.each([
     { type: 'play' } as const,
     { type: 'pause' } as const,
+    { type: 'next' } as const,
     { type: 'seek', positionSeconds: 25.5 } as const,
     { type: 'play_item', queueItemId: OTHER_QUEUE_ITEM_ID } as const,
   ])('executes one fenced $type command and ACKs applied', async (command) => {

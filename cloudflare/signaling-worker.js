@@ -31,7 +31,8 @@ const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
 const DEVELOPER_CONTROL_VERSION = 1;
 const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
-const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_EFFECTS_CONTROL_VERSION;
+const DEVELOPER_NEXT_CONTROL_VERSION = 3;
+const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_NEXT_CONTROL_VERSION;
 const DEVELOPER_COMMAND_BODY_MAX_BYTES = 4 * 1024;
 const INTERNAL_ADMIN_BODY_MAX_BYTES = 1024;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -366,7 +367,7 @@ function normalizeRoomEffectsPatch(value) {
 
 function normalizeDeveloperCommand(value) {
   if (!isRecord(value)) return null;
-  if (value.type === 'play' || value.type === 'pause') {
+  if (value.type === 'play' || value.type === 'pause' || value.type === 'next') {
     return hasExactKeys(value, ['type']) ? { type: value.type } : null;
   }
   if (value.type === 'seek') {
@@ -404,7 +405,8 @@ function normalizeDeveloperCommandFrame(value) {
     ]) ||
     value.type !== 'developer-command' ||
     (value.version !== DEVELOPER_CONTROL_VERSION &&
-      value.version !== DEVELOPER_EFFECTS_CONTROL_VERSION) ||
+      value.version !== DEVELOPER_EFFECTS_CONTROL_VERSION &&
+      value.version !== DEVELOPER_NEXT_CONTROL_VERSION) ||
     !isProNamespaceRoomCode(value.roomCode) ||
     !isValidProEpoch(value.coordinatorEpoch) ||
     !DEVELOPER_COMMAND_ID_RE.test(value.commandId || '') ||
@@ -422,9 +424,11 @@ function normalizeDeveloperCommandFrame(value) {
   const command = normalizeDeveloperCommand(value.command);
   if (!command) return null;
   const requiredVersion =
-    command.type === 'set_effects'
-      ? DEVELOPER_EFFECTS_CONTROL_VERSION
-      : DEVELOPER_CONTROL_VERSION;
+    command.type === 'next'
+      ? DEVELOPER_NEXT_CONTROL_VERSION
+      : command.type === 'set_effects'
+        ? DEVELOPER_EFFECTS_CONTROL_VERSION
+        : DEVELOPER_CONTROL_VERSION;
   if (value.version !== requiredVersion) return null;
   return {
     type: 'developer-command',

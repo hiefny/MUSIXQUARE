@@ -867,6 +867,18 @@ export async function loadPreloadedTrack(
   }
 
   const localBlob = ready.blob;
+  const ownsPublishedTarget = (): boolean => {
+    const resident = getState('files.current');
+    return (
+      resident?.queueItemId === queueItemId &&
+      resident.sessionId === ready.sessionId &&
+      resident.blob === localBlob &&
+      getCurrentQueueItemId() === queueItemId &&
+      !!getQueueItemById(queueItemId) &&
+      (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
+      !isExternalOwner()
+    );
+  };
   const activationOwner = beginPreloadActivation(myEpoch, queueItemId, ready.sessionId);
   let published = false;
   const ownsTarget = (): boolean =>
@@ -1006,7 +1018,7 @@ export async function loadPreloadedTrack(
       setManagedTimer(
         'playback-preload-auto-sync',
         () => {
-          if (getCurrentQueueItemId() !== queueItemId) return;
+          if (!ownsPublishedTarget()) return;
           log.debug('[Guest] Post-preload auto-sync');
           bus.emit('sync:force-resync');
         },
@@ -1015,25 +1027,25 @@ export async function loadPreloadedTrack(
     }
 
     const pendingTime = getPendingPlayTime();
-    if (hostConn && pendingTime !== undefined && getCurrentQueueItemId() === queueItemId) {
+    if (hostConn && pendingTime !== undefined && ownsPublishedTarget()) {
       const age = getPendingPlayTimeAge();
       const target = pendingTime + age;
       log.info(`[Preload] Activating playback at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       await play(target);
-      if (getCurrentQueueItemId() === queueItemId) {
+      if (ownsPublishedTarget()) {
         setPendingPlayTime(undefined);
         bus.emit('sync:arm-initial');
         setManagedTimer(
           'playback-preload-host-sync',
           () => {
-            if (getCurrentQueueItemId() === queueItemId) {
+            if (ownsPublishedTarget()) {
               bus.emit('sync:request-immediate-ping');
             }
           },
           250,
         );
       }
-    } else if (getCurrentQueueItemId() === queueItemId) {
+    } else if (ownsPublishedTarget()) {
       bus.emit('sync:request-immediate-ping');
     }
 
@@ -1323,18 +1335,18 @@ export async function finalizeGuestFile(
 
     const hostConn = getState('network.hostConn');
     const pendingTime = getPendingPlayTime();
-    if (hostConn && pendingTime !== undefined && getCurrentQueueItemId() === queueItemId) {
+    if (hostConn && pendingTime !== undefined && ownsTarget()) {
       const age = getPendingPlayTimeAge();
       const target = pendingTime + age;
       log.debug(`[Guest] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       await play(target);
-      if (getCurrentQueueItemId() === queueItemId) {
+      if (ownsTarget()) {
         setPendingPlayTime(undefined);
         bus.emit('sync:arm-initial');
         setManagedTimer(
           'playback-finalize-host-sync',
           () => {
-            if (getCurrentQueueItemId() === queueItemId) {
+            if (ownsTarget()) {
               bus.emit('sync:request-immediate-ping');
             }
           },
@@ -1343,7 +1355,9 @@ export async function finalizeGuestFile(
       }
     }
 
-    bus.emit('ui:play-btn-state', true);
+    if (ownsTarget()) {
+      bus.emit('ui:play-btn-state', !hostConn || getState('network.isOperator'));
+    }
   } catch (error: unknown) {
     if (!ownsTarget()) {
       log.debug('[Guest] Decode failed for a superseded queue/session owner');

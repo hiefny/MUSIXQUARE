@@ -78,6 +78,16 @@ let rejectedMainSessionId = 0;
 let _filePrepareGeneration = 0;
 const MAX_FILE_TOTAL = 200_000;
 
+function setActiveFileSessionOwner(sessionId: number, queueItemId: QueueItemId): void {
+  // Only one main receive session can be authoritative. Superseded sessions
+  // may never reach FILE_END, so completion-only deletion would retain one
+  // owner entry per rapid track switch for the lifetime of the room.
+  for (const key of fileQueueItemBySession.keys()) {
+    if (key !== sessionId) fileQueueItemBySession.delete(key);
+  }
+  fileQueueItemBySession.set(sessionId, queueItemId);
+}
+
 interface FilePrepareOwnerSnapshot {
   generation: number;
   hostConn: DataConnection | null;
@@ -1093,6 +1103,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
       Number(data.size) === loaded?.blob.size;
     if (loaded && sameSession && sameQueueItem && metadataConsistent) {
       if (incomingSid > localSid) setState('transfer.localSessionId', incomingSid);
+      setActiveFileSessionOwner(incomingSid, queueItemId);
       clearManagedTimer('prepareWatchdog');
       clearManagedTimer('chunkWatchdog');
       completeAcceptedFileRequest(data, conn);
@@ -1138,7 +1149,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
       bus.emit('storage:clear-previous-track', 'new-session-start');
     }
   }
-  fileQueueItemBySession.set(incomingSid, queueItemId);
+  setActiveFileSessionOwner(incomingSid, queueItemId);
   if (isLocalDirectStart) switchRemoteWaitToLocalDirect(data);
 
   // FILE_START is authoritative when FILE_PREPARE was lost. Adopt its stable
@@ -1256,7 +1267,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   if (incomingSid > localSid) {
     setState('transfer.localSessionId', incomingSid);
   }
-  fileQueueItemBySession.set(incomingSid, queueItemId);
+  setActiveFileSessionOwner(incomingSid, queueItemId);
 
   const startChunk = (data.startChunk as number) || 0;
 
@@ -1443,7 +1454,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
   const sessionOwner = fileQueueItemBySession.get(incomingSid);
   if (sessionOwner && sessionOwner !== queueItemId) return;
-  fileQueueItemBySession.set(incomingSid, queueItemId);
+  setActiveFileSessionOwner(incomingSid, queueItemId);
   const ownedMeta = getState('transfer.meta');
   if (
     ownedMeta &&
@@ -1738,6 +1749,7 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
 // `/debug memory`. Hot-path safe: only called from the chat command handler.
 
 export function getTransferMemoryStats(): {
+  ownerSessions: number;
   reorderSessions: number;
   reorderChunks: number;
   reorderBytes: number;
@@ -1752,6 +1764,7 @@ export function getTransferMemoryStats(): {
     }
   }
   return {
+    ownerSessions: fileQueueItemBySession.size,
     reorderSessions: fileReorderBuffer.size,
     reorderChunks: chunks,
     reorderBytes: bytes,

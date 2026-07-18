@@ -93,8 +93,9 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   token-checking decodes. It does **NOT** abort an in-flight
   `finalizeGuestFile` (sessionId-only checks) — see §5 owner decision.
   _Pins (b), (g)._
-- **C4 — stopAllMedia must-reset-together block** (`transport.ts`): lock +
-  watchdog timer + `pendingPlayTime` + `playPreloadedInProgress` reset as one
+- **C4 — stopAllMedia must-reset-together block** (`transport.ts`): play
+  invocation owner + lock + watchdog/unlock-delay timers +
+  `pendingPlayTime` + `playPreloadedInProgress` reset as one
   unit. The flag clear here bypasses `finishPreloadActivation` on purpose
   (silent-path clear while `decode.ts`'s activation register stays nonzero —
   benign because `finishPreloadActivation` is idempotent/compare-before-clear).
@@ -110,15 +111,21 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   sessionId AND its `transfer.localSessionId` entry snapshot at the same
   pre/post-decode checkpoints (2026-06-13) — still NEVER the epoch (§5).
   _Pins (d), (g), (j)._
-- **C6 — post-unlock queued-play consumption**: `_internalPlay`'s finally arms
-  a 10ms unlock-delay that consumes `pendingPlayTime` (consume = clear + replay).
-  The watchdog clears `pendingPlayTime` BEFORE unlocking precisely so this
-  consumer sees a consistent (no pending) state. _Pin (b)._
+- **C6 — owner-scoped post-unlock queued-play consumption**: `_internalPlay`'s
+  finally arms a 10ms unlock-delay that consumes `pendingPlayTime` (consume =
+  clear + replay), but the finally and timer may mutate the global tuple only
+  while their monotonic play-invocation owner is current. The watchdog clears
+  `pendingPlayTime` BEFORE unlocking and invalidates that owner so a wedged
+  invocation cannot later clear a newer play's watchdog or mailbox. _Pin (b)
+  and the play-owner interleaving pins._
 - **C7 — SA-05 post-activation double check** (`playlist.ts` fast path):
   after `await loadPreloadedTrack(...)`, re-check both the boolean result AND
-  `isCurrentLoadEpoch(myLoadEpoch)` before play+broadcast — a stale PLAY(old
-  index) broadcast flaps every guest. _Pinned in `decode.test.ts` (boolean
-  contract) + the token re-check is part of the playTrack flow._
+  `isCurrentLoadEpoch(myLoadEpoch)` before play. Because `play()` itself crosses
+  async AudioContext/engine-init boundaries, re-check the epoch, selected qid,
+  and PLAYING activity again after it returns and before broadcast/scheduling —
+  a stale PLAY(old occurrence) broadcast flaps every guest. _Pinned in
+  `decode.test.ts` (boolean contract) and `playlist.test.ts` (post-play
+  supersession)._
 - **C8 — waiter-cleanup pair** (`playback.ts`): the blob-not-ready path's
   progress watchdog must tear down the PREVIOUS waiter before arming a new one
   (`_activePreloadWaiterCleanup`), or A's closure overwrites B's stall timer /
@@ -129,6 +136,16 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   bail BEFORE `play()` (refresh-current-position: `pendingPlayTime` stays
   undefined) while `play()` itself must QUEUE (`pendingPlayTime` set). See
   `busy-guard.test.ts`.
+- **C10 — completion-consumer post-play ownership** (`decode.ts`):
+  `finalizeGuestFile` and `loadPreloadedTrack` publish an exact resident and may
+  then await `play(pendingTime)`. A newer transfer can take over the same queue
+  occurrence during that await, so qid equality alone is insufficient. Before
+  clearing `pendingPlayTime` or arming delayed sync, the finalizer re-runs its
+  exact load/transfer/meta owner predicate; the preload path checks the exact
+  published `{ queueItemId, sessionId, Blob }`, epoch, and playback mode owner.
+  This preserves the newer completion consumer's mailbox without changing the
+  replay-then-clear order documented below. _Pinned in
+  `concurrency-invariants.test.ts`._
 
 ## 4. pendingPlayTime preserve/clear policy (asymmetric BY DESIGN)
 

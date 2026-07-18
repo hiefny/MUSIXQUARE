@@ -927,6 +927,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     expect(getState('transfer.receivedCount')).toBe(20);
     expect(ramContiguousCount('s5.mp3', false, 5, Q[4])).toBe(20);
     expect(getTransferMemoryStats()).toMatchObject({
+      ownerSessions: 1,
       reorderChunks: 0,
       reorderBytes: 0,
     });

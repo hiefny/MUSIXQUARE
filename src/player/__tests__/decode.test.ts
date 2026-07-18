@@ -401,6 +401,30 @@ describe('guest file finalization sync', () => {
     expect(syncRequest).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    { isOperator: false, expectedEnabled: false, label: 'standard guest' },
+    { isOperator: true, expectedEnabled: true, label: 'operator/PRO-compatible guest' },
+  ])(
+    'keeps the play-button affordance aligned for $label after decode',
+    async ({ isOperator, expectedEnabled }) => {
+      setState('network.hostConn', makeConnection('host'));
+      setState('network.isOperator', isOperator);
+      const item = makeTrack('song.mp3');
+      const file = new File([new Uint8Array([1, 2, 3])], item.name, { type: 'audio/mpeg' });
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
+      stageMainTransfer(item, file, 7);
+
+      const buttonStates: boolean[] = [];
+      bus.on('ui:play-btn-state', (enabled) => buttonStates.push(enabled));
+
+      const { finalizeGuestFile } = await import('../decode.ts');
+      await finalizeGuestFile(file, item.queueItemId, 7);
+
+      expect(buttonStates).toEqual([expectedEnabled]);
+    },
+  );
+
   it('a superseded finalize (new transfer session mid-decode) is inert in the catch — no wrong-track report (pin j reject twin)', async () => {
     setState('network.hostConn', makeConnection('host'));
     setState('playlist.items', [makeTrack('A.mp3')]);

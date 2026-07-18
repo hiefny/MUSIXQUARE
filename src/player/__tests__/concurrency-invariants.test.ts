@@ -957,6 +957,70 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
   });
 });
 
+describe('play invocation owner — stale unlock/watchdog isolation', () => {
+  it('does not let an older finally clear the replacement play watchdog or unlock its mailbox', async () => {
+    vi.useFakeTimers();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    const hangA = deferred<void>();
+    const hangB = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hangA.promise).mockReturnValueOnce(hangB.promise);
+
+    const playA = play(1);
+    expect(isPlayLocked()).toBe(true);
+
+    stopAllMedia({ cancelInFlight: true });
+    const playB = play(2);
+    expect(isPlayLocked()).toBe(true);
+    expect(getManagedTimer('navigator-lock-watchdog')).not.toBeNull();
+
+    hangA.resolve();
+    await playA;
+
+    // A's stale finally used to clear B's named watchdog and arm an unlock
+    // callback that released B ten milliseconds later.
+    expect(getManagedTimer('navigator-lock-watchdog')).not.toBeNull();
+    expect(getManagedTimer('playback-unlock-delay')).toBeNull();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(isPlayLocked()).toBe(true);
+
+    await play(9);
+    expect(mocks.ensureRunning).toHaveBeenCalledTimes(2);
+    expect(getPendingPlayTime()).toBe(9);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(isPlayLocked()).toBe(false);
+    expect(getPendingPlayTime()).toBeUndefined();
+
+    hangB.resolve();
+    await playB;
+  });
+
+  it('cancels an already-armed stale unlock before a replacement play claims the lock', async () => {
+    vi.useFakeTimers();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    await play(1);
+    expect(isPlayLocked()).toBe(true);
+    expect(getManagedTimer('playback-unlock-delay')).not.toBeNull();
+
+    stopAllMedia({ cancelInFlight: true });
+    expect(getManagedTimer('playback-unlock-delay')).toBeNull();
+
+    const hangB = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hangB.promise);
+    const playB = play(2);
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(isPlayLocked()).toBe(true);
+    expect(getManagedTimer('navigator-lock-watchdog')).not.toBeNull();
+
+    stopAllMedia({ cancelInFlight: true });
+    hangB.resolve();
+    await playB;
+  });
+});
+
 // ─── Pin (d): finalizeGuestFile sessionId staleness checkpoints ──────
 
 describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints', () => {
@@ -1268,6 +1332,83 @@ describe('pin (j) — finalizeGuestFile aborts when a new transfer session start
     expect(getManagedTimer('chunkWatchdog')).not.toBeNull(); // recovery path intact
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING); // t2's download phase intact
     expect(getPendingPlayTime()).toBe(42); // don't-touch policy (§4)
+  });
+});
+
+describe('completion consumers — exact post-play ownership', () => {
+  it('does not let an old finalizer consume a newer same-qid transfer mailbox', async () => {
+    setState('network.hostConn', hostConn);
+    const fileA = makeFile('same.mp3');
+    const queueItemId = stageGuestTransfer(1, fileA, 5);
+    setPendingPlayTime(30);
+    transition({ type: 'FILE_PREPARE', variant: 'fresh', queueItemId, name: fileA.name });
+    transition({ type: 'FILE_END', queueItemId });
+
+    const hangPlay = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hangPlay.promise);
+    const armInitial = vi.fn();
+    bus.on('sync:arm-initial', armInitial);
+
+    const finalizeA = finalizeGuestFile(fileA, queueItemId, 5);
+    await vi.waitFor(() => expect(mocks.ensureRunning).toHaveBeenCalledTimes(1));
+
+    // A fresh FILE_START for the same queue occurrence does not allocate a
+    // load epoch, but it does replace the exact transfer/session owner and
+    // publishes a new PLAY intent for its eventual finalizer.
+    const fileB = makeFile('same.mp3');
+    setState('transfer.localSessionId', 6);
+    setState('transfer.meta', fileMetaFor(itemAt(1), fileB, 6, 1));
+    setState('files.current', null);
+    setCurrentAudioBuffer(null);
+    setPendingPlayTime(44);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.state', TRANSFER_STATE.RECEIVING);
+
+    hangPlay.resolve();
+    await finalizeA;
+
+    expect(getPendingPlayTime()).toBe(44);
+    expect(armInitial).not.toHaveBeenCalled();
+    expect(getManagedTimer('playback-finalize-host-sync')).toBeNull();
+  });
+
+  it('does not let an old preload completion consume or sync a replacement resident', async () => {
+    vi.useFakeTimers();
+    setState('network.hostConn', hostConn);
+    const fileA = makeFile('same.mp3');
+    setState('playlist.items', [makeTrack('t0.mp3'), makeTrack(fileA.name)]);
+    selectIndex(1);
+    const readyA = stagePreload(1, fileA, 5);
+    setPendingPlayTime(30);
+
+    const hangPlay = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hangPlay.promise);
+    const armInitial = vi.fn();
+    const forceResync = vi.fn();
+    bus.on('sync:arm-initial', armInitial);
+    bus.on('sync:force-resync', forceResync);
+
+    const activationA = loadPreloadedTrack(readyA.queueItemId, getCurrentLoadEpoch());
+    await vi.waitFor(() => expect(mocks.ensureRunning).toHaveBeenCalledTimes(1));
+
+    const fileB = makeFile('same.mp3');
+    newLoadEpoch();
+    setState('files.current', {
+      ...fileMetaFor(itemAt(1), fileB, 6, 1),
+      blob: fileB,
+    });
+    setCurrentAudioBuffer(null);
+    setPendingPlayTime(44);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+
+    hangPlay.resolve();
+    await activationA;
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(getPendingPlayTime()).toBe(44);
+    expect(armInitial).not.toHaveBeenCalled();
+    expect(forceResync).not.toHaveBeenCalled();
+    expect(getManagedTimer('playback-preload-host-sync')).toBeNull();
   });
 });
 

@@ -36,7 +36,9 @@ import type { PlaylistItem, QueueItemId, QueueTarget } from '../types/index.ts';
 //                                 watchdog epoch bump cannot abort an in-flight
 //                                 guest finalize. It is distinct from transfer,
 //                                 preload, and storage session identifiers.
-//   M3 _isPlayLocked            — node-start mutual exclusion + 15s watchdog
+//   M3 _isPlayLocked            — node-start mutual exclusion + 15s watchdog;
+//                                 transport-local invocation generation owns
+//                                 every watchdog/finally/unlock mutation
 //                                 (transport.ts). Watchdog expiry unlocks,
 //                                 clears deferred play, stops the node, advances
 //                                 M1, and returns playback to semantic IDLE.

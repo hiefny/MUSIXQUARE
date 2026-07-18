@@ -880,6 +880,18 @@ export async function playTrack(
       void shareRemoteFileIfNeeded(preloadFile, remoteShareSessionId, undefined, { queueItemId });
     }
     await play(0);
+    // play() crosses AudioContext resume/engine-init awaits. A newer
+    // playTrack() can take ownership during that window; the transport then
+    // aborts the stale local start, so this caller must likewise suppress its
+    // old network PLAY and preload side effects.
+    if (
+      !isCurrentLoadEpoch(myLoadEpoch) ||
+      getCurrentQueueItemId() !== queueItemId ||
+      getState('playback.activity') !== 'playing'
+    ) {
+      log.debug('[Host] Preloaded play superseded before broadcast');
+      return;
+    }
     broadcast({
       type: MSG.PLAY,
       time: 0,

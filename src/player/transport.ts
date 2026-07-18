@@ -42,6 +42,25 @@ const SCHEDULE_AHEAD_MS = 200;
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
 
+// The play lock is page-global, so every timer/finally that releases it must
+// prove it still belongs to the invocation that claimed it. A load epoch
+// cannot serve this purpose: stopAllMedia({silent:true}) deliberately does not
+// advance that epoch, while it still tears down the play-lock tuple.
+let playInvocationGeneration = 0;
+
+function claimPlayInvocation(): number {
+  playInvocationGeneration += 1;
+  return playInvocationGeneration;
+}
+
+function invalidatePlayInvocation(): void {
+  playInvocationGeneration += 1;
+}
+
+function isCurrentPlayInvocation(invocation: number): boolean {
+  return invocation === playInvocationGeneration;
+}
+
 function getPlatformLocalFileOutputOffset(): number {
   return IS_WINDOWS ? WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC : 0;
 }
@@ -264,7 +283,9 @@ export function stopAllMedia(opts?: {
   // Reset the play lock, watchdog, deferred play, and preload-activation flag
   // as one teardown unit. _internalPlay and preload activation finishers are
   // idempotent if they later observe this reset.
+  invalidatePlayInvocation();
   clearManagedTimer('navigator-lock-watchdog');
+  clearManagedTimer('playback-unlock-delay');
   setPlayLocked(false);
   setPendingPlayTime(undefined);
   setPlayPreloadedInProgress(false);
@@ -390,16 +411,23 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
     setPendingPlayTime(offset);
     return;
   }
+  // A stale unlock callback should already be owner-gated, but clearing it at
+  // claim time also keeps the named timer registry aligned with the lock.
+  clearManagedTimer('playback-unlock-delay');
+  const myPlayInvocation = claimPlayInvocation();
   setPlayLocked(true);
 
   const lockStartTime = Date.now();
   setManagedTimer(
     'navigator-lock-watchdog',
     () => {
-      if (isPlayLocked()) {
+      if (isCurrentPlayInvocation(myPlayInvocation) && isPlayLocked()) {
         log.warn(
           `[Play] Lock Timeout: Forcing unlock after 15s (locked at ${new Date(lockStartTime).toISOString()})`,
         );
+        // Invalidate before releasing the tuple. The wedged invocation can
+        // still resume later, but its finally must not touch a newer owner.
+        invalidatePlayInvocation();
         // Reset the lock, deferred play, source node, load epoch, and semantic
         // playback state together. Clear pendingPlayTime before unlocking so
         // the queued-request consumer observes a consistent empty mailbox.
@@ -425,21 +453,25 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
   try {
     await _internalPlay(offset, scheduleDelay);
   } finally {
-    clearManagedTimer('navigator-lock-watchdog');
-    setManagedTimer(
-      'playback-unlock-delay',
-      () => {
-        setPlayLocked(false);
-        // Consume queued play request (e.g. sync correction that arrived during lock)
-        const pendingTime = getPendingPlayTime();
-        if (pendingTime !== undefined) {
-          setPendingPlayTime(undefined);
-          log.debug(`[Play] Consuming queued play request: ${pendingTime.toFixed(2)}s`);
-          play(pendingTime);
-        }
-      },
-      10,
-    );
+    if (isCurrentPlayInvocation(myPlayInvocation)) {
+      clearManagedTimer('navigator-lock-watchdog');
+      setManagedTimer(
+        'playback-unlock-delay',
+        () => {
+          if (!isCurrentPlayInvocation(myPlayInvocation)) return;
+          invalidatePlayInvocation();
+          setPlayLocked(false);
+          // Consume queued play request (e.g. sync correction that arrived during lock)
+          const pendingTime = getPendingPlayTime();
+          if (pendingTime !== undefined) {
+            setPendingPlayTime(undefined);
+            log.debug(`[Play] Consuming queued play request: ${pendingTime.toFixed(2)}s`);
+            play(pendingTime);
+          }
+        },
+        10,
+      );
+    }
   }
 }
 

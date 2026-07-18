@@ -777,7 +777,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     const total = (meta?.total as number) || 0;
     const received = (getState('transfer.receivedCount') as number) || 0;
     lines.push(
-      `[Transfer] reorderBuf:${ts.reorderSessions}sess/${ts.reorderChunks}ch/${(ts.reorderBytes / 1048576).toFixed(2)}MB`,
+      `[Transfer] owner:${ts.ownerSessions}sess reorderBuf:${ts.reorderSessions}sess/${ts.reorderChunks}ch/${(ts.reorderBytes / 1048576).toFixed(2)}MB`,
     );
     lines.push(`           progress:${received}/${total}`);
   } catch {

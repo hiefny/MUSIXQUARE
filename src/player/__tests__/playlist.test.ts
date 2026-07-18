@@ -6,7 +6,7 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { log } from '../../core/log.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
   consumePendingAutoSyncOnReady,
@@ -33,7 +33,12 @@ import {
   reconcileShuffleOrderForCurrentPlaylist,
 } from '../playlist.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
-import { getCurrentAudioBuffer, getCurrentLoadEpoch, setCurrentAudioBuffer } from '../_state.ts';
+import {
+  getCurrentAudioBuffer,
+  getCurrentLoadEpoch,
+  newLoadEpoch,
+  setCurrentAudioBuffer,
+} from '../_state.ts';
 import { initDecodeHandlers } from '../decode.ts';
 import type {
   ConnectedPeer,
@@ -1933,6 +1938,65 @@ describe('qid-stable removal and reorder regressions', () => {
       .map(([message]) => message as { type?: string; revision?: number })
       .filter((message) => message.type === MSG.PLAYLIST_UPDATE);
     expect(snapshots).toEqual([expect.objectContaining({ revision: 6 })]);
+  });
+});
+
+describe('preloaded activation post-play ownership', () => {
+  it('does not broadcast or schedule from an activation superseded while play awaits', async () => {
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
+
+    const fileA = new File(['preloaded-a'], 'a.mp3', { type: 'audio/mpeg' });
+    const fileB = new File(['b'], 'b.mp3', { type: 'audio/mpeg' });
+    const a = fileItem('a.mp3', fileA);
+    const b = fileItem('b.mp3', fileB);
+    const readyA = residentFor(a, fileA, 61);
+    setState('playlist.items', [a, b]);
+    selectIndex(1);
+    setState('preload.nextQueueItemId', a.queueItemId);
+    setState('preload.activeTarget', readyA);
+    setState('preload.ready', readyA);
+
+    decodeMocks.loadPreloadedTrack.mockImplementation(async () => {
+      setState('files.current', readyA);
+      setState('preload.nextQueueItemId', null);
+      setState('preload.activeTarget', null);
+      setState('preload.ready', null);
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'pending');
+      return true;
+    });
+
+    let releasePlay!: () => void;
+    const playGate = new Promise<void>((resolve) => {
+      releasePlay = resolve;
+    });
+    const playSpy = vi.spyOn(transport, 'play').mockReturnValueOnce(playGate);
+
+    const activation = playTrack(a.queueItemId);
+    await vi.waitFor(() => expect(playSpy).toHaveBeenCalledWith(0));
+
+    // Model a newer playTrack invocation taking ownership while the old
+    // transport is suspended inside AudioContext/engine initialization.
+    newLoadEpoch();
+    setState('playlist.currentQueueItemId', b.queueItemId);
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+
+    releasePlay();
+    await activation;
+
+    expect(
+      send.mock.calls.some(
+        ([message]) =>
+          (message as { type?: string; queueItemId?: QueueItemId }).type === MSG.PLAY &&
+          (message as { queueItemId?: QueueItemId }).queueItemId === a.queueItemId,
+      ),
+    ).toBe(false);
+    expect(getManagedTimer('preloadScheduleTimer')).toBeNull();
   });
 });
 

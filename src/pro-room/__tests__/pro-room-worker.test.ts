@@ -4256,6 +4256,632 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(setAlarm).not.toHaveBeenCalled();
   });
 
+  it('persists the first heartbeat immediately and coalesces the other 99 into one write', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const put = vi.spyOn(state.storage, 'put');
+    const coreWrites = () => put.mock.calls.filter(([key]) => key === 'pro-room:v2:core').length;
+
+    const responses = await Promise.all(
+      Array.from({ length: 100 }, () =>
+        worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+      ),
+    );
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(coreWrites()).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(coreWrites()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(coreWrites()).toBe(2);
+  });
+
+  it('persists isolated heartbeats inline without creating non-hibernateable timers', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const put = vi.spyOn(state.storage, 'put');
+    const coreWrites = () => put.mock.calls.filter(([key]) => key === 'pro-room:v2:core').length;
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(coreWrites()).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(coreWrites()).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('flushes a dense second heartbeat at the first write window boundary', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const put = vi.spyOn(state.storage, 'put');
+    const coreWrites = () => put.mock.calls.filter(([key]) => key === 'pro-room:v2:core').length;
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await vi.advanceTimersByTimeAsync(400);
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(coreWrites()).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(599);
+    expect(coreWrites()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(coreWrites()).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('preserves each participant lease when different peers share a trailing flush', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-07-19T06:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const { worker, state, bucket, ownerCookie, activationEnvelope } = await activatedRoom();
+    const ownerParticipantId = activationEnvelope.snapshot.viewer.participantId as string;
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    const member = await responseJson(memberResponse);
+    const memberParticipantId = member.snapshot.viewer.participantId as string;
+    bindCookiePresence(memberCookie, member);
+    const put = vi.spyOn(state.storage, 'put');
+
+    await vi.advanceTimersByTimeAsync(100);
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await vi.advanceTimersByTimeAsync(100);
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, memberCookie));
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(900);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    const stored = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(stored.core.presence.participants[ownerParticipantId].lastSeenAtMs).toBe(
+      startedAtMs + 100,
+    );
+    expect(stored.core.presence.participants[memberParticipantId].lastSeenAtMs).toBe(
+      startedAtMs + 200,
+    );
+
+    const restarted = new MusixquareProRoom(state as never, environment(bucket) as never);
+    const snapshot = await responseJson(
+      await restarted.fetch(request('/snapshot', {}, ownerCookie)),
+    );
+    expect(snapshot.snapshot.presence.participants).toHaveLength(2);
+  });
+
+  it('serializes an expired heartbeat timer behind an in-flight semantic mutation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+    const internal = worker as unknown as {
+      mutationTail: Promise<unknown>;
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+
+    const originalPut = state.storage.put.bind(state.storage);
+    let releaseCoreWrite!: () => void;
+    let reportBlocked!: () => void;
+    const coreWriteGate = new Promise<void>((resolve) => {
+      releaseCoreWrite = resolve;
+    });
+    const coreWriteBlocked = new Promise<void>((resolve) => {
+      reportBlocked = resolve;
+    });
+    let blockNextCoreWrite = true;
+    const put = vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+      if (key === 'pro-room:v2:core' && blockNextCoreWrite) {
+        blockNextCoreWrite = false;
+        reportBlocked();
+        await coreWriteGate;
+      }
+      await originalPut(key, value);
+    });
+    const mutation = worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        {
+          coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+          effects: {
+            reverb: {
+              mixPercent: 15,
+              decaySeconds: 2,
+              preDelaySeconds: 0.02,
+              lowCutPercent: 0,
+              highCutPercent: 0,
+            },
+            equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+            virtualBass: { strengthPercent: 0 },
+            virtualSurround: { widthPercent: 100 },
+          },
+        },
+        ownerCookie,
+      ),
+    );
+    await coreWriteBlocked;
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+    releaseCoreWrite();
+    await expect(mutation).resolves.toMatchObject({ status: 200 });
+    await internal.mutationTail;
+
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(1);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('recovers a lost deferred timer before the prior lease can expire after restart', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, bucket, ownerCookie, activationEnvelope } = await activatedRoom();
+    const ownerParticipantId = activationEnvelope.snapshot.viewer.participantId as string;
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+    const internal = worker as unknown as {
+      invalidatePendingHeartbeatFlush(): void;
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    const put = vi.spyOn(state.storage, 'put');
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await vi.advanceTimersByTimeAsync(27_999);
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, memberCookie));
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+    internal.invalidatePendingHeartbeatFlush();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const restarted = new MusixquareProRoom(state as never, environment(bucket) as never);
+    const restartedInternal = restarted as unknown as { alarm(): Promise<void> };
+    await vi.advanceTimersByTimeAsync(15_000);
+    await restartedInternal.alarm();
+    const beforeRecovery = await responseJson(
+      await restarted.fetch(request('/snapshot', {}, memberCookie)),
+    );
+    expect(beforeRecovery.snapshot.presence.participants).toHaveLength(2);
+    await restarted.fetch(request('/presence/heartbeat', { method: 'POST' }, memberCookie));
+    await expect(
+      restarted.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(4);
+    expect(vi.getTimerCount()).toBe(0);
+    const stored = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(stored.core.presence.participants[ownerParticipantId].lastSeenAtMs).toBe(Date.now());
+    const snapshot = await responseJson(
+      await restarted.fetch(request('/snapshot', {}, ownerCookie)),
+    );
+    expect(snapshot.snapshot.presence.participants).toHaveLength(2);
+  });
+
+  it('lets an immediate mutation absorb pending heartbeat durability and fences its old timer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+    const internal = worker as unknown as {
+      flushHeartbeatDurability(generation: number): Promise<void>;
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    const put = vi.spyOn(state.storage, 'put');
+    const coreWrites = () => put.mock.calls.filter(([key]) => key === 'pro-room:v2:core').length;
+    const effects = {
+      reverb: {
+        mixPercent: 20,
+        decaySeconds: 2,
+        preDelaySeconds: 0.02,
+        lowCutPercent: 0,
+        highCutPercent: 0,
+      },
+      equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+      virtualBass: { strengthPercent: 0 },
+      virtualSurround: { widthPercent: 100 },
+    };
+
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    const oldGeneration = internal.pendingHeartbeatFlushGeneration;
+    expect(oldGeneration).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(500);
+    const updated = await worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        {
+          coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+          effects,
+        },
+        ownerCookie,
+      ),
+    );
+    expect(updated.status).toBe(200);
+    expect(coreWrites()).toBe(2);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    const newGeneration = internal.pendingHeartbeatFlushGeneration;
+    expect(newGeneration).not.toBeNull();
+    expect(newGeneration).not.toBe(oldGeneration);
+    expect(vi.getTimerCount()).toBe(1);
+    await internal.flushHeartbeatDurability(oldGeneration!);
+    expect(internal.pendingHeartbeatFlushGeneration).toBe(newGeneration);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(coreWrites()).toBe(2);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(coreWrites()).toBe(3);
+  });
+
+  it('does not absorb a pending heartbeat until an immediate persist succeeds', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+    const internal = worker as unknown as {
+      heartbeatDurabilityDirty: boolean;
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    const originalPut = state.storage.put.bind(state.storage);
+    let rejectCoreOnce = false;
+    const put = vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+      if (key === 'pro-room:v2:core' && rejectCoreOnce) {
+        rejectCoreOnce = false;
+        throw new Error('benchmark storage failure');
+      }
+      await originalPut(key, value);
+    });
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    const generation = internal.pendingHeartbeatFlushGeneration;
+    expect(generation).not.toBeNull();
+    rejectCoreOnce = true;
+    await expect(
+      worker.fetch(
+        jsonRequest(
+          '/effects',
+          'PUT',
+          {
+            coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+            effects: {
+              reverb: {
+                mixPercent: 10,
+                decaySeconds: 2,
+                preDelaySeconds: 0.02,
+                lowCutPercent: 0,
+                highCutPercent: 0,
+              },
+              equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+              virtualBass: { strengthPercent: 0 },
+              virtualSurround: { widthPercent: 100 },
+            },
+          },
+          ownerCookie,
+        ),
+      ),
+    ).rejects.toThrow('benchmark storage failure');
+    expect(internal.heartbeatDurabilityDirty).toBe(true);
+    expect(internal.pendingHeartbeatFlushGeneration).toBe(generation);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(internal.heartbeatDurabilityDirty).toBe(false);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(3);
+  });
+
+  it('keeps failed deferred durability retryable by the next heartbeat and alarm', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      alarm(): Promise<void>;
+      heartbeatDurabilityDirty: boolean;
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    const originalPut = state.storage.put.bind(state.storage);
+    let failuresRemaining = 0;
+    vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+      if (key === 'pro-room:v2:core' && failuresRemaining > 0) {
+        failuresRemaining -= 1;
+        throw new Error('deferred storage failure');
+      }
+      await originalPut(key, value);
+    });
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    failuresRemaining = 1;
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(internal.heartbeatDurabilityDirty).toBe(true);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(state.storage.alarm).toBe(Date.now() + 1_000);
+
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(internal.heartbeatDurabilityDirty).toBe(false);
+
+    failuresRemaining = 1;
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(internal.heartbeatDurabilityDirty).toBe(true);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    failuresRemaining = 0;
+    await internal.alarm();
+    expect(internal.heartbeatDurabilityDirty).toBe(false);
+  });
+
+  it('persists developer-command heartbeat mutations immediately without scheduling a timer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      processDeveloperCommands(nowMs: number): Promise<boolean>;
+    };
+    const processDeveloperCommands = vi
+      .spyOn(internal, 'processDeveloperCommands')
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
+    const put = vi.spyOn(state.storage, 'put');
+
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    expect(processDeveloperCommands).toHaveBeenCalledTimes(4);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('uses a 17-second recovery guard around deferred heartbeat durability', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const outside = await activatedRoom();
+    const outsidePut = vi.spyOn(outside.state.storage, 'put');
+    const outsideParticipantId = outside.activationEnvelope.snapshot.viewer.participantId as string;
+
+    await outside.worker.fetch(
+      request('/presence/heartbeat', { method: 'POST' }, outside.ownerCookie),
+    );
+    const outsideInternal = outside.worker as unknown as {
+      persistedPresenceLastSeenAtMs: Map<string, number>;
+    };
+    outsideInternal.persistedPresenceLastSeenAtMs.set(outsideParticipantId, Date.now() - 27_999);
+
+    await expect(
+      outside.worker.fetch(request('/presence/heartbeat', { method: 'POST' }, outside.ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(outsidePut.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const boundary = await activatedRoom();
+    const boundaryPut = vi.spyOn(boundary.state.storage, 'put');
+    const boundaryParticipantId = boundary.activationEnvelope.snapshot.viewer
+      .participantId as string;
+    await boundary.worker.fetch(
+      request('/presence/heartbeat', { method: 'POST' }, boundary.ownerCookie),
+    );
+    const boundaryInternal = boundary.worker as unknown as {
+      persistedPresenceLastSeenAtMs: Map<string, number>;
+    };
+    boundaryInternal.persistedPresenceLastSeenAtMs.set(boundaryParticipantId, Date.now() - 28_000);
+
+    await expect(
+      boundary.worker.fetch(
+        request('/presence/heartbeat', { method: 'POST' }, boundary.ownerCookie),
+      ),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(boundaryPut.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not postpone an earlier alarm when a deferred heartbeat persist fails', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      pendingHeartbeatFlushGeneration: number | null;
+      scheduledAlarmMs: number | null;
+    };
+    const originalPut = state.storage.put.bind(state.storage);
+    let rejectCoreWrites = false;
+    vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+      if (key === 'pro-room:v2:core' && rejectCoreWrites) {
+        throw new Error('deferred storage failure');
+      }
+      await originalPut(key, value);
+    });
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+    expect(vi.getTimerCount()).toBe(1);
+    rejectCoreWrites = true;
+    const earlierAlarmMs = Date.now() + 1_500;
+    state.storage.alarm = earlierAlarmMs;
+    internal.scheduledAlarmMs = earlierAlarmMs;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(state.storage.alarm).toBe(earlierAlarmMs);
+    expect(internal.scheduledAlarmMs).toBe(earlierAlarmMs);
+  });
+
+  it.each(['leave', 'close'] as const)(
+    'lets an immediate %s absorb heartbeat durability without a stale timer rewrite',
+    async (mode) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+      const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+      const internal = worker as unknown as {
+        pendingHeartbeatFlushGeneration: number | null;
+      };
+      const put = vi.spyOn(state.storage, 'put');
+      await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+      await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+      expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+      expect(vi.getTimerCount()).toBe(1);
+
+      const response =
+        mode === 'leave'
+          ? await worker.fetch(request('/presence/current', { method: 'DELETE' }, ownerCookie))
+          : await worker.fetch(
+              unloadCloseRequest(
+                {
+                  expectedParticipantId: activationEnvelope.snapshot.viewer.participantId,
+                  expectedPresenceIncarnationId:
+                    activationEnvelope.snapshot.viewer.presenceIncarnationId,
+                  baseRevision: activationEnvelope.snapshot.revision,
+                  currentQueueItemId: activationEnvelope.snapshot.currentQueueItemId,
+                  playback: activationEnvelope.snapshot.playback,
+                },
+                ownerCookie,
+                `${IDEMPOTENCY_KEY}-heartbeat-${mode}`,
+              ),
+            );
+      expect(response.status).toBe(200);
+      expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+      expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+      const stored = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+      expect(Object.keys(stored.core.presence.participants)).toHaveLength(0);
+    },
+  );
+
+  it('keeps a newly elected coordinator authoritative after the prior heartbeat timer fires', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    const member = await responseJson(memberResponse);
+    bindCookiePresence(memberCookie, member);
+    const beforeEpoch = member.snapshot.presence.coordinatorEpoch as number;
+    const memberParticipantId = member.snapshot.viewer.participantId as string;
+    const put = vi.spyOn(state.storage, 'put');
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+    const leave = await worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, ownerCookie),
+    );
+    expect(leave.status).toBe(200);
+    const elected = await responseJson(await worker.fetch(request('/snapshot', {}, memberCookie)));
+    expect(elected.snapshot.presence).toMatchObject({
+      coordinatorParticipantId: memberParticipantId,
+      coordinatorEpoch: beforeEpoch + 1,
+    });
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    const stored = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(stored.core.presence).toMatchObject({
+      coordinatorParticipantId: memberParticipantId,
+      coordinatorEpoch: beforeEpoch + 1,
+    });
+  });
+
+  it('does not let an old heartbeat timer undo a PIN security rotation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+    const put = vi.spyOn(state.storage, 'put');
+
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+    const rotated = await worker.fetch(
+      jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
+    );
+    expect(rotated.status).toBe(200);
+    expect((await worker.fetch(request('/snapshot', {}, memberCookie))).status).toBe(401);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    const stored = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(Object.keys(stored.core.sessions)).toHaveLength(1);
+    expect(Object.keys(stored.core.presence.participants)).toHaveLength(1);
+  });
+
+  it('does not let an old heartbeat timer resurrect a suspended room', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      pendingHeartbeatFlushGeneration: number | null;
+    };
+    const put = vi.spyOn(state.storage, 'put');
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie));
+    expect(internal.pendingHeartbeatFlushGeneration).not.toBeNull();
+
+    const suspended = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/suspend', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(suspended.status).toBe(200);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    const stored = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(stored.core).toMatchObject({
+      status: 'suspended',
+      runtime: 'sleeping',
+      sessions: {},
+      presence: { coordinatorParticipantId: null, participants: {} },
+    });
+  });
+
   it('keeps a multi-peer leave response contract-valid while electing the next coordinator', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controller = await worker.fetch(
@@ -5091,6 +5717,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
   });
 
   it('persists a playlist above the legacy single-record budget and restores it from v2 rows', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
     const { worker, state, ownerCookie } = await activatedRoom();
     const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
     const longText = 'x'.repeat(1_900);
@@ -5113,6 +5741,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(new TextEncoder().encode(JSON.stringify(mutation)).byteLength).toBeGreaterThan(
       1_500 * 1024,
     );
+    await vi.advanceTimersByTimeAsync(30_001);
     const accepted = await worker.fetch(
       jsonRequest('/snapshot', 'PUT', mutation, ownerCookie, `${IDEMPOTENCY_KEY}-state-budget`),
     );
@@ -5125,6 +5754,22 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const legacyShadow = state.storage.data.get('pro-room:v1') as StoredRoom;
     expect(legacyShadow.revision).toBe(before.snapshot.revision);
     expect(legacyShadow.playlist).toEqual([]);
+
+    const put = vi.spyOn(state.storage, 'put');
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(1);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v1')).toHaveLength(0);
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(1);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v1')).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v1')).toHaveLength(0);
 
     const restarted = new MusixquareProRoom(state as never, environment() as never);
     const restored = await responseJson(

@@ -12,6 +12,9 @@ or a substitute for the current source and tests.
 - [PRO room architecture and operations](design/pro-room-architecture-and-operations.md) —
   persistent-room ADR, Cloudflare runbook, offline activation, rollback, and
   physical-device QA gate.
+- [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md) —
+  accepted scope, rollback boundary, and the explicit decision to defer a
+  stable-core/presence schema split until production scale justifies it.
 - [Browser media storage policy](design/browser-media-storage-policy.md) —
   accepted RAM-only media-storage ADR and the gate for reconsidering OPFS.
 - [Playback state consumption contract](state-patterns.md) — current rules for

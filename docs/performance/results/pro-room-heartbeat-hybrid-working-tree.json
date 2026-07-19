@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 2,
+  "source": {
+    "baselineCommit": "8cedc0815456984a61929891a820ef85978bb5ae",
+    "workingTreeCommit": "8cedc0815456984a61929891a820ef85978bb5ae",
+    "workingTreeDirty": true,
+    "worker": "cloudflare/pro-room-worker.js",
+    "node": "v24.13.1",
+    "platform": "win32-x64",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13800H",
+    "generatedAt": "2026-07-19T09:46:31.325Z"
+  },
+  "workload": {
+    "participants": 100,
+    "playlistItems": 1000,
+    "heartbeatRounds": 4,
+    "heartbeats": 400,
+    "roundIntervalMs": 15000,
+    "delivery": "four bursts of 100 requests through MusixquareProRoom.fetch",
+    "quietGapModel": "The in-memory heartbeat anchor is reset before each round to model a 15-second quiet interval without sleeping for 15 seconds.",
+    "warmV2Persistence": true
+  },
+  "measurements": {
+    "baseline": {
+      "name": "baseline-immediate-persist",
+      "elapsedMs": 2990.756,
+      "requestsPerSecond": 133.745,
+      "requestedPersists": 400,
+      "durabilityFlushes": 400,
+      "timerDrainMs": 0,
+      "storage": {
+        "putCalls": 400,
+        "putEntries": 400,
+        "putBytes": 45810800,
+        "averageBytesPerFlush": 114527,
+        "transactions": 400,
+        "setAlarmCalls": 0,
+        "deleteAlarmCalls": 0,
+        "core": {
+          "calls": 400,
+          "bytes": 45810800
+        },
+        "legacyShadow": {
+          "calls": 0,
+          "bytes": 0
+        },
+        "playlistRows": {
+          "calls": 0,
+          "bytes": 0
+        }
+      },
+      "phases": {
+        "persist": {
+          "count": 400,
+          "totalMs": 2191.689,
+          "meanMs": 5.479,
+          "p50Ms": 5.053,
+          "p95Ms": 7.987,
+          "maxMs": 10.299
+        },
+        "alarmScan": {
+          "count": 400,
+          "totalMs": 16.984,
+          "meanMs": 0.042,
+          "p50Ms": 0.04,
+          "p95Ms": 0.064,
+          "maxMs": 0.122
+        },
+        "authenticate": {
+          "count": 400,
+          "totalMs": 179.479,
+          "meanMs": 0.449,
+          "p50Ms": 0.353,
+          "p95Ms": 1.075,
+          "maxMs": 2.543
+        },
+        "prune": {
+          "count": 400,
+          "totalMs": 17.174,
+          "meanMs": 0.043,
+          "p50Ms": 0.04,
+          "p95Ms": 0.07,
+          "maxMs": 0.13
+        },
+        "fakeStorageTransactionSnapshot": {
+          "count": 400,
+          "totalMs": 1144.447,
+          "meanMs": 2.861,
+          "p50Ms": 2.573,
+          "p95Ms": 4.342,
+          "maxMs": 5.674
+        }
+      }
+    },
+    "currentHybrid": {
+      "name": "current-hybrid-1s",
+      "elapsedMs": 1237.532,
+      "requestsPerSecond": 323.224,
+      "requestedPersists": 400,
+      "durabilityFlushes": 8,
+      "timerDrainMs": 4116.012,
+      "storage": {
+        "putCalls": 8,
+        "putEntries": 8,
+        "putBytes": 916216,
+        "averageBytesPerFlush": 114527,
+        "transactions": 8,
+        "setAlarmCalls": 0,
+        "deleteAlarmCalls": 0,
+        "core": {
+          "calls": 8,
+          "bytes": 916216
+        },
+        "legacyShadow": {
+          "calls": 0,
+          "bytes": 0
+        },
+        "playlistRows": {
+          "calls": 0,
+          "bytes": 0
+        }
+      },
+      "phases": {
+        "persist": {
+          "count": 8,
+          "totalMs": 73.087,
+          "meanMs": 9.136,
+          "p50Ms": 8.607,
+          "p95Ms": 12.435,
+          "maxMs": 12.435
+        },
+        "alarmScan": {
+          "count": 8,
+          "totalMs": 1.733,
+          "meanMs": 0.217,
+          "p50Ms": 0.083,
+          "p95Ms": 0.876,
+          "maxMs": 0.876
+        },
+        "authenticate": {
+          "count": 400,
+          "totalMs": 201.819,
+          "meanMs": 0.505,
+          "p50Ms": 0.429,
+          "p95Ms": 0.912,
+          "maxMs": 6.657
+        },
+        "prune": {
+          "count": 400,
+          "totalMs": 26.528,
+          "meanMs": 0.066,
+          "p50Ms": 0.058,
+          "p95Ms": 0.124,
+          "maxMs": 1.047
+        },
+        "fakeStorageTransactionSnapshot": {
+          "count": 8,
+          "totalMs": 37.288,
+          "meanMs": 4.661,
+          "p50Ms": 4.287,
+          "p95Ms": 6.736,
+          "maxMs": 6.736
+        }
+      }
+    }
+  },
+  "comparison": {
+    "flushReductionPercent": 98,
+    "putByteReductionPercent": 98,
+    "persistenceElapsedSpeedup": 29.987,
+    "responsePathHarnessSpeedup": 2.417,
+    "hybridOneSecondWindowTheory": {
+      "clusteredWithin500ms": {
+        "flushes": 8,
+        "putBytes": 916216,
+        "reductionPercent": 98
+      },
+      "uniformlyStaggeredAcross15s": {
+        "flushes": 64,
+        "putBytes": 7329728,
+        "reductionPercent": 84
+      }
+    }
+  },
+  "isolatedPhases": {
+    "note": "Diagnostics overlap: boundedInvariant includes core, playlist and per-item signature serialization.",
+    "coreSerialization": {
+      "count": 400,
+      "totalMs": 99.778,
+      "meanMs": 0.249,
+      "p50Ms": 0.228,
+      "p95Ms": 0.328,
+      "maxMs": 2.468
+    },
+    "playlistSerialization": {
+      "count": 400,
+      "totalMs": 143.363,
+      "meanMs": 0.358,
+      "p50Ms": 0.319,
+      "p95Ms": 0.424,
+      "maxMs": 7.803
+    },
+    "signatureScan": {
+      "count": 400,
+      "totalMs": 80.672,
+      "meanMs": 0.202,
+      "p50Ms": 0.189,
+      "p95Ms": 0.272,
+      "maxMs": 0.69
+    },
+    "boundedInvariant": {
+      "count": 400,
+      "totalMs": 515.703,
+      "meanMs": 1.289,
+      "p50Ms": 1.191,
+      "p95Ms": 1.862,
+      "maxMs": 4.047
+    }
+  },
+  "commitBoundary": {
+    "coalescible": [
+      "presence heartbeat lastSeenAtMs durability only"
+    ],
+    "immediate": [
+      "join",
+      "leave",
+      "coordinator election or epoch change",
+      "topology or authorization change"
+    ],
+    "crashWindow": "An interrupted trailing timer can lose only the accepted pure renewal inside that one-second window, returning durable lastSeenAtMs to the prior successful heartbeat. A 17-second guard forces recovery before the next 15-second client heartbeat can race expiry; topology persists immediately."
+  },
+  "caveats": [
+    "This is an in-process Node benchmark, not Cloudflare production latency.",
+    "The baseline executes 8cedc0815456984a61929891a820ef85978bb5ae; the candidate executes the current working-tree Worker through its real fetch and timer paths.",
+    "fakeStorageTransactionSnapshot isolates the test harness full-storage clone, which SQLite Durable Object transactions do not perform in JavaScript.",
+    "Cloudflare SQLite storage billing counts rows written, not these serialized byte totals; each measured pure heartbeat flush writes one v2 core row.",
+    "A pending setTimeout prevents Durable Object hibernation and can add duration charges. The hybrid creates no timer for isolated heartbeats and opens one only after dense second arrivals, so net cost depends on traffic shape.",
+    "Response elapsed excludes the intentional trailing timer wait; timerDrainMs reports that wall-clock wait separately.",
+    "Isolated phase timings overlap and must not be added together."
+  ]
+}

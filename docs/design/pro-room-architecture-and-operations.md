@@ -244,15 +244,26 @@ or completion record from being committed.
 
 The first successful mutation of a legacy room writes v2 atomically. While the
 entire room still fits the old single-record budget, ordinary mutations refresh
-an exact `pro-room:v1` rollback shadow. Presence-only heartbeats checkpoint that
-large compatibility shadow at most once every 30 seconds; the authoritative v2
-core still records every heartbeat so the 45-second eviction and failover lease
-does not weaken. Reusing an already-earlier Durable Object alarm avoids another
-write on each heartbeat without delaying expiry. After a room grows beyond the
-legacy budget, the last valid shadow is retained rather than overwritten or
-deleted; v2 stays authoritative. A rollback to a pre-v2 Worker after that point
-therefore requires an operator data-restore decision and must not be treated as
-a routine code-only rollback.
+an exact `pro-room:v1` rollback shadow. Presence-only heartbeats check that large
+compatibility shadow at most once every 30 seconds. A successful check is
+throttled even after the room outgrows the legacy value budget; the last valid
+shadow is retained rather than repeatedly serialized, overwritten, or deleted.
+
+The first pure heartbeat after a quiet period persists the authoritative v2
+core inline. If a second heartbeat arrives inside the following one-second
+window, dense renewals are coalesced into one trailing core write. A solitary
+participant therefore keeps the previous durability and cost behavior without
+opening a timer, while a burst of participants avoids rewriting the same large
+core for every request. Any join, leave, expiry, coordinator, authorization,
+Developer API command, playback, queue, quota, or other full mutation remains
+an immediate transaction and absorbs pending heartbeat durability. The prior
+persisted liveness timestamp also forces an inline write near the 45-second
+expiry boundary. Reusing an already-earlier Durable Object alarm avoids another
+alarm write without delaying expiry.
+
+After a room grows beyond the legacy budget, v2 stays authoritative. A rollback
+to a pre-v2 Worker after that point therefore requires an operator data-restore
+decision and must not be treated as a routine code-only rollback.
 
 Heartbeat clients send the five public room revisions they last applied. An
 unchanged room returns only those revisions and `notModified`; any mismatch

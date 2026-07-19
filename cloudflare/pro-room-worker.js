@@ -106,6 +106,15 @@ const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
 const UNLOAD_CLOSE_REQUEST_MAX_BYTES = 4 * 1024;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const PRESENCE_TTL_SECONDS = 45;
+// Keep this in sync with src/pro-room/runtime.ts. The guard covers one normal
+// client interval, one coalescing window, and one storage-retry interval.
+const PRESENCE_HEARTBEAT_EXPECTED_INTERVAL_MS = 15_000;
+const PRESENCE_HEARTBEAT_PERSIST_COALESCE_MS = 1_000;
+const PRESENCE_HEARTBEAT_PERSIST_RETRY_MS = 1_000;
+const PRESENCE_HEARTBEAT_PERSIST_EXPIRY_GUARD_MS =
+  PRESENCE_HEARTBEAT_EXPECTED_INTERVAL_MS +
+  PRESENCE_HEARTBEAT_PERSIST_COALESCE_MS +
+  PRESENCE_HEARTBEAT_PERSIST_RETRY_MS;
 // Keep the single-record rollback shadow fresh enough that an immediately
 // rolled-back Worker still sees a live participant, without rewriting a
 // potentially large legacy playlist on every 15-second heartbeat.
@@ -2110,8 +2119,14 @@ export class MusixquareProRoom {
     this.queueModeMigrationPending = false;
     this.developerCommandMigrationPending = false;
     this.persistedPlaylistSignatures = new Map();
+    this.persistedPresenceLastSeenAtMs = new Map();
     this.hasV2Persistence = false;
     this.lastLegacyShadowPersistedAtMs = 0;
+    this.heartbeatDurabilityDirty = false;
+    this.lastHeartbeatDurabilityPersistedAtMs = null;
+    this.heartbeatFlushGeneration = 0;
+    this.pendingHeartbeatFlushGeneration = null;
+    this.pendingHeartbeatFlushTimer = null;
     // `undefined` means a restarted instance has not yet reconciled the
     // storage alarm; `null` means it has authoritatively removed one.
     this.scheduledAlarmMs = undefined;
@@ -2291,16 +2306,134 @@ export class MusixquareProRoom {
       this.persistedPlaylistSignatures = new Map(
         playlist.map((item) => [item.queueItemId, playlistItemSignature(item)]),
       );
+      this.persistedPresenceLastSeenAtMs = new Map(
+        Object.values(room.presence.participants).map((participant) => [
+          participant.participantId,
+          participant.lastSeenAtMs,
+        ]),
+      );
       this.hasV2Persistence = true;
       return;
     }
 
     this.room = (await this.storage.get(STORAGE_KEY)) || null;
     this.persistedPlaylistSignatures = new Map();
+    this.persistedPresenceLastSeenAtMs = new Map(
+      Object.values(this.room?.presence?.participants || {}).map((participant) => [
+        participant.participantId,
+        participant.lastSeenAtMs,
+      ]),
+    );
     this.hasV2Persistence = false;
   }
 
+  invalidatePendingHeartbeatFlush() {
+    if (this.pendingHeartbeatFlushTimer !== null) {
+      clearTimeout(this.pendingHeartbeatFlushTimer);
+      this.pendingHeartbeatFlushTimer = null;
+    }
+    if (this.pendingHeartbeatFlushGeneration === null) return;
+    this.pendingHeartbeatFlushGeneration = null;
+    this.heartbeatFlushGeneration += 1;
+  }
+
+  async scheduleHeartbeatPersistRetryAlarm() {
+    if (typeof this.storage.setAlarm !== 'function') return;
+    const retryAtMs = Date.now() + PRESENCE_HEARTBEAT_PERSIST_RETRY_MS;
+    if (
+      Number.isSafeInteger(this.scheduledAlarmMs) &&
+      this.scheduledAlarmMs > Date.now() &&
+      this.scheduledAlarmMs <= retryAtMs
+    ) {
+      return;
+    }
+    try {
+      await this.storage.setAlarm(retryAtMs);
+      this.scheduledAlarmMs = retryAtMs;
+    } catch {
+      // The next ordinary heartbeat can install another coalesced flush. A
+      // storage outage must never escape the timer callback as an unhandled
+      // rejection merely because even the recovery alarm could not be set.
+    }
+  }
+
+  async flushHeartbeatDurability(generation) {
+    if (this.pendingHeartbeatFlushGeneration !== generation) return;
+    if (!this.heartbeatDurabilityDirty) return;
+    try {
+      await this.persist({
+        writeLegacyShadow: false,
+        retainEarlierAlarm: true,
+        heartbeatFlushGeneration: generation,
+      });
+    } catch {
+      // Keep the dirty bit set. A later heartbeat will schedule a fresh
+      // generation, while the retry alarm lets an otherwise-idle room recover
+      // without producing an unhandled timer-callback rejection.
+      if (this.pendingHeartbeatFlushGeneration === generation) {
+        this.pendingHeartbeatFlushGeneration = null;
+        this.pendingHeartbeatFlushTimer = null;
+        this.heartbeatFlushGeneration += 1;
+      }
+      await this.scheduleHeartbeatPersistRetryAlarm();
+    }
+  }
+
+  scheduleHeartbeatDurability(nowMs) {
+    this.heartbeatDurabilityDirty = true;
+    if (this.pendingHeartbeatFlushGeneration !== null) return true;
+    if (!Number.isSafeInteger(this.lastHeartbeatDurabilityPersistedAtMs)) return false;
+    const windowEndsAtMs =
+      this.lastHeartbeatDurabilityPersistedAtMs + PRESENCE_HEARTBEAT_PERSIST_COALESCE_MS;
+    if (nowMs >= windowEndsAtMs) return false;
+    const generation = this.heartbeatFlushGeneration + 1;
+    this.heartbeatFlushGeneration = generation;
+    this.pendingHeartbeatFlushGeneration = generation;
+    // DurableObjectState.waitUntil() is a compatibility no-op. A timer keeps
+    // the object non-hibernateable, so only dense traffic pays this cost: the
+    // first heartbeat after a quiet period persists inline, and a second one
+    // inside its one-second window opens the timer for the remaining duration.
+    this.pendingHeartbeatFlushTimer = setTimeout(
+      () => {
+        if (this.pendingHeartbeatFlushGeneration === generation) {
+          this.pendingHeartbeatFlushTimer = null;
+        }
+        this.withMutation(() => this.flushHeartbeatDurability(generation)).catch(() => undefined);
+      },
+      Math.max(0, windowEndsAtMs - nowMs),
+    );
+    return true;
+  }
+
   async persist(options = {}) {
+    const heartbeatFlushGeneration = options.heartbeatFlushGeneration;
+    if (
+      heartbeatFlushGeneration !== undefined &&
+      this.pendingHeartbeatFlushGeneration !== heartbeatFlushGeneration
+    ) {
+      return false;
+    }
+    try {
+      await this.persistRoom(options);
+    } catch (error) {
+      // Do not absorb the pending generation until the full transaction and
+      // alarm maintenance have both succeeded. If this was the only pending
+      // heartbeat work, leave a short recovery alarm before propagating the
+      // original mutation failure to its caller.
+      if (this.heartbeatDurabilityDirty && this.pendingHeartbeatFlushGeneration === null) {
+        await this.scheduleHeartbeatPersistRetryAlarm();
+      }
+      throw error;
+    }
+    if (this.heartbeatDurabilityDirty) {
+      this.lastHeartbeatDurabilityPersistedAtMs = Date.now();
+    }
+    this.heartbeatDurabilityDirty = false;
+    this.invalidatePendingHeartbeatFlush();
+    return true;
+  }
+
+  async persistRoom(options = {}) {
     assertBoundedRoomState(this.room);
     const writeLegacyShadow = options.writeLegacyShadow !== false;
     const storedCore = splitPersistentRoomState(this.room);
@@ -2338,8 +2471,20 @@ export class MusixquareProRoom {
       await write(this.storage);
     }
     this.persistedPlaylistSignatures = nextSignatures;
+    this.persistedPresenceLastSeenAtMs = new Map(
+      Object.values(this.room.presence.participants).map((participant) => [
+        participant.participantId,
+        participant.lastSeenAtMs,
+      ]),
+    );
     this.hasV2Persistence = true;
-    if (legacyShadowFits) {
+    // A v2 room can deliberately exceed the rollback shadow's single-record
+    // budget. A successful representability check is still a completed
+    // checkpoint attempt; throttle the next check even when the last valid v1
+    // shadow must be retained unchanged. A restarted isolate conservatively
+    // performs one fresh attempt because this timestamp is intentionally not
+    // part of the durable schema.
+    if (writeLegacyShadow) {
       this.lastLegacyShadowPersistedAtMs = Date.now();
     }
     await this.scheduleAlarm({ retainEarlier: options.retainEarlierAlarm === true });
@@ -5383,15 +5528,32 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const nowMs = Date.now();
+    const previousLastSeenAtMs = this.persistedPresenceLastSeenAtMs.get(
+      auth.participant.participantId,
+    );
+    const nearPersistedExpiry =
+      !Number.isSafeInteger(previousLastSeenAtMs) ||
+      previousLastSeenAtMs + this.presenceTtlMs() <=
+        nowMs + PRESENCE_HEARTBEAT_PERSIST_EXPIRY_GUARD_MS;
+    const recoveringUnscheduledHeartbeat =
+      this.heartbeatDurabilityDirty && this.pendingHeartbeatFlushGeneration === null;
     auth.participant.lastSeenAtMs = nowMs;
+    this.heartbeatDurabilityDirty = true;
     const developerCommandsChanged = await this.processDeveloperCommands(nowMs);
     const refreshLegacyShadow =
       developerCommandsChanged ||
       nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS;
-    await this.persist({
-      writeLegacyShadow: refreshLegacyShadow,
-      retainEarlierAlarm: true,
-    });
+    if (
+      refreshLegacyShadow ||
+      nearPersistedExpiry ||
+      recoveringUnscheduledHeartbeat ||
+      !this.scheduleHeartbeatDurability(nowMs)
+    ) {
+      await this.persist({
+        writeLegacyShadow: refreshLegacyShadow,
+        retainEarlierAlarm: true,
+      });
+    }
     if (
       known !== null &&
       known.revision === this.room.revision &&
@@ -6388,7 +6550,19 @@ export class MusixquareProRoom {
       this.normalizeLoadedEffects();
       this.normalizeLoadedQueueMode();
       this.normalizeLoadedDeveloperCommands();
-      await this.prune(Date.now());
+      const nowMs = Date.now();
+      await this.prune(nowMs);
+      if (this.heartbeatDurabilityDirty) {
+        try {
+          await this.persist({
+            writeLegacyShadow:
+              nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS,
+          });
+        } catch {
+          await this.scheduleHeartbeatPersistRetryAlarm();
+          return;
+        }
+      }
       await this.scheduleAlarm();
     });
   }

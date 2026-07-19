@@ -12,10 +12,14 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(scriptDirectory, '..');
 const serviceWorkerPath = 'public/service-worker.js';
+const packageJsonPath = 'package.json';
+const previousBuildCommand = 'vite build';
+const staticHeaderBuildCommand = 'vite build && node scripts/materialize-app-static-headers.mjs';
 
 class GuardError extends Error {
   constructor(message, exitCode = 2) {
@@ -162,6 +166,35 @@ function changedPathsSince(repoRoot, fromCommit, toCommit) {
   return output.split('\0').filter(Boolean);
 }
 
+function readJsonAt(repoRoot, revision, filePath) {
+  const source = git(repoRoot, ['show', `${revision}:${filePath}`]);
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    throw new GuardError(
+      `${filePath} at ${revision} is not valid JSON: ${error?.message ?? String(error)}`,
+    );
+  }
+}
+
+function isStaticHeaderBuildPolicyOnlyPackageChange(repoRoot, fromCommit, toCommit) {
+  const before = readJsonAt(repoRoot, fromCommit, packageJsonPath);
+  const after = readJsonAt(repoRoot, toCommit, packageJsonPath);
+  if (
+    before?.scripts?.build !== previousBuildCommand ||
+    after?.scripts?.build !== staticHeaderBuildCommand
+  ) {
+    return false;
+  }
+
+  // Compare parsed manifests so formatting and key order are irrelevant, but
+  // fail closed when any dependency, metadata, or other script changed beside
+  // the one explicitly reviewed build-artifact policy transition.
+  const normalizedAfter = structuredClone(after);
+  normalizedAfter.scripts.build = previousBuildCommand;
+  return isDeepStrictEqual(before, normalizedAfter);
+}
+
 function inspect({ repoRoot, head }) {
   const isShallow = git(repoRoot, ['rev-parse', '--is-shallow-repository']);
   if (isShallow !== 'false') {
@@ -185,7 +218,13 @@ function inspect({ repoRoot, head }) {
     );
   }
   const changedPaths = changedPathsSince(repoRoot, latestBump.commit, headCommit);
-  const runtimePaths = changedPaths.filter(isRuntimeAppPath);
+  const allowStaticHeaderBuildPolicy =
+    changedPaths.includes(packageJsonPath) &&
+    isStaticHeaderBuildPolicyOnlyPackageChange(repoRoot, latestBump.commit, headCommit);
+  const runtimePaths = changedPaths.filter(
+    (filePath) =>
+      !(filePath === packageJsonPath && allowStaticHeaderBuildPolicy) && isRuntimeAppPath(filePath),
+  );
 
   if (headVersion !== latestBump.version) {
     throw new GuardError(

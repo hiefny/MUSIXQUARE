@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/materialize-app-static-headers.mjs",
     "build:checked": "npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",

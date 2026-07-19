@@ -24,7 +24,10 @@ custom_domain = true
 directory = "../dist"
 binding = "ASSETS"
 html_handling = "none"
-run_worker_first = ["/*"]
+# Keep documents, API routes, the service worker, and stable bootstrap files on
+# the App Worker. Only content-hashed Vite assets with reviewed response-header
+# parity bypass Worker invocation.
+run_worker_first = ["/*", "!/assets/*.js", "!/assets/*.css", "!/assets/*.woff2"]
 
 [triggers]
 crons = ["0 */6 * * *"]

@@ -111,10 +111,14 @@ Worker must exist before the App Worker's cross-script Durable Object binding
 can become active:
 
 ```powershell
-npx wrangler deploy --config cloudflare/wrangler.signaling.toml
-npx wrangler deploy --config cloudflare/wrangler.pro-room.toml
-npx wrangler deploy --config cloudflare/wrangler.app.toml
+npm run deploy:signaling
+npm run deploy:pro-room
+npm run deploy:app
 ```
+
+The app command rebuilds and verifies the immutable Static Assets artifact
+before deployment. Do not deploy `wrangler.app.toml` directly from an
+unverified `dist/` directory.
 
 Then open:
 

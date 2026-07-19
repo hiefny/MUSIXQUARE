@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertAppStaticHeadersMaterialized } from './materialize-app-static-headers.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = path.join(repoRoot, 'dist');
@@ -47,8 +48,12 @@ if (hits.length > 0) {
   for (const hit of hits) {
     console.error(`  - ${hit.file}: ${hit.marker}`);
   }
-  console.error('[prod-hook-guard] Use npm run build:checked for production and npm run build:e2e only for tests.');
+  console.error(
+    '[prod-hook-guard] Use npm run build:checked for production and npm run build:e2e only for tests.',
+  );
   process.exit(1);
 }
 
 console.log('[prod-hook-guard] OK: no E2E test hooks found in dist/.');
+const { outputPath } = await assertAppStaticHeadersMaterialized({ repoRoot });
+console.log(`[app-static-assets] verified ${path.relative(repoRoot, outputPath)}.`);

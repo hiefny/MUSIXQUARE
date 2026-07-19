@@ -7,6 +7,15 @@ import { pathToFileURL } from 'node:url';
 const SCRIPT_PATH = resolve(process.cwd(), 'scripts', 'check-sw-cache-version.mjs');
 const temporaryDirectories: string[] = [];
 
+interface FixturePackageManifest {
+  name: string;
+  private: boolean;
+  version?: string;
+  scripts: Record<string, string>;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+}
+
 function git(directory: string, ...args: string[]): string {
   return execFileSync('git', args, {
     cwd: directory,
@@ -25,6 +34,27 @@ function serviceWorker(version: number, extra = ''): string {
   return `'use strict';\nconst CACHE_VERSION = 'v${version}';\n${extra}`;
 }
 
+function packageManifest(overrides: Partial<FixturePackageManifest> = {}): string {
+  const manifest: FixturePackageManifest = {
+    name: 'guard-fixture',
+    private: true,
+    scripts: {
+      dev: 'vite',
+      build: 'vite build',
+      'build:checked': 'npm run build && npm run guard',
+      test: 'vitest run',
+    },
+    dependencies: {
+      peerjs: '1.5.5',
+    },
+    devDependencies: {
+      vite: '6.4.3',
+    },
+    ...overrides,
+  };
+  return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
 function commit(directory: string, message: string): string {
   git(directory, 'add', '--all');
   git(directory, '-c', 'commit.gpgsign=false', 'commit', '-m', message);
@@ -40,6 +70,7 @@ function createRepository(): string {
 
   write(directory, 'public/service-worker.js', serviceWorker(1));
   write(directory, 'src/app.ts', 'export const app = true;\n');
+  write(directory, 'package.json', packageManifest());
   commit(directory, 'initial app');
 
   write(directory, 'public/service-worker.js', serviceWorker(2));
@@ -128,6 +159,75 @@ describe('service-worker CACHE_VERSION guard', () => {
     const result = runGuard(repository);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('PASS: v2');
+  });
+
+  it('allows only the reviewed Static Assets build-policy transition', () => {
+    const repository = createRepository();
+    const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
+    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mjs';
+    write(repository, 'package.json', `${JSON.stringify(manifest)}\n`);
+    write(repository, 'scripts/materialize-app-static-headers.mjs', 'export {};\n');
+    commit(repository, 'materialize static asset headers after build');
+
+    const result = runGuard(repository);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('PASS: v2');
+  });
+
+  it.each([
+    [
+      'runtime dependency',
+      (manifest: FixturePackageManifest) => (manifest.dependencies.peerjs = '2.0.0'),
+    ],
+    [
+      'development dependency',
+      (manifest: FixturePackageManifest) => (manifest.devDependencies.vite = '7.0.0'),
+    ],
+    [
+      'another script',
+      (manifest: FixturePackageManifest) => (manifest.scripts.dev = 'vite --host 0.0.0.0'),
+    ],
+    ['package metadata', (manifest: FixturePackageManifest) => (manifest.version = '8.0.0')],
+  ])('does not hide a concurrent %s change in package.json', (_label, mutate) => {
+    const repository = createRepository();
+    const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
+    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mjs';
+    mutate(manifest);
+    write(repository, 'package.json', `${JSON.stringify(manifest, null, 2)}\n`);
+    commit(repository, 'mix build policy with another package change');
+
+    const result = runGuard(repository);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('package.json');
+  });
+
+  it('rejects an arbitrary or extended build command without a cache bump', () => {
+    const repository = createRepository();
+    const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
+    manifest.scripts.build =
+      'vite build && node scripts/materialize-app-static-headers.mjs && node scripts/extra.mjs';
+    write(repository, 'package.json', `${JSON.stringify(manifest, null, 2)}\n`);
+    commit(repository, 'extend build command');
+
+    const result = runGuard(repository);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('package.json');
+  });
+
+  it.each([
+    ['package-lock.json', '{"lockfileVersion":3}\n'],
+    ['vite.config.ts', 'export default { build: { target: "esnext" } };\n'],
+  ])('keeps %s classified as runtime beside the allowed package transition', (filePath, source) => {
+    const repository = createRepository();
+    const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
+    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mjs';
+    write(repository, 'package.json', `${JSON.stringify(manifest, null, 2)}\n`);
+    write(repository, filePath, source);
+    commit(repository, 'mix build policy with another build input');
+
+    const result = runGuard(repository);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(filePath);
   });
 
   it('treats public pages and built workshop inputs as PWA runtime changes', () => {

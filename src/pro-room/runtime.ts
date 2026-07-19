@@ -450,6 +450,35 @@ export function reconcileRemovedProRoomQueueStateForTests(
   reconcileRemovedProRoomQueueState(removedQueueItemIds);
 }
 
+function shouldStopForAuthoritativeDeselection(
+  firstProjection: boolean,
+  previousCurrentQueueItemId: QueueItemId | null,
+  authoritativeCurrentQueueItemId: QueueItemId | null,
+  survivingQueueItemIds: ReadonlySet<QueueItemId>,
+): boolean {
+  return (
+    !firstProjection &&
+    previousCurrentQueueItemId !== null &&
+    authoritativeCurrentQueueItemId === null &&
+    survivingQueueItemIds.has(previousCurrentQueueItemId)
+  );
+}
+
+/** @internal Focused regression seam for authoritative selection invalidation. */
+export function shouldStopForAuthoritativeDeselectionForTests(
+  firstProjection: boolean,
+  previousCurrentQueueItemId: QueueItemId | null,
+  authoritativeCurrentQueueItemId: QueueItemId | null,
+  survivingQueueItemIds: ReadonlySet<QueueItemId>,
+): boolean {
+  return shouldStopForAuthoritativeDeselection(
+    firstProjection,
+    previousCurrentQueueItemId,
+    authoritativeCurrentQueueItemId,
+    survivingQueueItemIds,
+  );
+}
+
 async function applyProjectedPlaylist(
   snapshot: ProRoomSnapshot,
   playlist: PlaylistItem[],
@@ -465,6 +494,12 @@ async function applyProjectedPlaylist(
       ? []
       : findRemovedProRoomQueueItemIds(previousItems, playlist);
     const survivingQueueItemIds = new Set(playlist.map((item) => item.queueItemId));
+    const authoritativeDeselection = shouldStopForAuthoritativeDeselection(
+      firstProjection,
+      previousCurrent,
+      snapshot.currentQueueItemId,
+      survivingQueueItemIds,
+    );
     const preferredShuffleSuccessor =
       !firstProjection &&
       isCoordinator() &&
@@ -502,22 +537,33 @@ async function applyProjectedPlaylist(
     // it cannot be relied upon to tear down media owned by a deleted row.
     // Stop locally now; only the elected coordinator chooses/starts the
     // successor and therefore remains the sole playback authority.
-    dispatchProRoomRemovalTransition(
-      removalTransition,
-      isCoordinator(),
-      (queueItemId) => bus.emit('playlist:play-track', queueItemId),
-      () => {
-        bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
-        // PRO mutations bypass playlist.ts's ordinary removal teardown and
-        // the coordinator's later relay is a duplicate revision. Clear the
-        // deleted occurrence's presentation and resident metadata here so an
-        // empty room cannot keep displaying or replaying the former title.
-        setPlaybackTrackMeta(null);
-        setState('files.current', null);
-        setState('transfer.meta', null);
-        if (playlist.length === 0) bus.emit('ui:play-btn-state', false);
-      },
-    );
+    const stopProjectedMedia = (): void => {
+      bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
+      // PRO mutations bypass playlist.ts's ordinary removal teardown and
+      // the coordinator's later relay is a duplicate revision. Clear the
+      // invalidated occurrence's presentation and resident metadata here so
+      // a deselected room cannot keep displaying or replaying the old title.
+      setPlaybackTrackMeta(null);
+      setState('files.current', null);
+      setState('transfer.meta', null);
+      if (playlist.length === 0) bus.emit('ui:play-btn-state', false);
+    };
+    if (authoritativeDeselection) {
+      stopProjectedMedia();
+    } else {
+      dispatchProRoomRemovalTransition(
+        removalTransition,
+        isCoordinator(),
+        (queueItemId) => {
+          void playTrack(queueItemId, undefined, { forceNewYouTubeOccurrence: true }).catch(
+            (error) => {
+              log.warn('[PRO] Removal successor playback failed', error);
+            },
+          );
+        },
+        stopProjectedMedia,
+      );
+    }
     // PRO mutations are projected through this runtime and therefore bypass
     // playlist.ts's ordinary add/reorder/remove scheduling paths. Re-evaluate
     // the coordinator-owned next occurrence after every accepted projection;
@@ -1784,18 +1830,28 @@ export function cancelPendingDeveloperFileTransitionsForTests(): void {
   cancelPendingDeveloperFileTransitions();
 }
 
-type DeveloperPlayItemStarter = (queueItemId: QueueItemId) => Promise<void>;
+interface DeveloperPlayItemOptions {
+  explicitPlaybackIntent: true;
+}
+
+type DeveloperPlayItemStarter = (
+  queueItemId: QueueItemId,
+  options: DeveloperPlayItemOptions,
+) => Promise<void>;
+
+const startDeveloperPlayItem: DeveloperPlayItemStarter = (queueItemId, options) =>
+  playTrack(queueItemId, undefined, options);
 
 function beginDeveloperPlayItemIntent(
   queueItemId: QueueItemId,
-  starter: DeveloperPlayItemStarter = playTrack,
+  starter: DeveloperPlayItemStarter = startDeveloperPlayItem,
 ): boolean {
   // playTrack synchronously commits the queue selection before its first
   // await. That selection is the bounded API contract; R2 download/decode may
   // legitimately continue for minutes and must not keep a short-lived command
   // open past its epoch/TTL. The existing player pipeline owns all later UX,
   // retry, and failure transitions.
-  const completion = starter(queueItemId);
+  const completion = starter(queueItemId, { explicitPlaybackIntent: true });
   void completion.catch((error) => {
     log.warn('[PRO] Developer play-item background pipeline failed', error);
   });

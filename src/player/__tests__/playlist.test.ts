@@ -800,6 +800,39 @@ describe('clearPreloadState', () => {
 });
 
 describe('playTrack YouTube auto-rendezvous', () => {
+  it('keeps an ordinary first YouTube selection paused for the manual play tap', async () => {
+    const video = youtubeItem('First Video', 'FIRST_VIDEO_01');
+    setState('playlist.items', [video]);
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+
+    await playTrack(video.queueItemId);
+
+    expect(load).toHaveBeenCalledWith('FIRST_VIDEO_01', null, video.queueItemId, false, 0);
+    expect(getPendingAutoSyncOnReady()).toBe(false);
+    expect(getState('player.isFirstTrackLoad')).toBe(false);
+  });
+
+  it('arms paused-load zero-start for an explicit first YouTube play intent', async () => {
+    const video = youtubeItem('First Video', 'FIRST_VIDEO_01');
+    setState('playlist.items', [video]);
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+
+    await playTrack(video.queueItemId, undefined, { explicitPlaybackIntent: true });
+
+    expect(load).toHaveBeenCalledWith('FIRST_VIDEO_01', null, video.queueItemId, false, 0);
+    expect(consumePendingAutoSyncOnReady()).toMatchObject({
+      isTrackTransition: false,
+      zeroStart: true,
+      targetTime: 0,
+      subIndex: 0,
+      videoId: 'FIRST_VIDEO_01',
+      skipSeek: true,
+    });
+    expect(getState('player.isFirstTrackLoad')).toBe(false);
+  });
+
   it('stops the outgoing YouTube occurrence before selecting a persistent PRO file', async () => {
     const send = vi.fn();
     const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
@@ -967,6 +1000,33 @@ describe('playTrack YouTube auto-rendezvous', () => {
     });
   });
 
+  it('forces a removed same-video occurrence successor back to zero after selection clears', async () => {
+    setPlaybackYouTubePlaying();
+    setState('player.isFirstTrackLoad', false);
+    const successor = youtubeItem('Surviving occurrence', 'SAME_VIDEO_1');
+    setState('playlist.items', [successor]);
+    setState('playlist.currentQueueItemId', null);
+
+    bus.on('youtube:load', () => {});
+    const prepareRestart = vi
+      .spyOn(youtubeIframe, 'prepareSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+    const handoff = vi
+      .spyOn(youtubeIframe, 'handoffSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+
+    await playTrack(successor.queueItemId, undefined, { forceNewYouTubeOccurrence: true });
+
+    expect(prepareRestart).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(handoff).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(consumePendingAutoSyncOnReady()).toMatchObject({
+      zeroStart: true,
+      videoId: 'SAME_VIDEO_1',
+      targetTime: 0,
+      skipSeek: false,
+    });
+  });
+
   it('broadcasts the requested YouTube playlist sub-index on playTrack', async () => {
     const send = vi.fn();
     const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
@@ -1037,6 +1097,47 @@ describe('playTrack YouTube auto-rendezvous', () => {
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.YOUTUBE_PLAY }));
+  });
+});
+
+describe('playTrack explicit file playback intent', () => {
+  it('keeps an ordinary first file ready for the manual play tap', async () => {
+    const file = new File(['audio'], 'first.flac', { type: 'audio/flac' });
+    const item = fileItem(file.name, file);
+    setState('playlist.items', [item]);
+    decodeMocks.loadAndBroadcastFile.mockResolvedValue(true);
+
+    await playTrack(item.queueItemId);
+
+    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
+      file,
+      item.queueItemId,
+      expect.any(Number),
+      expect.any(Number),
+      expect.objectContaining({ autoPlayDelayMs: 0 }),
+    );
+    expect(getManagedTimer('autoPlayTimer')).toBeNull();
+    expect(getState('player.isFirstTrackLoad')).toBe(false);
+  });
+
+  it('routes an explicit first file through the synchronized delayed start', async () => {
+    vi.useFakeTimers();
+    const file = new File(['audio'], 'first.flac', { type: 'audio/flac' });
+    const item = fileItem(file.name, file);
+    setState('playlist.items', [item]);
+    decodeMocks.loadAndBroadcastFile.mockResolvedValue(true);
+
+    await playTrack(item.queueItemId, undefined, { explicitPlaybackIntent: true });
+
+    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
+      file,
+      item.queueItemId,
+      expect.any(Number),
+      expect.any(Number),
+      expect.objectContaining({ autoPlayDelayMs: 3000 }),
+    );
+    expect(getManagedTimer('autoPlayTimer')).not.toBeNull();
+    expect(getState('player.isFirstTrackLoad')).toBe(false);
   });
 });
 

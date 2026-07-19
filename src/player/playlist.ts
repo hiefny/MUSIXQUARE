@@ -114,6 +114,10 @@ const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 interface PlayTrackOptions {
   navigateToPlay?: boolean;
   proRestore?: ProRoomLegacyPlaybackRestore;
+  /** Treat the selection as an explicit play command, including the first file. */
+  explicitPlaybackIntent?: boolean;
+  /** Preserve a new same-video occurrence after its previous row was removed. */
+  forceNewYouTubeOccurrence?: boolean;
 }
 
 function getLocalFileHostPlayAt(): number {
@@ -965,16 +969,16 @@ export async function playTrack(
       // Every shared YouTube transition is loaded paused first. This keeps a
       // persistent iframe from leaking a short burst of the incoming video
       // before the coordinator can choose zero-start or the compatible
-      // legacy rendezvous path. The first entry still waits for the user's
-      // explicit play tap; later entries arm playback immediately after the
-      // paused load becomes usable.
+      // legacy rendezvous path. An ordinary first entry still waits for the
+      // user's explicit play tap; an explicit external play command and later
+      // entries arm playback immediately after the paused load becomes usable.
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       const isAlreadyYt = isYouTubeOwner();
       const shouldAutoplay = false;
       const isNewYouTubeOccurrence =
         isAlreadyYt &&
-        previousQueueItemId !== null &&
-        previousQueueItemId !== queueItemId &&
+        (options.forceNewYouTubeOccurrence === true ||
+          (previousQueueItemId !== null && previousQueueItemId !== queueItemId)) &&
         Boolean(broadcastVideoId);
       const sameVideoOccurrenceRestartPrepared =
         isNewYouTubeOccurrence && broadcastVideoId
@@ -1003,11 +1007,10 @@ export async function playTrack(
         });
       }
 
-      // shouldAutoplay computed above mirrors this branch decision: the
-      // first-load + first-time-YT path waits for the user, every other
-      // path autoplays. The host's own iframe load uses the same flag
-      // so it stays in lockstep with the broadcast.
-      if (isFirstTrackLoad && !isAlreadyYt) {
+      // Every iframe load remains paused. The ordinary first-load + first-time
+      // YouTube path waits for the user; an explicit external play intent uses
+      // the same pending zero-start rendezvous as subsequent selections.
+      if (isFirstTrackLoad && !isAlreadyYt && !options.explicitPlaybackIntent) {
         setState('player.isFirstTrackLoad', false);
         bus.emit(
           'youtube:load',
@@ -1113,11 +1116,12 @@ export async function playTrack(
     setState('transfer.currentSessionId', sessionId);
 
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
+    const waitsForManualFirstStart = isFirstTrackLoad && !options.explicitPlaybackIntent;
     // Tell guests how long the host will wait before actually calling play(0).
     // Guests on the "same-file replay" path use this to defer their own
     // play(0), otherwise they ghost-play for 3s while the host is still
     // waiting on its autoPlayTimer.
-    const autoPlayDelayMs = options.proRestore || isFirstTrackLoad ? 0 : 3000;
+    const autoPlayDelayMs = options.proRestore || waitsForManualFirstStart ? 0 : 3000;
 
     // FILE_PREPARE is coalesced into the same debounce as broadcastFile.
     // Sending it eagerly here would flood guests with metadata updates for
@@ -1200,8 +1204,8 @@ export async function playTrack(
       return;
     }
 
-    if (isFirstTrackLoad) {
-      setState('player.isFirstTrackLoad', false);
+    if (isFirstTrackLoad) setState('player.isFirstTrackLoad', false);
+    if (waitsForManualFirstStart) {
       showToast(t('toast.file_ready'));
     } else {
       showToast(t('toast.playing_in_3s'));

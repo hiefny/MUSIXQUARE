@@ -12,6 +12,7 @@ import {
   cancelPendingDeveloperFileTransitionsForTests,
   beginDeveloperPlayItemIntentForTests,
   reconcileRemovedProRoomQueueStateForTests,
+  shouldStopForAuthoritativeDeselectionForTests,
   shouldRetainPendingProDownloadForTests,
 } from '../runtime.ts';
 
@@ -78,7 +79,9 @@ describe('PRO developer file transport control', () => {
     });
 
     expect(beginDeveloperPlayItemIntentForTests(QUEUE_ITEM_ID, starter)).toBe(true);
-    expect(starter).toHaveBeenCalledWith(QUEUE_ITEM_ID);
+    expect(starter).toHaveBeenCalledWith(QUEUE_ITEM_ID, {
+      explicitPlaybackIntent: true,
+    });
 
     finish();
   });
@@ -125,6 +128,36 @@ describe('PRO room R2 download ownership', () => {
 });
 
 describe('PRO room accepted removal cleanup', () => {
+  it('stops a surviving local selection when the authoritative projection clears current', () => {
+    expect(
+      shouldStopForAuthoritativeDeselectionForTests(
+        false,
+        QUEUE_ITEM_ID,
+        null,
+        new Set([QUEUE_ITEM_ID]),
+      ),
+    ).toBe(true);
+    expect(
+      shouldStopForAuthoritativeDeselectionForTests(
+        false,
+        QUEUE_ITEM_ID,
+        QUEUE_ITEM_ID,
+        new Set([QUEUE_ITEM_ID]),
+      ),
+    ).toBe(false);
+    expect(
+      shouldStopForAuthoritativeDeselectionForTests(false, QUEUE_ITEM_ID, null, new Set()),
+    ).toBe(false);
+    expect(
+      shouldStopForAuthoritativeDeselectionForTests(
+        true,
+        QUEUE_ITEM_ID,
+        null,
+        new Set([QUEUE_ITEM_ID]),
+      ),
+    ).toBe(false);
+  });
+
   it('clears preload and recovery owners for every removed queue identity', () => {
     setState('preload.nextQueueItemId', REMOVED_PRELOAD_ID);
     setState('preload.activeTarget', {

@@ -795,6 +795,381 @@ describe('PRO room server BOT boundary', () => {
     expect(internal.room.playlist).toHaveLength(1);
   });
 
+  it('dispatches the newly added item when add-and-play starts from an empty queue', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    expect(internal.room.playlist).toEqual([]);
+    expect(internal.room.currentQueueItemId).toBeNull();
+
+    const dispatched: Array<{ path: string; body: Record<string, any> }> = [];
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async (request: Request) => {
+          dispatched.push({
+            path: new URL(request.url).pathname,
+            body: (await request.json()) as Record<string, any>,
+          });
+          return Response.json({ dispatched: true });
+        }),
+      })),
+    };
+    const capability = await worker.fetch(
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+    );
+    expect(capability.status).toBe(200);
+
+    // A public request ID may occupy the full 128-character contract. Derived
+    // developer keys must remain within their own 128-character limit.
+    const requestId = 'b'.repeat(128);
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'add and play the first song' },
+      ownerCookie,
+    );
+    expect(context.status).toBe(200);
+    const contextPayload = await responseJson(context);
+    const execute = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken: contextPayload.leaseToken,
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['First Artist First Song official audio'],
+          playAddedIndex: 0,
+        },
+        tracks: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            name: 'First Song',
+            title: 'First Song',
+            artist: 'First Artist',
+          },
+        ],
+      },
+      ownerCookie,
+    );
+
+    expect(execute.status).toBe(200);
+    await expect(execute.json()).resolves.toEqual({
+      ok: true,
+      summary: 'Added 1 track and started playback.',
+      addedCount: 1,
+      playbackChanged: true,
+    });
+    expect(internal.room.playlist).toHaveLength(1);
+    const queueItemId = internal.room.playlist[0].queueItemId;
+    expect(
+      Object.keys(internal.room.idempotency).some((key) =>
+        /^developer:MxqrGeminiBot001:queue:add_youtube_batch:bot-queue-[a-f0-9]{64}$/u.test(key),
+      ),
+    ).toBe(true);
+    expect(Object.values(internal.room.developerCommands)).toContainEqual(
+      expect.objectContaining({
+        keyId: 'MxqrGeminiBot001',
+        idempotencyKey: expect.stringMatching(/^bot-command-[a-f0-9]{64}$/u),
+        command: { type: 'play_item', queueItemId },
+        status: 'dispatched',
+      }),
+    );
+    expect(dispatched.filter((entry) => entry.path === '/internal/developer/v1/dispatch')).toEqual([
+      expect.objectContaining({
+        body: expect.objectContaining({
+          frame: expect.objectContaining({
+            command: { type: 'play_item', queueItemId },
+            expected: expect.objectContaining({
+              queueItemId: null,
+              playlistRevision: internal.room.playlistRevision,
+            }),
+          }),
+        }),
+      }),
+    ]);
+  });
+
+  it('removes an exact item set and clears the queue through one idempotent BOT mutation each', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const seeded = await responseJson(
+      await mutateInternalDeveloperQueue(worker, 'MxqrGeminiBot001', 'bot-remove-clear-seed', {
+        type: 'add_youtube_batch',
+        items: [
+          { videoId: 'dQw4w9WgXcQ', name: 'First' },
+          { videoId: 'M7lc1UVf-VE', name: 'Second' },
+          { videoId: '9bZkp7q19f0', name: 'Third' },
+        ],
+      }),
+    );
+    const [firstQueueItemId, secondQueueItemId, thirdQueueItemId] = seeded.items.map(
+      (item: Record<string, any>) => item.queueItemId,
+    );
+    internal.room.currentQueueItemId = firstQueueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: 7,
+      state: 'playing',
+      queueItemId: firstQueueItemId,
+      positionSeconds: 12,
+      updatedAtMs: Date.now(),
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+    const removeRequestId = 'bot-remove-items-0001';
+    const removeContext = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: removeRequestId, prompt: 'remove first and third' },
+      ownerCookie,
+    );
+    const removeContextPayload = await responseJson(removeContext);
+    const removeBody = {
+      roomCode: ROOM_CODE,
+      requestId: removeRequestId,
+      leaseToken: removeContextPayload.leaseToken,
+      plan: {
+        intent: 'remove_items',
+        queueItemIds: [firstQueueItemId, thirdQueueItemId],
+        answer: 'Removed the selected tracks.',
+      },
+      tracks: [],
+    };
+    const beforeRemoveRevision = internal.room.revision;
+    const removed = await internalBotRequest(worker, 'execute', removeBody, ownerCookie);
+
+    expect(removed.status).toBe(200);
+    const removedPayload = await responseJson(removed);
+    expect(removedPayload).toEqual({
+      ok: true,
+      summary: 'Removed 2 tracks.',
+      addedCount: 0,
+      playbackChanged: true,
+    });
+    expect(internal.room.playlist.map((item: Record<string, any>) => item.queueItemId)).toEqual([
+      secondQueueItemId,
+    ]);
+    expect(internal.room.revision).toBe(beforeRemoveRevision + 1);
+    expect(
+      internal.room.idempotency[
+        `developer:MxqrGeminiBot001:queue:remove_many:${removeRequestId}.queue`
+      ],
+    ).toMatchObject({ kind: 'developer-queue', status: 200 });
+
+    const recovered = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: removeRequestId, prompt: 'remove first and third' },
+      ownerCookie,
+    );
+    expect(recovered.status).toBe(200);
+    await expect(recovered.json()).resolves.toEqual({ replay: removedPayload });
+
+    const replay = await internalBotRequest(worker, 'execute', removeBody, ownerCookie);
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual(removedPayload);
+    expect(internal.room.playlist.map((item: Record<string, any>) => item.queueItemId)).toEqual([
+      secondQueueItemId,
+    ]);
+    expect(internal.room.revision).toBe(beforeRemoveRevision + 1);
+
+    const clearRequestId = 'bot-clear-queue-0001';
+    const clearContext = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: clearRequestId, prompt: 'clear the queue' },
+      ownerCookie,
+    );
+    const clearContextPayload = await responseJson(clearContext);
+    const cleared = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: clearRequestId,
+        leaseToken: clearContextPayload.leaseToken,
+        plan: {
+          intent: 'clear_queue',
+          basePlaylistRevision: clearContextPayload.room.playlistRevision,
+          answer: 'Cleared the queue.',
+        },
+        tracks: [],
+      },
+      ownerCookie,
+    );
+
+    expect(cleared.status).toBe(200);
+    await expect(cleared.json()).resolves.toEqual({
+      ok: true,
+      summary: 'Cleared the queue and removed 1 track.',
+      addedCount: 0,
+      playbackChanged: false,
+    });
+    expect(internal.room.playlist).toEqual([]);
+    expect(
+      internal.room.idempotency[`developer:MxqrGeminiBot001:queue:clear:${clearRequestId}.queue`],
+    ).toMatchObject({ kind: 'developer-queue', status: 200 });
+  });
+
+  it('rejects a BOT clear when the playlist changes after the model context snapshot', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    await mutateInternalDeveloperQueue(worker, 'MxqrGeminiBot001', 'bot-clear-fence-seed-1', {
+      type: 'add_youtube',
+      videoId: 'dQw4w9WgXcQ',
+      name: 'Visible to the model',
+    });
+    const requestId = 'bot-clear-fence-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'clear the queue' },
+      ownerCookie,
+    );
+    const contextPayload = await responseJson(context);
+
+    await mutateInternalDeveloperQueue(worker, 'MxqrGeminiBot001', 'bot-clear-fence-seed-2', {
+      type: 'add_youtube',
+      videoId: 'M7lc1UVf-VE',
+      name: 'Added after the model snapshot',
+    });
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+      queueItemIds: internal.room.playlist.map((item: Record<string, any>) => item.queueItemId),
+    };
+
+    const response = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken: contextPayload.leaseToken,
+        plan: {
+          intent: 'clear_queue',
+          basePlaylistRevision: contextPayload.room.playlistRevision,
+          answer: 'Cleared the queue.',
+        },
+        tracks: [],
+      },
+      ownerCookie,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_CONTEXT_STALE' });
+    expect(internal.room.revision).toBe(before.revision);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision);
+    expect(internal.room.playlist.map((item: Record<string, any>) => item.queueItemId)).toEqual(
+      before.queueItemIds,
+    );
+  });
+
+  it('rechecks the BOT clear fence inside the queue handler immediately before mutation', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: Record<string, any>;
+      handleInternalDeveloperQueueMutation(
+        request: Request,
+        botTerminal: Record<string, unknown>,
+      ): Promise<Response>;
+    };
+    await mutateInternalDeveloperQueue(worker, 'MxqrGeminiBot001', 'bot-handler-fence-seed', {
+      type: 'add_youtube',
+      videoId: 'dQw4w9WgXcQ',
+      name: 'Must survive a stale plan',
+    });
+
+    const requestId = 'bot-handler-fence-0001';
+    const terminalScope = `bot-execute:${'a'.repeat(43)}`;
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+      queueItemIds: internal.room.playlist.map((item: Record<string, any>) => item.queueItemId),
+    };
+    const response = await internal.handleInternalDeveloperQueueMutation(
+      new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: ROOM_CODE,
+          keyId: 'MxqrGeminiBot001',
+          idempotencyKey: requestId,
+          mutation: { type: 'clear' },
+        }),
+      }),
+      {
+        action: 'clear_queue',
+        languageHint: 'Cleared the queue.',
+        expectedPlaylistRevision: before.playlistRevision - 1,
+        terminalScope,
+        terminalKey: requestId,
+        terminalFingerprint: 'f'.repeat(64),
+      },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_CONTEXT_STALE' });
+    expect(internal.room.revision).toBe(before.revision);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision);
+    expect(internal.room.playlist.map((item: Record<string, any>) => item.queueItemId)).toEqual(
+      before.queueItemIds,
+    );
+    expect(internal.room.idempotency[`${terminalScope}:${requestId}`]).toBeUndefined();
+  });
+
+  it('rejects empty, duplicate, oversized, or cross-intent BOT removal plans', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const requestId = 'bot-remove-invalid-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'invalid removal' },
+      ownerCookie,
+    );
+    const contextPayload = await responseJson(context);
+    const queueItemId = '61616161-6161-4616-8616-616161616161';
+    const plans = [
+      { intent: 'remove_items', queueItemIds: [] },
+      { intent: 'remove_items', queueItemIds: [queueItemId, queueItemId] },
+      {
+        intent: 'remove_items',
+        queueItemIds: Array.from(
+          { length: 21 },
+          (_, index) => `62626262-6262-4626-8626-${index.toString(16).padStart(12, '0')}`,
+        ),
+      },
+      { intent: 'clear_queue', queueItemIds: [queueItemId] },
+    ];
+    const before = structuredClone(internal.room);
+
+    for (const plan of plans) {
+      const response = await internalBotRequest(
+        worker,
+        'execute',
+        {
+          roomCode: ROOM_CODE,
+          requestId,
+          leaseToken: contextPayload.leaseToken,
+          plan,
+          tracks: [],
+        },
+        ownerCookie,
+      );
+      expect(response.status).toBe(400);
+      expect(await responseJson(response)).toEqual({ error: 'INVALID_REQUEST' });
+      expect(internal.room.playlist).toEqual(before.playlist);
+      expect(internal.room.revision).toBe(before.revision);
+      expect(internal.room.playlistRevision).toBe(before.playlistRevision);
+    }
+  });
+
   it('dispatches play_existing once and replays the terminal BOT receipt', async () => {
     const { worker, ownerCookie, internal, queueItemId, dispatchFetch } =
       await preparedDeveloperCommandRoom();
@@ -1879,6 +2254,154 @@ describe('PRO room private Developer API projections', () => {
     );
     expect(forged.status).toBe(400);
     expect(await responseJson(forged)).toEqual({ error: 'INVALID_PLAYLIST' });
+  });
+
+  it('atomically removes one bounded item set and resets selected playback with one revision step', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T03:00:00.000Z'));
+    const context = await activatedRoom();
+    const { worker, ownerCookie } = context;
+    const internal = worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    const { asset } = await completeReadyAsset(context, 'developer-remove-many');
+    const audioQueueItemId = '51515151-5151-4515-8515-515151515151';
+    expect(
+      await replacePlaylist(
+        context,
+        [playlistItem(audioQueueItemId, asset)],
+        'developer-remove-many',
+      ),
+    ).toMatchObject({ status: 200 });
+    const seeded = await responseJson(
+      await mutateInternalDeveloperQueue(worker, 'R'.repeat(16), 'developer-remove-many-seed', {
+        type: 'add_youtube_batch',
+        items: [
+          { videoId: 'dQw4w9WgXcQ', name: 'Remove this too' },
+          { videoId: 'M7lc1UVf-VE', name: 'Keep this' },
+        ],
+      }),
+    );
+    const removeYouTubeId = seeded.items[1].queueItemId;
+    const keepQueueItemId = seeded.items[2].queueItemId;
+    internal.room.currentQueueItemId = audioQueueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: 9,
+      state: 'playing',
+      queueItemId: audioQueueItemId,
+      positionSeconds: 21,
+      updatedAtMs: Date.now() - 1_000,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    };
+    const capability = await worker.fetch(
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+    );
+    expect(capability.status).toBe(200);
+    const dispatched: Array<Record<string, any>> = [];
+    const dispatchFetch = vi.fn(async (request: Request) => {
+      dispatched.push((await request.json()) as Record<string, any>);
+      return Response.json({ dispatched: true });
+    });
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+    const before = {
+      revision: internal.room.revision,
+      playlistRevision: internal.room.playlistRevision,
+      playbackRevision: internal.room.playback.revision,
+    };
+    const mutation = {
+      type: 'remove_many',
+      queueItemIds: [audioQueueItemId, removeYouTubeId],
+    };
+
+    const removed = await mutateInternalDeveloperQueue(
+      worker,
+      'R'.repeat(16),
+      'developer-remove-many-0001',
+      mutation,
+    );
+
+    expect(removed.status).toBe(200);
+    const removedQueue = await responseJson(removed);
+    expect(removedQueue).toMatchObject({
+      playlistRevision: before.playlistRevision + 1,
+      currentQueueItemId: null,
+      items: [{ queueItemId: keepQueueItemId }],
+    });
+    expect(internal.room.playlist.map((item: Record<string, any>) => item.queueItemId)).toEqual([
+      keepQueueItemId,
+    ]);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+    expect(internal.room.playback).toMatchObject({
+      revision: before.playbackRevision + 1,
+      state: 'idle',
+      queueItemId: null,
+      positionSeconds: 0,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    });
+    expect(asset.gcAfterMs).toBe(Date.now() + 15 * 60 * 1_000);
+    await vi.waitFor(() => expect(dispatched).toHaveLength(1));
+
+    const replay = await mutateInternalDeveloperQueue(
+      worker,
+      'R'.repeat(16),
+      'developer-remove-many-0001',
+      mutation,
+    );
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual(removedQueue);
+    expect(internal.room.revision).toBe(before.revision + 1);
+    expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
+    expect(internal.room.playback.revision).toBe(before.playbackRevision + 1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+
+    const beforeMissing = structuredClone(internal.room);
+    const missing = await mutateInternalDeveloperQueue(
+      worker,
+      'R'.repeat(16),
+      'developer-remove-many-missing',
+      {
+        type: 'remove_many',
+        queueItemIds: [keepQueueItemId, '52525252-5252-4525-8525-525252525252'],
+      },
+    );
+    expect(missing.status).toBe(404);
+    expect(await responseJson(missing)).toEqual({ error: 'QUEUE_ITEM_NOT_FOUND' });
+    expect(internal.room.playlist).toEqual(beforeMissing.playlist);
+    expect(internal.room.revision).toBe(beforeMissing.revision);
+    expect(internal.room.playlistRevision).toBe(beforeMissing.playlistRevision);
+
+    for (const [suffix, invalidMutation] of [
+      ['empty', { type: 'remove_many', queueItemIds: [] }],
+      ['duplicate', { type: 'remove_many', queueItemIds: [keepQueueItemId, keepQueueItemId] }],
+      [
+        'too-many',
+        {
+          type: 'remove_many',
+          queueItemIds: Array.from(
+            { length: 21 },
+            (_, index) => `53535353-5353-4535-8535-${index.toString(16).padStart(12, '0')}`,
+          ),
+        },
+      ],
+    ] as const) {
+      const invalid = await mutateInternalDeveloperQueue(
+        worker,
+        'R'.repeat(16),
+        `developer-remove-many-${suffix}`,
+        invalidMutation,
+      );
+      expect(invalid.status).toBe(400);
+      expect(await responseJson(invalid)).toEqual({ error: 'INVALID_REQUEST' });
+      expect(internal.room.playlist).toEqual(beforeMissing.playlist);
+    }
   });
 
   it('atomically clears the queue, current playback, and R2 references with one revision step', async () => {

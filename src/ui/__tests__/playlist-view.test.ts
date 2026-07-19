@@ -144,6 +144,21 @@ describe('playlist empty state i18n', () => {
 });
 
 describe('playlist queue identity rendering and actions', () => {
+  it('does not rebuild every row for play/pause activity changes', async () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const list = document.getElementById('playlist-ui')!;
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    setState('playback.activity', 'playing');
+    await nextAnimationFrame();
+    expect(replaceChildren).not.toHaveBeenCalled();
+
+    setState('playback.mode', 'system-audio');
+    await nextAnimationFrame();
+    expect(replaceChildren).toHaveBeenCalledOnce();
+  });
+
   it('renders each YouTube parent and sub-list inside one atomic queue entry', () => {
     setState('playlist.items', sampleItems());
     setState('youtube.subItemsMap', {

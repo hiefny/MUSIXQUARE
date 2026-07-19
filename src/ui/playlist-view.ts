@@ -17,7 +17,6 @@ import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { setSubItemsLoadError } from '../youtube/_state.ts';
-import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import {
   createPlaylistReorderController,
   type PlaylistReorderController,
@@ -540,7 +539,7 @@ export function initPlaylistView(): void {
     }
     schedulePlaylistUpdate();
   });
-  scopePlaybackModeActivity(_busScope, () => {
+  _busScope.on('state:playback.mode', () => {
     if (getState('playback.mode') === 'system-audio') _removalController?.cancel();
     schedulePlaylistUpdate();
   });

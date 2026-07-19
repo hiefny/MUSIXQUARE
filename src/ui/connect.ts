@@ -5,7 +5,6 @@
  * rendering (mobile + desktop sub-panel).
  */
 
-import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
@@ -68,6 +67,10 @@ async function generateQR(containerId: string): Promise<void> {
   container.replaceChildren(loadingP);
 
   try {
+    // QR generation happens only after a session exists. Keep its sizeable
+    // encoder out of the first-load graph while preserving the existing
+    // loading placeholder and stale-generation guard around the await.
+    const { default: QRCode } = await import('qrcode');
     // QR: uppercase alphanumeric mode for smallest QR
     const qrUrl = `MUSIXQUARE.COM/${sessionCode}`;
     // Clipboard: normal readable URL. Invite OG cards use English copy, so the

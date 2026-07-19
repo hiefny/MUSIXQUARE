@@ -1,5 +1,4 @@
 import { bus, createBusScope } from '../core/events.ts';
-import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -729,6 +728,7 @@ async function renderDemoQRCode(code: string): Promise<void> {
   }
 
   try {
+    const { default: QRCode } = await import('qrcode');
     const svgString = await QRCode.toString(`MUSIXQUARE.COM/${code}`, {
       type: 'svg',
       margin: 2,

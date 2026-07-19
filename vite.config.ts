@@ -105,6 +105,51 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
   },
 });
 
+// QR encoding and PeerJS are needed only after session actions. Fail the build
+// if either dependency accidentally re-enters the static closure of app.ts.
+const guardInitialAppBundleGraph = (): Plugin => ({
+  name: 'guard-initial-app-bundle-graph',
+  apply: 'build',
+  generateBundle(_options, bundle) {
+    const chunks = new Map(
+      Object.values(bundle)
+        .filter((output) => output.type === 'chunk')
+        .map((chunk) => [chunk.fileName, chunk]),
+    );
+    const appEntry = [...chunks.values()].find(
+      (chunk) =>
+        chunk.isEntry &&
+        Object.keys(chunk.modules).some((id) => id.replace(/\\/g, '/').endsWith('/src/app.ts')),
+    );
+    if (!appEntry) this.error('Could not locate the MUSIXQUARE app entry chunk.');
+
+    const staticClosure = new Set<string>();
+    const pending = [appEntry.fileName];
+    while (pending.length > 0) {
+      const fileName = pending.pop();
+      if (!fileName || staticClosure.has(fileName)) continue;
+      staticClosure.add(fileName);
+      const chunk = chunks.get(fileName);
+      if (chunk) pending.push(...chunk.imports);
+    }
+
+    const forbidden = [...staticClosure].flatMap((fileName) => {
+      const chunk = chunks.get(fileName);
+      if (!chunk) return [];
+      return Object.keys(chunk.modules)
+        .map((id) => id.replace(/\\/g, '/'))
+        .filter((id) => /\/node_modules\/(?:peerjs|qrcode)\//.test(id));
+    });
+    if (forbidden.length > 0) {
+      this.error(
+        `PeerJS/QRCode leaked into the initial app graph:\n${forbidden
+          .map((id) => `  - ${id}`)
+          .join('\n')}`,
+      );
+    }
+  },
+});
+
 export default defineConfig({
   root: '.',
   publicDir: 'public',
@@ -113,7 +158,12 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
-  plugins: [flattenWorkshopHtml(), devPageAliases(), prioritizeStylesheetsInHtml()],
+  plugins: [
+    flattenWorkshopHtml(),
+    devPageAliases(),
+    prioritizeStylesheetsInHtml(),
+    guardInitialAppBundleGraph(),
+  ],
   build: {
     outDir: 'dist',
     target: 'es2022',

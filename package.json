@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:checked": "npm run guard:sw-cache-version && npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build",
+    "build:checked": "npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "promo:render": "tsx .workshop/promo/render.ts",
@@ -19,6 +19,8 @@
     "guard:bus-pairing": "node scripts/check-bus-pairing.mjs",
     "guard:chunk-pump": "node scripts/check-chunk-pump.mjs",
     "guard:import-graph": "node scripts/check-import-graph.mjs",
+    "generate:profanity-patterns": "node scripts/generate-profanity-patterns.mjs",
+    "guard:profanity-patterns": "node scripts/generate-profanity-patterns.mjs --check",
     "guard:lifecycle-writes": "node scripts/check-lifecycle-writes.mjs",
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
     "guard:font-assets": "node scripts/check-app-font.mjs",

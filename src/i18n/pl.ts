@@ -121,6 +121,7 @@ const pl: Record<I18nKey, string> = {
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Motyw',
+  'settings.ui_sounds': 'Dźwięki interfejsu',
   'settings.dark': 'Ciemny',
   'settings.light': 'Jasny',
   'settings.visualizer': 'Wizualizator',

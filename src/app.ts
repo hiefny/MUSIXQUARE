@@ -94,6 +94,7 @@ import { initSetup } from './ui/setup.ts';
 import { initDemoMode } from './demo/mode.ts';
 import { initAnnouncementPolling } from './ui/announcement.ts';
 import { initProRoomBranding } from './pro-room/branding.ts';
+import { initUiSounds } from './audio/ui-sounds.ts';
 
 // ── Service Worker ──
 import { registerServiceWorker } from './sw-register.ts';
@@ -457,6 +458,7 @@ async function bootstrap(): Promise<void> {
   safeInit('YouTubeSync', initYouTubeSync);
 
   // 8. UI modules (binds DOM events)
+  safeInit('UiSounds', initUiSounds);
   safeInit('Visualizer', initVisualizer);
   safeInit('Chat', initChat);
   safeInit('PlaylistView', initPlaylistView);

@@ -33,6 +33,7 @@ import {
   rememberPinnedNotice,
   type BotChatResult,
 } from './protocol.ts';
+import { playAnnouncementSound } from '../audio/ui-sounds.ts';
 import { cmdDebug } from './debug-console.ts';
 import { extractBotPrompt } from './bot-syntax.ts';
 
@@ -308,12 +309,19 @@ function cmdNotice(_: string[], rawArgs: string): void {
     return;
   }
   const senderLabel = getState('network.myDeviceLabel') || 'HOST';
-  const payload = { type: MSG.CHAT_NOTICE, senderLabel, text: rawArgs.trim(), ts: Date.now() };
+  const payload = {
+    type: MSG.CHAT_NOTICE,
+    senderLabel,
+    text: rawArgs.trim(),
+    ts: Date.now(),
+    attention: true,
+  };
 
   if (isHost()) {
     rememberPinnedNotice(payload);
     bus.emit('network:broadcast', payload);
     addNoticeChatMessage(senderLabel, rawArgs.trim(), payload.ts);
+    playAnnouncementSound();
   } else {
     sendToHost({ type: MSG.REQUEST_CHAT_COMMAND, command: 'notice', args: [rawArgs.trim()] });
   }

@@ -4,6 +4,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
+import { playAnnouncementSound } from '../audio/ui-sounds.ts';
 
 const ANNOUNCEMENT_POLL_TIMER = 'announcement:poll';
 const ANNOUNCEMENT_POLL_MS = 60_000;
@@ -55,6 +56,7 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
     rememberSeenId(payload.id);
     if (notify) {
       showToast(t('toast.announcement_available'), { durationMs: ANNOUNCEMENT_TOAST_MS });
+      playAnnouncementSound();
     }
     bus.emit('chat:notice-message', ANNOUNCEMENT_SENDER, payload.message, Date.now());
   } catch (error) {

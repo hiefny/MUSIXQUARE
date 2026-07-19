@@ -121,6 +121,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Theme',
+  'settings.ui_sounds': 'UI Sounds',
   'settings.dark': 'Dark',
   'settings.light': 'Light',
   'settings.visualizer': 'Visualizer',

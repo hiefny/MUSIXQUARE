@@ -124,6 +124,7 @@ const nl: Record<I18nKey, string> = {
 
   // Settings
   'settings.theme': 'Thema',
+  'settings.ui_sounds': 'UI-geluiden',
   'settings.dark': 'Donker',
   'settings.light': 'Licht',
   'settings.visualizer': 'Visualizer',

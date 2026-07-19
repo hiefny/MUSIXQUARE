@@ -42,6 +42,7 @@ import {
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
+import { playAnnouncementSound } from '../audio/ui-sounds.ts';
 import {
   getPlaybackModeActivity,
   isPlaybackActivityValue,
@@ -697,10 +698,17 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       const text = args.join(' ').trim().slice(0, MAX_MSG_LENGTH);
       if (!text) return;
       const peerLabel = (peer.label || 'OP').substring(0, MAX_SENDER_LABEL_LENGTH);
-      const noticePayload = { type: MSG.CHAT_NOTICE, senderLabel: peerLabel, text, ts: Date.now() };
+      const noticePayload = {
+        type: MSG.CHAT_NOTICE,
+        senderLabel: peerLabel,
+        text,
+        ts: Date.now(),
+        attention: true,
+      };
       rememberPinnedNotice(noticePayload);
       broadcast(noticePayload);
       bus.emit('chat:notice-message', peerLabel, text, noticePayload.ts);
+      playAnnouncementSound();
       break;
     }
     default:

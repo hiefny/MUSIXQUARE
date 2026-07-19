@@ -119,6 +119,7 @@ const ko = {
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': '테마',
+  'settings.ui_sounds': 'UI 사운드',
   'settings.dark': '다크',
   'settings.light': '라이트',
   'settings.visualizer': '비주얼라이저',

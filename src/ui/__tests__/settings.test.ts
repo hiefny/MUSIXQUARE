@@ -131,6 +131,18 @@ function installLanguageSettingsDom(): void {
   );
 }
 
+function installUiSoundsDom(): void {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `
+      <div class="channel-grid" id="grid-ui-sounds">
+        <button class="ch-opt" data-ui-sounds="on" data-ui-sound="off">On</button>
+        <button class="ch-opt active" data-ui-sounds="off" data-ui-sound="off">Off</button>
+      </div>
+    `,
+  );
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   resetState();
@@ -573,5 +585,24 @@ describe('initSettings effect slider fill sync', () => {
     document.querySelector<HTMLElement>('#grid-exciter .ch-opt[data-toggle="on"]')?.click();
 
     expect(showToast).toHaveBeenCalledWith('May cause distortion');
+  });
+});
+
+describe('UI sound preference', () => {
+  it('starts off and persists opt-in while updating the active control', () => {
+    installUiSoundsDom();
+    initSettings();
+
+    const on = document.querySelector<HTMLElement>('[data-ui-sounds="on"]')!;
+    const off = document.querySelector<HTMLElement>('[data-ui-sounds="off"]')!;
+    expect(off.classList.contains('active')).toBe(true);
+    expect(on.classList.contains('active')).toBe(false);
+
+    on.click();
+
+    expect(localStorage.getItem('musixquare-ui-sounds-enabled')).toBe('1');
+    expect(on.classList.contains('active')).toBe(true);
+    expect(off.classList.contains('active')).toBe(false);
+    expect(on.getAttribute('aria-pressed')).toBe('true');
   });
 });

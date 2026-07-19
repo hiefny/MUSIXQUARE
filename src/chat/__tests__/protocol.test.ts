@@ -167,6 +167,7 @@ describe('automatic system-message channel', () => {
       senderLabel: 'HOST',
       text: 'Important room notice',
       ts: 123,
+      attention: true,
     });
 
     const localMessages: string[] = [];
@@ -192,6 +193,7 @@ describe('automatic system-message channel', () => {
         type: MSG.CHAT_NOTICE,
         senderLabel: 'HOST',
         text: 'Important room notice',
+        attention: false,
       }),
     );
   });

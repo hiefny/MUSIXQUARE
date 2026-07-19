@@ -852,6 +852,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.CHAT_NOTICE]: (d) =>
     typeof d.text === 'string' &&
     d.text.length <= 4000 &&
+    (d.attention === undefined || typeof d.attention === 'boolean') &&
     (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
     (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
   [MSG.CHAT_SYSTEM]: (d) =>

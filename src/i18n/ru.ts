@@ -120,6 +120,7 @@ const ru: Record<I18nKey, string> = {
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Тема',
+  'settings.ui_sounds': 'Звуки интерфейса',
   'settings.dark': 'Темная',
   'settings.light': 'Светлая',
   'settings.visualizer': 'Визуализатор',

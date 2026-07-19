@@ -73,6 +73,7 @@ const zhHans: Record<I18nKey, string> = {
 
   // Settings
   'settings.theme': '主题',
+  'settings.ui_sounds': 'UI 音效',
   'settings.dark': '深色',
   'settings.light': '浅色',
   'settings.visualizer': '可视化',

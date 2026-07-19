@@ -73,6 +73,7 @@ const vi: Record<I18nKey, string> = {
 
   // Settings
   'settings.theme': 'Giao diện',
+  'settings.ui_sounds': 'Âm thanh giao diện',
   'settings.dark': 'Tối',
   'settings.light': 'Sáng',
   'settings.visualizer': 'Hiển thị âm thanh',

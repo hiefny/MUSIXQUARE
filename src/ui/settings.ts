@@ -35,6 +35,7 @@ import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { syncOverlayState } from './dom.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -94,6 +95,14 @@ function _updateHostCtrlLockUI(): void {
         input.disabled = locked;
       });
     }
+  });
+}
+
+function syncUiSoundsControls(enabled = isUiSoundsEnabled()): void {
+  document.querySelectorAll<HTMLElement>('#grid-ui-sounds [data-ui-sounds]').forEach((button) => {
+    const active = (button.dataset.uiSounds === 'on') === enabled;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
 }
 
@@ -781,6 +790,18 @@ export function initSettings(): void {
   };
 
   _bindHostCtrlLockedAttemptToasts();
+
+  // UI sounds are a local-only preference and default to off. The buttons
+  // opt out of the global click sound so enabling produces exactly one preview.
+  document.querySelectorAll<HTMLElement>('#grid-ui-sounds [data-ui-sounds]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const enabled = button.dataset.uiSounds === 'on';
+      setUiSoundsEnabled(enabled);
+      if (enabled) playUiTouchSound({ force: true });
+    });
+  });
+  _busScope.on('ui:ui-sounds-changed', syncUiSoundsControls);
+  syncUiSoundsControls();
 
   // Theme grid
   document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]').forEach((opt) => {

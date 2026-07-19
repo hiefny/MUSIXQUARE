@@ -73,6 +73,7 @@ const es: Record<I18nKey, string> = {
 
   // Settings
   'settings.theme': 'Tema',
+  'settings.ui_sounds': 'Sonidos de interfaz',
   'settings.dark': 'Oscuro',
   'settings.light': 'Claro',
   'settings.visualizer': 'Visualizador',

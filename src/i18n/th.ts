@@ -120,6 +120,7 @@ const th: Record<I18nKey, string> = {
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'ธีม',
+  'settings.ui_sounds': 'เสียงอินเทอร์เฟซ',
   'settings.dark': 'มืด',
   'settings.light': 'สว่าง',
   'settings.visualizer': 'วิชวลไลเซอร์',

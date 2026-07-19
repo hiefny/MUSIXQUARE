@@ -731,6 +731,8 @@ export interface ProtocolMap {
     // notices are human-authored or operations-authored and normally use text.
     i18nKey?: string;
     i18nParams?: Record<string, string | number>;
+    /** True only for a live publish; false when hydrating a late joiner. */
+    attention?: boolean;
   };
   'chat-slowmode': { seconds: number };
   'chat-filter': { on: boolean };
@@ -1150,6 +1152,7 @@ interface BaseEventMap {
   'ui:visualizer-check': [];
   'ui:close-chat-drawer': [];
   'ui:toggle-chat-drawer': [];
+  'ui:ui-sounds-changed': [enabled: boolean];
   'i18n:changed': [lang: string];
   'chat:system-message': [text: string];
   'chat:notice-message': [sender: string, text: string, timestamp?: number];

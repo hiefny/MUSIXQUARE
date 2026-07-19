@@ -73,6 +73,7 @@ const id: Record<I18nKey, string> = {
 
   // Settings
   'settings.theme': 'Tema',
+  'settings.ui_sounds': 'Suara antarmuka',
   'settings.dark': 'Gelap',
   'settings.light': 'Terang',
   'settings.visualizer': 'Visualizer',

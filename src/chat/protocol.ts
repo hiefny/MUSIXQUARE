@@ -32,6 +32,7 @@ import {
 import type { DataConnection } from '../types/index.ts';
 import { formatBotRetryDuration } from './bot-rate-limit.ts';
 import { extractBotPrompt } from './bot-syntax.ts';
+import { playAnnouncementSound, playChatSystemEventSound } from '../audio/ui-sounds.ts';
 
 type PinnedNoticePayload = {
   type: typeof MSG.CHAT_NOTICE;
@@ -40,6 +41,7 @@ type PinnedNoticePayload = {
   ts: number;
   i18nKey?: string;
   i18nParams?: Record<string, string | number>;
+  attention?: boolean;
 };
 
 let _latestPinnedNotice: PinnedNoticePayload | null = null;
@@ -70,6 +72,7 @@ function normalizePinnedNoticePayload(data: Record<string, unknown>): PinnedNoti
   if (isNoticeParams(data.i18nParams)) {
     notice.i18nParams = data.i18nParams;
   }
+  if (data.attention === true) notice.attention = true;
 
   return notice;
 }
@@ -84,7 +87,9 @@ export function clearLatestPinnedNotice(): void {
 
 export function sendLatestPinnedNotice(conn: DataConnection | null | undefined): boolean {
   if (!_latestPinnedNotice) return false;
-  safeSend(conn, { ..._latestPinnedNotice });
+  // Hydration is visual only: a participant joining later must not hear the
+  // publish chime for an announcement that already existed.
+  safeSend(conn, { ..._latestPinnedNotice, attention: false });
   return true;
 }
 
@@ -663,6 +668,7 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
 
   const timestamp = typeof data.ts === 'number' ? data.ts : Date.now();
   addNoticeChatMessage(senderLabel, text, timestamp);
+  if (data.attention === true) playAnnouncementSound();
 }
 
 function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -709,13 +715,16 @@ function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection):
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
 
   const i18nKey = data.i18nKey as string | undefined;
+  const i18nParams = isNoticeParams(data.i18nParams) ? data.i18nParams : undefined;
   if (i18nKey) {
-    const i18nParams = isNoticeParams(data.i18nParams) ? data.i18nParams : undefined;
     const localized = t(i18nKey as I18nKey, i18nParams);
     if (localized !== i18nKey) text = localized;
   }
 
-  if (text) addSystemChatMessage(text);
+  if (text) {
+    addSystemChatMessage(text);
+    playChatSystemEventSound(i18nKey, i18nParams);
+  }
 }
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -738,6 +747,7 @@ export function broadcastSystemMessage(
     ...(params ? { i18nParams: params } : {}),
   });
   bus.emit('chat:system-message', fallbackText);
+  playChatSystemEventSound(i18nKey, params);
 }
 
 /**

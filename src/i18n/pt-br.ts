@@ -73,6 +73,7 @@ const ptBr: Record<I18nKey, string> = {
 
   // Settings
   'settings.theme': 'Tema',
+  'settings.ui_sounds': 'Sons da interface',
   'settings.dark': 'Escuro',
   'settings.light': 'Claro',
   'settings.visualizer': 'Visualizador',

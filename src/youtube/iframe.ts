@@ -13,6 +13,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
+import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
@@ -1578,6 +1579,7 @@ function onYouTubePlayerError(event: { data: number }): void {
     if (wasIndexing) return;
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
+      broadcastSystemMessage('youtube.video_unavailable');
       let advanced = false;
       bus.emit('youtube:try-next-internal', (ok: boolean) => {
         advanced = ok;
@@ -2065,6 +2067,7 @@ function updateYouTubeUI(): void {
         log.error(`[YouTube] Player stuck in state ${state} — treating as unavailable, skipping`);
         _ifr.unavailableStuckSince = null;
         showToast(t('youtube.video_unavailable'));
+        broadcastSystemMessage('youtube.video_unavailable');
         let advanced = false;
         bus.emit('youtube:try-next-internal', (ok: boolean) => {
           advanced = ok;

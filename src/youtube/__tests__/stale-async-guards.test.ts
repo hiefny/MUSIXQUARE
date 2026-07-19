@@ -20,8 +20,9 @@ import { YOUTUBE_PRIME_VIDEO_ID } from '../constants.ts';
 import { setManagedTimer } from '../../core/timers.ts';
 import { showToast } from '../../ui/toast.ts';
 import { broadcast } from '../../network/peer.ts';
+import { broadcastSystemMessage } from '../../chat/protocol.ts';
 import { setPlaybackFilePlaying, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import type { PlaylistItem, TrackMeta } from '../../types/index.ts';
+import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
 const QUEUE_ITEM_ID = '88888888-8888-4888-8888-888888888888';
@@ -53,6 +54,10 @@ vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
   safeSend: vi.fn(),
   sendToHost: vi.fn(),
+}));
+
+vi.mock('../../chat/protocol.ts', () => ({
+  broadcastSystemMessage: vi.fn(),
 }));
 
 vi.mock('../../network/protocol.ts', () => ({
@@ -129,6 +134,7 @@ vi.mock('../../ui/dom.ts', () => ({
 const setManagedTimerMock = vi.mocked(setManagedTimer);
 const showToastMock = vi.mocked(showToast);
 const broadcastMock = vi.mocked(broadcast);
+const broadcastSystemMessageMock = vi.mocked(broadcastSystemMessage);
 
 /** Latest registered callback for a managed timer name (timers are mocked —
  *  poll/timeout steps must be driven manually). */
@@ -456,6 +462,7 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     expect(nextTrack).not.toHaveBeenCalled();
     expect(tryNext).not.toHaveBeenCalled();
     expect(showToastMock).not.toHaveBeenCalled();
+    expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
   });
 
   it('an unavailable error whose video does not match the intended track must not advance', async () => {
@@ -482,6 +489,7 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     handle.fireError(150);
     expect(nextTrack).not.toHaveBeenCalled();
     expect(showToastMock).not.toHaveBeenCalled();
+    expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
   });
 
   it('a genuine unavailable error for the intended track still toasts and advances (positive control)', async () => {
@@ -506,7 +514,35 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
 
     handle.fireError(150);
     expect(showToastMock).toHaveBeenCalledWith('youtube.video_unavailable');
+    expect(broadcastSystemMessageMock).toHaveBeenCalledWith('youtube.video_unavailable');
     expect(nextTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a guest-local unavailable error gives feedback but leaves the room-wide skip to the host', async () => {
+    const player = createMockYtPlayer();
+    const handle = await createPlayerInYouTubeMode(player);
+    setState('network.hostConn', { open: true } as unknown as DataConnection);
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'B',
+        videoId: 'vidB000000B',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'vidB000000B' });
+    vi.mocked(player.getPlayerState!).mockReturnValue(3);
+
+    const nextTrack = vi.fn();
+    bus.on('playlist:next-track', nextTrack);
+    showToastMock.mockClear();
+
+    handle.fireError(150);
+    expect(showToastMock).toHaveBeenCalledWith('youtube.video_unavailable');
+    expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
+    expect(nextTrack).not.toHaveBeenCalled();
   });
 
   it('an indexing-time unavailable error gives feedback but never advances the room playlist', async () => {
@@ -539,6 +575,7 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     handle.fireError(150);
     expect(stateMod.isYtIndexing()).toBe(false);
     expect(showToastMock).toHaveBeenCalledWith('youtube.video_unavailable');
+    expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
     expect(nextTrack).not.toHaveBeenCalled();
   });
 });

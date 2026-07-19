@@ -243,12 +243,23 @@ only stable row order, so a large YouTube queue cannot prevent an R2 reservation
 or completion record from being committed.
 
 The first successful mutation of a legacy room writes v2 atomically. While the
-entire room still fits the old single-record budget, the Worker also refreshes
-an exact `pro-room:v1` rollback shadow. After a room grows beyond that budget,
-the last valid shadow is retained rather than overwritten or deleted; v2 stays
-authoritative. A rollback to a pre-v2 Worker after that point therefore requires
-an operator data-restore decision and must not be treated as a routine code-only
-rollback.
+entire room still fits the old single-record budget, ordinary mutations refresh
+an exact `pro-room:v1` rollback shadow. Presence-only heartbeats checkpoint that
+large compatibility shadow at most once every 30 seconds; the authoritative v2
+core still records every heartbeat so the 45-second eviction and failover lease
+does not weaken. Reusing an already-earlier Durable Object alarm avoids another
+write on each heartbeat without delaying expiry. After a room grows beyond the
+legacy budget, the last valid shadow is retained rather than overwritten or
+deleted; v2 stays authoritative. A rollback to a pre-v2 Worker after that point
+therefore requires an operator data-restore decision and must not be treated as
+a routine code-only rollback.
+
+Heartbeat clients send the five public room revisions they last applied. An
+unchanged room returns only those revisions and `notModified`; any mismatch
+returns a complete snapshot for recovery. A legacy client sends an empty body
+and continues to receive the complete snapshot, while a newer client also
+accepts that full response from an older Worker. This keeps rolling deploys and
+Worker rollback compatible in both directions.
 
 Browser queue mutations use the compact snapshot endpoint. It sends stable row
 order only when order changes and upserts only rows whose metadata/source

@@ -1057,6 +1057,7 @@ describe('PRO room private Developer API projections', () => {
             updated_at: nowMs - 1_000,
             expires_at: nowMs + 86_400_000,
             revoked_at: null,
+            last_used_hour: null,
           })),
           run: vi.fn(async () => ({ meta: { changes: 1 } })),
         })),
@@ -4181,6 +4182,78 @@ describe('persistent PRO room authentication, presence, and state', () => {
       developerControlVersion: 0,
     });
     expect((decoded.exp as number) - (decoded.iat as number)).toBe(90);
+  });
+
+  it('returns a compact presence heartbeat when the caller already has the authoritative revisions', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const known = before.snapshot;
+    const compact = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: known.revision,
+          playlistRevision: known.playlistRevision,
+          presenceRevision: known.presence.revision,
+          playbackRevision: known.playback.revision,
+          coordinatorEpoch: known.presence.coordinatorEpoch,
+        },
+        ownerCookie,
+      ),
+    );
+
+    expect(compact.status).toBe(200);
+    await expect(compact.json()).resolves.toEqual({
+      notModified: true,
+      revision: known.revision,
+      playlistRevision: known.playlistRevision,
+      presenceRevision: known.presence.revision,
+      playbackRevision: known.playback.revision,
+      coordinatorEpoch: known.presence.coordinatorEpoch,
+    });
+
+    const stale = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: known.revision + 1,
+          playlistRevision: known.playlistRevision,
+          presenceRevision: known.presence.revision,
+          playbackRevision: known.playback.revision,
+          coordinatorEpoch: known.presence.coordinatorEpoch,
+        },
+        ownerCookie,
+      ),
+    );
+    expect(Object.keys(await responseJson(stale))).toEqual(['snapshot']);
+
+    const legacy = await worker.fetch(
+      request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
+    );
+    expect(Object.keys(await responseJson(legacy))).toEqual(['snapshot']);
+  });
+
+  it('checkpoints the legacy shadow and alarm without rewriting both on every heartbeat', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const put = vi.spyOn(state.storage, 'put');
+    const setAlarm = vi.spyOn(state.storage, 'setAlarm');
+
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v1')).toHaveLength(0);
+    expect(setAlarm).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(30_001);
+    await expect(
+      worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v1')).toHaveLength(1);
+    expect(setAlarm).not.toHaveBeenCalled();
   });
 
   it('keeps a multi-peer leave response contract-valid while electing the next coordinator', async () => {

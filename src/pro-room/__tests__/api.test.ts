@@ -360,6 +360,53 @@ describe('PRO room cookie session API', () => {
     });
   });
 
+  it('sends known heartbeat revisions and reuses the validated local snapshot on a compact reply', async () => {
+    const snapshot = activeSnapshot();
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock, snapshot);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        notModified: true,
+        revision: snapshot.revision,
+        playlistRevision: snapshot.playlistRevision,
+        presenceRevision: snapshot.presence.revision,
+        playbackRevision: snapshot.playback.revision,
+        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+      }),
+    );
+
+    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).resolves.toBe(snapshot);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      revision: snapshot.revision,
+      playlistRevision: snapshot.playlistRevision,
+      presenceRevision: snapshot.presence.revision,
+      playbackRevision: snapshot.playback.revision,
+      coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+    });
+  });
+
+  it('rejects a compact heartbeat reply that does not match the caller snapshot', async () => {
+    const snapshot = activeSnapshot();
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock, snapshot);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        notModified: true,
+        revision: snapshot.revision + 1,
+        playlistRevision: snapshot.playlistRevision,
+        presenceRevision: snapshot.presence.revision,
+        playbackRevision: snapshot.playback.revision,
+        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+      }),
+    );
+
+    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
   it('keeps the activation/enter lease tab-local and never adopts identity from refresh data', async () => {
     const replacement = {
       ...activeSnapshot(),

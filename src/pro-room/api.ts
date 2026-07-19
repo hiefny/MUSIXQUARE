@@ -510,6 +510,43 @@ function parseSnapshotEnvelope(value: unknown, expectedCode: string): ProRoomSna
   return snapshot?.roomCode === expectedCode ? snapshot : null;
 }
 
+function parseHeartbeatEnvelope(
+  value: unknown,
+  expectedCode: string,
+  knownSnapshot: ProRoomSnapshot | null,
+): ProRoomSnapshot | null {
+  const snapshot = parseSnapshotEnvelope(value, expectedCode);
+  if (snapshot) return snapshot;
+  if (
+    knownSnapshot === null ||
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      'notModified',
+      'revision',
+      'playlistRevision',
+      'presenceRevision',
+      'playbackRevision',
+      'coordinatorEpoch',
+    ]) ||
+    value.notModified !== true ||
+    !isSafeNonNegativeInteger(value.revision) ||
+    !isSafeNonNegativeInteger(value.playlistRevision) ||
+    !isSafeNonNegativeInteger(value.presenceRevision) ||
+    !isSafeNonNegativeInteger(value.playbackRevision) ||
+    !isSafeNonNegativeInteger(value.coordinatorEpoch)
+  ) {
+    return null;
+  }
+  return knownSnapshot.roomCode === expectedCode &&
+    knownSnapshot.revision === value.revision &&
+    knownSnapshot.playlistRevision === value.playlistRevision &&
+    knownSnapshot.presence.revision === value.presenceRevision &&
+    knownSnapshot.playback.revision === value.playbackRevision &&
+    knownSnapshot.presence.coordinatorEpoch === value.coordinatorEpoch
+    ? knownSnapshot
+    : null;
+}
+
 function parseSystemAudioEnvelope(value: unknown): ProRoomSystemAudioState | null {
   if (!isRecord(value) || !hasExactKeys(value, ['systemAudio'])) return null;
   return parseProRoomSystemAudioState(value.systemAudio);
@@ -950,13 +987,28 @@ export class ProRoomApiClient {
     });
   }
 
-  heartbeat(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+  heartbeat(
+    code: string,
+    signal?: AbortSignal,
+    knownSnapshot?: ProRoomSnapshot,
+  ): Promise<ProRoomSnapshot> {
     const path = roomPath(code);
     return this.#request(`${path}/presence/heartbeat`, {
       method: 'POST',
+      ...(knownSnapshot === undefined
+        ? {}
+        : {
+            body: {
+              revision: knownSnapshot.revision,
+              playlistRevision: knownSnapshot.playlistRevision,
+              presenceRevision: knownSnapshot.presence.revision,
+              playbackRevision: knownSnapshot.playback.revision,
+              coordinatorEpoch: knownSnapshot.presence.coordinatorEpoch,
+            },
+          }),
       signal,
       activeRoomCode: code,
-      parser: (value) => parseSnapshotEnvelope(value, code),
+      parser: (value) => parseHeartbeatEnvelope(value, code, knownSnapshot ?? null),
     });
   }
 

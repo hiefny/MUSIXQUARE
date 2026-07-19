@@ -285,6 +285,7 @@ function normalizeKeyRow(value) {
     value.updated_at < value.created_at ||
     !isSafeNonNegativeInteger(value.expires_at) ||
     value.expires_at <= value.created_at ||
+    (value.last_used_hour !== null && !isSafeNonNegativeInteger(value.last_used_hour)) ||
     (value.status === 'active' && value.revoked_at !== null) ||
     (value.status === 'revoked' &&
       (!isSafeNonNegativeInteger(value.revoked_at) || value.revoked_at < value.created_at))
@@ -299,6 +300,7 @@ function normalizeKeyRow(value) {
     scopeMask: value.scope_mask,
     status: value.status,
     expiresAt: value.expires_at,
+    lastUsedHour: value.last_used_hour,
   };
 }
 
@@ -306,7 +308,7 @@ async function lookupKey(env, keyId) {
   if (!env.DEVELOPER_API_DB?.prepare) throw new Error('Developer API D1 binding unavailable');
   return env.DEVELOPER_API_DB.prepare(
     `SELECT key_id, room_code, label, secret_digest, digest_version, scope_mask,
-            status, created_at, updated_at, expires_at, revoked_at
+            status, created_at, updated_at, expires_at, revoked_at, last_used_hour
      FROM mxqr_developer_api_keys
      WHERE key_id = ?1
      LIMIT 1`,
@@ -373,7 +375,10 @@ async function authenticate(request, env, context, nowMs) {
   ) {
     return { unauthorized: true };
   }
-  updateLastUsedBestEffort(env, context, row.keyId, nowMs);
+  const currentHour = Math.floor(nowMs / 3_600_000) * 3_600_000;
+  if (row.lastUsedHour === null || row.lastUsedHour < currentHour) {
+    updateLastUsedBestEffort(env, context, row.keyId, nowMs);
+  }
   return { principal: row };
 }
 

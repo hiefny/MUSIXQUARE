@@ -769,6 +769,10 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   });
 
   it('allows separate 100-device TURN and realtime capability bursts without raising unrelated scope limits', async () => {
+    // Keep all sequential requests in one rate-limit bucket even when the full
+    // suite starts this test immediately before a real wall-clock minute edge.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T00:00:30.000Z'));
     installRateLimitCache();
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',

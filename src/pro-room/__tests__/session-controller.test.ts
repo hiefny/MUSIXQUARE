@@ -282,6 +282,7 @@ describe('PRO room session controller', () => {
     api.createSignalingTicket.mockResolvedValue(signaling('member', 2));
 
     await controller.heartbeat();
+    expect(api.heartbeat).toHaveBeenCalledWith(ROOM_CODE, undefined, snapshot());
     expect(transport.reconfigure).toHaveBeenCalledWith(changed, signaling('member', 2), undefined);
   });
 

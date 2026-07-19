@@ -106,6 +106,10 @@ const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
 const UNLOAD_CLOSE_REQUEST_MAX_BYTES = 4 * 1024;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const PRESENCE_TTL_SECONDS = 45;
+// Keep the single-record rollback shadow fresh enough that an immediately
+// rolled-back Worker still sees a live participant, without rewriting a
+// potentially large legacy playlist on every 15-second heartbeat.
+const LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS = 30_000;
 const RESERVATION_TTL_SECONDS = 15 * 60;
 // A completed upload is deliberately retained long enough for the client to
 // append it to the authoritative playlist. If that never happens, the asset is
@@ -2107,6 +2111,10 @@ export class MusixquareProRoom {
     this.developerCommandMigrationPending = false;
     this.persistedPlaylistSignatures = new Map();
     this.hasV2Persistence = false;
+    this.lastLegacyShadowPersistedAtMs = 0;
+    // `undefined` means a restarted instance has not yet reconciled the
+    // storage alarm; `null` means it has authoritatively removed one.
+    this.scheduledAlarmMs = undefined;
     const load = async () => {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
@@ -2292,8 +2300,9 @@ export class MusixquareProRoom {
     this.hasV2Persistence = false;
   }
 
-  async persist() {
+  async persist(options = {}) {
     assertBoundedRoomState(this.room);
+    const writeLegacyShadow = options.writeLegacyShadow !== false;
     const storedCore = splitPersistentRoomState(this.room);
     const nextSignatures = new Map(
       this.room.playlist.map((item) => [item.queueItemId, playlistItemSignature(item)]),
@@ -2309,7 +2318,8 @@ export class MusixquareProRoom {
     const removedKeys = [...this.persistedPlaylistSignatures.keys()]
       .filter((queueItemId) => !nextSignatures.has(queueItemId))
       .map(playlistStorageKey);
-    const legacyShadowFits = serializedStateByteLength(this.room) <= STATE_MAX_BYTES;
+    const legacyShadowFits =
+      writeLegacyShadow && serializedStateByteLength(this.room) <= STATE_MAX_BYTES;
     const write = async (storage) => {
       await putStorageEntries(storage, changedEntries);
       await deleteStorageKeys(storage, removedKeys);
@@ -2329,10 +2339,13 @@ export class MusixquareProRoom {
     }
     this.persistedPlaylistSignatures = nextSignatures;
     this.hasV2Persistence = true;
-    await this.scheduleAlarm();
+    if (legacyShadowFits) {
+      this.lastLegacyShadowPersistedAtMs = Date.now();
+    }
+    await this.scheduleAlarm({ retainEarlier: options.retainEarlierAlarm === true });
   }
 
-  async scheduleAlarm() {
+  async scheduleAlarm(options = {}) {
     if (typeof this.storage.setAlarm !== 'function') return;
     const candidates = [];
     if (this.room.status === 'decommissioning') {
@@ -2383,8 +2396,25 @@ export class MusixquareProRoom {
     const next = candidates
       .filter((value) => Number.isSafeInteger(value) && value > Date.now())
       .sort((a, b) => a - b)[0];
-    if (next) await this.storage.setAlarm(next);
-    else if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+    // An earlier alarm is safe: it will wake, find that a renewed lease has
+    // not expired, and schedule the later deadline. Avoid moving the alarm
+    // forward on every heartbeat, which otherwise turns presence liveness
+    // into an extra Durable Object write every 15 seconds.
+    if (next) {
+      if (
+        options.retainEarlier === true &&
+        Number.isSafeInteger(this.scheduledAlarmMs) &&
+        this.scheduledAlarmMs > Date.now() &&
+        this.scheduledAlarmMs <= next
+      ) {
+        return;
+      }
+      await this.storage.setAlarm(next);
+      this.scheduledAlarmMs = next;
+    } else if (typeof this.storage.deleteAlarm === 'function') {
+      if (this.scheduledAlarmMs !== null) await this.storage.deleteAlarm();
+      this.scheduledAlarmMs = null;
+    }
   }
 
   presenceTtlMs() {
@@ -2512,10 +2542,14 @@ export class MusixquareProRoom {
       }
       return this.withMutation(async () => {
         await this.prune(Date.now());
+        // Authenticated projections are read-only. Keep them behind the
+        // mutation queue for an atomic view, but do not clone the bounded
+        // multi-megabyte room merely to prepare a capacity rollback that can
+        // never be used by this route.
+        if (url.pathname === '/internal/developer/v1/read') {
+          return this.handleInternalDeveloperRead(request);
+        }
         return this.withStateCapacityRollback(async () => {
-          if (url.pathname === '/internal/developer/v1/read') {
-            return this.handleInternalDeveloperRead(request);
-          }
           if (url.pathname === '/internal/developer/v1/commands/create') {
             return this.handleInternalDeveloperCommandCreate(request);
           }
@@ -2546,6 +2580,16 @@ export class MusixquareProRoom {
     }
     return this.withMutation(async () => {
       await this.prune(Date.now());
+      if (request.method === 'GET') {
+        if (url.pathname === `${prefix}/snapshot`) return this.handleGetSnapshot(request);
+        if (url.pathname === `${prefix}/effects`) return this.handleGetEffects(request);
+        if (url.pathname === `${prefix}/queue-mode`) return this.handleGetQueueMode(request);
+        if (url.pathname === `${prefix}/system-audio`) return this.handleGetSystemAudio(request);
+        const readDownload = url.pathname.match(
+          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/download$`),
+        );
+        if (readDownload) return this.handleDownloadMedia(request, readDownload[1]);
+      }
       return this.withStateCapacityRollback(async () => {
         if (request.method === 'POST' && url.pathname === `${prefix}/activation`)
           return this.handleActivation(request);
@@ -2553,8 +2597,6 @@ export class MusixquareProRoom {
           return this.handleOwnerRecovery(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
           return this.handleCreateSession(request);
-        if (request.method === 'GET' && url.pathname === `${prefix}/snapshot`)
-          return this.handleGetSnapshot(request);
         if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
           return this.handleCloseSession(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/close`)
@@ -2577,16 +2619,10 @@ export class MusixquareProRoom {
         if (request.method === 'POST' && developerCommandAck) {
           return this.handleDeveloperCommandAck(request, developerCommandAck[1]);
         }
-        if (request.method === 'GET' && url.pathname === `${prefix}/effects`)
-          return this.handleGetEffects(request);
         if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
           return this.handleUpdateEffects(request);
-        if (request.method === 'GET' && url.pathname === `${prefix}/queue-mode`)
-          return this.handleGetQueueMode(request);
         if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
           return this.handleUpdateQueueMode(request);
-        if (request.method === 'GET' && url.pathname === `${prefix}/system-audio`)
-          return this.handleGetSystemAudio(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
           return this.handleAcquireSystemAudio(request);
         if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/commit`)
@@ -2606,11 +2642,6 @@ export class MusixquareProRoom {
         );
         if (request.method === 'POST' && complete)
           return this.handleCompleteMedia(request, complete[1]);
-        const download = url.pathname.match(
-          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/download$`),
-        );
-        if (request.method === 'GET' && download)
-          return this.handleDownloadMedia(request, download[1]);
         const media = url.pathname.match(new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`));
         if (request.method === 'DELETE' && media) return this.handleDeleteMedia(request, media[1]);
         return errorResponse('NOT_FOUND', 404);
@@ -5331,10 +5362,53 @@ export class MusixquareProRoom {
   async handleHeartbeat(request) {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, SMALL_REQUEST_MAX_BYTES, false, true);
+    if (parsed.response) return parsed.response;
+    const known = parsed.empty ? null : parsed.value;
+    if (
+      known !== null &&
+      (!hasExactKeys(known, [
+        'revision',
+        'playlistRevision',
+        'presenceRevision',
+        'playbackRevision',
+        'coordinatorEpoch',
+      ]) ||
+        !isSafeNonNegativeInteger(known.revision) ||
+        !isSafeNonNegativeInteger(known.playlistRevision) ||
+        !isSafeNonNegativeInteger(known.presenceRevision) ||
+        !isSafeNonNegativeInteger(known.playbackRevision) ||
+        !isSafeNonNegativeInteger(known.coordinatorEpoch))
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
     const nowMs = Date.now();
     auth.participant.lastSeenAtMs = nowMs;
-    await this.processDeveloperCommands(nowMs);
-    await this.persist();
+    const developerCommandsChanged = await this.processDeveloperCommands(nowMs);
+    const refreshLegacyShadow =
+      developerCommandsChanged ||
+      nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS;
+    await this.persist({
+      writeLegacyShadow: refreshLegacyShadow,
+      retainEarlierAlarm: true,
+    });
+    if (
+      known !== null &&
+      known.revision === this.room.revision &&
+      known.playlistRevision === this.room.playlistRevision &&
+      known.presenceRevision === this.room.presence.revision &&
+      known.playbackRevision === this.room.playback.revision &&
+      known.coordinatorEpoch === this.room.presence.coordinatorEpoch
+    ) {
+      return jsonResponse({
+        notModified: true,
+        revision: this.room.revision,
+        playlistRevision: this.room.playlistRevision,
+        presenceRevision: this.room.presence.revision,
+        playbackRevision: this.room.playback.revision,
+        coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      });
+    }
     return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
   }
 
@@ -6304,6 +6378,9 @@ export class MusixquareProRoom {
 
   async alarm() {
     await this.withMutation(async () => {
+      // Cloudflare removes the due alarm before invoking this callback. Clear
+      // the in-memory hint so scheduleAlarm() can install the next deadline.
+      this.scheduledAlarmMs = null;
       if (this.ready) await this.ready;
       if (!this.room) await this.loadRoomFromStorage();
       if (!this.room) return;

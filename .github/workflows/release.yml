@@ -101,7 +101,9 @@ jobs:
             release-artifacts/release-manifest.json
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 30
+          # The candidate is consumed by this same approved workflow run.
+          # Deployment records below remain available for the long audit trail.
+          retention-days: 3
 
   deploy:
     name: Deploy approved candidate

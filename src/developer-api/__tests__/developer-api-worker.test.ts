@@ -524,6 +524,25 @@ describe('Developer API read-only public Worker', () => {
     expect(database.run).toHaveBeenCalledTimes(1);
   });
 
+  it('does not enqueue another last-used write when the key was already seen this hour', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:30:00.000Z'));
+    const setup = await createEnvironment();
+    const row = (await setup.database.first()) as KeyRow;
+    row.last_used_hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+    setup.database.first.mockResolvedValue(row);
+    setup.database.run.mockClear();
+    const waits: Promise<unknown>[] = [];
+
+    const response = await developerApiWorker.fetch(apiRequest(), setup.env, {
+      waitUntil: (promise: Promise<unknown>) => waits.push(promise),
+    });
+
+    expect(response.status).toBe(200);
+    expect(waits).toHaveLength(0);
+    expect(setup.database.run).not.toHaveBeenCalled();
+  });
+
   it('supports separate playback and queue scopes and revision ETags', async () => {
     const { env } = await createEnvironment();
     const playback = await developerApiWorker.fetch(
@@ -841,6 +860,8 @@ describe('Developer API read-only public Worker', () => {
       { scope_mask: 1.5 },
       { expires_at: null },
       { expires_at: now - 2_000, created_at: now - 1_000 },
+      { last_used_hour: -1 },
+      { last_used_hour: 1.5 },
       { status: 'active', revoked_at: now },
       { status: 'revoked', revoked_at: null },
     ]) {

@@ -19,7 +19,11 @@ interface ProRoomSessionApi {
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   enterPresence(code: string, options?: EnterProRoomPresenceOptions): Promise<ProRoomSnapshot>;
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
-  heartbeat(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  heartbeat(
+    code: string,
+    signal?: AbortSignal,
+    knownSnapshot?: ProRoomSnapshot,
+  ): Promise<ProRoomSnapshot>;
   leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess>;
   closeSession(code: string, signal?: AbortSignal): Promise<void>;
@@ -175,7 +179,7 @@ export class ProRoomSessionController {
     const roomCode = this.#requireRoomCode();
     let incoming: ProRoomSnapshot;
     try {
-      incoming = await this.api.heartbeat(roomCode, signal);
+      incoming = await this.api.heartbeat(roomCode, signal, this.#snapshot ?? undefined);
     } catch (error) {
       this.#assertOperationCurrent(operationEpoch);
       throw error;

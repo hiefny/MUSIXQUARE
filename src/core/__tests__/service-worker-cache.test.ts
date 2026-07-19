@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v182';
-const RETIRED_CACHE_VERSION = 'v181';
+const ACTIVE_CACHE_VERSION = 'v183';
+const RETIRED_CACHE_VERSION = 'v182';
 
 type FetchListener = (event: {
   request: Request;
@@ -227,6 +227,63 @@ describe('service worker cache policy', () => {
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
+  it('serves an immutable hashed asset without re-fetching or rewriting it', async () => {
+    cacheMatch.mockImplementation(async (_request: Request, options?: { cacheName?: string }) => {
+      return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}`
+        ? new Response('cached immutable asset', { status: 200 })
+        : undefined;
+    });
+
+    const response = await dispatch(new Request('https://musixquare.com/assets/main-BGnE1MXw.js'));
+
+    expect(await response.text()).toBe('cached immutable asset');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('fetches and stores an immutable hashed asset on its first cache miss', async () => {
+    fetchMock.mockResolvedValue(new Response('new immutable asset', { status: 200 }));
+
+    const response = await dispatch(new Request('https://musixquare.com/assets/main-BGnE1MXw.js'));
+
+    expect(await response.text()).toBe('new immutable asset');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
+    expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it('does not duplicate the installed SPA shell under each room URL', async () => {
+    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
+
+    await dispatch(
+      new Request('https://musixquare.com/000001', { headers: { accept: 'text/html' } }),
+    );
+    await dispatch(
+      new Request('https://musixquare.com/123456', { headers: { accept: 'text/html' } }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('uses the canonical installed shell for an offline room navigation', async () => {
+    fetchMock.mockRejectedValue(new Error('offline'));
+    cacheMatch.mockImplementation(async (request: RequestInfo, options?: { cacheName?: string }) => {
+      const requestUrl = typeof request === 'string' ? request : request.url;
+      return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+        requestUrl.endsWith('index.html')
+        ? new Response('canonical room shell', { status: 200 })
+        : undefined;
+    });
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/000001', { headers: { accept: 'text/html' } }),
+    );
+
+    expect(await response.text()).toBe('canonical room shell');
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
   it.each(['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg', 'aif', 'aiff', 'caf'])(
     'does not intercept local .%s media files for CacheStorage',
     (extension) => {
@@ -341,17 +398,18 @@ describe('service worker cache policy', () => {
   it('serves an old hashed lazy chunk while a live tab defers reload', async () => {
     cacheMatch.mockImplementation(async (request: Request, options?: { cacheName?: string }) => {
       if (options?.cacheName) return undefined;
-      return String(request.url).endsWith('/assets/locale-old-hash.js')
+      return String(request.url).endsWith('/assets/locale-OldHash1.js')
         ? new Response('old lazy chunk', { status: 200 })
         : undefined;
     });
     fetchMock.mockResolvedValue(new Response('not found', { status: 404 }));
 
     const response = await dispatch(
-      new Request('https://musixquare.com/assets/locale-old-hash.js'),
+      new Request('https://musixquare.com/assets/locale-OldHash1.js'),
     );
 
     expect(await response.text()).toBe('old lazy chunk');
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(cacheMatch).toHaveBeenNthCalledWith(1, expect.any(Request), {
       cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
     });

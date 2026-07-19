@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v182';
+const CACHE_VERSION = 'v183';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
@@ -16,11 +16,12 @@ const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 const cacheReadyClientIds = new Set();
 
-// Only list assets that keep stable paths after Vite build.
-// Vite-hashed assets (CSS, JS bundles, icons, fonts, manifest) are cached
-// at runtime via the stale-while-revalidate fetch handler below.
+// Only list assets that keep stable paths after Vite build. index.html is the
+// canonical navigation shell; caching './' as well would store the same body
+// twice under different keys.
+// Vite-hashed assets (CSS, JS bundles, icons, fonts, manifest) are cached on
+// their first runtime request and then served cache-first by content hash.
 const APP_SHELL = [
-  './',
   './index.html',
   './dummy_audio.mp3',
   './designsystem/fonts/PretendardVariable.woff2',
@@ -236,6 +237,20 @@ function isCacheableRequest(request) {
   return true;
 }
 
+function isRoomNavigation(request) {
+  const url = new URL(request.url);
+  return url.origin === self.location.origin && /^\/\d{6}\/?$/.test(url.pathname);
+}
+
+function isImmutableHashedAsset(request) {
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin || !url.pathname.startsWith('/assets/')) return false;
+
+  // Vite content hashes are eight URL-safe characters. Require the final
+  // filename segment so stable files under /assets keep revalidation.
+  return /-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/.test(url.pathname);
+}
+
 async function cacheResponse(cacheName, request, response) {
   try {
     // Clone before the first await. The response may be returned to and
@@ -257,12 +272,18 @@ self.addEventListener('fetch', (event) => {
   // Navigation (HTML): network-first, fallback to cached index
   if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
     const networkResponse = fetch(request);
-    const cacheUpdate = networkResponse
-      .then((fresh) => {
-        if (!fresh.ok || fresh.status === 206) return undefined;
-        return cacheResponse(RUNTIME_CACHE, request, fresh);
-      })
-      .catch(() => undefined);
+    // Six-digit room URLs all execute the installed SPA shell. Their online
+    // responses differ only in invite metadata, so storing each URL creates
+    // duplicate cache entries. index.html is already the canonical offline
+    // shell in APP_SHELL.
+    const cacheUpdate = isRoomNavigation(request)
+      ? networkResponse.then(() => undefined, () => undefined)
+      : networkResponse
+          .then((fresh) => {
+            if (!fresh.ok || fresh.status === 206) return undefined;
+            return cacheResponse(RUNTIME_CACHE, request, fresh);
+          })
+          .catch(() => undefined);
 
     // Register background work while the fetch event is still dispatching.
     // Calling waitUntil only after an awaited cache/network lookup is not
@@ -289,7 +310,41 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Same-origin static: cache-first with background update
+  // Content-hashed assets are immutable. Do not re-fetch and rewrite them on
+  // every hit. Search retired generations as a final fallback so a room tab
+  // that deliberately deferred reload can still import its old lazy chunks.
+  if (isImmutableHashedAsset(request)) {
+    const cachedResponse = (async () => {
+      return (
+        (await caches.match(request, { cacheName: STATIC_CACHE })) ||
+        (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
+        (await caches.match(request)) ||
+        null
+      );
+    })();
+    const networkResponse = cachedResponse.then((cached) => {
+      if (cached) return null;
+      return fetch(request).catch(() => null);
+    });
+    const cacheUpdate = networkResponse.then((response) => {
+      if (!response || response.status === 206 || (!response.ok && response.type !== 'opaque')) {
+        return undefined;
+      }
+      return cacheResponse(STATIC_CACHE, request, response);
+    });
+    event.waitUntil(cacheUpdate);
+    event.respondWith(
+      (async () => {
+        const cached = await cachedResponse;
+        if (cached) return cached;
+        const fresh = await networkResponse;
+        return fresh || new Response('Offline', { status: 503, statusText: 'Offline' });
+      })(),
+    );
+    return;
+  }
+
+  // Stable same-origin static: cache-first with background update
   const networkResponse = fetch(request).catch(() => null);
   const cacheUpdate = networkResponse.then((response) => {
     // Partial responses must never enter the static cache.

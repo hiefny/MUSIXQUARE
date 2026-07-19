@@ -14,17 +14,29 @@
  */
 
 (function () {
+  let revealed = false;
+  let timedOut = false;
+
   function reveal() {
-    if (document.body) document.body.classList.add('fouc-loaded');
+    if (revealed || !document.body) return false;
+    revealed = true;
+    document.body.classList.add('fouc-loaded');
+    return true;
   }
 
   function check() {
-    if (getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()) {
+    // The timeout is the intentional CSS-failure escape hatch. Once it has
+    // revealed the page, let the already-queued frame finish without starting
+    // a permanent getComputedStyle/requestAnimationFrame loop.
+    if (revealed) return;
+    if (timedOut || getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()) {
       reveal();
-    } else {
-      requestAnimationFrame(check);
     }
+    if (!revealed) requestAnimationFrame(check);
   }
   requestAnimationFrame(check);
-  setTimeout(reveal, 3000);
+  setTimeout(() => {
+    timedOut = true;
+    reveal();
+  }, 3000);
 })();

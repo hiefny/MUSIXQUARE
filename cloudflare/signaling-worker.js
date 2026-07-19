@@ -10,10 +10,10 @@ const WS_RATE_LIMIT_PER_MINUTE = 120;
 const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 const SDP_MAX_BYTES = 48 * 1024;
 const ICE_CANDIDATE_MAX_BYTES = 4 * 1024;
-// One host/coordinator plus 99 guests/members keeps the public room ceiling at
-// 100 connected devices. Pending sockets use a separate, short-lived budget
-// for simultaneous unauthenticated handshakes.
+// A standard room keeps one host plus 99 guests. PRO rooms have no socket-level
+// host and instead admit 100 equal authenticated members.
 const MAX_ROOM_GUESTS = 99;
+const MAX_PRO_ROOM_MEMBERS = 100;
 // Host ownership is authenticated after the WebSocket upgrade so its bearer
 // secret never appears in the URL. Keep this pre-auth surface small and rotate
 // only another unauthenticated host candidate; an authenticated host is never
@@ -30,21 +30,29 @@ const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
 const PRO_ROOM_META_KEY = 'proRoomMeta';
 const PRO_TICKET_USES_KEY = 'proSignalingTicketUses';
 const PRO_PARTICIPANT_HIGH_WATER_KEY = 'proSignalingParticipantHighWater';
+const PRO_PRESENCE_AUTHORITY_KEY = 'proSignalingPresenceAuthority';
 const PRO_DECOMMISSIONED_KEY = 'proRoomDecommissioned';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
-const DEVELOPER_CONTROL_VERSION = 1;
-const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
-const DEVELOPER_NEXT_CONTROL_VERSION = 3;
-const DEVELOPER_QUEUE_TITLE_CONTROL_VERSION = 4;
-const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_QUEUE_TITLE_CONTROL_VERSION;
-const DEVELOPER_COMMAND_BODY_MAX_BYTES = 4 * 1024;
+const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
+const PRO_SERVER_EVENT_MAX_BYTES = 3 * 1024;
+const PRO_REALTIME_TEXT_MAX_LENGTH = 500;
+const PRO_DISPLAY_NAME_MAX_LENGTH = 64;
+const PRO_REALTIME_EVENT_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const PRO_REALTIME_COMMAND_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const PRO_PRESENCE_INCARNATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const PRO_SERVER_EVENT_TYPES = new Set([
+  'pro-playback-prepare',
+  'pro-playback-commit',
+  'pro-playback-cancel',
+  'pro-presence-snapshot',
+  'pro-room-invalidated',
+  'system-audio-invalidated',
+]);
 const INTERNAL_ADMIN_BODY_MAX_BYTES = 1024;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
-const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_PRO_TICKET_USES = 1024;
 const MAX_PRO_PARTICIPANT_HIGH_WATER = 256;
 const MAX_GUEST_BINDINGS = 256;
@@ -147,21 +155,21 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     'kind',
     'roomCode',
     'participantId',
+    'displayName',
     'role',
     'coordinatorEpoch',
+    'presenceRevision',
     'presenceIncarnationId',
     'ticketSequence',
-    'developerControlVersion',
     'jti',
     'iat',
     'exp',
   ]);
   if (Object.keys(value).some((key) => !allowedTicketKeys.has(key))) return null;
   if (
-    Object.prototype.hasOwnProperty.call(value, 'developerControlVersion') &&
-    (!Number.isSafeInteger(value.developerControlVersion) ||
-      value.developerControlVersion < 0 ||
-      value.developerControlVersion > DEVELOPER_CONTROL_MAX_VERSION)
+    Object.prototype.hasOwnProperty.call(value, 'role') &&
+    value.role !== 'coordinator' &&
+    value.role !== 'member'
   ) {
     return null;
   }
@@ -170,8 +178,17 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
   }
   if (value.roomCode !== expectedRoomId || !/^\d{6}$/.test(value.roomCode)) return null;
   if (!isValidPeerId(value.participantId)) return null;
-  if (value.role !== 'coordinator' && value.role !== 'member') return null;
+  if (
+    typeof value.displayName !== 'string' ||
+    value.displayName.length < 1 ||
+    value.displayName.length > PRO_DISPLAY_NAME_MAX_LENGTH ||
+    !value.displayName.trim() ||
+    /[\u0000-\u001f\u007f-\u009f]/.test(value.displayName)
+  ) {
+    return null;
+  }
   if (!isValidProEpoch(value.coordinatorEpoch)) return null;
+  if (!Number.isSafeInteger(value.presenceRevision) || value.presenceRevision < 0) return null;
   if (
     typeof value.presenceIncarnationId !== 'string' ||
     !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.presenceIncarnationId)
@@ -191,11 +208,11 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     kind: PRO_SIGNALING_TICKET_KIND,
     roomCode: value.roomCode,
     participantId: value.participantId,
-    role: value.role,
+    displayName: value.displayName,
     coordinatorEpoch: value.coordinatorEpoch,
+    presenceRevision: value.presenceRevision,
     presenceIncarnationId: value.presenceIncarnationId,
     ticketSequence: value.ticketSequence,
-    developerControlVersion: value.developerControlVersion || 0,
     jti: value.jti,
     iat: value.iat,
     exp: value.exp,
@@ -295,248 +312,6 @@ function hasExactKeys(value, required, optional = []) {
   );
 }
 
-function normalizeRoomEffectsPatch(value) {
-  if (!isRecord(value)) return null;
-  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
-  const keys = Object.keys(value);
-  if (keys.length === 0 || keys.some((key) => !allowed.includes(key))) return null;
-
-  const normalized = {};
-  if (value.reverb !== undefined) {
-    const reverb = value.reverb;
-    const fields = [
-      ['mixPercent', 0, 100],
-      ['decaySeconds', 0.1, 30],
-      ['preDelaySeconds', 0, 1],
-      ['lowCutPercent', 0, 100],
-      ['highCutPercent', 0, 100],
-    ];
-    if (
-      !isRecord(reverb) ||
-      Object.keys(reverb).length === 0 ||
-      !hasExactKeys(reverb, [], fields.map(([field]) => field))
-    ) {
-      return null;
-    }
-    const next = {};
-    for (const [field, min, max] of fields) {
-      if (reverb[field] === undefined) continue;
-      const number = reverb[field];
-      if (typeof number !== 'number' || !Number.isFinite(number) || number < min || number > max) {
-        return null;
-      }
-      next[field] = number;
-    }
-    normalized.reverb = next;
-  }
-  if (value.equalizer !== undefined) {
-    const equalizer = value.equalizer;
-    if (
-      !hasExactKeys(equalizer, ['bandsDb']) ||
-      !Array.isArray(equalizer.bandsDb) ||
-      equalizer.bandsDb.length !== 5 ||
-      equalizer.bandsDb.some(
-        (band) => typeof band !== 'number' || !Number.isFinite(band) || band < -12 || band > 12,
-      )
-    ) {
-      return null;
-    }
-    normalized.equalizer = { bandsDb: [...equalizer.bandsDb] };
-  }
-  if (value.virtualBass !== undefined) {
-    const virtualBass = value.virtualBass;
-    if (
-      !hasExactKeys(virtualBass, ['strengthPercent']) ||
-      typeof virtualBass.strengthPercent !== 'number' ||
-      !Number.isFinite(virtualBass.strengthPercent) ||
-      virtualBass.strengthPercent < 0 ||
-      virtualBass.strengthPercent > 100
-    ) {
-      return null;
-    }
-    normalized.virtualBass = { strengthPercent: virtualBass.strengthPercent };
-  }
-  if (value.virtualSurround !== undefined) {
-    const virtualSurround = value.virtualSurround;
-    if (
-      !hasExactKeys(virtualSurround, ['widthPercent']) ||
-      typeof virtualSurround.widthPercent !== 'number' ||
-      !Number.isFinite(virtualSurround.widthPercent) ||
-      virtualSurround.widthPercent < 0 ||
-      virtualSurround.widthPercent > 200
-    ) {
-      return null;
-    }
-    normalized.virtualSurround = { widthPercent: virtualSurround.widthPercent };
-  }
-  return normalized;
-}
-
-function normalizeDeveloperCommand(value) {
-  if (!isRecord(value)) return null;
-  if (value.type === 'play' || value.type === 'pause' || value.type === 'next') {
-    return hasExactKeys(value, ['type']) ? { type: value.type } : null;
-  }
-  if (value.type === 'seek') {
-    return hasExactKeys(value, ['type', 'positionSeconds']) &&
-      Number.isFinite(value.positionSeconds) &&
-      value.positionSeconds >= 0 &&
-      value.positionSeconds <= 7 * 24 * 60 * 60
-      ? { type: 'seek', positionSeconds: value.positionSeconds }
-      : null;
-  }
-  if (value.type === 'play_item') {
-    return hasExactKeys(value, ['type', 'queueItemId']) &&
-      QUEUE_ITEM_ID_RE.test(value.queueItemId || '')
-      ? { type: 'play_item', queueItemId: value.queueItemId }
-      : null;
-  }
-  if (value.type === 'set_effects' && hasExactKeys(value, ['type', 'effects'])) {
-    const effects = normalizeRoomEffectsPatch(value.effects);
-    return effects ? { type: 'set_effects', effects } : null;
-  }
-  return null;
-}
-
-function normalizeDeveloperCommandFrame(value) {
-  if (
-    !hasExactKeys(value, [
-      'type',
-      'version',
-      'roomCode',
-      'coordinatorEpoch',
-      'commandId',
-      'expiresAtMs',
-      'expected',
-      'command',
-    ]) ||
-    value.type !== 'developer-command' ||
-    (value.version !== DEVELOPER_CONTROL_VERSION &&
-      value.version !== DEVELOPER_EFFECTS_CONTROL_VERSION &&
-      value.version !== DEVELOPER_NEXT_CONTROL_VERSION) ||
-    !isProNamespaceRoomCode(value.roomCode) ||
-    !isValidProEpoch(value.coordinatorEpoch) ||
-    !DEVELOPER_COMMAND_ID_RE.test(value.commandId || '') ||
-    !Number.isSafeInteger(value.expiresAtMs) ||
-    !hasExactKeys(value.expected, ['queueItemId', 'playlistRevision', 'playbackRevision']) ||
-    (value.expected.queueItemId !== null &&
-      !QUEUE_ITEM_ID_RE.test(value.expected.queueItemId || '')) ||
-    !Number.isSafeInteger(value.expected.playlistRevision) ||
-    value.expected.playlistRevision < 0 ||
-    !Number.isSafeInteger(value.expected.playbackRevision) ||
-    value.expected.playbackRevision < 0
-  ) {
-    return null;
-  }
-  const command = normalizeDeveloperCommand(value.command);
-  if (!command) return null;
-  const requiredVersion =
-    command.type === 'next'
-      ? DEVELOPER_NEXT_CONTROL_VERSION
-      : command.type === 'set_effects'
-        ? DEVELOPER_EFFECTS_CONTROL_VERSION
-        : DEVELOPER_CONTROL_VERSION;
-  if (value.version !== requiredVersion) return null;
-  return {
-    type: 'developer-command',
-    version: requiredVersion,
-    roomCode: value.roomCode,
-    coordinatorEpoch: value.coordinatorEpoch,
-    commandId: value.commandId,
-    expiresAtMs: value.expiresAtMs,
-    expected: {
-      queueItemId: value.expected.queueItemId,
-      playlistRevision: value.expected.playlistRevision,
-      playbackRevision: value.expected.playbackRevision,
-    },
-    command,
-  };
-}
-
-function normalizeDeveloperInvalidationFrame(value) {
-  if (
-    !hasExactKeys(value, [
-      'type',
-      'version',
-      'roomCode',
-      'coordinatorEpoch',
-      'revision',
-      'playlistRevision',
-    ]) ||
-    value.type !== 'developer-invalidation' ||
-    value.version !== DEVELOPER_CONTROL_VERSION ||
-    !isProNamespaceRoomCode(value.roomCode) ||
-    !isValidProEpoch(value.coordinatorEpoch) ||
-    !Number.isSafeInteger(value.revision) ||
-    value.revision < 0 ||
-    !Number.isSafeInteger(value.playlistRevision) ||
-    value.playlistRevision < 0
-  ) {
-    return null;
-  }
-  return {
-    type: 'developer-invalidation',
-    version: DEVELOPER_CONTROL_VERSION,
-    roomCode: value.roomCode,
-    coordinatorEpoch: value.coordinatorEpoch,
-    revision: value.revision,
-    playlistRevision: value.playlistRevision,
-  };
-}
-
-function normalizeProQueueAdditionFrame(value) {
-  const firstTitle = value?.firstTitle;
-  if (
-    !hasExactKeys(
-      value,
-      [
-        'type',
-        'version',
-        'roomCode',
-        'coordinatorEpoch',
-        'playlistRevision',
-        'eventId',
-        'actorName',
-        'count',
-      ],
-      ['firstTitle'],
-    ) ||
-    value.type !== 'pro-queue-addition' ||
-    value.version !== DEVELOPER_CONTROL_VERSION ||
-    !isProNamespaceRoomCode(value.roomCode) ||
-    !isValidProEpoch(value.coordinatorEpoch) ||
-    !Number.isSafeInteger(value.playlistRevision) ||
-    value.playlistRevision < 1 ||
-    typeof value.eventId !== 'string' ||
-    !/^qa_0\d{5}_\d+_\d+$/.test(value.eventId) ||
-    typeof value.actorName !== 'string' ||
-    value.actorName.length < 1 ||
-    value.actorName.length > 30 ||
-    !Number.isSafeInteger(value.count) ||
-    value.count < 1 ||
-    value.count > 1000 ||
-    (firstTitle !== undefined &&
-      (typeof firstTitle !== 'string' ||
-        firstTitle.length < 1 ||
-        firstTitle.length > 120 ||
-        firstTitle.trim() !== firstTitle ||
-        /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(firstTitle)))
-  ) {
-    return null;
-  }
-  return {
-    type: 'pro-queue-addition',
-    version: DEVELOPER_CONTROL_VERSION,
-    roomCode: value.roomCode,
-    coordinatorEpoch: value.coordinatorEpoch,
-    playlistRevision: value.playlistRevision,
-    eventId: value.eventId,
-    actorName: value.actorName,
-    count: value.count,
-    ...(typeof firstTitle === 'string' ? { firstTitle } : {}),
-  };
-}
-
 async function readBoundedJson(request, maxBytes) {
   const contentType = request.headers.get('content-type') || '';
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) return null;
@@ -604,6 +379,34 @@ function normalizeProParticipantHighWater(value) {
   return { v: 1, entries };
 }
 
+function normalizeProPresenceAuthority(value) {
+  if (
+    !hasExactKeys(value, [
+      'v',
+      'roomId',
+      'coordinatorEpoch',
+      'presenceRevision',
+      'activeIncarnationIds',
+    ]) ||
+    value.v !== 1 ||
+    !isProNamespaceRoomCode(value.roomId) ||
+    !isValidProEpoch(value.coordinatorEpoch) ||
+    !Number.isSafeInteger(value.presenceRevision) ||
+    value.presenceRevision < 0
+  ) {
+    return null;
+  }
+  const activeIncarnationIds = normalizeProBroadcastTargets(value.activeIncarnationIds);
+  if (!activeIncarnationIds) return null;
+  return {
+    v: 1,
+    roomId: value.roomId,
+    coordinatorEpoch: value.coordinatorEpoch,
+    presenceRevision: value.presenceRevision,
+    activeIncarnationIds: [...activeIncarnationIds].sort(),
+  };
+}
+
 function utf8ByteLength(value) {
   if (typeof value !== 'string') return null;
   return new TextEncoder().encode(value).byteLength;
@@ -619,6 +422,283 @@ function rawMessageByteLength(raw) {
   if (raw instanceof ArrayBuffer) return raw.byteLength;
   if (ArrayBuffer.isView(raw)) return raw.byteLength;
   return null;
+}
+
+function normalizeBoundedJson(value, depth = 0, budget = { keys: 0, values: 0 }) {
+  if (depth > 4 || budget.values >= 256) return undefined;
+  budget.values += 1;
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER ? value : undefined;
+  }
+  if (typeof value === 'string') return value.length <= 2048 ? value : undefined;
+  if (Array.isArray(value)) {
+    if (value.length > 100) return undefined;
+    const result = [];
+    for (const item of value) {
+      const normalized = normalizeBoundedJson(item, depth + 1, budget);
+      if (normalized === undefined) return undefined;
+      result.push(normalized);
+    }
+    return result;
+  }
+  if (!isRecord(value)) return undefined;
+  const keys = Object.keys(value);
+  if (budget.keys + keys.length > 32) return undefined;
+  const result = {};
+  for (const key of keys) {
+    if (
+      !key ||
+      key.length > 64 ||
+      key === '__proto__' ||
+      key === 'prototype' ||
+      key === 'constructor'
+    ) {
+      return undefined;
+    }
+    budget.keys += 1;
+    const normalized = normalizeBoundedJson(value[key], depth + 1, budget);
+    if (normalized === undefined) return undefined;
+    result[key] = normalized;
+  }
+  return result;
+}
+
+function normalizeProServerEvent(value) {
+  if (!isRecord(value) || !PRO_SERVER_EVENT_TYPES.has(value.type)) return null;
+  const normalized = normalizeBoundedJson(value);
+  if (!isRecord(normalized) || normalized.type !== value.type) return null;
+  if (
+    normalized.type === 'pro-presence-snapshot' &&
+    (!Number.isSafeInteger(normalized.presenceRevision) || normalized.presenceRevision < 0)
+  ) {
+    return null;
+  }
+  const bytes = utf8ByteLength(JSON.stringify(normalized));
+  return bytes !== null && bytes <= PRO_SERVER_EVENT_MAX_BYTES ? normalized : null;
+}
+
+function normalizeProBroadcastTargets(value) {
+  if (!Array.isArray(value) || value.length > MAX_PRO_ROOM_MEMBERS) return null;
+  const seen = new Set();
+  const targets = [];
+  for (const incarnationId of value) {
+    if (
+      typeof incarnationId !== 'string' ||
+      !PRO_PRESENCE_INCARNATION_ID_RE.test(incarnationId) ||
+      seen.has(incarnationId)
+    ) {
+      return null;
+    }
+    seen.add(incarnationId);
+    targets.push(incarnationId);
+  }
+  return targets;
+}
+
+function normalizeProBotResult(value) {
+  if (!isRecord(value) || typeof value.kind !== 'string') return null;
+  if (value.kind === 'answer') {
+    return hasExactKeys(value, ['kind', 'text']) &&
+      typeof value.text === 'string' &&
+      value.text.trim().length > 0 &&
+      value.text.length <= PRO_REALTIME_TEXT_MAX_LENGTH
+      ? { kind: 'answer', text: value.text.trim() }
+      : null;
+  }
+  if (value.kind === 'added') {
+    return hasExactKeys(value, ['kind', 'count', 'playbackChanged']) &&
+      Number.isSafeInteger(value.count) &&
+      value.count >= 1 &&
+      value.count <= 3 &&
+      typeof value.playbackChanged === 'boolean'
+      ? { kind: 'added', count: value.count, playbackChanged: value.playbackChanged }
+      : null;
+  }
+  if (value.kind === 'failed') return hasExactKeys(value, ['kind']) ? { kind: 'failed' } : null;
+  if (value.kind === 'rate_limited') {
+    return hasExactKeys(value, ['kind', 'retryAfterSeconds']) &&
+      Number.isSafeInteger(value.retryAfterSeconds) &&
+      value.retryAfterSeconds >= 1 &&
+      value.retryAfterSeconds <= 24 * 60 * 60
+      ? { kind: 'rate_limited', retryAfterSeconds: value.retryAfterSeconds }
+      : null;
+  }
+  return null;
+}
+
+const PRO_SYSTEM_MESSAGE_KEYS_WITHOUT_PARAMS = new Set([
+  'chat.decode_skip_system_message',
+  'chat.system_audio_started_system_message',
+  'chat.system_audio_stopped_system_message',
+]);
+
+function normalizeProSystemMessage(value) {
+  if (
+    !hasExactKeys(value, ['kind', 'text', 'i18nKey'], ['i18nParams']) ||
+    typeof value.text !== 'string' ||
+    value.text.length < 1 ||
+    value.text.length > PRO_REALTIME_TEXT_MAX_LENGTH ||
+    !value.text.trim() ||
+    typeof value.i18nKey !== 'string'
+  ) {
+    return null;
+  }
+
+  const i18nKey = value.i18nKey;
+  if (PRO_SYSTEM_MESSAGE_KEYS_WITHOUT_PARAMS.has(i18nKey)) {
+    if (value.i18nParams !== undefined) return null;
+    return { kind: 'system', text: i18nKey, i18nKey };
+  }
+  return null;
+}
+
+function normalizeProChatPayload(value) {
+  if (!isRecord(value) || typeof value.kind !== 'string') return null;
+  if (value.kind === 'message') {
+    if (
+      !hasExactKeys(value, ['kind', 'text', 'clientTs'], ['botRequestId']) ||
+      typeof value.text !== 'string' ||
+      value.text.length < 1 ||
+      value.text.length > PRO_REALTIME_TEXT_MAX_LENGTH ||
+      !value.text.trim() ||
+      typeof value.clientTs !== 'number' ||
+      !Number.isFinite(value.clientTs) ||
+      value.clientTs < 0 ||
+      value.clientTs > Number.MAX_SAFE_INTEGER ||
+      (value.botRequestId !== undefined &&
+        (typeof value.botRequestId !== 'string' ||
+          !PRO_REALTIME_EVENT_ID_RE.test(value.botRequestId)))
+    ) {
+      return null;
+    }
+    return {
+      kind: 'message',
+      text: value.text,
+      clientTs: value.clientTs,
+      ...(value.botRequestId === undefined ? {} : { botRequestId: value.botRequestId }),
+    };
+  }
+  if (value.kind === 'bot-result') {
+    const result = normalizeProBotResult(value.result);
+    return hasExactKeys(value, ['kind', 'requestId', 'result']) &&
+      typeof value.requestId === 'string' &&
+      PRO_REALTIME_EVENT_ID_RE.test(value.requestId) &&
+      result
+      ? { kind: 'bot-result', requestId: value.requestId, result }
+      : null;
+  }
+  if (value.kind === 'system') {
+    return normalizeProSystemMessage(value);
+  }
+  if (value.kind === 'notice') {
+    return hasExactKeys(value, ['kind', 'text']) &&
+      typeof value.text === 'string' &&
+      value.text.trim() &&
+      value.text.length <= PRO_REALTIME_TEXT_MAX_LENGTH
+      ? { kind: 'notice', text: value.text }
+      : null;
+  }
+  if (value.kind === 'clear') return hasExactKeys(value, ['kind']) ? { kind: 'clear' } : null;
+  if (value.kind === 'freeze' || value.kind === 'filter') {
+    return hasExactKeys(value, ['kind', 'on']) && typeof value.on === 'boolean'
+      ? { kind: value.kind, on: value.on }
+      : null;
+  }
+  if (value.kind === 'slowmode') {
+    return hasExactKeys(value, ['kind', 'seconds']) &&
+      Number.isSafeInteger(value.seconds) &&
+      value.seconds >= 0 &&
+      value.seconds <= 60
+      ? { kind: 'slowmode', seconds: value.seconds }
+      : null;
+  }
+  if (value.kind === 'mute') {
+    return hasExactKeys(value, ['kind', 'targetParticipantId', 'on']) &&
+      isValidPeerId(value.targetParticipantId) &&
+      typeof value.on === 'boolean'
+      ? { kind: 'mute', targetParticipantId: value.targetParticipantId, on: value.on }
+      : null;
+  }
+  if (value.kind === 'whisper') {
+    return hasExactKeys(value, ['kind', 'targetParticipantId', 'text']) &&
+      isValidPeerId(value.targetParticipantId) &&
+      typeof value.text === 'string' &&
+      value.text.trim() &&
+      value.text.length <= PRO_REALTIME_TEXT_MAX_LENGTH
+      ? { kind: 'whisper', targetParticipantId: value.targetParticipantId, text: value.text }
+      : null;
+  }
+  return null;
+}
+
+function normalizeProRealtimeFrame(value) {
+  if (
+    !hasExactKeys(value, ['type', 'version', 'eventId', 'channel', 'payload']) ||
+    value.type !== 'pro-realtime' ||
+    value.version !== 1 ||
+    typeof value.eventId !== 'string' ||
+    !PRO_REALTIME_EVENT_ID_RE.test(value.eventId) ||
+    !isRecord(value.payload)
+  ) {
+    return null;
+  }
+
+  let payload = null;
+  if (value.channel === 'chat') {
+    payload = normalizeProChatPayload(value.payload);
+    if (!payload) return null;
+  } else if (value.channel === 'presence') {
+    if (
+      !hasExactKeys(value.payload, ['state']) ||
+      (value.payload.state !== 'active' && value.payload.state !== 'away')
+    ) {
+      return null;
+    }
+    payload = { state: value.payload.state };
+  } else if (value.channel === 'control-ready') {
+    if (
+      !hasExactKeys(value.payload, ['commandId', 'sequence', 'ready']) ||
+      typeof value.payload.commandId !== 'string' ||
+      !PRO_REALTIME_COMMAND_ID_RE.test(value.payload.commandId) ||
+      !Number.isSafeInteger(value.payload.sequence) ||
+      value.payload.sequence < 0 ||
+      typeof value.payload.ready !== 'boolean'
+    ) {
+      return null;
+    }
+    payload = {
+      commandId: value.payload.commandId,
+      sequence: value.payload.sequence,
+      ready: value.payload.ready,
+    };
+  } else if (value.channel === 'clock') {
+    if (
+      !hasExactKeys(value.payload, ['requestId', 'clientSentAtMs']) ||
+      !Number.isSafeInteger(value.payload.requestId) ||
+      value.payload.requestId < 0 ||
+      typeof value.payload.clientSentAtMs !== 'number' ||
+      !Number.isFinite(value.payload.clientSentAtMs) ||
+      value.payload.clientSentAtMs < 0 ||
+      value.payload.clientSentAtMs > Number.MAX_SAFE_INTEGER
+    ) {
+      return null;
+    }
+    payload = {
+      requestId: value.payload.requestId,
+      clientSentAtMs: value.payload.clientSentAtMs,
+    };
+  } else {
+    return null;
+  }
+
+  return {
+    type: 'pro-realtime',
+    version: 1,
+    eventId: value.eventId,
+    channel: value.channel,
+    payload,
+  };
 }
 
 function isValidSdp(value, expectedType) {
@@ -843,91 +923,89 @@ function normalizeRoomMeta(value) {
 }
 
 function normalizeProRoomMeta(value) {
-  if (!isRecord(value) || value.v !== 1 || value.kind !== 'pro') return null;
-  if (typeof value.roomId !== 'string' || !/^\d{6}$/.test(value.roomId)) return null;
-  if (!isValidProEpoch(value.coordinatorEpoch)) return null;
-  if (!isValidPeerId(value.coordinatorParticipantId)) return null;
   if (
-    typeof value.coordinatorJti !== 'string' ||
-    !/^[A-Za-z0-9_-]{16,128}$/.test(value.coordinatorJti)
+    !hasExactKeys(value, ['v', 'kind', 'roomId', 'coordinatorEpoch']) ||
+    value.v !== 2 ||
+    value.kind !== 'pro' ||
+    !isProNamespaceRoomCode(value.roomId)
   ) {
     return null;
   }
+  if (!isValidProEpoch(value.coordinatorEpoch)) return null;
   return {
-    v: 1,
+    v: 2,
     kind: 'pro',
     roomId: value.roomId,
     coordinatorEpoch: value.coordinatorEpoch,
-    coordinatorParticipantId: value.coordinatorParticipantId,
-    coordinatorJti: value.coordinatorJti,
-    coordinatorPresenceIncarnationId:
-      typeof value.coordinatorPresenceIncarnationId === 'string' &&
-      /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.coordinatorPresenceIncarnationId)
-        ? value.coordinatorPresenceIncarnationId
-        : `legacy_${value.coordinatorJti.slice(0, 120)}`,
-    coordinatorTicketSequence:
-      Number.isSafeInteger(value.coordinatorTicketSequence) && value.coordinatorTicketSequence >= 1
-        ? value.coordinatorTicketSequence
-        : 0,
-    coordinatorTicketIat: Number.isSafeInteger(value.coordinatorTicketIat)
-      ? Math.max(0, value.coordinatorTicketIat)
-      : 0,
   };
 }
 
 function normalizeAttachment(value) {
   if (!value || typeof value !== 'object' || value.v !== ATTACHMENT_VERSION) return null;
-  if (value.role !== 'host' && value.role !== 'guest') return null;
   if (typeof value.roomId !== 'string' || !value.roomId) return null;
   if (typeof value.peerId !== 'string' || !value.peerId) return null;
 
   if (value.roomKind === 'pro') {
+    if (value.role !== 'member') return null;
+    if (!isProNamespaceRoomCode(value.roomId) || value.peerId !== value.participantId) return null;
     if (!isValidProEpoch(value.coordinatorEpoch)) return null;
     if (!isValidPeerId(value.participantId)) return null;
+    if (
+      typeof value.displayName !== 'string' ||
+      value.displayName.length < 1 ||
+      value.displayName.length > PRO_DISPLAY_NAME_MAX_LENGTH ||
+      !value.displayName.trim() ||
+      /[\u0000-\u001f\u007f-\u009f]/.test(value.displayName)
+    ) {
+      return null;
+    }
     if (typeof value.ticketJti !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value.ticketJti)) {
+      return null;
+    }
+    if (
+      typeof value.presenceIncarnationId !== 'string' ||
+      !PRO_PRESENCE_INCARNATION_ID_RE.test(value.presenceIncarnationId) ||
+      (value.presenceRevision !== undefined &&
+        (!Number.isSafeInteger(value.presenceRevision) || value.presenceRevision < 0)) ||
+      !Number.isSafeInteger(value.ticketSequence) ||
+      value.ticketSequence < 1
+    ) {
       return null;
     }
     if (value.auth !== 'ok') return null;
     const proAttachment = {
       v: ATTACHMENT_VERSION,
       roomKind: 'pro',
-      role: value.role,
+      role: 'member',
       roomId: value.roomId,
       peerId: value.peerId,
       participantId: value.participantId,
+      displayName: value.displayName,
       coordinatorEpoch: value.coordinatorEpoch,
+      // Older live attachments can survive a rolling Worker deployment. Their
+      // incarnation is still checked against the persisted authoritative set;
+      // revision zero is used only as attachment metadata, never to admit a
+      // newly presented ticket.
+      presenceRevision: value.presenceRevision ?? 0,
       ticketJti: value.ticketJti,
-      presenceIncarnationId:
-        typeof value.presenceIncarnationId === 'string' &&
-        /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.presenceIncarnationId)
-          ? value.presenceIncarnationId
-          : `legacy_${value.ticketJti.slice(0, 120)}`,
-      ticketSequence:
-        Number.isSafeInteger(value.ticketSequence) && value.ticketSequence >= 1
-          ? value.ticketSequence
-          : 0,
-      developerControlVersion:
-        Number.isSafeInteger(value.developerControlVersion) &&
-        value.developerControlVersion >= 0 &&
-        value.developerControlVersion <= DEVELOPER_CONTROL_MAX_VERSION
-          ? value.developerControlVersion
-          : 0,
+      presenceIncarnationId: value.presenceIncarnationId,
+      ticketSequence: value.ticketSequence,
       auth: 'ok',
     };
-    if (value.role === 'guest') {
-      if (
-        Number.isFinite(value.guestMessageTokens) &&
-        Number.isFinite(value.guestMessageUpdatedAt)
-      ) {
-        proAttachment.guestMessageTokens = Math.min(
-          GUEST_MESSAGE_BUCKET_CAPACITY,
-          Math.max(0, value.guestMessageTokens),
-        );
-        proAttachment.guestMessageUpdatedAt = Math.max(0, value.guestMessageUpdatedAt);
-      }
+    if (
+      Number.isFinite(value.realtimeMessageTokens) &&
+      Number.isFinite(value.realtimeMessageUpdatedAt)
+    ) {
+      proAttachment.realtimeMessageTokens = Math.min(
+        GUEST_MESSAGE_BUCKET_CAPACITY,
+        Math.max(0, value.realtimeMessageTokens),
+      );
+      proAttachment.realtimeMessageUpdatedAt = Math.max(0, value.realtimeMessageUpdatedAt);
     }
     return proAttachment;
   }
+
+  if (value.role !== 'host' && value.role !== 'guest') return null;
 
   if (value.role === 'host') {
     if (value.auth === 'ok' && typeof value.secret === 'string' && value.secret) {
@@ -991,12 +1069,16 @@ function normalizeAttachment(value) {
   return null;
 }
 
-function readAttachment(ws) {
+function deserializeAttachment(ws) {
   try {
-    return normalizeAttachment(ws.deserializeAttachment?.());
+    return ws.deserializeAttachment?.() ?? null;
   } catch {
     return null;
   }
+}
+
+function readAttachment(ws) {
+  return normalizeAttachment(deserializeAttachment(ws));
 }
 
 function closeSocket(ws, code, reason) {
@@ -1018,9 +1100,11 @@ export class MusixquareRoom {
     this.pendingHosts = new Set();
     this.guests = new Map();
     this.pendingGuests = new Set();
+    this.proMembers = new Map();
     this.guestBindings = null;
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
+    this.proPresenceAuthority = undefined;
     // Standard-room host metadata and guest reconnect bindings describe one
     // room epoch. Serialize their admission/leave mutations together so an
     // awaited host reconnect write cannot be overwritten by a stale host close
@@ -1087,6 +1171,28 @@ export class MusixquareRoom {
     return true;
   }
 
+  consumeProRealtimeMessageToken(ws, now = Date.now()) {
+    const attachment = readAttachment(ws);
+    if (!attachment || attachment.roomKind !== 'pro' || attachment.role !== 'member') return false;
+    const previousTokens = Number.isFinite(attachment.realtimeMessageTokens)
+      ? attachment.realtimeMessageTokens
+      : GUEST_MESSAGE_BUCKET_CAPACITY;
+    const previousUpdatedAt = Number.isFinite(attachment.realtimeMessageUpdatedAt)
+      ? attachment.realtimeMessageUpdatedAt
+      : now;
+    const elapsed = Math.max(0, now - previousUpdatedAt);
+    const tokens = Math.min(
+      GUEST_MESSAGE_BUCKET_CAPACITY,
+      previousTokens + elapsed * GUEST_MESSAGE_REFILL_PER_MS,
+    );
+    ws.serializeAttachment({
+      ...attachment,
+      realtimeMessageTokens: tokens < 1 ? tokens : tokens - 1,
+      realtimeMessageUpdatedAt: now,
+    });
+    return tokens >= 1;
+  }
+
   rehydrateSockets() {
     const sockets =
       typeof this.state.getWebSockets === 'function' ? this.state.getWebSockets() : [];
@@ -1096,8 +1202,31 @@ export class MusixquareRoom {
   }
 
   indexSocket(ws) {
-    const attachment = readAttachment(ws);
-    if (!attachment) return;
+    const serialized = deserializeAttachment(ws);
+    const attachment = normalizeAttachment(serialized);
+    if (!attachment) {
+      if (isRecord(serialized) && serialized.roomKind === 'pro') {
+        closeSocket(ws, 1012, 'PRO_ROOM_PROTOCOL_UPGRADED');
+      }
+      return;
+    }
+    if (attachment.roomKind === 'pro') {
+      const previous = this.proMembers.get(attachment.participantId);
+      const previousAttachment = readAttachment(previous);
+      if (previous && previous !== ws) {
+        if ((previousAttachment?.ticketSequence || 0) >= attachment.ticketSequence) {
+          closeSocket(ws, 1012, 'PRO_MEMBER_REPLACED');
+          return;
+        }
+        closeSocket(previous, 1012, 'PRO_MEMBER_REPLACED');
+      }
+      if (!previous && this.proMembers.size >= MAX_PRO_ROOM_MEMBERS) {
+        closeWithError(ws, 'room-full', 'ROOM_MEMBER_LIMIT_REACHED', 1008);
+        return;
+      }
+      this.proMembers.set(attachment.participantId, ws);
+      return;
+    }
     if (attachment.role === 'host') {
       if (attachment.auth === 'pending') {
         if (this.pendingHosts.size >= MAX_PENDING_HOST_SOCKETS) {
@@ -1278,6 +1407,67 @@ export class MusixquareRoom {
     return true;
   }
 
+  async loadProPresenceAuthority() {
+    if (this.proPresenceAuthority !== undefined) return this.proPresenceAuthority;
+    const stored = await this.state.storage.get(PRO_PRESENCE_AUTHORITY_KEY);
+    if (stored === undefined || stored === null) {
+      this.proPresenceAuthority = null;
+      return null;
+    }
+    const normalized = normalizeProPresenceAuthority(stored);
+    if (!normalized) throw new Error('INVALID_PRO_SIGNALING_PRESENCE_AUTHORITY');
+    this.proPresenceAuthority = normalized;
+    return normalized;
+  }
+
+  async advanceProPresenceAuthority(roomId, coordinatorEpoch, presenceRevision, targets) {
+    const candidate = normalizeProPresenceAuthority({
+      v: 1,
+      roomId,
+      coordinatorEpoch,
+      presenceRevision,
+      activeIncarnationIds: targets,
+    });
+    if (!candidate) throw new Error('INVALID_PRO_SIGNALING_PRESENCE_AUTHORITY');
+
+    const current = await this.loadProPresenceAuthority();
+    if (current) {
+      if (candidate.coordinatorEpoch < current.coordinatorEpoch) return 'stale';
+      if (candidate.coordinatorEpoch === current.coordinatorEpoch) {
+        if (candidate.presenceRevision < current.presenceRevision) return 'stale';
+        if (candidate.presenceRevision === current.presenceRevision) {
+          const sameActiveSet =
+            candidate.activeIncarnationIds.length === current.activeIncarnationIds.length &&
+            candidate.activeIncarnationIds.every(
+              (incarnationId, index) => incarnationId === current.activeIncarnationIds[index],
+            );
+          return sameActiveSet ? 'unchanged' : 'conflict';
+        }
+      }
+    }
+
+    // Persist the new authoritative live-set before it is used to close or
+    // admit sockets. A failed write leaves the previous fence intact and the
+    // broadcast fails closed instead of creating a memory-only revocation.
+    await this.state.storage.put(PRO_PRESENCE_AUTHORITY_KEY, candidate);
+    this.proPresenceAuthority = candidate;
+    return 'advanced';
+  }
+
+  async isProTicketPresenceAuthorized(ticket) {
+    const authority = await this.loadProPresenceAuthority();
+    if (!authority) return true;
+    if (authority.roomId !== ticket.roomCode) return false;
+    if (ticket.coordinatorEpoch < authority.coordinatorEpoch) return false;
+    if (ticket.coordinatorEpoch > authority.coordinatorEpoch) return true;
+    if (ticket.presenceRevision < authority.presenceRevision) return false;
+    // A ticket for the next authoritative revision can legitimately arrive
+    // before the corresponding presence snapshot broadcast. Once that
+    // snapshot arrives it either establishes the incarnation or closes it.
+    if (ticket.presenceRevision > authority.presenceRevision) return true;
+    return authority.activeIncarnationIds.includes(ticket.presenceIncarnationId);
+  }
+
   enqueueProAdmission(task) {
     const run = this.proAdmissionSync.then(task, task);
     this.proAdmissionSync = run.catch(() => {});
@@ -1286,22 +1476,50 @@ export class MusixquareRoom {
 
   async acceptProSocket(ws, ticket) {
     try {
+      const meta = await this.loadProRoomMeta();
+      if (meta && meta.roomId !== ticket.roomCode) {
+        this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-mismatch']);
+        closeWithError(ws, 'invalid-id', 'PRO_ROOM_MISMATCH', 1008);
+        return;
+      }
+      if (meta && ticket.coordinatorEpoch < meta.coordinatorEpoch) {
+        // Reject before consuming the one-shot JTI or advancing the per-member
+        // sequence fence. Otherwise a delayed old-epoch credential could
+        // poison the high-water state used by a legitimate current epoch.
+        this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:stale-epoch']);
+        closeWithError(ws, 'peer-unavailable', 'PRO_COORDINATOR_EPOCH_STALE', 1008);
+        return;
+      }
+    } catch {
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-state']);
+      closeWithError(ws, 'unavailable', 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE', 1013);
+      this.recordMetric('pro_room_state_unavailable');
+      return;
+    }
+
+    try {
+      if (!(await this.isProTicketPresenceAuthorized(ticket))) {
+        this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:presence-stale']);
+        closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_PRESENCE_STALE', 1008);
+        this.recordMetric('pro_ticket_stale_presence');
+        return;
+      }
+    } catch {
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:presence-state']);
+      closeWithError(ws, 'unavailable', 'PRO_SIGNALING_PRESENCE_STATE_UNAVAILABLE', 1013);
+      this.recordMetric('pro_presence_state_unavailable');
+      return;
+    }
+
+    try {
       if (!(await this.consumeProTicket(ticket))) {
-        this.acceptSocket(ws, null, [
-          'kind:pro',
-          ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
-          'rejected:ticket-replay',
-        ]);
+        this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:ticket-replay']);
         closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_REPLAYED', 1008);
         this.recordMetric('pro_ticket_replayed');
         return;
       }
     } catch {
-      this.acceptSocket(ws, null, [
-        'kind:pro',
-        ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
-        'rejected:ticket-state',
-      ]);
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:ticket-state']);
       closeWithError(ws, 'unavailable', 'PRO_SIGNALING_TICKET_STATE_UNAVAILABLE', 1013);
       this.recordMetric('pro_ticket_state_unavailable');
       return;
@@ -1309,36 +1527,25 @@ export class MusixquareRoom {
 
     try {
       if (!(await this.advanceProParticipantHighWater(ticket))) {
-        this.acceptSocket(ws, null, [
-          'kind:pro',
-          ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
-          'rejected:ticket-sequence',
-        ]);
+        this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:ticket-sequence']);
         closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_STALE', 1008);
         this.recordMetric('pro_ticket_stale_sequence');
         return;
       }
     } catch {
-      this.acceptSocket(ws, null, [
-        'kind:pro',
-        ticket.role === 'coordinator' ? 'role:host' : 'role:guest',
-        'rejected:ticket-state',
-      ]);
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:ticket-state']);
       closeWithError(ws, 'unavailable', 'PRO_SIGNALING_TICKET_STATE_UNAVAILABLE', 1013);
       this.recordMetric('pro_ticket_state_unavailable');
       return;
     }
 
-    if (ticket.role === 'coordinator') {
-      await this.acceptProCoordinator(ws, ticket);
-    } else {
-      await this.acceptProMember(ws, ticket);
-    }
+    await this.acceptProMember(ws, ticket);
   }
 
   async validateRehydratedProSockets() {
     if (this.proSocketsValidated) return;
     const meta = await this.loadProRoomMeta();
+    const authority = await this.loadProPresenceAuthority();
     for (const socket of typeof this.state.getWebSockets === 'function'
       ? this.state.getWebSockets()
       : []) {
@@ -1348,17 +1555,26 @@ export class MusixquareRoom {
         meta?.kind === 'pro' &&
         meta.roomId === attachment.roomId &&
         meta.coordinatorEpoch === attachment.coordinatorEpoch &&
-        (attachment.role !== 'host' ||
-          (meta.coordinatorParticipantId === attachment.participantId &&
-            meta.coordinatorPresenceIncarnationId === attachment.presenceIncarnationId &&
-            meta.coordinatorTicketSequence === attachment.ticketSequence));
+        (!authority ||
+          (authority.roomId === attachment.roomId &&
+            (authority.coordinatorEpoch < attachment.coordinatorEpoch ||
+              (authority.coordinatorEpoch === attachment.coordinatorEpoch &&
+                (attachment.presenceRevision > authority.presenceRevision ||
+                  authority.activeIncarnationIds.includes(attachment.presenceIncarnationId)))))) &&
+        this.proMembers.get(attachment.participantId) === socket;
       if (current) continue;
-      closeSocket(socket, 1012, 'PRO_COORDINATOR_EPOCH_STALE');
-      if (attachment.role === 'host' && this.host === socket) {
-        this.host = null;
-        this.hostPeerId = null;
-      } else if (this.guests.get(attachment.peerId) === socket) {
-        this.guests.delete(attachment.peerId);
+      const presenceRevoked =
+        authority?.roomId === attachment.roomId &&
+        authority.coordinatorEpoch === attachment.coordinatorEpoch &&
+        authority.presenceRevision >= attachment.presenceRevision &&
+        !authority.activeIncarnationIds.includes(attachment.presenceIncarnationId);
+      closeSocket(
+        socket,
+        presenceRevoked ? 1008 : 1012,
+        presenceRevoked ? 'PRO_PRESENCE_REVOKED' : 'PRO_ROOM_EPOCH_STALE',
+      );
+      if (this.proMembers.get(attachment.participantId) === socket) {
+        this.proMembers.delete(attachment.participantId);
       }
     }
     this.proSocketsValidated = true;
@@ -1497,10 +1713,13 @@ export class MusixquareRoom {
         return json({ error: 'NOT_FOUND' }, 404);
       }
       if (url.pathname === '/internal/developer/v1/dispatch') {
-        return this.handleInternalDeveloperDispatch(request);
+        return json({ error: 'PRO_COORDINATOR_REMOVED' }, 409);
       }
       if (url.pathname === '/internal/developer/v1/invalidate') {
-        return this.handleInternalDeveloperInvalidation(request);
+        return json({ error: 'PRO_COORDINATOR_REMOVED' }, 409);
+      }
+      if (url.pathname === '/internal/realtime/v1/broadcast') {
+        return this.enqueueProAdmission(() => this.handleInternalProRealtimeBroadcast(request));
       }
       if (url.pathname === '/internal/admin/v1/decommission') {
         return this.enqueueProAdmission(() => this.handleInternalAdminDecommission(request));
@@ -1614,11 +1833,13 @@ export class MusixquareRoom {
     this.pendingHosts.clear();
     this.guests.clear();
     this.pendingGuests.clear();
+    this.proMembers.clear();
     this.roomMeta = null;
     this.proRoomMeta = null;
     this.guestBindings = null;
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
+    this.proPresenceAuthority = undefined;
     this.proSocketsValidated = true;
 
     const stored =
@@ -1631,6 +1852,7 @@ export class MusixquareRoom {
           PRO_ROOM_META_KEY,
           PRO_TICKET_USES_KEY,
           PRO_PARTICIPANT_HIGH_WATER_KEY,
+          PRO_PRESENCE_AUTHORITY_KEY,
         ];
     for (const key of keys) {
       if (key !== PRO_DECOMMISSIONED_KEY && typeof this.state.storage.delete === 'function') {
@@ -1648,293 +1870,189 @@ export class MusixquareRoom {
     });
   }
 
-  async handleInternalDeveloperDispatch(request) {
-    const value = await readBoundedJson(request, DEVELOPER_COMMAND_BODY_MAX_BYTES);
+  async handleInternalProRealtimeBroadcast(request) {
+    const value = await readBoundedJson(request, PRO_REALTIME_BODY_MAX_BYTES);
+    const targets = normalizeProBroadcastTargets(value?.targets);
+    const event = normalizeProServerEvent(value?.event);
     if (
-      !hasExactKeys(value, [
-        'roomCode',
-        'coordinatorEpoch',
-        'coordinatorParticipantId',
-        'coordinatorPresenceIncarnationId',
-        'developerControlVersion',
-        'frame',
-      ]) ||
+      !hasExactKeys(value, ['roomCode', 'coordinatorEpoch', 'targets', 'event']) ||
       !isProNamespaceRoomCode(value.roomCode) ||
       !isValidProEpoch(value.coordinatorEpoch) ||
-      !isValidPeerId(value.coordinatorParticipantId) ||
-      typeof value.coordinatorPresenceIncarnationId !== 'string' ||
-      !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.coordinatorPresenceIncarnationId) ||
-      !Number.isSafeInteger(value.developerControlVersion) ||
-      value.developerControlVersion < DEVELOPER_CONTROL_VERSION ||
-      value.developerControlVersion > DEVELOPER_CONTROL_MAX_VERSION
-    ) {
-      return json({ error: 'INVALID_REQUEST' }, 400);
-    }
-    const frame = normalizeDeveloperCommandFrame(value.frame);
-    if (
-      !frame ||
-      frame.version !== value.developerControlVersion ||
-      frame.roomCode !== value.roomCode ||
-      frame.coordinatorEpoch !== value.coordinatorEpoch ||
-      frame.expiresAtMs <= Date.now()
+      !targets ||
+      !event
     ) {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
 
     await this.validateRehydratedProSockets();
-    const meta = await this.loadProRoomMeta();
-    const attachment = readAttachment(this.host);
-    if (
-      !meta ||
-      meta.roomId !== value.roomCode ||
-      meta.coordinatorEpoch !== value.coordinatorEpoch ||
-      meta.coordinatorParticipantId !== value.coordinatorParticipantId ||
-      meta.coordinatorPresenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
-      !this.host ||
-      attachment?.roomKind !== 'pro' ||
-      attachment.role !== 'host' ||
-      attachment.roomId !== value.roomCode ||
-      attachment.participantId !== value.coordinatorParticipantId ||
-      attachment.coordinatorEpoch !== value.coordinatorEpoch ||
-      attachment.presenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
-      attachment.developerControlVersion < value.developerControlVersion
-    ) {
-      return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
+    let meta = await this.loadProRoomMeta();
+    if (meta && meta.roomId !== value.roomCode) {
+      return json({ error: 'PRO_ROOM_EPOCH_STALE' }, 409);
     }
-    return sendChecked(this.host, frame)
-      ? json({ dispatched: true })
-      : json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
+    if (!meta || value.coordinatorEpoch > meta.coordinatorEpoch) {
+      // The room state service can publish the first authoritative presence
+      // set before any browser requests a signaling ticket. It also advances
+      // the room fence on sleep, PIN rotation, or suspension. A presence
+      // snapshot is the only server event allowed to initialize/advance this
+      // namespace; all other future-epoch events fail closed.
+      if (event.type !== 'pro-presence-snapshot') {
+        return json({ error: 'PRO_ROOM_EPOCH_STALE' }, 409);
+      }
+      meta = await this.resetProRoomEpoch(value.roomCode, value.coordinatorEpoch);
+    }
+    if (value.coordinatorEpoch < meta.coordinatorEpoch) {
+      return json({ error: 'PRO_ROOM_EPOCH_STALE' }, 409);
+    }
+
+    if (event.type === 'pro-presence-snapshot') {
+      const authorityResult = await this.advanceProPresenceAuthority(
+        value.roomCode,
+        value.coordinatorEpoch,
+        event.presenceRevision,
+        targets,
+      );
+      if (authorityResult === 'stale') {
+        return json({ error: 'PRO_PRESENCE_REVISION_STALE' }, 409);
+      }
+      if (authorityResult === 'conflict') {
+        return json({ error: 'PRO_PRESENCE_REVISION_CONFLICT' }, 409);
+      }
+    }
+
+    const targetSet = new Set(targets);
+    const frame = {
+      type: 'pro-server-event',
+      version: 1,
+      roomCode: value.roomCode,
+      coordinatorEpoch: value.coordinatorEpoch,
+      event,
+    };
+    let eligible = 0;
+    let sentCount = 0;
+    for (const [participantId, socket] of this.proMembers) {
+      const attachment = readAttachment(socket);
+      const isInvalidRoomMember =
+        attachment?.roomKind !== 'pro' ||
+        attachment.role !== 'member' ||
+        attachment.auth !== 'ok' ||
+        attachment.roomId !== value.roomCode ||
+        attachment.coordinatorEpoch !== value.coordinatorEpoch ||
+        attachment.participantId !== participantId ||
+        this.proMembers.get(participantId) !== socket;
+      if (isInvalidRoomMember) {
+        continue;
+      }
+      if (!targetSet.has(attachment.presenceIncarnationId)) {
+        // A presence snapshot is the Durable Object's authoritative live-set,
+        // not merely a broadcast audience. Revoke sockets removed by a kick,
+        // TTL expiry, explicit leave, or same-participant tab takeover so a
+        // stale authenticated connection cannot keep relaying chat until its
+        // browser happens to close it. Other event types intentionally target
+        // subsets (for example a PREPARE cohort) and must never prune here.
+        if (event.type === 'pro-presence-snapshot') {
+          this.proMembers.delete(participantId);
+          closeSocket(socket, 1008, 'PRO_PRESENCE_REVOKED');
+        }
+        continue;
+      }
+      eligible += 1;
+      if (sendChecked(socket, frame)) sentCount += 1;
+    }
+    return json({ broadcast: true, eligible, sent: sentCount });
   }
 
-  async handleInternalDeveloperInvalidation(request) {
-    const value = await readBoundedJson(request, DEVELOPER_COMMAND_BODY_MAX_BYTES);
-    if (
-      !hasExactKeys(
-        value,
-        [
-          'roomCode',
-          'coordinatorEpoch',
-          'coordinatorParticipantId',
-          'coordinatorPresenceIncarnationId',
-          'developerControlVersion',
-          'frame',
-        ],
-        ['addition'],
-      ) ||
-      !isProNamespaceRoomCode(value.roomCode) ||
-      !isValidProEpoch(value.coordinatorEpoch) ||
-      !isValidPeerId(value.coordinatorParticipantId) ||
-      typeof value.coordinatorPresenceIncarnationId !== 'string' ||
-      !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value.coordinatorPresenceIncarnationId) ||
-      value.developerControlVersion !== DEVELOPER_CONTROL_VERSION
-    ) {
-      return json({ error: 'INVALID_REQUEST' }, 400);
-    }
-    const frame = normalizeDeveloperInvalidationFrame(value.frame);
-    const addition = value.addition === undefined
-      ? null
-      : normalizeProQueueAdditionFrame(value.addition);
-    if (
-      !frame ||
-      (value.addition !== undefined && !addition) ||
-      frame.roomCode !== value.roomCode ||
-      frame.coordinatorEpoch !== value.coordinatorEpoch ||
-      (addition !== null &&
-        (addition.roomCode !== value.roomCode ||
-          addition.coordinatorEpoch !== value.coordinatorEpoch ||
-          addition.playlistRevision !== frame.playlistRevision))
-    ) {
-      return json({ error: 'INVALID_REQUEST' }, 400);
-    }
-
-    await this.validateRehydratedProSockets();
-    const meta = await this.loadProRoomMeta();
-    const attachment = readAttachment(this.host);
-    if (
-      !meta ||
-      meta.roomId !== value.roomCode ||
-      meta.coordinatorEpoch !== value.coordinatorEpoch ||
-      meta.coordinatorParticipantId !== value.coordinatorParticipantId ||
-      meta.coordinatorPresenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
-      !this.host ||
-      attachment?.roomKind !== 'pro' ||
-      attachment.role !== 'host' ||
-      attachment.roomId !== value.roomCode ||
-      attachment.participantId !== value.coordinatorParticipantId ||
-      attachment.coordinatorEpoch !== value.coordinatorEpoch ||
-      attachment.presenceIncarnationId !== value.coordinatorPresenceIncarnationId ||
-      attachment.developerControlVersion < DEVELOPER_CONTROL_VERSION
-    ) {
-      return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
-    }
-    // The addition is meaningful only after the coordinator has been told to
-    // refresh the authoritative snapshot. Never emit it when that first send
-    // failed; doing so could create a system row for state the client never
-    // accepted.
-    if (!sendChecked(this.host, frame)) {
-      return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
-    }
-    if (addition !== null && !sendChecked(this.host, addition)) {
-      return json({ error: 'COORDINATOR_UNAVAILABLE' }, 409);
-    }
-    return json({ dispatched: true });
-  }
-
-  async resetForProEpoch(ticket) {
+  async resetProRoomEpoch(roomCode, coordinatorEpoch) {
     for (const socket of typeof this.state.getWebSockets === 'function'
       ? this.state.getWebSockets()
       : []) {
-      closeSocket(socket, 1012, 'PRO_COORDINATOR_EPOCH_ADVANCED');
+      const attachment = readAttachment(socket);
+      if (attachment?.roomKind === 'pro') {
+        closeSocket(socket, 1012, 'PRO_ROOM_EPOCH_ADVANCED');
+      }
     }
-    this.host = null;
-    this.hostPeerId = null;
-    this.pendingHosts.clear();
-    this.guests.clear();
-    this.pendingGuests.clear();
-    await this.clearGuestBindings();
-    await this.clearRoomMeta();
-    await this.scheduleMaintenanceAlarm();
+    this.proMembers.clear();
+    this.proSocketsValidated = true;
     return this.saveProRoomMeta({
-      v: 1,
+      v: 2,
       kind: 'pro',
-      roomId: ticket.roomCode,
-      coordinatorEpoch: ticket.coordinatorEpoch,
-      coordinatorParticipantId: ticket.participantId,
-      coordinatorJti: ticket.jti,
-      coordinatorPresenceIncarnationId: ticket.presenceIncarnationId,
-      coordinatorTicketSequence: ticket.ticketSequence,
-      coordinatorTicketIat: ticket.iat,
+      roomId: roomCode,
+      coordinatorEpoch,
     });
   }
 
-  async acceptProCoordinator(ws, ticket) {
+  async resetForProEpoch(ticket) {
+    return this.resetProRoomEpoch(ticket.roomCode, ticket.coordinatorEpoch);
+  }
+
+  async acceptProMember(ws, ticket) {
     let meta = await this.loadProRoomMeta();
     if (meta && meta.roomId !== ticket.roomCode) {
-      this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:room-mismatch']);
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-mismatch']);
       closeWithError(ws, 'invalid-id', 'PRO_ROOM_MISMATCH', 1008);
       return;
     }
     if (meta && ticket.coordinatorEpoch < meta.coordinatorEpoch) {
-      this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:stale-epoch']);
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:stale-epoch']);
       closeWithError(ws, 'peer-unavailable', 'PRO_COORDINATOR_EPOCH_STALE', 1008);
       return;
     }
 
     if (!meta || ticket.coordinatorEpoch > meta.coordinatorEpoch) {
       meta = await this.resetForProEpoch(ticket);
-    } else {
-      if (meta.coordinatorParticipantId !== ticket.participantId) {
-        this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:coordinator-mismatch']);
-        closeWithError(ws, 'id-taken', 'PRO_COORDINATOR_MISMATCH', 1008);
-        return;
-      }
-      if (ticket.ticketSequence <= meta.coordinatorTicketSequence) {
-        this.acceptSocket(ws, null, ['kind:pro', 'role:host', 'rejected:ticket-replay']);
-        closeWithError(ws, 'peer-unavailable', 'PRO_SIGNALING_TICKET_REPLAYED', 1008);
-        return;
-      }
-      meta = await this.saveProRoomMeta({
-        ...meta,
-        coordinatorJti: ticket.jti,
-        coordinatorPresenceIncarnationId: ticket.presenceIncarnationId,
-        coordinatorTicketSequence: ticket.ticketSequence,
-        coordinatorTicketIat: ticket.iat,
-      });
     }
 
-    if (this.host && this.host !== ws) closeSocket(this.host, 1012, 'HOST_REPLACED');
-    const attachment = {
-      v: ATTACHMENT_VERSION,
-      roomKind: 'pro',
-      role: 'host',
-      roomId: ticket.roomCode,
-      peerId: ticket.roomCode,
-      participantId: ticket.participantId,
-      coordinatorEpoch: meta.coordinatorEpoch,
-      ticketJti: ticket.jti,
-      presenceIncarnationId: ticket.presenceIncarnationId,
-      ticketSequence: ticket.ticketSequence,
-      developerControlVersion: ticket.developerControlVersion,
-      auth: 'ok',
-    };
-    this.acceptSocket(ws, attachment, [
-      'kind:pro',
-      'role:host',
-      `peer:${ticket.roomCode}`,
-      `epoch:${meta.coordinatorEpoch}`,
-    ]);
-    this.host = ws;
-    this.hostPeerId = ticket.roomCode;
-    this.recordMetric('pro_coordinator_connected');
-    send(ws, {
-      type: 'peer-open',
-      peerId: ticket.roomCode,
-      roomId: ticket.roomCode,
-      ...workerVersionFields(this.env),
-    });
-  }
-
-  async acceptProMember(ws, ticket) {
-    const meta = await this.loadProRoomMeta();
-    const hostAttachment = readAttachment(this.host);
     if (
       !meta ||
       meta.roomId !== ticket.roomCode ||
       meta.coordinatorEpoch !== ticket.coordinatorEpoch
     ) {
-      this.acceptSocket(ws, null, ['kind:pro', 'role:guest', 'rejected:stale-epoch']);
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:stale-epoch']);
       closeWithError(ws, 'peer-unavailable', 'PRO_COORDINATOR_EPOCH_STALE', 1008);
       return;
     }
+
     if (
-      !this.host ||
-      hostAttachment?.roomKind !== 'pro' ||
-      hostAttachment.coordinatorEpoch !== ticket.coordinatorEpoch
+      !this.proMembers.has(ticket.participantId) &&
+      this.proMembers.size >= MAX_PRO_ROOM_MEMBERS
     ) {
-      this.acceptSocket(ws, null, ['kind:pro', 'role:guest', 'rejected:no-coordinator']);
-      closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
+      this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-full']);
+      closeWithError(ws, 'room-full', 'ROOM_MEMBER_LIMIT_REACHED', 1008);
+      this.recordMetric('pro_room_full');
       return;
     }
 
-    const admitted = this.admittedGuestIds();
-    if (!admitted.has(ticket.participantId) && admitted.size >= MAX_ROOM_GUESTS) {
-      this.acceptSocket(ws, null, ['kind:pro', 'role:guest', 'rejected:room-full']);
-      closeWithError(ws, 'room-full', 'ROOM_GUEST_LIMIT_REACHED', 1008);
-      this.recordMetric('guest_room_full');
-      return;
-    }
-
-    const previous = this.guests.get(ticket.participantId);
+    const previous = this.proMembers.get(ticket.participantId);
     const previousAttachment = readAttachment(previous);
-    if (previous && previous !== ws) closeSocket(previous, 1012, 'GUEST_REPLACED');
+    if (previous && previous !== ws) closeSocket(previous, 1012, 'PRO_MEMBER_REPLACED');
     const attachment = {
       v: ATTACHMENT_VERSION,
       roomKind: 'pro',
-      role: 'guest',
+      role: 'member',
       roomId: ticket.roomCode,
       peerId: ticket.participantId,
       participantId: ticket.participantId,
+      displayName: ticket.displayName,
       coordinatorEpoch: ticket.coordinatorEpoch,
+      presenceRevision: ticket.presenceRevision,
       ticketJti: ticket.jti,
       presenceIncarnationId: ticket.presenceIncarnationId,
       ticketSequence: ticket.ticketSequence,
-      developerControlVersion: ticket.developerControlVersion,
       auth: 'ok',
-      ...(Number.isFinite(previousAttachment?.guestMessageTokens) &&
-      Number.isFinite(previousAttachment?.guestMessageUpdatedAt)
+      ...(Number.isFinite(previousAttachment?.realtimeMessageTokens) &&
+      Number.isFinite(previousAttachment?.realtimeMessageUpdatedAt)
         ? {
-            guestMessageTokens: previousAttachment.guestMessageTokens,
-            guestMessageUpdatedAt: previousAttachment.guestMessageUpdatedAt,
+            realtimeMessageTokens: previousAttachment.realtimeMessageTokens,
+            realtimeMessageUpdatedAt: previousAttachment.realtimeMessageUpdatedAt,
           }
         : {}),
     };
     this.acceptSocket(ws, attachment, [
       'kind:pro',
-      'role:guest',
+      'role:member',
       `peer:${ticket.participantId}`,
       `epoch:${ticket.coordinatorEpoch}`,
     ]);
-    this.guests.set(ticket.participantId, ws);
+    this.proMembers.set(ticket.participantId, ws);
     this.recordMetric('pro_member_joined');
     send(ws, {
       type: 'peer-open',
@@ -2203,21 +2321,12 @@ export class MusixquareRoom {
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
+    if (attachment.roomKind === 'pro') {
+      return this.handleProRealtimeMessage(ws, raw, attachment);
+    }
+
     const isPendingHost = attachment.role === 'host' && attachment.auth === 'pending';
     const isPendingGuest = attachment.role === 'guest' && attachment.auth === 'pending';
-
-    if (attachment.roomKind === 'pro') {
-      const meta = await this.loadProRoomMeta();
-      const current =
-        meta?.roomId === attachment.roomId &&
-        meta.coordinatorEpoch === attachment.coordinatorEpoch &&
-        (attachment.role !== 'host' || meta.coordinatorParticipantId === attachment.participantId);
-      if (!current) {
-        closeSocket(ws, 1012, 'PRO_COORDINATOR_EPOCH_STALE');
-        await this.webSocketClose(ws);
-        return;
-      }
-    }
 
     const rawBytes = rawMessageByteLength(raw);
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
@@ -2299,6 +2408,114 @@ export class MusixquareRoom {
 
     if (this.guests.get(attachment.peerId) !== ws) return;
     this.handleGuestMessage(attachment.peerId, message);
+  }
+
+  async handleProRealtimeMessage(ws, raw, attachment) {
+    const meta = await this.loadProRoomMeta();
+    const authority = await this.loadProPresenceAuthority();
+    const current =
+      meta?.roomId === attachment.roomId &&
+      meta.coordinatorEpoch === attachment.coordinatorEpoch &&
+      (!authority ||
+        (authority.roomId === attachment.roomId &&
+          (authority.coordinatorEpoch < attachment.coordinatorEpoch ||
+            (authority.coordinatorEpoch === attachment.coordinatorEpoch &&
+              (attachment.presenceRevision > authority.presenceRevision ||
+                authority.activeIncarnationIds.includes(attachment.presenceIncarnationId)))))) &&
+      this.proMembers.get(attachment.participantId) === ws;
+    if (!current) {
+      const presenceRevoked =
+        authority?.roomId === attachment.roomId &&
+        authority.coordinatorEpoch === attachment.coordinatorEpoch &&
+        authority.presenceRevision >= attachment.presenceRevision &&
+        !authority.activeIncarnationIds.includes(attachment.presenceIncarnationId);
+      closeSocket(
+        ws,
+        presenceRevoked ? 1008 : 1012,
+        presenceRevoked ? 'PRO_PRESENCE_REVOKED' : 'PRO_ROOM_EPOCH_STALE',
+      );
+      await this.webSocketClose(ws);
+      return;
+    }
+
+    const rawBytes = rawMessageByteLength(raw);
+    if (rawBytes !== null && rawBytes > PRO_REALTIME_BODY_MAX_BYTES) {
+      closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
+      await this.webSocketClose(ws);
+      this.recordMetric('pro_realtime_oversized');
+      return;
+    }
+    if (!this.consumeProRealtimeMessageToken(ws)) {
+      closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
+      await this.webSocketClose(ws);
+      this.recordMetric('pro_realtime_rate_limited');
+      return;
+    }
+
+    const message = this.parse(raw);
+    const normalized = normalizeProRealtimeFrame(message);
+    if (!normalized) return;
+    if (normalized.channel === 'clock') {
+      sendChecked(ws, {
+        type: 'pro-clock',
+        version: 1,
+        requestId: normalized.payload.requestId,
+        clientSentAtMs: normalized.payload.clientSentAtMs,
+        serverTimeMs: Date.now(),
+      });
+      return;
+    }
+
+    const targetParticipantId =
+      normalized.channel === 'chat' &&
+      (normalized.payload.kind === 'whisper' || normalized.payload.kind === 'mute')
+        ? normalized.payload.targetParticipantId
+        : null;
+    let targetSocket = null;
+    if (targetParticipantId) {
+      targetSocket = this.proMembers.get(targetParticipantId) || null;
+      const targetAttachment = readAttachment(targetSocket);
+      if (
+        !targetSocket ||
+        targetAttachment?.roomKind !== 'pro' ||
+        targetAttachment.auth !== 'ok' ||
+        targetAttachment.roomId !== attachment.roomId ||
+        targetAttachment.coordinatorEpoch !== attachment.coordinatorEpoch ||
+        targetAttachment.participantId !== targetParticipantId
+      ) {
+        return;
+      }
+    }
+
+    const relay = {
+      ...normalized,
+      roomCode: attachment.roomId,
+      coordinatorEpoch: attachment.coordinatorEpoch,
+      sender: {
+        participantId: attachment.participantId,
+        presenceIncarnationId: attachment.presenceIncarnationId,
+        displayName: attachment.displayName,
+      },
+    };
+    if (normalized.channel === 'chat' && normalized.payload.kind === 'whisper') {
+      sendChecked(targetSocket, relay);
+      return;
+    }
+    for (const [participantId, socket] of this.proMembers) {
+      if (socket === ws) continue;
+      const recipient = readAttachment(socket);
+      if (
+        recipient?.roomKind !== 'pro' ||
+        recipient.auth !== 'ok' ||
+        recipient.roomId !== attachment.roomId ||
+        recipient.coordinatorEpoch !== attachment.coordinatorEpoch ||
+        recipient.participantId !== participantId ||
+        this.proMembers.get(participantId) !== socket
+      ) {
+        continue;
+      }
+      sendChecked(socket, relay);
+    }
   }
 
   async handleHostAuth(ws, message, attachment) {
@@ -2483,14 +2700,14 @@ export class MusixquareRoom {
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
-    if (attachment.role === 'host') {
-      if (attachment.roomKind === 'pro') {
-        if (this.host === ws) {
-          this.host = null;
-          this.hostPeerId = null;
-        }
-        return;
+    if (attachment.roomKind === 'pro') {
+      if (this.proMembers.get(attachment.participantId) === ws) {
+        this.proMembers.delete(attachment.participantId);
       }
+      return;
+    }
+
+    if (attachment.role === 'host') {
       return this.enqueueHostAdmission(async () => {
         // Re-read after queued authentication: the close event may have
         // captured a pending attachment that was promoted while awaiting this
@@ -2503,13 +2720,6 @@ export class MusixquareRoom {
         }
         await this.releaseHost(ws, current);
       });
-    }
-
-    if (attachment.roomKind === 'pro') {
-      if (this.guests.get(attachment.peerId) !== ws) return;
-      this.guests.delete(attachment.peerId);
-      if (this.host) send(this.host, { type: 'peer-left', peerId: attachment.peerId });
-      return;
     }
 
     return this.enqueueGuestAdmission(async () => {

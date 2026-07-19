@@ -9,7 +9,6 @@ import {
 } from '../contracts.ts';
 
 const mocks = vi.hoisted(() => ({
-  coordinator: true,
   broadcast: vi.fn(),
   broadcastExcept: vi.fn(),
   broadcastSystemMessage: vi.fn(),
@@ -23,9 +22,6 @@ const mocks = vi.hoisted(() => ({
   cleanupLegacySubscriber: vi.fn(),
   publish: vi.fn(),
   subscribe: vi.fn().mockResolvedValue(undefined),
-  protocolHandlers: new Map<string, (data: unknown, conn: unknown) => void>(),
-  hostConnection: null as unknown,
-  authoritativeConnection: null as unknown,
 }));
 
 vi.mock('../../audio/context.ts', () => ({ getAudioContext: vi.fn() }));
@@ -50,11 +46,6 @@ vi.mock('../../network/pro-system-audio-sfu.ts', () => ({
 vi.mock('../../network/system-audio-sfu.ts', () => ({
   cleanupSystemAudioSfuGuestRoute: mocks.cleanupLegacySubscriber,
 }));
-vi.mock('../../network/protocol.ts', () => ({
-  registerHandler: vi.fn((type: string, handler: (data: unknown, conn: unknown) => void) => {
-    mocks.protocolHandlers.set(type, handler);
-  }),
-}));
 vi.mock('../../network/system-audio-guest.ts', () => ({
   beginTrustedSystemAudioReception: mocks.beginReception,
   cleanupGuestSystemAudio: mocks.cleanupReception,
@@ -68,11 +59,6 @@ vi.mock('../../player/ownership.ts', () => ({
   claimPlaybackOwner: vi.fn(),
   setSystemAudioReceiving: vi.fn(),
 }));
-vi.mock('../../rooms/authority.ts', () => ({
-  isAuthoritativeConnection: (conn: unknown) => conn === mocks.authoritativeConnection,
-  isCoordinator: () => mocks.coordinator,
-  verifyPeerCapability: vi.fn(),
-}));
 vi.mock('../../core/state.ts', () => ({
   getState: (path: string) => {
     if (path === 'room.context') {
@@ -84,7 +70,7 @@ vi.mock('../../core/state.ts', () => ({
       };
     }
     if (path === 'playback.mode') return 'none';
-    if (path === 'network.hostConn') return mocks.hostConnection;
+    if (path === 'network.hostConn') return null;
     return null;
   },
 }));
@@ -137,18 +123,18 @@ function snapshot(incarnation = 'presence_local_01'): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: LOCAL_ID,
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: LOCAL_ID,
           displayName: 'Local member',
-          role: 'controller',
+          role: 'member',
           joinedAtMs: 1,
         },
         {
           participantId: REMOTE_ID,
           displayName: 'Remote member',
-          role: 'controller',
+          role: 'member',
           joinedAtMs: 2,
         },
       ],
@@ -164,16 +150,15 @@ function snapshot(incarnation = 'presence_local_01'): ProRoomSnapshot {
       participantId: LOCAL_ID,
       presenceIncarnationId: incarnation,
       displayName: 'Local member',
-      role: 'controller',
+      role: 'member',
       capabilities: [
         'queue.mutate',
         'playback.control',
         'effects.control',
         'asset.upload',
-        'coordinator.eligible',
         'members.manage',
       ],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
   };
 }
@@ -247,9 +232,6 @@ beforeEach(() => {
       { trackName: 'audio-R', channel: 'R', mid: '1' },
     ],
   });
-  mocks.coordinator = true;
-  mocks.hostConnection = null;
-  mocks.authoritativeConnection = null;
   resetProSystemAudioService();
   bindProSystemAudioSession(snapshot());
 });
@@ -261,112 +243,80 @@ afterEach(() => {
 });
 
 describe('PRO system-audio service orchestration', () => {
-  it('requires a validated state proof from the exact current coordinator connection', async () => {
-    const coordinatorConnection = { peer: REMOTE_ID, open: true };
-    const memberSnapshot = snapshot();
-    memberSnapshot.presence.coordinatorParticipantId = REMOTE_ID;
-    mocks.coordinator = false;
-    mocks.hostConnection = coordinatorConnection;
-    mocks.authoritativeConnection = coordinatorConnection;
-    bindProSystemAudioSession(memberSnapshot);
-
-    expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(false);
-    await expect(acquireLocalProSystemAudioLease()).rejects.toThrow(
-      'PRO_SYSTEM_AUDIO_COORDINATOR_UPDATE_REQUIRED',
-    );
-
-    const stateHandler = mocks.protocolHandlers.get('pro-system-audio-state');
-    expect(stateHandler).toBeDefined();
-    stateHandler!(
-      {
-        type: 'pro-system-audio-state',
-        version: 1,
-        generation: 0,
-        status: 'idle',
-        ownerParticipantId: null,
-        ownerDisplayName: null,
-        claimExpiresAt: null,
-        liveExpiresAt: null,
-        publication: null,
-      },
-      coordinatorConnection,
-    );
-
+  it('allows every playback-capable member without browser-coordinator proof', async () => {
     expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(true);
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
 
-    mocks.hostConnection = { peer: REMOTE_ID, open: true };
-    expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(false);
+    await refreshProSystemAudioState();
+    await expect(acquireLocalProSystemAudioLease()).resolves.toEqual(preparing());
   });
 
-  it('renegotiates coordinator support after a handoff or room incarnation change', () => {
-    const coordinatorConnection = { peer: REMOTE_ID, open: true };
-    const memberSnapshot = snapshot();
-    memberSnapshot.presence.coordinatorParticipantId = REMOTE_ID;
-    mocks.coordinator = false;
-    mocks.hostConnection = coordinatorConnection;
-    mocks.authoritativeConnection = coordinatorConnection;
-    bindProSystemAudioSession(memberSnapshot);
-    const stateHandler = mocks.protocolHandlers.get('pro-system-audio-state')!;
-    stateHandler(
-      {
-        type: 'pro-system-audio-state',
-        version: 1,
-        generation: 0,
-        status: 'idle',
-        ownerParticipantId: null,
-        ownerDisplayName: null,
-        claimExpiresAt: null,
-        liveExpiresAt: null,
-        publication: null,
-      },
-      coordinatorConnection,
+  it('derives publish eligibility from the current member capability snapshot', () => {
+    const restricted = snapshot();
+    restricted.viewer!.capabilities = restricted.viewer!.capabilities.filter(
+      (capability) => capability !== 'playback.control',
     );
-    expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(true);
-
-    const handoffSnapshot = snapshot();
-    handoffSnapshot.presence.coordinatorEpoch = 2;
-    handoffSnapshot.presence.coordinatorParticipantId = 'participant_remote2';
-    bindProSystemAudioSession(handoffSnapshot);
+    bindProSystemAudioSession(restricted);
     expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(false);
 
     bindProSystemAudioSession(snapshot('presence_local_02'));
-    expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(false);
+    expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(true);
   });
 
-  it('announces authoritative start and stop transitions exactly once', async () => {
-    api.getSystemAudioState
-      .mockResolvedValueOnce(idle())
-      .mockResolvedValueOnce(live())
-      .mockResolvedValueOnce(live())
-      .mockResolvedValueOnce(idle(1));
-
+  it('announces a local authoritative publish and release exactly once', async () => {
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockResolvedValueOnce(localLive());
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
     await refreshProSystemAudioState();
-    await refreshProSystemAudioState();
-    await refreshProSystemAudioState();
-    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({} as MediaStreamTrack, {} as MediaStreamTrack);
+    await releaseLocalProSystemAudioLease();
 
     expect(mocks.broadcastSystemMessage.mock.calls).toEqual([
       ['chat.system_audio_started_system_message'],
       ['chat.system_audio_stopped_system_message'],
     ]);
-    expect(
-      mocks.broadcastExcept.mock.calls.filter(
-        ([, message]) => (message as { type?: string }).type === 'system-audio-stop',
-      ),
-    ).toEqual([[REMOTE_ID, { type: 'system-audio-stop' }]]);
   });
 
-  it('does not let a non-coordinator owner fan out system chat', async () => {
-    mocks.coordinator = false;
+  it('does not announce a remote live share discovered during refresh', async () => {
     api.getSystemAudioState.mockResolvedValueOnce(idle()).mockResolvedValueOnce(live());
 
     await refreshProSystemAudioState();
     await refreshProSystemAudioState();
+    await Promise.resolve();
 
     expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
+    expect(mocks.subscribe).toHaveBeenCalledWith({
+      version: 1,
+      sessionId: 'realtime_session_01',
+      generation: 1,
+      expiresAt: 1_900_007_200_000,
+      tracks: [
+        { trackName: 'audio-L', channel: 'L', mid: '0' },
+        { trackName: 'audio-R', channel: 'R', mid: '1' },
+      ],
+    });
+    expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 
-  it('fans out a coordinator-owned mutation once even though observer and caller both reconcile', async () => {
+  it('does not subscribe the active publisher back to its own SFU feed', async () => {
+    api.getSystemAudioState.mockResolvedValueOnce(localLive());
+
+    await refreshProSystemAudioState();
+    await Promise.resolve();
+
+    expect(mocks.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('acquires through the room server without peer fanout', async () => {
     api.getSystemAudioState.mockResolvedValueOnce(idle());
     api.acquireSystemAudioLease.mockResolvedValueOnce({
       systemAudio: preparing(),
@@ -377,11 +327,8 @@ describe('PRO system-audio service orchestration', () => {
 
     await acquireLocalProSystemAudioLease();
 
-    expect(
-      mocks.broadcast.mock.calls.filter(
-        ([message]) => (message as { type?: string }).type === 'pro-system-audio-state',
-      ),
-    ).toHaveLength(1);
+    expect(api.acquireSystemAudioLease).toHaveBeenCalledTimes(1);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 
   it('does not announce a live share discovered during initial recovery', async () => {
@@ -451,29 +398,8 @@ describe('PRO system-audio service orchestration', () => {
     expect(reasons).toEqual(['authoritative-revocation']);
   });
 
-  it('stops a non-coordinator publisher after fifth-device server revocation', async () => {
+  it('stops an equal participant publisher after server revocation', async () => {
     vi.useFakeTimers();
-    mocks.coordinator = false;
-    const coordinatorConnection = { peer: REMOTE_ID, open: true };
-    const memberSnapshot = snapshot();
-    memberSnapshot.presence.coordinatorParticipantId = REMOTE_ID;
-    mocks.hostConnection = coordinatorConnection;
-    mocks.authoritativeConnection = coordinatorConnection;
-    bindProSystemAudioSession(memberSnapshot);
-    mocks.protocolHandlers.get('pro-system-audio-state')!(
-      {
-        type: 'pro-system-audio-state',
-        version: 1,
-        generation: 0,
-        status: 'idle',
-        ownerParticipantId: null,
-        ownerDisplayName: null,
-        claimExpiresAt: null,
-        liveExpiresAt: null,
-        publication: null,
-      },
-      coordinatorConnection,
-    );
     const reasons: string[] = [];
     bus.on('pro-system-audio:lease-lost', (reason) => reasons.push(reason));
     api.getSystemAudioState.mockResolvedValueOnce(idle()).mockResolvedValueOnce(idle(2));

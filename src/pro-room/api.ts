@@ -19,6 +19,7 @@ import {
 import { isProRoomCode } from './room-code.ts';
 import {
   isProRoomQueueItemId,
+  parseProRoomPlaybackCheckpoint,
   parseProRoomSnapshot,
   parseProRoomSystemAudioPublication,
   parseProRoomSystemAudioState,
@@ -49,11 +50,14 @@ const MAX_NAME_LENGTH = 2048;
 const MAX_DISPLAY_NAME_LENGTH = 64;
 const MAX_BOT_PROMPT_LENGTH = 500;
 const MAX_BOT_SUMMARY_LENGTH = 2000;
+const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 const MAX_URL_LENGTH = 8192;
 const MAX_UPLOAD_HEADERS = 16;
 const MAX_UPLOAD_HEADER_VALUE_LENGTH = 2048;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
+const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
@@ -108,10 +112,80 @@ export interface ProRoomMediaDownload {
 export interface ProRoomSignalingAccess {
   ticket: ProRoomSignalingTicket;
   expiresAtMs: number;
-  role: 'coordinator' | 'member';
+  role: 'member';
   coordinatorEpoch: number;
   presenceIncarnationId: string;
   ticketSequence: number;
+  pendingPlaybackTransition: ProRoomPlaybackPrepareEvent | null;
+}
+
+export interface ProRoomPlaybackPrepareEvent {
+  type: 'pro-playback-prepare';
+  transitionId: string;
+  serverTimeMs: number;
+  deadlineAtMs: number;
+  basePlaybackRevision: number;
+  target: ProRoomPlaybackCheckpoint;
+}
+
+export interface ProRoomPlaybackCommitEvent {
+  type: 'pro-playback-commit';
+  transitionId: string | null;
+  serverTimeMs: number;
+  executeAtMs: number;
+  playback: ProRoomPlaybackCheckpoint;
+}
+
+export interface ProRoomPlaybackCancelEvent {
+  type: 'pro-playback-cancel';
+  transitionId: string;
+  serverTimeMs: number;
+  reason: string;
+}
+
+export type ProRoomPlaybackCommand =
+  | { type: 'play' | 'pause' | 'stop' | 'next' | 'previous'; baseRevision: number }
+  | { type: 'seek'; baseRevision: number; positionSeconds: number }
+  | {
+      type: 'select';
+      baseRevision: number;
+      queueItemId: string;
+      state?: 'playing' | 'paused';
+      positionSeconds?: number;
+      youtubeVideoId?: string;
+      youtubeSubIndex?: number;
+    }
+  | {
+      type: 'ended' | 'unavailable';
+      baseRevision: number;
+      queueItemId: string;
+      mediaKind: 'file' | 'youtube';
+      observedPositionSeconds: number;
+      durationSeconds: number | null;
+      youtubeVideoId?: string;
+      youtubeSubIndex?: number;
+    };
+
+export interface ExecuteProRoomPlaybackCommandInput {
+  code: string;
+  command: ProRoomPlaybackCommand;
+  idempotencyKey: string;
+}
+
+export interface ProRoomPlaybackCommandResult {
+  schemaVersion: 1;
+  roomCode: string;
+  status: 'preparing' | 'committed' | 'unchanged';
+  transition: ProRoomPlaybackPrepareEvent | null;
+  playback: ProRoomPlaybackCheckpoint;
+  serverTimeMs: number;
+}
+
+export interface ReportProRoomPlaybackReadyInput {
+  code: string;
+  transitionId: string;
+  basePlaybackRevision: number;
+  status: 'ready' | 'failed';
 }
 
 export interface ProRoomPresenceIdentity {
@@ -206,6 +280,7 @@ export interface UpdateProRoomCompactSnapshotInput {
 interface UpdateProRoomEffectsInput {
   code: string;
   coordinatorEpoch: number;
+  baseRevision: number;
   effects: RoomEffectsState;
 }
 
@@ -226,9 +301,9 @@ interface AckProRoomDeveloperCommandInput {
 }
 
 /**
- * Small unload-safe mutation used only after a confirmed pagehide. A member
- * sends a null checkpoint; the elected coordinator may atomically persist its
- * final observation while releasing presence.
+ * Small unload-safe mutation used only after a confirmed pagehide. Playback is
+ * server-authoritative, so every participant sends a null checkpoint while
+ * releasing its exact presence incarnation.
  */
 interface CloseProRoomPresenceInput {
   code: string;
@@ -730,6 +805,188 @@ function parseSessionEnvelope(value: unknown, expectedCode: string): ProRoomSnap
   return snapshot?.roomCode === expectedCode ? snapshot : null;
 }
 
+export function parseProRoomPlaybackPrepareEvent(
+  value: unknown,
+): ProRoomPlaybackPrepareEvent | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      'type',
+      'transitionId',
+      'serverTimeMs',
+      'deadlineAtMs',
+      'basePlaybackRevision',
+      'target',
+    ]) ||
+    value.type !== 'pro-playback-prepare' ||
+    typeof value.transitionId !== 'string' ||
+    !PLAYBACK_TRANSITION_ID_RE.test(value.transitionId) ||
+    !isSafeNonNegativeInteger(value.serverTimeMs) ||
+    !isSafeNonNegativeInteger(value.deadlineAtMs) ||
+    value.deadlineAtMs < value.serverTimeMs ||
+    !isSafeNonNegativeInteger(value.basePlaybackRevision)
+  ) {
+    return null;
+  }
+  const target = parseProRoomPlaybackCheckpoint(value.target);
+  if (!target || target.revision !== value.basePlaybackRevision + 1) return null;
+  return {
+    type: 'pro-playback-prepare',
+    transitionId: value.transitionId,
+    serverTimeMs: value.serverTimeMs,
+    deadlineAtMs: value.deadlineAtMs,
+    basePlaybackRevision: value.basePlaybackRevision,
+    target,
+  };
+}
+
+export function parseProRoomPlaybackCommitEvent(value: unknown): ProRoomPlaybackCommitEvent | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['type', 'transitionId', 'serverTimeMs', 'executeAtMs', 'playback']) ||
+    value.type !== 'pro-playback-commit' ||
+    (value.transitionId !== null &&
+      (typeof value.transitionId !== 'string' ||
+        !PLAYBACK_TRANSITION_ID_RE.test(value.transitionId))) ||
+    !isSafeNonNegativeInteger(value.serverTimeMs) ||
+    !isSafeNonNegativeInteger(value.executeAtMs)
+  ) {
+    return null;
+  }
+  const playback = parseProRoomPlaybackCheckpoint(value.playback);
+  if (!playback) return null;
+  return {
+    type: 'pro-playback-commit',
+    transitionId: value.transitionId,
+    serverTimeMs: value.serverTimeMs,
+    executeAtMs: value.executeAtMs,
+    playback,
+  };
+}
+
+export function parseProRoomPlaybackCancelEvent(value: unknown): ProRoomPlaybackCancelEvent | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['type', 'transitionId', 'serverTimeMs', 'reason']) ||
+    value.type !== 'pro-playback-cancel' ||
+    typeof value.transitionId !== 'string' ||
+    !PLAYBACK_TRANSITION_ID_RE.test(value.transitionId) ||
+    !isSafeNonNegativeInteger(value.serverTimeMs)
+  ) {
+    return null;
+  }
+  const reason = parseBoundedString(value.reason, 64);
+  return reason
+    ? {
+        type: 'pro-playback-cancel',
+        transitionId: value.transitionId,
+        serverTimeMs: value.serverTimeMs,
+        reason,
+      }
+    : null;
+}
+
+function parsePlaybackCommandResult(
+  value: unknown,
+  expectedCode: string,
+): ProRoomPlaybackCommandResult | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(
+      value,
+      ['schemaVersion', 'roomCode', 'status', 'playback', 'serverTimeMs'],
+      ['transition'],
+    ) ||
+    value.schemaVersion !== 1 ||
+    value.roomCode !== expectedCode ||
+    (value.status !== 'preparing' &&
+      value.status !== 'committed' &&
+      value.status !== 'unchanged') ||
+    !isSafeNonNegativeInteger(value.serverTimeMs)
+  ) {
+    return null;
+  }
+  const playback = parseProRoomPlaybackCheckpoint(value.playback);
+  const transition =
+    value.transition === undefined ? null : parseProRoomPlaybackPrepareEvent(value.transition);
+  if (!playback || (value.status === 'preparing') !== (transition !== null)) return null;
+  return {
+    schemaVersion: 1,
+    roomCode: expectedCode,
+    status: value.status,
+    transition,
+    playback,
+    serverTimeMs: value.serverTimeMs,
+  };
+}
+
+function validatePlaybackCommand(command: ProRoomPlaybackCommand): ProRoomPlaybackCommand {
+  if (!isSafeNonNegativeInteger(command.baseRevision)) {
+    throw new ProRoomApiError('INVALID_PLAYBACK_REVISION');
+  }
+  if (
+    command.type === 'play' ||
+    command.type === 'pause' ||
+    command.type === 'stop' ||
+    command.type === 'next' ||
+    command.type === 'previous'
+  ) {
+    return { type: command.type, baseRevision: command.baseRevision };
+  }
+  if (command.type === 'seek') {
+    if (
+      !Number.isFinite(command.positionSeconds) ||
+      command.positionSeconds < 0 ||
+      command.positionSeconds > PLAYBACK_MAX_POSITION_SECONDS
+    ) {
+      throw new ProRoomApiError('INVALID_PLAYBACK_POSITION');
+    }
+    return { ...command };
+  }
+  if (!('queueItemId' in command)) throw new ProRoomApiError('INVALID_PLAYBACK_COMMAND');
+  if (!isProRoomQueueItemId(command.queueItemId)) {
+    throw new ProRoomApiError('INVALID_QUEUE_ITEM_ID');
+  }
+  const hasVideoId = command.youtubeVideoId !== undefined;
+  const hasSubIndex = command.youtubeSubIndex !== undefined;
+  if (
+    (hasVideoId && !hasSubIndex) ||
+    (hasVideoId && !YOUTUBE_VIDEO_ID_RE.test(command.youtubeVideoId ?? '')) ||
+    (hasSubIndex &&
+      (!Number.isSafeInteger(command.youtubeSubIndex) ||
+        (command.youtubeSubIndex as number) < 0 ||
+        (command.youtubeSubIndex as number) > 100_000))
+  ) {
+    throw new ProRoomApiError('INVALID_YOUTUBE_IDENTITY');
+  }
+  if (command.type === 'select') {
+    if (
+      command.positionSeconds !== undefined &&
+      (!Number.isFinite(command.positionSeconds) ||
+        command.positionSeconds < 0 ||
+        command.positionSeconds > PLAYBACK_MAX_POSITION_SECONDS)
+    ) {
+      throw new ProRoomApiError('INVALID_PLAYBACK_POSITION');
+    }
+    return { ...command };
+  }
+  if (
+    (command.mediaKind !== 'file' && command.mediaKind !== 'youtube') ||
+    !Number.isFinite(command.observedPositionSeconds) ||
+    command.observedPositionSeconds < 0 ||
+    command.observedPositionSeconds > PLAYBACK_MAX_POSITION_SECONDS ||
+    (command.durationSeconds !== null &&
+      (!Number.isFinite(command.durationSeconds) ||
+        command.durationSeconds <= 0 ||
+        command.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS)) ||
+    (command.mediaKind === 'youtube' && (!hasVideoId || !hasSubIndex)) ||
+    (command.mediaKind === 'file' && (hasVideoId || hasSubIndex))
+  ) {
+    throw new ProRoomApiError('INVALID_PLAYBACK_OBSERVATION');
+  }
+  return { ...command };
+}
+
 interface RequestOptions<T> {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
@@ -930,6 +1187,77 @@ export class ProRoomApiClient {
     return this.#bindPresenceIdentity(code, snapshot);
   }
 
+  kickPresence(
+    code: string,
+    targetParticipantId: string,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot> {
+    const path = roomPath(code);
+    return this.#request(`${path}/presence/kick`, {
+      method: 'POST',
+      body: {
+        targetParticipantId: validateOpaqueId(targetParticipantId, 'INVALID_PARTICIPANT_ID'),
+      },
+      signal,
+      activeRoomCode: code,
+      parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+  }
+
+  executePlaybackCommand(
+    input: ExecuteProRoomPlaybackCommandInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomPlaybackCommandResult> {
+    const path = roomPath(input.code);
+    const command = validatePlaybackCommand(input.command);
+    return this.#request(`${path}/playback/commands`, {
+      method: 'POST',
+      body: command,
+      idempotencyKey: input.idempotencyKey,
+      signal,
+      activeRoomCode: input.code,
+      parser: (value) => parsePlaybackCommandResult(value, input.code),
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+    });
+  }
+
+  async reportPlaybackTransitionReady(
+    input: ReportProRoomPlaybackReadyInput,
+    signal?: AbortSignal,
+  ): Promise<'waiting' | 'committed'> {
+    if (!PLAYBACK_TRANSITION_ID_RE.test(input.transitionId)) {
+      throw new ProRoomApiError('INVALID_PLAYBACK_TRANSITION_ID');
+    }
+    if (!isSafeNonNegativeInteger(input.basePlaybackRevision)) {
+      throw new ProRoomApiError('INVALID_PLAYBACK_REVISION');
+    }
+    const path = roomPath(input.code);
+    const transitionId = input.transitionId;
+    return this.#request(`${path}/playback/transitions/${encodeURIComponent(transitionId)}/ready`, {
+      method: 'POST',
+      body: {
+        basePlaybackRevision: input.basePlaybackRevision,
+        status: input.status,
+      },
+      signal,
+      activeRoomCode: input.code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: (value) => {
+        if (
+          !isRecord(value) ||
+          !hasExactKeys(value, ['ok', 'transitionId', 'status', 'playbackRevision']) ||
+          value.ok !== true ||
+          value.transitionId !== transitionId ||
+          (value.status !== 'waiting' && value.status !== 'committed') ||
+          !isSafeNonNegativeInteger(value.playbackRevision)
+        ) {
+          return null;
+        }
+        return value.status;
+      },
+    });
+  }
+
   async closeSession(code: string, signal?: AbortSignal): Promise<void> {
     const path = roomPath(code);
     await this.#request(`${path}/sessions/current`, {
@@ -1059,11 +1387,14 @@ export class ProRoomApiClient {
     if (!Number.isSafeInteger(input.coordinatorEpoch) || input.coordinatorEpoch < 1) {
       throw new ProRoomApiError('INVALID_COORDINATOR_EPOCH');
     }
+    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) {
+      throw new ProRoomApiError('INVALID_REVISION');
+    }
     const effects = parseRoomEffectsState(input.effects);
     if (!effects) throw new ProRoomApiError('INVALID_EFFECTS');
     return this.#request(`${path}/effects`, {
       method: 'PUT',
-      body: { coordinatorEpoch: input.coordinatorEpoch, effects },
+      body: { coordinatorEpoch: input.coordinatorEpoch, baseRevision: input.baseRevision, effects },
       signal,
       activeRoomCode: input.code,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
@@ -1208,8 +1539,8 @@ export class ProRoomApiClient {
   }
 
   /**
-   * Persist a final coordinator checkpoint and release presence in one
-   * keepalive request. This intentionally does not close the cookie session:
+   * Release the exact presence incarnation in one keepalive request. This
+   * intentionally does not close the cookie session:
    * unlike the explicit leave flow, a tab close has no reliable opportunity
    * to consume a Set-Cookie response and the retained session makes a later
    * resume deterministic.
@@ -1257,6 +1588,7 @@ export class ProRoomApiClient {
           'coordinatorEpoch',
           'presenceIncarnationId',
           'ticketSequence',
+          'pendingPlaybackTransition',
         ])
       ) {
         return null;
@@ -1265,13 +1597,20 @@ export class ProRoomApiClient {
       if (
         !ticket ||
         !isSafeNonNegativeInteger(value.expiresAtMs) ||
-        (value.role !== 'coordinator' && value.role !== 'member') ||
+        value.role !== 'member' ||
         !isSafeNonNegativeInteger(value.coordinatorEpoch) ||
         typeof value.presenceIncarnationId !== 'string' ||
         !OPAQUE_ID_RE.test(value.presenceIncarnationId) ||
         !Number.isSafeInteger(value.ticketSequence) ||
         (value.ticketSequence as number) < 1
       ) {
+        return null;
+      }
+      const pendingPlaybackTransition =
+        value.pendingPlaybackTransition === null
+          ? null
+          : parseProRoomPlaybackPrepareEvent(value.pendingPlaybackTransition);
+      if (value.pendingPlaybackTransition !== null && pendingPlaybackTransition === null) {
         return null;
       }
       return {
@@ -1281,36 +1620,16 @@ export class ProRoomApiClient {
         coordinatorEpoch: value.coordinatorEpoch,
         presenceIncarnationId: value.presenceIncarnationId,
         ticketSequence: value.ticketSequence as number,
+        pendingPlaybackTransition,
       };
     };
-    const requestTicket = (advertiseDeveloperControl: boolean) =>
-      this.#request(`${path}/signaling-tickets`, {
-        method: 'POST',
-        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 4 } } : {}),
-        signal,
-        activeRoomCode: code,
-        maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-        parser,
-      });
-
-    try {
-      return await requestTicket(true);
-    } catch (error) {
-      // A cached/new app can briefly meet the previous PRO Worker during an
-      // operational rollback. That Worker rejects any non-empty ticket body.
-      // Retry only its exact legacy response and deliberately omit the
-      // capability: room entry survives, while Developer API commands remain
-      // fail-closed until both sides are on the new protocol.
-      if (
-        signal?.aborted ||
-        !(error instanceof ProRoomApiError) ||
-        error.status !== 400 ||
-        error.code !== 'INVALID_REQUEST'
-      ) {
-        throw error;
-      }
-      return requestTicket(false);
-    }
+    return this.#request(`${path}/signaling-tickets`, {
+      method: 'POST',
+      signal,
+      activeRoomCode: code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser,
+    });
   }
 
   async ackDeveloperCommand(

@@ -6,6 +6,7 @@ import { resetState, setState } from '../../core/state.ts';
 import { t } from '../../i18n/index.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import {
+  announceTracksAddedLocally,
   broadcastTracksAdded,
   localQueueActorName,
   queueActorNameForConnection,
@@ -77,6 +78,21 @@ describe('queue-add system messages', () => {
         count: 2,
         title: `First${'x'.repeat(115)}`,
       }),
+    ]);
+  });
+
+  it('renders a server-fanned-out PRO addition locally without relaying it again', () => {
+    const send = vi.fn();
+    const conn = { peer: 'peer-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [connectedPeer(conn, 'Peer 1')]);
+    const messages: string[] = [];
+    bus.on('chat:system-message', (text) => messages.push(text));
+
+    expect(announceTracksAddedLocally('Peer 2', 1, 'Local song')).toBe(true);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(messages).toEqual([
+      t('chat.track_added_named', { name: 'Peer 2', count: 1, title: 'Local song' }),
     ]);
   });
 

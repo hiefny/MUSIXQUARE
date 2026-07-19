@@ -1,7 +1,8 @@
 # ADR and Runbook: Persistent PRO Rooms
 
-- **Status:** Accepted for staged rollout; production activation requires the
-  real-device checklist below
+- **Status:** Accepted operations baseline, amended by
+  `pro-room-server-authority.md`; production activation requires the real-device
+  checklist below
 - **Decision date:** 2026-07-16
 - **Applies to:** the reserved `0xxxxx` namespace, initially provisioned room
   codes `000000` and `000001`, the PRO control plane, dedicated PRO signaling,
@@ -12,7 +13,7 @@
 Normal MUSIXQUARE rooms are temporary sessions. A PRO room is a stable place
 for a cafe, routine listener, or invited group: its URL and QR code do not
 change, its authoritative playlist survives an empty room, and it resumes from
-the last persisted playback checkpoint.
+the last server-owned playback anchor.
 
 This checkpoint implements manually granted entitlement through the
 Access-protected MUSIXQUARE admin screen. It does not add billing, checkout,
@@ -34,9 +35,9 @@ an authorization credential.
 | Component                                | Responsibility                                                                |
 | ---------------------------------------- | ----------------------------------------------------------------------------- |
 | App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback |
-| PRO Worker                               | Activation, PIN/session auth, snapshot revisions, presence, quota, signed R2  |
-| One Durable Object per room              | Serialized source of truth for room state, coordinator epoch, and byte ledger |
-| Signaling Worker PRO path                | Accept only short-lived room/participant/epoch-scoped signaling tickets       |
+| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2    |
+| One Durable Object per room              | Sole serialized manager for room state, transitions, presence, and byte ledger |
+| Signaling Worker PRO path                | Own hibernatable equal-member sockets, clock replies, chat, and event fan-out  |
 | Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                        |
 | Browser                                  | RAM-only transfer, decode, preload, and playback working set                  |
 | Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state      |
@@ -171,42 +172,46 @@ dependencies are not ready.
   third-party analytics can run. It retains the value only in a non-enumerable,
   one-use in-memory closure; the eager app module consumes that closure before
   Cloudflare Analytics is loaded. Scrub or handoff failure is fail-closed.
-- The owner credential manages PIN and membership lifecycle. A separate member
-  session controls playback. This keeps ownership distinct from the current
-  coordinator even when the same person holds both credentials.
-- Every authenticated participant has controller capabilities. The elected
-  coordinator is a synchronization tie-breaker, not an exclusive host. A
-  controller may ask the coordinator to remove another current member through
-  a strictly validated request; this is not a ban, and the removed member may
-  authenticate again with the room PIN. PIN rotation and room configuration
-  remain owner-only.
+- The owner credential manages PIN/recovery security and owner-visible room
+  configuration. Access-protected operators manage suspension and permanent
+  deletion. A separate member session controls playback, and neither owner nor
+  operator status creates a stronger live-room playback role.
+- Every authenticated participant has the same live-room capabilities. The
+  room Durable Object serializes commands and may remove another current
+  member through a strictly validated request; this is not a ban, and the
+  removed member may authenticate again with the room PIN. PIN rotation remains
+  owner-only; suspension and permanent deletion remain Access-admin-only.
 - Browser credentials are room-scoped, host-only, Secure, HttpOnly cookies, so
   multiple PRO rooms can stay signed in at the same time. Short-lived
   signaling tickets are bound to room, participant, presence incarnation,
-  role, coordinator epoch, and a per-session monotonic ticket sequence. They
-  are consumed once, and the signaling Durable Object persists a bounded
-  participant high-water mark so an older delayed ticket cannot replace a
-  newer socket.
+  authoritative presence revision, room-control incarnation, and a per-session
+  monotonic ticket sequence. They are consumed once, and the signaling Durable
+  Object persists bounded participant and presence high-water marks so an older
+  delayed ticket cannot replace a newer socket or re-enter after removal.
 - Every successful browser entry owns a server-issued, RAM-only presence
   incarnation. Snapshot, heartbeat, signaling, PIN, playlist, playback, and
   media requests must present that tab-local participant/incarnation pair as
   well as the HttpOnly cookie. Explicit resume rotates the incarnation; a
   superseded tab receives `PRESENCE_SUPERSEDED` and tears down its local
   authority without learning or revoking the replacement tab's incarnation.
-- Re-entering the current coordinator advances the room coordinator epoch
-  exactly once. The signaling service marks that close as an authority change,
-  so browsers rebuild the legacy WebRTC facade immediately. Ordinary signaling
-  blips still preserve healthy data channels, and member-only re-entry does not
-  force a room-wide reconnect.
+- Re-entering replaces only that participant's presence incarnation and
+  signaling socket. It does not elect a manager, rebuild a browser star, or
+  force unrelated participants to reconnect. Hard room security/lifecycle
+  boundaries advance the room-control incarnation.
+
+The two Durable Objects have deliberately different authority. The PRO room
+object owns authenticated presence, the canonical queue/timeline, reducers,
+transition cohorts, and READY state. The signaling room object owns browser
+WebSockets and hibernatable socket attachments. A PRO mutation is accepted only
+by the PRO object; it then asks signaling to deliver a bounded event to the
+authoritative presence-incarnation target set. Chat and clock samples can
+terminate at signaling because neither can replace canonical playback state.
 
 ### Live system-audio ownership
 
-PRO system audio deliberately separates two roles:
-
-- the **coordinator** remains the room's synchronization and control-plane
-  tie-breaker;
-- the **system-audio owner** is whichever authenticated participant currently
-  holds the room's short-lived media lease and browser capture.
+PRO system audio has one temporary **publisher**: the authenticated participant
+that currently holds the room's short-lived media lease and browser capture.
+That source lease never grants playback authority or a manager role.
 
 Every active PRO participant may request that lease, but one Durable Object
 serializes acquisition so only one owner can prepare or publish at a time. The
@@ -217,12 +222,11 @@ claim bounds abandoned native-picker attempts. Once committed, the live lease
 has a fixed two-hour deadline and cannot be extended by heartbeat.
 
 PRO live audio always uses the role-independent Cloudflare Realtime path. The
-owner publishes the two mono L/R tracks once; the coordinator and every other
-participant subscribe from the public descriptor. Coordinator handoff closes
-the old receiver and rebuilds only the new coordinator's subscription. It does
-not stop or republish the owner's capture. Owner exit, tab-incarnation
-replacement, lease expiry, or a fifth active device atomically fences the old
-generation and ends the share.
+publisher sends the two mono L/R tracks once and every other participant
+subscribes from the public descriptor. A participant entering or leaving does
+not stop or republish the capture. Publisher exit, tab-incarnation replacement,
+lease expiry, or a fifth active device atomically fences the old generation and
+ends the share.
 
 The cost boundary is four active devices total. Acquisition is refused above
 that count, and joining a fifth device ends an already-running share while the
@@ -233,8 +237,8 @@ changes the PRO room's durable media quota.
 ### Persistent state and sleep
 
 The Durable Object persists the canonical playlist, current queue occurrence,
-playback checkpoint (including the exact YouTube playlist sub-item), revision
-numbers, bounded sessions, presence/coordinator epoch, media ledger, and compact
+playback anchor (including the exact YouTube playlist sub-item), revision
+numbers, bounded sessions, room-control incarnation, media ledger, and compact
 idempotency records. Persistence schema v2 keeps the non-playlist core under a
 conservative 1.2 MiB value budget and stores each canonical playlist row under
 its own key. The public playlist has a separate 3 MiB serialized budget beneath
@@ -242,19 +246,21 @@ the browser and Developer API 4 MiB response boundary. A v2 core record contains
 only stable row order, so a large YouTube queue cannot prevent an R2 reservation
 or completion record from being committed.
 
-The first successful mutation of a legacy room writes v2 atomically. While the
-entire room still fits the old single-record budget, ordinary mutations refresh
-an exact `pro-room:v1` rollback shadow. Presence-only heartbeats check that large
-compatibility shadow at most once every 30 seconds. A successful check is
-throttled even after the room outgrows the legacy value budget; the last valid
-shadow is retained rather than repeatedly serialized, overwritten, or deleted.
+The first successful mutation of a storage-v1 room writes v2 atomically. While
+the entire room still fits the old single-record budget, ordinary mutations
+refresh an exact `pro-room:v1` storage rollback shadow. This is a data-format
+safety aid, not permission to reconnect a former browser-coordinator client.
+Presence-only heartbeats check that large compatibility shadow at most once
+every 30 seconds. A successful check is throttled even after the room outgrows
+the legacy value budget; the last valid shadow is retained rather than
+repeatedly serialized, overwritten, or deleted.
 
 The first pure heartbeat after a quiet period persists the authoritative v2
 core inline. If a second heartbeat arrives inside the following one-second
 window, dense renewals are coalesced into one trailing core write. A solitary
 participant therefore keeps the previous durability and cost behavior without
 opening a timer, while a burst of participants avoids rewriting the same large
-core for every request. Any join, leave, expiry, coordinator, authorization,
+core for every request. Any join, leave, expiry, control-incarnation, authorization,
 Developer API command, playback, queue, quota, or other full mutation remains
 an immediate transaction and absorbs pending heartbeat durability. The prior
 persisted liveness timestamp also forces an inline write near the 45-second
@@ -265,55 +271,85 @@ After a room grows beyond the legacy budget, v2 stays authoritative. A rollback
 to a pre-v2 Worker after that point therefore requires an operator data-restore
 decision and must not be treated as a routine code-only rollback.
 
-Heartbeat clients send the five public room revisions they last applied. An
+Heartbeat clients send the public room revisions they last applied. An
 unchanged room returns only those revisions and `notModified`; any mismatch
-returns a complete snapshot for recovery. A legacy client sends an empty body
-and continues to receive the complete snapshot, while a newer client also
-accepts that full response from an older Worker. This keeps rolling deploys and
-Worker rollback compatible in both directions.
+returns a complete snapshot for recovery. The empty-body/full-response fallback
+exists only for rolling Worker/schema compatibility within the current
+server-authority client family. It does **not** admit the former elected-browser
+coordinator protocol; that protocol is intentionally unsupported after cutover.
 
 Browser queue mutations use the compact snapshot endpoint. It sends stable row
 order only when order changes and upserts only rows whose metadata/source
-changed. Playback checkpoints and metadata-only changes omit order entirely.
-The legacy full-snapshot endpoint remains available for cached clients during a
-Worker-first rolling release. Public Developer API routes and payloads are
-unchanged; their internal response bounds match the larger v2 queue projection.
+changed. Playback-anchor and metadata-only changes omit order entirely. The
+full-snapshot endpoint remains available during a Worker-first rolling release
+for current server-authority clients, not as a compatibility path for a browser
+coordinator. Public Developer API routes and payloads are unchanged; their
+internal response bounds match the larger v2 queue projection.
 
 When the final participant leaves, the room becomes `sleeping` and freezes the
-playing position. The next participant wakes the room from that checkpoint.
+playing position at server time. If playback had been active, the first
+returning participant causes the PRO object to create a wake PREPARE from that
+position. The bounded cohort comes from authoritative active presence, not
+from signaling-socket enumeration. All-ready commits immediately; otherwise a
+persisted one-shot alarm decides the three-second deadline. There is no client
+deadline nudge.
+
+A participant joining after PREPARE cannot delay its cohort. It receives the
+pending transition with its signaling-ticket response when applicable, or
+catches up from the canonical snapshot. Catch-up prepares the exact R2 or
+YouTube identity locally, then projects the non-ticking server anchor using the
+best current signaling-clock estimate (with a receive-relative fallback while
+calibration converges); it does not restart the room-wide transition.
 
 On a confirmed non-bfcache `pagehide`, the browser sends one small credentialed
-`text/plain` keepalive mutation that stores the coordinator's final playback
-observation and removes that participant from presence in the same Durable
-Object transaction. The request deliberately keeps the room-scoped cookie
+`text/plain` keepalive mutation that removes that exact participant incarnation
+from presence. The browser's playback observation is accepted only as legacy
+request shape and never replaces the server's canonical anchor. The request
+deliberately keeps the room-scoped cookie
 session alive so reopening the fixed link can resume without an avoidable PIN
 prompt. An explicit in-product leave remains a different action: it releases
 presence and revokes the exact current server session.
 
 Explicit leave invalidates the local PRO authority, playlist hooks, transport,
 and asynchronous-operation lease before its first await. The old room's atomic
-checkpoint/presence close and server-session revocation then finish from
-captured room context. The fenced revocation deliberately returns no cookie
+presence close and server-session revocation then finish from captured room
+context. The fenced revocation deliberately returns no cookie
 tombstone: its response may arrive after another tab has installed a newer
 same-name cookie, while the old browser token is harmless once its exact
 server-side record is gone. A slow cleanup therefore cannot intercept an
 ordinary room or another PRO room opened immediately afterward.
 
+Every browser is an observation source, never the playback clock. An ENDED or
+unavailable report captures its exact accepted playback revision before client
+command serialization and is not rebased. The server rejects a mismatched room
+incarnation, presence incarnation, queue occurrence, media kind, YouTube
+sub-item, or playback revision. ENDED additionally requires committed playing
+state. Finite media must put both the observed cursor and the server-projected
+cursor within the bounded end tolerance; unknown-duration YouTube media must
+have played for the minimum residency and remain close to the server timeline.
+The first valid report advances through the same queue/repeat/shuffle reducer
+used by UI, BOT, and Developer API commands.
+
 YouTube entries persist their canonical IDs. File entries persist an opaque PRO
 asset identity and metadata; an internal R2 object key or signed URL must never
 enter the playlist snapshot.
 
-The first append into an empty, idle room commits the playlist row, selected
-queue occurrence, and paused playback intent in one revision. The elected
-coordinator observes that accepted transition and invokes the existing
-synchronized load/play path once. A concurrent later append rebases behind the
-winner and cannot steal the first selection.
+The first append into an empty, idle room commits the playlist row without
+smuggling a playback mutation through the queue endpoint. If the accepted
+snapshot is still empty-selection/idle at the exact observed playback revision,
+the app follows with one fenced server `select` command. That command creates
+the normal PREPARE barrier and the server emits the authoritative playback
+state; no browser performs a room-wide relay. A concurrent selection or newer
+playback revision prevents this convenience action from rebasing over the
+winner. If the follow-up selection fails, the already-canonical row (and its R2
+reference) remains in the queue rather than becoming an upload orphan.
 
-A playlist-only YouTube URL is resolved through the guarded App Worker
-`playlistItems` endpoint before it is persisted. This obtains one playable
-entry ID without borrowing the hidden YouTube iframe, so adding the link does
-not stop media that is already playing. Full playlist indexing still occurs
-through the existing player path when that row is played.
+A playlist-only YouTube URL in a PRO room is resolved through the guarded App
+Worker manifest endpoint before it is persisted. The immutable ordered video ID
+manifest lets UI, BOT, Developer API, ENDED, next, and previous all use the same
+server reducer without borrowing the hidden YouTube iframe or interrupting the
+currently playing item. Ordinary rooms retain their existing lazy indexing
+path.
 
 ### Storage and quota invariants
 
@@ -562,6 +598,12 @@ suspected, and verify the old recovery link cannot be used again.
 Rollback must preserve data and keep PRO codes unavailable to the ordinary
 host-claim path.
 
+After the coordinator-free cutover, “last known-good” means a matched
+server-authority app, PRO Worker, and signaling Worker checkpoint. Never roll a
+live room back to an elected-browser coordinator merely because a v1 storage
+shadow exists. If no compatible checkpoint is available, keep PRO entry in
+maintenance and forward-fix or restore the whole matched data/code checkpoint.
+
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
 2. Roll the app back first so new clients stop entering the faulty flow.
@@ -610,10 +652,10 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
    set a new PIN, then join from two additional physical devices through the
    same fixed link and QR code.
 3. From every device, add/reorder/remove items, seek, pause, resume, skip, and
-   adjust existing shared controls. Confirm each authenticated member has
-   controller behavior and coordinator handoff does not grant owner settings.
+   adjust existing shared controls. Confirm each authenticated member has the
+   same live-room behavior and none is exposed as a browser host/coordinator.
 4. Add YouTube media, empty the room, reopen from another device, and verify the
-   playlist and frozen playback checkpoint resume correctly. While another
+   playlist and frozen server anchor resume correctly. While another
    item is playing, add a playlist-only YouTube URL and confirm the current
    audio is uninterrupted and the new persistent row later indexes normally.
 5. Upload and play a private file, join late from the second phone, background
@@ -631,16 +673,16 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 8. Change the owner PIN. Existing controller sessions must be revoked, the
    owner must retain recovery access, and the old PIN must not create a session.
 9. Let all devices leave while playing, wait, then rejoin. Repeat by directly
-   closing the coordinator's Safari tab/PWA while audio is playing and reopen
+   closing any Safari tab/PWA while audio is playing and reopen
    the fixed link. Playback must resume from the final frozen position rather
    than advancing through the empty interval. Confirm that an explicit leave
    still requires the PIN on the next entry, while a tab close retains the
    room-scoped session.
 10. Open the same room in two tabs sharing one cookie. After the second tab
     resumes, confirm the first tab cannot refresh, mutate, issue a signaling
-    ticket, or log out the replacement. Repeat with the coordinator tab: the
-    prior RTC facade must close, every member must reconnect once, and ordinary
-    transient signaling loss must still leave healthy playback connected.
+    ticket, or log out the replacement. Only the superseded participant socket
+    may close; other members must remain connected and ordinary rooms must be
+    unaffected.
 11. Inspect browser storage and network behavior. PRO media bodies must not be
     written to OPFS or IndexedDB, internal R2 keys must not appear in snapshots,
     and signed URLs must target only the configured R2 account host.
@@ -648,7 +690,7 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 ### Pass criteria
 
 - No unexplained tab reload, PWA termination, WebContent crash, stuck loader,
-  duplicate playback, or permanent coordinator disagreement.
+  duplicate playback, or browser-manager dependency.
 - No playlist/revision loss across an empty-room sleep and later wake.
 - A queue above the legacy 1.2 MiB single-record budget survives Worker restart,
   accepts local-file completion, and remains readable through the Developer API.

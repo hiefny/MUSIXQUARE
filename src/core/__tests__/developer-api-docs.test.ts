@@ -203,13 +203,17 @@ describe('Developer API public documentation', () => {
 
     expect(html).toContain('/rooms/{roomCode}/queue/items/batch');
     expect(html).toContain('Atomically add 1&ndash;100 YouTube items');
-    expect(html).toContain('whichever comes first: 100 items or a 64 KiB');
+    expect(html).toContain('whichever comes first: 100 items or a 128 KiB');
+    expect(html).toContain('A manifest accepts 1&ndash;5,000 IDs, preserves duplicates');
     expect(html).toContain('Math.min(2, pending.length)');
     expect(html).toContain('Multi-file audio upload is intentionally not atomic');
     expect(spec).toContain('operationId: addYouTubeQueueItemsBatch');
     expect(spec).toContain('YouTubeQueueItemBatchCreate:');
     expect(spec).toContain('maxItems: 100');
-    expect(spec).toContain('whichever is reached first: 100 items or a 64 KiB');
+    expect(spec).toContain('whichever is reached first: 100 items or a 128 KiB');
+    expect(spec).toContain('videoIds: [playlistId]');
+    expect(spec).toContain('maxItems: 5000');
+    expect(spec).toContain('Duplicates are significant and preserved');
   });
 
   it('distinguishes full clear, credential-owned cleanup, and one-item deletion', async () => {

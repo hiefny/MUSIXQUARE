@@ -4,7 +4,8 @@ export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 export const PRO_ROOM_MAX_ASSET_BYTES = 200 * 1024 * 1024;
 export const PRO_ROOM_MAX_PLAYLIST_ITEMS = 1000;
-/** One elected coordinator plus at most 99 connected members. */
+export const PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS = 5000;
+/** At most 100 equal connected participants. */
 export const PRO_ROOM_MAX_PRESENCE_ITEMS = 100;
 
 export type ProRoomStatus = 'unactivated' | 'active' | 'suspended';
@@ -25,7 +26,6 @@ const CONTROLLER_CAPABILITIES = [
   'playback.control',
   'effects.control',
   'asset.upload',
-  'coordinator.eligible',
   'members.manage',
 ] as const satisfies readonly ProRoomCapability[];
 
@@ -57,6 +57,12 @@ export interface ProRoomYouTubeSource {
   kind: 'youtube';
   videoId: string;
   playlistId?: string;
+  /**
+   * Canonical, room-owned order for a persisted YouTube playlist. Older
+   * snapshots may omit it. `videoId` identifies this row's entry point and
+   * must occur in this natural playlist order.
+   */
+  videoIds?: string[];
 }
 
 /**
@@ -192,6 +198,8 @@ interface ProRoomSnapshotV1 {
   runtime: ProRoomRuntimeStatus;
   revision: number;
   playlistRevision: number;
+  effectsRevision: number;
+  queueModeRevision: number;
   playlist: ProRoomPlaylistWireItem[];
   currentQueueItemId: QueueItemId | null;
   playback: ProRoomPlaybackCheckpoint;

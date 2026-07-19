@@ -24,6 +24,8 @@ import {
   getCommandArgHint,
 } from '../chat/commands.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
+import { sendProRoomRealtime } from '../pro-room/network-bridge.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import { clearLatestPinnedNotice, registerChatProtocolHandlers } from '../chat/protocol.ts';
 import {
@@ -397,8 +399,9 @@ export function sendChatMessage(): void {
   // ── Freeze check ──
   const chatFrozen = getState('network.chatFrozen');
   const hostConn = getState('network.hostConn');
-  const isHost = !hostConn;
-  const isOp = getState('network.isOperator') || false;
+  const isProRoom = getRoomContext().kind === 'pro';
+  const isHost = !hostConn && !isProRoom;
+  const isOp = isProRoom || getState('network.isOperator') || false;
   if (chatFrozen && !isHost && !isOp) {
     addSystemChatMessage(t('chat.cmd_frozen_blocked'));
     return;
@@ -452,7 +455,15 @@ export function sendChatMessage(): void {
     ...(botRequestId ? { botRequestId } : {}),
   };
 
-  if (!hostConn) {
+  if (isProRoom) {
+    const sent = sendProRoomRealtime('chat', {
+      kind: 'message',
+      text,
+      clientTs: chatMsg.ts,
+      ...(botRequestId ? { botRequestId } : {}),
+    });
+    if (!sent) addSystemChatMessage(t('pro.connect_failed'));
+  } else if (!hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else {
     sendToHost(chatMsg);

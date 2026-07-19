@@ -58,6 +58,8 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
     runtime: 'awake',
     revision: 1,
     playlistRevision: 0,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {
@@ -73,7 +75,7 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: 'participant_00001',
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: 'participant_00001',
@@ -100,11 +102,10 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
         'playback.control',
         'effects.control',
         'asset.upload',
-        'coordinator.eligible',
         'members.manage',
         'room.configure',
       ],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
     ...overrides,
   };
@@ -263,13 +264,11 @@ describe('PRO room playlist state manager', () => {
     });
     const { api } = updatingApi(initial);
     const sink = vi.fn();
-    const invalidateCoordinator = vi.fn();
     const manager = new ProRoomPlaylistStateManager({
       code: ROOM_CODE,
       api,
       mediaTransfer: mediaTransfer(),
       sink,
-      invalidateCoordinator,
       ...factories(),
     });
 
@@ -281,7 +280,6 @@ describe('PRO room playlist state manager', () => {
       expect.objectContaining({ queueItemId: B, type: 'file', videoId: null }),
     ]);
     expect(sink.mock.calls[0]![0].playlist[1]).not.toHaveProperty('file');
-    expect(invalidateCoordinator).not.toHaveBeenCalled();
   });
 
   it('retries the same authoritative snapshot when its projection sink fails once', async () => {
@@ -305,16 +303,16 @@ describe('PRO room playlist state manager', () => {
     expect(manager.snapshot).toEqual(initial);
   });
 
-  it('atomically selects a first YouTube item without claiming that playback already started', async () => {
+  it('appends the first YouTube row as observation-only, then requests one server selection', async () => {
     const initial = activeSnapshot();
     const { api } = updatingApi(initial);
-    const invalidateCoordinator = vi.fn();
+    const requestFirstAppendSelection = vi.fn(async () => undefined);
     const manager = new ProRoomPlaylistStateManager({
       code: ROOM_CODE,
       api,
       mediaTransfer: mediaTransfer(),
       sink: vi.fn(),
-      invalidateCoordinator,
+      requestFirstAppendSelection,
       now: () => 1_000,
       ...factories([A]),
     });
@@ -322,35 +320,211 @@ describe('PRO room playlist state manager', () => {
 
     const accepted = await manager.addYouTube({ name: 'First video', videoId: 'dQw4w9WgXcQ' });
 
-    expect(accepted.currentQueueItemId).toBe(A);
-    expect(accepted.playback).toEqual({
-      coordinatorEpoch: 1,
-      revision: 1,
-      state: 'paused',
-      queueItemId: A,
-      positionSeconds: 0,
-      youtubeVideoId: 'dQw4w9WgXcQ',
-      youtubeSubIndex: 0,
-      updatedAtMs: 1_000,
-    });
-    expect(invalidateCoordinator).toHaveBeenCalledWith(
-      expect.objectContaining({
-        previous: initial,
-        next: accepted,
-        playlistChanged: true,
-        playbackChanged: true,
-      }),
+    expect(accepted.currentQueueItemId).toBeNull();
+    expect(accepted.playback).toEqual(initial.playback);
+    expect(api.updateSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ currentQueueItemId: null, playback: initial.playback }),
+      undefined,
+    );
+    expect(requestFirstAppendSelection).toHaveBeenCalledWith(
+      {
+        roomCode: ROOM_CODE,
+        queueItemId: A,
+        coordinatorEpoch: 1,
+        basePlaybackRevision: 0,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+      },
+      undefined,
     );
   });
 
-  it('atomically selects the first uploaded file and leaves later appends on that selection', async () => {
+  it('keeps the accepted first R2 row when its follow-up selection fails', async () => {
     const initial = activeSnapshot();
+    const { api } = updatingApi(initial);
+    const selectionFailure = new ProRoomApiError('PLAYBACK_REVISION_CONFLICT', 409);
+    const requestFirstAppendSelection = vi.fn(async () => {
+      throw selectionFailure;
+    });
+    const reportFirstAppendSelectionError = vi.fn();
+    const media = mediaTransfer();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      requestFirstAppendSelection,
+      reportFirstAppendSelectionError,
+      ...factories([A]),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const accepted = await manager.addLocalFiles([
+      { file: new File(['one'], 'one.flac', { type: 'audio/flac' }) },
+    ]);
+
+    expect(accepted.playlist[0]?.source).toEqual(asset('asset_00000000001'));
+    expect(media.deleteAsset).not.toHaveBeenCalled();
+    expect(reportFirstAppendSelectionError).toHaveBeenCalledWith({
+      request: {
+        roomCode: ROOM_CODE,
+        queueItemId: A,
+        coordinatorEpoch: 1,
+        basePlaybackRevision: 0,
+        youtubeVideoId: null,
+        youtubeSubIndex: null,
+      },
+      error: selectionFailure,
+    });
+  });
+
+  it('persists a complete YouTube manifest on a new playlist row', async () => {
+    const initial = activeSnapshot();
+    const { api } = updatingApi(initial);
+    const requestFirstAppendSelection = vi.fn(async () => undefined);
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      requestFirstAppendSelection,
+      ...factories([A]),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const accepted = await manager.addYouTube({
+      name: 'Playlist',
+      videoId: 'aaaaaaaaaaa',
+      playlistId: 'PL1234567890',
+      videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa', 'dQw4w9WgXcQ'],
+    });
+
+    expect(accepted.playlist[0]?.source).toEqual({
+      kind: 'youtube',
+      videoId: 'aaaaaaaaaaa',
+      playlistId: 'PL1234567890',
+      videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa', 'dQw4w9WgXcQ'],
+    });
+    expect(accepted.playback).toEqual(initial.playback);
+    expect(requestFirstAppendSelection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueItemId: A,
+        youtubeVideoId: 'aaaaaaaaaaa',
+        youtubeSubIndex: 1,
+      }),
+      undefined,
+    );
+  });
+
+  it('upgrades one matching legacy YouTube source and never overwrites a manifest', async () => {
+    const initial = activeSnapshot({
+      playlistRevision: 1,
+      playlist: [
+        {
+          ...youtube(A),
+          source: {
+            kind: 'youtube',
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL1234567890',
+          },
+        },
+      ],
+    });
     const { api } = updatingApi(initial);
     const manager = new ProRoomPlaylistStateManager({
       code: ROOM_CODE,
       api,
       mediaTransfer: mediaTransfer(),
       sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const upgraded = await manager.updateYouTubeManifest(A, {
+      playlistId: 'PL1234567890',
+      videoId: 'dQw4w9WgXcQ',
+      videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
+    });
+    expect(upgraded.playlist[0]?.source).toMatchObject({
+      videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
+    });
+    expect(api.updateSnapshot).toHaveBeenCalledOnce();
+
+    const unchanged = await manager.updateYouTubeManifest(A, {
+      playlistId: 'PL1234567890',
+      videoId: 'dQw4w9WgXcQ',
+      videoIds: ['dQw4w9WgXcQ', 'bbbbbbbbbbb'],
+    });
+    expect(unchanged.playlist[0]?.source).toEqual(upgraded.playlist[0]?.source);
+    expect(api.updateSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it('drops a stale manifest upgrade after a CAS refresh replaces the source identity', async () => {
+    const legacy = activeSnapshot({
+      playlistRevision: 1,
+      playlist: [
+        {
+          ...youtube(A),
+          source: {
+            kind: 'youtube',
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL1234567890',
+          },
+        },
+      ],
+    });
+    const replaced = activeSnapshot({
+      ...legacy,
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [
+        {
+          ...youtube(A, 'bbbbbbbbbbb'),
+          source: {
+            kind: 'youtube',
+            videoId: 'bbbbbbbbbbb',
+            playlistId: 'PL_OTHER',
+          },
+        },
+      ],
+    });
+    const updateSnapshot = vi.fn(async () => {
+      throw new ProRoomApiError('REVISION_CONFLICT', 409);
+    });
+    const api = {
+      getSnapshot: vi.fn(async () => replaced),
+      updateSnapshot,
+    } satisfies ProRoomPlaylistStateApi;
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(legacy);
+
+    const accepted = await manager.updateYouTubeManifest(A, {
+      playlistId: 'PL1234567890',
+      videoId: 'dQw4w9WgXcQ',
+      videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
+    });
+
+    expect(accepted.playlist[0]?.source).toEqual(replaced.playlist[0]?.source);
+    expect(updateSnapshot).toHaveBeenCalledOnce();
+    expect(api.getSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it('appends uploaded files without forging selection and requests the first R2 row once', async () => {
+    const initial = activeSnapshot();
+    const { api } = updatingApi(initial);
+    const requestFirstAppendSelection = vi.fn(async () => undefined);
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      requestFirstAppendSelection,
       now: () => 2_000,
       ...factories([A, B]),
     });
@@ -362,15 +536,18 @@ describe('PRO room playlist state manager', () => {
     ]);
 
     expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([A, B]);
-    expect(accepted.currentQueueItemId).toBe(A);
-    expect(accepted.playback).toMatchObject({
-      revision: 1,
-      state: 'paused',
-      queueItemId: A,
-      positionSeconds: 0,
-      youtubeVideoId: null,
-      youtubeSubIndex: null,
-    });
+    expect(accepted.currentQueueItemId).toBeNull();
+    expect(accepted.playback).toEqual(initial.playback);
+    expect(requestFirstAppendSelection).toHaveBeenCalledOnce();
+    expect(requestFirstAppendSelection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueItemId: A,
+        basePlaybackRevision: 0,
+        youtubeVideoId: null,
+        youtubeSubIndex: null,
+      }),
+      undefined,
+    );
   });
 
   it('does not steal the first selection when a concurrent append wins the CAS race', async () => {
@@ -392,6 +569,7 @@ describe('PRO room playlist state manager', () => {
       },
     });
     let calls = 0;
+    const requestFirstAppendSelection = vi.fn(async () => undefined);
     const api = {
       getSnapshot: vi.fn(async () => remote),
       updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
@@ -412,6 +590,7 @@ describe('PRO room playlist state manager', () => {
       api,
       mediaTransfer: mediaTransfer(),
       sink: vi.fn(),
+      requestFirstAppendSelection,
       ...factories([B]),
     });
     await manager.acceptSnapshot(initial);
@@ -424,6 +603,52 @@ describe('PRO room playlist state manager', () => {
     expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([A, B]);
     expect(accepted.currentQueueItemId).toBe(A);
     expect(accepted.playback).toEqual(remote.playback);
+    expect(requestFirstAppendSelection).not.toHaveBeenCalled();
+  });
+
+  it('does not request selection when another unselected first append wins the CAS race', async () => {
+    const initial = activeSnapshot();
+    const remote = activeSnapshot({
+      revision: 2,
+      playlistRevision: 1,
+      playlist: [youtube(A)],
+    });
+    let calls = 0;
+    const api = {
+      getSnapshot: vi.fn(async () => remote),
+      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
+        calls += 1;
+        if (calls === 1) throw new ProRoomApiError('REVISION_CONFLICT', 409);
+        return activeSnapshot({
+          ...remote,
+          revision: 3,
+          playlistRevision: 2,
+          playlist: input.playlist,
+          currentQueueItemId: input.currentQueueItemId,
+          playback: input.playback,
+        });
+      }),
+    } satisfies ProRoomPlaylistStateApi;
+    const requestFirstAppendSelection = vi.fn(async () => undefined);
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      requestFirstAppendSelection,
+      ...factories([B]),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const accepted = await manager.addYouTube({
+      name: 'Concurrent second',
+      videoId: 'bbbbbbbbbbb',
+    });
+
+    expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([A, B]);
+    expect(accepted.currentQueueItemId).toBeNull();
+    expect(accepted.playback).toEqual(remote.playback);
+    expect(requestFirstAppendSelection).not.toHaveBeenCalled();
   });
 
   it('refreshes and rebases once on a CAS conflict with a fresh key for the changed body', async () => {
@@ -450,14 +675,12 @@ describe('PRO room playlist state manager', () => {
       }),
     } satisfies ProRoomPlaylistStateApi;
     const sink = vi.fn();
-    const invalidateCoordinator = vi.fn();
     const generated = factories([D]);
     const manager = new ProRoomPlaylistStateManager({
       code: ROOM_CODE,
       api,
       mediaTransfer: mediaTransfer(),
       sink,
-      invalidateCoordinator,
       ...generated,
     });
     await manager.acceptSnapshot(initial);
@@ -477,12 +700,11 @@ describe('PRO room playlist state manager', () => {
     expect(requests[1]!.idempotencyKey).not.toBe(requests[0]!.idempotencyKey);
     expect(result.playlist.map((item) => item.queueItemId)).toEqual([A, C, B]);
     // Appending alone intentionally does not invent a playback transition;
-    // the runtime coordinator selects/starts media separately.
+    // the server authority selects/starts media separately.
     expect(result.currentQueueItemId).toBeNull();
     expect(result.playback.state).toBe('idle');
     expect(generated.createQueueItemId).not.toHaveBeenCalled();
     expect(sink).toHaveBeenCalledTimes(3);
-    expect(invalidateCoordinator).toHaveBeenCalledTimes(2);
   });
 
   it('does not loop when the rebased CAS attempt also conflicts', async () => {
@@ -878,7 +1100,7 @@ describe('PRO room playlist state manager', () => {
     expect(result.playback).toEqual(playback);
   });
 
-  it('updates the current queue anchor and advances playback once with the current coordinator epoch', async () => {
+  it('updates the current queue anchor and advances playback once in the current room incarnation', async () => {
     const basePresence = activeSnapshot().presence;
     const initial = activeSnapshot({
       playlistRevision: 1,

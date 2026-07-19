@@ -5,6 +5,19 @@
 > total, risk rating, and recommendation is scoped to the baseline and date
 > below; it is not the current backlog or release assessment.
 
+> **Post-audit PRO scope note (2026-07-20).** The host/guest, `hostConn`, and
+> coordinator language in this historical snapshot describes ordinary rooms or
+> the codebase that existed at the audit baseline. Current PRO rooms instead use
+> one canonical PRO Durable Object for queue/playback/presence and one signaling
+> Durable Object for equal-member hibernatable sockets, clock replies, chat, and
+> server-event fan-out. No browser is a PRO coordinator. The owner credential is
+> security/lifecycle authority only, while the temporary system-audio publisher
+> lease is media-source ownership only. `network.appRole = 'host'` and
+> `coordinatorEpoch` may still appear as transitional compatibility names; they
+> confer no PRO authority. The former browser-coordinator PRO protocol is
+> intentionally unsupported. See
+> [`pro-room-server-authority.md`](design/pro-room-server-authority.md).
+
 Audit baseline: `e278f1e` (`docs: explain FILE-only invariant in lifecycle mode/activity derivation`) on branch `codex/playback-ownership-refactor`.
 
 Comparison baseline for the playback refactor: `ec18221..HEAD`.
@@ -267,7 +280,8 @@ Recommended high-priority test additions:
 - Do not start until risk pressure justifies it.
 - Possible future refactors:
   - Extract a formal transfer session state machine.
-  - Extract a system-audio receive adapter interface (`p2p`, `sfu`) with a single owner coordinator.
+  - Extract a system-audio receive adapter interface (`p2p`, `sfu`) around the
+    single server-leased publisher; publisher ownership must not imply room authority.
   - Model YouTube paused/buffering more explicitly if real bugs keep clustering there.
 
 ### Phase E: Real-Device Feedback

@@ -306,11 +306,12 @@ console.log(command.commandId, command.status);</code></pre>
             <dt class="api-endpoint"><span class="api-method">POST</span><span class="api-path">/rooms/{roomCode}/queue/items/batch</span></dt>
             <dd>
               Atomically add 1&ndash;100 YouTube items in order. If one item is invalid or the complete batch does
-              not fit, none are added. The effective limit is whichever comes first: 100 items or a 64 KiB
+              not fit, none are added. The effective limit is whichever comes first: 100 items or a 128 KiB
               complete JSON request. Each distinct <code>playlistId</code> creates exactly one top-level playlist:
-              if the same ID appears again, the first occurrence wins and later occurrences do not create additional
-              top-level items. Entries without <code>playlistId</code> remain independent videos, including repeated
-              video IDs.
+              if the same ID appears again, the first occurrence supplies its position and display metadata while
+              manifest-less rows contribute their <code>videoId</code> in request order, or identical full manifests
+              are preserved once. Mixed or conflicting manifests are rejected. Duplicate IDs are preserved. Entries
+              without <code>playlistId</code> remain independent videos, including repeated IDs.
             </dd>
           </div>
           <div>
@@ -366,7 +367,7 @@ console.log(command.commandId, command.status);</code></pre>
     artist: 'Example artist',
   }),
 });</code></pre>
-        <pre class="policy-code"><code>// Add one YouTube playlist aggregate. Do not expand every child video into the request.
+        <pre class="policy-code"><code>// Add one YouTube playlist aggregate with its complete ordered manifest.
 await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
   method: 'POST',
   headers: {
@@ -376,6 +377,7 @@ await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
   },
   body: JSON.stringify({
     videoId: '&lt;playlist-entry-video-id&gt;',
+    videoIds: ['&lt;playlist-entry-video-id&gt;', '&lt;next-video-id&gt;'],
     playlistId: '&lt;youtube-playlist-id&gt;',
     name: 'Example playlist',
     title: 'Example playlist',
@@ -406,8 +408,12 @@ const queueAfterBatch = await batchResponse.json();</code></pre>
         <p>
           Batch canonicalization follows request order. For every non-empty <code>playlistId</code>, the first item
           supplies the aggregate's position, entry <code>videoId</code>, and display metadata; later items with that
-          same ID are absorbed and their metadata is ignored. Every supplied item is still validated atomically, but
-          the number of appended top-level items can therefore be smaller than <code>items.length</code>.
+          same ID are absorbed and their metadata is ignored. Manifest-less rows contribute their lone
+          <code>videoId</code> in request order; repeated full <code>videoIds</code> manifests must be identical and are
+          preserved once. A manifest accepts 1&ndash;5,000 IDs, preserves duplicates, and must contain the item's entry
+          <code>videoId</code>. Mixed manifest forms are rejected. Every supplied item is still validated atomically,
+          but the number of
+          appended top-level items can therefore be smaller than <code>items.length</code>.
         </p>
         <pre class="policy-code"><code>const clearResponse = await fetch(`${baseUrl}/rooms/${roomCode}/queue/items`, {
   method: 'DELETE',

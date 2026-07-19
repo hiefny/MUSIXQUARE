@@ -217,9 +217,9 @@ async function _handleProRoomJoin(code: string): Promise<void> {
       restoreJoinControlsAfterPasswordCancel();
       return;
     }
-    // A member connection emits this from the legacy guest bridge. The first
-    // participant is the coordinator and therefore needs the same UI commit
-    // synthesized here.
+    // A PRO member connects through the server control bridge, which does not
+    // emit the ordinary-room guest success event. Synthesize the same one-time
+    // setup UI commit for every equal PRO participant.
     if (!getState('setup.sessionStarted')) bus.emit('setup:guest-join-success');
   } catch (error) {
     log.error('[Setup] PRO room join failed', error);

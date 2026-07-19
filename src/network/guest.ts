@@ -80,10 +80,10 @@ export function setInitNetwork(fn: (requestedId: string | null) => Promise<strin
 
 function reportGuestConnectionFailure(error: unknown): void {
   if (getRoomContext().kind === 'pro') {
-    // Initial PRO entry is still owned by setup-flow's catch boundary. During
-    // an already-running room handoff, also wake the topology recovery loop.
+    // Coordinator-free PRO no longer enters through this PeerJS path. Keep a
+    // fail-closed recovery seam for an in-flight legacy callback, but do not
+    // publish a second orphaned error channel into the active app.
     if (getState('setup.sessionStarted')) requestProRoomTransportRecovery();
-    bus.emit('pro-room:transport-connect-failure', error);
     return;
   }
   bus.emit('network:error', error);

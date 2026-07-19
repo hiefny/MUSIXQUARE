@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { DEVICE_LABEL_SANITIZE_RE, MSG, RESERVED_NAMES } from '../core/constants.ts';
+import { DEVICE_LABEL_SANITIZE_RE, RESERVED_NAMES } from '../core/constants.ts';
 import { getOtherDeviceLabels } from '../network/guards.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
@@ -394,14 +394,13 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
 
       row.appendChild(name);
 
-      // Action buttons: standard-room host behavior stays unchanged. In a PRO
-      // room, an authenticated member with members.manage may ask the current
-      // coordinator to remove another connected member.
+      // Standard-room host behavior stays unchanged. In a PRO room, any
+      // authenticated member with members.manage asks the room server to
+      // remove another connected participant.
       const hostConn = getState('network.hostConn');
       const peerId = typeof p.id === 'string' ? p.id : '';
       const canRequestProKick = isProRoom && hasRoomCapability('members.manage');
       const canKick = !hostConn || canRequestProKick;
-      const memberCoordinatorConnection = hostConn && canRequestProKick ? hostConn : null;
       if (
         canKick &&
         peerId &&
@@ -447,27 +446,9 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
             secondaryText: t('connect.kick_no'),
           });
           if (result.action !== 'ok') return;
-          if (memberCoordinatorConnection) {
-            const coordinatorConnection = getState('network.hostConn');
-            // Fail closed if authority changed while the confirmation dialog
-            // was open. The coordinator independently re-authorizes this
-            // exact live connection and target before acting.
-            if (
-              coordinatorConnection !== memberCoordinatorConnection ||
-              !_isProRoom() ||
-              !hasRoomCapability('members.manage') ||
-              !memberCoordinatorConnection.open
-            ) {
-              return;
-            }
-            try {
-              memberCoordinatorConnection.send({
-                type: MSG.REQUEST_KICK_DEVICE,
-                targetPeerId: peerId,
-              });
-            } catch {
-              /* the next device-list refresh reconciles a closed channel */
-            }
+          if (_isProRoom()) {
+            if (!hasRoomCapability('members.manage')) return;
+            bus.emit('pro-room:kick-member', peerId);
             return;
           }
           bus.emit('network:kick-device', peerId);
@@ -583,7 +564,10 @@ export function initConnect(): void {
           // feedback instead of being silently rejected by the host.
           const name = val.replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
           if (!name) return t('connect.rename_empty');
-          const isHostSelf = !getState('network.hostConn');
+          // PRO members intentionally have no browser host connection. That
+          // must not grant any member (including the room owner) the ordinary
+          // room host's reserved-name restoration exception.
+          const isHostSelf = getRoomContext().kind !== 'pro' && !getState('network.hostConn');
           if (RESERVED_NAMES.some((r) => name.toLowerCase() === r.toLowerCase())) {
             // Let the host restore one of its reserved default labels.
             if (!isHostSelf || !['host', '방장', '호스트'].includes(name.toLowerCase())) {

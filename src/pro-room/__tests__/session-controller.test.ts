@@ -23,6 +23,8 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
     runtime: 'awake',
     revision: 1,
     playlistRevision: 0,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {
@@ -38,7 +40,7 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: PARTICIPANT_ID,
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -65,17 +67,20 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
         'playback.control',
         'effects.control',
         'asset.upload',
-        'coordinator.eligible',
         'members.manage',
         'room.configure',
       ],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
     ...overrides,
   };
 }
 
-function signaling(role: 'coordinator' | 'member', epoch = 1): ProRoomSignalingAccess {
+function signaling(
+  role: 'coordinator' | 'member' = 'member',
+  epoch = 1,
+  pendingPlaybackTransition: ProRoomSignalingAccess['pendingPlaybackTransition'] = null,
+): ProRoomSignalingAccess {
   return {
     ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
     expiresAtMs: 10_000,
@@ -83,6 +88,7 @@ function signaling(role: 'coordinator' | 'member', epoch = 1): ProRoomSignalingA
     coordinatorEpoch: epoch,
     presenceIncarnationId: 'presence_0000000001',
     ticketSequence: 1,
+    pendingPlaybackTransition,
   };
 }
 
@@ -96,7 +102,7 @@ function fixtures() {
     getSnapshot: vi.fn(async () => initial),
     heartbeat: vi.fn(async () => initial),
     leavePresence: vi.fn(async () => initial),
-    createSignalingTicket: vi.fn(async () => signaling('coordinator')),
+    createSignalingTicket: vi.fn(async () => signaling()),
     closeSession: vi.fn(async () => undefined),
     closeSessionFenced: vi.fn(async () => undefined),
   } satisfies ProRoomSessionApi;
@@ -122,7 +128,7 @@ function fixtures() {
 beforeEach(() => vi.restoreAllMocks());
 
 describe('PRO room session controller', () => {
-  it('authenticates, verifies the signaling role/epoch, and connects once', async () => {
+  it('authenticates, verifies the member ticket/epoch, and connects once', async () => {
     const { api, transport, observer, controller } = fixtures();
     const result = await controller.join({
       code: ROOM_CODE,
@@ -134,7 +140,12 @@ describe('PRO room session controller', () => {
     expect(api.createSignalingTicket).toHaveBeenCalledWith(ROOM_CODE, expect.any(AbortSignal));
     expect(transport.connect).toHaveBeenCalledTimes(1);
     expect(observer.authority).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'pro', role: 'coordinator', epoch: 1 }),
+      expect.objectContaining({
+        kind: 'pro',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+      }),
     );
     expect(observer.authority.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER).toBeLessThan(
       observer.snapshot.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
@@ -152,7 +163,7 @@ describe('PRO room session controller', () => {
     });
     api.enterPresence.mockResolvedValueOnce(resumed);
     api.createSignalingTicket.mockResolvedValueOnce({
-      ...signaling('coordinator'),
+      ...signaling(),
       presenceIncarnationId: 'presence_0000000002',
     });
 
@@ -217,7 +228,7 @@ describe('PRO room session controller', () => {
     await expect(joining).resolves.toEqual(snapshot());
   });
 
-  it('adopts owner recovery through the same signaling and transport open lifecycle', async () => {
+  it('adopts owner recovery through the same server-control-channel open lifecycle', async () => {
     const { api, transport, controller } = fixtures();
     const claimToken = `v1.${'r'.repeat(32)}.${'C'.repeat(43)}`;
 
@@ -244,9 +255,9 @@ describe('PRO room session controller', () => {
     expect(observer.cleared).not.toHaveBeenCalled();
   });
 
-  it('rejects a ticket from the wrong authority epoch before opening transport', async () => {
+  it('rejects a ticket from the wrong room incarnation before opening the channel', async () => {
     const { api, transport, controller } = fixtures();
-    api.createSignalingTicket.mockResolvedValue(signaling('coordinator', 2));
+    api.createSignalingTicket.mockResolvedValue(signaling('member', 2));
 
     await expect(
       controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' }),
@@ -255,7 +266,47 @@ describe('PRO room session controller', () => {
     expect(controller.snapshot).toBeNull();
   });
 
-  it('reconfigures only when a heartbeat changes coordinator authority', async () => {
+  it('rejects a legacy coordinator ticket even when its room-incarnation fence matches', async () => {
+    const { api, transport, controller } = fixtures();
+    api.createSignalingTicket.mockResolvedValue(signaling('coordinator'));
+
+    await expect(
+      controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' }),
+    ).rejects.toThrow('PRO_ROOM_SIGNALING_TICKET_MISMATCH');
+    expect(transport.connect).not.toHaveBeenCalled();
+    expect(controller.snapshot).toBeNull();
+  });
+
+  it('preserves a pending server playback transition on the member access grant', async () => {
+    const { api, transport, controller } = fixtures();
+    const pendingPlaybackTransition: NonNullable<
+      ProRoomSignalingAccess['pendingPlaybackTransition']
+    > = {
+      type: 'pro-playback-prepare',
+      transitionId: 'transition_1234567890123456789012',
+      serverTimeMs: 1_000,
+      deadlineAtMs: 4_000,
+      basePlaybackRevision: 0,
+      target: {
+        coordinatorEpoch: 1,
+        revision: 1,
+        state: 'playing',
+        queueItemId: '12345678-1234-4123-8123-123456789abc',
+        positionSeconds: 0,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+        updatedAtMs: 1_000,
+      },
+    };
+    const access = signaling('member', 1, pendingPlaybackTransition);
+    api.createSignalingTicket.mockResolvedValue(access);
+
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+
+    expect(transport.connect).toHaveBeenCalledWith(snapshot(), access, expect.any(AbortSignal));
+  });
+
+  it('reconfigures only when a heartbeat changes the room-incarnation fence', async () => {
     const { api, transport, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
 
@@ -265,7 +316,7 @@ describe('PRO room session controller', () => {
         ...snapshot().presence,
         revision: 2,
         coordinatorEpoch: 2,
-        coordinatorParticipantId: 'participant_00002',
+        coordinatorParticipantId: null,
         participants: [
           ...snapshot().presence.participants,
           {
@@ -286,21 +337,95 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledWith(changed, signaling('member', 2), undefined);
   });
 
-  it('rebuilds a lost transport on the same authority without clearing the PRO session', async () => {
+  it('re-authenticates the current socket immediately when heartbeat accepts a renamed viewer', async () => {
+    const { api, transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.reconfigure.mockClear();
+    api.createSignalingTicket.mockClear();
+
+    const renamed = snapshot({
+      revision: 2,
+      presence: {
+        ...snapshot().presence,
+        revision: 2,
+        participants: snapshot().presence.participants.map((participant) => ({
+          ...participant,
+          displayName: 'Renamed Owner',
+        })),
+      },
+      viewer: {
+        ...snapshot().viewer!,
+        displayName: 'Renamed Owner',
+      },
+    });
+    const replacementAccess = { ...signaling(), ticketSequence: 2 };
+    api.heartbeat.mockResolvedValue(renamed);
+    api.createSignalingTicket.mockResolvedValue(replacementAccess);
+
+    await expect(controller.heartbeat(undefined, 'Renamed Owner')).resolves.toEqual(renamed);
+
+    expect(api.heartbeat).toHaveBeenCalledWith(ROOM_CODE, undefined, snapshot(), 'Renamed Owner');
+    expect(api.createSignalingTicket).toHaveBeenCalledOnce();
+    expect(transport.reconfigure).toHaveBeenCalledWith(renamed, replacementAccess, undefined);
+    expect(transport.disconnect).not.toHaveBeenCalled();
+
+    await controller.heartbeat(undefined, 'Renamed Owner');
+    expect(api.createSignalingTicket).toHaveBeenCalledOnce();
+    expect(transport.reconfigure).toHaveBeenCalledOnce();
+  });
+
+  it('retries a renamed-viewer socket replacement after a transient failure', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.reconfigure.mockClear();
+    api.createSignalingTicket.mockClear();
+    observer.cleared.mockClear();
+
+    const renamed = snapshot({
+      revision: 2,
+      presence: {
+        ...snapshot().presence,
+        revision: 2,
+        participants: snapshot().presence.participants.map((participant) => ({
+          ...participant,
+          displayName: 'Renamed Owner',
+        })),
+      },
+      viewer: {
+        ...snapshot().viewer!,
+        displayName: 'Renamed Owner',
+      },
+    });
+    api.heartbeat.mockResolvedValue(renamed);
+    api.createSignalingTicket
+      .mockResolvedValueOnce({ ...signaling(), ticketSequence: 2 })
+      .mockResolvedValueOnce({ ...signaling(), ticketSequence: 3 });
+    transport.reconfigure
+      .mockRejectedValueOnce(new Error('SOCKET_OPEN_FAILED'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(controller.heartbeat(undefined, 'Renamed Owner')).rejects.toThrow(
+      'SOCKET_OPEN_FAILED',
+    );
+    expect(controller.snapshot).toEqual(renamed);
+    expect(observer.cleared).not.toHaveBeenCalled();
+
+    await expect(controller.heartbeat(undefined, 'Renamed Owner')).resolves.toEqual(renamed);
+    expect(api.createSignalingTicket).toHaveBeenCalledTimes(2);
+    expect(transport.reconfigure).toHaveBeenCalledTimes(2);
+  });
+
+  it('rebuilds a lost server channel on the same room incarnation without clearing the session', async () => {
     const { api, transport, observer, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
     transport.reconfigure.mockClear();
     observer.cleared.mockClear();
 
-    controller.invalidateTransportAuthority();
+    controller.invalidateControlChannel();
     await controller.heartbeat();
 
     expect(transport.reconfigure).toHaveBeenCalledOnce();
-    expect(transport.reconfigure).toHaveBeenCalledWith(
-      snapshot(),
-      signaling('coordinator'),
-      undefined,
-    );
+    expect(transport.reconfigure).toHaveBeenCalledWith(snapshot(), signaling(), undefined);
     expect(observer.cleared).not.toHaveBeenCalled();
     expect(controller.snapshot).toEqual(snapshot());
 
@@ -308,7 +433,7 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledOnce();
   });
 
-  it('keeps the authenticated room and retries a transient authority reconfigure with a fresh ticket', async () => {
+  it('keeps the authenticated room and retries a transient server-channel reconfigure', async () => {
     const { api, transport, observer, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
 
@@ -318,7 +443,7 @@ describe('PRO room session controller', () => {
         ...snapshot().presence,
         revision: 2,
         coordinatorEpoch: 2,
-        coordinatorParticipantId: 'participant_00002',
+        coordinatorParticipantId: null,
         participants: [
           ...snapshot().presence.participants,
           {
@@ -375,36 +500,28 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).not.toHaveBeenCalled();
   });
 
-  it('rotates a signaling ticket in place while authority is unchanged', async () => {
+  it('rotates a control-channel ticket in place while the room incarnation is unchanged', async () => {
     const { api, transport, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
     transport.refreshCredentials.mockClear();
 
     await controller.refreshSignaling();
 
-    expect(transport.refreshCredentials).toHaveBeenCalledWith(
-      snapshot(),
-      signaling('coordinator'),
-      undefined,
-    );
+    expect(transport.refreshCredentials).toHaveBeenCalledWith(snapshot(), signaling(), undefined);
     expect(transport.reconfigure).not.toHaveBeenCalled();
   });
 
-  it('rebuilds transport when an in-place credential refresh is unavailable', async () => {
+  it('rebuilds the control channel when an in-place credential refresh is unavailable', async () => {
     const { transport, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
     transport.refreshCredentials.mockResolvedValue(false);
 
     await controller.refreshSignaling();
 
-    expect(transport.reconfigure).toHaveBeenCalledWith(
-      snapshot(),
-      signaling('coordinator'),
-      undefined,
-    );
+    expect(transport.reconfigure).toHaveBeenCalledWith(snapshot(), signaling(), undefined);
   });
 
-  it('does not accept a signaling rebuild that finishes after leave', async () => {
+  it('does not accept a control-channel rebuild that finishes after leave', async () => {
     const { transport, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
     transport.refreshCredentials.mockResolvedValue(false);

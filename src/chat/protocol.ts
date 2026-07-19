@@ -18,6 +18,7 @@ import {
 import { registerHandlers } from '../network/protocol.ts';
 import { broadcast, safeSend } from '../network/peer-state.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import { sendProRoomRealtime, type ProRealtimeRelayEnvelope } from '../pro-room/network-bridge.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { filterProfanity } from './profanity.ts';
@@ -248,9 +249,124 @@ export function publishBotChatResult(
     result: normalized,
   } as const;
   const hostConn = getState('network.hostConn');
-  if (hostConn) safeSend(hostConn, frame);
+  if (getRoomContext().kind === 'pro') {
+    sendProRoomRealtime('chat', {
+      kind: 'bot-result',
+      requestId,
+      result: normalized,
+    });
+  } else if (hostConn) safeSend(hostConn, frame);
   else broadcast(frame);
   return true;
+}
+
+/** Accept a signaling-validated, server-attributed PRO chat relay. */
+export function receiveProRoomRealtimeChat(frame: ProRealtimeRelayEnvelope): void {
+  if (frame.channel !== 'chat' || getRoomContext().kind !== 'pro') return;
+  const payload = frame.payload;
+  const kind = payload.kind;
+  const senderId = frame.sender.participantId;
+  const senderLabel =
+    (typeof frame.sender.displayName === 'string' &&
+      frame.sender.displayName.trim().slice(0, MAX_SENDER_LABEL_LENGTH)) ||
+    PEER_NAME_PREFIX;
+  const myId = getState('network.myId') || '';
+  if (senderId === myId) return;
+
+  if (kind === 'message') {
+    const text = typeof payload.text === 'string' ? payload.text.slice(0, MAX_MSG_LENGTH) : '';
+    if (!text) return;
+    const participant = (getState('network.lastKnownDeviceList') || []).find(
+      (candidate) => candidate.id === senderId,
+    );
+    addChatMessage(
+      formatChatDisplayName(senderLabel),
+      getState('network.filterEnabled') ? filterProfanity(text) : text,
+      false,
+      'op',
+      participant?.joinOrder,
+    );
+    const botRequestId =
+      typeof payload.botRequestId === 'string' && BOT_REQUEST_ID_RE.test(payload.botRequestId)
+        ? payload.botRequestId
+        : '';
+    if (botRequestId && isBotCommandText(text)) {
+      if (rememberBotChatRequest(botRequestId, senderId)) {
+        upsertBotChatMessage(botRequestId, 'typing');
+      }
+    }
+    return;
+  }
+
+  if (kind === 'bot-result') {
+    const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
+    const normalized = normalizeBotChatResult(payload.result as BotChatResult);
+    const request = requestId ? _botChatRequests.get(requestId) : null;
+    if (requestId && normalized && request?.ownerId === senderId) {
+      completeBotChatRequest(requestId, normalized, getBotRoomId() ?? '');
+    }
+    return;
+  }
+
+  if (kind === 'system') {
+    let text = typeof payload.text === 'string' ? payload.text.slice(0, MAX_MSG_LENGTH) : '';
+    const i18nKey = typeof payload.i18nKey === 'string' ? payload.i18nKey : '';
+    const i18nParams = isNoticeParams(payload.i18nParams) ? payload.i18nParams : undefined;
+    if (i18nKey) {
+      const localized = t(i18nKey as I18nKey, i18nParams);
+      if (localized !== i18nKey) text = localized;
+    }
+    if (text) {
+      addSystemChatMessage(text);
+      playChatSystemEventSound(i18nKey || undefined, i18nParams);
+    }
+    return;
+  }
+
+  if (kind === 'notice') {
+    const text = typeof payload.text === 'string' ? payload.text.slice(0, MAX_MSG_LENGTH) : '';
+    if (text) addNoticeChatMessage(senderLabel, text, Date.now());
+    return;
+  }
+
+  if (kind === 'whisper') {
+    const targetId =
+      typeof payload.targetParticipantId === 'string' ? payload.targetParticipantId : '';
+    const text = typeof payload.text === 'string' ? payload.text.slice(0, MAX_MSG_LENGTH) : '';
+    if (targetId === myId && text) addWhisperMessage(senderLabel, text, false);
+    return;
+  }
+
+  if (kind === 'clear') {
+    bus.emit('chat:clear-all');
+  } else if (
+    kind === 'mute' &&
+    typeof payload.targetParticipantId === 'string' &&
+    typeof payload.on === 'boolean'
+  ) {
+    const targetId = payload.targetParticipantId;
+    const targetLabel =
+      (getState('network.lastKnownDeviceList') || []).find((candidate) => candidate.id === targetId)
+        ?.label ?? t('common.peer');
+    if (targetId === myId) bus.emit('chat:muted-state-changed', payload.on);
+    addSystemChatMessage(
+      payload.on
+        ? t('chat.cmd_muted', { name: targetLabel })
+        : t('chat.cmd_unmuted', { name: targetLabel }),
+    );
+  } else if (kind === 'freeze' && typeof payload.on === 'boolean') {
+    setState('network.chatFrozen', payload.on);
+    addSystemChatMessage(payload.on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
+  } else if (kind === 'filter' && typeof payload.on === 'boolean') {
+    setState('network.filterEnabled', payload.on);
+    addSystemChatMessage(payload.on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
+  } else if (
+    kind === 'slowmode' &&
+    Number.isSafeInteger(payload.seconds) &&
+    (payload.seconds as number) >= 0
+  ) {
+    setState('network.slowmodeSeconds', payload.seconds as number);
+  }
 }
 
 // ─── Server-side Rate Limit (host only) ─────────────────────────
@@ -740,12 +856,31 @@ export function broadcastSystemMessage(
   params?: Record<string, string | number>,
 ): void {
   const fallbackText = t(i18nKey, params);
-  broadcast({
+  const frame = {
     type: MSG.CHAT_SYSTEM,
     text: fallbackText,
     i18nKey,
     ...(params ? { i18nParams: params } : {}),
-  });
+  } as const;
+  if (getRoomContext().kind === 'pro') {
+    sendProRoomRealtime('chat', {
+      kind: 'system',
+      text: fallbackText,
+      i18nKey,
+      ...(params ? { i18nParams: params } : {}),
+    });
+  } else {
+    broadcast(frame);
+  }
+  announceSystemMessageLocally(i18nKey, params);
+}
+
+/** Render an already server-fanned-out automatic event on this device only. */
+export function announceSystemMessageLocally(
+  i18nKey: I18nKey,
+  params?: Record<string, string | number>,
+): void {
+  const fallbackText = t(i18nKey, params);
   bus.emit('chat:system-message', fallbackText);
   playChatSystemEventSound(i18nKey, params);
 }

@@ -3,6 +3,7 @@ import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
   PRO_ROOM_MAX_PRESENCE_ITEMS,
+  PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   PRO_ROOM_SNAPSHOT_SCHEMA_VERSION,
   type ProRoomPlaybackCheckpoint,
@@ -270,7 +271,9 @@ export function parseProRoomPlaylistItem(value: unknown): ProRoomPlaylistWireIte
   if (!isRecord(value.source)) return null;
 
   if (value.source.kind === 'youtube') {
-    if (!hasExactKeysWithOptionals(value.source, ['kind', 'videoId'], ['playlistId'])) return null;
+    if (!hasExactKeysWithOptionals(value.source, ['kind', 'videoId'], ['playlistId', 'videoIds'])) {
+      return null;
+    }
     if (
       typeof value.source.videoId !== 'string' ||
       !YOUTUBE_VIDEO_ID_RE.test(value.source.videoId)
@@ -284,6 +287,23 @@ export function parseProRoomPlaylistItem(value: unknown): ProRoomPlaylistWireIte
     ) {
       return null;
     }
+    let videoIds: string[] | undefined;
+    if (value.source.videoIds !== undefined) {
+      if (
+        value.source.playlistId === undefined ||
+        !Array.isArray(value.source.videoIds) ||
+        value.source.videoIds.length === 0 ||
+        value.source.videoIds.length > PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS ||
+        value.source.videoIds.some(
+          (videoId) => typeof videoId !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(videoId),
+        ) ||
+        !value.source.videoIds.includes(value.source.videoId)
+      ) {
+        return null;
+      }
+      // Duplicates are valid playlist occurrences and must retain their order.
+      videoIds = [...value.source.videoIds];
+    }
     return {
       queueItemId: value.queueItemId,
       ...cloneOptionalMetadata(value),
@@ -291,6 +311,7 @@ export function parseProRoomPlaylistItem(value: unknown): ProRoomPlaylistWireIte
         kind: 'youtube',
         videoId: value.source.videoId,
         ...(value.source.playlistId === undefined ? {} : { playlistId: value.source.playlistId }),
+        ...(videoIds === undefined ? {} : { videoIds }),
       },
     };
   }
@@ -340,7 +361,7 @@ export function parseProRoomPlaylistItem(value: unknown): ProRoomPlaylistWireIte
   return null;
 }
 
-function parsePlaybackCheckpoint(value: unknown): ProRoomPlaybackCheckpoint | null {
+export function parseProRoomPlaybackCheckpoint(value: unknown): ProRoomPlaybackCheckpoint | null {
   if (!isRecord(value)) return null;
   if (
     !hasExactKeys(value, [
@@ -561,6 +582,8 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
       'runtime',
       'revision',
       'playlistRevision',
+      'effectsRevision',
+      'queueModeRevision',
       'playlist',
       'currentQueueItemId',
       'playback',
@@ -579,7 +602,14 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   ) {
     return null;
   }
-  if (!isRevision(value.revision) || !isRevision(value.playlistRevision)) return null;
+  if (
+    !isRevision(value.revision) ||
+    !isRevision(value.playlistRevision) ||
+    !isRevision(value.effectsRevision) ||
+    !isRevision(value.queueModeRevision)
+  ) {
+    return null;
+  }
   if (!Array.isArray(value.playlist) || value.playlist.length > PRO_ROOM_MAX_PLAYLIST_ITEMS) {
     return null;
   }
@@ -601,10 +631,14 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     return null;
   }
 
-  const playback = parsePlaybackCheckpoint(value.playback);
+  const playback = parseProRoomPlaybackCheckpoint(value.playback);
   const presence = parsePresenceSnapshot(value.presence);
   const quota = parseQuotaSnapshot(value.quota);
   if (!playback || !presence || !quota) return null;
+  // PRO v1 is coordinator-free as a protocol invariant. Retaining the field
+  // name avoids a mixed-schema rollout, but accepting a non-null participant
+  // here would silently revive the retired browser-authority contract.
+  if (presence.coordinatorParticipantId !== null) return null;
   if (playback.coordinatorEpoch !== presence.coordinatorEpoch) return null;
   if (playback.queueItemId !== null && !queueItemIds.has(playback.queueItemId)) return null;
   if (playback.queueItemId !== currentQueueItemId) return null;
@@ -613,6 +647,14 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     if (!playbackItem) return null;
     if (playbackItem.source.kind === 'youtube') {
       if (playback.youtubeVideoId === null || playback.youtubeSubIndex === null) return null;
+      const manifest = playbackItem.source.videoIds;
+      if (
+        manifest &&
+        (playback.youtubeSubIndex >= manifest.length ||
+          manifest[playback.youtubeSubIndex] !== playback.youtubeVideoId)
+      ) {
+        return null;
+      }
     } else if (playback.youtubeVideoId !== null || playback.youtubeSubIndex !== null) {
       return null;
     }
@@ -677,7 +719,6 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
               'playback.control',
               'effects.control',
               'asset.upload',
-              'coordinator.eligible',
               'members.manage',
               'room.configure',
             ]
@@ -686,7 +727,6 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
               'playback.control',
               'effects.control',
               'asset.upload',
-              'coordinator.eligible',
               'members.manage',
             ];
     if (
@@ -704,6 +744,8 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     runtime: value.runtime,
     revision: value.revision,
     playlistRevision: value.playlistRevision,
+    effectsRevision: value.effectsRevision,
+    queueModeRevision: value.queueModeRevision,
     playlist,
     currentQueueItemId,
     playback,

@@ -310,7 +310,7 @@ export function updateRoleBadge(): void {
   const text = document.getElementById('role-text');
   if (!badge || !text) return;
 
-  badge.classList.remove('connected', 'remote');
+  badge.classList.remove('connected', 'remote', 'pro-equal');
 
   const isConnecting = getState('network.isConnecting');
   if (isConnecting) {
@@ -319,15 +319,14 @@ export function updateRoleBadge(): void {
     return;
   }
 
-  // A PRO coordinator is an implementation detail, not a user-facing rank.
-  // Every participant has the same control authority, so render the same
-  // compact identity badge regardless of coordinator ownership or whether the
-  // current data path happens to be local/remote. This also keeps long device
-  // names usable beside the header's PRO badge.
+  // PRO has no browser coordinator or user-facing host rank. Every participant
+  // has the same live-room authority, so render the same compact identity badge
+  // regardless of which local media path happens to be active. This also keeps
+  // long device names usable beside the header's PRO badge.
   if (getRoomContext().kind === 'pro') {
     const myDeviceLabel = getState('network.myDeviceLabel') || '';
     text.replaceChildren(document.createTextNode(myDeviceLabel.trim() || 'PEER'));
-    badge.classList.add('connected');
+    badge.classList.add('pro-equal');
     scheduleRoleClockPulse();
     return;
   }
@@ -640,8 +639,8 @@ function handleManualSyncOverlayKeydown(event: KeyboardEvent): void {
 function canUseManualSyncPanel(): boolean {
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();
-  const isProCoordinator = room.kind === 'pro' && room.role === 'coordinator';
-  if (!hostConn?.open && !isProCoordinator) return false;
+  const isProRoom = room.kind === 'pro';
+  if (!hostConn?.open && !isProRoom) return false;
   if (isPlaybackModeSystemAudio()) return false;
   if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
@@ -665,17 +664,15 @@ function handleMainSyncBtn(): void {
 
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();
-  const isProCoordinator = room.kind === 'pro' && room.role === 'coordinator';
+  const isProRoom = room.kind === 'pro';
   if (!hostConn && !isPlaybackModeFile() && !isPlaybackModeYouTube()) {
     showToast(t('toast.sync_no_media'));
     return;
   }
 
-  // In a PRO room the coordinator is only the current transport worker. Its
-  // own speaker remains an equal playback endpoint, so Sync opens the same
-  // local nudge panel as every other participant instead of broadcasting a
-  // standard-room host command.
-  if (isProCoordinator) {
+  // Every PRO participant is an equal playback endpoint. Sync is therefore a
+  // local speaker nudge, never a command sent to another browser.
+  if (isProRoom) {
     openManualSyncOverlay();
     return;
   }

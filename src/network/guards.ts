@@ -45,7 +45,14 @@ export function isGuestBlocked(): boolean {
  */
 export function getOtherDeviceLabels(): string[] {
   const hostConn = getState('network.hostConn');
-  if (!hostConn) {
+  const room = getRoomContext();
+
+  // A PRO endpoint deliberately has no browser-host connection. Treating that
+  // compatibility shape as an ordinary host would make connectedPeers (which
+  // is not authoritative in a server-managed room) the rename source. The
+  // room server's last device-list snapshot is the single identity view for
+  // every PRO member, including the lifecycle owner.
+  if (room.kind !== 'pro' && !hostConn) {
     return getState('network.connectedPeers').map((p) => String(p.label || ''));
   }
   const myId = getState('network.myId');

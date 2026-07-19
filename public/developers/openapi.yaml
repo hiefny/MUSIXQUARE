@@ -230,7 +230,8 @@ paths:
       description: |
         Adds one canonical YouTube item to the end of the playlist without starting playback. Without playlistId,
         the item is an independent top-level video. With playlistId, the item is one top-level playlist aggregate
-        keyed by that ID and videoId is the aggregate's entry video.
+        keyed by that ID and videoId is the aggregate's entry video. A complete ordered videoIds manifest may be
+        supplied for deterministic server-side navigation; it must contain videoId, which may be a non-first entry.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -283,12 +284,15 @@ paths:
         Atomically appends between 1 and 100 canonical YouTube items in the supplied order without starting
         playback. Each distinct playlistId creates exactly one top-level playlist aggregate. When a playlistId
         repeats, its first occurrence supplies the aggregate's position, entry videoId, and display metadata; later
-        occurrences with that same ID do not create extra top-level items and their metadata is ignored. Entries
+        occurrences with that same ID do not create extra top-level items and their metadata is ignored. Repeated
+        manifest-less entries form one manifest from their videoIds in request order. Repeated entries carrying an
+        identical full videoIds manifest preserve that manifest once. Mixing manifest and manifest-less entries, or
+        supplying different full manifests for one playlistId, is rejected atomically. Duplicate IDs are preserved. Entries
         without playlistId remain independent top-level videos, even when videoId repeats. Every supplied item is
         still validated atomically, and playlist-capacity checks cover the canonical top-level result: if any item
         is invalid or that result does not fit, no item is appended. The appended count can therefore be smaller
         than items.length. One successful batch advances the playlist revision once. The effective limit is
-        whichever is reached first: 100 items or a 64 KiB complete public JSON request.
+        whichever is reached first: 100 items or a 128 KiB complete public JSON request.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -803,6 +807,8 @@ components:
       type: object
       additionalProperties: false
       required: [videoId, name]
+      dependentRequired:
+        videoIds: [playlistId]
       properties:
         videoId:
           type: string
@@ -816,6 +822,15 @@ components:
           description: |
             When present, creates one top-level YouTube playlist aggregate keyed by this ID. When omitted, this
             request creates one independent top-level video.
+        videoIds:
+          type: array
+          minItems: 1
+          maxItems: 5000
+          items: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+          description: |
+            Optional complete ordered manifest for playlistId. Duplicates are significant and preserved. The array
+            must contain videoId, which identifies the requested entry point and need not be first. This field is
+            invalid when playlistId is omitted.
         name: { type: string, minLength: 1, maxLength: 512 }
         title: { type: string, minLength: 1, maxLength: 512 }
         artist: { type: string, minLength: 1, maxLength: 512 }
@@ -831,7 +846,9 @@ components:
           maxItems: 100
           description: |
             Supplied order is preserved after canonicalization. For repeated non-empty playlistId values, only the
-            first occurrence creates the top-level aggregate; entries without playlistId always remain independent.
+            first occurrence creates the top-level aggregate. Repeated manifest-less entries contribute videoId in
+            request order; repeated full manifests must be byte-for-byte identical and are preserved once. Mixed or
+            conflicting manifest forms are rejected. Entries without playlistId always remain independent.
           items: { $ref: '#/components/schemas/YouTubeQueueItemCreate' }
     QueueOrderReplace:
       type: object

@@ -6,7 +6,7 @@ import { requestProRoomSignalingEpochAdvance } from './lifecycle-hook.ts';
 let recoveryRequested = false;
 
 /**
- * Convert a legacy host-connection loss into a persistent-room topology
+ * Convert any PRO control-channel loss into an in-place server-channel
  * recovery. Returning true means the caller must suppress ordinary-room
  * disconnect UI and preserve the active session surface.
  */
@@ -20,7 +20,7 @@ export function requestProRoomTransportRecovery(): boolean {
   return true;
 }
 
-/** Re-arm the one-shot after a replacement coordinator topology is live. */
+/** Re-arm the one-shot after the authenticated server channel is live. */
 export function markProRoomTransportRecovered(): void {
   recoveryRequested = false;
 }

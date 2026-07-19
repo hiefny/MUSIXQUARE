@@ -12,6 +12,7 @@ import {
   getYouTubeInputIntent,
   isYouTubeLiveUrl,
   resolveYouTubePlaylistEntry,
+  resolveYouTubePlaylistManifest,
   searchYouTubeFromInput,
 } from '../search.ts';
 import { fetchOEmbedTitle } from '../oembed.ts';
@@ -265,6 +266,92 @@ describe('YouTube playlist entry resolution', () => {
 
     await expect(resolveYouTubePlaylistEntry('PL_EXPECTED')).rejects.toThrow(
       'Invalid YouTube playlist resolution response',
+    );
+  });
+});
+
+describe('YouTube playlist manifest resolution', () => {
+  it('accepts a complete ordered manifest, including duplicate video IDs', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/security-config')) {
+        return Response.json({ capabilityRequired: false });
+      }
+      expect(url).toContain('/api/youtube-playlist-manifest?playlistId=PL_MANIFEST_01');
+      return Response.json({
+        playlistId: 'PL_MANIFEST_01',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'BBBBBBBBBBB'],
+        title: 'First &amp; playable',
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resolveYouTubePlaylistManifest('PL_MANIFEST_01')).resolves.toEqual({
+      playlistId: 'PL_MANIFEST_01',
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'BBBBBBBBBBB'],
+      title: 'First & playable',
+    });
+  });
+
+  it.each([
+    {
+      playlistId: 'PL_MANIFEST_01',
+      videoId: 'AAAAAAAAAAA',
+      videoIds: [],
+      title: 'First',
+    },
+    {
+      playlistId: 'PL_MANIFEST_01',
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['BBBBBBBBBBB'],
+      title: 'First',
+    },
+    {
+      playlistId: 'PL_MANIFEST_01',
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['AAAAAAAAAAA', 'invalid'],
+      title: 'First',
+    },
+    {
+      playlistId: 'PL_OTHER',
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['AAAAAAAAAAA'],
+      title: 'First',
+    },
+  ])('rejects an invalid manifest response %#', async (payload) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('/api/security-config')
+          ? Response.json({ capabilityRequired: false })
+          : Response.json(payload),
+      ),
+    );
+
+    await expect(resolveYouTubePlaylistManifest('PL_MANIFEST_01')).rejects.toThrow(
+      'Invalid YouTube playlist manifest response',
+    );
+  });
+
+  it('rejects manifests above the 5,000-video contract bound', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('/api/security-config')
+          ? Response.json({ capabilityRequired: false })
+          : Response.json({
+              playlistId: 'PL_MANIFEST_01',
+              videoId: 'AAAAAAAAAAA',
+              videoIds: Array.from({ length: 5_001 }, () => 'AAAAAAAAAAA'),
+              title: 'First',
+            }),
+      ),
+    );
+
+    await expect(resolveYouTubePlaylistManifest('PL_MANIFEST_01')).rejects.toThrow(
+      'Invalid YouTube playlist manifest response',
     );
   });
 });

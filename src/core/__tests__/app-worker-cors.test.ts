@@ -1270,6 +1270,8 @@ describe('Cloudflare app worker YouTube playlist entry proxy', () => {
       expect(url.searchParams.has('key')).toBe(false);
       expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('test-key');
       return Response.json({
+        nextPageToken: 'IGNORED_BY_FAST_ENTRY_ROUTE',
+        pageInfo: { totalResults: 2 },
         items: [
           {
             contentDetails: { videoId: 'PRIVATE0001' },
@@ -1355,6 +1357,135 @@ describe('Cloudflare app worker YouTube playlist entry proxy', () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get('Retry-After')).toBe('60');
     expect(upstreamFetch).toHaveBeenCalledTimes(20);
+  });
+});
+
+describe('Cloudflare app worker YouTube playlist manifest proxy', () => {
+  const manifestRequest = (playlistId = 'PL_MANIFEST_01') =>
+    new Request(
+      `https://musixquare.com/api/youtube-playlist-manifest?playlistId=${encodeURIComponent(playlistId)}`,
+      {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': '203.0.113.91',
+        },
+      },
+    );
+  const env = {
+    MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+    YOUTUBE_API_KEY: 'test-key',
+  };
+
+  it('paginates the complete ordered playable manifest and preserves duplicate videos', async () => {
+    const upstreamFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get('maxResults')).toBe('50');
+      expect(url.searchParams.get('playlistId')).toBe('PL_MANIFEST_01');
+      if (!url.searchParams.has('pageToken')) {
+        return Response.json({
+          pageInfo: { totalResults: 5 },
+          nextPageToken: 'NEXT_PAGE',
+          items: [
+            {
+              contentDetails: { videoId: 'AAAAAAAAAAA' },
+              snippet: { title: 'First &amp; playable' },
+              status: { privacyStatus: 'public' },
+            },
+            {
+              contentDetails: { videoId: 'PRIVATE0001' },
+              snippet: { title: 'Private video' },
+              status: { privacyStatus: 'private' },
+            },
+            {
+              contentDetails: { videoId: 'BBBBBBBBBBB' },
+              snippet: { title: 'Second' },
+              status: { privacyStatus: 'public' },
+            },
+          ],
+        });
+      }
+      expect(url.searchParams.get('pageToken')).toBe('NEXT_PAGE');
+      return Response.json({
+        pageInfo: { totalResults: 5 },
+        items: [
+          {
+            contentDetails: { videoId: 'CCCCCCCCCCC' },
+            snippet: { title: 'Third' },
+            status: { privacyStatus: 'public' },
+          },
+          {
+            contentDetails: { videoId: 'CCCCCCCCCCC' },
+            snippet: { title: 'Third again' },
+            status: { privacyStatus: 'public' },
+          },
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await appWorker.fetch(manifestRequest(), env);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      playlistId: 'PL_MANIFEST_01',
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'CCCCCCCCCCC', 'CCCCCCCCCCC'],
+      title: 'First & playable',
+    });
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails explicitly when the upstream manifest is too large or incomplete', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ pageInfo: { totalResults: 5_001 }, items: [] })),
+    );
+    const tooLarge = await appWorker.fetch(manifestRequest(), env);
+    expect(tooLarge.status).toBe(413);
+    expect(await tooLarge.json()).toEqual({ error: 'YOUTUBE_PLAYLIST_MANIFEST_TOO_LARGE' });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          pageInfo: { totalResults: 2 },
+          items: [
+            {
+              contentDetails: { videoId: 'AAAAAAAAAAA' },
+              snippet: { title: 'Only returned item' },
+              status: { privacyStatus: 'public' },
+            },
+          ],
+        }),
+      ),
+    );
+    const incomplete = await appWorker.fetch(manifestRequest(), env);
+    expect(incomplete.status).toBe(502);
+    expect(await incomplete.json()).toEqual({ error: 'YOUTUBE_PLAYLIST_MANIFEST_INCOMPLETE' });
+  });
+
+  it('fails closed on malformed pages and preserves upstream failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ pageInfo: {}, items: [] })),
+    );
+    const malformed = await appWorker.fetch(manifestRequest(), env);
+    expect(malformed.status).toBe(502);
+    expect(await malformed.json()).toEqual({ error: 'YOUTUBE_PLAYLIST_MANIFEST_INCOMPLETE' });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({ error: { errors: [{ reason: 'backendError' }] } }, { status: 500 }),
+      ),
+    );
+    const upstreamError = await appWorker.fetch(manifestRequest(), env);
+    expect(upstreamError.status).toBe(502);
+    expect(await upstreamError.json()).toEqual({
+      error: 'YOUTUBE_PLAYLIST_RESOLUTION_FAILED',
+      upstreamStatus: 500,
+      reason: 'backendError',
+    });
   });
 });
 

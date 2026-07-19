@@ -30,11 +30,12 @@ type ProTicketPayload = {
   kind: 'pro-signaling';
   roomCode: string;
   participantId: string;
-  role: 'coordinator' | 'member';
+  displayName: string;
+  role?: 'coordinator' | 'member';
   coordinatorEpoch: number;
+  presenceRevision: number;
   presenceIncarnationId: string;
   ticketSequence: number;
-  developerControlVersion?: 0 | 1 | 2 | 3 | 4;
   jti: string;
   iat: number;
   exp: number;
@@ -237,8 +238,10 @@ async function proTicket(
     kind: 'pro-signaling',
     roomCode: '000001',
     participantId: 'pro-member-1',
+    displayName: 'Peer 1',
     role: 'member',
     coordinatorEpoch: 1,
+    presenceRevision: 1,
     presenceIncarnationId: 'presence-incarnation-0001',
     ticketSequence: 1,
     jti: 'ticket-identifier-0001',
@@ -270,6 +273,14 @@ async function proWsRequest(
   url.searchParams.set('ticket', ticket);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   return requestLike(url.toString(), { Upgrade: 'websocket' });
+}
+
+async function joinProMember(
+  room: InstanceType<WorkerModule['MusixquareRoom']>,
+  overrides: Partial<ProTicketPayload>,
+): Promise<FakeSocket> {
+  await room.fetch(await proWsRequest(overrides));
+  return lastServer();
 }
 
 function requestLike(url: string, headers: Record<string, string> = {}): Request {
@@ -640,6 +651,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       },
     ],
     ['room mismatch', async () => proTicket({ roomCode: '000000' })],
+    ['blank display name', async () => proTicket({ displayName: '   ' })],
+    ['oversized display name', async () => proTicket({ displayName: 'x'.repeat(65) })],
+    ['control-character display name', async () => proTicket({ displayName: 'Peer\u0000One' })],
+    ['negative presence revision', async () => proTicket({ presenceRevision: -1 })],
   ] as const)('rejects a PRO %s before Durable Object lookup', async (_label, makeTicket) => {
     const { env, idFromName, roomFetch } = workerEnv();
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
@@ -685,7 +700,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(FakeWebSocketPair.pairs).toHaveLength(0);
   });
 
-  it('admits PRO coordinator/member sockets directly with signed identity and epoch attachments', async () => {
+  it('admits every signed PRO participant as an equal member and ignores the legacy ticket role', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {
       PRO_SIGNALING_SECRET,
@@ -694,6 +709,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       await proWsRequest({
         role: 'coordinator',
         participantId: 'coordinator-device',
+        displayName: 'Room owner',
         jti: 'coordinator-ticket-0001',
       }),
     );
@@ -708,17 +724,19 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     expect(coordinator.deserializeAttachment()).toMatchObject({
       roomKind: 'pro',
-      role: 'host',
+      role: 'member',
       roomId: '000001',
-      peerId: '000001',
+      peerId: 'coordinator-device',
       participantId: 'coordinator-device',
+      displayName: 'Room owner',
       coordinatorEpoch: 1,
     });
     expect(member.deserializeAttachment()).toMatchObject({
       roomKind: 'pro',
-      role: 'guest',
+      role: 'member',
       peerId: 'signed-member',
       participantId: 'signed-member',
+      displayName: 'Peer 1',
       coordinatorEpoch: 1,
       auth: 'ok',
     });
@@ -728,11 +746,904 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomId: '000001',
     });
     expect(await state.storage.get('proRoomMeta')).toMatchObject({
+      v: 2,
       kind: 'pro',
       roomId: '000001',
       coordinatorEpoch: 1,
-      coordinatorParticipantId: 'coordinator-device',
     });
+  });
+
+  it('initializes an empty PRO signaling namespace from the first authoritative presence snapshot', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const presenceIncarnationId = 'initial-presence-incarnation-01';
+
+    const initialized = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 3,
+          targets: [presenceIncarnationId],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 7 },
+        }),
+      }),
+    );
+
+    expect(initialized.status).toBe(200);
+    expect(JSON.parse(String(initialized.body))).toEqual({
+      broadcast: true,
+      eligible: 0,
+      sent: 0,
+    });
+    expect(await state.storage.get('proRoomMeta')).toEqual({
+      v: 2,
+      kind: 'pro',
+      roomId: '000001',
+      coordinatorEpoch: 3,
+    });
+    expect(await state.storage.get('proSignalingPresenceAuthority')).toEqual({
+      v: 1,
+      roomId: '000001',
+      coordinatorEpoch: 3,
+      presenceRevision: 7,
+      activeIncarnationIds: [presenceIncarnationId],
+    });
+
+    const active = await joinProMember(room, {
+      participantId: 'initial-active-member',
+      coordinatorEpoch: 3,
+      presenceRevision: 7,
+      presenceIncarnationId,
+      jti: 'initial-active-ticket-00001',
+    });
+    expect(active.closed).toBe(false);
+    expect(sent(active)[0]).toMatchObject({ type: 'peer-open', peerId: 'initial-active-member' });
+
+    await room.fetch(
+      await proWsRequest({
+        participantId: 'initial-inactive-member',
+        coordinatorEpoch: 3,
+        presenceRevision: 7,
+        presenceIncarnationId: 'initial-inactive-presence-01',
+        jti: 'initial-inactive-ticket-001',
+      }),
+    );
+    const inactive = lastServer();
+    expect(inactive.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'PRO_SIGNALING_PRESENCE_STALE',
+    });
+
+    await room.fetch(
+      await proWsRequest({
+        participantId: 'initial-stale-member',
+        coordinatorEpoch: 3,
+        presenceRevision: 6,
+        presenceIncarnationId,
+        jti: 'initial-stale-ticket-00001',
+      }),
+    );
+    const stale = lastServer();
+    expect(stale.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'PRO_SIGNALING_PRESENCE_STALE',
+    });
+  });
+
+  it('advances a PRO signaling epoch only from an authoritative presence snapshot', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const oldIncarnationId = 'epoch-one-presence-000001';
+    const oldMember = await joinProMember(room, {
+      participantId: 'epoch-one-member',
+      coordinatorEpoch: 1,
+      presenceRevision: 3,
+      presenceIncarnationId: oldIncarnationId,
+      jti: 'epoch-one-ticket-0000001',
+    });
+    await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: [oldIncarnationId],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 3 },
+        }),
+      }),
+    );
+
+    const rejectedFutureEvent = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 2,
+          targets: [oldIncarnationId],
+          event: { type: 'pro-playback-commit' },
+        }),
+      }),
+    );
+    expect(rejectedFutureEvent.status).toBe(409);
+    expect(oldMember.closed).toBe(false);
+    expect(await state.storage.get('proRoomMeta')).toMatchObject({ coordinatorEpoch: 1 });
+
+    const newIncarnationId = 'epoch-two-presence-000001';
+    const advanced = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 2,
+          targets: [newIncarnationId],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 1 },
+        }),
+      }),
+    );
+
+    expect(advanced.status).toBe(200);
+    expect(oldMember.closeEvents.at(-1)).toEqual({
+      code: 1012,
+      reason: 'PRO_ROOM_EPOCH_ADVANCED',
+    });
+    expect(await state.storage.get('proRoomMeta')).toEqual({
+      v: 2,
+      kind: 'pro',
+      roomId: '000001',
+      coordinatorEpoch: 2,
+    });
+    expect(await state.storage.get('proSignalingPresenceAuthority')).toEqual({
+      v: 1,
+      roomId: '000001',
+      coordinatorEpoch: 2,
+      presenceRevision: 1,
+      activeIncarnationIds: [newIncarnationId],
+    });
+
+    await room.fetch(
+      await proWsRequest({
+        participantId: 'epoch-one-stale-member',
+        coordinatorEpoch: 1,
+        presenceRevision: 3,
+        presenceIncarnationId: oldIncarnationId,
+        jti: 'epoch-one-stale-ticket-01',
+      }),
+    );
+    const staleMember = lastServer();
+    expect(staleMember.closed).toBe(true);
+    expect(sent(staleMember)[0]).toMatchObject({ message: 'PRO_COORDINATOR_EPOCH_STALE' });
+
+    const newMember = await joinProMember(room, {
+      participantId: 'epoch-two-member',
+      coordinatorEpoch: 2,
+      presenceRevision: 1,
+      presenceIncarnationId: newIncarnationId,
+      jti: 'epoch-two-ticket-0000001',
+    });
+    expect(newMember.closed).toBe(false);
+    expect(sent(newMember)[0]).toMatchObject({ type: 'peer-open', peerId: 'epoch-two-member' });
+  });
+
+  it('broadcasts bounded server events only to exact current PRO presence incarnations', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const alice = await joinProMember(room, {
+      participantId: 'member-alice',
+      displayName: 'Alice',
+      presenceIncarnationId: 'presence-incarnation-alice',
+      jti: 'ticket-identifier-alice',
+    });
+    const bob = await joinProMember(room, {
+      participantId: 'member-bob',
+      displayName: 'Bob',
+      presenceIncarnationId: 'presence-incarnation-bob01',
+      jti: 'ticket-identifier-bob01',
+    });
+    const carol = await joinProMember(room, {
+      participantId: 'member-carol',
+      displayName: 'Carol',
+      presenceIncarnationId: 'presence-incarnation-carol',
+      jti: 'ticket-identifier-carol',
+    });
+    const rehydratedRoom = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const event = {
+      type: 'pro-playback-commit',
+      transitionId: null,
+      basePlaybackRevision: 6,
+      playbackRevision: 7,
+    };
+    const counts = [alice.sent.length, bob.sent.length, carol.sent.length];
+
+    const response = await rehydratedRoom.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['presence-incarnation-alice', 'presence-incarnation-carol'],
+          event,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(String(response.body))).toEqual({ broadcast: true, eligible: 2, sent: 2 });
+    const expected = {
+      type: 'pro-server-event',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 1,
+      event,
+    };
+    expect(sent(alice).at(-1)).toEqual(expected);
+    expect(bob.sent).toHaveLength(counts[1]);
+    expect(sent(carol).at(-1)).toEqual(expected);
+    expect(alice.sent).toHaveLength(counts[0] + 1);
+    expect(carol.sent).toHaveLength(counts[2] + 1);
+  });
+
+  it('revokes an open PRO socket omitted from the authoritative presence snapshot', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const alice = await joinProMember(room, {
+      participantId: 'member-alice',
+      displayName: 'Alice',
+      presenceIncarnationId: 'presence-incarnation-alice',
+      jti: 'presence-revoke-ticket-alice',
+    });
+    const bob = await joinProMember(room, {
+      participantId: 'member-bob',
+      displayName: 'Bob',
+      presenceIncarnationId: 'presence-incarnation-bob01',
+      jti: 'presence-revoke-ticket-bob01',
+    });
+    const aliceSentBefore = alice.sent.length;
+
+    const response = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['presence-incarnation-alice'],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 3, roomRevision: 9 },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(String(response.body))).toEqual({ broadcast: true, eligible: 1, sent: 1 });
+    expect(alice.sent).toHaveLength(aliceSentBefore + 1);
+    expect(bob.closed).toBe(true);
+    expect(bob.closeEvents.at(-1)).toEqual({ code: 1008, reason: 'PRO_PRESENCE_REVOKED' });
+  });
+
+  it('rejects an unused ticket issued before a later removal snapshot', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const removed = await joinProMember(room, {
+      participantId: 'removed-member',
+      presenceRevision: 3,
+      presenceIncarnationId: 'presence-incarnation-removed',
+      jti: 'removed-member-ticket-0001',
+    });
+    const issuedBeforeRemoval = await proWsRequest({
+      participantId: 'removed-member',
+      presenceRevision: 3,
+      presenceIncarnationId: 'presence-incarnation-removed',
+      ticketSequence: 2,
+      jti: 'removed-member-ticket-0002',
+    });
+
+    const snapshot = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: [],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 4 },
+        }),
+      }),
+    );
+    expect(snapshot.status).toBe(200);
+    expect(removed.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'PRO_PRESENCE_REVOKED',
+    });
+
+    const response = await room.fetch(issuedBeforeRemoval);
+    const rejected = lastServer();
+    expect(response.status).toBe(101);
+    expect(rejected.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'PRO_SIGNALING_PRESENCE_STALE',
+    });
+  });
+
+  it('rejects an inactive incarnation at the current authoritative presence revision', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await joinProMember(room, {
+      participantId: 'active-member',
+      presenceRevision: 5,
+      presenceIncarnationId: 'presence-incarnation-active1',
+      jti: 'active-member-ticket-00001',
+    });
+    await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['presence-incarnation-active1'],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 5 },
+        }),
+      }),
+    );
+
+    const response = await room.fetch(
+      await proWsRequest({
+        participantId: 'inactive-member',
+        presenceRevision: 5,
+        presenceIncarnationId: 'presence-incarnation-inactive',
+        jti: 'inactive-member-ticket-001',
+      }),
+    );
+    const rejected = lastServer();
+    expect(response.status).toBe(101);
+    expect(rejected.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'PRO_SIGNALING_PRESENCE_STALE',
+    });
+  });
+
+  it('allows a next-revision join race and then establishes its authoritative live-set', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const alice = await joinProMember(room, {
+      participantId: 'race-member-alice',
+      presenceRevision: 8,
+      presenceIncarnationId: 'race-presence-alice-0001',
+      jti: 'race-ticket-alice-000001',
+    });
+    await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['race-presence-alice-0001'],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 8 },
+        }),
+      }),
+    );
+
+    const bob = await joinProMember(room, {
+      participantId: 'race-member-bob',
+      presenceRevision: 9,
+      presenceIncarnationId: 'race-presence-bob-000001',
+      jti: 'race-ticket-bob-00000001',
+    });
+    expect(bob.closed).toBe(false);
+    expect(sent(bob)[0]).toMatchObject({ type: 'peer-open', peerId: 'race-member-bob' });
+
+    // The client starts clock calibration immediately after OPEN. Its signed
+    // next-revision ticket must remain usable while the matching authoritative
+    // snapshot is still racing through the internal service binding.
+    await room.webSocketMessage(
+      bob,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'race-clock-event-0001',
+        channel: 'clock',
+        payload: { requestId: 1, clientSentAtMs: 1234 },
+      }),
+    );
+    expect(bob.closed).toBe(false);
+    expect(sent(bob).at(-1)).toMatchObject({ type: 'pro-clock', requestId: 1 });
+
+    const snapshot = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['race-presence-bob-000001', 'race-presence-alice-0001'],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 9 },
+        }),
+      }),
+    );
+    expect(snapshot.status).toBe(200);
+    expect(alice.closed).toBe(false);
+    expect(bob.closed).toBe(false);
+    expect(await state.storage.get('proSignalingPresenceAuthority')).toEqual({
+      v: 1,
+      roomId: '000001',
+      coordinatorEpoch: 1,
+      presenceRevision: 9,
+      activeIncarnationIds: ['race-presence-alice-0001', 'race-presence-bob-000001'],
+    });
+
+    const rejectedRollback = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: [],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 8 },
+        }),
+      }),
+    );
+    const rejectedFork = await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['race-presence-alice-0001'],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 9 },
+        }),
+      }),
+    );
+    expect(rejectedRollback.status).toBe(409);
+    expect(rejectedFork.status).toBe(409);
+    expect(alice.closed).toBe(false);
+    expect(bob.closed).toBe(false);
+  });
+
+  it('rehydrates the authoritative presence fence from Durable Object storage', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const active = await joinProMember(room, {
+      participantId: 'stored-active-member',
+      presenceRevision: 12,
+      presenceIncarnationId: 'stored-active-presence-01',
+      jti: 'stored-active-ticket-00001',
+    });
+    await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['stored-active-presence-01'],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 12 },
+        }),
+      }),
+    );
+
+    const rehydratedRoom = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const response = await rehydratedRoom.fetch(
+      await proWsRequest({
+        participantId: 'stored-inactive-member',
+        presenceRevision: 12,
+        presenceIncarnationId: 'stored-inactive-presence1',
+        jti: 'stored-inactive-ticket-001',
+      }),
+    );
+    const rejected = lastServer();
+
+    expect(response.status).toBe(101);
+    expect(active.closed).toBe(false);
+    expect(rejected.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'PRO_SIGNALING_PRESENCE_STALE',
+    });
+  });
+
+  it('rejects stale, malformed, duplicate-target, deep, and oversized server broadcasts', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const member = await joinProMember(room, {
+      participantId: 'broadcast-member',
+      presenceIncarnationId: 'broadcast-presence-0001',
+      jti: 'broadcast-ticket-000001',
+    });
+    const initialSentCount = member.sent.length;
+    const broadcast = (body: unknown) =>
+      room.fetch(
+        new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      );
+    const base = {
+      roomCode: '000001',
+      coordinatorEpoch: 1,
+      targets: ['broadcast-presence-0001'],
+      event: {
+        type: 'pro-presence-snapshot',
+        presenceRevision: 1,
+        revision: 1,
+        participants: [],
+      },
+    };
+
+    expect(
+      (
+        await broadcast({
+          ...base,
+          coordinatorEpoch: 2,
+          event: { type: 'pro-playback-commit' },
+        })
+      ).status,
+    ).toBe(409);
+    expect((await broadcast({ ...base, unexpected: true })).status).toBe(400);
+    expect(
+      (
+        await broadcast({
+          ...base,
+          targets: ['broadcast-presence-0001', 'broadcast-presence-0001'],
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await broadcast({
+          ...base,
+          event: { type: 'unknown-event' },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await broadcast({
+          ...base,
+          event: { type: 'pro-presence-snapshot', nested: { a: { b: { c: { d: 1 } } } } },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await broadcast({
+          ...base,
+          event: {
+            type: 'pro-presence-snapshot',
+            chunks: ['a'.repeat(1_600), 'b'.repeat(1_600)],
+          },
+        })
+      ).status,
+    ).toBe(400);
+    expect(member.sent).toHaveLength(initialSentCount);
+  });
+
+  it('relays normalized PRO chat with server-authenticated identity and excludes the sender', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const alice = await joinProMember(room, {
+      participantId: 'member-alice',
+      displayName: 'Alice',
+      presenceIncarnationId: 'presence-incarnation-alice',
+      jti: 'realtime-ticket-alice01',
+    });
+    const bob = await joinProMember(room, {
+      participantId: 'member-bob',
+      displayName: 'Bob',
+      presenceIncarnationId: 'presence-incarnation-bob01',
+      jti: 'realtime-ticket-bob0001',
+    });
+    const carol = await joinProMember(room, {
+      participantId: 'member-carol',
+      displayName: 'Carol',
+      presenceIncarnationId: 'presence-incarnation-carol',
+      jti: 'realtime-ticket-carol01',
+    });
+    const counts = [alice.sent.length, bob.sent.length, carol.sent.length];
+
+    await room.webSocketMessage(
+      alice,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'chat-event-00000001',
+        channel: 'chat',
+        payload: { kind: 'message', text: 'hello', clientTs: 123 },
+        sender: { participantId: 'forged-member' },
+      }),
+    );
+    expect(alice.sent).toHaveLength(counts[0]);
+    expect(bob.sent).toHaveLength(counts[1]);
+    expect(carol.sent).toHaveLength(counts[2]);
+
+    await room.webSocketMessage(
+      alice,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'chat-event-00000002',
+        channel: 'chat',
+        payload: { kind: 'message', text: 'hello', clientTs: 123 },
+      }),
+    );
+
+    const relay = {
+      type: 'pro-realtime',
+      version: 1,
+      eventId: 'chat-event-00000002',
+      channel: 'chat',
+      payload: { kind: 'message', text: 'hello', clientTs: 123 },
+      roomCode: '000001',
+      coordinatorEpoch: 1,
+      sender: {
+        participantId: 'member-alice',
+        presenceIncarnationId: 'presence-incarnation-alice',
+        displayName: 'Alice',
+      },
+    };
+    expect(alice.sent).toHaveLength(counts[0]);
+    expect(sent(bob).at(-1)).toEqual(relay);
+    expect(sent(carol).at(-1)).toEqual(relay);
+  });
+
+  it('keeps PRO clock replies point-to-point and whispers target-only', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T00:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const alice = await joinProMember(room, {
+      participantId: 'clock-alice',
+      displayName: 'Alice',
+      presenceIncarnationId: 'clock-presence-alice01',
+      jti: 'clock-ticket-alice-0001',
+    });
+    const bob = await joinProMember(room, {
+      participantId: 'clock-bob',
+      displayName: 'Bob',
+      presenceIncarnationId: 'clock-presence-bob0001',
+      jti: 'clock-ticket-bob-000001',
+    });
+    const carol = await joinProMember(room, {
+      participantId: 'clock-carol',
+      displayName: 'Carol',
+      presenceIncarnationId: 'clock-presence-carol01',
+      jti: 'clock-ticket-carol-0001',
+    });
+    const bobCount = bob.sent.length;
+    const carolCount = carol.sent.length;
+
+    await room.webSocketMessage(
+      alice,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'clock-event-0000001',
+        channel: 'clock',
+        payload: { requestId: 17, clientSentAtMs: 1234 },
+      }),
+    );
+    expect(sent(alice).at(-1)).toEqual({
+      type: 'pro-clock',
+      version: 1,
+      requestId: 17,
+      clientSentAtMs: 1234,
+      serverTimeMs: Date.now(),
+    });
+    expect(bob.sent).toHaveLength(bobCount);
+    expect(carol.sent).toHaveLength(carolCount);
+
+    await room.webSocketMessage(
+      alice,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'whisper-event-0001',
+        channel: 'chat',
+        payload: { kind: 'whisper', targetParticipantId: 'clock-bob', text: 'secret' },
+      }),
+    );
+    expect(sent(bob).at(-1)).toMatchObject({
+      channel: 'chat',
+      payload: { kind: 'whisper', targetParticipantId: 'clock-bob', text: 'secret' },
+      sender: { participantId: 'clock-alice', displayName: 'Alice' },
+    });
+    expect(carol.sent).toHaveLength(carolCount);
+  });
+
+  it('normalizes every allowed PRO chat moderation and bot-result payload variant', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const sender = await joinProMember(room, {
+      participantId: 'variant-sender',
+      presenceIncarnationId: 'variant-presence-sender',
+      jti: 'variant-ticket-sender01',
+    });
+    const recipient = await joinProMember(room, {
+      participantId: 'variant-recipient',
+      presenceIncarnationId: 'variant-presence-target',
+      jti: 'variant-ticket-target01',
+    });
+    const payloads = [
+      {
+        kind: 'bot-result',
+        requestId: 'bot-request-00000001',
+        result: { kind: 'answer', text: 'done' },
+      },
+      {
+        kind: 'system',
+        text: 'System audio sharing started',
+        i18nKey: 'chat.system_audio_started_system_message',
+      },
+      { kind: 'notice', text: 'notice' },
+      { kind: 'clear' },
+      { kind: 'freeze', on: true },
+      { kind: 'filter', on: false },
+      { kind: 'slowmode', seconds: 60 },
+      { kind: 'mute', targetParticipantId: 'variant-recipient', on: true },
+    ];
+
+    for (const [index, payload] of payloads.entries()) {
+      await room.webSocketMessage(
+        sender,
+        JSON.stringify({
+          type: 'pro-realtime',
+          version: 1,
+          eventId: `variant-event-${String(index).padStart(8, '0')}`,
+          channel: 'chat',
+          payload,
+        }),
+      );
+      expect(sent(recipient).at(-1)).toMatchObject({
+        channel: 'chat',
+        payload:
+          payload.kind === 'system'
+            ? {
+                kind: 'system',
+                text: 'chat.system_audio_started_system_message',
+                i18nKey: 'chat.system_audio_started_system_message',
+              }
+            : payload,
+      });
+    }
+
+    await room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'ready-event-00000001',
+        channel: 'control-ready',
+        payload: { commandId: 'command-id-00000001', sequence: 4, ready: true },
+      }),
+    );
+    expect(sent(recipient).at(-1)).toMatchObject({
+      channel: 'control-ready',
+      payload: { commandId: 'command-id-00000001', sequence: 4, ready: true },
+    });
+
+    const sentCount = recipient.sent.length;
+    const invalidPayloads = [
+      { kind: 'message', text: 'hello', clientTs: 1, unexpected: true },
+      {
+        kind: 'bot-result',
+        requestId: 'bot-request-00000001',
+        result: { kind: 'added', count: 4, playbackChanged: false },
+      },
+      { kind: 'system', text: 'joined', i18nParams: { count: 2 } },
+      {
+        kind: 'system',
+        text: 'An administrator changed your room settings',
+        i18nKey: 'chat.fake_admin_message',
+      },
+      {
+        kind: 'system',
+        text: 'System audio sharing started',
+        i18nKey: 'chat.system_audio_started_system_message',
+        i18nParams: {},
+      },
+      {
+        kind: 'system',
+        text: 'tracks added',
+        i18nKey: 'chat.tracks_added',
+        i18nParams: { name: 'Mallory', count: 2, admin: 'true' },
+      },
+      {
+        kind: 'system',
+        text: 'track added',
+        i18nKey: 'chat.track_added_named',
+        i18nParams: { name: 'Mallory', count: 2, title: 'Not singular' },
+      },
+      {
+        kind: 'system',
+        text: 'tracks added',
+        i18nKey: 'chat.tracks_added_named',
+        i18nParams: { name: 'Mallory\u202e', count: 2, title: 'Hidden direction' },
+      },
+      JSON.parse(
+        '{"kind":"system","text":"joined","i18nKey":"chat.joined","i18nParams":{"__proto__":"pollute"}}',
+      ),
+      {
+        kind: 'system',
+        text: 'joined',
+        i18nKey: 'chat.joined',
+        i18nParams: { count: Number.MAX_SAFE_INTEGER + 1 },
+      },
+      { kind: 'slowmode', seconds: 61 },
+      { kind: 'mute', targetParticipantId: 'missing-member', on: true },
+    ];
+    for (const [index, payload] of invalidPayloads.entries()) {
+      await room.webSocketMessage(
+        sender,
+        JSON.stringify({
+          type: 'pro-realtime',
+          version: 1,
+          eventId: `invalid-event-${String(index).padStart(8, '0')}`,
+          channel: 'chat',
+          payload,
+        }),
+      );
+    }
+    expect(recipient.sent).toHaveLength(sentCount);
+  });
+
+  it('rate-limits PRO realtime frames and closes oversized senders without affecting peers', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T00:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const sender = await joinProMember(room, {
+      participantId: 'limited-sender',
+      presenceIncarnationId: 'limited-presence-sender',
+      jti: 'limited-ticket-sender01',
+    });
+    const recipient = await joinProMember(room, {
+      participantId: 'limited-recipient',
+      presenceIncarnationId: 'limited-presence-target',
+      jti: 'limited-ticket-target01',
+    });
+    const recipientStart = recipient.sent.length;
+    for (let index = 0; index < 120; index++) {
+      await room.webSocketMessage(
+        sender,
+        JSON.stringify({
+          type: 'pro-realtime',
+          version: 1,
+          eventId: `rate-event-${String(index).padStart(8, '0')}`,
+          channel: 'presence',
+          payload: { state: 'active' },
+        }),
+      );
+    }
+    expect(recipient.sent).toHaveLength(recipientStart + 120);
+
+    await room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'rate-event-over-limit',
+        channel: 'presence',
+        payload: { state: 'active' },
+      }),
+    );
+    expect(sender.closeEvents.at(-1)?.reason).toBe('SIGNALING_RATE_LIMITED');
+    expect(recipient.closed).toBe(false);
+
+    const oversized = await joinProMember(room, {
+      participantId: 'oversized-sender',
+      presenceIncarnationId: 'oversized-presence-send',
+      jti: 'oversized-ticket-sender1',
+    });
+    await room.webSocketMessage(oversized, 'x'.repeat(8 * 1024 + 1));
+    expect(oversized.closeEvents.at(-1)?.reason).toBe('SIGNALING_MESSAGE_TOO_LARGE');
+    expect(recipient.closed).toBe(false);
   });
 
   it('decommissions every PRO socket, leaves only a tombstone, and rejects old tickets idempotently', async () => {
@@ -755,6 +1666,18 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       }),
     );
     const member = lastServer();
+    await room.fetch(
+      new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: '000001',
+          coordinatorEpoch: 1,
+          targets: ['presence-incarnation-0001'],
+          event: { type: 'pro-presence-snapshot', presenceRevision: 1 },
+        }),
+      }),
+    );
     await state.storage.put('unrelatedPersistedState', { shouldBeDeleted: true });
     await state.storage.setAlarm(Date.now() + 60_000);
     const requestId = '12345678-1234-4123-8123-123456789abc';
@@ -885,7 +1808,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect([...state.storage.data.keys()]).toEqual(['proRoomDecommissioned']);
   });
 
-  it('dispatches a bounded server-only developer command only to the exact capable coordinator', async () => {
+  it('rejects the legacy coordinator developer-dispatch route without forwarding frames', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -894,7 +1817,6 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         participantId: 'coordinator-device',
         presenceIncarnationId: 'presence-incarnation-0001',
         jti: 'coordinator-ticket-0001',
-        developerControlVersion: 2,
       }),
     );
     const coordinator = lastServer();
@@ -936,9 +1858,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         }),
       );
 
+    const initialSentCount = coordinator.sent.length;
     const accepted = await dispatch('presence-incarnation-0001');
-    expect(accepted.status).toBe(200);
-    expect(sent(coordinator).at(-1)).toEqual(frame);
+    expect(accepted.status).toBe(409);
+    expect(JSON.parse(String(accepted.body))).toEqual({ error: 'PRO_COORDINATOR_REMOVED' });
+    expect(coordinator.sent).toHaveLength(initialSentCount);
 
     const sentCount = coordinator.sent.length;
     const rejected = await dispatch('presence-incarnation-stale');
@@ -946,7 +1870,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(coordinator.sent).toHaveLength(sentCount);
   });
 
-  it('dispatches a v3 next command only to a v3-capable coordinator', async () => {
+  it('rejects the legacy v3 next-command route without forwarding frames', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -955,7 +1879,6 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         participantId: 'coordinator-device',
         presenceIncarnationId: 'presence-incarnation-0001',
         jti: 'coordinator-ticket-0001',
-        developerControlVersion: 3,
       }),
     );
     const coordinator = lastServer();
@@ -988,11 +1911,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       }),
     );
 
-    expect(accepted.status).toBe(200);
-    expect(sent(coordinator).at(-1)).toEqual(frame);
+    expect(accepted.status).toBe(409);
+    expect(JSON.parse(String(accepted.body))).toEqual({ error: 'PRO_COORDINATOR_REMOVED' });
+    expect(sent(coordinator)).not.toContainEqual(frame);
   });
 
-  it('dispatches a bounded server-only invalidation only to the exact capable coordinator', async () => {
+  it('rejects the legacy coordinator invalidation route before parsing or forwarding', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -1001,7 +1925,6 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         participantId: 'coordinator-device',
         presenceIncarnationId: 'presence-incarnation-0001',
         jti: 'coordinator-ticket-0001',
-        developerControlVersion: 4,
       }),
     );
     const coordinator = lastServer();
@@ -1045,13 +1968,15 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         }),
       );
 
+    const initialSentCount = coordinator.sent.length;
     const accepted = await invalidate('presence-incarnation-0001');
-    expect(accepted.status).toBe(200);
-    expect(sent(coordinator).at(-1)).toEqual(frame);
+    expect(accepted.status).toBe(409);
+    expect(JSON.parse(String(accepted.body))).toEqual({ error: 'PRO_COORDINATOR_REMOVED' });
+    expect(coordinator.sent).toHaveLength(initialSentCount);
 
     const withAddition = await invalidate('presence-incarnation-0001', frame, addition);
-    expect(withAddition.status).toBe(200);
-    expect(sent(coordinator).slice(-2)).toEqual([frame, addition]);
+    expect(withAddition.status).toBe(409);
+    expect(coordinator.sent).toHaveLength(initialSentCount);
 
     const sentCount = coordinator.sent.length;
     const stale = await invalidate('presence-incarnation-stale');
@@ -1062,21 +1987,21 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       ...frame,
       unexpected: true,
     });
-    expect(malformed.status).toBe(400);
+    expect(malformed.status).toBe(409);
     expect(coordinator.sent).toHaveLength(sentCount);
 
     const malformedAddition = await invalidate('presence-incarnation-0001', frame, {
       ...addition,
       actorName: 'x'.repeat(31),
     });
-    expect(malformedAddition.status).toBe(400);
+    expect(malformedAddition.status).toBe(409);
     expect(coordinator.sent).toHaveLength(sentCount);
 
     const malformedTitle = await invalidate('presence-incarnation-0001', frame, {
       ...addition,
       firstTitle: 'bad\u202ename',
     });
-    expect(malformedTitle.status).toBe(400);
+    expect(malformedTitle.status).toBe(409);
     expect(coordinator.sent).toHaveLength(sentCount);
 
     const sendAttempts: unknown[] = [];
@@ -1087,11 +2012,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     };
     const failedInvalidation = await invalidate('presence-incarnation-0001', frame, addition);
     expect(failedInvalidation.status).toBe(409);
-    expect(sendAttempts).toEqual([frame]);
+    expect(sendAttempts).toEqual([]);
     coordinator.send = originalSend;
   });
 
-  it('advancing a PRO coordinator epoch closes every prior-epoch socket and rejects stale tickets', async () => {
+  it('advancing a PRO room epoch closes every prior-epoch member and rejects stale tickets', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -1121,8 +2046,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
     const newCoordinator = lastServer();
 
-    expect(oldCoordinator.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
-    expect(oldMember.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
+    expect(oldCoordinator.closeEvents.at(-1)?.reason).toBe('PRO_ROOM_EPOCH_ADVANCED');
+    expect(oldMember.closeEvents.at(-1)?.reason).toBe('PRO_ROOM_EPOCH_ADVANCED');
     expect(newCoordinator.closed).toBe(false);
 
     await room.fetch(
@@ -1137,7 +2062,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(staleMember)[0]).toMatchObject({ message: 'PRO_COORDINATOR_EPOCH_STALE' });
   });
 
-  it('reconnects the same coordinator after a PIN security epoch and closes revoked members', async () => {
+  it('reconnects an owner identity after a PIN security epoch and closes revoked members', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -1173,8 +2098,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
     const reconnectedOwner = lastServer();
 
-    expect(oldOwner.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
-    expect(revokedMember.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_ADVANCED');
+    expect(oldOwner.closeEvents.at(-1)?.reason).toBe('PRO_ROOM_EPOCH_ADVANCED');
+    expect(revokedMember.closeEvents.at(-1)?.reason).toBe('PRO_ROOM_EPOCH_ADVANCED');
     expect(reconnectedOwner.closed).toBe(false);
     expect(reconnectedOwner.deserializeAttachment()).toMatchObject({
       participantId: 'pin-owner',
@@ -1262,7 +2187,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
     const reconnect = lastServer();
 
-    expect(first.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(first.closeEvents.at(-1)?.reason).toBe('PRO_MEMBER_REPLACED');
     expect(reconnect.closed).toBe(false);
     expect(sent(reconnect)[0]).toMatchObject({ type: 'peer-open', peerId: 'same-member' });
   });
@@ -1311,7 +2236,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       }),
     );
     const reconnected = lastServer();
-    expect(live.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(live.closeEvents.at(-1)?.reason).toBe('PRO_MEMBER_REPLACED');
     expect(reconnected.closed).toBe(false);
   });
 
@@ -1392,7 +2317,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
-  it('admits one PRO coordinator plus at most 99 distinct members', async () => {
+  it('admits at most 100 equal PRO members', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -1424,21 +2349,22 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
     const rejected = lastServer();
 
-    expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_GUEST_LIMIT_REACHED');
-    expect(sent(rejected)[0]).toMatchObject({ message: 'ROOM_GUEST_LIMIT_REACHED' });
+    expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_MEMBER_LIMIT_REACHED');
+    expect(sent(rejected)[0]).toMatchObject({ message: 'ROOM_MEMBER_LIMIT_REACHED' });
     expect(coordinator.closed).toBe(false);
   });
 
-  it('rehydrates at most 99 PRO members alongside the coordinator', () => {
+  it('rehydrates at most 100 equal PRO members', () => {
     const state = new FakeDurableObjectState();
     const coordinator = new FakeSocket();
     coordinator.serializeAttachment({
       v: 1,
       roomKind: 'pro',
-      role: 'host',
+      role: 'member',
       roomId: '000001',
-      peerId: '000001',
+      peerId: 'rehydrated-coordinator',
       participantId: 'rehydrated-coordinator',
+      displayName: 'Peer 0',
       coordinatorEpoch: 1,
       ticketJti: 'rehydrated-coordinator-ticket',
       presenceIncarnationId: 'rehydrated-coordinator-presence',
@@ -1450,10 +2376,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       member.serializeAttachment({
         v: 1,
         roomKind: 'pro',
-        role: 'guest',
+        role: 'member',
         roomId: '000001',
         peerId: `rehydrated-member-${index}`,
         participantId: `rehydrated-member-${index}`,
+        displayName: `Peer ${index + 1}`,
         coordinatorEpoch: 1,
         ticketJti: `rehydrated-member-ticket-${index}`,
         presenceIncarnationId: `rehydrated-member-presence-${index}`,
@@ -1469,12 +2396,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(members.slice(0, 99).every((member) => !member.closed)).toBe(true);
     expect(members[99]?.closeEvents.at(-1)).toEqual({
       code: 1008,
-      reason: 'ROOM_GUEST_LIMIT_REACHED',
+      reason: 'ROOM_MEMBER_LIMIT_REACHED',
     });
     expect(coordinator.closed).toBe(false);
   });
 
-  it('rejects an older same-epoch coordinator ticket after a newer ticket has connected', async () => {
+  it('rejects an older same-epoch member ticket after a newer ticket has connected', async () => {
     const now = Math.floor(Date.now() / 1000);
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
@@ -1498,7 +2425,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       }),
     );
     const newer = lastServer();
-    expect(first.closeEvents.at(-1)?.reason).toBe('HOST_REPLACED');
+    expect(first.closeEvents.at(-1)?.reason).toBe('PRO_MEMBER_REPLACED');
     expect(newer.closed).toBe(false);
 
     await room.fetch(oldRequest);
@@ -1508,39 +2435,65 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(newer.closed).toBe(false);
   });
 
-  it('drops stale PRO attachments after hibernation before accepting the current epoch', async () => {
+  it('closes coordinator-era PRO attachments during hibernation rehydration', () => {
     const state = new FakeDurableObjectState();
-    state.storage.data.set('proRoomMeta', {
-      v: 1,
-      kind: 'pro',
-      roomId: '000001',
-      coordinatorEpoch: 2,
-      coordinatorParticipantId: 'current-coordinator',
-      coordinatorJti: 'current-coordinator-ticket',
-      coordinatorTicketIat: 0,
-    });
-    const staleCoordinator = new FakeSocket();
-    staleCoordinator.serializeAttachment({
+    const legacyCoordinator = new FakeSocket();
+    legacyCoordinator.serializeAttachment({
       v: 1,
       roomKind: 'pro',
       role: 'host',
       roomId: '000001',
       peerId: '000001',
+      participantId: 'legacy-coordinator',
+      coordinatorEpoch: 1,
+      ticketJti: 'legacy-coordinator-ticket',
+      auth: 'ok',
+    });
+    state.sockets.push(legacyCoordinator);
+
+    new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+
+    expect(legacyCoordinator.closeEvents).toEqual([
+      { code: 1012, reason: 'PRO_ROOM_PROTOCOL_UPGRADED' },
+    ]);
+  });
+
+  it('drops stale PRO attachments after hibernation before accepting the current epoch', async () => {
+    const state = new FakeDurableObjectState();
+    state.storage.data.set('proRoomMeta', {
+      v: 2,
+      kind: 'pro',
+      roomId: '000001',
+      coordinatorEpoch: 2,
+    });
+    const staleCoordinator = new FakeSocket();
+    staleCoordinator.serializeAttachment({
+      v: 1,
+      roomKind: 'pro',
+      role: 'member',
+      roomId: '000001',
+      peerId: 'old-coordinator',
       participantId: 'old-coordinator',
+      displayName: 'Old peer 0',
       coordinatorEpoch: 1,
       ticketJti: 'old-coordinator-ticket01',
+      presenceIncarnationId: 'old-coordinator-presence1',
+      ticketSequence: 1,
       auth: 'ok',
     });
     const staleMember = new FakeSocket();
     staleMember.serializeAttachment({
       v: 1,
       roomKind: 'pro',
-      role: 'guest',
+      role: 'member',
       roomId: '000001',
       peerId: 'old-member',
       participantId: 'old-member',
+      displayName: 'Old peer 1',
       coordinatorEpoch: 1,
       ticketJti: 'old-member-ticket-0001',
+      presenceIncarnationId: 'old-member-presence-0001',
+      ticketSequence: 1,
       auth: 'ok',
     });
     state.sockets.push(staleCoordinator, staleMember);
@@ -1556,8 +2509,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
     const currentCoordinator = lastServer();
 
-    expect(staleCoordinator.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_STALE');
-    expect(staleMember.closeEvents.at(-1)?.reason).toBe('PRO_COORDINATOR_EPOCH_STALE');
+    expect(staleCoordinator.closeEvents.at(-1)?.reason).toBe('PRO_ROOM_EPOCH_STALE');
+    expect(staleMember.closeEvents.at(-1)?.reason).toBe('PRO_ROOM_EPOCH_STALE');
     expect(currentCoordinator.closed).toBe(false);
     expect(currentCoordinator.deserializeAttachment()).toMatchObject({
       roomKind: 'pro',

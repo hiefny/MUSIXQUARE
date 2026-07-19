@@ -4,6 +4,9 @@ const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
+const YOUTUBE_PLAYLIST_MANIFEST_PAGE_SIZE = 50;
+const YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS = 45_000;
 const REALTIME_API_BASE = 'https://rtc.live.cloudflare.com/v1';
 const DEFAULT_MAX_RESULTS = 10;
 const MAX_RESULTS_LIMIT = 12;
@@ -3286,6 +3289,34 @@ function normalizePlaylistEntry(items, playlistId) {
   return null;
 }
 
+function normalizePlaylistManifestItem(item) {
+  const videoId = item?.contentDetails?.videoId || item?.snippet?.resourceId?.videoId;
+  if (typeof videoId !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(videoId)) return null;
+
+  const privacyStatus = item?.status?.privacyStatus;
+  if (privacyStatus === 'private') return null;
+
+  const title = normalizeExternalText(item?.snippet?.title).slice(0, 300);
+  if (!title || title === 'Deleted video' || title === 'Private video') return null;
+  return { videoId, title };
+}
+
+function parsePlaylistManifestPage(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  if (!Array.isArray(payload.items)) return null;
+  const totalResults = payload.pageInfo?.totalResults;
+  if (!Number.isSafeInteger(totalResults) || totalResults < 0) return null;
+  const nextPageToken = payload.nextPageToken;
+  if (nextPageToken !== undefined && (typeof nextPageToken !== 'string' || !nextPageToken)) {
+    return null;
+  }
+  return {
+    items: payload.items,
+    totalResults,
+    nextPageToken: nextPageToken || null,
+  };
+}
+
 function normalizeUpstreamError(payload) {
   const firstError = payload?.error?.errors?.[0] || {};
   return {
@@ -3434,6 +3465,126 @@ async function handleYoutubePlaylistEntry(request, env) {
       return json({ error: 'YOUTUBE_PLAYLIST_HAS_NO_PLAYABLE_ENTRY' }, 404, headers);
     }
     return json(entry, 200, headers);
+  } catch {
+    return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_PROXY_FAILED' }, 502, headers);
+  }
+}
+
+async function handleYoutubePlaylistManifest(request, env) {
+  const trust = trustedCors(request, 'GET, OPTIONS', env);
+  const { headers } = trust;
+  if (request.method === 'OPTIONS')
+    return withSecurityHeaders(new Response(null, { status: 204, headers }));
+  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
+  const guard = await guardSensitiveRequest(
+    request,
+    env,
+    trust,
+    'youtube-search',
+    'yt-playlist-manifest',
+    10,
+  );
+  if (guard) return guard;
+
+  const apiKey = env.YOUTUBE_API_KEY || env.YOUTUBE_DATA_API_KEY || '';
+  if (!apiKey) return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_UNAVAILABLE' }, 503, headers);
+
+  const url = new URL(request.url);
+  const keys = [...url.searchParams.keys()];
+  const playlistIds = url.searchParams.getAll('playlistId');
+  if (
+    keys.length !== 1 ||
+    keys[0] !== 'playlistId' ||
+    playlistIds.length !== 1 ||
+    !YOUTUBE_PLAYLIST_ID_RE.test(playlistIds[0])
+  ) {
+    return json({ error: 'INVALID_YOUTUBE_PLAYLIST_ID' }, 400, headers);
+  }
+  const playlistId = playlistIds[0];
+  const params = new URLSearchParams({
+    part: 'snippet,contentDetails,status',
+    playlistId,
+    maxResults: String(YOUTUBE_PLAYLIST_MANIFEST_PAGE_SIZE),
+    fields:
+      'nextPageToken,pageInfo/totalResults,items(contentDetails/videoId,snippet/resourceId/videoId,snippet/title,status/privacyStatus)',
+  });
+  const deadline = Date.now() + YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS;
+  const seenPageTokens = new Set();
+  const videoIds = [];
+  let firstTitle = '';
+  let expectedTotal = null;
+  let receivedItems = 0;
+  let pageToken = null;
+
+  try {
+    while (true) {
+      if (pageToken) params.set('pageToken', pageToken);
+      else params.delete('pageToken');
+
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return json({ error: 'YOUTUBE_PLAYLIST_MANIFEST_INCOMPLETE' }, 502, headers);
+      }
+      const response = await fetchWithTimeout(
+        `${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`,
+        { headers: { 'x-goog-api-key': apiKey } },
+        Math.min(8_000, remainingMs),
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const upstreamError = normalizeUpstreamError(payload);
+        return json(
+          {
+            error: 'YOUTUBE_PLAYLIST_RESOLUTION_FAILED',
+            upstreamStatus: response.status,
+            reason: upstreamError.reason,
+          },
+          getClientStatusForUpstreamError(response.status, upstreamError.reason),
+          headers,
+        );
+      }
+
+      const page = parsePlaylistManifestPage(payload);
+      if (!page || (expectedTotal !== null && page.totalResults !== expectedTotal)) {
+        return json({ error: 'YOUTUBE_PLAYLIST_MANIFEST_INCOMPLETE' }, 502, headers);
+      }
+      expectedTotal ??= page.totalResults;
+      if (expectedTotal > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS) {
+        return json({ error: 'YOUTUBE_PLAYLIST_MANIFEST_TOO_LARGE' }, 413, headers);
+      }
+
+      receivedItems += page.items.length;
+      if (receivedItems > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS) {
+        return json({ error: 'YOUTUBE_PLAYLIST_MANIFEST_TOO_LARGE' }, 413, headers);
+      }
+      for (const item of page.items) {
+        const playable = normalizePlaylistManifestItem(item);
+        if (!playable) continue;
+        if (!firstTitle) firstTitle = playable.title;
+        videoIds.push(playable.videoId);
+      }
+
+      if (!page.nextPageToken) {
+        if (receivedItems !== expectedTotal) {
+          return json({ error: 'YOUTUBE_PLAYLIST_MANIFEST_INCOMPLETE' }, 502, headers);
+        }
+        break;
+      }
+      if (
+        page.items.length === 0 ||
+        receivedItems >= expectedTotal ||
+        seenPageTokens.has(page.nextPageToken)
+      ) {
+        return json({ error: 'YOUTUBE_PLAYLIST_MANIFEST_INCOMPLETE' }, 502, headers);
+      }
+      seenPageTokens.add(page.nextPageToken);
+      pageToken = page.nextPageToken;
+    }
+
+    if (videoIds.length === 0 || !firstTitle) {
+      return json({ error: 'YOUTUBE_PLAYLIST_HAS_NO_PLAYABLE_ENTRY' }, 404, headers);
+    }
+    return json({ playlistId, videoId: videoIds[0], videoIds, title: firstTitle }, 200, headers);
   } catch {
     return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_PROXY_FAILED' }, 502, headers);
   }
@@ -5339,6 +5490,8 @@ export default {
         return handleYoutubeSearch(request, env);
       case '/api/youtube-playlist-entry':
         return handleYoutubePlaylistEntry(request, env);
+      case '/api/youtube-playlist-manifest':
+        return handleYoutubePlaylistManifest(request, env);
       case '/api/get-turn-config':
         return handleTurnConfig(request, env);
       case '/api/cloudflare-realtime':

@@ -63,6 +63,7 @@ const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
 const PLAYLIST_MAX_ITEMS = 1000;
 const DEVELOPER_YOUTUBE_BATCH_MAX_ITEMS = 100;
+const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5000;
 const DEVELOPER_REMOVE_MANY_MAX_ITEMS = 20;
 const BOT_MAX_TRACK_ITEMS = 3;
 const BOT_MEMBER_MINUTE_LIMIT = 3;
@@ -70,8 +71,8 @@ const BOT_ROOM_HOUR_LIMIT = 100;
 const BOT_MEMBER_MINUTE_MS = 60 * 1000;
 const BOT_ROOM_HOUR_MS = 60 * 60 * 1000;
 const BOT_REQUEST_LEASE_MS = 45 * 1000;
-// The elected coordinator is one of the 100 connected devices. Signaling
-// separately admits at most 99 non-coordinator members for the same ceiling.
+// Every active PRO participant is an equal room member. Signaling applies the
+// same 100-device ceiling to the corresponding authenticated control sockets.
 const PRESENCE_MAX_ITEMS = 100;
 const SESSION_MAX_ITEMS = 128;
 const ASSET_MAX_ITEMS = 1024;
@@ -85,9 +86,9 @@ const STAGING_TOMBSTONE_MAX_ITEMS = ASSET_MAX_ITEMS;
 const DEVELOPER_COMMAND_MAX_ITEMS = 64;
 const DEVELOPER_COMMAND_MAX_ACTIVE_ITEMS = 8;
 // The command ledger is intentionally separate from the browser mutation
-// idempotency ledger. A long-lived coordinator writes a fresh playback
-// checkpoint key every 10 seconds, so sharing the 256-slot browser ledger can
-// evict a new API key immediately and turn a retry into a duplicate command.
+// idempotency ledger. Keeping the API window independent prevents sustained
+// automation from evicting a fresh browser receipt and turning a retry into a
+// duplicate command.
 // One room-bound API key may issue 30 commands/minute; 384 entries preserve a
 // full ten-minute window even across a fixed-window rate-limit boundary.
 const DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS = 384;
@@ -111,10 +112,21 @@ const PRESENCE_TTL_SECONDS = 45;
 const PRESENCE_HEARTBEAT_EXPECTED_INTERVAL_MS = 15_000;
 const PRESENCE_HEARTBEAT_PERSIST_COALESCE_MS = 1_000;
 const PRESENCE_HEARTBEAT_PERSIST_RETRY_MS = 1_000;
+const ALARM_MAINTENANCE_RETRY_MAX_MS = 60_000;
 const PRESENCE_HEARTBEAT_PERSIST_EXPIRY_GUARD_MS =
   PRESENCE_HEARTBEAT_EXPECTED_INTERVAL_MS +
   PRESENCE_HEARTBEAT_PERSIST_COALESCE_MS +
   PRESENCE_HEARTBEAT_PERSIST_RETRY_MS;
+const PRESENCE_BROADCAST_RETRY_BASE_MS = 1_000;
+const PRESENCE_BROADCAST_RETRY_MAX_MS = 60_000;
+const PRESENCE_BROADCAST_RETRY_MAX_ATTEMPTS = 16;
+const PLAYBACK_BROADCAST_RETRY_BASE_MS = 1_000;
+const PLAYBACK_BROADCAST_RETRY_MAX_MS = 60_000;
+const PLAYBACK_BROADCAST_RETRY_MAX_ATTEMPTS = 16;
+// One undelivered canonical COMMIT may be the base for one newer PREPARE or
+// CANCEL. Newer COMMITs supersede both, so the durable playback outbox never
+// needs more than these two ordered records.
+const PLAYBACK_BROADCAST_OUTBOX_MAX_ITEMS = 2;
 // Keep the single-record rollback shadow fresh enough that an immediately
 // rolled-back Worker still sees a live participant, without rewriting a
 // potentially large legacy playlist on every 15-second heartbeat.
@@ -145,7 +157,17 @@ const MAX_DISPLAY_NAME_LENGTH = 64;
 const MAX_MEDIA_NAME_LENGTH = 2048;
 const MAX_TEXT_LENGTH = 2048;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
-const PLAYBACK_CLOCK_SKEW_MS = 60_000;
+const PLAYBACK_TRANSITION_DEADLINE_MS = 3_000;
+const PLAYBACK_COMMIT_LEAD_MS = 700;
+// A browser ENDED event is an observation, not a control command.  When the
+// media reports a finite duration, require both the browser cursor and the
+// server-projected room cursor to be genuinely near that end.  Unknown/live
+// durations use the narrower timeline-alignment rule in
+// applyPlaybackAuthorityCommand instead of being rejected wholesale.
+const PLAYBACK_ENDED_NEAR_END_TOLERANCE_SECONDS = 2;
+const PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS = 10;
+const PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS = 750;
+const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
 const RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 // v1 covers direct playback controls and queue invalidations. v2 adds
@@ -184,7 +206,6 @@ const CONTROLLER_CAPABILITIES = [
   'playback.control',
   'effects.control',
   'asset.upload',
-  'coordinator.eligible',
   'members.manage',
 ];
 const OWNER_CAPABILITIES = [...CONTROLLER_CAPABILITIES, 'room.configure'];
@@ -352,6 +373,14 @@ function validDeveloperActorName(value) {
     boundedString(value, MAX_DISPLAY_NAME_LENGTH) !== null &&
     !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(value)
   );
+}
+
+function signalingDisplayName(value) {
+  const normalized =
+    typeof value === 'string'
+      ? value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '').trim()
+      : '';
+  return normalized.slice(0, MAX_DISPLAY_NAME_LENGTH) || 'Peer';
 }
 
 function queueAdditionActorName(value, fallback = 'Peer') {
@@ -750,12 +779,15 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
       youtubeVideoId: null,
       youtubeSubIndex: null,
     },
+    pendingPlaybackTransition: null,
+    pendingPlaybackBroadcasts: [],
     presence: {
       coordinatorEpoch: 0,
       revision: 0,
       coordinatorParticipantId: null,
       participants: {},
     },
+    pendingPresenceBroadcast: null,
     queueMode: initialQueueModeState(),
     systemAudio: initialSystemAudioState(),
     effects: initialEffectsState(),
@@ -1202,6 +1234,7 @@ function publicPlaylistItem(item) {
           kind: 'youtube',
           videoId: item.source.videoId,
           ...(item.source.playlistId === undefined ? {} : { playlistId: item.source.playlistId }),
+          ...(item.source.videoIds === undefined ? {} : { videoIds: [...item.source.videoIds] }),
         }
       : {
           kind: 'pro-r2',
@@ -1245,7 +1278,7 @@ function publicSnapshot(room, session = null) {
           room.status === 'active'
             ? [...(session.role === 'owner' ? OWNER_CAPABILITIES : CONTROLLER_CAPABILITIES)]
             : [],
-        coordinatorEligible: room.status === 'active',
+        coordinatorEligible: false,
       }
     : null;
   // An awake snapshot may only advertise a viewer currently in presence.
@@ -1257,6 +1290,8 @@ function publicSnapshot(room, session = null) {
     runtime: room.runtime,
     revision: room.revision,
     playlistRevision: room.playlistRevision,
+    effectsRevision: room.effects.revision,
+    queueModeRevision: room.queueMode.revision,
     // Developer ownership is private server state. Keeping the public v1
     // playlist exact lets cached clients round-trip snapshots without learning
     // or being able to forge API-key attribution.
@@ -1304,9 +1339,6 @@ function developerQueueItem(item, requesterKeyId) {
 
 function developerProjection(room, projection, nowMs, requesterKeyId) {
   if (projection === 'room') {
-    const coordinator = room.presence.coordinatorParticipantId
-      ? room.presence.participants[room.presence.coordinatorParticipantId]
-      : null;
     return {
       schemaVersion: 1,
       view: 'room',
@@ -1315,10 +1347,9 @@ function developerProjection(room, projection, nowMs, requesterKeyId) {
       runtime: room.runtime,
       revision: room.revision,
       participantCount: Object.keys(room.presence.participants).length,
-      controlAvailable:
-        room.runtime === 'awake' &&
-        room.status === 'active' &&
-        supportsDeveloperControl(coordinator),
+      // The Durable Object is the authority. Developer control no longer
+      // depends on one browser tab remaining awake and relay-capable.
+      controlAvailable: room.status === 'active',
       quota: { ...room.quota },
     };
   }
@@ -1349,6 +1380,8 @@ function developerProjection(room, projection, nowMs, requesterKeyId) {
       state: room.playback.state,
       queueItemId: room.playback.queueItemId,
       positionSeconds,
+      youtubeVideoId: room.playback.youtubeVideoId,
+      youtubeSubIndex: room.playback.youtubeSubIndex,
       observedAtMs: nowMs,
       item: item ? developerQueueItem(item, requesterKeyId) : null,
     };
@@ -1402,14 +1435,6 @@ function requiredDeveloperControlVersion(command) {
   return DEVELOPER_CONTROL_VERSION;
 }
 
-function supportsDeveloperControl(participant, requiredVersion = DEVELOPER_CONTROL_VERSION) {
-  return (
-    Number.isSafeInteger(participant?.developerControlVersion) &&
-    participant.developerControlVersion >= requiredVersion &&
-    participant.developerControlVersion <= DEVELOPER_CONTROL_MAX_VERSION
-  );
-}
-
 function randomQueueItemId() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -1434,13 +1459,57 @@ function parseDeveloperMetadata(value, requiredName = true) {
 }
 
 function canonicalizeDeveloperYouTubeBatchItems(items) {
-  const seenPlaylistIds = new Set();
-  return items.filter((item) => {
-    if (item.playlistId === undefined) return true;
-    if (seenPlaylistIds.has(item.playlistId)) return false;
-    seenPlaylistIds.add(item.playlistId);
-    return true;
-  });
+  const result = [];
+  const playlistAggregates = new Map();
+  for (const item of items) {
+    if (item.playlistId === undefined) {
+      result.push(item);
+      continue;
+    }
+    const aggregate = playlistAggregates.get(item.playlistId);
+    if (aggregate === undefined) {
+      playlistAggregates.set(item.playlistId, {
+        index: result.length,
+        mode: item.videoIds === undefined ? 'rows' : 'manifest',
+      });
+      result.push(item);
+      continue;
+    }
+    const existing = result[aggregate.index];
+    if (aggregate.mode === 'manifest') {
+      if (
+        item.videoIds === undefined ||
+        existing.videoIds.length !== item.videoIds.length ||
+        existing.videoIds.some((videoId, index) => videoId !== item.videoIds[index])
+      ) {
+        return null;
+      }
+      continue;
+    }
+    if (item.videoIds !== undefined) return null;
+    const videoIds = [
+      ...(existing.videoIds === undefined ? [existing.videoId] : existing.videoIds),
+      item.videoId,
+    ];
+    if (videoIds.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS) return null;
+    result[aggregate.index] = { ...existing, videoIds };
+  }
+  return result;
+}
+
+function parseYouTubeVideoIds(value, videoId, playlistId) {
+  if (value === undefined) return undefined;
+  if (
+    playlistId === undefined ||
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS ||
+    !value.includes(videoId) ||
+    value.some((candidate) => !YOUTUBE_VIDEO_ID_RE.test(candidate || ''))
+  ) {
+    return null;
+  }
+  return [...value];
 }
 
 function parseDeveloperQueueMutation(value) {
@@ -1450,7 +1519,7 @@ function parseDeveloperQueueMutation(value) {
       !hasExactKeys(
         value,
         ['type', 'videoId', 'name'],
-        ['playlistId', 'title', 'artist', 'thumbnail'],
+        ['playlistId', 'videoIds', 'title', 'artist', 'thumbnail'],
       ) ||
       !YOUTUBE_VIDEO_ID_RE.test(value.videoId || '') ||
       (value.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(value.playlistId || ''))
@@ -1458,11 +1527,13 @@ function parseDeveloperQueueMutation(value) {
       return null;
     }
     const metadata = parseDeveloperMetadata(value);
-    if (!metadata) return null;
+    const videoIds = parseYouTubeVideoIds(value.videoIds, value.videoId, value.playlistId);
+    if (!metadata || videoIds === null) return null;
     return {
       type: 'add_youtube',
       videoId: value.videoId,
       ...(value.playlistId === undefined ? {} : { playlistId: value.playlistId }),
+      ...(videoIds === undefined ? {} : { videoIds }),
       ...metadata,
     };
   }
@@ -1477,27 +1548,30 @@ function parseDeveloperQueueMutation(value) {
     }
     const items = value.items.map((item) => {
       if (
-        !hasExactKeys(item, ['videoId', 'name'], ['playlistId', 'title', 'artist', 'thumbnail']) ||
+        !hasExactKeys(
+          item,
+          ['videoId', 'name'],
+          ['playlistId', 'videoIds', 'title', 'artist', 'thumbnail'],
+        ) ||
         !YOUTUBE_VIDEO_ID_RE.test(item.videoId || '') ||
         (item.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
       ) {
         return null;
       }
       const metadata = parseDeveloperMetadata(item);
-      return metadata
+      const videoIds = parseYouTubeVideoIds(item.videoIds, item.videoId, item.playlistId);
+      return metadata && videoIds !== null
         ? {
             videoId: item.videoId,
             ...(item.playlistId === undefined ? {} : { playlistId: item.playlistId }),
+            ...(videoIds === undefined ? {} : { videoIds }),
             ...metadata,
           }
         : null;
     });
-    return items.some((item) => item === null)
-      ? null
-      : {
-          type: 'add_youtube_batch',
-          items: canonicalizeDeveloperYouTubeBatchItems(items),
-        };
+    if (items.some((item) => item === null)) return null;
+    const canonicalItems = canonicalizeDeveloperYouTubeBatchItems(items);
+    return canonicalItems === null ? null : { type: 'add_youtube_batch', items: canonicalItems };
   }
   if (value.type === 'remove') {
     return hasExactKeys(value, ['type', 'queueItemId']) &&
@@ -1661,9 +1735,7 @@ function parseBotPlan(value) {
 function parseBotTracks(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > BOT_MAX_TRACK_ITEMS) return null;
   const mutation = parseDeveloperQueueMutation({ type: 'add_youtube_batch', items: value });
-  return mutation?.type === 'add_youtube_batch' && mutation.items.length === value.length
-    ? mutation.items
-    : null;
+  return mutation?.type === 'add_youtube_batch' ? mutation.items : null;
 }
 
 function botDestructiveSummary(action, removedCount, languageHint = '') {
@@ -1773,10 +1845,15 @@ function parsePlaylistItem(value) {
     }
   }
   const source = value.source;
-  if (hasExactKeys(source, ['kind', 'videoId'], ['playlistId']) && source.kind === 'youtube') {
+  if (
+    hasExactKeys(source, ['kind', 'videoId'], ['playlistId', 'videoIds']) &&
+    source.kind === 'youtube'
+  ) {
     if (!YOUTUBE_VIDEO_ID_RE.test(source.videoId)) return null;
     if (source.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(source.playlistId))
       return null;
+    const videoIds = parseYouTubeVideoIds(source.videoIds, source.videoId, source.playlistId);
+    if (videoIds === null) return null;
     return {
       queueItemId: value.queueItemId,
       name: value.name,
@@ -1785,6 +1862,7 @@ function parsePlaylistItem(value) {
         kind: 'youtube',
         videoId: source.videoId,
         ...(source.playlistId === undefined ? {} : { playlistId: source.playlistId }),
+        ...(videoIds === undefined ? {} : { videoIds }),
       },
     };
   }
@@ -1832,6 +1910,44 @@ function parsePlaylist(value) {
     result.push(item);
   }
   return result;
+}
+
+function preservesImmutableYouTubeManifest(previous, next) {
+  const previousVideoIds =
+    previous?.source.kind === 'youtube' ? previous.source.videoIds : undefined;
+  const nextVideoIds = next?.source.kind === 'youtube' ? next.source.videoIds : undefined;
+  if (previousVideoIds === undefined && nextVideoIds === undefined) return true;
+  // A legacy playlist row may be enriched exactly once after the client has
+  // resolved its canonical ordered manifest. The queue item and source
+  // identity must not change during that bounded upgrade.
+  if (previousVideoIds === undefined && Array.isArray(nextVideoIds)) {
+    return (
+      previous?.source.kind === 'youtube' &&
+      next?.source.kind === 'youtube' &&
+      previous.source.playlistId !== undefined &&
+      previous.source.playlistId === next.source.playlistId &&
+      previous.source.videoId === next.source.videoId
+    );
+  }
+  return (
+    previous?.source.kind === 'youtube' &&
+    next?.source.kind === 'youtube' &&
+    previous.source.playlistId === next.source.playlistId &&
+    previous.source.videoId === next.source.videoId &&
+    Array.isArray(previousVideoIds) &&
+    Array.isArray(nextVideoIds) &&
+    previousVideoIds.length === nextVideoIds.length &&
+    previousVideoIds.every((videoId, index) => videoId === nextVideoIds[index])
+  );
+}
+
+function playbackMatchesYouTubeManifest(playback, item) {
+  if (item?.source.kind !== 'youtube' || item.source.videoIds === undefined) return true;
+  return (
+    isSafeNonNegativeInteger(playback.youtubeSubIndex) &&
+    playback.youtubeSubIndex < item.source.videoIds.length &&
+    item.source.videoIds[playback.youtubeSubIndex] === playback.youtubeVideoId
+  );
 }
 
 function playbackSemanticallyEqual(left, right) {
@@ -1890,7 +2006,8 @@ function parsePlaybackCandidate(value, playlistById, currentQueueItemId, coordin
       if (
         !YOUTUBE_VIDEO_ID_RE.test(value.youtubeVideoId) ||
         !isSafeNonNegativeInteger(value.youtubeSubIndex) ||
-        value.youtubeSubIndex > 100_000
+        value.youtubeSubIndex > 100_000 ||
+        !playbackMatchesYouTubeManifest(value, currentItem)
       ) {
         return null;
       }
@@ -1901,27 +2018,318 @@ function parsePlaybackCandidate(value, playlistById, currentQueueItemId, coordin
   return structuredClone(value);
 }
 
-function parsePlayback(
-  value,
-  playlistById,
-  currentQueueItemId,
-  coordinatorEpoch,
-  currentPlayback,
-  nowMs,
-) {
-  const parsed = parsePlaybackCandidate(value, playlistById, currentQueueItemId, coordinatorEpoch);
-  if (!parsed) return null;
-  const unchanged = playbackSemanticallyEqual(parsed, currentPlayback);
-  const expectedRevision = currentPlayback.revision + (unchanged ? 0 : 1);
-  if (!Number.isSafeInteger(expectedRevision) || parsed.revision !== expectedRevision) return null;
-  if (unchanged) return structuredClone(currentPlayback);
-  if (Math.abs(parsed.updatedAtMs - nowMs) > PLAYBACK_CLOCK_SKEW_MS) return null;
-  parsed.revision = expectedRevision;
-  // Persist a server clock checkpoint after accepting a reasonably fresh
-  // client observation. This prevents a forged far-future timestamp from
-  // accelerating a sleeping room's resume position.
-  parsed.updatedAtMs = nowMs;
-  return parsed;
+function playbackPositionAt(playback, nowMs) {
+  if (
+    playback.state !== 'playing' ||
+    !Number.isSafeInteger(playback.updatedAtMs) ||
+    playback.updatedAtMs <= 0 ||
+    nowMs <= playback.updatedAtMs
+  ) {
+    return playback.positionSeconds;
+  }
+  return Math.min(
+    PLAYBACK_MAX_POSITION_SECONDS,
+    playback.positionSeconds + (nowMs - playback.updatedAtMs) / 1_000,
+  );
+}
+
+function playbackTraversalOrder(room) {
+  return room.queueMode.shuffleEnabled
+    ? [...room.queueMode.shuffleOrder]
+    : room.playlist.map((item) => item.queueItemId);
+}
+
+function adjacentQueueItemId(room, direction, { repeatCurrent = false } = {}) {
+  const order = playbackTraversalOrder(room);
+  if (order.length === 0) return null;
+  const current = room.currentQueueItemId;
+  if (repeatCurrent && current && order.includes(current)) return current;
+  const index = current ? order.indexOf(current) : -1;
+  if (direction === 'next') {
+    const nextIndex = index < 0 ? 0 : index + 1;
+    if (nextIndex < order.length) return order[nextIndex];
+    return room.queueMode.repeatMode === 1 ? order[0] : null;
+  }
+  if (index > 0) return order[index - 1];
+  if (index === 0 && room.queueMode.repeatMode === 1 && order.length > 1) {
+    return order[order.length - 1];
+  }
+  return current || order[0];
+}
+
+function parsePlaybackAuthorityCommand(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!isSafeNonNegativeInteger(value.baseRevision)) return null;
+  const base = { type: value.type, baseRevision: value.baseRevision };
+  if (
+    value.type === 'play' ||
+    value.type === 'pause' ||
+    value.type === 'stop' ||
+    value.type === 'next' ||
+    value.type === 'previous'
+  ) {
+    return hasExactKeys(value, ['type', 'baseRevision']) ? base : null;
+  }
+  if (value.type === 'seek') {
+    return hasExactKeys(value, ['type', 'baseRevision', 'positionSeconds']) &&
+      Number.isFinite(value.positionSeconds) &&
+      value.positionSeconds >= 0 &&
+      value.positionSeconds <= PLAYBACK_MAX_POSITION_SECONDS
+      ? { ...base, positionSeconds: value.positionSeconds }
+      : null;
+  }
+  if (value.type === 'select') {
+    if (
+      !hasExactKeys(
+        value,
+        ['type', 'baseRevision', 'queueItemId'],
+        ['state', 'positionSeconds', 'youtubeVideoId', 'youtubeSubIndex'],
+      ) ||
+      !QUEUE_ITEM_ID_RE.test(value.queueItemId || '') ||
+      (value.state !== undefined && value.state !== 'playing' && value.state !== 'paused') ||
+      (value.positionSeconds !== undefined &&
+        (!Number.isFinite(value.positionSeconds) ||
+          value.positionSeconds < 0 ||
+          value.positionSeconds > PLAYBACK_MAX_POSITION_SECONDS)) ||
+      (value.youtubeVideoId !== undefined &&
+        !YOUTUBE_VIDEO_ID_RE.test(value.youtubeVideoId || '')) ||
+      (value.youtubeSubIndex !== undefined &&
+        (!isSafeNonNegativeInteger(value.youtubeSubIndex) || value.youtubeSubIndex > 100_000))
+    ) {
+      return null;
+    }
+    if ((value.youtubeVideoId === undefined) !== (value.youtubeSubIndex === undefined)) return null;
+    return {
+      ...base,
+      queueItemId: value.queueItemId,
+      state: value.state || 'playing',
+      positionSeconds: value.positionSeconds || 0,
+      ...(value.youtubeVideoId === undefined
+        ? {}
+        : { youtubeVideoId: value.youtubeVideoId, youtubeSubIndex: value.youtubeSubIndex }),
+    };
+  }
+  if (value.type === 'ended' || value.type === 'unavailable') {
+    if (
+      !hasExactKeys(
+        value,
+        [
+          'type',
+          'baseRevision',
+          'queueItemId',
+          'mediaKind',
+          'observedPositionSeconds',
+          'durationSeconds',
+        ],
+        ['youtubeVideoId', 'youtubeSubIndex'],
+      ) ||
+      !QUEUE_ITEM_ID_RE.test(value.queueItemId || '') ||
+      (value.mediaKind !== 'file' && value.mediaKind !== 'youtube') ||
+      !Number.isFinite(value.observedPositionSeconds) ||
+      value.observedPositionSeconds < 0 ||
+      value.observedPositionSeconds > PLAYBACK_MAX_POSITION_SECONDS ||
+      (value.durationSeconds !== null &&
+        (!Number.isFinite(value.durationSeconds) ||
+          value.durationSeconds <= 0 ||
+          value.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS)) ||
+      (value.youtubeVideoId !== undefined &&
+        !YOUTUBE_VIDEO_ID_RE.test(value.youtubeVideoId || '')) ||
+      (value.youtubeSubIndex !== undefined &&
+        (!isSafeNonNegativeInteger(value.youtubeSubIndex) || value.youtubeSubIndex > 100_000)) ||
+      (value.youtubeVideoId === undefined) !== (value.youtubeSubIndex === undefined)
+    ) {
+      return null;
+    }
+    return {
+      ...base,
+      queueItemId: value.queueItemId,
+      mediaKind: value.mediaKind,
+      observedPositionSeconds: value.observedPositionSeconds,
+      durationSeconds: value.durationSeconds,
+      ...(value.youtubeVideoId === undefined
+        ? {}
+        : { youtubeVideoId: value.youtubeVideoId, youtubeSubIndex: value.youtubeSubIndex }),
+    };
+  }
+  return null;
+}
+
+function normalizeStoredPlaybackTransition(value, room) {
+  if (value === null || value === undefined) return null;
+  if (
+    !hasExactKeys(
+      value,
+      [
+        'transitionId',
+        'coordinatorEpoch',
+        'basePlaybackRevision',
+        'createdAtMs',
+        'deadlineAtMs',
+        'target',
+        'cohort',
+        'ready',
+        'developerCommandId',
+      ],
+      ['resumeFromSleep'],
+    ) ||
+    !PLAYBACK_TRANSITION_ID_RE.test(value.transitionId || '') ||
+    value.coordinatorEpoch !== room.presence.coordinatorEpoch ||
+    value.basePlaybackRevision !== room.playback.revision ||
+    !isSafeNonNegativeInteger(value.createdAtMs) ||
+    !isSafeNonNegativeInteger(value.deadlineAtMs) ||
+    value.deadlineAtMs < value.createdAtMs ||
+    value.deadlineAtMs - value.createdAtMs > PLAYBACK_TRANSITION_DEADLINE_MS ||
+    !Array.isArray(value.cohort) ||
+    value.cohort.length > PRESENCE_MAX_ITEMS ||
+    new Set(value.cohort).size !== value.cohort.length ||
+    value.cohort.some((incarnationId) => !OPAQUE_ID_RE.test(incarnationId || '')) ||
+    !value.ready ||
+    typeof value.ready !== 'object' ||
+    Array.isArray(value.ready) ||
+    Object.keys(value.ready).some(
+      (incarnationId) =>
+        !value.cohort.includes(incarnationId) ||
+        (value.ready[incarnationId] !== 'ready' && value.ready[incarnationId] !== 'failed'),
+    ) ||
+    (value.resumeFromSleep !== undefined && value.resumeFromSleep !== true) ||
+    (value.developerCommandId !== null &&
+      !DEVELOPER_COMMAND_ID_RE.test(value.developerCommandId || ''))
+  ) {
+    return null;
+  }
+  const target = parsePlaybackCandidate(
+    value.target,
+    new Map(room.playlist.map((item) => [item.queueItemId, item])),
+    value.target?.queueItemId ?? null,
+    room.presence.coordinatorEpoch,
+  );
+  if (!target || target.revision !== room.playback.revision + 1) return null;
+  return structuredClone(value);
+}
+
+function normalizeStoredPlaybackBroadcastRecord(value, room) {
+  if (
+    !hasExactKeys(value, [
+      'kind',
+      'coordinatorEpoch',
+      'transitionId',
+      'basePlaybackRevision',
+      'playbackRevision',
+      'targets',
+      'event',
+      'createdAtMs',
+      'attempts',
+      'retryAtMs',
+    ]) ||
+    (value.kind !== 'prepare' && value.kind !== 'cancel' && value.kind !== 'commit') ||
+    value.coordinatorEpoch !== room.presence.coordinatorEpoch ||
+    (value.transitionId !== null && !PLAYBACK_TRANSITION_ID_RE.test(value.transitionId || '')) ||
+    !isSafeNonNegativeInteger(value.basePlaybackRevision) ||
+    !isSafeNonNegativeInteger(value.playbackRevision) ||
+    value.playbackRevision !== value.basePlaybackRevision + 1 ||
+    !Array.isArray(value.targets) ||
+    value.targets.length === 0 ||
+    value.targets.length > PRESENCE_MAX_ITEMS ||
+    new Set(value.targets).size !== value.targets.length ||
+    value.targets.some((target) => !OPAQUE_ID_RE.test(target || '')) ||
+    !isSafeNonNegativeInteger(value.createdAtMs) ||
+    !isSafeNonNegativeInteger(value.attempts) ||
+    value.attempts > PLAYBACK_BROADCAST_RETRY_MAX_ATTEMPTS ||
+    !Number.isSafeInteger(value.retryAtMs) ||
+    value.retryAtMs <= 0 ||
+    !value.event ||
+    typeof value.event !== 'object' ||
+    Array.isArray(value.event)
+  ) {
+    return null;
+  }
+
+  const event = value.event;
+  if (value.kind === 'prepare') {
+    if (
+      !hasExactKeys(event, [
+        'type',
+        'transitionId',
+        'serverTimeMs',
+        'deadlineAtMs',
+        'basePlaybackRevision',
+        'target',
+      ]) ||
+      event.type !== 'pro-playback-prepare' ||
+      event.transitionId !== value.transitionId ||
+      event.basePlaybackRevision !== value.basePlaybackRevision ||
+      !isSafeNonNegativeInteger(event.serverTimeMs) ||
+      !isSafeNonNegativeInteger(event.deadlineAtMs) ||
+      event.deadlineAtMs < event.serverTimeMs ||
+      event.deadlineAtMs - event.serverTimeMs > PLAYBACK_TRANSITION_DEADLINE_MS
+    ) {
+      return null;
+    }
+    const target = parsePlaybackCandidate(
+      event.target,
+      new Map(room.playlist.map((item) => [item.queueItemId, item])),
+      event.target?.queueItemId ?? null,
+      value.coordinatorEpoch,
+    );
+    if (!target || target.revision !== value.playbackRevision) return null;
+  } else if (value.kind === 'cancel') {
+    if (
+      !hasExactKeys(event, ['type', 'transitionId', 'serverTimeMs', 'reason']) ||
+      event.type !== 'pro-playback-cancel' ||
+      event.transitionId !== value.transitionId ||
+      !isSafeNonNegativeInteger(event.serverTimeMs) ||
+      typeof event.reason !== 'string' ||
+      event.reason.length === 0 ||
+      event.reason.length > 64
+    ) {
+      return null;
+    }
+  } else {
+    if (
+      !hasExactKeys(event, ['type', 'transitionId', 'serverTimeMs', 'executeAtMs', 'playback']) ||
+      event.type !== 'pro-playback-commit' ||
+      event.transitionId !== value.transitionId ||
+      !isSafeNonNegativeInteger(event.serverTimeMs) ||
+      !isSafeNonNegativeInteger(event.executeAtMs)
+    ) {
+      return null;
+    }
+    const playback = parsePlaybackCandidate(
+      event.playback,
+      new Map(room.playlist.map((item) => [item.queueItemId, item])),
+      event.playback?.queueItemId ?? null,
+      value.coordinatorEpoch,
+    );
+    if (
+      !playback ||
+      playback.revision !== value.playbackRevision ||
+      playback.updatedAtMs !== event.executeAtMs
+    ) {
+      return null;
+    }
+  }
+  return structuredClone(value);
+}
+
+function normalizeStoredPlaybackBroadcasts(value, room) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > PLAYBACK_BROADCAST_OUTBOX_MAX_ITEMS) return [];
+  const records = value.map((record) => normalizeStoredPlaybackBroadcastRecord(record, room));
+  if (records.some((record) => record === null)) return [];
+  if (records.length === 2) {
+    const [first, second] = records;
+    const commitThenSuccessor =
+      first.kind === 'commit' &&
+      second.kind !== 'commit' &&
+      first.playbackRevision === second.basePlaybackRevision;
+    const cancelThenTransition =
+      first.kind === 'cancel' &&
+      second.kind !== 'cancel' &&
+      first.basePlaybackRevision === second.basePlaybackRevision &&
+      first.playbackRevision === second.playbackRevision;
+    if (!commitThenSuccessor && !cancelThenTransition) return [];
+  }
+  return records;
 }
 
 function hex(bytes) {
@@ -2027,6 +2435,14 @@ class RoomStateCapacityError extends Error {
   constructor() {
     super('PRO room state exceeds its bounded storage budget');
     this.name = 'RoomStateCapacityError';
+  }
+}
+
+class RoomStateStorageCommitError extends Error {
+  constructor(cause) {
+    const detail = cause instanceof Error && cause.message ? `: ${cause.message}` : '';
+    super(`PRO room state storage transaction failed${detail}`, { cause });
+    this.name = 'RoomStateStorageCommitError';
   }
 }
 
@@ -2214,6 +2630,7 @@ export class MusixquareProRoom {
     this.effectsMigrationPending = false;
     this.queueModeMigrationPending = false;
     this.developerCommandMigrationPending = false;
+    this.playbackAuthorityMigrationPending = false;
     this.persistedPlaylistSignatures = new Map();
     this.persistedPresenceLastSeenAtMs = new Map();
     this.hasV2Persistence = false;
@@ -2223,6 +2640,10 @@ export class MusixquareProRoom {
     this.heartbeatFlushGeneration = 0;
     this.pendingHeartbeatFlushGeneration = null;
     this.pendingHeartbeatFlushTimer = null;
+    this.stateStorageRollbackDepth = 0;
+    this.alarmMaintenanceDirty = false;
+    this.alarmMaintenanceRetryAttempt = 0;
+    this.alarmMaintenanceRetryTimer = null;
     // `undefined` means a restarted instance has not yet reconciled the
     // storage alarm; `null` means it has authoritatively removed one.
     this.scheduledAlarmMs = undefined;
@@ -2232,6 +2653,9 @@ export class MusixquareProRoom {
       this.normalizeLoadedEffects();
       this.normalizeLoadedQueueMode();
       this.normalizeLoadedDeveloperCommands();
+      this.normalizeLoadedPlaybackAuthority();
+      this.normalizeLoadedPlaybackBroadcasts();
+      this.normalizeLoadedPresenceBroadcast();
     };
     if (typeof state.blockConcurrencyWhile === 'function') state.blockConcurrencyWhile(load);
     else this.ready = load();
@@ -2259,6 +2683,9 @@ export class MusixquareProRoom {
     this.normalizeLoadedEffects();
     this.normalizeLoadedQueueMode();
     this.normalizeLoadedDeveloperCommands();
+    this.normalizeLoadedPlaybackAuthority();
+    this.normalizeLoadedPlaybackBroadcasts();
+    this.normalizeLoadedPresenceBroadcast();
     if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
       this.room.playback.youtubeVideoId = null;
       this.room.playback.youtubeSubIndex = null;
@@ -2354,6 +2781,72 @@ export class MusixquareProRoom {
     }
   }
 
+  normalizeLoadedPlaybackAuthority() {
+    if (!this.room?.presence || !this.room.playback) return;
+    let changed = false;
+    // A PRO room has no browser coordinator. Keep the historical field as a
+    // room-incarnation fence during this protocol cutover, but it must never
+    // identify or grant authority to a participant.
+    if (this.room.presence.coordinatorParticipantId !== null) {
+      this.room.presence.coordinatorParticipantId = null;
+      if (this.room.presence.coordinatorEpoch < Number.MAX_SAFE_INTEGER) {
+        this.room.presence.coordinatorEpoch += 1;
+      }
+      changed = true;
+    }
+    if (this.room.playback.coordinatorEpoch !== this.room.presence.coordinatorEpoch) {
+      this.room.playback.coordinatorEpoch = this.room.presence.coordinatorEpoch;
+      if (this.room.playback.revision < Number.MAX_SAFE_INTEGER) {
+        this.room.playback.revision += 1;
+      }
+      changed = true;
+    }
+    const pending = normalizeStoredPlaybackTransition(
+      this.room.pendingPlaybackTransition,
+      this.room,
+    );
+    if (pending === null && this.room.pendingPlaybackTransition !== null) changed = true;
+    this.room.pendingPlaybackTransition = pending;
+    this.playbackAuthorityMigrationPending = this.playbackAuthorityMigrationPending || changed;
+  }
+
+  normalizeLoadedPlaybackBroadcasts() {
+    if (!this.room) return;
+    const raw = this.room.pendingPlaybackBroadcasts;
+    const normalized = normalizeStoredPlaybackBroadcasts(raw, this.room);
+    if (JSON.stringify(raw ?? []) !== JSON.stringify(normalized)) {
+      this.playbackAuthorityMigrationPending = true;
+    }
+    this.room.pendingPlaybackBroadcasts = normalized;
+  }
+
+  normalizeLoadedPresenceBroadcast() {
+    if (!this.room) return;
+    const pending = this.room.pendingPresenceBroadcast;
+    if (pending === undefined || pending === null) {
+      this.room.pendingPresenceBroadcast = null;
+      return;
+    }
+    if (
+      !hasExactKeys(pending, [
+        'coordinatorEpoch',
+        'presenceRevision',
+        'roomRevision',
+        'retryAtMs',
+        'attempts',
+      ]) ||
+      !isSafeNonNegativeInteger(pending.coordinatorEpoch) ||
+      !isSafeNonNegativeInteger(pending.presenceRevision) ||
+      !isSafeNonNegativeInteger(pending.roomRevision) ||
+      !Number.isSafeInteger(pending.retryAtMs) ||
+      pending.retryAtMs <= 0 ||
+      !isSafeNonNegativeInteger(pending.attempts) ||
+      pending.attempts > PRESENCE_BROADCAST_RETRY_MAX_ATTEMPTS
+    ) {
+      this.room.pendingPresenceBroadcast = null;
+    }
+  }
+
   async withMutation(callback) {
     let release;
     const previous = this.mutationTail;
@@ -2368,15 +2861,87 @@ export class MusixquareProRoom {
     }
   }
 
-  async withStateCapacityRollback(callback) {
-    const rollbackRoom = structuredClone(this.room);
+  captureInMemoryState() {
+    return {
+      room: structuredClone(this.room),
+      persistedPlaylistSignatures: new Map(this.persistedPlaylistSignatures),
+      persistedPresenceLastSeenAtMs: new Map(this.persistedPresenceLastSeenAtMs),
+      hasV2Persistence: this.hasV2Persistence,
+      lastLegacyShadowPersistedAtMs: this.lastLegacyShadowPersistedAtMs,
+      heartbeatDurabilityDirty: this.heartbeatDurabilityDirty,
+      lastHeartbeatDurabilityPersistedAtMs: this.lastHeartbeatDurabilityPersistedAtMs,
+      heartbeatFlushGeneration: this.heartbeatFlushGeneration,
+      pendingHeartbeatFlushGeneration: this.pendingHeartbeatFlushGeneration,
+      pendingHeartbeatFlushTimer: this.pendingHeartbeatFlushTimer,
+      scheduledAlarmMs: this.scheduledAlarmMs,
+      systemAudioMigrationPending: this.systemAudioMigrationPending,
+      effectsMigrationPending: this.effectsMigrationPending,
+      queueModeMigrationPending: this.queueModeMigrationPending,
+      developerCommandMigrationPending: this.developerCommandMigrationPending,
+      playbackAuthorityMigrationPending: this.playbackAuthorityMigrationPending,
+      alarmMaintenanceDirty: this.alarmMaintenanceDirty,
+      alarmMaintenanceRetryAttempt: this.alarmMaintenanceRetryAttempt,
+      alarmMaintenanceRetryTimer: this.alarmMaintenanceRetryTimer,
+    };
+  }
+
+  restoreInMemoryState(checkpoint) {
+    if (
+      this.pendingHeartbeatFlushTimer !== null &&
+      this.pendingHeartbeatFlushTimer !== checkpoint.pendingHeartbeatFlushTimer
+    ) {
+      clearTimeout(this.pendingHeartbeatFlushTimer);
+    }
+    if (
+      this.alarmMaintenanceRetryTimer !== null &&
+      this.alarmMaintenanceRetryTimer !== checkpoint.alarmMaintenanceRetryTimer
+    ) {
+      clearTimeout(this.alarmMaintenanceRetryTimer);
+    }
+    this.room = checkpoint.room;
+    this.persistedPlaylistSignatures = checkpoint.persistedPlaylistSignatures;
+    this.persistedPresenceLastSeenAtMs = checkpoint.persistedPresenceLastSeenAtMs;
+    this.hasV2Persistence = checkpoint.hasV2Persistence;
+    this.lastLegacyShadowPersistedAtMs = checkpoint.lastLegacyShadowPersistedAtMs;
+    this.heartbeatDurabilityDirty = checkpoint.heartbeatDurabilityDirty;
+    this.lastHeartbeatDurabilityPersistedAtMs = checkpoint.lastHeartbeatDurabilityPersistedAtMs;
+    this.heartbeatFlushGeneration = checkpoint.heartbeatFlushGeneration;
+    this.pendingHeartbeatFlushGeneration = checkpoint.pendingHeartbeatFlushGeneration;
+    this.pendingHeartbeatFlushTimer = checkpoint.pendingHeartbeatFlushTimer;
+    this.scheduledAlarmMs = checkpoint.scheduledAlarmMs;
+    this.systemAudioMigrationPending = checkpoint.systemAudioMigrationPending;
+    this.effectsMigrationPending = checkpoint.effectsMigrationPending;
+    this.queueModeMigrationPending = checkpoint.queueModeMigrationPending;
+    this.developerCommandMigrationPending = checkpoint.developerCommandMigrationPending;
+    this.playbackAuthorityMigrationPending = checkpoint.playbackAuthorityMigrationPending;
+    this.alarmMaintenanceDirty = checkpoint.alarmMaintenanceDirty;
+    this.alarmMaintenanceRetryAttempt = checkpoint.alarmMaintenanceRetryAttempt;
+    this.alarmMaintenanceRetryTimer = checkpoint.alarmMaintenanceRetryTimer;
+  }
+
+  async withStateCapacityRollback(callback, options = {}) {
+    const checkpoint = this.captureInMemoryState();
+    const rollbackStorageFailure = options.rollbackStorageFailure === true;
+    if (rollbackStorageFailure) this.stateStorageRollbackDepth += 1;
     try {
       return await callback();
     } catch (error) {
-      if (!(error instanceof RoomStateCapacityError)) throw error;
-      this.room = rollbackRoom;
-      await this.persist();
-      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+      if (error instanceof RoomStateCapacityError) {
+        this.restoreInMemoryState(checkpoint);
+        await this.persist();
+        return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+      }
+      if (rollbackStorageFailure && error instanceof RoomStateStorageCommitError) {
+        // The SQLite transaction failed atomically, so the durable state still
+        // matches this checkpoint. Restore every cache/fence alongside `room`
+        // and let the caller observe the original storage failure. In
+        // particular, a pending heartbeat retry must never persist the aborted
+        // mutation later as a ghost commit.
+        this.restoreInMemoryState(checkpoint);
+      }
+      throw error;
+    } finally {
+      if (rollbackStorageFailure) this.stateStorageRollbackDepth -= 1;
     }
   }
 
@@ -2516,7 +3081,11 @@ export class MusixquareProRoom {
       // alarm maintenance have both succeeded. If this was the only pending
       // heartbeat work, leave a short recovery alarm before propagating the
       // original mutation failure to its caller.
-      if (this.heartbeatDurabilityDirty && this.pendingHeartbeatFlushGeneration === null) {
+      if (
+        !(error instanceof RoomStateStorageCommitError && this.stateStorageRollbackDepth > 0) &&
+        this.heartbeatDurabilityDirty &&
+        this.pendingHeartbeatFlushGeneration === null
+      ) {
         await this.scheduleHeartbeatPersistRetryAlarm();
       }
       throw error;
@@ -2526,6 +3095,11 @@ export class MusixquareProRoom {
     }
     this.heartbeatDurabilityDirty = false;
     this.invalidatePendingHeartbeatFlush();
+    if (options.flushPlaybackOutbox !== false) {
+      // The canonical mutation and its playback event are now durable. Only at
+      // this point may the cross-Worker dispatch begin.
+      await this.flushPendingPlaybackBroadcasts(Date.now());
+    }
     return true;
   }
 
@@ -2558,13 +3132,17 @@ export class MusixquareProRoom {
       // shadow instead of deleting the only state an older Worker understands.
       if (legacyShadowFits) await storage.put(STORAGE_KEY, this.room);
     };
-    if (typeof this.storage.transaction === 'function') {
-      await this.storage.transaction((transaction) => write(transaction));
-    } else {
-      // Unit-test and local compatibility fallback. Production SQLite-backed
-      // Durable Objects provide transaction(), which makes row/core changes
-      // atomic.
-      await write(this.storage);
+    try {
+      if (typeof this.storage.transaction === 'function') {
+        await this.storage.transaction((transaction) => write(transaction));
+      } else {
+        // Unit-test and local compatibility fallback. Production SQLite-backed
+        // Durable Objects provide transaction(), which makes row/core changes
+        // atomic.
+        await write(this.storage);
+      }
+    } catch (error) {
+      throw new RoomStateStorageCommitError(error);
     }
     this.persistedPlaylistSignatures = nextSignatures;
     this.persistedPresenceLastSeenAtMs = new Map(
@@ -2583,11 +3161,59 @@ export class MusixquareProRoom {
     if (writeLegacyShadow) {
       this.lastLegacyShadowPersistedAtMs = Date.now();
     }
-    await this.scheduleAlarm({ retainEarlier: options.retainEarlierAlarm === true });
+    // The room transaction above is already authoritative. Alarm maintenance
+    // is a post-commit scheduling concern: a transient setAlarm/deleteAlarm
+    // failure must not turn a committed mutation into an apparent failed one.
+    // Retry it independently without rolling the canonical state back.
+    await this.maintainAlarm({ retainEarlier: options.retainEarlierAlarm === true });
+  }
+
+  clearAlarmMaintenanceRetry() {
+    if (this.alarmMaintenanceRetryTimer !== null) {
+      clearTimeout(this.alarmMaintenanceRetryTimer);
+      this.alarmMaintenanceRetryTimer = null;
+    }
+  }
+
+  scheduleAlarmMaintenanceRetry() {
+    if (this.alarmMaintenanceRetryTimer !== null) return;
+    const delay = Math.min(
+      ALARM_MAINTENANCE_RETRY_MAX_MS,
+      PRESENCE_HEARTBEAT_PERSIST_RETRY_MS * 2 ** Math.min(this.alarmMaintenanceRetryAttempt, 6),
+    );
+    this.alarmMaintenanceRetryAttempt += 1;
+    this.alarmMaintenanceRetryTimer = setTimeout(() => {
+      this.alarmMaintenanceRetryTimer = null;
+      this.withMutation(async () => {
+        if (!this.room || !this.alarmMaintenanceDirty) return;
+        await this.maintainAlarm();
+      }).catch(() => {
+        // maintainAlarm absorbs storage scheduling failures. Keep this guard
+        // for an unexpected mutation-queue failure so a timer callback never
+        // becomes an unhandled rejection and the maintenance work is retried.
+        this.alarmMaintenanceDirty = true;
+        this.scheduleAlarmMaintenanceRetry();
+      });
+    }, delay);
+  }
+
+  async maintainAlarm(options = {}) {
+    try {
+      await this.scheduleAlarm(options);
+      this.alarmMaintenanceDirty = false;
+      this.alarmMaintenanceRetryAttempt = 0;
+      this.clearAlarmMaintenanceRetry();
+      return true;
+    } catch {
+      this.alarmMaintenanceDirty = true;
+      this.scheduleAlarmMaintenanceRetry();
+      return false;
+    }
   }
 
   async scheduleAlarm(options = {}) {
     if (typeof this.storage.setAlarm !== 'function') return;
+    const nowMs = Date.now();
     const candidates = [];
     if (this.room.status === 'decommissioning') {
       candidates.push(this.room.decommission?.retryAtMs, this.room.decommission?.purgeAfterMs);
@@ -2634,8 +3260,26 @@ export class MusixquareProRoom {
     for (const record of Object.values(this.room.developerCommandIdempotency || {})) {
       candidates.push(record.expiresAtMs);
     }
+    if (this.room.pendingPresenceBroadcast) {
+      const retryAtMs = this.room.pendingPresenceBroadcast.retryAtMs;
+      candidates.push(retryAtMs <= nowMs ? nowMs + 1 : retryAtMs);
+    }
+    const playbackBroadcast = this.room.pendingPlaybackBroadcasts?.[0];
+    if (playbackBroadcast) {
+      candidates.push(
+        playbackBroadcast.retryAtMs <= nowMs ? nowMs + 1 : playbackBroadcast.retryAtMs,
+      );
+    }
+    if (this.room.pendingPlaybackTransition) {
+      const deadlineAtMs = this.room.pendingPlaybackTransition.deadlineAtMs;
+      // Persistence can begin before the rendezvous deadline and finish after
+      // it. Cloudflare removes due alarms before invoking them, so dropping an
+      // already-due deadline here would strand PREPARE until unrelated traffic
+      // wakes the object. Install a next-tick alarm instead.
+      candidates.push(deadlineAtMs <= nowMs ? nowMs + 1 : deadlineAtMs);
+    }
     const next = candidates
-      .filter((value) => Number.isSafeInteger(value) && value > Date.now())
+      .filter((value) => Number.isSafeInteger(value) && value > nowMs)
       .sort((a, b) => a - b)[0];
     // An earlier alarm is safe: it will wake, find that a renewed lease has
     // not expired, and schedule the later deadline. Avoid moving the alarm
@@ -2645,7 +3289,7 @@ export class MusixquareProRoom {
       if (
         options.retainEarlier === true &&
         Number.isSafeInteger(this.scheduledAlarmMs) &&
-        this.scheduledAlarmMs > Date.now() &&
+        this.scheduledAlarmMs > nowMs &&
         this.scheduledAlarmMs <= next
       ) {
         return;
@@ -2732,15 +3376,24 @@ export class MusixquareProRoom {
       if (request.method !== 'POST') return errorResponse('NOT_FOUND', 404);
       return this.withMutation(async () => {
         await this.prune(Date.now());
-        return this.withStateCapacityRollback(async () => {
-          if (url.pathname === '/internal/bot/context') {
-            return this.handleInternalBotContext(request);
-          }
-          if (url.pathname === '/internal/bot/execute') {
-            return this.handleInternalBotExecute(request);
-          }
-          return errorResponse('NOT_FOUND', 404);
-        });
+        return this.withStateCapacityRollback(
+          async () => {
+            if (url.pathname === '/internal/bot/context') {
+              return this.handleInternalBotContext(request);
+            }
+            if (url.pathname === '/internal/bot/execute') {
+              return this.handleInternalBotExecute(request);
+            }
+            return errorResponse('NOT_FOUND', 404);
+          },
+          {
+            // BOT execution composes several independently durable operations
+            // (queue mutation followed by an optional playback command). A late
+            // failure must not rewind earlier commits in memory. Context lease
+            // creation is a single state-only transaction and is safe to undo.
+            rollbackStorageFailure: url.pathname === '/internal/bot/context',
+          },
+        );
       });
     }
     if (url.pathname.startsWith('/internal/admin/')) {
@@ -2753,24 +3406,45 @@ export class MusixquareProRoom {
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/provision') {
         return this.withMutation(async () => {
-          if (this.room.status === 'decommissioning' || this.room.status === 'decommissioned') {
-            return errorResponse('PRO_ROOM_PERMANENTLY_DECOMMISSIONED', 410);
-          }
-          if (!this.room.provisioned) {
-            this.room.provisioned = true;
-            await this.persist();
-          }
-          return jsonResponse({ ok: true, roomCode: this.room.roomCode, status: this.room.status });
+          return this.withStateCapacityRollback(
+            async () => {
+              if (this.room.status === 'decommissioning' || this.room.status === 'decommissioned') {
+                return errorResponse('PRO_ROOM_PERMANENTLY_DECOMMISSIONED', 410);
+              }
+              if (!this.room.provisioned) {
+                this.room.provisioned = true;
+                await this.persist();
+              }
+              return jsonResponse({
+                ok: true,
+                roomCode: this.room.roomCode,
+                status: this.room.status,
+              });
+            },
+            { rollbackStorageFailure: true },
+          );
         });
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/activation-claim') {
-        return this.withMutation(() => this.handleInternalActivationClaim());
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(() => this.handleInternalActivationClaim(), {
+            rollbackStorageFailure: true,
+          }),
+        );
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/suspend') {
-        return this.withMutation(() => this.handleInternalSuspend());
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(() => this.handleInternalSuspend(), {
+            rollbackStorageFailure: true,
+          }),
+        );
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/resume') {
-        return this.withMutation(() => this.handleInternalResume());
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(() => this.handleInternalResume(), {
+            rollbackStorageFailure: true,
+          }),
+        );
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/decommission') {
         return this.withMutation(() => this.handleInternalDecommission(request));
@@ -2790,27 +3464,38 @@ export class MusixquareProRoom {
         if (url.pathname === '/internal/developer/v1/read') {
           return this.handleInternalDeveloperRead(request);
         }
-        return this.withStateCapacityRollback(async () => {
-          if (url.pathname === '/internal/developer/v1/commands/create') {
-            return this.handleInternalDeveloperCommandCreate(request);
-          }
-          if (url.pathname === '/internal/developer/v1/commands/status') {
-            return this.handleInternalDeveloperCommandStatus(request);
-          }
-          if (url.pathname === '/internal/developer/v1/queue/mutate') {
-            return this.handleInternalDeveloperQueueMutation(request);
-          }
-          if (url.pathname === '/internal/developer/v1/queue-mode/update') {
-            return this.handleInternalDeveloperQueueModeUpdate(request);
-          }
-          if (url.pathname === '/internal/developer/v1/media/uploads/create') {
-            return this.handleInternalDeveloperMediaUploadCreate(request);
-          }
-          if (url.pathname === '/internal/developer/v1/media/uploads/complete') {
-            return this.handleInternalDeveloperMediaUploadComplete(request);
-          }
-          return errorResponse('NOT_FOUND', 404);
-        });
+        return this.withStateCapacityRollback(
+          async () => {
+            if (url.pathname === '/internal/developer/v1/commands/create') {
+              return this.handleInternalDeveloperCommandCreate(request);
+            }
+            if (url.pathname === '/internal/developer/v1/commands/status') {
+              return this.handleInternalDeveloperCommandStatus(request);
+            }
+            if (url.pathname === '/internal/developer/v1/queue/mutate') {
+              return this.handleInternalDeveloperQueueMutation(request);
+            }
+            if (url.pathname === '/internal/developer/v1/queue-mode/update') {
+              return this.handleInternalDeveloperQueueModeUpdate(request);
+            }
+            if (url.pathname === '/internal/developer/v1/media/uploads/create') {
+              return this.handleInternalDeveloperMediaUploadCreate(request);
+            }
+            if (url.pathname === '/internal/developer/v1/media/uploads/complete') {
+              return this.handleInternalDeveloperMediaUploadComplete(request);
+            }
+            return errorResponse('NOT_FOUND', 404);
+          },
+          {
+            // Completion promotes bytes from staging into the final R2 key
+            // before committing metadata. Rewinding only memory after that
+            // external side effect would manufacture a second, contradictory
+            // view of the upload. Its existing cleanup saga remains responsible
+            // for recovery; every other route in this group is state-only.
+            rollbackStorageFailure:
+              url.pathname !== '/internal/developer/v1/media/uploads/complete',
+          },
+        );
       });
     }
     const prefix = `/v1/rooms/${this.room.roomCode}`;
@@ -2831,62 +3516,81 @@ export class MusixquareProRoom {
         );
         if (readDownload) return this.handleDownloadMedia(request, readDownload[1]);
       }
-      return this.withStateCapacityRollback(async () => {
-        if (request.method === 'POST' && url.pathname === `${prefix}/activation`)
-          return this.handleActivation(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/owner-recovery`)
-          return this.handleOwnerRecovery(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
-          return this.handleCreateSession(request);
-        if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
-          return this.handleCloseSession(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/close`)
-          return this.handleCloseSessionFenced(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/pin`)
-          return this.handleChangePin(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/presence/heartbeat`)
-          return this.handleHeartbeat(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/presence/enter`)
-          return this.handleEnterPresence(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/presence/close`)
-          return this.handleClosePresence(request);
-        if (request.method === 'DELETE' && url.pathname === `${prefix}/presence/current`)
-          return this.handleLeavePresence(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
-          return this.handleSignalingTicket(request);
-        const developerCommandAck = url.pathname.match(
-          new RegExp(`^${prefix}/developer-commands/(cmd_[A-Za-z0-9_-]{22})/ack$`),
-        );
-        if (request.method === 'POST' && developerCommandAck) {
-          return this.handleDeveloperCommandAck(request, developerCommandAck[1]);
-        }
-        if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
-          return this.handleUpdateEffects(request);
-        if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
-          return this.handleUpdateQueueMode(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
-          return this.handleAcquireSystemAudio(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/commit`)
-          return this.handleCommitSystemAudio(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/heartbeat`)
-          return this.handleHeartbeatSystemAudio(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/release`)
-          return this.handleReleaseSystemAudio(request);
-        if (request.method === 'PUT' && url.pathname === `${prefix}/snapshot`)
-          return this.handleUpdateSnapshot(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/snapshot/compact`)
-          return this.handleCompactSnapshotMutation(request);
-        if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
-          return this.handleCreateReservation(request);
-        const complete = url.pathname.match(
-          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/complete$`),
-        );
-        if (request.method === 'POST' && complete)
-          return this.handleCompleteMedia(request, complete[1]);
-        const media = url.pathname.match(new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`));
-        if (request.method === 'DELETE' && media) return this.handleDeleteMedia(request, media[1]);
-        return errorResponse('NOT_FOUND', 404);
-      });
+      const completeMediaMatch = url.pathname.match(
+        new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/complete$`),
+      );
+      const deleteMediaMatch = url.pathname.match(
+        new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`),
+      );
+      const hasExternalMediaSideEffects =
+        (request.method === 'POST' && completeMediaMatch !== null) ||
+        (request.method === 'DELETE' && deleteMediaMatch !== null);
+      return this.withStateCapacityRollback(
+        async () => {
+          if (request.method === 'POST' && url.pathname === `${prefix}/activation`)
+            return this.handleActivation(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/owner-recovery`)
+            return this.handleOwnerRecovery(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
+            return this.handleCreateSession(request);
+          if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
+            return this.handleCloseSession(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/close`)
+            return this.handleCloseSessionFenced(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/pin`)
+            return this.handleChangePin(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/presence/heartbeat`)
+            return this.handleHeartbeat(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/presence/enter`)
+            return this.handleEnterPresence(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/presence/close`)
+            return this.handleClosePresence(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/presence/kick`)
+            return this.handleKickPresence(request);
+          if (request.method === 'DELETE' && url.pathname === `${prefix}/presence/current`)
+            return this.handleLeavePresence(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
+            return this.handleSignalingTicket(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/playback/commands`)
+            return this.handlePlaybackCommand(request);
+          const playbackReady = url.pathname.match(
+            new RegExp(`^${prefix}/playback/transitions/(transition_[A-Za-z0-9_-]{22})/ready$`),
+          );
+          if (request.method === 'POST' && playbackReady) {
+            return this.handlePlaybackTransitionReady(request, playbackReady[1]);
+          }
+          const developerCommandAck = url.pathname.match(
+            new RegExp(`^${prefix}/developer-commands/(cmd_[A-Za-z0-9_-]{22})/ack$`),
+          );
+          if (request.method === 'POST' && developerCommandAck) {
+            return this.handleDeveloperCommandAck(request, developerCommandAck[1]);
+          }
+          if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
+            return this.handleUpdateEffects(request);
+          if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
+            return this.handleUpdateQueueMode(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
+            return this.handleAcquireSystemAudio(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/commit`)
+            return this.handleCommitSystemAudio(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/heartbeat`)
+            return this.handleHeartbeatSystemAudio(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/release`)
+            return this.handleReleaseSystemAudio(request);
+          if (request.method === 'PUT' && url.pathname === `${prefix}/snapshot`)
+            return this.handleUpdateSnapshot(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/snapshot/compact`)
+            return this.handleCompactSnapshotMutation(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
+            return this.handleCreateReservation(request);
+          if (request.method === 'POST' && completeMediaMatch)
+            return this.handleCompleteMedia(request, completeMediaMatch[1]);
+          if (request.method === 'DELETE' && deleteMediaMatch)
+            return this.handleDeleteMedia(request, deleteMediaMatch[1]);
+          return errorResponse('NOT_FOUND', 404);
+        },
+        { rollbackStorageFailure: !hasExternalMediaSideEffects },
+      );
     });
   }
 
@@ -2950,10 +3654,7 @@ export class MusixquareProRoom {
   }
 
   async handleInternalBotContext(request) {
-    if (
-      !this.room.provisioned ||
-      this.room.status !== 'active'
-    ) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
       return errorResponse('BOT_ROOM_ONLY', 400);
     }
     const auth = await this.requireSession(request, { activePresence: true });
@@ -3040,14 +3741,25 @@ export class MusixquareProRoom {
         }),
       }),
     );
-    return response.ok;
+    if (!response.ok) return false;
+    const result = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    // Command creation intentionally stays HTTP 202 for the public async API,
+    // even when the Durable Object can already determine a terminal result.
+    // BOT is an in-process caller, so it must inspect that terminal body rather
+    // than treating every 202 as a successful action. The same check applies to
+    // idempotent replays of a previously rejected command.
+    return (
+      result?.status === 'pending' ||
+      result?.status === 'dispatched' ||
+      result?.status === 'applied'
+    );
   }
 
   async handleInternalBotExecute(request) {
-    if (
-      !this.room.provisioned ||
-      this.room.status !== 'active'
-    ) {
+    if (!this.room.provisioned || this.room.status !== 'active') {
       return errorResponse('BOT_ROOM_ONLY', 400);
     }
     const auth = await this.requireSession(request, { activePresence: true });
@@ -3286,24 +3998,11 @@ export class MusixquareProRoom {
     );
     if (replay) return replay;
 
-    const coordinatorId = this.room.presence.coordinatorParticipantId;
-    const coordinator = coordinatorId ? this.room.presence.participants[coordinatorId] : null;
-    if (this.room.runtime !== 'awake' || !coordinator) {
-      return errorResponse('ROOM_SLEEPING', 409);
-    }
     const requiredControlVersion = requiredDeveloperControlVersion(command);
-    if (!supportsDeveloperControl(coordinator, requiredControlVersion)) {
-      return errorResponse('COORDINATOR_INCOMPATIBLE', 409);
-    }
     if (command.type === 'play_item') {
       if (!this.room.playlist.some((item) => item.queueItemId === command.queueItemId)) {
         return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
       }
-    } else if (
-      command.type !== 'set_effects' &&
-      (!this.room.currentQueueItemId || !this.room.playback.queueItemId)
-    ) {
-      return errorResponse('NO_MEDIA', 409);
     }
 
     const activeCount = Object.values(this.room.developerCommands).filter(
@@ -3335,8 +4034,6 @@ export class MusixquareProRoom {
       expiresAtMs: nowMs + DEVELOPER_COMMAND_TTL_MS,
       retainUntilMs: nowMs + DEVELOPER_COMMAND_RETENTION_MS,
       coordinatorEpoch: this.room.presence.coordinatorEpoch,
-      coordinatorParticipantId: coordinator.participantId,
-      coordinatorPresenceIncarnationId: coordinator.presenceIncarnationId,
       developerControlVersion: requiredControlVersion,
       expected: {
         queueItemId: this.room.currentQueueItemId,
@@ -3344,10 +4041,6 @@ export class MusixquareProRoom {
         playbackRevision: this.room.playback.revision,
       },
       status: 'pending',
-      attempts: 0,
-      nextAttemptAtMs: nowMs,
-      dispatchCapacityReserve: 'd'.repeat(DEVELOPER_COMMAND_DISPATCH_RESERVE_BYTES),
-      terminalCapacityReserve: 't'.repeat(DEVELOPER_COMMAND_TERMINAL_RESERVE_BYTES),
     };
     this.room.developerCommands[commandId] = record;
     const responseBody = publicDeveloperCommand(record);
@@ -3360,10 +4053,57 @@ export class MusixquareProRoom {
       expiresAtMs: nowMs + DEVELOPER_COMMAND_RETENTION_MS,
     };
 
-    // Persist before dispatch so a successful WebSocket send can never leave
-    // an untracked command after a Worker interruption or response loss.
+    let authorityResult = null;
+    if (command.type === 'set_effects') {
+      if (this.room.effects.revision >= Number.MAX_SAFE_INTEGER) {
+        this.completeDeveloperCommand(record, 'rejected', 'execution_failed', nowMs);
+      } else {
+        const effects = mergeRoomEffectsPatch(this.room.effects.effects, command.effects);
+        if (JSON.stringify(effects) !== JSON.stringify(this.room.effects.effects)) {
+          this.room.effects = {
+            revision: this.room.effects.revision + 1,
+            updatedAtMs: nowMs,
+            effects,
+          };
+          this.room.revision += 1;
+        }
+        this.completeDeveloperCommand(record, 'applied', 'applied', nowMs);
+      }
+    } else {
+      const authorityCommand =
+        command.type === 'play_item'
+          ? {
+              type: 'select',
+              baseRevision: this.room.playback.revision,
+              queueItemId: command.queueItemId,
+              state: 'playing',
+              positionSeconds: 0,
+            }
+          : { ...command, baseRevision: this.room.playback.revision };
+      authorityResult = this.applyPlaybackAuthorityCommand(authorityCommand, nowMs, commandId);
+      if (authorityResult.error) {
+        this.completeDeveloperCommand(
+          record,
+          'rejected',
+          authorityResult.error === 'NO_MEDIA'
+            ? 'no_media'
+            : authorityResult.error === 'PLAYBACK_REVISION_CONFLICT'
+              ? 'stale_queue'
+              : 'execution_failed',
+          nowMs,
+        );
+      } else if (authorityResult.status === 'unchanged') {
+        this.completeDeveloperCommand(record, 'applied', 'already_applied', nowMs);
+      }
+    }
+    this.syncDeveloperCommandIdempotency(record);
+    this.enqueuePlaybackOutcome(authorityResult, nowMs);
     await this.persist();
-    if (await this.processDeveloperCommands(nowMs, commandId)) await this.persist();
+    if (command.type === 'set_effects' && record.status === 'applied') {
+      await this.broadcastServerEvent(
+        this.invalidationEvent({ effectsRevision: this.room.effects.revision }),
+      );
+    }
     return jsonResponse(publicDeveloperCommand(record), 202);
   }
 
@@ -3491,6 +4231,7 @@ export class MusixquareProRoom {
           kind: 'youtube',
           videoId: mutation.videoId,
           ...(mutation.playlistId === undefined ? {} : { playlistId: mutation.playlistId }),
+          ...(mutation.videoIds === undefined ? {} : { videoIds: [...mutation.videoIds] }),
         },
         developerOwnerKeyId: parsed.value.keyId,
       };
@@ -3516,6 +4257,7 @@ export class MusixquareProRoom {
           kind: 'youtube',
           videoId: candidate.videoId,
           ...(candidate.playlistId === undefined ? {} : { playlistId: candidate.playlistId }),
+          ...(candidate.videoIds === undefined ? {} : { videoIds: [...candidate.videoIds] }),
         },
         developerOwnerKeyId: parsed.value.keyId,
       }));
@@ -3533,6 +4275,7 @@ export class MusixquareProRoom {
       this.room.playlist.splice(index, 1);
       playlistChanged = true;
       if (removedCurrent) {
+        destructivePlaybackChanged = true;
         this.room.currentQueueItemId = null;
         this.room.playback = {
           coordinatorEpoch: this.room.playback.coordinatorEpoch,
@@ -3643,6 +4386,7 @@ export class MusixquareProRoom {
         );
         playlistChanged = true;
         if (clearCurrentPlayback) {
+          destructivePlaybackChanged = true;
           this.room.currentQueueItemId = null;
           this.room.playback = {
             coordinatorEpoch: this.room.playback.coordinatorEpoch,
@@ -3683,6 +4427,16 @@ export class MusixquareProRoom {
       this.room.revision += 1;
       this.reconcileAssetGarbageCollection(nowMs);
     }
+    let playbackCancelEvent = null;
+    if (
+      destructivePlaybackChanged ||
+      (this.room.pendingPlaybackTransition?.target.queueItemId != null &&
+        !this.room.playlist.some(
+          (item) => item.queueItemId === this.room.pendingPlaybackTransition.target.queueItemId,
+        ))
+    ) {
+      playbackCancelEvent = this.cancelPendingPlayback('queue-item-removed', nowMs);
+    }
     const responseBody = developerProjection(this.room, 'queue', nowMs, parsed.value.keyId);
     const responseStatus =
       mutation.type === 'add_youtube' || mutation.type === 'add_youtube_batch' ? 201 : 200;
@@ -3703,6 +4457,12 @@ export class MusixquareProRoom {
           destructivePlaybackChanged,
           botTerminal.languageHint,
         ),
+      );
+    }
+    if (playbackCancelEvent) this.enqueuePlaybackBroadcast(playbackCancelEvent);
+    if (destructivePlaybackChanged) {
+      this.enqueuePlaybackBroadcast(
+        this.playbackCommitEvent(null, this.room.playback.updatedAtMs, nowMs),
       );
     }
     await this.persist();
@@ -3793,7 +4553,11 @@ export class MusixquareProRoom {
     const responseBody = developerQueueMode(this.room);
     this.storeIdempotency(scope, parsed.value.idempotencyKey, fingerprint, responseBody);
     await this.persist();
-    if (changed) this.scheduleDeveloperInvalidationHint();
+    if (changed) {
+      this.scheduleServerEvent(
+        this.invalidationEvent({ queueModeRevision: this.room.queueMode.revision }),
+      );
+    }
     return jsonResponse(responseBody);
   }
 
@@ -4166,12 +4930,8 @@ export class MusixquareProRoom {
   }
 
   scheduleDeveloperInvalidationHint(addition = null) {
-    const coordinatorId = this.room.presence.coordinatorParticipantId;
-    const coordinator = coordinatorId ? this.room.presence.participants[coordinatorId] : null;
     if (
-      this.room.runtime !== 'awake' ||
-      !coordinator ||
-      !supportsDeveloperControl(coordinator) ||
+      this.room.status !== 'active' ||
       !Number.isSafeInteger(this.room.revision) ||
       this.room.revision < 0 ||
       !Number.isSafeInteger(this.room.playlistRevision) ||
@@ -4194,96 +4954,15 @@ export class MusixquareProRoom {
             eventId: `qa_${this.room.roomCode}_${this.room.playlistRevision}_${this.room.revision}`,
             actorName: queueAdditionActorName(addition.actorName, addition.fallback),
             count: addition.count,
-            ...(firstTitle &&
-            supportsDeveloperControl(coordinator, DEVELOPER_QUEUE_TITLE_CONTROL_VERSION)
-              ? { firstTitle }
-              : {}),
+            ...(firstTitle ? { firstTitle } : {}),
           }
         : null;
-    const dispatch = this.dispatchDeveloperInvalidationHint({
-      roomCode: this.room.roomCode,
-      coordinatorEpoch: this.room.presence.coordinatorEpoch,
-      coordinatorParticipantId: coordinator.participantId,
-      coordinatorPresenceIncarnationId: coordinator.presenceIncarnationId,
-      developerControlVersion: DEVELOPER_CONTROL_VERSION,
-      revision: this.room.revision,
-      playlistRevision: this.room.playlistRevision,
-      ...(normalizedAddition ? { addition: normalizedAddition } : {}),
-    });
-    if (typeof this.state.waitUntil === 'function') this.state.waitUntil(dispatch);
-  }
-
-  async dispatchDeveloperInvalidationHint(hint) {
-    const namespace = this.env.PRO_SIGNALING_ROOMS;
-    if (!namespace || typeof namespace.idFromName !== 'function') return false;
-    const frame = {
-      type: 'developer-invalidation',
-      version: DEVELOPER_CONTROL_VERSION,
-      roomCode: hint.roomCode,
-      coordinatorEpoch: hint.coordinatorEpoch,
-      revision: hint.revision,
-      playlistRevision: hint.playlistRevision,
-    };
-    try {
-      const stub = namespace.get(namespace.idFromName(hint.roomCode));
-      const response = await fetchWithDeadline(
-        (boundedRequest) => stub.fetch(boundedRequest),
-        new Request('https://signaling.internal/internal/developer/v1/invalidate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            roomCode: hint.roomCode,
-            coordinatorEpoch: hint.coordinatorEpoch,
-            coordinatorParticipantId: hint.coordinatorParticipantId,
-            coordinatorPresenceIncarnationId: hint.coordinatorPresenceIncarnationId,
-            developerControlVersion: hint.developerControlVersion,
-            frame,
-            ...(hint.addition ? { addition: hint.addition } : {}),
-          }),
-        }),
-        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
-      );
-      return response.status === 200;
-    } catch {
-      return false;
-    }
-  }
-
-  async dispatchDeveloperCommand(record) {
-    const namespace = this.env.PRO_SIGNALING_ROOMS;
-    if (!namespace || typeof namespace.idFromName !== 'function') return false;
-    const frame = {
-      type: 'developer-command',
-      version: record.developerControlVersion,
-      roomCode: this.room.roomCode,
-      coordinatorEpoch: record.coordinatorEpoch,
-      commandId: record.commandId,
-      expiresAtMs: record.expiresAtMs,
-      expected: structuredClone(record.expected),
-      command: structuredClone(record.command),
-    };
-    try {
-      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
-      const response = await fetchWithDeadline(
-        (boundedRequest) => stub.fetch(boundedRequest),
-        new Request('https://signaling.internal/internal/developer/v1/dispatch', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            roomCode: this.room.roomCode,
-            coordinatorEpoch: record.coordinatorEpoch,
-            coordinatorParticipantId: record.coordinatorParticipantId,
-            coordinatorPresenceIncarnationId: record.coordinatorPresenceIncarnationId,
-            developerControlVersion: record.developerControlVersion,
-            frame,
-          }),
-        }),
-        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
-      );
-      return response.status === 200;
-    } catch {
-      return false;
-    }
+    this.scheduleServerEvent(
+      this.invalidationEvent({
+        playlistRevision: this.room.playlistRevision,
+        ...(normalizedAddition ? { addition: normalizedAddition } : {}),
+      }),
+    );
   }
 
   async processDeveloperCommands(nowMs = Date.now(), onlyCommandId = null) {
@@ -4295,41 +4974,12 @@ export class MusixquareProRoom {
       if (record.status !== 'pending' && record.status !== 'dispatched') continue;
       if (record.expiresAtMs <= nowMs) {
         this.completeDeveloperCommand(record, 'expired', 'expired', nowMs);
+        if (this.room.pendingPlaybackTransition?.developerCommandId === record.commandId) {
+          const cancelEvent = this.cancelPendingPlayback('command-expired', nowMs);
+          if (cancelEvent) this.scheduleServerEvent(cancelEvent);
+        }
         changed = true;
-        continue;
       }
-      const coordinator = this.room.presence.participants[record.coordinatorParticipantId];
-      if (
-        this.room.runtime !== 'awake' ||
-        this.room.presence.coordinatorEpoch !== record.coordinatorEpoch ||
-        this.room.presence.coordinatorParticipantId !== record.coordinatorParticipantId ||
-        coordinator?.presenceIncarnationId !== record.coordinatorPresenceIncarnationId
-      ) {
-        this.completeDeveloperCommand(record, 'rejected', 'coordinator_changed', nowMs);
-        changed = true;
-        continue;
-      }
-      if (!supportsDeveloperControl(coordinator, record.developerControlVersion)) {
-        this.completeDeveloperCommand(record, 'rejected', 'coordinator_incompatible', nowMs);
-        changed = true;
-        continue;
-      }
-      if (record.attempts >= DEVELOPER_COMMAND_MAX_ATTEMPTS || record.nextAttemptAtMs > nowMs) {
-        continue;
-      }
-      // The persisted pre-dispatch record carried enough serialized padding
-      // for every field added below. Consume it before the external send so a
-      // successful WebSocket side effect cannot be erased by capacity rollback.
-      delete record.dispatchCapacityReserve;
-      const dispatched = await this.dispatchDeveloperCommand(record);
-      record.attempts += 1;
-      record.lastDispatchedAtMs = nowMs;
-      record.nextAttemptAtMs = nowMs + DEVELOPER_COMMAND_RETRY_MS;
-      if (dispatched) record.status = 'dispatched';
-      if (!dispatched && record.attempts >= DEVELOPER_COMMAND_MAX_ATTEMPTS) {
-        this.completeDeveloperCommand(record, 'rejected', 'coordinator_unavailable', nowMs);
-      }
-      changed = true;
     }
     return changed;
   }
@@ -4346,72 +4996,10 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    const record = this.room.developerCommands[commandId];
-    if (!record) return errorResponse('COMMAND_NOT_FOUND', 404);
-    const nowMs = Date.now();
-    if (
-      this.room.presence.coordinatorEpoch !== record.coordinatorEpoch ||
-      this.room.presence.coordinatorParticipantId !== auth.session.participantId ||
-      record.coordinatorParticipantId !== auth.session.participantId ||
-      record.coordinatorPresenceIncarnationId !== auth.participant.presenceIncarnationId
-    ) {
-      return errorResponse('COORDINATOR_MISMATCH', 409);
-    }
-    const equivalentSuccessfulAck =
-      (record.resultCode === 'applied' || record.resultCode === 'already_applied') &&
-      (parsed.value.resultCode === 'applied' || parsed.value.resultCode === 'already_applied');
-    if (
-      (record.resultCode === parsed.value.resultCode || equivalentSuccessfulAck) &&
-      Number.isSafeInteger(record.acknowledgedAtMs)
-    ) {
-      return jsonResponse({ ok: true });
-    }
-    if (record.status === 'expired' && parsed.value.resultCode === 'expired') {
-      // prune() runs before this route and may already have made expiry
-      // authoritative. The exact coordinator's matching late ACK is still a
-      // valid confirmation that the frame was discarded, not executed.
-      record.acknowledgedAtMs = nowMs;
-      this.syncDeveloperCommandIdempotency(record);
-      await this.persist();
-      return jsonResponse({ ok: true });
-    }
-    if (record.status !== 'pending' && record.status !== 'dispatched') {
-      return errorResponse('COMMAND_ALREADY_COMPLETED', 409);
-    }
-    if (record.expiresAtMs <= nowMs) {
-      if (parsed.value.resultCode !== 'expired') {
-        return errorResponse('COMMAND_EXPIRED', 409);
-      }
-      this.completeDeveloperCommand(record, 'expired', 'expired', nowMs, true);
-      await this.persist();
-      return jsonResponse({ ok: true });
-    }
-    let resultCode = parsed.value.resultCode;
-    let status =
-      parsed.value.resultCode === 'applied' || parsed.value.resultCode === 'already_applied'
-        ? 'applied'
-        : parsed.value.resultCode === 'expired'
-          ? 'expired'
-          : 'rejected';
-    if (status === 'applied' && record.command?.type === 'set_effects') {
-      const patch = parseRoomEffectsPatch(record.command.effects);
-      if (!patch || this.room.effects.revision >= Number.MAX_SAFE_INTEGER) {
-        status = 'rejected';
-        resultCode = 'execution_failed';
-      } else {
-        const effects = mergeRoomEffectsPatch(this.room.effects.effects, patch);
-        if (JSON.stringify(effects) !== JSON.stringify(this.room.effects.effects)) {
-          this.room.effects = {
-            revision: this.room.effects.revision + 1,
-            updatedAtMs: nowMs,
-            effects,
-          };
-        }
-      }
-    }
-    this.completeDeveloperCommand(record, status, resultCode, nowMs, true);
-    await this.persist();
-    return jsonResponse({ ok: true });
+    if (!this.room.developerCommands[commandId]) return errorResponse('COMMAND_NOT_FOUND', 404);
+    // Browser ACKs belonged to the removed coordinator relay. Commands are
+    // now applied by this Durable Object and observed through status polling.
+    return errorResponse('COMMAND_ACK_NOT_REQUIRED', 410);
   }
 
   async handleInternalActivationClaim() {
@@ -4627,23 +5215,33 @@ export class MusixquareProRoom {
     if (auth.response) return auth.response;
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
-    if (!hasExactKeys(parsed.value, ['coordinatorEpoch', 'effects'])) {
+    if (!hasExactKeys(parsed.value, ['coordinatorEpoch', 'baseRevision', 'effects'])) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const effects = parseRoomEffects(parsed.value.effects);
-    if (!isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) || !effects) {
+    if (
+      !isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) ||
+      !isSafeNonNegativeInteger(parsed.value.baseRevision) ||
+      !effects
+    ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    if (
-      this.room.presence.coordinatorParticipantId !== auth.session.participantId ||
-      this.room.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch
-    ) {
-      return errorResponse('COORDINATOR_EPOCH_MISMATCH', 409);
+    if (this.room.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch) {
+      return errorResponse('ROOM_EPOCH_MISMATCH', 409);
+    }
+    if (parsed.value.baseRevision !== this.room.effects.revision) {
+      return jsonResponse(
+        { error: 'EFFECTS_REVISION_CONFLICT', effects: publicEffects(this.room) },
+        409,
+      );
     }
     if (JSON.stringify(effects) === JSON.stringify(this.room.effects.effects)) {
       return jsonResponse(publicEffects(this.room));
     }
-    if (this.room.effects.revision >= Number.MAX_SAFE_INTEGER) {
+    if (
+      this.room.effects.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.revision >= Number.MAX_SAFE_INTEGER
+    ) {
       return errorResponse('REVISION_EXHAUSTED', 409);
     }
     this.room.effects = {
@@ -4651,7 +5249,14 @@ export class MusixquareProRoom {
       updatedAtMs: Date.now(),
       effects,
     };
+    // room.revision is the heartbeat's aggregate change detector. Keep it in
+    // the same persisted mutation as the dedicated effects revision so a peer
+    // that misses the invalidation event cannot receive a false notModified.
+    this.room.revision += 1;
     await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({ effectsRevision: this.room.effects.revision }),
+    );
     return jsonResponse(publicEffects(this.room));
   }
 
@@ -4684,11 +5289,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    if (
-      this.room.presence.coordinatorParticipantId !== auth.session.participantId ||
-      this.room.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch
-    ) {
-      return errorResponse('COORDINATOR_EPOCH_MISMATCH', 409);
+    if (this.room.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch) {
+      return errorResponse('ROOM_EPOCH_MISMATCH', 409);
     }
     if (parsed.value.playlistRevision !== this.room.playlistRevision) {
       return jsonResponse(
@@ -4721,7 +5323,10 @@ export class MusixquareProRoom {
     ) {
       return jsonResponse(publicQueueMode(this.room));
     }
-    if (this.room.queueMode.revision >= Number.MAX_SAFE_INTEGER) {
+    if (
+      this.room.queueMode.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.revision >= Number.MAX_SAFE_INTEGER
+    ) {
       return errorResponse('REVISION_EXHAUSTED', 409);
     }
     this.room.queueMode = {
@@ -4729,7 +5334,13 @@ export class MusixquareProRoom {
       updatedAtMs: Date.now(),
       ...queueMode,
     };
+    // See handleUpdateEffects(): queue-mode invalidation is best-effort, while
+    // the aggregate room revision is the durable heartbeat recovery fence.
+    this.room.revision += 1;
     await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({ queueModeRevision: this.room.queueMode.revision }),
+    );
     return jsonResponse(publicQueueMode(this.room));
   }
 
@@ -4833,6 +5444,9 @@ export class MusixquareProRoom {
     };
     auth.participant.lastSeenAtMs = nowMs;
     await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({ systemAudioGeneration: this.room.systemAudio.generation }),
+    );
     return this.systemAudioResponse({ leaseId: this.room.systemAudio.leaseId });
   }
 
@@ -4870,6 +5484,9 @@ export class MusixquareProRoom {
     this.room.systemAudio.publication = publication;
     auth.participant.lastSeenAtMs = nowMs;
     await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({ systemAudioGeneration: this.room.systemAudio.generation }),
+    );
     return this.systemAudioResponse();
   }
 
@@ -4908,6 +5525,9 @@ export class MusixquareProRoom {
     if (leaseError) return leaseError;
     this.clearSystemAudioLease();
     await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({ systemAudioGeneration: this.room.systemAudio.generation }),
+    );
     return this.systemAudioResponse();
   }
 
@@ -4935,12 +5555,46 @@ export class MusixquareProRoom {
     };
     this.room.runtime = 'awake';
     this.room.presence.revision += 1;
-    if (!this.room.presence.coordinatorParticipantId) {
-      this.room.presence.coordinatorParticipantId = session.participantId;
-      this.bumpCoordinatorEpoch(nowMs, wasSleeping);
+    this.room.presence.coordinatorParticipantId = null;
+    if (wasSleeping) {
+      this.bumpRoomEpoch(nowMs);
+      if (this.room.playback.state === 'playing' && this.room.playback.queueItemId) {
+        // Sleeping rooms retain the intent to resume but their timeline is
+        // frozen. Anchor the old checkpoint at wake and rendezvous the first
+        // participant from that exact position; never charge the time spent
+        // asleep (or preparing) as audible playback.
+        this.room.playback.updatedAtMs = nowMs;
+        const mediaIdentity =
+          this.room.playback.youtubeVideoId === null
+            ? null
+            : {
+                youtubeVideoId: this.room.playback.youtubeVideoId,
+                youtubeSubIndex: this.room.playback.youtubeSubIndex,
+              };
+        const target = this.targetPlayback(
+          this.room.playback.queueItemId,
+          'playing',
+          this.room.playback.positionSeconds,
+          nowMs,
+          mediaIdentity,
+        );
+        if (target) {
+          const wakeTransition = this.preparePlaybackTransition(target, nowMs, null, {
+            resumeFromSleep: true,
+          });
+          if (wakeTransition.cancelEvent) this.scheduleServerEvent(wakeTransition.cancelEvent);
+          if (wakeTransition.event) {
+            this.scheduleServerEvent(wakeTransition.event, wakeTransition.targets);
+          }
+        }
+      }
     }
+    // A member arriving during an existing PREPARE receives it in the
+    // signaling ticket and can arm locally, but the gate's cohort is immutable.
+    // Only takeover rotates an existing cohort identity; leave can shrink it.
     this.reconcileSystemAudio(nowMs);
     this.room.revision += 1;
+    this.scheduleServerEvent(this.presenceEvent());
     return true;
   }
 
@@ -4953,49 +5607,46 @@ export class MusixquareProRoom {
 
     // A room cookie is shared by every tab in the same browser profile. Do
     // not let an ordinary resume silently rotate the live tab's incarnation:
-    // doing so repeatedly replaces signaling sockets and, for a coordinator,
-    // advances the room epoch until the whole topology becomes unstable. A
-    // takeover is therefore an explicit, user-confirmed operation.
+    // doing so repeatedly replaces the authenticated signaling socket and can
+    // make control-channel recovery unstable. A takeover is therefore an
+    // explicit, user-confirmed operation.
     if (!takeover) return 'active-elsewhere';
 
     // A resumed tab is a new presence incarnation even though its long-lived
     // HttpOnly session and participant identity are intentionally reused.
-    // Rotating this nonce fences every active request captured by the prior
-    // tab. A coordinator re-entry also advances the epoch exactly once: the
-    // signaling Worker then closes every prior-epoch socket so legacy RTC data
-    // channels cannot survive as a split-brain control plane. Member re-entry
-    // deliberately leaves the room-wide epoch untouched.
+    // Rotating this nonce fences every request and WebSocket captured by the
+    // prior tab without changing room-wide authority for every other peer.
+    const previousPresenceIncarnationId = existing.presenceIncarnationId;
     const presenceIncarnationId = `presence_${randomToken(18)}`;
     session.presenceIncarnationId = presenceIncarnationId;
     existing.presenceIncarnationId = presenceIncarnationId;
     existing.developerControlVersion = 0;
     existing.joinedAtMs = nowMs;
     existing.lastSeenAtMs = nowMs;
-    if (this.room.presence.coordinatorParticipantId === session.participantId) {
-      this.bumpCoordinatorEpoch(nowMs);
+    const pending = this.room.pendingPlaybackTransition;
+    if (pending?.cohort.includes(previousPresenceIncarnationId)) {
+      pending.cohort = pending.cohort.map((candidate) =>
+        candidate === previousPresenceIncarnationId ? presenceIncarnationId : candidate,
+      );
+      pending.cohort.sort();
+      delete pending.ready[previousPresenceIncarnationId];
     }
     this.reconcileSystemAudio(nowMs);
     this.room.presence.revision += 1;
     this.room.revision += 1;
+    this.scheduleServerEvent(this.presenceEvent());
     return 'entered';
   }
 
-  fenceDeveloperCommands(resultCode, nowMs = Date.now()) {
-    let changed = false;
-    for (const command of Object.values(this.room.developerCommands || {})) {
-      if (command.status !== 'pending' && command.status !== 'dispatched') continue;
-      this.completeDeveloperCommand(command, 'rejected', resultCode, nowMs);
-      changed = true;
-    }
-    return changed;
-  }
-
-  bumpCoordinatorEpoch(nowMs, waking = false) {
-    this.fenceDeveloperCommands('coordinator_changed', nowMs);
+  bumpRoomEpoch(nowMs) {
+    this.cancelPendingPlayback('room-epoch-changed', nowMs);
+    // Signaling closes old-epoch sockets when the authoritative presence fence
+    // advances. Neither their CANCEL nor any older playback event may cross the
+    // new epoch.
+    this.room.pendingPlaybackBroadcasts = [];
     this.room.presence.coordinatorEpoch += 1;
     this.room.playback.coordinatorEpoch = this.room.presence.coordinatorEpoch;
     this.room.playback.revision += 1;
-    if (this.room.playback.state === 'playing' && waking) this.room.playback.updatedAtMs = nowMs;
   }
 
   freezePlayback(nowMs) {
@@ -5008,6 +5659,870 @@ export class MusixquareProRoom {
       this.room.playback.updatedAtMs = nowMs;
       this.room.playback.revision += 1;
     }
+  }
+
+  realtimePresenceTargets() {
+    return Object.values(this.room.presence.participants)
+      .map((participant) => participant.presenceIncarnationId)
+      .filter((incarnationId) => OPAQUE_ID_RE.test(incarnationId || ''))
+      .sort();
+  }
+
+  async broadcastServerEvent(
+    event,
+    targets = this.realtimePresenceTargets(),
+    coordinatorEpoch = this.room.presence.coordinatorEpoch,
+  ) {
+    const namespace = this.env.PRO_SIGNALING_ROOMS;
+    if (!namespace || typeof namespace.idFromName !== 'function') return false;
+    try {
+      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
+      const response = await fetchWithDeadline(
+        (boundedRequest) => stub.fetch(boundedRequest),
+        new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: this.room.roomCode,
+            coordinatorEpoch,
+            targets,
+            event,
+          }),
+        }),
+        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
+      );
+      return response.status === 200;
+    } catch {
+      return false;
+    }
+  }
+
+  playbackBroadcastRetryDelayMs(attempts) {
+    return Math.min(
+      PLAYBACK_BROADCAST_RETRY_MAX_MS,
+      PLAYBACK_BROADCAST_RETRY_BASE_MS * 2 ** Math.min(attempts, 6),
+    );
+  }
+
+  playbackBroadcastRecord(event, targets, nowMs = Date.now(), options = {}) {
+    const normalizedTargets = [...new Set(targets || [])]
+      .filter((target) => OPAQUE_ID_RE.test(target || ''))
+      .sort();
+    if (normalizedTargets.length === 0 || normalizedTargets.length > PRESENCE_MAX_ITEMS)
+      return null;
+
+    let kind;
+    let coordinatorEpoch;
+    let transitionId;
+    let basePlaybackRevision;
+    let playbackRevision;
+    if (event?.type === 'pro-playback-prepare') {
+      kind = 'prepare';
+      coordinatorEpoch = event.target?.coordinatorEpoch;
+      transitionId = event.transitionId;
+      basePlaybackRevision = event.basePlaybackRevision;
+      playbackRevision = event.target?.revision;
+    } else if (event?.type === 'pro-playback-cancel') {
+      kind = 'cancel';
+      coordinatorEpoch = this.room.presence.coordinatorEpoch;
+      transitionId = event.transitionId;
+      basePlaybackRevision =
+        options.basePlaybackRevision === undefined
+          ? this.room.playback.revision
+          : options.basePlaybackRevision;
+      playbackRevision = basePlaybackRevision + 1;
+    } else if (event?.type === 'pro-playback-commit') {
+      kind = 'commit';
+      coordinatorEpoch = event.playback?.coordinatorEpoch;
+      transitionId = event.transitionId;
+      playbackRevision = event.playback?.revision;
+      basePlaybackRevision = playbackRevision - 1;
+    } else {
+      return null;
+    }
+    const candidate = {
+      kind,
+      coordinatorEpoch,
+      transitionId,
+      basePlaybackRevision,
+      playbackRevision,
+      targets: normalizedTargets,
+      event: structuredClone(event),
+      createdAtMs: nowMs,
+      attempts: 0,
+      retryAtMs: nowMs,
+    };
+    return normalizeStoredPlaybackBroadcastRecord(candidate, this.room);
+  }
+
+  enqueuePlaybackBroadcast(
+    event,
+    targets = this.realtimePresenceTargets(),
+    nowMs = Date.now(),
+    options = {},
+  ) {
+    const record = this.playbackBroadcastRecord(event, targets, nowMs, options);
+    if (!record) return false;
+    const current = (this.room.pendingPlaybackBroadcasts || []).filter(
+      (candidate) => candidate.coordinatorEpoch === record.coordinatorEpoch,
+    );
+    if (record.kind === 'commit') {
+      const matchingCancel = [...current]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.kind === 'cancel' &&
+            candidate.basePlaybackRevision === record.basePlaybackRevision &&
+            candidate.playbackRevision === record.playbackRevision,
+        );
+      // Preserve the product's existing immediate cancellation feedback before
+      // a superseding direct COMMIT. The pair remains bounded and idempotent.
+      this.room.pendingPlaybackBroadcasts = matchingCancel ? [matchingCancel, record] : [record];
+      return true;
+    }
+    const baseCommit = [...current]
+      .reverse()
+      .find(
+        (candidate) =>
+          candidate.kind === 'commit' && candidate.playbackRevision === record.basePlaybackRevision,
+      );
+    const matchingCancel = [...current]
+      .reverse()
+      .find(
+        (candidate) =>
+          candidate.kind === 'cancel' &&
+          candidate.basePlaybackRevision === record.basePlaybackRevision &&
+          candidate.playbackRevision === record.playbackRevision,
+      );
+    this.room.pendingPlaybackBroadcasts = baseCommit
+      ? [baseCommit, record]
+      : record.kind === 'prepare' && matchingCancel
+        ? [matchingCancel, record]
+        : [record];
+    return true;
+  }
+
+  enqueuePlaybackOutcome(outcome, nowMs = Date.now()) {
+    if (!outcome) return false;
+    let changed = false;
+    if (outcome.cancelEvent) {
+      const successorBasePlaybackRevision =
+        outcome.event?.type === 'pro-playback-prepare'
+          ? outcome.event.basePlaybackRevision
+          : outcome.event?.type === 'pro-playback-commit'
+            ? outcome.event.playback.revision - 1
+            : undefined;
+      changed = this.enqueuePlaybackBroadcast(
+        outcome.cancelEvent,
+        this.realtimePresenceTargets(),
+        nowMs,
+        { basePlaybackRevision: successorBasePlaybackRevision },
+      );
+    }
+    if (outcome.event) {
+      changed =
+        this.enqueuePlaybackBroadcast(
+          outcome.event,
+          outcome.targets || this.realtimePresenceTargets(),
+          nowMs,
+        ) || changed;
+    }
+    return changed;
+  }
+
+  async dispatchPlaybackBroadcast(record) {
+    const namespace = this.env.PRO_SIGNALING_ROOMS;
+    if (!namespace || typeof namespace.idFromName !== 'function') return false;
+    try {
+      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
+      const response = await fetchWithDeadline(
+        (boundedRequest) => stub.fetch(boundedRequest),
+        new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: this.room.roomCode,
+            coordinatorEpoch: record.coordinatorEpoch,
+            targets: record.targets,
+            event: record.event,
+          }),
+        }),
+        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
+      );
+      if (response.status !== 200) return false;
+      const body = await response.json().catch(() => null);
+      return !!(
+        hasExactKeys(body, ['broadcast', 'eligible', 'sent']) &&
+        body.broadcast === true &&
+        isSafeNonNegativeInteger(body.eligible) &&
+        isSafeNonNegativeInteger(body.sent) &&
+        body.sent <= body.eligible &&
+        body.sent === body.eligible
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async flushPendingPlaybackBroadcasts(nowMs = Date.now()) {
+    while (this.room?.pendingPlaybackBroadcasts?.length > 0) {
+      const record = this.room.pendingPlaybackBroadcasts[0];
+      if (record.coordinatorEpoch !== this.room.presence.coordinatorEpoch) {
+        const previous = structuredClone(this.room.pendingPlaybackBroadcasts);
+        this.room.pendingPlaybackBroadcasts.shift();
+        try {
+          await this.persist({
+            writeLegacyShadow: false,
+            flushPlaybackOutbox: false,
+          });
+        } catch {
+          this.room.pendingPlaybackBroadcasts = previous;
+          await this.maintainAlarm();
+          return false;
+        }
+        continue;
+      }
+      if (record.retryAtMs > nowMs) return false;
+
+      const previous = structuredClone(this.room.pendingPlaybackBroadcasts);
+      const delivered = await this.dispatchPlaybackBroadcast(record);
+      if (delivered) {
+        this.room.pendingPlaybackBroadcasts.shift();
+      } else {
+        const attempts = Math.min(PLAYBACK_BROADCAST_RETRY_MAX_ATTEMPTS, record.attempts + 1);
+        record.attempts = attempts;
+        record.retryAtMs = nowMs + this.playbackBroadcastRetryDelayMs(record.attempts - 1);
+      }
+      try {
+        await this.persist({
+          writeLegacyShadow: false,
+          flushPlaybackOutbox: false,
+        });
+      } catch {
+        // The previous durable record is still authoritative. Restore the same
+        // in-memory queue and let its already-maintained alarm redeliver it.
+        this.room.pendingPlaybackBroadcasts = previous;
+        await this.maintainAlarm();
+        return false;
+      }
+      if (!delivered) return false;
+      nowMs = Date.now();
+    }
+    return true;
+  }
+
+  presenceBroadcastRetryDelayMs(attempts) {
+    return Math.min(
+      PRESENCE_BROADCAST_RETRY_MAX_MS,
+      PRESENCE_BROADCAST_RETRY_BASE_MS * 2 ** Math.min(attempts, 6),
+    );
+  }
+
+  comparePresenceBroadcastRevision(left, right) {
+    if (left.coordinatorEpoch !== right.coordinatorEpoch) {
+      return left.coordinatorEpoch - right.coordinatorEpoch;
+    }
+    return left.presenceRevision - right.presenceRevision;
+  }
+
+  currentPresenceBroadcastRecord(nowMs, attempts = 0) {
+    return {
+      coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      presenceRevision: this.room.presence.revision,
+      roomRevision: this.room.revision,
+      retryAtMs: nowMs + this.presenceBroadcastRetryDelayMs(attempts),
+      attempts,
+    };
+  }
+
+  async rememberFailedPresenceBroadcast(event, coordinatorEpoch) {
+    await this.withMutation(async () => {
+      if (!this.room || event?.type !== 'pro-presence-snapshot') return;
+      const deliveredRevision = {
+        coordinatorEpoch,
+        presenceRevision: event.presenceRevision,
+      };
+      const currentRevision = {
+        coordinatorEpoch: this.room.presence.coordinatorEpoch,
+        presenceRevision: this.room.presence.revision,
+      };
+      // A later full snapshot supersedes this failed attempt. Its own delivery
+      // path is responsible for installing a retry marker if it also fails.
+      if (this.comparePresenceBroadcastRevision(deliveredRevision, currentRevision) !== 0) return;
+
+      const existing = this.room.pendingPresenceBroadcast;
+      const attempts =
+        existing && this.comparePresenceBroadcastRevision(existing, currentRevision) === 0
+          ? existing.attempts
+          : 0;
+      const next = this.currentPresenceBroadcastRecord(Date.now(), attempts);
+      if (existing && this.comparePresenceBroadcastRevision(existing, next) > 0) return;
+      if (existing && this.comparePresenceBroadcastRevision(existing, next) === 0) {
+        next.retryAtMs = Math.min(existing.retryAtMs, next.retryAtMs);
+      }
+      this.room.pendingPresenceBroadcast = next;
+      // The retry marker and its alarm must survive isolate eviction. It is an
+      // internal delivery concern, so avoid rewriting the legacy shadow.
+      await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
+    });
+  }
+
+  async clearDeliveredPresenceBroadcast(event, coordinatorEpoch) {
+    await this.withMutation(async () => {
+      const pending = this.room?.pendingPresenceBroadcast;
+      if (!pending || event?.type !== 'pro-presence-snapshot') return;
+      const deliveredRevision = {
+        coordinatorEpoch,
+        presenceRevision: event.presenceRevision,
+      };
+      if (this.comparePresenceBroadcastRevision(deliveredRevision, pending) < 0) return;
+      this.room.pendingPresenceBroadcast = null;
+      await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
+    });
+  }
+
+  async deliverPresenceBroadcast(event, targets, coordinatorEpoch) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (await this.broadcastServerEvent(event, targets, coordinatorEpoch)) {
+        await this.clearDeliveredPresenceBroadcast(event, coordinatorEpoch);
+        return true;
+      }
+    }
+    await this.rememberFailedPresenceBroadcast(event, coordinatorEpoch);
+    return false;
+  }
+
+  async retryPendingPresenceBroadcast(nowMs) {
+    const pending = this.room.pendingPresenceBroadcast;
+    if (!pending || pending.retryAtMs > nowMs) return false;
+
+    const currentRevision = {
+      coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      presenceRevision: this.room.presence.revision,
+    };
+    const attempts =
+      this.comparePresenceBroadcastRevision(pending, currentRevision) === 0 ? pending.attempts : 0;
+    const delivered = await this.broadcastServerEvent(
+      this.presenceEvent(),
+      this.realtimePresenceTargets(),
+      currentRevision.coordinatorEpoch,
+    );
+    if (delivered) {
+      this.room.pendingPresenceBroadcast = null;
+    } else {
+      const nextAttempts = Math.min(PRESENCE_BROADCAST_RETRY_MAX_ATTEMPTS, attempts + 1);
+      this.room.pendingPresenceBroadcast = this.currentPresenceBroadcastRecord(nowMs, nextAttempts);
+    }
+    await this.persist({ writeLegacyShadow: false });
+    return delivered;
+  }
+
+  scheduleServerEvent(event, targets = this.realtimePresenceTargets()) {
+    if (
+      event?.type === 'pro-playback-prepare' ||
+      event?.type === 'pro-playback-cancel' ||
+      event?.type === 'pro-playback-commit'
+    ) {
+      // Playback events must be included in the caller's next canonical room
+      // persist. Never start cross-Worker delivery from this pre-persist seam.
+      return Promise.resolve(this.enqueuePlaybackBroadcast(event, targets));
+    }
+    const coordinatorEpoch = this.room.presence.coordinatorEpoch;
+    const hasSignalingNamespace =
+      this.env.PRO_SIGNALING_ROOMS && typeof this.env.PRO_SIGNALING_ROOMS.idFromName === 'function';
+    const delivery =
+      event?.type === 'pro-presence-snapshot' && hasSignalingNamespace
+        ? this.deliverPresenceBroadcast(event, targets, coordinatorEpoch)
+        : this.broadcastServerEvent(event, targets, coordinatorEpoch);
+    if (typeof this.state.waitUntil === 'function') this.state.waitUntil(delivery);
+    return delivery;
+  }
+
+  presenceEvent() {
+    return {
+      type: 'pro-presence-snapshot',
+      presenceRevision: this.room.presence.revision,
+      roomRevision: this.room.revision,
+    };
+  }
+
+  invalidationEvent(extra = {}) {
+    return {
+      type: 'pro-room-invalidated',
+      roomRevision: this.room.revision,
+      ...extra,
+    };
+  }
+
+  playbackCommitEvent(transitionId, executeAtMs, nowMs) {
+    return {
+      type: 'pro-playback-commit',
+      transitionId,
+      serverTimeMs: nowMs,
+      executeAtMs,
+      playback: structuredClone(this.room.playback),
+    };
+  }
+
+  playbackPrepareEvent(pending, nowMs = Date.now()) {
+    return {
+      type: 'pro-playback-prepare',
+      transitionId: pending.transitionId,
+      serverTimeMs: nowMs,
+      deadlineAtMs: pending.deadlineAtMs,
+      basePlaybackRevision: pending.basePlaybackRevision,
+      target: structuredClone(pending.target),
+    };
+  }
+
+  cancelPendingPlayback(reason, nowMs = Date.now()) {
+    const pending = this.room.pendingPlaybackTransition;
+    if (!pending) return null;
+    this.room.pendingPlaybackTransition = null;
+    if (pending.developerCommandId) {
+      const record = this.room.developerCommands[pending.developerCommandId];
+      if (record && (record.status === 'pending' || record.status === 'dispatched')) {
+        this.completeDeveloperCommand(record, 'rejected', 'busy', nowMs);
+      }
+    }
+    return {
+      type: 'pro-playback-cancel',
+      transitionId: pending.transitionId,
+      serverTimeMs: nowMs,
+      reason,
+    };
+  }
+
+  targetPlayback(queueItemId, state, positionSeconds, nowMs, mediaIdentity = null) {
+    if (this.room.playback.revision >= Number.MAX_SAFE_INTEGER) return null;
+    if (queueItemId === null) {
+      return {
+        coordinatorEpoch: this.room.presence.coordinatorEpoch,
+        revision: this.room.playback.revision + 1,
+        state: 'idle',
+        queueItemId: null,
+        positionSeconds: 0,
+        updatedAtMs: nowMs,
+        youtubeVideoId: null,
+        youtubeSubIndex: null,
+      };
+    }
+    const item = this.room.playlist.find((candidate) => candidate.queueItemId === queueItemId);
+    if (!item || (state !== 'playing' && state !== 'paused')) return null;
+    const boundedPosition = Math.min(PLAYBACK_MAX_POSITION_SECONDS, Math.max(0, positionSeconds));
+    if (item.source.kind === 'youtube') {
+      let youtubeVideoId;
+      let youtubeSubIndex;
+      if (item.source.videoIds !== undefined) {
+        youtubeSubIndex =
+          mediaIdentity?.youtubeSubIndex ?? item.source.videoIds.indexOf(item.source.videoId);
+        if (
+          !isSafeNonNegativeInteger(youtubeSubIndex) ||
+          youtubeSubIndex >= item.source.videoIds.length
+        ) {
+          return null;
+        }
+        youtubeVideoId = item.source.videoIds[youtubeSubIndex];
+        // Once a manifest exists, the client-reported video ID is an assertion,
+        // never authority. The immutable server list derives the actual target.
+        if (
+          mediaIdentity?.youtubeVideoId !== undefined &&
+          mediaIdentity.youtubeVideoId !== youtubeVideoId
+        ) {
+          return null;
+        }
+      } else if (item.source.playlistId === undefined) {
+        youtubeVideoId = item.source.videoId;
+        youtubeSubIndex = 0;
+        if (
+          mediaIdentity !== null &&
+          (mediaIdentity.youtubeVideoId !== youtubeVideoId ||
+            mediaIdentity.youtubeSubIndex !== youtubeSubIndex)
+        ) {
+          return null;
+        }
+      } else {
+        // Legacy playlist rows have no canonical ordered manifest. Preserve
+        // explicit select/resume compatibility, but never invent traversal.
+        youtubeVideoId = mediaIdentity?.youtubeVideoId || item.source.videoId;
+        youtubeSubIndex = mediaIdentity?.youtubeSubIndex ?? 0;
+      }
+      if (
+        !YOUTUBE_VIDEO_ID_RE.test(youtubeVideoId || '') ||
+        !isSafeNonNegativeInteger(youtubeSubIndex) ||
+        youtubeSubIndex > 100_000
+      ) {
+        return null;
+      }
+      return {
+        coordinatorEpoch: this.room.presence.coordinatorEpoch,
+        revision: this.room.playback.revision + 1,
+        state,
+        queueItemId,
+        positionSeconds: boundedPosition,
+        updatedAtMs: nowMs,
+        youtubeVideoId,
+        youtubeSubIndex,
+      };
+    }
+    if (
+      mediaIdentity?.youtubeVideoId !== undefined ||
+      mediaIdentity?.youtubeSubIndex !== undefined
+    ) {
+      return null;
+    }
+    return {
+      coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      revision: this.room.playback.revision + 1,
+      state,
+      queueItemId,
+      positionSeconds: boundedPosition,
+      updatedAtMs: nowMs,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    };
+  }
+
+  directPlaybackCommit(target, nowMs, developerCommandId = null) {
+    const cancelEvent = this.cancelPendingPlayback('superseded', nowMs);
+    const executeAtMs = nowMs + PLAYBACK_COMMIT_LEAD_MS;
+    target.updatedAtMs = executeAtMs;
+    this.room.currentQueueItemId = target.queueItemId;
+    this.room.playback = target;
+    this.room.pendingPlaybackTransition = null;
+    this.room.revision += 1;
+    if (developerCommandId) {
+      const record = this.room.developerCommands[developerCommandId];
+      if (record) this.completeDeveloperCommand(record, 'applied', 'applied', nowMs);
+    }
+    return {
+      status: 'committed',
+      cancelEvent,
+      event: this.playbackCommitEvent(null, executeAtMs, nowMs),
+    };
+  }
+
+  preparePlaybackTransition(target, nowMs, developerCommandId = null, options = {}) {
+    const existing = this.room.pendingPlaybackTransition;
+    if (
+      existing &&
+      existing.coordinatorEpoch === this.room.presence.coordinatorEpoch &&
+      existing.basePlaybackRevision === this.room.playback.revision &&
+      playbackSemanticallyEqual(existing.target, target)
+    ) {
+      // Several devices commonly report the same YouTube ENDED observation.
+      // Coalesce those observations instead of repeatedly cancelling the same
+      // three-second rendezvous and postponing the canonical transition.
+      if (developerCommandId) {
+        return { error: 'PLAYBACK_TRANSITION_PENDING', status: 409 };
+      }
+      return {
+        status: 'preparing',
+        transitionId: existing.transitionId,
+        targets: [],
+        event: null,
+      };
+    }
+    const cancelEvent = this.cancelPendingPlayback('superseded', nowMs);
+    const cohort = this.realtimePresenceTargets();
+    if (cohort.length === 0) {
+      const committed = this.directPlaybackCommit(target, nowMs, developerCommandId);
+      return { ...committed, cancelEvent: cancelEvent || committed.cancelEvent };
+    }
+    const transitionId = `transition_${randomToken(16)}`;
+    const deadlineAtMs = nowMs + PLAYBACK_TRANSITION_DEADLINE_MS;
+    const pending = {
+      transitionId,
+      coordinatorEpoch: this.room.presence.coordinatorEpoch,
+      basePlaybackRevision: this.room.playback.revision,
+      createdAtMs: nowMs,
+      deadlineAtMs,
+      target,
+      cohort,
+      ready: {},
+      developerCommandId,
+      ...(options.resumeFromSleep === true ? { resumeFromSleep: true } : {}),
+    };
+    this.room.pendingPlaybackTransition = pending;
+    return {
+      status: 'preparing',
+      transitionId,
+      cancelEvent,
+      targets: cohort,
+      event: this.playbackPrepareEvent(pending, nowMs),
+    };
+  }
+
+  commitPendingPlaybackTransition(nowMs = Date.now()) {
+    const pending = this.room.pendingPlaybackTransition;
+    if (!pending) return null;
+    if (
+      pending.coordinatorEpoch !== this.room.presence.coordinatorEpoch ||
+      pending.basePlaybackRevision !== this.room.playback.revision
+    ) {
+      return { cancelEvent: this.cancelPendingPlayback('stale', nowMs), event: null };
+    }
+    const executeAtMs = nowMs + PLAYBACK_COMMIT_LEAD_MS;
+    pending.target.updatedAtMs = executeAtMs;
+    this.room.currentQueueItemId = pending.target.queueItemId;
+    this.room.playback = pending.target;
+    this.room.pendingPlaybackTransition = null;
+    this.room.revision += 1;
+    if (pending.developerCommandId) {
+      const record = this.room.developerCommands[pending.developerCommandId];
+      if (record) this.completeDeveloperCommand(record, 'applied', 'applied', nowMs);
+    }
+    return {
+      cancelEvent: null,
+      event: this.playbackCommitEvent(pending.transitionId, executeAtMs, nowMs),
+    };
+  }
+
+  applyPlaybackAuthorityCommand(command, nowMs = Date.now(), developerCommandId = null) {
+    if (command.baseRevision !== this.room.playback.revision) {
+      return { error: 'PLAYBACK_REVISION_CONFLICT', status: 409 };
+    }
+    const playback = this.room.playback;
+    const currentIdentity =
+      playback.youtubeVideoId === null
+        ? null
+        : {
+            youtubeVideoId: playback.youtubeVideoId,
+            youtubeSubIndex: playback.youtubeSubIndex,
+          };
+    const wakeTransition = this.room.pendingPlaybackTransition?.resumeFromSleep === true;
+    const playbackClockRunning = this.room.runtime === 'awake' && !wakeTransition;
+    const currentPosition = playbackClockRunning
+      ? playbackPositionAt(playback, nowMs)
+      : wakeTransition
+        ? this.room.pendingPlaybackTransition.target.positionSeconds
+        : playback.positionSeconds;
+    let target;
+    let requiresPrepare = false;
+
+    if (command.type === 'play') {
+      if (playback.state === 'playing') return { status: 'unchanged', event: null };
+      const queueItemId =
+        playback.queueItemId ||
+        this.room.currentQueueItemId ||
+        this.room.playlist[0]?.queueItemId ||
+        null;
+      if (!queueItemId) return { error: 'NO_MEDIA', status: 409 };
+      target = this.targetPlayback(
+        queueItemId,
+        'playing',
+        playback.queueItemId === queueItemId ? playback.positionSeconds : 0,
+        nowMs,
+        playback.queueItemId === queueItemId ? currentIdentity : null,
+      );
+      // Resuming is a synchronized start, even when every participant already
+      // has the same item resident. A direct COMMIT lets a cold/late endpoint
+      // start behind the rest of the room.
+      requiresPrepare = true;
+    } else if (command.type === 'pause') {
+      if (playback.state === 'idle') return { error: 'NO_MEDIA', status: 409 };
+      if (playback.state === 'paused') return { status: 'unchanged', event: null };
+      target = this.targetPlayback(
+        playback.queueItemId,
+        'paused',
+        currentPosition + (playbackClockRunning ? PLAYBACK_COMMIT_LEAD_MS / 1_000 : 0),
+        nowMs,
+        currentIdentity,
+      );
+    } else if (command.type === 'stop') {
+      if (playback.state === 'idle') return { status: 'unchanged', event: null };
+      if (playback.state === 'paused' && playback.positionSeconds === 0) {
+        return { status: 'unchanged', event: null };
+      }
+      target = this.targetPlayback(playback.queueItemId, 'paused', 0, nowMs, currentIdentity);
+    } else if (command.type === 'seek') {
+      if (playback.state === 'idle') return { error: 'NO_MEDIA', status: 409 };
+      target = this.targetPlayback(
+        playback.queueItemId,
+        playback.state,
+        command.positionSeconds,
+        nowMs,
+        currentIdentity,
+      );
+      requiresPrepare = playback.state === 'playing';
+    } else {
+      let queueItemId = null;
+      let state = 'playing';
+      let positionSeconds = 0;
+      let mediaIdentity = null;
+      const currentItem = playback.queueItemId
+        ? this.room.playlist.find((candidate) => candidate.queueItemId === playback.queueItemId)
+        : null;
+      const currentPlaylistSource =
+        currentItem?.source.kind === 'youtube' && currentItem.source.playlistId !== undefined
+          ? currentItem.source
+          : null;
+      const currentManifestIdentity = () => {
+        if (!currentPlaylistSource) return null;
+        if (currentPlaylistSource.videoIds === undefined) {
+          return { error: 'PLAYLIST_MANIFEST_REQUIRED', status: 409 };
+        }
+        const index = playback.youtubeSubIndex;
+        if (
+          !isSafeNonNegativeInteger(index) ||
+          index >= currentPlaylistSource.videoIds.length ||
+          currentPlaylistSource.videoIds[index] !== playback.youtubeVideoId
+        ) {
+          return { error: 'INVALID_PLAYBACK_TARGET', status: 400 };
+        }
+        return {
+          index,
+          videoIds: currentPlaylistSource.videoIds,
+          mediaIdentity: {
+            youtubeVideoId: currentPlaylistSource.videoIds[index],
+            youtubeSubIndex: index,
+          },
+        };
+      };
+      const nextWithinCurrentPlaylist = () => {
+        const manifest = currentManifestIdentity();
+        if (!manifest || manifest.error) return manifest;
+        const nextIndex = manifest.index + 1;
+        return nextIndex < manifest.videoIds.length
+          ? {
+              queueItemId: playback.queueItemId,
+              mediaIdentity: {
+                youtubeVideoId: manifest.videoIds[nextIndex],
+                youtubeSubIndex: nextIndex,
+              },
+            }
+          : null;
+      };
+      if (command.type === 'select') {
+        queueItemId = command.queueItemId;
+        state = command.state;
+        positionSeconds = command.positionSeconds;
+        mediaIdentity =
+          command.youtubeVideoId === undefined
+            ? null
+            : {
+                youtubeVideoId: command.youtubeVideoId,
+                youtubeSubIndex: command.youtubeSubIndex,
+              };
+      } else if (command.type === 'previous') {
+        if (currentPlaylistSource) {
+          const manifest = currentManifestIdentity();
+          if (manifest?.error) return manifest;
+          if (manifest.index > 0) {
+            queueItemId = playback.queueItemId;
+            const previousIndex = manifest.index - 1;
+            mediaIdentity = {
+              youtubeVideoId: manifest.videoIds[previousIndex],
+              youtubeSubIndex: previousIndex,
+            };
+          } else {
+            queueItemId = adjacentQueueItemId(this.room, 'previous');
+          }
+        } else {
+          queueItemId = adjacentQueueItemId(this.room, 'previous');
+        }
+      } else if (command.type === 'ended' || command.type === 'unavailable') {
+        if (command.queueItemId !== playback.queueItemId) {
+          return { error: 'PLAYBACK_OBSERVATION_STALE', status: 409 };
+        }
+        const observedMediaKind = currentItem?.source.kind === 'youtube' ? 'youtube' : 'file';
+        if (!currentItem || command.mediaKind !== observedMediaKind) {
+          return { error: 'PLAYBACK_OBSERVATION_STALE', status: 409 };
+        }
+        if (
+          command.youtubeVideoId !== undefined &&
+          (command.youtubeVideoId !== playback.youtubeVideoId ||
+            command.youtubeSubIndex !== playback.youtubeSubIndex)
+        ) {
+          return { error: 'PLAYBACK_OBSERVATION_STALE', status: 409 };
+        }
+        if (
+          command.mediaKind === 'youtube' &&
+          (command.youtubeVideoId === undefined || command.youtubeSubIndex === undefined)
+        ) {
+          return { error: 'PLAYBACK_OBSERVATION_STALE', status: 409 };
+        }
+        if (
+          command.mediaKind === 'file' &&
+          (command.youtubeVideoId !== undefined || command.youtubeSubIndex !== undefined)
+        ) {
+          return { error: 'PLAYBACK_OBSERVATION_STALE', status: 409 };
+        }
+        if (command.type === 'ended') {
+          if (playback.state !== 'playing' || !playbackClockRunning) {
+            return { error: 'PLAYBACK_OBSERVATION_STALE', status: 409 };
+          }
+          if (command.durationSeconds !== null) {
+            const nearEndTolerance = Math.min(
+              PLAYBACK_ENDED_NEAR_END_TOLERANCE_SECONDS,
+              Math.max(0.25, command.durationSeconds * 0.01),
+            );
+            const nearEndThreshold = Math.max(0, command.durationSeconds - nearEndTolerance);
+            if (
+              command.observedPositionSeconds < nearEndThreshold ||
+              currentPosition < nearEndThreshold
+            ) {
+              return { error: 'PLAYBACK_OBSERVATION_NOT_AT_END', status: 409 };
+            }
+          } else {
+            // Live/unknown-duration YouTube media can still emit a legitimate
+            // ENDED event. Accept it only after the canonical revision has
+            // actually been playing and while the observer remains close to
+            // the server clock; this avoids both a blanket rejection and an
+            // immediate/spurious auto-advance.
+            const playingForMs = nowMs - playback.updatedAtMs;
+            if (
+              playingForMs < PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS ||
+              Math.abs(command.observedPositionSeconds - currentPosition) >
+                PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS
+            ) {
+              return { error: 'PLAYBACK_OBSERVATION_NOT_AT_END', status: 409 };
+            }
+          }
+        }
+        if (command.type === 'ended' && this.room.queueMode.repeatMode === 2) {
+          queueItemId = playback.queueItemId;
+          mediaIdentity = currentIdentity;
+        } else if (currentPlaylistSource) {
+          const internal = nextWithinCurrentPlaylist();
+          if (internal?.error) return internal;
+          if (internal) {
+            queueItemId = internal.queueItemId;
+            mediaIdentity = internal.mediaIdentity;
+          } else {
+            queueItemId = adjacentQueueItemId(this.room, 'next');
+          }
+        } else {
+          queueItemId = adjacentQueueItemId(this.room, 'next');
+        }
+      } else {
+        if (currentPlaylistSource) {
+          const internal = nextWithinCurrentPlaylist();
+          if (internal?.error) return internal;
+          if (internal) {
+            queueItemId = internal.queueItemId;
+            mediaIdentity = internal.mediaIdentity;
+          } else {
+            queueItemId = adjacentQueueItemId(this.room, 'next');
+          }
+        } else {
+          queueItemId = adjacentQueueItemId(this.room, 'next');
+        }
+      }
+      target = this.targetPlayback(
+        queueItemId,
+        queueItemId ? state : 'idle',
+        positionSeconds,
+        nowMs,
+        mediaIdentity,
+      );
+      requiresPrepare = queueItemId !== null;
+    }
+
+    if (!target) return { error: 'INVALID_PLAYBACK_TARGET', status: 400 };
+    return requiresPrepare
+      ? this.preparePlaybackTransition(target, nowMs, developerCommandId)
+      : this.directPlaybackCommit(target, nowMs, developerCommandId);
   }
 
   decommissionPurgeAfterMs(nowMs) {
@@ -5396,7 +6911,7 @@ export class MusixquareProRoom {
     const nowMs = Date.now();
     this.freezePlayback(nowMs);
 
-    // Suspension is an authorization and topology fence, not data deletion.
+    // Suspension is an authorization and control-incarnation fence, not data deletion.
     // Playlist, media assets, PIN, and the owner recovery credential remain in
     // the room while every transient browser/session identity is discarded.
     this.room.sessions = {};
@@ -5406,10 +6921,11 @@ export class MusixquareProRoom {
     this.room.authEpoch += 1;
     this.room.runtime = 'sleeping';
     this.reconcileSystemAudio(nowMs);
-    this.bumpCoordinatorEpoch(nowMs);
+    this.bumpRoomEpoch(nowMs);
     this.room.status = 'suspended';
     this.room.revision += 1;
     await this.persist();
+    this.scheduleServerEvent(this.presenceEvent(), []);
     return this.internalAdminStateResponse(true);
   }
 
@@ -5422,7 +6938,7 @@ export class MusixquareProRoom {
     }
 
     // A resumed room is available for fresh PIN authentication only. No old
-    // presence, cookie session, coordinator, or system-audio lease is revived.
+    // presence, cookie session, control channel, or system-audio lease is revived.
     this.room.sessions = {};
     this.room.presence.participants = {};
     this.room.presence.coordinatorParticipantId = null;
@@ -5436,7 +6952,8 @@ export class MusixquareProRoom {
 
   removePresence(participantId, nowMs) {
     if (!this.room.presence.participants[participantId]) return false;
-    const wasCoordinator = this.room.presence.coordinatorParticipantId === participantId;
+    const departedIncarnationId =
+      this.room.presence.participants[participantId].presenceIncarnationId;
     delete this.room.presence.participants[participantId];
     this.reconcileSystemAudio(nowMs);
     const remaining = Object.values(this.room.presence.participants).sort(
@@ -5445,15 +6962,31 @@ export class MusixquareProRoom {
     );
     this.room.presence.revision += 1;
     if (remaining.length === 0) {
-      this.freezePlayback(nowMs);
+      if (this.room.pendingPlaybackTransition?.resumeFromSleep === true) {
+        this.room.playback.positionSeconds =
+          this.room.pendingPlaybackTransition.target.positionSeconds;
+        this.room.playback.updatedAtMs = nowMs;
+      } else {
+        this.freezePlayback(nowMs);
+      }
       this.room.runtime = 'sleeping';
       this.room.presence.coordinatorParticipantId = null;
-      if (wasCoordinator) this.bumpCoordinatorEpoch(nowMs);
-    } else if (wasCoordinator) {
-      this.room.presence.coordinatorParticipantId = remaining[0].participantId;
-      this.bumpCoordinatorEpoch(nowMs);
+      this.bumpRoomEpoch(nowMs);
+    } else {
+      this.room.presence.coordinatorParticipantId = null;
+      const pending = this.room.pendingPlaybackTransition;
+      if (pending?.cohort.includes(departedIncarnationId)) {
+        pending.cohort = pending.cohort.filter((value) => value !== departedIncarnationId);
+        delete pending.ready[departedIncarnationId];
+        if (pending.cohort.every((value) => pending.ready[value] === 'ready')) {
+          const committed = this.commitPendingPlaybackTransition(nowMs);
+          if (committed?.event) this.scheduleServerEvent(committed.event);
+          if (committed?.cancelEvent) this.scheduleServerEvent(committed.cancelEvent);
+        }
+      }
     }
     this.room.revision += 1;
+    this.scheduleServerEvent(this.presenceEvent());
     return true;
   }
 
@@ -5736,22 +7269,21 @@ export class MusixquareProRoom {
       if (tokenHash === auth.tokenHash) continue;
       delete this.room.sessions[tokenHash];
     }
-    // Revoke every other participant atomically. Calling removePresence in a
-    // loop would briefly elect M1, then M2, then the owner and advance the
-    // security epoch for each transient coordinator. No such intermediate
-    // topology is externally valid during a PIN rotation.
+    // Revoke every other participant atomically. A PIN rotation advances the
+    // room-incarnation fence exactly once; no browser gains server authority.
     const ownerParticipant = auth.participant;
     ownerParticipant.lastSeenAtMs = nowMs;
     this.room.presence.participants = {
       [ownerSession.participantId]: ownerParticipant,
     };
     this.reconcileSystemAudio(nowMs);
-    this.room.presence.coordinatorParticipantId = ownerSession.participantId;
+    this.room.presence.coordinatorParticipantId = null;
     this.room.presence.revision += 1;
     this.room.runtime = 'awake';
-    this.bumpCoordinatorEpoch(nowMs);
+    this.bumpRoomEpoch(nowMs);
     this.room.revision += 1;
     await this.persist();
+    this.scheduleServerEvent(this.presenceEvent());
     return jsonResponse({ ok: true });
   }
 
@@ -5832,6 +7364,7 @@ export class MusixquareProRoom {
         retainEarlierAlarm: true,
       });
     }
+    if (displayNameChanged) this.scheduleServerEvent(this.presenceEvent());
     if (
       known !== null &&
       known.revision === this.room.revision &&
@@ -5925,77 +7458,43 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REVISION', 400);
     }
 
-    let checkpointChanged = false;
-    if (body.playback === null) {
-      if (body.currentQueueItemId !== null) return errorResponse('INVALID_PLAYBACK', 400);
-    } else {
-      if (this.room.presence.coordinatorParticipantId !== body.expectedParticipantId) {
-        return errorResponse('COORDINATOR_REQUIRED', 403);
-      }
-      const playlistById = new Map(this.room.playlist.map((item) => [item.queueItemId, item]));
-      const candidate = parsePlaybackCandidate(
-        body.playback,
-        playlistById,
-        body.currentQueueItemId,
-        this.room.presence.coordinatorEpoch,
-      );
-      if (!candidate) return errorResponse('INVALID_PLAYBACK', 400);
-
-      const nowMs = Date.now();
-      const semanticallyUnchanged =
-        body.currentQueueItemId === this.room.currentQueueItemId &&
-        playbackSemanticallyEqual(candidate, this.room.playback);
-      if (
-        !semanticallyUnchanged &&
-        Math.abs(candidate.updatedAtMs - nowMs) > PLAYBACK_CLOCK_SKEW_MS
-      ) {
-        return errorResponse('INVALID_PLAYBACK', 400);
-      }
-      let accepted = parsePlayback(
-        candidate,
-        playlistById,
-        body.currentQueueItemId,
-        this.room.presence.coordinatorEpoch,
-        this.room.playback,
-        nowMs,
-      );
-      if (
-        !accepted &&
-        body.baseRevision < this.room.revision &&
-        candidate.revision === this.room.playback.revision &&
-        !semanticallyUnchanged &&
-        this.room.playback.revision < Number.MAX_SAFE_INTEGER
-      ) {
-        // A periodic checkpoint can win the DO queue after pagehide captured
-        // the same base revision. This is a sibling conflict, not an arbitrary
-        // revision jump: rebase the fresh final observation exactly once so
-        // presence never falls back to its TTL solely because of that race.
-        accepted = {
-          ...candidate,
-          revision: this.room.playback.revision + 1,
-          updatedAtMs: nowMs,
-        };
-      }
-      if (accepted) {
-        checkpointChanged =
-          body.currentQueueItemId !== this.room.currentQueueItemId ||
-          !playbackSemanticallyEqual(accepted, this.room.playback);
-        this.room.currentQueueItemId = body.currentQueueItemId;
-        this.room.playback = accepted;
-      } else if (candidate.revision >= this.room.playback.revision) {
-        // A narrowly stale unload can race an already-committed periodic
-        // checkpoint. Older revisions are safe to ignore; equal/future
-        // invalid revisions must never overwrite authoritative playback.
-        return errorResponse('INVALID_PLAYBACK', 400);
-      }
+    // Playback is server-authoritative. Pagehide may carry the last locally
+    // observed checkpoint for request-shape continuity, but it is never
+    // allowed to overwrite the canonical server clock.
+    if (body.currentQueueItemId !== null && !QUEUE_ITEM_ID_RE.test(body.currentQueueItemId || '')) {
+      return errorResponse('INVALID_PLAYBACK', 400);
     }
-
-    if (checkpointChanged) this.room.revision += 1;
+    if (body.playback !== null && typeof body.playback !== 'object') {
+      return errorResponse('INVALID_PLAYBACK', 400);
+    }
     this.removePresence(body.expectedParticipantId, Date.now());
     const responseBody = { ok: true };
     this.storeIdempotency(scope, key, fingerprint, responseBody);
     await this.persist();
     return jsonResponse(responseBody);
+  }
+
+  async handleKickPresence(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['targetParticipantId']) ||
+      !OPAQUE_ID_RE.test(parsed.value.targetParticipantId || '')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const targetParticipantId = parsed.value.targetParticipantId;
+    if (targetParticipantId === auth.session.participantId) {
+      return errorResponse('CANNOT_KICK_SELF', 409);
+    }
+    const target = this.room.presence.participants[targetParticipantId];
+    if (!target) return errorResponse('PARTICIPANT_NOT_FOUND', 404);
+    delete this.room.sessions[target.sessionHash];
+    this.removePresence(targetParticipantId, Date.now());
+    await this.persist();
+    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
   }
 
   async handleSignalingTicket(request) {
@@ -6012,22 +7511,11 @@ export class MusixquareProRoom {
         ? parsed.value.developerControlVersion
         : null;
     if (developerControlVersion === null) return errorResponse('INVALID_REQUEST', 400);
-    const previousControlVersion = auth.participant.developerControlVersion;
     auth.participant.developerControlVersion = developerControlVersion;
-    if (
-      previousControlVersion > developerControlVersion &&
-      supportsDeveloperControl({ developerControlVersion: previousControlVersion }) &&
-      this.room.presence.coordinatorParticipantId === auth.session.participantId
-    ) {
-      this.fenceDeveloperCommands('coordinator_incompatible', Date.now());
-    }
     const secret = String(this.env.PRO_SIGNALING_SECRET || '');
     if (secret.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     const nowMs = Date.now();
-    const role =
-      this.room.presence.coordinatorParticipantId === auth.session.participantId
-        ? 'coordinator'
-        : 'member';
+    const role = 'member';
     const issuedAtSeconds = Math.floor(nowMs / 1000);
     const expiresAtSeconds = issuedAtSeconds + SIGNALING_TICKET_TTL_SECONDS;
     const expiresAtMs = expiresAtSeconds * 1000;
@@ -6046,11 +7534,15 @@ export class MusixquareProRoom {
         kind: 'pro-signaling',
         roomCode: this.room.roomCode,
         participantId: auth.session.participantId,
+        displayName: signalingDisplayName(auth.session.displayName),
         role,
         coordinatorEpoch: this.room.presence.coordinatorEpoch,
         presenceIncarnationId,
+        // The signaling Durable Object uses this signed revision together
+        // with its latest authoritative presence snapshot to reject a ticket
+        // issued before this participant was kicked, left, or superseded.
+        presenceRevision: this.room.presence.revision,
         ticketSequence,
-        developerControlVersion,
         jti: randomToken(18),
         iat: issuedAtSeconds,
         exp: expiresAtSeconds,
@@ -6058,6 +7550,9 @@ export class MusixquareProRoom {
       secret,
     );
     await this.persist();
+    const pendingPlaybackTransition = this.room.pendingPlaybackTransition
+      ? this.playbackPrepareEvent(this.room.pendingPlaybackTransition, nowMs)
+      : null;
     return jsonResponse({
       ticket,
       expiresAtMs,
@@ -6065,6 +7560,99 @@ export class MusixquareProRoom {
       coordinatorEpoch: this.room.presence.coordinatorEpoch,
       presenceIncarnationId,
       ticketSequence,
+      pendingPlaybackTransition,
+    });
+  }
+
+  async handlePlaybackCommand(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const key = this.readIdempotencyKey(request);
+    if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
+    const parsed = await this.parseBody(request, 4 * 1024);
+    if (parsed.response) return parsed.response;
+    const command = parsePlaybackAuthorityCommand(parsed.value);
+    if (!command) return errorResponse('INVALID_REQUEST', 400);
+    const scope = `participant:${auth.session.participantId}:playback-authority`;
+    const fingerprint = await this.idempotencyFingerprint(scope, command);
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
+    if (replay) return replay;
+
+    const nowMs = Date.now();
+    const result = this.applyPlaybackAuthorityCommand(command, nowMs);
+    if (result.error) {
+      return errorResponse(result.error, result.status, {
+        'x-mxqr-playback-revision': String(this.room.playback.revision),
+      });
+    }
+    const responseBody = {
+      schemaVersion: 1,
+      roomCode: this.room.roomCode,
+      status: result.status,
+      ...(result.status === 'preparing'
+        ? {
+            transition: this.playbackPrepareEvent(this.room.pendingPlaybackTransition, nowMs),
+          }
+        : {}),
+      playback: structuredClone(this.room.playback),
+      serverTimeMs: nowMs,
+    };
+    this.storeIdempotency(
+      scope,
+      key,
+      fingerprint,
+      responseBody,
+      result.status === 'preparing' ? 202 : 200,
+    );
+    this.enqueuePlaybackOutcome(result, nowMs);
+    await this.persist();
+    return jsonResponse(responseBody, result.status === 'preparing' ? 202 : 200);
+  }
+
+  async handlePlaybackTransitionReady(request, transitionId) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !PLAYBACK_TRANSITION_ID_RE.test(transitionId || '') ||
+      !hasExactKeys(parsed.value, ['basePlaybackRevision', 'status']) ||
+      !isSafeNonNegativeInteger(parsed.value.basePlaybackRevision) ||
+      (parsed.value.status !== 'ready' && parsed.value.status !== 'failed')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const pending = this.room.pendingPlaybackTransition;
+    if (!pending || pending.transitionId !== transitionId) {
+      return errorResponse('PLAYBACK_TRANSITION_NOT_FOUND', 404);
+    }
+    if (
+      pending.coordinatorEpoch !== this.room.presence.coordinatorEpoch ||
+      pending.basePlaybackRevision !== parsed.value.basePlaybackRevision ||
+      pending.basePlaybackRevision !== this.room.playback.revision
+    ) {
+      return errorResponse('PLAYBACK_TRANSITION_STALE', 409);
+    }
+    const incarnationId = auth.participant.presenceIncarnationId;
+    if (!pending.cohort.includes(incarnationId)) {
+      return errorResponse('PLAYBACK_TRANSITION_NOT_IN_COHORT', 409);
+    }
+    const previous = pending.ready[incarnationId];
+    if (previous && previous !== parsed.value.status) {
+      return errorResponse('PLAYBACK_READY_CONFLICT', 409);
+    }
+    pending.ready[incarnationId] = parsed.value.status;
+    auth.participant.lastSeenAtMs = Date.now();
+    const allReady = pending.cohort.every((candidate) => pending.ready[candidate] === 'ready');
+    let committed = null;
+    if (allReady) committed = this.commitPendingPlaybackTransition(Date.now());
+    this.enqueuePlaybackOutcome(committed);
+    await this.persist();
+    return jsonResponse({
+      ok: true,
+      transitionId,
+      status: committed?.event ? 'committed' : 'waiting',
+      playbackRevision: this.room.playback.revision,
     });
   }
 
@@ -6297,6 +7885,12 @@ export class MusixquareProRoom {
     const previousPlaylistById = new Map(
       this.room.playlist.map((item) => [item.queueItemId, item]),
     );
+    for (const item of parsedPlaylist) {
+      const previous = previousPlaylistById.get(item.queueItemId);
+      if (previous && !preservesImmutableYouTubeManifest(previous, item)) {
+        return errorResponse('PLAYLIST_MANIFEST_IMMUTABLE', 409);
+      }
+    }
     const playlist = parsedPlaylist.map((item) => {
       const existingOwnerKeyId = previousPlaylistById.get(item.queueItemId)?.developerOwnerKeyId;
       return DEVELOPER_API_KEY_ID_RE.test(existingOwnerKeyId || '')
@@ -6306,6 +7900,25 @@ export class MusixquareProRoom {
     const addedItems = playlist.filter((item) => !previousPlaylistById.has(item.queueItemId));
     const addedCount = addedItems.length;
     const playlistById = new Map(playlist.map((item) => [item.queueItemId, item]));
+    const playbackItem =
+      this.room.playback.queueItemId === null
+        ? null
+        : playlistById.get(this.room.playback.queueItemId) || null;
+    if (playbackItem && !playbackMatchesYouTubeManifest(this.room.playback, playbackItem)) {
+      return errorResponse('PLAYLIST_MANIFEST_PLAYBACK_CONFLICT', 409);
+    }
+    const pendingTarget = this.room.pendingPlaybackTransition?.target;
+    const pendingItem =
+      pendingTarget?.queueItemId == null
+        ? null
+        : playlistById.get(pendingTarget.queueItemId) || null;
+    if (
+      pendingTarget &&
+      pendingItem &&
+      !playbackMatchesYouTubeManifest(pendingTarget, pendingItem)
+    ) {
+      return errorResponse('PLAYLIST_MANIFEST_PLAYBACK_CONFLICT', 409);
+    }
     if (
       currentQueueItemId !== null &&
       (!QUEUE_ITEM_ID_RE.test(currentQueueItemId) || !playlistById.has(currentQueueItemId))
@@ -6313,23 +7926,42 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_QUEUE_ITEM_ID', 400);
     }
     const nowMs = Date.now();
-    const playback = parsePlayback(
-      playbackInput,
-      playlistById,
-      currentQueueItemId,
-      this.room.presence.coordinatorEpoch,
-      this.room.playback,
-      nowMs,
-    );
-    if (!playback) {
+    const canonicalQueueItemId = this.room.currentQueueItemId;
+    const canonicalSurvives =
+      canonicalQueueItemId !== null && playlistById.has(canonicalQueueItemId);
+    if (
+      (canonicalSurvives && currentQueueItemId !== canonicalQueueItemId) ||
+      (!canonicalSurvives && currentQueueItemId !== null)
+    ) {
+      return errorResponse('PLAYBACK_COMMAND_REQUIRED', 409);
+    }
+    // The field stays in the queue-mutation request during the cutover, but
+    // it is observation-only. Only /playback/commands may change playback.
+    if (playbackInput !== null && typeof playbackInput !== 'object') {
       return errorResponse('INVALID_PLAYBACK', 400);
     }
     if (!this.validatePlaylistAssets(playlist)) return errorResponse('ASSET_NOT_READY', 409);
+    let playback = this.room.playback;
+    let playbackCleared = false;
+    let pendingCancelEvent = null;
+    if (!canonicalSurvives && canonicalQueueItemId !== null) {
+      const target = this.targetPlayback(null, 'idle', 0, nowMs);
+      if (!target) return errorResponse('PLAYBACK_REVISION_EXHAUSTED', 409);
+      pendingCancelEvent = this.cancelPendingPlayback('queue-item-removed', nowMs);
+      playback = target;
+      playbackCleared = true;
+    }
 
     const playlistChanged = JSON.stringify(playlist) !== JSON.stringify(this.room.playlist);
     this.room.playlist = playlist;
-    this.room.currentQueueItemId = currentQueueItemId;
+    this.room.currentQueueItemId = canonicalSurvives ? canonicalQueueItemId : null;
     this.room.playback = playback;
+    if (
+      this.room.pendingPlaybackTransition?.target.queueItemId != null &&
+      !playlistById.has(this.room.pendingPlaybackTransition.target.queueItemId)
+    ) {
+      pendingCancelEvent = this.cancelPendingPlayback('queue-item-removed', nowMs);
+    }
     this.reconcileAssetGarbageCollection(nowMs);
     if (playlistChanged) {
       reconcileQueueModePlaylist(this.room, nowMs);
@@ -6338,7 +7970,19 @@ export class MusixquareProRoom {
     this.room.revision += 1;
     const responseBody = { snapshot: publicSnapshot(this.room, auth.session) };
     this.storeSnapshotIdempotency(scope, key, fingerprint, this.room.revision);
+    if (pendingCancelEvent) this.enqueuePlaybackBroadcast(pendingCancelEvent);
+    if (playbackCleared) {
+      this.enqueuePlaybackBroadcast(
+        this.playbackCommitEvent(null, this.room.playback.updatedAtMs, nowMs),
+      );
+    }
     await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({
+        playlistRevision: this.room.playlistRevision,
+        ...(playbackCleared ? { playbackRevision: this.room.playback.revision } : {}),
+      }),
+    );
     if (addedCount > 0) {
       this.scheduleDeveloperInvalidationHint({
         actorName: auth.session.displayName,
@@ -6656,12 +8300,21 @@ export class MusixquareProRoom {
     }
     // This also migrates ready assets written before gcAfterMs existed and
     // repairs stale markers on assets that are referenced by the playlist.
+    let playbackTransitionOutcome = null;
     let changed =
       this.systemAudioMigrationPending ||
       this.effectsMigrationPending ||
       this.queueModeMigrationPending ||
       this.developerCommandMigrationPending ||
+      this.playbackAuthorityMigrationPending ||
       this.reconcileSystemAudio(nowMs);
+    if (
+      this.room.pendingPlaybackTransition &&
+      this.room.pendingPlaybackTransition.deadlineAtMs <= nowMs
+    ) {
+      playbackTransitionOutcome = this.commitPendingPlaybackTransition(nowMs);
+      changed = true;
+    }
     changed = this.reconcileAssetGarbageCollection(nowMs) || changed;
     for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
       if (session.expiresAtMs <= nowMs || session.authEpoch !== this.room.authEpoch) {
@@ -6805,12 +8458,14 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
+    this.enqueuePlaybackOutcome(playbackTransitionOutcome, nowMs);
     if (changed) {
       await this.persist();
       this.systemAudioMigrationPending = false;
       this.effectsMigrationPending = false;
       this.queueModeMigrationPending = false;
       this.developerCommandMigrationPending = false;
+      this.playbackAuthorityMigrationPending = false;
     }
     return changed;
   }
@@ -6827,6 +8482,9 @@ export class MusixquareProRoom {
       this.normalizeLoadedEffects();
       this.normalizeLoadedQueueMode();
       this.normalizeLoadedDeveloperCommands();
+      this.normalizeLoadedPlaybackAuthority();
+      this.normalizeLoadedPlaybackBroadcasts();
+      this.normalizeLoadedPresenceBroadcast();
       const nowMs = Date.now();
       await this.prune(nowMs);
       if (this.heartbeatDurabilityDirty) {
@@ -6840,7 +8498,9 @@ export class MusixquareProRoom {
           return;
         }
       }
-      await this.scheduleAlarm();
+      await this.retryPendingPresenceBroadcast(nowMs);
+      await this.flushPendingPlaybackBroadcasts(nowMs);
+      await this.maintainAlarm();
     });
   }
 }

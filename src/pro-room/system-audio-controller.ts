@@ -130,7 +130,7 @@ export class ProRoomSystemAudioController {
     private readonly observer: ProRoomSystemAudioControllerObserver,
   ) {}
 
-  /** Bind the current authenticated tab incarnation; coordinator changes are intentionally ignored. */
+  /** Bind the current authenticated tab incarnation; room-manager state is intentionally irrelevant. */
   bindSession(snapshot: ProRoomSnapshot): void {
     const viewer = snapshot.viewer;
     if (snapshot.status !== 'active' || !viewer) {

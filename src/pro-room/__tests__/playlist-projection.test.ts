@@ -24,7 +24,12 @@ function wirePlaylist(): ProRoomPlaylistWireItem[] {
       title: 'Exact title',
       artist: 'Artist',
       thumbnail: 'https://example.test/thumbnail.jpg',
-      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ', playlistId: 'PL1234567890' },
+      source: {
+        kind: 'youtube',
+        videoId: 'dQw4w9WgXcQ',
+        playlistId: 'PL1234567890',
+        videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
+      },
     },
     {
       queueItemId: FILE_ID,
@@ -69,6 +74,14 @@ describe('PRO playlist projection', () => {
     const result = projection.toWire(legacy);
     expect(result).toEqual(wirePlaylist());
     expect(result[1]!.source).not.toBe(source);
+    expect(result[0]!.source).toEqual(wirePlaylist()[0]!.source);
+    if (result[0]!.source.kind !== 'youtube' || !result[0]!.source.videoIds) {
+      throw new Error('fixture');
+    }
+    result[0]!.source.videoIds[1] = 'bbbbbbbbbbb';
+    expect(projection.sourceFor(YOUTUBE_ID)).toMatchObject({
+      videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
+    });
   });
 
   it('derives current YouTube fields while requiring an uploaded source for files', () => {
@@ -146,6 +159,7 @@ describe('PRO playlist projection', () => {
       kind: 'youtube',
       videoId: 'dQw4w9WgXcQ',
       playlistId: 'PL1234567890',
+      videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
     });
     expect(projection.sourceFor(FILE_ID)).toEqual(source);
   });

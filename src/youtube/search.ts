@@ -29,7 +29,10 @@ import { fetchWithTimeout, normalizeExternalTitle } from './oembed.ts';
 
 const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
 const YOUTUBE_PLAYLIST_ENTRY_ENDPOINT = '/api/youtube-playlist-entry';
+const YOUTUBE_PLAYLIST_MANIFEST_ENDPOINT = '/api/youtube-playlist-manifest';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
+const YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS = 60_000;
+const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -63,6 +66,10 @@ interface YouTubePlaylistEntry {
   playlistId: string;
   videoId: string;
   title: string;
+}
+
+export interface YouTubePlaylistManifest extends YouTubePlaylistEntry {
+  videoIds: string[];
 }
 
 // fetchWithTimeout / normalizeExternalTitle / fetchOEmbedTitle live in
@@ -274,6 +281,61 @@ export async function resolveYouTubePlaylistEntry(
   }
 
   return { playlistId, videoId: payload.videoId, title };
+}
+
+export async function resolveYouTubePlaylistManifest(
+  playlistId: string,
+  externalSignal?: AbortSignal,
+): Promise<YouTubePlaylistManifest> {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(playlistId)) {
+    throw new Error('Invalid YouTube playlist ID');
+  }
+
+  const endpoint = `${YOUTUBE_PLAYLIST_MANIFEST_ENDPOINT}?playlistId=${encodeURIComponent(playlistId)}`;
+  const response = await fetchWithTimeout(
+    endpoint,
+    YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS,
+    externalSignal,
+    { headers: { Accept: 'application/json' } },
+    'youtube-search',
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as YouTubeSearchErrorPayload;
+    const reason = payload.error || payload.reason || response.statusText || 'unknown';
+    throw new Error(`YouTube playlist manifest HTTP ${response.status} (${reason})`);
+  }
+
+  const value: unknown = await response.json();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid YouTube playlist manifest response');
+  }
+  const payload = value as Record<string, unknown>;
+  const keys = Object.keys(payload).sort();
+  const title = typeof payload.title === 'string' ? normalizeExternalTitle(payload.title) : '';
+  const videoIds = payload.videoIds;
+  if (
+    keys.length !== 4 ||
+    keys[0] !== 'playlistId' ||
+    keys[1] !== 'title' ||
+    keys[2] !== 'videoId' ||
+    keys[3] !== 'videoIds' ||
+    payload.playlistId !== playlistId ||
+    typeof payload.videoId !== 'string' ||
+    !/^[A-Za-z0-9_-]{11}$/.test(payload.videoId) ||
+    !Array.isArray(videoIds) ||
+    videoIds.length === 0 ||
+    videoIds.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS ||
+    videoIds.some(
+      (videoId) => typeof videoId !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(videoId),
+    ) ||
+    videoIds[0] !== payload.videoId ||
+    !title ||
+    title.length > 300
+  ) {
+    throw new Error('Invalid YouTube playlist manifest response');
+  }
+
+  return { playlistId, videoId: payload.videoId, videoIds: [...videoIds], title };
 }
 
 function getStatusText(): HTMLElement | null {

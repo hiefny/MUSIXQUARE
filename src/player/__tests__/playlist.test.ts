@@ -57,6 +57,13 @@ import {
   restoreProRoomLegacyPlayback,
   type ProRoomLegacyMediaHooks,
 } from '../../pro-room/legacy-media-hooks.ts';
+import {
+  createProPlaybackAuthorityToken,
+  prepareProPlaybackAuthority,
+  registerProPlaybackCommandHandler,
+  registerProPlaybackMediaEndpoint,
+  resetProPlaybackAuthorityHooks,
+} from '../../pro-room/playback-authority-hooks.ts';
 
 const decodeMocks = vi.hoisted(() => ({
   loadPreloadedTrack: vi.fn<(queueItemId: QueueItemId, epoch?: number) => Promise<boolean>>(),
@@ -81,12 +88,18 @@ beforeEach(() => {
   bus.clear();
   setPendingAutoSyncOnReady(false);
   registerProRoomLegacyMediaHooks(null);
+  registerProPlaybackCommandHandler(null);
+  registerProPlaybackMediaEndpoint(null);
+  resetProPlaybackAuthorityHooks();
   setYouTubePlayer(null);
 });
 
 afterEach(() => {
   setYouTubePlayer(null);
   registerProRoomLegacyMediaHooks(null);
+  registerProPlaybackCommandHandler(null);
+  registerProPlaybackMediaEndpoint(null);
+  resetProPlaybackAuthorityHooks();
   clearAllManagedTimers();
   vi.useRealTimers();
 });
@@ -208,6 +221,29 @@ function residentFor(item: PlaylistItem, blob: Blob, sessionId = 7): ResidentFil
     size: blob.size,
   };
 }
+
+describe('coordinator-free PRO playback routing', () => {
+  it('routes a queue occurrence selection without mutating local playback first', async () => {
+    const item = youtubeItem('Server-owned selection', 'dQw4w9WgXcQ');
+    setState('playlist.items', [item]);
+    enterProRoom(['playback.control']);
+    const handler = vi.fn();
+    registerProPlaybackCommandHandler(handler);
+
+    await playTrack(item.queueItemId);
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'select',
+        queueItemId: item.queueItemId,
+        youtubeSubIndex: 0,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+      }),
+    );
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+  });
+});
 
 describe('setRepeatMode', () => {
   it('sets repeat mode 0 (off)', () => {
@@ -361,7 +397,7 @@ describe('PRO playlist mutation bridge', () => {
     );
   });
 
-  it('promotes an in-flight PRO preload promise without starting a second resolution', async () => {
+  it('adopts an in-flight PRO preload resolver during server PREPARE without a second download', async () => {
     const currentFile = new File(['current'], 'current.flac', { type: 'audio/flac' });
     const current = fileItem(currentFile.name, currentFile);
     const next = fileItem('next.flac');
@@ -377,7 +413,8 @@ describe('PRO playlist mutation bridge', () => {
       mime: currentFile.type,
       size: currentFile.size,
     });
-    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    const currentBuffer = { duration: 60 } as AudioBuffer;
+    setCurrentAudioBuffer(currentBuffer);
     setState('preload.nextQueueItemId', next.queueItemId);
     setState('preload.isPreloading', true);
     setState('preload.activeTarget', {
@@ -388,7 +425,7 @@ describe('PRO playlist mutation bridge', () => {
       mime: 'audio/flac',
       size: downloaded.size,
     });
-    enterProRoom(['playback.control'], 'coordinator');
+    enterProRoom(['playback.control']);
 
     let finish!: (file: File) => void;
     const inFlight = new Promise<File>((resolve) => {
@@ -412,24 +449,44 @@ describe('PRO playlist mutation bridge', () => {
     );
     decodeMocks.loadPreloadedTrack.mockResolvedValue(false);
 
-    const play = playTrack(next.queueItemId);
+    initPlaylist();
+    const authority = createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: 0,
+      transitionId: 'transition-preload-promotion',
+    });
+    const preparation = prepareProPlaybackAuthority({
+      authority,
+      queueItemId: next.queueItemId,
+      positionSeconds: 0,
+    });
     await vi.waitFor(() => expect(resolveFile).toHaveBeenCalledOnce());
     finish(downloaded);
-    await play;
+    // The mocked decoder deliberately reports no AudioBuffer, so preparation
+    // fails after the download seam. The assertion below is about adopting the
+    // existing preload promise rather than end-to-end decode success.
+    await expect(preparation).resolves.toMatchObject({
+      status: 'failed',
+      reason: 'decode-failed',
+    });
 
     expect(resolveFile).toHaveBeenCalledOnce();
-    expect(residentAtResolution).toBeNull();
-    expect(bufferAtResolution).toBeNull();
-    expect(decodeMocks.loadPreloadedTrack).toHaveBeenCalledOnce();
-    expect(decodeMocks.loadPreloadedTrack).toHaveBeenCalledWith(
+    // Server PREPARE is silent: the currently audible resident remains owned
+    // until a canonical COMMIT replaces it.
+    expect(residentAtResolution).toMatchObject({ queueItemId: current.queueItemId });
+    expect(bufferAtResolution).toBe(currentBuffer);
+    // Server PREPARE owns the foreground decode lane, but it adopts the same
+    // runtime resolver/promise rather than issuing another R2 request.
+    expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
+    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledOnce();
+    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
+      downloaded,
       next.queueItemId,
       expect.any(Number),
+      expect.any(Number),
+      expect.objectContaining({ queueItemId: next.queueItemId, mime: 'audio/flac' }),
     );
-    expect(getState('preload.ready')).toMatchObject({
-      queueItemId: next.queueItemId,
-      sessionId: 17,
-      blob: downloaded,
-    });
   });
 
   it('enters the existing file busy lifecycle before awaiting a persistent download', async () => {

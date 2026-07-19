@@ -10,7 +10,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/constants.ts';
-import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { IS_WINDOWS } from '../core/platform.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
@@ -34,6 +34,11 @@ import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
 import { cancelProRoomPlaylistFileResolution } from '../pro-room/legacy-media-hooks.ts';
+import {
+  isProPlaybackAuthorityToken,
+  routeProPlaybackCommand,
+  type ProPlaybackCommitRequest,
+} from '../pro-room/playback-authority-hooks.ts';
 import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
@@ -350,6 +355,17 @@ export function seekTo(time: number): void {
   const isOperator = getState('network.isOperator');
   const queueItemId = getCurrentQueueItemId();
 
+  if (
+    !isSystemAudioOwner() &&
+    routeProPlaybackCommand({
+      kind: 'seek',
+      queueItemId,
+      positionSeconds: Number.isFinite(time) ? Math.max(0, time) : 0,
+    })
+  ) {
+    return;
+  }
+
   // OP guest: request host to seek
   if (hostConn && isOperator) {
     if (queueItemId) sendToHost({ type: MSG.REQUEST_SEEK, time, queueItemId });
@@ -397,7 +413,13 @@ export function seekTo(time: number): void {
 
 // ─── Play ──────────────────────────────────────────────────────────
 
-export async function play(offset: number, scheduleDelay = 0): Promise<void> {
+export async function play(
+  offset: number,
+  scheduleDelay = 0,
+  scheduleDeadlineMs?: number,
+  shouldApply?: () => boolean,
+): Promise<void> {
+  if (shouldApply?.() === false) return;
   if (isPlayLocked()) {
     log.warn('[Play] Blocked: queuing play request');
     setPendingPlayTime(offset);
@@ -451,7 +473,7 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
   );
 
   try {
-    await _internalPlay(offset, scheduleDelay);
+    await _internalPlay(offset, scheduleDelay, scheduleDeadlineMs, shouldApply);
   } finally {
     if (isCurrentPlayInvocation(myPlayInvocation)) {
       clearManagedTimer('navigator-lock-watchdog');
@@ -475,7 +497,12 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
   }
 }
 
-async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
+async function _internalPlay(
+  offset: number,
+  scheduleDelay = 0,
+  scheduleDeadlineMs?: number,
+  shouldApply?: () => boolean,
+): Promise<void> {
   setPendingPlayTime(undefined);
   // Snapshot the load epoch at entry. If the play()-level watchdog fires
   // (or another path allocates a new epoch, e.g. track switch), every await
@@ -495,6 +522,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   } catch (e) {
     log.warn('Resume failed:', e);
   }
+
+  if (shouldApply?.() === false) return;
 
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
     log.warn('[Play] Aborted — load epoch superseded during ensureRunning');
@@ -528,6 +557,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     return;
   }
 
+  if (shouldApply?.() === false) return;
+
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
     log.warn('[Play] Aborted — load epoch superseded during initAudio');
     return;
@@ -555,6 +586,20 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     if (safeOffset > duration) safeOffset = duration;
     if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.1);
   }
+
+  // Authority commits carry an absolute participant-local deadline. Audio
+  // setup above can itself await; recomputing the remaining lead here keeps
+  // that setup latency from being added a second time. Existing callers keep
+  // their established relative-delay behavior.
+  const effectiveScheduleDelay = Number.isFinite(scheduleDeadlineMs)
+    ? Math.max(0, (Number(scheduleDeadlineMs) - performance.now()) / 1000)
+    : scheduleDelay;
+  if (Number.isFinite(scheduleDeadlineMs)) {
+    safeOffset += Math.max(0, performance.now() - Number(scheduleDeadlineMs)) / 1_000;
+    if (duration > 0) safeOffset = Math.max(0, Math.min(duration - 0.001, safeOffset));
+  }
+
+  if (shouldApply?.() === false) return;
 
   // Buffer Mode playback
   if (_currentAudioBuffer) {
@@ -586,7 +631,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     };
 
     // Determine the exact audio-context time to start
-    const startWhen = scheduleDelay > 0 ? ctx.currentTime + scheduleDelay : 0;
+    const startWhen = effectiveScheduleDelay > 0 ? ctx.currentTime + effectiveScheduleDelay : 0;
 
     // Apply manual nudge to the audible start position
     const nudgeOffset = safeOffset + localOffset;
@@ -601,7 +646,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   // Update timing
   // startedAt = wall-clock time when playback would have started from 0:00
   //   = now - playbackPosition + syncCorrection
-  const startedAt = getCurrentTime() + scheduleDelay - safeOffset + localOffset;
+  const startedAt = getCurrentTime() + effectiveScheduleDelay - safeOffset + localOffset;
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
@@ -660,6 +705,75 @@ export function pause(
 
 // ─── Handle Track Ended ────────────────────────────────────────────
 
+let proAuthorityFileCommitGeneration = 0;
+
+/** Apply a revision-validated PRO commit to the resident AudioBuffer. */
+export async function applyProPlaybackFileCommit(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<boolean> {
+  if (
+    !isProPlaybackAuthorityToken(request.authority) ||
+    request.state === 'idle' ||
+    !request.queueItemId ||
+    getState('room.context').kind !== 'pro' ||
+    getCurrentQueueItemId() !== request.queueItemId ||
+    getState('files.current')?.queueItemId !== request.queueItemId ||
+    !getCurrentAudioBuffer()
+  ) {
+    return false;
+  }
+  const generation = ++proAuthorityFileCommitGeneration;
+
+  const positionSeconds = Number.isFinite(request.positionSeconds)
+    ? Math.max(0, request.positionSeconds)
+    : 0;
+  const delayMs = Number.isFinite(request.scheduleDelayMs)
+    ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
+    : 0;
+
+  if (request.state === 'playing') {
+    const scheduleDeadlineMs = performance.now() + delayMs;
+    await play(positionSeconds, delayMs / 1000, scheduleDeadlineMs, request.isCurrent);
+    return (
+      request.isCurrent?.() !== false &&
+      generation === proAuthorityFileCommitGeneration &&
+      getCurrentQueueItemId() === request.queueItemId &&
+      getState('playback.activity') === 'playing'
+    );
+  }
+
+  if (delayMs > 0) await delay(delayMs);
+  if (
+    request.isCurrent?.() === false ||
+    generation !== proAuthorityFileCommitGeneration ||
+    getState('room.context').kind !== 'pro' ||
+    getCurrentQueueItemId() !== request.queueItemId ||
+    getState('files.current')?.queueItemId !== request.queueItemId
+  ) {
+    return false;
+  }
+
+  stopPlayerNode();
+  setState('player.pausedAt', positionSeconds);
+  setPlaybackFilePaused();
+  transition({
+    type: 'PAUSE',
+    time: positionSeconds,
+    queueItemId: request.queueItemId,
+    endOfPlaylist: false,
+  });
+  const duration = getCurrentAudioBuffer()?.duration ?? 0;
+  bus.emit(
+    'ui:time-update',
+    fmtTime(positionSeconds),
+    fmtTime(duration),
+    positionSeconds,
+    duration,
+  );
+  bus.emit('ui:update-play-state', false);
+  return true;
+}
+
 export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
@@ -686,6 +800,20 @@ export function handleEnded(): void {
 
   if (curr >= duration - 0.05) {
     log.debug(`Track ended at ${curr.toFixed(2)}s / ${duration.toFixed(2)}s`);
+    const queueItemId = getCurrentQueueItemId();
+    if (
+      queueItemId &&
+      routeProPlaybackCommand({
+        kind: 'ended',
+        queueItemId,
+        positionSeconds: curr,
+        observedPositionSeconds: curr,
+        durationSeconds: duration,
+        mediaKind: 'file',
+      })
+    ) {
+      return;
+    }
     stopAllMedia();
     setState('player.pausedAt', 0);
     bus.emit('ui:seek-reset');
@@ -699,6 +827,17 @@ export function handleEnded(): void {
 
 export function togglePlay(): void {
   if (isGuestBlocked()) return;
+
+  if (
+    !isSystemAudioOwner() &&
+    routeProPlaybackCommand({
+      kind: getState('playback.activity') === 'playing' ? 'pause' : 'play',
+      queueItemId: getCurrentQueueItemId(),
+      positionSeconds: getTrackPosition(),
+    })
+  ) {
+    return;
+  }
 
   // A PRO member can request a persistent row while the coordinator is still
   // downloading it from R2. Until an authoritative selection/prepare arrives,
@@ -844,6 +983,16 @@ export function stopPlayback(): void {
     return;
   }
 
+  if (
+    routeProPlaybackCommand({
+      kind: 'stop',
+      queueItemId: getCurrentQueueItemId(),
+      positionSeconds: 0,
+    })
+  ) {
+    return;
+  }
+
   if (isYouTubeOwner()) {
     // Broadcast before clearing local ownership; stopYouTubeMode cannot infer
     // the prior mode after setPlaybackIdle, and guests need the explicit stop.
@@ -893,6 +1042,16 @@ export function skipTime(sec: number): void {
 
   if (isCompatIdle()) return;
   if (isSystemAudioOwner()) return; // No skip on live stream
+  const requestedSkipTarget = Math.max(0, getTrackPosition() + (Number.isFinite(sec) ? sec : 0));
+  if (
+    routeProPlaybackCommand({
+      kind: 'seek',
+      queueItemId,
+      positionSeconds: requestedSkipTarget,
+    })
+  ) {
+    return;
+  }
   if (isYouTubeOwner()) {
     bus.emit('youtube:skip-time', sec);
     return;

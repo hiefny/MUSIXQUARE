@@ -54,6 +54,8 @@ beforeEach(() => {
     <div id="desktop-device-title"></div>
     <div id="connect-device-list"></div>
     <div id="desktop-device-list"></div>
+    <button id="btn-rename-device"></button>
+    <button id="desktop-btn-rename-device"></button>
   `;
   setLanguageMode('ko');
 });
@@ -125,20 +127,17 @@ describe('connect i18n refresh', () => {
     expect(document.querySelectorAll('.btn-kick-device')).toHaveLength(2);
   });
 
-  it('lets a PRO member controller request another member kick through the coordinator', async () => {
-    const send = vi.fn();
+  it('lets a capable PRO member request another member kick through the room server', async () => {
+    const kickRequest = vi.fn();
+    bus.on('pro-room:kick-member', kickRequest);
     setState('network.appRole', 'guest');
     setState('network.myId', 'controller-member');
-    setState('network.hostConn', {
-      peer: '000001',
-      open: true,
-      send,
-    } as unknown as DataConnection);
+    setState('network.hostConn', null);
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: 'owner-participant',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['members.manage'],
@@ -148,17 +147,9 @@ describe('connect i18n refresh', () => {
 
     bus.emit('network:device-list-update', [
       {
-        id: '000001',
-        label: 'Coordinator',
-        joinOrder: 0,
-        status: 'connected',
-        isHost: true,
-        isOp: true,
-      },
-      {
         id: 'controller-member',
         label: 'Me',
-        joinOrder: 1,
+        joinOrder: 0,
         status: 'connected',
         isHost: false,
         isOp: true,
@@ -166,7 +157,7 @@ describe('connect i18n refresh', () => {
       {
         id: 'target-member',
         label: 'Friend',
-        joinOrder: 2,
+        joinOrder: 1,
         status: 'connected',
         isHost: false,
         isOp: true,
@@ -174,7 +165,7 @@ describe('connect i18n refresh', () => {
       {
         id: 'offline-member',
         label: 'Offline',
-        joinOrder: 3,
+        joinOrder: 2,
         status: 'disconnected',
         isHost: false,
         isOp: true,
@@ -188,12 +179,7 @@ describe('connect i18n refresh', () => {
     );
     kickButtons[0]?.click();
 
-    await vi.waitFor(() =>
-      expect(send).toHaveBeenCalledWith({
-        type: 'request-kick-device',
-        targetPeerId: 'target-member',
-      }),
-    );
+    await vi.waitFor(() => expect(kickRequest).toHaveBeenCalledWith('target-member'));
   });
 
   it('never exposes PRO member management to an ordinary-room guest', () => {
@@ -332,5 +318,41 @@ describe('connect permission toasts', () => {
 
     expect(showToast).toHaveBeenCalledWith('방장만 이 설정을 변경할 수 있어요');
     expect(getState('network.roomPasswordRequired')).toBe(false);
+  });
+});
+
+describe('connect rename authority', () => {
+  it('does not treat a server-authority PRO owner as the reserved HOST identity', async () => {
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('network.myId', 'owner-member');
+    setState('network.myDeviceLabel', 'Owner');
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'owner-member',
+        label: 'Owner',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+      },
+    ]);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    mockedShowDialog.mockResolvedValue({ action: 'cancel' });
+    initConnect();
+
+    document.getElementById('btn-rename-device')?.click();
+
+    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
+    const options = mockedShowDialog.mock.calls.at(-1)?.[0];
+    expect(options?.inputField?.validator?.('HOST')).toBe('사용할 수 없는 이름이에요.');
   });
 });

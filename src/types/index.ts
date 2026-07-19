@@ -16,19 +16,13 @@ import type {
 // ─── Peer / Network ────────────────────────────────────────────────
 
 import type {
-  DeveloperCommandFrame,
-  DeveloperInvalidationFrame,
   ProQueueAdditionFrame,
   TransportDataConnection,
   TransportMediaConnection,
   TransportPeer,
 } from '../network/transport/types.ts';
 
-export type {
-  DeveloperCommandFrame,
-  DeveloperCommandResultCode,
-  DeveloperInvalidationFrame,
-} from '../network/transport/types.ts';
+export type { DeveloperCommandResultCode } from '../network/transport/types.ts';
 
 /** App data channel connection. PeerJS is only one possible provider. */
 export type DataConnection = TransportDataConnection;
@@ -1251,10 +1245,6 @@ interface BaseEventMap {
   'network:peer-connection-replaced': [peerId: string];
   'network:data': [data: unknown, conn: DataConnection];
   'network:error': [error: unknown];
-  /** Authenticated server-to-coordinator command; never accepted from peers. */
-  'network:developer-command': [frame: DeveloperCommandFrame];
-  /** Authenticated server-to-coordinator snapshot hint; never accepted from peers. */
-  'network:developer-invalidation': [frame: DeveloperInvalidationFrame];
   'network:pro-queue-addition': [frame: ProQueueAdditionFrame];
   'network:broadcast': [data: unknown];
   'network:broadcast-except': [peerId: string, data: unknown];
@@ -1265,6 +1255,8 @@ interface BaseEventMap {
   'network:session-full': [msg: unknown];
   'network:kicked-from-session': [];
   'network:kick-device': [peerId: string];
+  /** PRO-room member removal is enforced by the room server, never by a browser peer. */
+  'pro-room:kick-member': [participantId: string];
   'network:kicked-explicitly': [];
   'network:rename-device': [newName: string];
   'network:room-password-changed': [password: string | null];
@@ -1352,8 +1344,6 @@ interface BaseEventMap {
   // ── Setup ─────────────────────────────────────────────────────────
   'setup:guest-join-success': [];
   'setup:guest-join-failure': [error: unknown];
-  // Internal PRO handoff failure; remains available after setup is complete.
-  'pro-room:transport-connect-failure': [error: unknown];
   // User-cancelled the capability/Turnstile challenge mid-join — restore the
   // join UI silently (no red error toast). See guest.ts and setup.ts.
   'setup:guest-join-cancelled': [];

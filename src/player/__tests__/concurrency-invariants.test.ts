@@ -1474,3 +1474,16 @@ describe('unbounded decode accounting', () => {
     }
   });
 });
+
+describe('PRO scheduled-file commit deadline compensation', () => {
+  it('advances the file position when async setup reaches an already-late deadline', async () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    selectIndex(0);
+
+    await play(5, 0, 750, () => true);
+
+    expect(getState('player.pausedAt')).toBeCloseTo(5.25, 5);
+    now.mockRestore();
+  });
+});

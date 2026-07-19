@@ -12,6 +12,7 @@ function cloneSource(source: ProRoomMediaSource): ProRoomMediaSource {
         kind: 'youtube',
         videoId: source.videoId,
         ...(source.playlistId === undefined ? {} : { playlistId: source.playlistId }),
+        ...(source.videoIds === undefined ? {} : { videoIds: [...source.videoIds] }),
       }
     : {
         kind: 'pro-r2',
@@ -34,7 +35,10 @@ function cloneMetadata(
   };
 }
 
-function sourceFromLegacyYouTube(item: PlaylistItem): ProRoomYouTubeSource {
+function sourceFromLegacyYouTube(
+  item: PlaylistItem,
+  previous?: ProRoomMediaSource,
+): ProRoomYouTubeSource {
   if (item.type !== 'youtube' || !item.videoId) {
     throw new Error('PRO_ROOM_PLAYLIST_YOUTUBE_SOURCE_MISSING');
   }
@@ -49,6 +53,12 @@ function sourceFromLegacyYouTube(item: PlaylistItem): ProRoomYouTubeSource {
     kind: 'youtube',
     videoId: item.videoId,
     ...(typeof item.playlistId === 'string' ? { playlistId: item.playlistId } : {}),
+    ...(previous?.kind === 'youtube' &&
+    previous.videoId === item.videoId &&
+    previous.playlistId === (item.playlistId ?? undefined) &&
+    previous.videoIds
+      ? { videoIds: [...previous.videoIds] }
+      : {}),
   };
 }
 
@@ -105,7 +115,7 @@ export class ProRoomPlaylistProjection {
     const wire = items.map((item): ProRoomPlaylistWireItem => {
       const source =
         item.type === 'youtube'
-          ? sourceFromLegacyYouTube(item)
+          ? sourceFromLegacyYouTube(item, this.#sources.get(item.queueItemId))
           : this.#requireR2Source(item.queueItemId);
       nextSources.set(item.queueItemId, cloneSource(source));
       return {

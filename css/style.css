@@ -935,6 +935,17 @@
     background: #f59e0b;
   }
 
+  /* PRO has no browser host/coordinator rank. Keep every endpoint neutral. */
+  .role-badge.pro-equal {
+    background: var(--surface-2);
+    color: var(--text-sub);
+  }
+
+  .role-badge.pro-equal .role-dot {
+    background: var(--text-muted);
+    opacity: 1;
+  }
+
   .tab-content {
     /* Avoid animating entire tab panels (especially under backdrop-filter) to prevent iOS PWA jank */
     animation: none;

@@ -1,7 +1,7 @@
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
-import { SYSTEM_AUDIO_SHARE_LIMIT_MS, MSG } from '../core/constants.ts';
+import { SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
@@ -17,8 +17,6 @@ import {
   type ProSystemAudioSfuPublicationDescriptor,
 } from '../network/pro-system-audio-sfu.ts';
 import { cleanupSystemAudioSfuGuestRoute } from '../network/system-audio-sfu.ts';
-import { registerHandler } from '../network/protocol.ts';
-import { broadcast, broadcastExcept, safeSend, sendToHost } from '../network/peer-state.ts';
 import {
   beginTrustedSystemAudioReception,
   cleanupGuestSystemAudio,
@@ -30,12 +28,6 @@ import {
   type WebRtcAudioDecoderPrimer,
 } from '../network/webrtc-audio-decoder-primer.ts';
 import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
-import {
-  isAuthoritativeConnection,
-  isCoordinator,
-  verifyPeerCapability,
-} from '../rooms/authority.ts';
-import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 import type { ProRoomApiClient } from './api.ts';
 import type {
   ProRoomSnapshot,
@@ -63,27 +55,13 @@ let latestView: ProRoomSystemAudioViewState = idleView();
 let remoteOwnerDisplayName: string | null = null;
 let refreshFlight: Promise<ProRoomSystemAudioState> | null = null;
 let listenersRegistered = false;
-let lastCoordinatorEpoch = -1;
-let lastFanoutKey = '';
-let legacyShareLive = false;
-let legacyShareOwnerParticipantId: string | null = null;
 let expectedLeaseTransition = false;
 let localTracks: { left: MediaStreamTrack; right: MediaStreamTrack } | null = null;
 let localPublicationId: string | null = null;
 let publisherRecoveryInFlight = false;
 let boundSessionKey: string | null = null;
-let lastObservedState: Pick<ProRoomSystemAudioState, 'generation' | 'status'> | null = null;
 let leaseHeartbeatFailureNotified = false;
 let subscriberFailureGeneration: number | null = null;
-
-interface CoordinatorSupportProof {
-  connection: DataConnection;
-  sessionKey: string;
-  coordinatorEpoch: number;
-  coordinatorParticipantId: string;
-}
-
-let coordinatorSupportProof: CoordinatorSupportProof | null = null;
 
 let coordinatorSourceL: MediaStreamAudioSourceNode | null = null;
 let coordinatorSourceR: MediaStreamAudioSourceNode | null = null;
@@ -116,32 +94,9 @@ function localParticipantId(): string | null {
   return latestSnapshot?.viewer?.participantId ?? null;
 }
 
-function clearCoordinatorSupportProof(): void {
-  coordinatorSupportProof = null;
-}
-
-/**
- * A member may publish only after its exact authoritative connection has sent
- * a validated v1 state frame. This prevents a mixed-version room from
- * accepting a role-independent SFU publication that an older coordinator
- * cannot relay. The proof is intentionally scoped to one room incarnation and
- * coordinator epoch; reconnects and handoffs must negotiate it again.
- */
 function canPublishProSystemAudioWithCurrentCoordinator(): boolean {
-  if (!isActiveProRoom()) return false;
-  if (isCoordinator()) return true;
-  const snapshot = latestSnapshot;
-  const proof = coordinatorSupportProof;
-  const hostConnection = getState('network.hostConn');
-  const coordinatorParticipantId = snapshot?.presence.coordinatorParticipantId ?? null;
   return Boolean(
-    snapshot?.viewer &&
-    proof &&
-    hostConnection?.open &&
-    proof.connection === hostConnection &&
-    proof.sessionKey === boundSessionKey &&
-    proof.coordinatorEpoch === snapshot.presence.coordinatorEpoch &&
-    proof.coordinatorParticipantId === coordinatorParticipantId,
+    isActiveProRoom() && latestSnapshot?.viewer?.capabilities.includes('playback.control'),
   );
 }
 
@@ -156,117 +111,10 @@ function ownerDisplayName(state: ProRoomSystemAudioState | null): string | null 
   );
 }
 
-function wireState(state: ProRoomSystemAudioState): ProtocolMsg<typeof MSG.PRO_SYSTEM_AUDIO_STATE> {
-  return {
-    type: MSG.PRO_SYSTEM_AUDIO_STATE,
-    version: 1,
-    generation: state.generation,
-    status: state.status,
-    ownerParticipantId: state.ownerParticipantId,
-    ownerDisplayName: ownerDisplayName(state),
-    claimExpiresAt: state.claimExpiresAt,
-    liveExpiresAt: state.liveExpiresAt,
-    publication: state.publication,
-  };
-}
-
-function stateFromWire(
-  data: ProtocolMsg<typeof MSG.PRO_SYSTEM_AUDIO_STATE>,
-): ProRoomSystemAudioState {
-  if (data.status === 'idle') {
-    return {
-      generation: data.generation,
-      status: 'idle',
-      ownerParticipantId: null,
-      claimExpiresAt: null,
-      liveExpiresAt: null,
-      publication: null,
-    };
-  }
-  if (data.status === 'preparing') {
-    return {
-      generation: data.generation,
-      status: 'preparing',
-      ownerParticipantId: data.ownerParticipantId!,
-      claimExpiresAt: data.claimExpiresAt!,
-      liveExpiresAt: null,
-      publication: null,
-    };
-  }
-  return {
-    generation: data.generation,
-    status: 'live',
-    ownerParticipantId: data.ownerParticipantId!,
-    claimExpiresAt: null,
-    liveExpiresAt: data.liveExpiresAt!,
-    publication: {
-      publicationId: data.publication!.publicationId,
-      sessionId: data.publication!.sessionId,
-      tracks: data.publication!.tracks.map((track) => ({
-        ...track,
-      })) as ProRoomSystemAudioPublication['tracks'],
-    },
-  };
-}
-
-function legacyReadyMessage(
-  state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
-): ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY> {
-  return {
-    type: MSG.SYSTEM_AUDIO_SFU_READY,
-    version: 1,
-    audience: 'all',
-    sessionId: state.publication.sessionId,
-    tracks: state.publication.tracks.map((track) => ({ ...track })),
-  };
-}
-
-function fanoutKey(state: ProRoomSystemAudioState): string {
-  return `${state.generation}:${state.status}:${state.publication?.publicationId ?? '-'}`;
-}
-
-function sendLegacyToPeer(conn: DataConnection, state: ProRoomSystemAudioState): void {
-  if (state.status !== 'live') return;
-  if (conn.peer === state.ownerParticipantId) return;
-  safeSend(conn, { type: MSG.SYSTEM_AUDIO_START });
-  safeSend(conn, legacyReadyMessage(state));
-}
-
-function broadcastAuthoritativeState(state: ProRoomSystemAudioState): void {
-  const wire = wireState(state);
-  broadcast(wire);
-  if (state.status === 'live') {
-    const start: ProtocolMsg<typeof MSG.SYSTEM_AUDIO_START> = { type: MSG.SYSTEM_AUDIO_START };
-    const ready = legacyReadyMessage(state);
-    if (state.ownerParticipantId === localParticipantId()) {
-      broadcast(start);
-      broadcast(ready);
-    } else {
-      broadcastExcept(state.ownerParticipantId, start);
-      broadcastExcept(state.ownerParticipantId, ready);
-    }
-    legacyShareLive = true;
-    legacyShareOwnerParticipantId = state.ownerParticipantId;
-  } else if (legacyShareLive) {
-    if (legacyShareOwnerParticipantId) {
-      broadcastExcept(legacyShareOwnerParticipantId, { type: MSG.SYSTEM_AUDIO_STOP });
-    } else {
-      broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
-    }
-    legacyShareLive = false;
-    legacyShareOwnerParticipantId = null;
-  }
-}
-
 function notifyMutation(state: ProRoomSystemAudioState): void {
-  if (isCoordinator()) {
-    // The controller observer already reconciles every accepted transition.
-    // Keep the idempotency key here so a coordinator-owned mutation cannot
-    // deliver duplicate START/READY frames and restart receivers twice.
-    void reconcileCoordinatorState(state);
-    return;
-  }
-  sendToHost({ type: MSG.PRO_SYSTEM_AUDIO_HINT, generation: state.generation });
+  // The Durable Object broadcasts a state invalidation. Reconcile locally as
+  // well so the initiating endpoint does not wait for the WebSocket echo.
+  void reconcileCoordinatorState(state);
 }
 
 function clearCoordinatorPrimers(): void {
@@ -305,7 +153,6 @@ async function attachCoordinatorTrack(
     !state ||
     state.status !== 'live' ||
     state.generation !== generation ||
-    !isCoordinator() ||
     state.ownerParticipantId === localParticipantId()
   ) {
     return;
@@ -356,7 +203,7 @@ function sfuDescriptor(
 async function ensureCoordinatorSubscription(
   state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
 ): Promise<void> {
-  if (!isActiveProRoom() || !isCoordinator()) return;
+  if (!isActiveProRoom()) return;
   cleanupSystemAudioSfuGuestRoute();
   if (subscriberFailureGeneration !== null && subscriberFailureGeneration !== state.generation) {
     subscriberFailureGeneration = null;
@@ -383,7 +230,7 @@ function notifySubscriberFailure(
 }
 
 async function reconcileCoordinatorState(state: ProRoomSystemAudioState): Promise<void> {
-  if (!isActiveProRoom() || !isCoordinator()) return;
+  if (!isActiveProRoom()) return;
   if (state.status === 'live') {
     void ensureCoordinatorSubscription(state).catch((error) => {
       log.warn('[PRO SystemAudio] Coordinator subscription failed', error);
@@ -402,35 +249,11 @@ async function reconcileCoordinatorState(state: ProRoomSystemAudioState): Promis
     cleanupCoordinatorGraph();
     subscriberFailureGeneration = null;
   }
-  const nextKey = fanoutKey(state);
-  if (lastFanoutKey === nextKey) return;
-  lastFanoutKey = nextKey;
-  broadcastAuthoritativeState(state);
 }
 
 function onControllerState(view: ProRoomSystemAudioViewState): void {
   latestView = view;
   const state = controller?.getCurrentState() ?? null;
-  const previous = lastObservedState;
-  if (state) {
-    if (isActiveProRoom() && isCoordinator() && previous) {
-      if (
-        previous.status === 'live' &&
-        (state.status !== 'live' || state.generation !== previous.generation)
-      ) {
-        broadcastSystemMessage('chat.system_audio_stopped_system_message');
-      }
-      if (
-        state.status === 'live' &&
-        (previous.status !== 'live' || previous.generation !== state.generation)
-      ) {
-        broadcastSystemMessage('chat.system_audio_started_system_message');
-      }
-    }
-    lastObservedState = { generation: state.generation, status: state.status };
-  } else {
-    lastObservedState = null;
-  }
   bus.emit(
     'pro-system-audio:state-changed',
     {
@@ -448,7 +271,7 @@ function onControllerState(view: ProRoomSystemAudioViewState): void {
     },
     ownerDisplayName(state),
   );
-  if (state && isCoordinator()) void reconcileCoordinatorState(state);
+  if (state) void reconcileCoordinatorState(state);
 }
 
 function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
@@ -489,22 +312,12 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     // the first authoritative refresh for the newly bound incarnation.
     refreshFlight = null;
     boundSessionKey = nextSessionKey;
-    clearCoordinatorSupportProof();
   }
-  const coordinatorChanged =
-    latestSnapshot?.presence.coordinatorEpoch !== snapshot.presence.coordinatorEpoch ||
-    latestSnapshot?.presence.coordinatorParticipantId !==
-      snapshot.presence.coordinatorParticipantId;
-  if (coordinatorChanged) clearCoordinatorSupportProof();
   latestSnapshot = snapshot;
   remoteOwnerDisplayName = null;
-  if (lastCoordinatorEpoch !== snapshot.presence.coordinatorEpoch) {
-    lastCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
-    lastFanoutKey = '';
-  }
   controller?.bindSession(snapshot);
   const state = controller?.getCurrentState();
-  if (state && isCoordinator()) void reconcileCoordinatorState(state);
+  if (state) void reconcileCoordinatorState(state);
 }
 
 export function resetProSystemAudioService(): void {
@@ -519,18 +332,12 @@ export function resetProSystemAudioService(): void {
   latestView = idleView();
   remoteOwnerDisplayName = null;
   refreshFlight = null;
-  lastCoordinatorEpoch = -1;
-  lastFanoutKey = '';
-  legacyShareLive = false;
-  legacyShareOwnerParticipantId = null;
   localTracks = null;
   localPublicationId = null;
   publisherRecoveryInFlight = false;
   boundSessionKey = null;
-  lastObservedState = null;
   leaseHeartbeatFailureNotified = false;
   subscriberFailureGeneration = null;
-  clearCoordinatorSupportProof();
 }
 
 export function getProSystemAudioViewState(): ProRoomSystemAudioViewState {
@@ -651,6 +458,9 @@ export async function publishLocalProSystemAudio(
       updateProSystemAudioSfuPublisherExpiry(state.liveExpiresAt);
     }
     notifyMutation(state);
+    if (state.status === 'live') {
+      broadcastSystemMessage('chat.system_audio_started_system_message');
+    }
     clearManagedTimer(PUBLISHER_RETRY_TIMER);
     leaseHeartbeatFailureNotified = false;
     scheduleLeaseHeartbeat();
@@ -673,10 +483,14 @@ export async function releaseLocalProSystemAudioLease(): Promise<ProRoomSystemAu
   localTracks = null;
   localPublicationId = null;
   if (!controller?.getCurrentLease()) return controller?.getCurrentState() ?? null;
+  const wasLive = controller.getCurrentState()?.status === 'live';
   expectedLeaseTransition = true;
   try {
     const state = await controller.releaseProSystemAudioLease();
     notifyMutation(state);
+    if (wasLive && state.status === 'idle') {
+      broadcastSystemMessage('chat.system_audio_stopped_system_message');
+    }
     return state;
   } catch (error) {
     // The publication is already closed locally, but a dropped release
@@ -733,74 +547,19 @@ export function registerProSystemAudioServiceListeners(): void {
   if (listenersRegistered) return;
   listenersRegistered = true;
 
-  registerHandler(MSG.PRO_SYSTEM_AUDIO_HINT, (_data, conn) => {
-    if (!isActiveProRoom() || !isCoordinator() || !verifyPeerCapability(conn, 'queue.mutate'))
-      return;
-    void refreshProSystemAudioState().catch((error) =>
-      log.warn('[PRO SystemAudio] Coordinator refresh from hint failed', error),
-    );
-  });
-
-  registerHandler(MSG.PRO_SYSTEM_AUDIO_STATE, (data, conn) => {
-    if (!isActiveProRoom() || isCoordinator() || !isAuthoritativeConnection(conn)) return;
-    remoteOwnerDisplayName = data.ownerDisplayName;
-    try {
-      controller?.acceptProSystemAudioState(stateFromWire(data));
-      const snapshot = latestSnapshot;
-      const coordinatorParticipantId = snapshot?.presence.coordinatorParticipantId ?? null;
-      if (snapshot?.viewer && boundSessionKey && coordinatorParticipantId) {
-        coordinatorSupportProof = {
-          connection: conn,
-          sessionKey: boundSessionKey,
-          coordinatorEpoch: snapshot.presence.coordinatorEpoch,
-          coordinatorParticipantId,
-        };
-      }
-    } catch (error) {
-      log.warn('[PRO SystemAudio] Rejected coordinator state', error);
-    }
-  });
-
-  bus.on('network:peer-connected', (conn) => {
-    if (!isActiveProRoom() || !isCoordinator()) return;
-    void refreshProSystemAudioState()
-      .catch(() => controller?.getCurrentState() ?? null)
-      .then((state) => {
-        if (!state) return;
-        safeSend(conn, wireState(state));
-        sendLegacyToPeer(conn, state);
-      });
-  });
-
   bus.on('state:room.context', () => {
     const currentContext = getState('room.context');
     if (currentContext.kind !== 'pro') {
-      clearCoordinatorSupportProof();
       cleanupCoordinatorGraph();
       subscriberFailureGeneration = null;
-      legacyShareLive = false;
-      legacyShareOwnerParticipantId = null;
       return;
     }
-    lastFanoutKey = '';
-    if (isCoordinator()) {
-      cleanupSystemAudioSfuGuestRoute();
-      const state = controller?.getCurrentState();
-      if (state) void reconcileCoordinatorState(state);
-      void refreshProSystemAudioState()
-        .then((next) => reconcileCoordinatorState(next))
-        .catch(() => undefined);
-    } else {
-      cleanupCoordinatorGraph();
-      subscriberFailureGeneration = null;
-      legacyShareLive = false;
-      legacyShareOwnerParticipantId = null;
-    }
-  });
-
-  bus.on('state:network.hostConn', (hostConnection) => {
-    if (isCoordinator() || coordinatorSupportProof?.connection === hostConnection) return;
-    clearCoordinatorSupportProof();
+    cleanupSystemAudioSfuGuestRoute();
+    const state = controller?.getCurrentState();
+    if (state) void reconcileCoordinatorState(state);
+    void refreshProSystemAudioState()
+      .then((next) => reconcileCoordinatorState(next))
+      .catch(() => undefined);
   });
 
   onProSystemAudioSfuEvent((event) => {
@@ -812,7 +571,7 @@ export function registerProSystemAudioServiceListeners(): void {
     }
     if (event.type === 'subscriber-state' && event.state === 'failed') {
       const state = controller?.getCurrentState();
-      if (state?.status !== 'live' || !isCoordinator()) return;
+      if (state?.status !== 'live' || state.ownerParticipantId === localParticipantId()) return;
       notifySubscriberFailure(state);
       setManagedTimer(
         SUBSCRIBER_RETRY_TIMER,

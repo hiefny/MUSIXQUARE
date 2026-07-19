@@ -116,21 +116,19 @@ describe('joinSession reconnect racing', () => {
   });
 
   it.each(['close', 'error'] as const)(
-    'turns a PRO host-connection %s into one topology recovery without a network error',
+    'turns a stale PRO host-connection %s into one control recovery without a network error',
     (event) => {
       const { peer, conns } = makeFakePeer();
       mocks.getPeer.mockReturnValue(peer);
       const errors = vi.fn();
-      const transportFailures = vi.fn();
       const recover = vi.fn();
       bus.on('network:error', errors);
-      bus.on('pro-room:transport-connect-failure', transportFailures);
       registerProRoomSignalingEpochAdvanceHandler(recover);
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
         role: 'member',
-        coordinatorId: 'participant_owner',
+        coordinatorId: null,
         epoch: 4,
         snapshotRevision: 8,
         capabilities: [],
@@ -145,10 +143,6 @@ describe('joinSession reconnect racing', () => {
 
       expect(getState('network.hostConn')).toBeNull();
       expect(errors).not.toHaveBeenCalled();
-      expect(transportFailures).toHaveBeenCalledOnce();
-      expect((transportFailures.mock.calls[0][0] as Error).message).toBe(
-        event === 'error' ? 'HOST_CONNECTION_ERROR' : 'HOST_DISCONNECTED',
-      );
       expect(recover).toHaveBeenCalledOnce();
       expect(mocks.showToast).toHaveBeenCalledOnce();
     },
@@ -158,16 +152,14 @@ describe('joinSession reconnect racing', () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
     const errors = vi.fn();
-    const transportFailures = vi.fn();
     const recover = vi.fn();
     bus.on('network:error', errors);
-    bus.on('pro-room:transport-connect-failure', transportFailures);
     registerProRoomSignalingEpochAdvanceHandler(recover);
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: 'participant_owner',
+      coordinatorId: null,
       epoch: 4,
       snapshotRevision: 8,
       capabilities: [],
@@ -179,7 +171,6 @@ describe('joinSession reconnect racing', () => {
 
     expect(getState('network.isConnecting')).toBe(false);
     expect(errors).not.toHaveBeenCalled();
-    expect(transportFailures).toHaveBeenCalledOnce();
     expect(recover).toHaveBeenCalledOnce();
     expect(mocks.showToast).toHaveBeenCalledOnce();
   });

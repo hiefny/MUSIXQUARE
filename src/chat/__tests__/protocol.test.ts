@@ -24,6 +24,10 @@ import {
 import { addChatMessage, upsertBotChatMessage } from '../../ui/chat-render.ts';
 import type { DataConnection } from '../../types/index.ts';
 
+const realtimeMocks = vi.hoisted(() => ({
+  send: vi.fn(() => true),
+}));
+
 // Mock renderer functions only. Keep the wire caps
 // (MAX_MSG_LENGTH/MAX_SENDER_LABEL_LENGTH) unmocked so tests exercise the
 // authoritative values from core/constants.ts.
@@ -38,6 +42,10 @@ vi.mock('../../ui/chat-render.ts', () => ({
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock('../../pro-room/network-bridge.ts', () => ({
+  sendProRoomRealtime: realtimeMocks.send,
 }));
 
 describe('host chat fan-out truncation (CHAT-1)', () => {
@@ -464,7 +472,7 @@ describe('PRO BOT chat correlation', () => {
     expect(upsertBotChatMessage).toHaveBeenLastCalledWith(id, 'complete', '이어받았어요');
   });
 
-  it('completes and sends a requester-owned local result through the host exactly once', () => {
+  it('completes and sends a requester-owned local result through the server exactly once', () => {
     enterBotRoom('member');
     setState('network.myId', 'member-local');
     const send = vi.fn();
@@ -481,11 +489,11 @@ describe('PRO BOT chat correlation', () => {
 
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(1, id, 'typing');
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(2, id, 'complete', expect.any(String));
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith({
-      type: MSG.CHAT_BOT_RESULT,
+    expect(send).not.toHaveBeenCalled();
+    expect(realtimeMocks.send).toHaveBeenCalledTimes(1);
+    expect(realtimeMocks.send).toHaveBeenCalledWith('chat', {
+      kind: 'bot-result',
       requestId: id,
-      senderId: 'member-local',
       result: { kind: 'added', count: 2, playbackChanged: true },
     });
   });
@@ -508,15 +516,15 @@ describe('PRO BOT chat correlation', () => {
 
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(1, id, 'typing');
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(2, id, 'complete', expect.any(String));
-    expect(send).toHaveBeenCalledWith({
-      type: MSG.CHAT_BOT_RESULT,
+    expect(send).not.toHaveBeenCalled();
+    expect(realtimeMocks.send).toHaveBeenCalledWith('chat', {
+      kind: 'bot-result',
       requestId: id,
-      senderId: 'member-daily-limit',
       result: { kind: 'rate_limited', retryAfterSeconds: 70_000 },
     });
   });
 
-  it('broadcasts one terminal result when the coordinator itself is the requester', () => {
+  it('relays one terminal result when an equal participant is the requester', () => {
     enterBotRoom('coordinator');
     setState('network.myId', 'host-bot-local');
     const send = vi.fn();
@@ -545,11 +553,11 @@ describe('PRO BOT chat correlation', () => {
     expect(publishBotChatResult(id, { kind: 'failed' })).toBe(true);
     expect(publishBotChatResult(id, { kind: 'failed' })).toBe(false);
 
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith({
-      type: MSG.CHAT_BOT_RESULT,
+    expect(send).not.toHaveBeenCalled();
+    expect(realtimeMocks.send).toHaveBeenCalledTimes(1);
+    expect(realtimeMocks.send).toHaveBeenCalledWith('chat', {
+      kind: 'bot-result',
       requestId: id,
-      senderId: 'host-bot-local',
       result: { kind: 'failed' },
     });
   });

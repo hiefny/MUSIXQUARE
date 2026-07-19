@@ -16,7 +16,7 @@ const URL_MAX_BYTES = 2_048;
 const ETAG_HEADER_MAX_BYTES = 128;
 const COMMAND_REQUEST_MAX_BYTES = 1_024;
 const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
-const QUEUE_MUTATION_REQUEST_MAX_BYTES = 64 * 1024;
+const QUEUE_MUTATION_REQUEST_MAX_BYTES = 128 * 1024;
 const MEDIA_UPLOAD_REQUEST_MAX_BYTES = 16 * 1024;
 const MUTATION_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
@@ -28,6 +28,7 @@ const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
 const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
 const PLAYLIST_MAX_ITEMS = 1_000;
 const YOUTUBE_BATCH_MAX_ITEMS = 100;
@@ -647,33 +648,82 @@ function parseMetadata(value) {
   return metadata;
 }
 
+function parseYouTubeVideoIds(value, playlistId, videoId) {
+  if (value === undefined) return undefined;
+  if (
+    !playlistId ||
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS ||
+    value.some((item) => typeof item !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(item)) ||
+    !value.includes(videoId)
+  ) {
+    return null;
+  }
+  return [...value];
+}
+
 function parseYouTubeQueueItem(value) {
   if (
-    !hasExactKeys(value, ['videoId', 'name'], ['playlistId', 'title', 'artist', 'thumbnail']) ||
+    !hasExactKeys(
+      value,
+      ['videoId', 'name'],
+      ['playlistId', 'videoIds', 'title', 'artist', 'thumbnail'],
+    ) ||
     !YOUTUBE_VIDEO_ID_RE.test(value.videoId || '') ||
     (value.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(value.playlistId || ''))
   ) {
     return null;
   }
+  const videoIds = parseYouTubeVideoIds(value.videoIds, value.playlistId, value.videoId);
+  if (videoIds === null) return null;
   const metadata = parseMetadata(value);
   return metadata
     ? {
         type: 'add_youtube',
         videoId: value.videoId,
         ...(value.playlistId === undefined ? {} : { playlistId: value.playlistId }),
+        ...(videoIds === undefined ? {} : { videoIds }),
         ...metadata,
       }
     : null;
 }
 
 function canonicalizeYouTubeBatchItems(items) {
-  const seenPlaylistIds = new Set();
-  return items.filter((item) => {
-    if (item.playlistId === undefined) return true;
-    if (seenPlaylistIds.has(item.playlistId)) return false;
-    seenPlaylistIds.add(item.playlistId);
-    return true;
-  });
+  const result = [];
+  const playlistStates = new Map();
+  for (const item of items) {
+    if (item.playlistId === undefined) {
+      result.push(item);
+      continue;
+    }
+    const state = playlistStates.get(item.playlistId);
+    if (state === undefined) {
+      playlistStates.set(item.playlistId, {
+        index: result.length,
+        hasManifest: item.videoIds !== undefined,
+      });
+      result.push(item);
+      continue;
+    }
+
+    const existing = result[state.index];
+    if (state.hasManifest !== (item.videoIds !== undefined)) return null;
+    if (state.hasManifest) {
+      if (
+        existing.videoIds.length !== item.videoIds.length ||
+        existing.videoIds.some((videoId, index) => videoId !== item.videoIds[index])
+      ) {
+        return null;
+      }
+      continue;
+    }
+
+    const videoIds = [...(existing.videoIds || [existing.videoId]), item.videoId];
+    if (videoIds.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS) return null;
+    result[state.index] = { ...existing, videoIds };
+  }
+  return result;
 }
 
 function parseYouTubeQueueItemBatch(value) {
@@ -687,9 +737,11 @@ function parseYouTubeQueueItemBatch(value) {
   }
   const items = value.items.map((item) => parseYouTubeQueueItem(item));
   if (items.some((item) => item === null)) return null;
+  const canonicalItems = canonicalizeYouTubeBatchItems(items);
+  if (!canonicalItems) return null;
   return {
     type: 'add_youtube_batch',
-    items: canonicalizeYouTubeBatchItems(items).map(({ type: _type, ...item }) => item),
+    items: canonicalItems.map(({ type: _type, ...item }) => item),
   };
 }
 
@@ -1654,7 +1706,7 @@ async function handleApiRequest(request, env, context, requestId) {
       auditAction = 'playback.queue_mode.update';
     } else if (route.kind === 'queue-add') {
       const mutation = parseYouTubeQueueItem(
-        await readRequestJsonLimited(request, MEDIA_UPLOAD_REQUEST_MAX_BYTES),
+        await readRequestJsonLimited(request, QUEUE_MUTATION_REQUEST_MAX_BYTES),
       );
       if (!mutation) return errorResponse('INVALID_REQUEST', 400, requestId);
       path = '/internal/v1/queue/mutate';

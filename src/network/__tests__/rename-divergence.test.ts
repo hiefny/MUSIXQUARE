@@ -164,6 +164,27 @@ describe('getOtherDeviceLabels (role-aware rename validation source)', () => {
     expect(getState('network.connectedPeers')).toEqual([]);
     expect(getOtherDeviceLabels()).toEqual(['HOST', 'Alice']);
   });
+
+  it('PRO member reads the authoritative device list even without a browser host connection', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    setState('network.hostConn', null);
+    setState('network.myId', 'owner-member');
+    setState('network.connectedPeers', [makePeer('Stale Browser Peer')]);
+    setState('network.lastKnownDeviceList', [
+      makeDevice('owner-member', 'Owner'),
+      makeDevice('member-2', 'Alice'),
+    ]);
+
+    expect(getOtherDeviceLabels()).toEqual(['Alice']);
+  });
 });
 
 // ─── Guest rename listener ─────────────────────────────────────────────────
@@ -243,5 +264,28 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
 
     expect(renameSpy).toHaveBeenCalledWith('Carol');
     expect(addSystemChatMessageMock).toHaveBeenCalledWith('chat.cmd_nick_changed');
+  });
+
+  it('does not let a coordinator-free PRO owner restore the reserved HOST identity', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    setState('network.hostConn', null);
+    setState('network.myId', 'owner-member');
+    setState('network.myDeviceLabel', 'Owner');
+    setState('network.lastKnownDeviceList', [makeDevice('owner-member', 'Owner')]);
+    const renameSpy = vi.fn();
+    bus.on('network:rename-device', renameSpy);
+
+    runNick('HOST');
+
+    expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_reserved');
+    expect(renameSpy).not.toHaveBeenCalled();
   });
 });

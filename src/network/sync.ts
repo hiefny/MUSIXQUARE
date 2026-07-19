@@ -121,12 +121,12 @@ function hasManualSyncEndpoint(): boolean {
   const hostConn = getState('network.hostConn');
   if (hostConn?.open) return true;
   const room = getRoomContext();
-  return room.kind === 'pro' && room.role === 'coordinator';
+  return room.kind === 'pro';
 }
 
 function isProCoordinatorManualSyncEndpoint(): boolean {
   const room = getRoomContext();
-  return room.kind === 'pro' && room.role === 'coordinator';
+  return room.kind === 'pro';
 }
 
 function canApplyManualSyncAction(): boolean {

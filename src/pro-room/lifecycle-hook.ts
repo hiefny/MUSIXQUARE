@@ -64,7 +64,7 @@ export async function requestProRoomSignalingReconnect(): Promise<boolean> {
   }
 }
 
-/** Reconcile an authoritative coordinator epoch immediately after the DO closes old sockets. */
+/** Reconcile the authoritative room incarnation after the server closes old sockets. */
 export function registerProRoomSignalingEpochAdvanceHandler(
   handler: (() => void | Promise<void>) | null,
 ): void {

@@ -11,6 +11,7 @@ import { getState, setState } from '../core/state.ts';
 import {
   DEVICE_LABEL_SANITIZE_RE,
   MSG,
+  PEER_NAME_PREFIX,
   RESERVED_NAMES,
   HOST_SELF_NAMES,
   BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
@@ -19,6 +20,7 @@ import { getOtherDeviceLabels } from '../network/guards.ts';
 import { sendToHost } from '../network/peer.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
+import { sendProRoomRealtime } from '../pro-room/network-bridge.ts';
 import { t } from '../i18n/index.ts';
 import {
   addSystemChatMessage,
@@ -119,6 +121,10 @@ function isHost(): boolean {
   return !getState('network.hostConn');
 }
 
+function isStandardRoom(): boolean {
+  return getRoomContext().kind !== 'pro';
+}
+
 function hasPermission(perm: Permission): boolean {
   if (perm === 'all') return true;
   if (perm === 'host') return isHost();
@@ -138,10 +144,17 @@ function cmdKick(args: string[]): void {
     addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] }));
     return;
   }
-  bus.emit('network:kick-device', target.peerId);
+  bus.emit(
+    getRoomContext().kind === 'pro' ? 'pro-room:kick-member' : 'network:kick-device',
+    target.peerId,
+  );
 }
 
 function cmdOp(args: string[]): void {
+  // PRO authority is server-issued and equal for every live member. Never
+  // recreate the legacy browser-admin hierarchy through a hidden command.
+  if (!isStandardRoom()) return;
+
   if (!args[0]) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_op') }));
     return;
@@ -169,6 +182,8 @@ function cmdOp(args: string[]): void {
 }
 
 function cmdDeop(args: string[]): void {
+  if (!isStandardRoom()) return;
+
   if (!args[0]) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_deop') }));
     return;
@@ -203,7 +218,11 @@ function cmdFreeze(args: string[]): void {
   }
   const on = flag === 'on';
   setState('network.chatFrozen', on);
-  bus.emit('network:broadcast', { type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
+  if (getRoomContext().kind === 'pro') {
+    sendProRoomRealtime('chat', { kind: 'freeze', on });
+  } else {
+    bus.emit('network:broadcast', { type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
+  }
   addSystemChatMessage(on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
 }
 
@@ -218,7 +237,14 @@ function cmdMute(args: string[]): void {
     return;
   }
 
-  if (isHost()) {
+  if (getRoomContext().kind === 'pro') {
+    sendProRoomRealtime('chat', {
+      kind: 'mute',
+      targetParticipantId: target.peerId,
+      on: true,
+    });
+    addSystemChatMessage(t('chat.cmd_muted', { name: target.label }));
+  } else if (isHost()) {
     // Host executes directly
     const current = getState('network.mutedPeers');
     setState('network.mutedPeers', new Set([...current, target.peerId]));
@@ -245,7 +271,14 @@ function cmdUnmute(args: string[]): void {
     return;
   }
 
-  if (isHost()) {
+  if (getRoomContext().kind === 'pro') {
+    sendProRoomRealtime('chat', {
+      kind: 'mute',
+      targetParticipantId: target.peerId,
+      on: false,
+    });
+    addSystemChatMessage(t('chat.cmd_unmuted', { name: target.label }));
+  } else if (isHost()) {
     const current = getState('network.mutedPeers');
     const next = new Set([...current]);
     next.delete(target.peerId);
@@ -262,7 +295,10 @@ function cmdUnmute(args: string[]): void {
 }
 
 function cmdClear(): void {
-  if (isHost()) {
+  if (getRoomContext().kind === 'pro') {
+    sendProRoomRealtime('chat', { kind: 'clear' });
+    bus.emit('chat:clear-all');
+  } else if (isHost()) {
     bus.emit('network:broadcast', { type: MSG.CHAT_CLEAR });
     bus.emit('chat:clear-all');
   } else {
@@ -278,7 +314,11 @@ function cmdFilter(args: string[]): void {
     return;
   }
 
-  if (isHost()) {
+  if (getRoomContext().kind === 'pro') {
+    setState('network.filterEnabled', on);
+    sendProRoomRealtime('chat', { kind: 'filter', on });
+    addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
+  } else if (isHost()) {
     setState('network.filterEnabled', on);
     bus.emit('network:broadcast', { type: MSG.CHAT_FILTER, on });
     addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
@@ -294,7 +334,11 @@ function cmdSlowmode(args: string[]): void {
     return;
   }
 
-  if (isHost()) {
+  if (getRoomContext().kind === 'pro') {
+    setState('network.slowmodeSeconds', sec);
+    sendProRoomRealtime('chat', { kind: 'slowmode', seconds: sec });
+    addSystemChatMessage(sec > 0 ? t('chat.cmd_slowmode_on', { sec }) : t('chat.cmd_slowmode_off'));
+  } else if (isHost()) {
     setState('network.slowmodeSeconds', sec);
     bus.emit('network:broadcast', { type: MSG.CHAT_SLOWMODE, seconds: sec });
     addSystemChatMessage(sec > 0 ? t('chat.cmd_slowmode_on', { sec }) : t('chat.cmd_slowmode_off'));
@@ -317,7 +361,12 @@ function cmdNotice(_: string[], rawArgs: string): void {
     attention: true,
   };
 
-  if (isHost()) {
+  if (getRoomContext().kind === 'pro') {
+    rememberPinnedNotice(payload);
+    sendProRoomRealtime('chat', { kind: 'notice', text: rawArgs.trim() });
+    addNoticeChatMessage(senderLabel, rawArgs.trim(), payload.ts);
+    playAnnouncementSound();
+  } else if (isHost()) {
     rememberPinnedNotice(payload);
     bus.emit('network:broadcast', payload);
     addNoticeChatMessage(senderLabel, rawArgs.trim(), payload.ts);
@@ -340,7 +389,9 @@ function cmdNick(_: string[], rawArgs: string): void {
     addSystemChatMessage(t('chat.cmd_nick_too_long'));
     return;
   }
-  const isHostSelf = !getState('network.hostConn');
+  // A coordinator-free PRO endpoint also has no hostConn, but that is an
+  // internal compatibility shape rather than the reserved HOST identity.
+  const isHostSelf = isStandardRoom() && !getState('network.hostConn');
   const nameLower = newName.toLowerCase();
   const isHostRestore = isHostSelf && (HOST_SELF_NAMES as readonly string[]).includes(nameLower);
   if (RESERVED_NAMES.some((r) => nameLower === r.toLowerCase())) {
@@ -401,7 +452,13 @@ function cmdWhisper(args: string[], rawArgs: string): void {
     joinOrder: myJoinOrder,
   };
 
-  if (isHost()) {
+  if (getRoomContext().kind === 'pro') {
+    sendProRoomRealtime('chat', {
+      kind: 'whisper',
+      targetParticipantId: target.peerId,
+      text: msg,
+    });
+  } else if (isHost()) {
     // Host sends directly to target
     const connMap = getState('network.activeHostConnByPeerId');
     const conn = connMap.get(target.peerId);
@@ -435,10 +492,13 @@ function cmdHelp(): void {
 }
 
 function cmdUsers(): void {
+  const isProRoom = getRoomContext().kind === 'pro';
   const deviceList = getState('network.lastKnownDeviceList') || [];
   const myId = getState('network.myId');
   const myOrder = getState('network.myJoinOrder') ?? 0;
-  const myLabel = getState('network.myDeviceLabel') || (myOrder === 0 ? 'HOST' : 'ME');
+  const myLabel =
+    getState('network.myDeviceLabel') ||
+    (isProRoom ? PEER_NAME_PREFIX : myOrder === 0 ? 'HOST' : 'ME');
 
   const lines: string[] = [t('chat.cmd_users_title')];
 
@@ -449,7 +509,7 @@ function cmdUsers(): void {
       {
         id: myId || '',
         label: myLabel || 'ME',
-        isHost: myOrder === 0,
+        isHost: !isProRoom && myOrder === 0,
         isOp: true, // Self is always authorized for self-view
         joinOrder: myOrder,
         status: 'connected',
@@ -463,8 +523,11 @@ function cmdUsers(): void {
   for (const d of sorted) {
     const isMe = d.id === myId;
     const flags: string[] = [];
-    if (d.isHost) flags.push('HOST');
-    if (d.isOp && !d.isHost) flags.push('ADMIN');
+    // PRO exposes no host/admin rank: all live participants share the same
+    // controls and the server is the only manager. Keep only the local-self
+    // marker even though the compatibility device list marks every member op.
+    if (!isProRoom && d.isHost) flags.push('HOST');
+    if (!isProRoom && d.isOp && !d.isHost) flags.push('ADMIN');
     if (isMe) flags.push(t('chat.cmd_users_me'));
 
     const suffix = flags.length ? ` [${flags.join(', ')}]` : '';
@@ -632,12 +695,19 @@ const COMMANDS_DEF: Record<
     usageKey: 'chat.cmd_u_kick',
     descKey: 'chat.cmd_d_kick',
   },
-  op: { permission: 'host', execute: cmdOp, usageKey: 'chat.cmd_u_op', descKey: 'chat.cmd_d_op' },
+  op: {
+    permission: 'host',
+    execute: cmdOp,
+    usageKey: 'chat.cmd_u_op',
+    descKey: 'chat.cmd_d_op',
+    suggestWhen: isStandardRoom,
+  },
   deop: {
     permission: 'host',
     execute: cmdDeop,
     usageKey: 'chat.cmd_u_deop',
     descKey: 'chat.cmd_d_deop',
+    suggestWhen: isStandardRoom,
   },
   mute: {
     permission: 'host+op',

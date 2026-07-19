@@ -13,7 +13,7 @@ const REMOVED_APPSTATE_PROJECTION_PATTERN =
   /\b(getPlaybackLegacyAppState|setPlaybackAppState|deriveModeActivityFromAppState|deriveAppStateFromModeActivity|LegacyAppStateValue)\b/;
 const IDLE_COMPAT_HELPER = 'isPlaybackIdleCompat';
 const DIRECT_PLAYBACK_MODE_ACTIVITY_WRITE_PATTERN =
-  /\bsetState\s*\(\s*['"]playback\.(?:mode|activity)['"]|\bbatchSetState\s*\(\s*\{[\s\S]*?['"]playback\.(?:mode|activity)['"]/;
+  /\bsetState\s*\(\s*['"]playback\.(?:mode|activity)['"]|\bbatchSetState\s*\(\s*\{[^}]*['"]playback\.(?:mode|activity)['"]/;
 
 const ALLOWED_IDLE_COMPAT_FILES = new Map<string, string>([
   ['src/player/playlist.ts', 'Historical idle guards preserve async decode race behavior.'],

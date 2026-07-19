@@ -56,6 +56,7 @@ import { registerSystemAudioGuestListeners } from './network/system-audio-guest.
 import { registerSystemAudioSfuListeners } from './network/system-audio-sfu.ts';
 import { registerProSystemAudioServiceListeners } from './pro-room/system-audio-service.ts';
 import { initStandardOperatorFileUplink } from './network/operator-file-uplink.ts';
+import { getRoomContext } from './rooms/authority.ts';
 // ── Storage ──
 // RAM-only storage dispatches STORAGE_* commands in-process.
 import { initTransfer } from './storage/transfer.ts';
@@ -222,6 +223,11 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
 
   reacquireWakeLockIfActive();
   await resumeAudioForBackgroundRecovery();
+
+  // PRO reconciliation belongs exclusively to the server-authority runtime.
+  // Its endpoints intentionally have no hostConn, so falling through would
+  // misclassify every member as a legacy host and broadcast a stale snapshot.
+  if (getRoomContext().kind === 'pro') return;
 
   const hostConn = getState('network.hostConn');
 

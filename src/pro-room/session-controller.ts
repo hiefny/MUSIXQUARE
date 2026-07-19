@@ -59,7 +59,7 @@ export interface ProRoomSessionObserver {
   cleared(): void;
 }
 
-function authorityChanged(previous: RoomContext | null, next: RoomContext): boolean {
+function controlChannelIdentityChanged(previous: RoomContext | null, next: RoomContext): boolean {
   return (
     previous === null ||
     previous.roomId !== next.roomId ||
@@ -72,16 +72,10 @@ function authorityChanged(previous: RoomContext | null, next: RoomContext): bool
 export class ProRoomSessionController {
   #snapshot: ProRoomSnapshot | null = null;
   #context: RoomContext | null = null;
-  /**
-   * Authority that the currently installed transport has actually accepted.
-   *
-   * The room snapshot is committed before a replacement signaling facade can
-   * finish opening.  Keeping this separately means a transient
-   * HOST_NOT_AVAILABLE/epoch race does not destroy the authenticated PRO
-   * session: the next heartbeat can mint a fresh one-use ticket and retry the
-   * same authority transition.
-   */
-  #transportContext: RoomContext | null = null;
+  /** Room incarnation installed by the server control WebSocket. */
+  #controlChannelContext: RoomContext | null = null;
+  /** Sender metadata captured by the currently authenticated WebSocket. */
+  #controlChannelDisplayName: string | null = null;
   #operationEpoch = 0;
   #openAbort: AbortController | null = null;
   #pendingRoomCode: string | null = null;
@@ -112,14 +106,14 @@ export class ProRoomSessionController {
   }
 
   /**
-   * Mark the legacy RTC facade as unusable without revoking the authenticated
-   * room. The next heartbeat then installs a fresh one-use signaling ticket
-   * even when the server has not changed coordinator authority (for example,
-   * a transient coordinator network loss followed by recovery in-place).
+   * Mark the server control channel as unusable without revoking the
+   * authenticated room. The next heartbeat installs a fresh one-use ticket
+   * even when the room incarnation has not changed.
    */
-  invalidateTransportAuthority(): void {
+  invalidateControlChannel(): void {
     if (!this.#snapshot) return;
-    this.#transportContext = null;
+    this.#controlChannelContext = null;
+    this.#controlChannelDisplayName = null;
   }
 
   async join(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
@@ -193,9 +187,9 @@ export class ProRoomSessionController {
   }
 
   /**
-   * Rotate the short-lived signaling credential without changing room
-   * authority. If the active facade can no longer accept an in-place refresh,
-   * rebuild it from the same authoritative snapshot.
+   * Rotate the short-lived credential without changing the room incarnation.
+   * If the active server channel cannot accept an in-place refresh, rebuild it
+   * from the same authoritative snapshot.
    */
   async refreshSignaling(signal?: AbortSignal): Promise<void> {
     const operationEpoch = this.#operationEpoch;
@@ -230,6 +224,8 @@ export class ProRoomSessionController {
       }
       this.#assertOperationCurrent(operationEpoch);
     }
+    this.#controlChannelContext = this.#context;
+    this.#controlChannelDisplayName = snapshot.viewer?.displayName ?? null;
   }
 
   async leave(signal?: AbortSignal, capturedPresenceRelease?: Promise<void>): Promise<void> {
@@ -362,7 +358,8 @@ export class ProRoomSessionController {
       this.#assertAccessMatches(accepted, access);
       await this.transport.connect(accepted, access, operationAbort.signal);
       this.#assertOperationCurrent(operationEpoch);
-      this.#transportContext = this.#context;
+      this.#controlChannelContext = this.#context;
+      this.#controlChannelDisplayName = accepted.viewer?.displayName ?? null;
       return accepted;
     } catch (error) {
       if (operationEpoch === this.#operationEpoch) {
@@ -400,7 +397,8 @@ export class ProRoomSessionController {
     if (
       allowTransportReconfigure &&
       nextContext &&
-      authorityChanged(this.#transportContext, nextContext)
+      (controlChannelIdentityChanged(this.#controlChannelContext, nextContext) ||
+        this.#controlChannelDisplayName !== accepted.viewer?.displayName)
     ) {
       try {
         const access = await this.api.createSignalingTicket(accepted.roomCode, signal);
@@ -408,13 +406,11 @@ export class ProRoomSessionController {
         this.#assertAccessMatches(accepted, access);
         await this.transport.reconfigure(accepted, access, signal);
         this.#assertOperationCurrent(operationEpoch);
-        this.#transportContext = nextContext;
+        this.#controlChannelContext = nextContext;
+        this.#controlChannelDisplayName = accepted.viewer?.displayName ?? null;
       } catch (error) {
-        // A newly elected coordinator may not have attached to signaling yet.
-        // Tickets are single-use, so preserve the authenticated room and the
-        // last installed transport authority; a later heartbeat will request
-        // a fresh ticket and retry this same transition. Terminal session
-        // errors are classified and cleared by the runtime.
+        // Preserve the authenticated room when replacing its server channel
+        // fails. A later heartbeat mints a fresh one-use ticket and retries.
         this.#assertOperationCurrent(operationEpoch);
         throw error;
       }
@@ -466,8 +462,7 @@ export class ProRoomSessionController {
   #assertAccessMatches(snapshot: ProRoomSnapshot, access: ProRoomSignalingAccess): void {
     const context = projectProRoomContext(snapshot);
     if (!context) throw new Error('PRO_ROOM_NOT_ACTIVE');
-    const expectedRole = context.role === 'coordinator' ? 'coordinator' : 'member';
-    if (access.role !== expectedRole || access.coordinatorEpoch !== context.epoch) {
+    if (access.role !== 'member' || access.coordinatorEpoch !== context.epoch) {
       throw new Error('PRO_ROOM_SIGNALING_TICKET_MISMATCH');
     }
     const viewer = snapshot.viewer;
@@ -494,7 +489,8 @@ export class ProRoomSessionController {
   }
 
   #clear(): void {
-    this.#transportContext = null;
+    this.#controlChannelContext = null;
+    this.#controlChannelDisplayName = null;
     const ownedPresence = this.#ownedPresence;
     this.#ownedPresence = null;
     this.#snapshot = null;

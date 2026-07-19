@@ -2,7 +2,7 @@ import type { PlaylistItem, PlaylistRevision, QueueItemId } from '../types/index
 
 export interface ProRoomLegacyMediaHooks {
   addFiles(files: readonly File[], rejectedCount: number): boolean;
-  addYouTube(item: PlaylistItem, sourceUrl: string): boolean;
+  addYouTube(item: PlaylistItem, sourceUrl: string, videoIds?: readonly string[]): boolean;
   updateTrackMetadata(
     queueItemId: QueueItemId,
     metadata: Pick<PlaylistItem, 'name' | 'title' | 'artist' | 'thumbnail'>,
@@ -62,8 +62,12 @@ export function handleProRoomFiles(files: readonly File[], rejectedCount = 0): b
   return activeHooks?.addFiles(files, rejectedCount) ?? false;
 }
 
-export function handleProRoomYouTube(item: PlaylistItem, sourceUrl: string): boolean {
-  return activeHooks?.addYouTube(item, sourceUrl) ?? false;
+export function handleProRoomYouTube(
+  item: PlaylistItem,
+  sourceUrl: string,
+  videoIds?: readonly string[],
+): boolean {
+  return activeHooks?.addYouTube(item, sourceUrl, videoIds) ?? false;
 }
 
 export function handleProRoomTrackMetadata(

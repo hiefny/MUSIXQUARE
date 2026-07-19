@@ -369,13 +369,9 @@ describe('schedulePreload', () => {
     expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 1 });
   });
 
-  it('drops the predecessor preload owner when this member becomes coordinator', async () => {
+  it('keeps its R2 preload when only the obsolete PRO role label changes', async () => {
+    vi.useFakeTimers();
     initPreload();
-    const oldHost = {
-      open: true,
-      peer: 'coordinator-a',
-      send: vi.fn(),
-    } as unknown as DataConnection;
     const lateMember = {
       open: true,
       peer: 'late-member',
@@ -385,47 +381,35 @@ describe('schedulePreload', () => {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: oldHost.peer,
+      coordinatorId: null,
       epoch: 2,
       snapshotRevision: 4,
       capabilities: ['playback.control'],
     });
-    setState('network.hostConn', oldHost);
+    setState('network.hostConn', null);
     setState('playlist.items', [
       makeFileTrack('current.flac', Q0),
       { ...makeFileTrack('next.flac', Q1), file: undefined },
     ]);
     setState('playlist.currentQueueItemId', Q0);
-    setState('network.connectedPeers', [
-      {
-        id: lateMember.peer,
-        status: 'connected',
-        conn: lateMember,
-        isDataTarget: true,
-        connectionType: 'remote',
-        joinOrder: 1,
-      },
-    ]);
+    setState('network.connectedPeers', []);
     proRoomMocks.preloadFile.mockResolvedValue(
       new File(['next'], 'next.flac', { type: 'audio/flac' }),
     );
-    await handleData({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1, sessionId: 99 }, oldHost);
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
     await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    const preparedTarget = getState('preload.activeTarget');
+    expect(preparedTarget).toMatchObject({ queueItemId: Q1 });
 
     setState('room.context', {
       ...getState('room.context'),
       role: 'coordinator',
-      coordinatorId: 'participant-self',
+      coordinatorId: null,
       epoch: 3,
     });
-    expect(getState('preload.activeTarget')).toBeNull();
-    expect(getState('preload.nextQueueItemId')).toBeNull();
-    bus.emit('orchestrator:peer-joined', lateMember.peer);
-    expect(lateMember.send).not.toHaveBeenCalled();
-
-    setState('network.hostConn', null);
-    expect(getState('preload.activeTarget')).toBeNull();
-    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.activeTarget')).toBe(preparedTarget);
+    expect(getState('preload.nextQueueItemId')).toBe(Q1);
     bus.emit('orchestrator:peer-joined', lateMember.peer);
     expect(lateMember.send).not.toHaveBeenCalled();
   });

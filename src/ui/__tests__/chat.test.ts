@@ -9,6 +9,9 @@ import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 const requestActiveProRoomBotCommand = vi.hoisted(() => vi.fn());
+const proRealtimeMocks = vi.hoisted(() => ({
+  send: vi.fn(() => true),
+}));
 const botProtocolMocks = vi.hoisted(() => ({
   beginLocalBotChatRequest: vi.fn(() => true),
   publishBotChatResult: vi.fn(() => true),
@@ -50,6 +53,10 @@ vi.mock('../../pro-room/runtime.ts', () => ({
   requestActiveProRoomBotCommand,
 }));
 
+vi.mock('../../pro-room/network-bridge.ts', () => ({
+  sendProRoomRealtime: proRealtimeMocks.send,
+}));
+
 vi.mock('../toast.ts', () => ({
   showToast: vi.fn(),
 }));
@@ -71,6 +78,8 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   requestActiveProRoomBotCommand.mockReset();
+  proRealtimeMocks.send.mockReset();
+  proRealtimeMocks.send.mockReturnValue(true);
   botProtocolMocks.beginLocalBotChatRequest.mockReturnValue(true);
   document.body.innerHTML = '';
 });
@@ -361,7 +370,7 @@ describe('Chat Module', () => {
         snapshotRevision: 1,
         capabilities: ['queue.mutate', 'playback.control'],
       });
-      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.hostConn', null);
       setState('network.myId', 'guest-1');
       requestActiveProRoomBotCommand.mockResolvedValueOnce({
         ok: true,
@@ -378,22 +387,33 @@ describe('Chat Module', () => {
       await vi.waitFor(() => {
         expect(requestActiveProRoomBotCommand).toHaveBeenCalledOnce();
       });
-      const outbound = vi.mocked(sendToHost).mock.calls[0]?.[0] as {
+      const [channel, outbound] = proRealtimeMocks.send.mock.calls[0] as [
+        string,
+        {
+          text?: string;
+          botRequestId?: string;
+        },
+      ];
+      expect(channel).toBe('chat');
+      expect(outbound).toMatchObject({
+        kind: 'message',
+        text: '/bot 인기곡 3개 추가해줘',
+      });
+      const botOutbound = outbound as {
         text?: string;
         botRequestId?: string;
       };
-      expect(outbound).toMatchObject({ text: '/bot 인기곡 3개 추가해줘' });
-      expect(outbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
+      expect(botOutbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
       expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith(
         '000001',
         '인기곡 3개 추가해줘',
-        outbound.botRequestId,
+        botOutbound.botRequestId,
       );
       expect(botProtocolMocks.beginLocalBotChatRequest).toHaveBeenCalledWith(
-        outbound.botRequestId,
+        botOutbound.botRequestId,
         '000001',
       );
-      expect(botProtocolMocks.publishBotChatResult).toHaveBeenCalledWith(outbound.botRequestId, {
+      expect(botProtocolMocks.publishBotChatResult).toHaveBeenCalledWith(botOutbound.botRequestId, {
         kind: 'added',
         count: 3,
         playbackChanged: false,
@@ -418,7 +438,7 @@ describe('Chat Module', () => {
         snapshotRevision: 1,
         capabilities: ['queue.mutate', 'playback.control'],
       });
-      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.hostConn', null);
       setState('network.myId', 'guest-1');
       requestActiveProRoomBotCommand.mockResolvedValueOnce({
         ok: true,
@@ -431,10 +451,11 @@ describe('Chat Module', () => {
       sendChatMessage();
 
       await vi.waitFor(() => expect(requestActiveProRoomBotCommand).toHaveBeenCalledOnce());
-      const outbound = vi.mocked(sendToHost).mock.calls[0]?.[0] as {
-        text?: string;
-        botRequestId?: string;
-      };
+      const [channel, outbound] = proRealtimeMocks.send.mock.calls[0] as [
+        string,
+        { text?: string; botRequestId?: string },
+      ];
+      expect(channel).toBe('chat');
       expect(outbound.text).toBe('//강남스타일 틀어줘');
       expect(outbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
       expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith(

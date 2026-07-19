@@ -40,7 +40,7 @@ export function resolveProRoomRemovalTransition(
   if (currentIndex < 0) return { removedCurrent: false, successorQueueItemId: null };
 
   const survivingIds = new Set(nextItems.map((item) => item.queueItemId));
-  // The coordinator derives this preference from the existing persistent
+  // The room server derives this preference from the existing persistent
   // shuffle traversal before applying the compacted projection. Validate the
   // stable identity here so a stale hint can never select a removed row.
   if (preferredSuccessorQueueItemId !== null && survivingIds.has(preferredSuccessorQueueItemId)) {
@@ -62,23 +62,4 @@ export function resolveProRoomRemovalTransition(
     }
   }
   return { removedCurrent: true, successorQueueItemId: null };
-}
-
-/**
- * Every participant tears down media it locally owns after its current row is
- * removed. Only the elected coordinator may turn the accepted queue state
- * into the next playback command.
- */
-export function dispatchProRoomRemovalTransition(
-  transition: ProRoomRemovalTransition,
-  coordinator: boolean,
-  playSuccessor: (queueItemId: QueueItemId) => void,
-  stopLocalMedia: () => void,
-): void {
-  if (!transition.removedCurrent) return;
-  if (coordinator && transition.successorQueueItemId) {
-    playSuccessor(transition.successorQueueItemId);
-    return;
-  }
-  stopLocalMedia();
 }

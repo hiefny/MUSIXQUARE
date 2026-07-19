@@ -11,15 +11,16 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
-import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
-import { isCoordinator } from '../rooms/authority.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 import { handleProRoomTrackMetadata } from '../pro-room/legacy-media-hooks.ts';
+import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import {
   isPlaybackModeYouTube,
   setPlaybackIdle,
@@ -142,6 +143,47 @@ let preparedSameVideoOccurrenceRestart: {
   videoId: string;
 } | null = null;
 
+function routeCurrentProYouTubeObservation(kind: 'ended' | 'unavailable'): boolean {
+  const queueItemId = getCurrentQueueItemId();
+  if (!queueItemId) return false;
+  const player = getYouTubePlayer();
+  const youtubeSubIndex = getState('youtube.currentSubIndex') ?? 0;
+  let positionSeconds = 0;
+  let durationSeconds: number | null = null;
+  let youtubeVideoId: string | null = null;
+  try {
+    positionSeconds = Math.max(0, player?.getCurrentTime?.() || 0);
+    const observedDuration = player?.getDuration?.();
+    durationSeconds =
+      typeof observedDuration === 'number' &&
+      Number.isFinite(observedDuration) &&
+      observedDuration > 0
+        ? observedDuration
+        : null;
+    youtubeVideoId = player?.getVideoData?.()?.video_id || null;
+  } catch {
+    /* fall through to the canonical queue occurrence identity below */
+  }
+  if (!youtubeVideoId) {
+    const item = getQueueItemById(queueItemId);
+    if (item?.type === 'youtube') {
+      youtubeVideoId = item.playlistId
+        ? (getState('youtube.subItemsMap') || {})[item.playlistId]?.ids?.[youtubeSubIndex] || null
+        : item.videoId;
+    }
+  }
+  return routeProPlaybackCommand({
+    kind,
+    queueItemId,
+    positionSeconds,
+    observedPositionSeconds: positionSeconds,
+    durationSeconds,
+    mediaKind: 'youtube',
+    youtubeSubIndex,
+    youtubeVideoId,
+  });
+}
+
 function clearSameVideoOccurrenceRestart(): void {
   pendingSameVideoOccurrenceRestart = null;
   clearManagedTimer(SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER);
@@ -237,7 +279,7 @@ function persistResolvedProYouTubeTitle(
   if (!queueItemId) return false;
 
   const roomContext = getState('room.context');
-  if (roomContext.kind !== 'pro' || !isCoordinator()) return false;
+  if (roomContext.kind !== 'pro' || !hasRoomCapability('queue.mutate')) return false;
 
   const item = getQueueItemById(queueItemId);
   if (!item || item.type !== 'youtube' || item.videoId !== videoId) {
@@ -942,6 +984,106 @@ export function loadYouTubeVideo(
   log.debug('[YouTube] Loaded:', videoId || playlistId, 'autoplay:', autoplay);
 }
 
+export interface YouTubeAuthorityPreparationRequest {
+  queueItemId: QueueItemId;
+  videoId: string;
+  subIndex: number;
+  positionSeconds: number;
+  timeoutMs?: number;
+}
+
+export type YouTubeAuthorityPreparationResult =
+  | { ready: true; durationSeconds: number | null; videoId: string; subIndex: number }
+  | {
+      ready: false;
+      reason:
+        | 'superseded'
+        | 'player-unavailable'
+        | 'identity-mismatch'
+        | 'audio-locked'
+        | 'timeout';
+    };
+
+let proAuthorityPreparationGeneration = 0;
+
+/** Invalidate only coordinator-free PRO iframe preparation work. */
+export function cancelYouTubeAuthorityPreparation(): void {
+  proAuthorityPreparationGeneration += 1;
+}
+
+/**
+ * Wait until one exact queue occurrence is locally cueable, then leave it
+ * paused at the canonical position. This participant-side PREPARE seam never
+ * joins the legacy host/guest zero-start cohort and never starts audible
+ * playback.
+ */
+export async function prepareYouTubeAuthorityOccurrence(
+  request: Readonly<YouTubeAuthorityPreparationRequest>,
+): Promise<YouTubeAuthorityPreparationResult> {
+  const generation = ++proAuthorityPreparationGeneration;
+  const timeoutMs = Math.max(500, Math.min(20_000, request.timeoutMs ?? 12_000));
+  const startedAt = Date.now();
+  let sawDifferentIdentity = false;
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    if (generation !== proAuthorityPreparationGeneration) {
+      return { ready: false, reason: 'superseded' };
+    }
+    if (getCurrentQueueItemId() !== request.queueItemId || !isPlaybackModeYouTube()) {
+      return { ready: false, reason: 'superseded' };
+    }
+
+    const player = getYouTubePlayer();
+    if (player) {
+      try {
+        const liveVideoId = player.getVideoData?.()?.video_id || '';
+        if (liveVideoId && liveVideoId !== request.videoId) {
+          sawDifferentIdentity = true;
+        } else if (liveVideoId === request.videoId && !isYtLoadInProgress()) {
+          if (IS_IOS && !isYtPrimed()) {
+            return { ready: false, reason: 'audio-locked' };
+          }
+
+          const duration = player.getDuration?.() || 0;
+          const canonicalPosition = Number.isFinite(request.positionSeconds)
+            ? Math.max(
+                0,
+                duration > 0
+                  ? Math.min(request.positionSeconds, Math.max(0, duration - 0.001))
+                  : request.positionSeconds,
+              )
+            : 0;
+
+          // A reused iframe can briefly expose the outgoing occurrence under
+          // the same video ID. Pausing and seeking after its load flag closes
+          // gives the new queue occurrence an explicit timeline boundary.
+          setYtAutoplayIntent(false);
+          player.mute?.();
+          player.pauseVideo?.();
+          player.seekTo?.(canonicalPosition, true);
+          setYouTubeSubIndex(request.subIndex);
+          setPlaybackYouTubePaused();
+          bus.emit('ui:update-play-state', false);
+          return {
+            ready: true,
+            durationSeconds: duration > 0 && Number.isFinite(duration) ? duration : null,
+            videoId: liveVideoId,
+            subIndex: request.subIndex,
+          };
+        }
+      } catch {
+        // The IFrame API can throw while replacing its internal player. Poll
+        // until the bounded deadline rather than treating it as permanent.
+      }
+    }
+
+    await delay(40);
+  }
+
+  if (!getYouTubePlayer()) return { ready: false, reason: 'player-unavailable' };
+  return { ready: false, reason: sawDifferentIdentity ? 'identity-mismatch' : 'timeout' };
+}
+
 // ─── Create YouTube Player (IFrame) ────────────────────────────────
 
 type CreateYouTubePlayerOptions = {
@@ -1577,6 +1719,7 @@ function onYouTubePlayerError(event: { data: number }): void {
     // belongs to the ADD attempt, not the room's current track — feedback
     // only, never advance the playing queue.
     if (wasIndexing) return;
+    if (routeCurrentProYouTubeObservation('unavailable')) return;
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       broadcastSystemMessage('youtube.video_unavailable');
@@ -1591,6 +1734,7 @@ function onYouTubePlayerError(event: { data: number }): void {
 
   // Generic fallback (e.g. code 2 invalid param, code 5 HTML5 engine)
   showToast(t('youtube.load_fail'));
+  routeCurrentProYouTubeObservation('unavailable');
 }
 
 function onYouTubePlayerStateChange(event: { data: number }): void {
@@ -1765,6 +1909,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     }
     return;
   } else if (state === YT.PlayerState.ENDED) {
+    if (routeCurrentProYouTubeObservation('ended')) return;
     // Host: advance through sub-videos or fall through to next queue track.
     // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the
     // next sub-video in a playlist, and updateYouTubeUI's guest auto-advance
@@ -2067,6 +2212,7 @@ function updateYouTubeUI(): void {
         log.error(`[YouTube] Player stuck in state ${state} — treating as unavailable, skipping`);
         _ifr.unavailableStuckSince = null;
         showToast(t('youtube.video_unavailable'));
+        if (routeCurrentProYouTubeObservation('unavailable')) return;
         broadcastSystemMessage('youtube.video_unavailable');
         let advanced = false;
         bus.emit('youtube:try-next-internal', (ok: boolean) => {

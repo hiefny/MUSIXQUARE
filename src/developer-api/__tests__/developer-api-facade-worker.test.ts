@@ -613,6 +613,7 @@ describe('private Developer API facade', () => {
         {
           videoId: 'M7lc1UVf-VE',
           playlistId: 'PL1234567890',
+          videoIds: ['dQw4w9WgXcQ', 'M7lc1UVf-VE'],
           name: 'Second API track',
           artist: 'API artist',
         },
@@ -659,7 +660,7 @@ describe('private Developer API facade', () => {
     });
   });
 
-  it('normalizes repeated playlist aggregates before crossing the room boundary', async () => {
+  it('normalizes repeated playlist aggregates and preserves ordered video IDs', async () => {
     const rooms = namespace(() =>
       Response.json(
         {
@@ -677,12 +678,14 @@ describe('private Developer API facade', () => {
       {
         videoId: 'dQw4w9WgXcQ',
         playlistId: 'PL_ALPHA',
+        videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0', 'dQw4w9WgXcQ'],
         name: 'Playlist alpha first',
       },
       { videoId: 'M7lc1UVf-VE', name: 'Standalone one' },
       {
         videoId: '9bZkp7q19f0',
         playlistId: 'PL_ALPHA',
+        videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0', 'dQw4w9WgXcQ'],
         name: 'Playlist alpha duplicate',
       },
       {
@@ -722,7 +725,15 @@ describe('private Developer API facade', () => {
       idempotencyKey: 'request.queue-batch-playlist-dedupe',
       mutation: {
         type: 'add_youtube_batch',
-        items: [items[0], items[1], items[3], items[4]],
+        items: [
+          {
+            ...items[0],
+            videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0', 'dQw4w9WgXcQ'],
+          },
+          items[1],
+          { ...items[3], videoIds: ['aqz-KE-bpKQ', 'jNQXAC9IVRw'] },
+          items[4],
+        ],
       },
     });
   });
@@ -747,6 +758,71 @@ describe('private Developer API facade', () => {
       {
         type: 'add_youtube_batch',
         items: [{ videoId: 'dQw4w9WgXcQ', name: 'Unexpected', private: true }],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            videoIds: ['dQw4w9WgXcQ'],
+            name: 'Manifest without playlist',
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_MIXED',
+            videoIds: ['dQw4w9WgXcQ', 'M7lc1UVf-VE'],
+            name: 'Manifest row',
+          },
+          {
+            videoId: 'M7lc1UVf-VE',
+            playlistId: 'PL_MIXED',
+            name: 'Manifest-less row',
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_TOO_LARGE',
+            videoIds: Array.from({ length: 5_001 }, () => 'dQw4w9WgXcQ'),
+            name: 'Too large manifest',
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_MISMATCH',
+            videoIds: ['M7lc1UVf-VE'],
+            name: 'Mismatched manifest entry',
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_OVERFLOW',
+            videoIds: Array.from({ length: 3_000 }, () => 'dQw4w9WgXcQ'),
+            name: 'First half',
+          },
+          {
+            videoId: 'M7lc1UVf-VE',
+            playlistId: 'PL_OVERFLOW',
+            videoIds: Array.from({ length: 3_000 }, () => 'M7lc1UVf-VE'),
+            name: 'Second half',
+          },
+        ],
       },
     ];
     for (const [index, mutation] of mutations.entries()) {
@@ -792,7 +868,7 @@ describe('private Developer API facade', () => {
     expect(rooms.seen).toHaveLength(0);
   });
 
-  it('accepts a wrapped near-64-KiB public batch at the private boundary', async () => {
+  it('accepts a wrapped manifest above 64 KiB at the private boundary', async () => {
     const rooms = namespace(() =>
       Response.json(
         {
@@ -806,11 +882,15 @@ describe('private Developer API facade', () => {
         { status: 201 },
       ),
     );
-    const items = Array.from({ length: 100 }, (_, index) => ({
-      videoId: 'dQw4w9WgXcQ',
-      name: `${index}`.padEnd(304, 'N'),
-      title: 'T'.repeat(304),
-    }));
+    const videoIds = [...Array.from({ length: 4_999 }, () => 'dQw4w9WgXcQ'), 'M7lc1UVf-VE'];
+    const items = [
+      {
+        videoId: 'M7lc1UVf-VE',
+        playlistId: 'PL_LARGE_MANIFEST',
+        videoIds,
+        name: 'Large playlist manifest',
+      },
+    ];
     const body = {
       roomCode: ROOM_CODE,
       keyId: KEY_ID,
@@ -819,6 +899,7 @@ describe('private Developer API facade', () => {
       mutation: { type: 'add_youtube_batch', items },
     };
     expect(new TextEncoder().encode(JSON.stringify(body)).byteLength).toBeGreaterThan(64 * 1024);
+    expect(new TextEncoder().encode(JSON.stringify(body)).byteLength).toBeLessThan(192 * 1024);
 
     const response = await facadeWorker.fetch(request(body, {}, '/internal/v1/queue/mutate'), {
       PRO_ROOM_DEVELOPER_ROOMS: rooms,
@@ -828,7 +909,7 @@ describe('private Developer API facade', () => {
     await expect(rooms.seen[0]!.json()).resolves.toEqual(body);
   });
 
-  it('keeps the 128-KiB envelope allowance scoped to queue mutations only', async () => {
+  it('keeps the 192-KiB envelope allowance scoped to queue mutations only', async () => {
     const queueRooms = namespace(() =>
       Response.json(
         {
@@ -853,7 +934,7 @@ describe('private Developer API facade', () => {
             items: [{ videoId: 'dQw4w9WgXcQ', name: 'Declared envelope' }],
           },
         },
-        { headers: { 'content-length': String(70 * 1024) } },
+        { headers: { 'content-length': String(150 * 1024) } },
         '/internal/v1/queue/mutate',
       ),
       { PRO_ROOM_DEVELOPER_ROOMS: queueRooms },

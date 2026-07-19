@@ -93,11 +93,18 @@ Only `lastSeenAtMs` durability from an otherwise pure, authenticated presence
 heartbeat is coalescible. Authentication, request validation, pruning,
 Developer command evaluation, and the response remain immediate.
 
+The measured request reaches the canonical PRO room Durable Object and renews
+its authoritative presence lease. It is separate from the signaling Durable
+Object that owns hibernatable browser sockets, clock replies, and realtime
+event delivery. Consequently the benchmark does not measure socket wakeups,
+fan-out latency, PREPARE delivery, or canonical playback scheduling.
+
 The following remain immediate full-persistence boundaries:
 
 - participant join, explicit leave, expiry removal, or session invalidation
-- coordinator election, coordinator epoch, topology, or authorization changes
-- PIN, lifecycle, system-audio, playback, playlist, quota, and media mutations
+- room-control incarnation, presence topology, or authorization changes
+- PIN, lifecycle, system-audio, playback transition/READY, playlist, quota, and
+  media mutations
 - Developer command changes and required legacy rollback-shadow checkpoints
 
 An immediate mutation cancels and generation-fences an older timer only after

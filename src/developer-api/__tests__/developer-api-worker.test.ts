@@ -1013,18 +1013,20 @@ describe('Developer API read-only public Worker', () => {
     );
   });
 
-  it('collapses repeated playlist aggregates to their first batch occurrence', async () => {
+  it('collapses repeated playlist aggregates while preserving every ordered video ID', async () => {
     const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
     const items = [
       {
         videoId: 'dQw4w9WgXcQ',
         playlistId: 'PL_ALPHA',
+        videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0', 'dQw4w9WgXcQ'],
         name: 'Playlist alpha first',
       },
       { videoId: 'M7lc1UVf-VE', name: 'Standalone one' },
       {
         videoId: '9bZkp7q19f0',
         playlistId: 'PL_ALPHA',
+        videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0', 'dQw4w9WgXcQ'],
         name: 'Playlist alpha duplicate',
       },
       {
@@ -1062,9 +1064,47 @@ describe('Developer API read-only public Worker', () => {
       idempotencyKey: 'request.queue-batch-playlist-dedupe',
       mutation: {
         type: 'add_youtube_batch',
-        items: [items[0], items[1], items[3], items[4]],
+        items: [
+          {
+            ...items[0],
+            videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0', 'dQw4w9WgXcQ'],
+          },
+          items[1],
+          { ...items[3], videoIds: ['aqz-KE-bpKQ', 'jNQXAC9IVRw'] },
+          items[4],
+        ],
       },
     });
+  });
+
+  it('accepts one complete playlist manifest beyond the former 64-KiB request bound', async () => {
+    const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
+    const videoIds = [...Array.from({ length: 4_999 }, () => 'dQw4w9WgXcQ'), 'M7lc1UVf-VE'];
+    const item = {
+      videoId: 'M7lc1UVf-VE',
+      videoIds,
+      playlistId: 'PL_LARGE_MANIFEST',
+      name: 'Large playlist manifest',
+    };
+    const body = JSON.stringify(item);
+    expect(new TextEncoder().encode(body).byteLength).toBeGreaterThan(64 * 1024);
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(128 * 1024);
+
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.queue-large-manifest',
+        },
+        body,
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(201);
+    const forwarded = JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body));
+    expect(forwarded.mutation).toEqual({ type: 'add_youtube', ...item });
   });
 
   it('rejects an empty, oversized, malformed, or unscoped YouTube batch before forwarding', async () => {
@@ -1079,8 +1119,8 @@ describe('Developer API read-only public Worker', () => {
       {
         items: Array.from({ length: 100 }, (_, index) => ({
           videoId: 'dQw4w9WgXcQ',
-          name: `${index}`.padEnd(305, 'N'),
-          title: 'T'.repeat(305),
+          name: `${index}`.padEnd(513, 'N'),
+          title: 'T'.repeat(513),
         })),
       },
       {
@@ -1090,6 +1130,66 @@ describe('Developer API read-only public Worker', () => {
         ],
       },
       { items: [{ videoId: 'dQw4w9WgXcQ', name: 'Valid', unexpected: true }] },
+      {
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            videoIds: ['dQw4w9WgXcQ'],
+            name: 'Manifest without playlist',
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_MIXED',
+            videoIds: ['dQw4w9WgXcQ', 'M7lc1UVf-VE'],
+            name: 'Manifest row',
+          },
+          {
+            videoId: 'M7lc1UVf-VE',
+            playlistId: 'PL_MIXED',
+            name: 'Manifest-less row',
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_TOO_LARGE',
+            videoIds: Array.from({ length: 5_001 }, () => 'dQw4w9WgXcQ'),
+            name: 'Too large manifest',
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_MISMATCH',
+            videoIds: ['M7lc1UVf-VE'],
+            name: 'Mismatched manifest entry',
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_OVERFLOW',
+            videoIds: Array.from({ length: 3_000 }, () => 'dQw4w9WgXcQ'),
+            name: 'First half',
+          },
+          {
+            videoId: 'M7lc1UVf-VE',
+            playlistId: 'PL_OVERFLOW',
+            videoIds: Array.from({ length: 3_000 }, () => 'M7lc1UVf-VE'),
+            name: 'Second half',
+          },
+        ],
+      },
     ];
     expect(new TextEncoder().encode(JSON.stringify(invalidBodies[2])).byteLength).toBeGreaterThan(
       64 * 1024,
@@ -1131,7 +1231,7 @@ describe('Developer API read-only public Worker', () => {
     expect(unscoped.facadeFetch).not.toHaveBeenCalled();
   });
 
-  it('allows a valid near-64-KiB public batch to gain its private authentication envelope', async () => {
+  it('allows a valid dense 100-item batch to gain its private authentication envelope', async () => {
     const setup = await createEnvironment({ scopeMask: developerApiScopes['queue:write'] });
     const items = Array.from({ length: 100 }, (_, index) => ({
       videoId: 'dQw4w9WgXcQ',

@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { PlaylistItem, QueueItemId } from '../../types/index.ts';
 import {
-  dispatchProRoomRemovalTransition,
   findRemovedProRoomQueueItemIds,
   resolveProRoomRemovalTransition,
 } from '../playlist-transition.ts';
@@ -70,50 +69,5 @@ describe('PRO playlist removal transitions', () => {
       removedCurrent: true,
       successorQueueItemId: null,
     });
-  });
-
-  it('stops a member locally because the coordinator relay will be a duplicate revision', () => {
-    const playSuccessor = vi.fn();
-    const stopLocalMedia = vi.fn();
-
-    dispatchProRoomRemovalTransition(
-      { removedCurrent: true, successorQueueItemId: C },
-      false,
-      playSuccessor,
-      stopLocalMedia,
-    );
-
-    expect(stopLocalMedia).toHaveBeenCalledOnce();
-    expect(playSuccessor).not.toHaveBeenCalled();
-  });
-
-  it('leaves successor playback exclusively to the coordinator', () => {
-    const playSuccessor = vi.fn();
-    const stopLocalMedia = vi.fn();
-
-    dispatchProRoomRemovalTransition(
-      { removedCurrent: true, successorQueueItemId: C },
-      true,
-      playSuccessor,
-      stopLocalMedia,
-    );
-
-    expect(playSuccessor).toHaveBeenCalledWith(C);
-    expect(stopLocalMedia).not.toHaveBeenCalled();
-  });
-
-  it('stops the coordinator too when deletion empties the queue', () => {
-    const playSuccessor = vi.fn();
-    const stopLocalMedia = vi.fn();
-
-    dispatchProRoomRemovalTransition(
-      { removedCurrent: true, successorQueueItemId: null },
-      true,
-      playSuccessor,
-      stopLocalMedia,
-    );
-
-    expect(stopLocalMedia).toHaveBeenCalledOnce();
-    expect(playSuccessor).not.toHaveBeenCalled();
   });
 });

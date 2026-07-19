@@ -65,13 +65,13 @@ function snapshot(): ProRoomSnapshot {
 }
 
 describe('PRO room authority projection', () => {
-  it('projects the elected viewer as coordinator without conflating owner role', () => {
+  it('projects an elected owner as an equal member and strips legacy coordinator capability', () => {
     const result = projectProRoomContext(snapshot());
     expect(result).toEqual({
       kind: 'pro',
       roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: PARTICIPANT_ID,
+      role: 'member',
+      coordinatorId: null,
       epoch: 3,
       snapshotRevision: 7,
       capabilities: [
@@ -79,17 +79,40 @@ describe('PRO room authority projection', () => {
         'playback.control',
         'effects.control',
         'asset.upload',
-        'coordinator.eligible',
         'members.manage',
         'room.configure',
       ],
     });
   });
 
-  it('projects an authenticated non-coordinator as a member', () => {
+  it('projects every authenticated viewer identically regardless of persisted room role or leader residue', () => {
     const value = snapshot();
-    value.presence.coordinatorParticipantId = null;
-    expect(projectProRoomContext(value)?.role).toBe('member');
+    value.viewer = {
+      ...value.viewer!,
+      role: 'controller',
+      capabilities: [
+        'queue.mutate',
+        'playback.control',
+        'effects.control',
+        'asset.upload',
+        'members.manage',
+        'coordinator.eligible',
+      ],
+      coordinatorEligible: false,
+    };
+    value.presence.coordinatorParticipantId = 'participant_legacy_leader';
+
+    expect(projectProRoomContext(value)).toMatchObject({
+      role: 'member',
+      coordinatorId: null,
+      capabilities: [
+        'queue.mutate',
+        'playback.control',
+        'effects.control',
+        'asset.upload',
+        'members.manage',
+      ],
+    });
   });
 
   it('refuses unauthenticated or suspended snapshots', () => {

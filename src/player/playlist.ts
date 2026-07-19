@@ -11,13 +11,14 @@ import { t } from '../i18n/index.ts';
 import { batchSetState as publishPreloadPromotion, getState, setState } from '../core/state.ts';
 import { MSG, WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, delay, setManagedTimer } from '../core/timers.ts';
 import {
   play,
   pause,
   stopAllMedia,
   getTrackPosition,
   isFilePipelineBusyForPlay,
+  applyProPlaybackFileCommit,
   fmtTime,
 } from './transport.ts';
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
@@ -55,10 +56,13 @@ import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import {
   cancelYtAutoSync,
   getYouTubePlayer,
+  applyProPlaybackYouTubeCommit,
   setPendingAutoSyncOnReady,
 } from '../youtube/player.ts';
 import {
+  cancelYouTubeAuthorityPreparation,
   handoffSameVideoOccurrenceRestart,
+  prepareYouTubeAuthorityOccurrence,
   prepareSameVideoOccurrenceRestart,
 } from '../youtube/iframe.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -72,7 +76,7 @@ import { cancelRemoteShareWait, shareRemoteFileIfNeeded } from '../share/remote-
 import { getHostNow } from '../network/shared-clock.ts';
 import { hasQueueAuthority, markQueueAuthorityReady } from '../network/queue-authority.ts';
 import { resetRecoveryAuthority } from '../storage/recovery.ts';
-import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import {
   broadcastTracksAdded,
   localQueueActorName,
@@ -85,6 +89,7 @@ import {
 } from '../network/queue-mutation-authority.ts';
 import { uploadStandardOperatorFiles } from '../network/operator-file-uplink.ts';
 import {
+  cancelProRoomPlaylistFileResolution,
   cancelProRoomPlaylistFilePreload,
   handleProRoomFiles,
   handleProRoomTrackRemoval,
@@ -95,6 +100,17 @@ import {
   type ProRoomLegacyPlaybackRestore,
 } from '../pro-room/legacy-media-hooks.ts';
 import { freezeFileDeliveryMode } from '../share/file-delivery-policy.ts';
+import {
+  isProPlaybackAuthorityToken,
+  registerProPlaybackMediaEndpoint,
+  routeProPlaybackCommand,
+  type ProPlaybackAuthorityToken,
+  type ProPlaybackCommitRequest,
+  type ProPlaybackCommitResult,
+  type ProPlaybackPrepareFailureReason,
+  type ProPlaybackPrepareRequest,
+  type ProPlaybackPrepareResult,
+} from '../pro-room/playback-authority-hooks.ts';
 import {
   applyPlaylistSnapshot,
   canAppendPlaylistItems,
@@ -118,6 +134,14 @@ interface PlayTrackOptions {
   explicitPlaybackIntent?: boolean;
   /** Preserve a new same-video occurrence after its previous row was removed. */
   forceNewYouTubeOccurrence?: boolean;
+  /** Explicit proof that this invocation applies a canonical PRO frame. */
+  proAuthority?: ProPlaybackAuthorityToken;
+  /** PREPARE loads/cues this occurrence without starting it. */
+  proAuthorityPreparation?: {
+    positionSeconds: number;
+    youtubeSubIndex: number | null;
+    youtubeVideoId: string | null;
+  };
 }
 
 function getLocalFileHostPlayAt(): number {
@@ -136,7 +160,6 @@ async function restoreProRoomFilePlayback(
 ): Promise<boolean> {
   if (
     getState('room.context').kind !== 'pro' ||
-    !isCoordinator() ||
     !Number.isFinite(checkpoint.positionSeconds) ||
     checkpoint.positionSeconds < 0
   ) {
@@ -555,6 +578,30 @@ export async function playTrack(
     return;
   }
 
+  const appliesServerAuthority =
+    isProPlaybackAuthorityToken(options.proAuthority) || options.proRestore !== undefined;
+  if (!appliesServerAuthority) {
+    const subMap = getState('youtube.subItemsMap') || {};
+    const requestedSubIndex = item.type === 'youtube' ? (subIndex ?? 0) : null;
+    const requestedVideoId =
+      item.type === 'youtube'
+        ? ((item.playlistId ? subMap[item.playlistId]?.ids?.[requestedSubIndex ?? 0] : null) ??
+          item.videoId ??
+          null)
+        : null;
+    if (
+      routeProPlaybackCommand({
+        kind: 'select',
+        queueItemId,
+        positionSeconds: 0,
+        youtubeSubIndex: requestedSubIndex,
+        youtubeVideoId: requestedVideoId,
+      })
+    ) {
+      return;
+    }
+  }
+
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
@@ -592,7 +639,7 @@ export async function playTrack(
   // and restart the synchronized timeline through the existing zero-start
   // barrier (or its established rendezvous fallback).
   if (
-    !options.proRestore &&
+    !appliesServerAuthority &&
     !hostConn &&
     _isSameTrack &&
     item.type === 'youtube' &&
@@ -629,7 +676,7 @@ export async function playTrack(
   }
 
   if (
-    !options.proRestore &&
+    !appliesServerAuthority &&
     !hostConn &&
     _isSameTrack &&
     _isLocalFileTrack &&
@@ -715,7 +762,7 @@ export async function playTrack(
   // chance to cancel it; the recursive entry then uses either the completed
   // preload fast path or the already-published foreground File.
   if (
-    !options.proRestore &&
+    !appliesServerAuthority &&
     !hostConn &&
     isProRoomPersistentPlaylistFile(queueItemId) &&
     queueItemId === nextQueueItemId &&
@@ -790,7 +837,7 @@ export async function playTrack(
   }
 
   if (
-    !options.proRestore &&
+    !appliesServerAuthority &&
     queueItemId === nextQueueItemId &&
     readyPreload?.queueItemId === queueItemId &&
     !hostConn
@@ -965,6 +1012,23 @@ export async function playTrack(
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
       const broadcastVideoId = (hostIds && hostIds[subIndex ?? 0]) || (item.videoId ?? null);
+
+      if (options.proAuthorityPreparation) {
+        const preparedSubIndex = options.proAuthorityPreparation.youtubeSubIndex ?? subIndex ?? 0;
+        const preparedVideoId =
+          options.proAuthorityPreparation.youtubeVideoId ||
+          (hostIds && hostIds[preparedSubIndex]) ||
+          item.videoId ||
+          null;
+        if (!preparedVideoId) return;
+        if (getState('player.isFirstTrackLoad')) setState('player.isFirstTrackLoad', false);
+        // Server PREPARE carries the exact resolved sub-video. Force
+        // single-video mode so a persistent iframe cannot auto-advance its
+        // native playlist behind the server's canonical queue occurrence.
+        bus.emit('youtube:load', preparedVideoId, null, queueItemId, false, preparedSubIndex);
+        schedulePreload();
+        return;
+      }
 
       // Every shared YouTube transition is loaded paused first. This keeps a
       // persistent iframe from leaking a short burst of the incoming video
@@ -1267,6 +1331,16 @@ function handleEndOfPlaylist(reason: string): void {
 export function playNextTrack(): void {
   if (isGuestBlocked()) return;
 
+  if (
+    routeProPlaybackCommand({
+      kind: 'next',
+      queueItemId: getCurrentQueueItemId(),
+      positionSeconds: getTrackPosition(),
+    })
+  ) {
+    return;
+  }
+
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   if (hostConn && isOperator) {
@@ -1362,6 +1436,16 @@ function restartCurrentTrackFromStart(queueItemId: QueueItemId): void {
 
 export function playPrevTrack(): void {
   if (isGuestBlocked()) return;
+
+  if (
+    routeProPlaybackCommand({
+      kind: 'previous',
+      queueItemId: getCurrentQueueItemId(),
+      positionSeconds: getTrackPosition(),
+    })
+  ) {
+    return;
+  }
 
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
@@ -2202,7 +2286,165 @@ function reorderQueueItem(
   schedulePreload();
 }
 
+function failedAuthorityPrepare(
+  request: Readonly<ProPlaybackPrepareRequest>,
+  reason: ProPlaybackPrepareFailureReason,
+): ProPlaybackPrepareResult {
+  return {
+    status: 'failed',
+    authority: request.authority,
+    queueItemId: request.queueItemId,
+    reason,
+  };
+}
+
+async function prepareAuthoritativePlayback(
+  request: Readonly<ProPlaybackPrepareRequest>,
+): Promise<ProPlaybackPrepareResult> {
+  const item = getQueueItemById(request.queueItemId);
+  if (!item) return failedAuthorityPrepare(request, 'missing-track');
+  if (getState('room.context').kind !== 'pro' || !isProPlaybackAuthorityToken(request.authority)) {
+    return failedAuthorityPrepare(request, 'inactive-room');
+  }
+
+  const positionSeconds = Number.isFinite(request.positionSeconds)
+    ? Math.max(0, request.positionSeconds)
+    : 0;
+  const subIndex = request.youtubeSubIndex ?? 0;
+  const subMap = getState('youtube.subItemsMap') || {};
+  const resolvedVideoId =
+    item.type === 'youtube'
+      ? request.youtubeVideoId ||
+        (item.playlistId ? subMap[item.playlistId]?.ids?.[subIndex] : null) ||
+        item.videoId ||
+        null
+      : null;
+
+  try {
+    await playTrack(request.queueItemId, item.type === 'youtube' ? subIndex : undefined, {
+      navigateToPlay: false,
+      explicitPlaybackIntent: false,
+      forceNewYouTubeOccurrence: item.type === 'youtube',
+      proAuthority: request.authority,
+      proAuthorityPreparation: {
+        positionSeconds,
+        youtubeSubIndex: item.type === 'youtube' ? subIndex : null,
+        youtubeVideoId: resolvedVideoId,
+      },
+      ...(item.type === 'file'
+        ? {
+            proRestore: {
+              queueItemId: request.queueItemId,
+              positionSeconds,
+              state: 'paused' as const,
+            },
+          }
+        : {}),
+    });
+
+    if (item.type === 'youtube') {
+      if (!resolvedVideoId) return failedAuthorityPrepare(request, 'identity-mismatch');
+      const prepared = await prepareYouTubeAuthorityOccurrence({
+        queueItemId: request.queueItemId,
+        videoId: resolvedVideoId,
+        subIndex,
+        positionSeconds,
+      });
+      if (!prepared.ready) return failedAuthorityPrepare(request, prepared.reason);
+      return {
+        status: 'ready',
+        authority: request.authority,
+        queueItemId: request.queueItemId,
+        mediaKind: 'youtube',
+        durationSeconds: prepared.durationSeconds,
+        youtubeSubIndex: prepared.subIndex,
+        youtubeVideoId: prepared.videoId,
+      };
+    }
+
+    clearManagedTimer('decode-fail-advance');
+    const resident = getState('files.current');
+    const buffer = getCurrentAudioBuffer();
+    if (
+      getCurrentQueueItemId() !== request.queueItemId ||
+      resident?.queueItemId !== request.queueItemId ||
+      !buffer
+    ) {
+      return failedAuthorityPrepare(request, 'decode-failed');
+    }
+    return {
+      status: 'ready',
+      authority: request.authority,
+      queueItemId: request.queueItemId,
+      mediaKind: 'file',
+      durationSeconds:
+        Number.isFinite(buffer.duration) && buffer.duration > 0 ? buffer.duration : null,
+      youtubeSubIndex: null,
+      youtubeVideoId: null,
+    };
+  } catch (error) {
+    clearManagedTimer('decode-fail-advance');
+    log.warn('[PRO Playback] Participant preparation failed', error);
+    return failedAuthorityPrepare(request, 'unknown');
+  }
+}
+
+async function commitAuthoritativePlayback(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<ProPlaybackCommitResult> {
+  if (request.state === 'idle') {
+    const delayMs = Number.isFinite(request.scheduleDelayMs)
+      ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
+      : 0;
+    if (delayMs > 0) await delay(delayMs);
+    if (
+      request.isCurrent?.() === false ||
+      getState('room.context').kind !== 'pro' ||
+      getState('room.context').roomId !== request.authority.roomId
+    ) {
+      return { status: 'superseded', authority: request.authority, reason: 'inactive-room' };
+    }
+    stopAllMedia({ cancelInFlight: true, silent: true });
+    setCurrentAudioBuffer(null);
+    setPlaybackTrackMeta(null);
+    selectQueueItemById(null);
+    setState('files.current', null);
+    setState('player.pausedAt', 0);
+    transition({ type: 'PAUSE', time: 0, queueItemId: null, endOfPlaylist: true });
+    bus.emit('ui:seek-reset');
+    return { status: 'applied', authority: request.authority };
+  }
+
+  const queueItemId = request.queueItemId;
+  if (!queueItemId) {
+    return { status: 'failed', authority: request.authority, reason: 'missing-track' };
+  }
+  const item = getQueueItemById(queueItemId);
+  if (!item) return { status: 'failed', authority: request.authority, reason: 'missing-track' };
+
+  const applied =
+    item.type === 'youtube'
+      ? await applyProPlaybackYouTubeCommit(request)
+      : await applyProPlaybackFileCommit(request);
+  return applied
+    ? { status: 'applied', authority: request.authority }
+    : { status: 'failed', authority: request.authority, reason: 'media-unavailable' };
+}
+
 export function initPlaylist(): void {
+  registerProPlaybackMediaEndpoint({
+    prepare: prepareAuthoritativePlayback,
+    commit: commitAuthoritativePlayback,
+    cancel: () => {
+      // Make slow R2/decode work lose ownership immediately. The explicit
+      // authority generation in playback-authority-hooks fences any late
+      // completion, while these existing cancellation seams release work.
+      newLoadEpoch();
+      cancelProRoomPlaylistFileResolution();
+      clearManagedTimer('decode-fail-advance');
+      cancelYouTubeAuthorityPreparation();
+    },
+  });
   registerProRoomLegacyPlaybackRestoreHandler(restoreProRoomFilePlayback);
   registerHandlers({
     [MSG.REPEAT_MODE]: handleRepeatMode,

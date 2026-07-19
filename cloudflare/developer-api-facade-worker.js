@@ -7,8 +7,8 @@
  */
 
 const REQUEST_MAX_BYTES = 64 * 1024;
-// A valid public 64 KiB queue mutation gains a small authenticated envelope.
-const QUEUE_MUTATION_REQUEST_MAX_BYTES = 128 * 1024;
+// A valid public 128 KiB queue mutation gains a small authenticated envelope.
+const QUEUE_MUTATION_REQUEST_MAX_BYTES = 192 * 1024;
 // Room and queue projections can legally contain the bounded 1,000-item list.
 // PRO room v2 keeps playlist rows outside the 1.2 MiB core record and bounds
 // the public queue projection below 3 MiB. Preserve framing headroom while
@@ -28,6 +28,7 @@ const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
 const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
 const PLAYLIST_MAX_ITEMS = 1_000;
 const YOUTUBE_BATCH_MAX_ITEMS = 100;
@@ -560,14 +561,56 @@ function parseMetadata(value) {
   return metadata;
 }
 
+function parseYouTubeVideoIds(value, playlistId, videoId) {
+  if (value === undefined) return undefined;
+  if (
+    !playlistId ||
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS ||
+    value.some((item) => typeof item !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(item)) ||
+    !value.includes(videoId)
+  ) {
+    return null;
+  }
+  return [...value];
+}
+
 function canonicalizeYouTubeBatchItems(items) {
-  const seenPlaylistIds = new Set();
-  return items.filter((item) => {
-    if (item.playlistId === undefined) return true;
-    if (seenPlaylistIds.has(item.playlistId)) return false;
-    seenPlaylistIds.add(item.playlistId);
-    return true;
-  });
+  const result = [];
+  const playlistStates = new Map();
+  for (const item of items) {
+    if (item.playlistId === undefined) {
+      result.push(item);
+      continue;
+    }
+    const state = playlistStates.get(item.playlistId);
+    if (state === undefined) {
+      playlistStates.set(item.playlistId, {
+        index: result.length,
+        hasManifest: item.videoIds !== undefined,
+      });
+      result.push(item);
+      continue;
+    }
+
+    const existing = result[state.index];
+    if (state.hasManifest !== (item.videoIds !== undefined)) return null;
+    if (state.hasManifest) {
+      if (
+        existing.videoIds.length !== item.videoIds.length ||
+        existing.videoIds.some((videoId, index) => videoId !== item.videoIds[index])
+      ) {
+        return null;
+      }
+      continue;
+    }
+
+    const videoIds = [...(existing.videoIds || [existing.videoId]), item.videoId];
+    if (videoIds.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS) return null;
+    result[state.index] = { ...existing, videoIds };
+  }
+  return result;
 }
 
 function parseQueueMutation(value) {
@@ -583,19 +626,22 @@ function parseQueueMutation(value) {
       !hasExactKeys(
         value,
         ['type', 'videoId', 'name'],
-        ['playlistId', 'title', 'artist', 'thumbnail'],
+        ['playlistId', 'videoIds', 'title', 'artist', 'thumbnail'],
       ) ||
       !YOUTUBE_VIDEO_ID_RE.test(value.videoId || '') ||
       (value.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(value.playlistId || ''))
     ) {
       return null;
     }
+    const videoIds = parseYouTubeVideoIds(value.videoIds, value.playlistId, value.videoId);
+    if (videoIds === null) return null;
     const metadata = parseMetadata(value);
     return metadata
       ? {
           type: 'add_youtube',
           videoId: value.videoId,
           ...(value.playlistId === undefined ? {} : { playlistId: value.playlistId }),
+          ...(videoIds === undefined ? {} : { videoIds }),
           ...metadata,
         }
       : null;
@@ -611,24 +657,31 @@ function parseQueueMutation(value) {
     }
     const items = value.items.map((item) => {
       if (
-        !hasExactKeys(item, ['videoId', 'name'], ['playlistId', 'title', 'artist', 'thumbnail']) ||
+        !hasExactKeys(
+          item,
+          ['videoId', 'name'],
+          ['playlistId', 'videoIds', 'title', 'artist', 'thumbnail'],
+        ) ||
         !YOUTUBE_VIDEO_ID_RE.test(item.videoId || '') ||
         (item.playlistId !== undefined && !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId || ''))
       ) {
         return null;
       }
+      const videoIds = parseYouTubeVideoIds(item.videoIds, item.playlistId, item.videoId);
+      if (videoIds === null) return null;
       const metadata = parseMetadata(item);
       return metadata
         ? {
             videoId: item.videoId,
             ...(item.playlistId === undefined ? {} : { playlistId: item.playlistId }),
+            ...(videoIds === undefined ? {} : { videoIds }),
             ...metadata,
           }
         : null;
     });
-    return items.some((item) => item === null)
-      ? null
-      : { type: 'add_youtube_batch', items: canonicalizeYouTubeBatchItems(items) };
+    if (items.some((item) => item === null)) return null;
+    const canonicalItems = canonicalizeYouTubeBatchItems(items);
+    return canonicalItems ? { type: 'add_youtube_batch', items: canonicalItems } : null;
   }
   if (value.type === 'remove') {
     return hasExactKeys(value, ['type', 'queueItemId']) &&

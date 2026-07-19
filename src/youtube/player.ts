@@ -15,13 +15,15 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
-import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import {
   isPlaybackIdleCompat,
   isPlaybackModeYouTube,
   isPlaybackPlayingYouTube,
   setPlaybackIdle,
+  setPlaybackYouTubePaused,
+  setPlaybackYouTubePlaying,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
@@ -44,6 +46,10 @@ import {
   handleProRoomTrackMetadata,
   handleProRoomYouTube,
 } from '../pro-room/legacy-media-hooks.ts';
+import {
+  routeProPlaybackCommand,
+  type ProPlaybackCommitRequest,
+} from '../pro-room/playback-authority-hooks.ts';
 import {
   YT_AUTO_SYNC_MS,
   STAGE2_RENDEZVOUS_BROADCAST_MS,
@@ -192,6 +198,50 @@ function isCompatIdle(): boolean {
   return isPlaybackIdleCompat();
 }
 
+function routeProYouTubeToggleIntent(): boolean {
+  const queueItemId = getCurrentQueueItemId();
+  const player = getYouTubePlayer();
+  let positionSeconds = 0;
+  try {
+    if (player) positionSeconds = readCanonicalYouTubeTime(player);
+  } catch {
+    /* use zero; the server's revisioned timeline remains authoritative */
+  }
+  return routeProPlaybackCommand({
+    kind: isPlaybackPlayingYouTube() ? 'pause' : 'play',
+    queueItemId,
+    positionSeconds,
+  });
+}
+
+/**
+ * Hand native YouTube-playlist traversal to the PRO room authority.
+ *
+ * The iframe can expose the boundary twice: once through the 0.8s pre-empt
+ * path and again after its native playlist engine changes index. Both calls
+ * are stamped with the same locally committed revision by the playback seam,
+ * so the room server's existing CAS accepts at most one `next` transition.
+ */
+function routeProYouTubeSubVideoAdvance(): boolean {
+  const queueItemId = getCurrentQueueItemId();
+  // A PRO room must never fall back to local iframe traversal. If its local
+  // projection is temporarily incomplete, consume the native boundary and
+  // let the next canonical server snapshot repair it.
+  if (!queueItemId) return getRoomContext().kind === 'pro';
+  const player = getYouTubePlayer();
+  let positionSeconds = 0;
+  try {
+    if (player) positionSeconds = readCanonicalYouTubeTime(player);
+  } catch {
+    /* the exact playback revision remains the authoritative observation fence */
+  }
+  return routeProPlaybackCommand({
+    kind: 'advance-sub-video',
+    queueItemId,
+    positionSeconds,
+  });
+}
+
 import { registerHandlers } from '../network/protocol.ts';
 import {
   fetchYouTubePreview,
@@ -202,6 +252,7 @@ import {
   getSelectedYouTubeSearchResult,
   searchYouTubeFromInput,
   resolveYouTubePlaylistEntry,
+  resolveYouTubePlaylistManifest,
   clearYouTubeInputState,
   fetchPlaylistSubTitles,
   cancelSubTitleFetch,
@@ -560,6 +611,86 @@ export function cancelYtAutoSync(): void {
   clearManagedTimer('yt-zero-start-replacement-fallback');
   cancelYouTubeZeroStart('cancelled', true);
   bus.emit('youtube:sync-loading', false);
+}
+
+let proAuthorityYouTubeCommitGeneration = 0;
+
+/**
+ * Apply a canonical PRO commit to this participant's already-prepared iframe.
+ * The server/runtime owns barrier membership and revision checks; this endpoint
+ * only schedules one local media action and never creates a browser cohort.
+ */
+export async function applyProPlaybackYouTubeCommit(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<boolean> {
+  if (request.state === 'idle' || !request.queueItemId) return false;
+  const generation = ++proAuthorityYouTubeCommitGeneration;
+  cancelYtAutoSync();
+
+  const delayMs = Number.isFinite(request.scheduleDelayMs)
+    ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
+    : 0;
+  const scheduleDeadlineMs = performance.now() + delayMs;
+  if (delayMs > 0) {
+    await delay(delayMs);
+  }
+  if (request.isCurrent?.() === false || generation !== proAuthorityYouTubeCommitGeneration) {
+    return false;
+  }
+  if (
+    getState('room.context').kind !== 'pro' ||
+    getCurrentQueueItemId() !== request.queueItemId ||
+    !isPlaybackModeYouTube()
+  ) {
+    return false;
+  }
+
+  const player = getYouTubePlayer();
+  if (!player) return false;
+  try {
+    const liveVideoId = player.getVideoData?.()?.video_id || '';
+    if (request.youtubeVideoId && liveVideoId !== request.youtubeVideoId) return false;
+
+    const duration = getYouTubeDuration(player);
+    const setupLatenessSeconds =
+      request.state === 'playing' ? Math.max(0, performance.now() - scheduleDeadlineMs) / 1_000 : 0;
+    const target = resolveProCoordinatorYouTubeTarget(
+      (Number.isFinite(request.positionSeconds) ? Math.max(0, request.positionSeconds) : 0) +
+        setupLatenessSeconds,
+      getState('sync.youtubeLocalOffset') || 0,
+      duration,
+    );
+    setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
+    if (request.youtubeSubIndex !== undefined && request.youtubeSubIndex !== null) {
+      setYouTubeSubIndex(request.youtubeSubIndex);
+    }
+    if (request.isCurrent?.() === false) return false;
+    player.seekTo?.(target.localTime, true);
+
+    const volume = Math.max(
+      0,
+      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
+    );
+    player.setVolume?.(volume);
+    if (volume === 0) player.mute?.();
+    else player.unMute?.();
+
+    if (request.state === 'playing') {
+      setYtAutoplayIntent(true);
+      player.playVideo?.();
+      setPlaybackYouTubePlaying();
+      bus.emit('ui:update-play-state', true);
+    } else {
+      setYtAutoplayIntent(false);
+      player.pauseVideo?.();
+      setPlaybackYouTubePaused();
+      bus.emit('ui:update-play-state', false);
+    }
+    return true;
+  } catch (error) {
+    log.warn('[PRO Playback] Failed to apply YouTube commit', error);
+    return false;
+  }
 }
 
 function scheduleLateJoinRendezvousSync(
@@ -2014,6 +2145,7 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:toggle-play', () => {
+    if (routeProYouTubeToggleIntent()) return;
     if (isYtLoadInProgress()) {
       log.debug('[YouTube] Load already in progress, ignoring toggle');
       return;
@@ -2081,6 +2213,7 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:local-toggle-play', () => {
+    if (routeProYouTubeToggleIntent()) return;
     if (isYtLoadInProgress()) {
       log.debug('[YouTube] Load already in progress, ignoring local toggle');
       return;
@@ -2189,6 +2322,8 @@ export function initYouTube(): void {
   // playlist:next-track path is bypassed). Re-apply the transition rendezvous
   // here so guests stay aligned across the sub-video boundary.
   bus.on('youtube:sub-video-advanced', () => {
+    if (routeProYouTubeSubVideoAdvance()) return;
+
     const player = getYouTubePlayer();
     if (!player?.playVideo) return;
 
@@ -2409,6 +2544,10 @@ export function initYouTube(): void {
 
   bus.on('youtube:try-next-internal', (callback) => {
     if (typeof callback !== 'function') return;
+    if (routeProYouTubeSubVideoAdvance()) {
+      callback(true);
+      return;
+    }
     navigateSubVideo(1, callback);
   });
 
@@ -2505,6 +2644,7 @@ export function initYouTube(): void {
     title: string,
     url: string,
     actorName = localQueueActorName(),
+    completeManifestVideoIds?: readonly string[],
   ): QueueItemId {
     const playlist = getState('playlist.items') || [];
 
@@ -2557,7 +2697,7 @@ export function initYouTube(): void {
     }
 
     if (getState('room.context').kind === 'pro' && hasRoomCapability('queue.mutate')) {
-      if (handleProRoomYouTube(newTrack, url)) {
+      if (handleProRoomYouTube(newTrack, url, completeManifestVideoIds)) {
         _refreshYouTubeTitle(queueItemId, url, videoId, playlistId);
         return queueItemId;
       }
@@ -2646,6 +2786,7 @@ export function initYouTube(): void {
     playlistId: string,
     title: string,
     sourceUrl: string,
+    requestedVideoId?: string | null,
   ): boolean {
     const context = getState('room.context');
     if (context.kind !== 'pro' || !hasRoomCapability('queue.mutate')) return false;
@@ -2656,8 +2797,8 @@ export function initYouTube(): void {
 
     const loaderId = `youtube-playlist-entry:${requestKey}`;
     showLoader(true, t('youtube.fetching_info'), loaderId);
-    void resolveYouTubePlaylistEntry(playlistId)
-      .then((entry) => {
+    void resolveYouTubePlaylistManifest(playlistId)
+      .then((manifest) => {
         const currentContext = getState('room.context');
         if (
           currentContext.kind !== 'pro' ||
@@ -2667,10 +2808,21 @@ export function initYouTube(): void {
           return;
         }
 
-        const existingIds = getState('youtube.subItemsMap')[playlistId]?.ids || [];
-        if (existingIds.length === 0) updateSubItemIds(playlistId, [entry.videoId]);
-        const resolvedTitle = title && title !== sourceUrl ? title : entry.title;
-        _addYouTubeToPlaylist(entry.videoId, playlistId, resolvedTitle, sourceUrl);
+        const videoIds = [...manifest.videoIds];
+        const videoId =
+          requestedVideoId && manifest.videoIds.includes(requestedVideoId)
+            ? requestedVideoId
+            : manifest.videoId;
+        updateSubItemIds(playlistId, videoIds);
+        const resolvedTitle = title && title !== sourceUrl ? title : manifest.title;
+        _addYouTubeToPlaylist(
+          videoId,
+          playlistId,
+          resolvedTitle,
+          sourceUrl,
+          localQueueActorName(),
+          videoIds,
+        );
       })
       .catch((error) => {
         const currentContext = getState('room.context');
@@ -2751,7 +2903,7 @@ export function initYouTube(): void {
 
     // A persistent PRO playlist needs one concrete entry video. Resolve it
     // without borrowing the hidden iframe indexer, which stops active media.
-    if (!videoId && playlistId && _resolveAndAddProPlaylist(playlistId, titleText, sourceUrl)) {
+    if (playlistId && _resolveAndAddProPlaylist(playlistId, titleText, sourceUrl, videoId)) {
       return;
     }
 
@@ -2852,6 +3004,24 @@ export function initYouTube(): void {
 
   // YouTube sub-item seek (from playlist-view sub-item click)
   bus.on('youtube:sub-seek', (queueItemId, subIdx, _isCurrent) => {
+    const requestedTrack = getQueueItemById(queueItemId);
+    const requestedSubMap = getState('youtube.subItemsMap') || {};
+    const requestedVideoId = requestedTrack?.playlistId
+      ? (requestedSubMap[requestedTrack.playlistId]?.ids?.[subIdx] ??
+        requestedTrack.videoId ??
+        null)
+      : (requestedTrack?.videoId ?? null);
+    if (
+      routeProPlaybackCommand({
+        kind: 'select',
+        queueItemId,
+        positionSeconds: 0,
+        youtubeSubIndex: subIdx,
+        youtubeVideoId: requestedVideoId,
+      })
+    ) {
+      return;
+    }
     const player = getYouTubePlayer();
     if (!player?.loadVideoById) return;
 
@@ -2979,7 +3149,7 @@ export function initYouTube(): void {
 
     if (requestStandardOperatorYouTubeAdd(url, url)) return;
 
-    if (!videoId && playlistId && _resolveAndAddProPlaylist(playlistId, url, url)) return;
+    if (playlistId && _resolveAndAddProPlaylist(playlistId, url, url, videoId)) return;
 
     _addYouTubeToPlaylist(videoId, playlistId, url, url);
   });

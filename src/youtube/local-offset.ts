@@ -1,9 +1,9 @@
 /**
- * PRO coordinator YouTube time conversion.
+ * PRO endpoint YouTube time conversion.
  *
- * A PRO coordinator is both the room's transport worker and a normal speaker.
- * Its manual nudge must move only that local iframe while every wire message
- * continues to describe the room's canonical timeline.
+ * Every participant is a normal speaker managed by the server timeline. A
+ * manual nudge moves only that local iframe while server frames continue to
+ * describe the room's canonical position.
  */
 
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC } from '../core/constants.ts';
@@ -43,7 +43,7 @@ function clampOffset(offset: number): number {
 
 export function isProCoordinatorYouTubeEndpoint(): boolean {
   const room = getRoomContext();
-  return room.kind === 'pro' && room.role === 'coordinator';
+  return room.kind === 'pro';
 }
 
 function getEffectiveProCoordinatorYouTubeOffset(): number {

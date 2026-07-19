@@ -12,7 +12,7 @@ import {
   type ProRoomSnapshot,
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
-import { LegacyProRoomNetworkBridge } from '../network-bridge.ts';
+import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { joinProRoom, requestActiveProRoomBotCommand } from '../runtime.ts';
 
 const ROOM_CODE = '000002';
@@ -26,6 +26,8 @@ function roomSnapshot(): ProRoomSnapshot {
     runtime: 'awake',
     revision: 1,
     playlistRevision: 0,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {
@@ -41,7 +43,7 @@ function roomSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: PARTICIPANT_ID,
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -64,7 +66,7 @@ function roomSnapshot(): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
   };
 }
@@ -88,10 +90,11 @@ describe.sequential('PRO BOT runtime session lease', () => {
       vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue({
         ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}`,
         expiresAtMs: Date.now() + 60_000,
-        role: 'coordinator',
+        role: 'member',
         coordinatorEpoch: 1,
         presenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
         ticketSequence: 1,
+        pendingPlaybackTransition: null,
       }),
       vi.spyOn(ProRoomApiClient.prototype, 'getEffects').mockResolvedValue({
         schemaVersion: 1,
@@ -128,8 +131,8 @@ describe.sequential('PRO BOT runtime session lease', () => {
             resolveBot = resolve;
           }),
       ),
-      vi.spyOn(LegacyProRoomNetworkBridge.prototype, 'connect').mockResolvedValue(undefined),
-      vi.spyOn(LegacyProRoomNetworkBridge.prototype, 'disconnect').mockImplementation(() => {}),
+      vi.spyOn(ServerProRoomNetworkBridge.prototype, 'connect').mockResolvedValue(undefined),
+      vi.spyOn(ServerProRoomNetworkBridge.prototype, 'disconnect').mockImplementation(() => {}),
     );
 
     await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });

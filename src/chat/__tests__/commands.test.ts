@@ -116,6 +116,78 @@ describe('getAvailableCommands permission filtering', () => {
     setState('network.hostConn', null);
     const hostCmds = getAvailableCommands().map((c) => c.name);
     expect(hostCmds).toContain('kick');
+    expect(hostCmds).toContain('op');
+    expect(hostCmds).toContain('deop');
+  });
+
+  it('hides and disables the legacy operator hierarchy in a PRO room', () => {
+    setState('network.hostConn', null);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+    const toggleOperator = vi.fn();
+    bus.on('network:toggle-operator', toggleOperator);
+
+    const commands = getAvailableCommands().map((command) => command.name);
+    expect(commands).not.toContain('op');
+    expect(commands).not.toContain('deop');
+
+    executeCommand({ name: 'op', args: ['#1'], rawArgs: '#1' });
+    executeCommand({ name: 'deop', args: ['#1'], rawArgs: '#1' });
+
+    expect(toggleOperator).not.toHaveBeenCalled();
+    expect(mocks.addSystemChatMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('/users PRO hierarchy', () => {
+  it('shows equal members without HOST or ADMIN labels', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 3,
+      snapshotRevision: 7,
+      capabilities: ['members.manage'],
+    });
+    setState('network.myId', 'participant-me');
+    setState('network.myDeviceLabel', 'Studio');
+    setState('network.myJoinOrder', 0);
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'participant-me',
+        label: 'Studio',
+        isHost: false,
+        isOp: true,
+        status: 'connected',
+        joinOrder: 0,
+        connectionType: 'remote',
+      },
+      {
+        id: 'participant-friend',
+        label: 'Friend',
+        isHost: false,
+        isOp: true,
+        status: 'connected',
+        joinOrder: 1,
+        connectionType: 'remote',
+      },
+    ]);
+
+    executeCommand({ name: 'users', args: [], rawArgs: '' });
+
+    const rendered = String(mocks.addSystemChatMessage.mock.calls[0]?.[0] ?? '');
+    expect(rendered).toContain('Studio');
+    expect(rendered).toContain('Friend');
+    expect(rendered).not.toContain('HOST');
+    expect(rendered).not.toContain('ADMIN');
   });
 });
 

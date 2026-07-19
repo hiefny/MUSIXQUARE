@@ -1,16 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PLAYBACK_STATE } from '../../core/constants.ts';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { getManagedTimer, setManagedTimer } from '../../core/timers.ts';
-import { transition } from '../../player/lifecycle.ts';
-import type { ConnectedPeer, PlaylistItem, QueueItemId, RoomContext } from '../../types/index.ts';
+import type { ConnectedPeer, QueueItemId, RoomContext } from '../../types/index.ts';
 import {
-  captureLocalPlaybackCheckpointForTests,
-  cancelPendingDeveloperFileTransitionsForTests,
-  beginDeveloperPlayItemIntentForTests,
   reconcileRemovedProRoomQueueStateForTests,
   shouldStopForAuthoritativeDeselectionForTests,
   shouldRetainPendingProDownloadForTests,
@@ -22,74 +16,6 @@ const REMOVED_RECOVERY_ID = '20000000-0000-4000-8000-000000000003' as QueueItemI
 
 beforeEach(() => {
   resetState();
-});
-
-describe('PRO room periodic playback checkpoint', () => {
-  it('preserves an unloaded persistent selection while its R2 body is downloading', () => {
-    const item: PlaylistItem = {
-      queueItemId: QUEUE_ITEM_ID,
-      type: 'file',
-      name: 'orchestra.flac',
-      videoId: null,
-      playlistId: null,
-    };
-    setState('playlist.items', [item]);
-    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
-
-    transition({
-      type: 'FILE_PREPARE',
-      variant: 'fresh',
-      queueItemId: QUEUE_ITEM_ID,
-      name: item.name,
-    });
-
-    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
-    expect(captureLocalPlaybackCheckpointForTests()).toEqual({
-      state: 'paused',
-      queueItemId: QUEUE_ITEM_ID,
-      positionSeconds: 0,
-      youtubeVideoId: null,
-      youtubeSubIndex: null,
-      updatedAtMs: expect.any(Number),
-    });
-  });
-});
-
-describe('PRO developer file transport control', () => {
-  it('cancels delayed autoplay and ended-advance ownership before applying a command', () => {
-    setManagedTimer('autoPlayTimer', () => {}, 60_000);
-    setManagedTimer('ended-advance-retry', () => {}, 60_000);
-    setManagedTimer('ended-advance-next', () => {}, 60_000);
-
-    cancelPendingDeveloperFileTransitionsForTests();
-
-    expect(getManagedTimer('autoPlayTimer')).toBeNull();
-    expect(getManagedTimer('ended-advance-retry')).toBeNull();
-    expect(getManagedTimer('ended-advance-next')).toBeNull();
-  });
-
-  it('accepts play-item after synchronous selection without awaiting a long media pipeline', () => {
-    let finish!: () => void;
-    const background = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const starter = vi.fn((queueItemId: QueueItemId) => {
-      setState('playlist.currentQueueItemId', queueItemId);
-      return background;
-    });
-
-    expect(beginDeveloperPlayItemIntentForTests(QUEUE_ITEM_ID, starter)).toBe(true);
-    expect(starter).toHaveBeenCalledWith(QUEUE_ITEM_ID, {
-      explicitPlaybackIntent: true,
-    });
-
-    finish();
-  });
-
-  it('rejects play-item when the player cannot synchronously claim its target', () => {
-    const starter = vi.fn(async () => undefined);
-    expect(beginDeveloperPlayItemIntentForTests(QUEUE_ITEM_ID, starter)).toBe(false);
-  });
 });
 
 describe('PRO room R2 download ownership', () => {

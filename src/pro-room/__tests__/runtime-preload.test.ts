@@ -20,9 +20,9 @@ import {
   resolveProRoomPlaylistFile,
 } from '../legacy-media-hooks.ts';
 import { ProRoomMediaTransfer } from '../media-transfer.ts';
-import { LegacyProRoomNetworkBridge } from '../network-bridge.ts';
+import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
-import { joinProRoom } from '../runtime.ts';
+import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
@@ -59,6 +59,8 @@ function roomSnapshot(): ProRoomSnapshot {
     runtime: 'awake',
     revision: 1,
     playlistRevision: 1,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [
       {
         queueItemId: CACHE_QUEUE_ITEM_ID,
@@ -85,7 +87,7 @@ function roomSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: PARTICIPANT_ID,
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -108,7 +110,7 @@ function roomSnapshot(): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
   };
 }
@@ -117,10 +119,11 @@ function signalingAccess(): ProRoomSignalingAccess {
   return {
     ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
     expiresAtMs: Date.now() + 60_000,
-    role: 'coordinator',
+    role: 'member',
     coordinatorEpoch: 1,
     presenceIncarnationId: 'presence_0000000001',
     ticketSequence: 1,
+    pendingPlaybackTransition: null,
   };
 }
 
@@ -145,8 +148,8 @@ describe.sequential('PRO room runtime preload adoption', () => {
       }),
       vi.spyOn(ProRoomApiClient.prototype, 'closePresenceOnUnload').mockResolvedValue(undefined),
       vi.spyOn(ProRoomApiClient.prototype, 'closeSessionFenced').mockResolvedValue(undefined),
-      vi.spyOn(LegacyProRoomNetworkBridge.prototype, 'connect').mockResolvedValue(undefined),
-      vi.spyOn(LegacyProRoomNetworkBridge.prototype, 'disconnect').mockImplementation(() => {}),
+      vi.spyOn(ServerProRoomNetworkBridge.prototype, 'connect').mockResolvedValue(undefined),
+      vi.spyOn(ServerProRoomNetworkBridge.prototype, 'disconnect').mockImplementation(() => {}),
     );
 
     download = vi
@@ -209,32 +212,30 @@ describe.sequential('PRO room runtime preload adoption', () => {
 
   it('refreshes the authoritative snapshot from an exact server invalidation hint', async () => {
     const next = { ...roomSnapshot(), revision: 2, playlistRevision: 2 };
-    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'getSnapshot').mockResolvedValue(next);
+    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(next);
 
-    bus.emit('network:developer-invalidation', {
-      type: 'developer-invalidation',
+    acceptProRoomRealtimeFrameForTests({
+      type: 'pro-server-event',
       version: 1,
       roomCode: ROOM_CODE,
       coordinatorEpoch: 2,
-      revision: 2,
-      playlistRevision: 2,
+      event: { type: 'pro-room-invalidated', roomRevision: 2, playlistRevision: 2 },
     });
     await Promise.resolve();
     expect(refresh).not.toHaveBeenCalled();
 
-    bus.emit('network:developer-invalidation', {
-      type: 'developer-invalidation',
+    acceptProRoomRealtimeFrameForTests({
+      type: 'pro-server-event',
       version: 1,
       roomCode: ROOM_CODE,
       coordinatorEpoch: 1,
-      revision: 2,
-      playlistRevision: 2,
+      event: { type: 'pro-room-invalidated', roomRevision: 2, playlistRevision: 2 },
     });
-    await vi.waitFor(() => expect(refresh).toHaveBeenCalledWith(ROOM_CODE, undefined));
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
     refresh.mockRestore();
   });
 
-  it('fans out accepted queue additions once in authoritative revision order', async () => {
+  it('renders server-fanned-out queue additions once in authoritative revision order', async () => {
     const messages: string[] = [];
     const off = bus.on('chat:system-message', (text) => messages.push(text));
     const later = {
@@ -255,46 +256,52 @@ describe.sequential('PRO room runtime preload adoption', () => {
       count: 1,
     };
 
-    bus.emit('network:pro-queue-addition', later);
-    bus.emit('network:pro-queue-addition', earlier);
-    bus.emit('network:pro-queue-addition', later);
-    bus.emit('network:pro-queue-addition', {
-      ...later,
-      coordinatorEpoch: 2,
-      eventId: 'qa_000001_5_7',
+    const serverFrame = (addition: typeof later | typeof earlier, coordinatorEpoch = 1) => ({
+      type: 'pro-server-event' as const,
+      version: 1 as const,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch,
+      event: {
+        type: 'pro-room-invalidated',
+        roomRevision: 6,
+        playlistRevision: addition.playlistRevision,
+        addition,
+      },
     });
-
-    // Neither addition exists in the currently accepted snapshot, so a
-    // signaling hint alone cannot create a visible system row.
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(messages).toEqual([]);
 
     const accepted = { ...roomSnapshot(), revision: 6, playlistRevision: 4 };
-    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'getSnapshot').mockResolvedValue(accepted);
-    vi.useFakeTimers();
-    bus.emit('network:developer-invalidation', {
-      type: 'developer-invalidation',
-      version: 1,
-      roomCode: ROOM_CODE,
-      coordinatorEpoch: 1,
-      revision: 6,
-      playlistRevision: 4,
-    });
-    await vi.advanceTimersByTimeAsync(5_200);
-    expect(refresh).toHaveBeenCalledWith(ROOM_CODE, undefined);
-    expect(messages).toHaveLength(2);
+    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(accepted);
+    acceptProRoomRealtimeFrameForTests(serverFrame(later));
+    acceptProRoomRealtimeFrameForTests(serverFrame(earlier));
+    acceptProRoomRealtimeFrameForTests(serverFrame(later));
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(
+        {
+          ...later,
+          coordinatorEpoch: 2,
+          eventId: 'qa_000001_5_7',
+        },
+        2,
+      ),
+    );
+
+    // The server event itself is only a hint. Its paired heartbeat accepts the
+    // canonical playlist revision before the queued system rows are rendered.
+    await vi.waitFor(() => expect(messages).toHaveLength(2));
+    expect(refresh).toHaveBeenCalled();
     expect(messages[0]).toContain('Earlier bot');
     expect(messages[1]).toContain('Later bot');
 
-    bus.emit('network:pro-queue-addition', {
-      ...earlier,
-      playlistRevision: 2,
-      eventId: 'qa_000001_2_4',
-      actorName: 'Late old bot',
-    });
-    await vi.advanceTimersByTimeAsync(150);
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({
+        ...earlier,
+        playlistRevision: 2,
+        eventId: 'qa_000001_2_4',
+        actorName: 'Late old bot',
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
     expect(messages).toHaveLength(2);
-    vi.useRealTimers();
     refresh.mockRestore();
     off();
   });

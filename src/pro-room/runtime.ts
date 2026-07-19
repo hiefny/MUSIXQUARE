@@ -2,23 +2,19 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { MSG } from '../core/constants.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
-import { broadcastTracksAdded } from '../chat/queue-events.ts';
+import { announceTracksAddedLocally } from '../chat/queue-events.ts';
+import { receiveProRoomRealtimeChat } from '../chat/protocol.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
-import { broadcast, sendToHost } from '../network/peer.ts';
 import { applyRoomEffectsState, captureRoomEffectsState } from '../audio/effects.ts';
-import { roomEffectsEqual, type ProRoomEffectsSnapshot } from '../core/room-effects.ts';
-import { getHostNow } from '../network/shared-clock.ts';
-import { registerHandler } from '../network/protocol.ts';
-import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
 import {
-  getCurrentAudioBuffer,
-  isPlayLocked,
-  liveAudioBufferPcmBytes,
-  setPendingRecoveryTarget,
-} from '../player/_state.ts';
+  roomEffectsEqual,
+  type ProRoomEffectsSnapshot,
+  type RoomEffectsState,
+} from '../core/room-effects.ts';
+import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
+import { liveAudioBufferPcmBytes, setPendingRecoveryTarget } from '../player/_state.ts';
 import {
   isAudioDecodeAdmissionError,
   reserveEncodedReceiveMemoryWithinBudget,
@@ -27,59 +23,42 @@ import {
   applyPlaylistQueueModeState,
   capturePlaylistQueueModeState,
   clearPreloadState,
-  getShuffleNextPlayableQueueItemId,
-  playNextTrack,
-  playTrack,
   reconcileShuffleOrderForCurrentPlaylist,
 } from '../player/playlist.ts';
 import { schedulePreload } from '../storage/preload.ts';
+import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import { updateSubItemIds } from '../youtube/_state.ts';
+import { resolveYouTubePlaylistManifest } from '../youtube/search.ts';
+import { resetRoomContext, setRoomContext } from '../rooms/authority.ts';
+import type { PlaylistItem, PlaylistWireItem, QueueItemId, RoomContext } from '../types/index.ts';
 import {
-  getTrackPosition,
-  isFilePipelineBusyForPlay,
-  pause,
-  play,
-  seekTo,
-} from '../player/transport.ts';
-import { getPlaybackModeActivity, setPlaybackTrackMeta } from '../player/ownership.ts';
-import { getYouTubePlayer, isYtLoadInProgress } from '../youtube/_state.ts';
-import {
-  isCoordinator,
-  resetRoomContext,
-  setRoomContext,
-  verifyPeerCapability,
-} from '../rooms/authority.ts';
-import type {
-  DataConnection,
-  DeveloperCommandFrame,
-  DeveloperCommandResultCode,
-  DeveloperInvalidationFrame,
-  PlaylistItem,
-  PlaylistWireItem,
-  QueueItemId,
-  RoomContext,
-} from '../types/index.ts';
-import type { ProQueueAdditionFrame } from '../network/transport/types.ts';
+  parseProQueueAdditionFrame,
+  type ProQueueAdditionFrame,
+} from '../network/transport/types.ts';
 import {
   ProRoomApiClient,
   ProRoomApiError,
+  parseProRoomPlaybackCancelEvent,
+  parseProRoomPlaybackCommitEvent,
+  parseProRoomPlaybackPrepareEvent,
   type ActivateProRoomInput,
   type CreateProRoomSessionInput,
   type EnterProRoomPresenceOptions,
   type ProRoomBotCommandResult,
   type ProRoomBootstrap,
+  type ProRoomPlaybackCommand,
+  type ProRoomPlaybackCommitEvent,
+  type ProRoomPlaybackPrepareEvent,
   type RecoverProRoomOwnerInput,
 } from './api.ts';
-import type { ProRoomR2Source, ProRoomSnapshot } from './contracts.ts';
+import type { ProRoomPlaybackCheckpoint, ProRoomR2Source, ProRoomSnapshot } from './contracts.ts';
 import type { ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import {
   registerProRoomLegacyMediaHooks,
-  restoreProRoomLegacyPlayback,
   type ProRoomLegacyMediaHooks,
 } from './legacy-media-hooks.ts';
-import { ProRoomInvalidationHighWater } from './invalidation-high-water.ts';
-import { buildProRoomUnloadCheckpoint, waitForProRoomPresenceClose } from './hard-close.ts';
+import { waitForProRoomPresenceClose } from './hard-close.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
-import { DeveloperControlExecutor } from './developer-control.ts';
 import {
   registerProRoomHardCloseHandler,
   registerProRoomLeaveHandler,
@@ -88,18 +67,43 @@ import {
 } from './lifecycle-hook.ts';
 import { ProRoomHeartbeatSingleFlight } from './heartbeat-single-flight.ts';
 import { ProRoomMediaTransfer } from './media-transfer.ts';
-import { LegacyProRoomNetworkBridge } from './network-bridge.ts';
+import {
+  getProRoomServerNow,
+  isProRoomServerClockCalibrated,
+  onProRoomRealtimeConnection,
+  onProRoomRealtimeEvent,
+  proRoomServerBridge,
+  waitForFreshProRoomServerClockCalibration,
+  type ProRealtimeRelayEnvelope,
+  type ProServerEventEnvelope,
+} from './network-bridge.ts';
+import {
+  cancelProPlaybackPreparation,
+  commitProPlaybackAuthority,
+  createProPlaybackAuthorityToken,
+  prepareProPlaybackAuthority,
+  registerProPlaybackCommandHandler,
+  resetProPlaybackAuthorityHooks,
+  type ProPlaybackAuthorityToken,
+  type ProPlaybackUserIntent,
+} from './playback-authority-hooks.ts';
 import { completeProRoomPinRotation } from './pin-rotation.ts';
 import { ProRoomPlaylistProjection } from './playlist-projection.ts';
-import { ProRoomPlaylistStateManager } from './playlist-state-manager.ts';
 import {
-  dispatchProRoomRemovalTransition,
+  ProRoomPlaylistStateManager,
+  type ProRoomFirstAppendSelectionRequest,
+} from './playlist-state-manager.ts';
+import {
   findRemovedProRoomQueueItemIds,
   resolveProRoomRemovalTransition,
 } from './playlist-transition.ts';
 import { ProRoomSessionController, type ProRoomSessionObserver } from './session-controller.ts';
 import { createByteWeightedProgressEntries } from './transfer-progress.ts';
-import { resetProRoomTransportRecovery } from './transport-recovery.ts';
+import {
+  markProRoomTransportRecovered,
+  requestProRoomTransportRecovery,
+  resetProRoomTransportRecovery,
+} from './transport-recovery.ts';
 import { onProRoomTabTakeover } from './tab-handoff.ts';
 import {
   bindProSystemAudioSession,
@@ -110,32 +114,24 @@ import {
 } from './system-audio-service.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const TOPOLOGY_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
-const SIGNALING_REFRESH_INTERVAL_MS = 45_000;
+const CONTROL_CHANNEL_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
 const HEARTBEAT_TIMER = 'pro-room-heartbeat';
-const SIGNALING_REFRESH_TIMER = 'pro-room-signaling-refresh';
-const PLAYBACK_CHECKPOINT_INTERVAL_MS = 10_000;
-const PLAYBACK_CHECKPOINT_DEBOUNCE_MS = 350;
-const PLAYBACK_CHECKPOINT_TIMER = 'pro-room-playback-checkpoint';
-const PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-playback-checkpoint-debounce';
 const EFFECTS_CHECKPOINT_DEBOUNCE_MS = 350;
 const EFFECTS_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-effects-checkpoint-debounce';
 const QUEUE_MODE_CHECKPOINT_DEBOUNCE_MS = 350;
 const QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-queue-mode-checkpoint-debounce';
 const QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
-const PLAYBACK_RESTORE_TIMEOUT_MS = 120_000;
-const PLAYBACK_RESTORE_TIMEOUT_TIMER = 'pro-room-playback-restore-timeout';
-const INVALIDATION_REFRESH_MIN_INTERVAL_MS = 5_000;
-const INVALIDATION_REFRESH_TIMER = 'pro-room-invalidation-refresh';
 const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
 const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
-/** Must match the local-file coordinator lead used by player/transport.ts. */
-const DEVELOPER_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
+// Keep well below the manifest endpoint's per-IP minute budget so a room with
+// legacy rows cannot starve an explicit user add. Remaining rows continue on
+// a later room session.
+const MAX_LAZY_YOUTUBE_MANIFEST_UPGRADES = 4;
 
 const api = new ProRoomApiClient();
 configureProSystemAudioService(api);
-const bridge = new LegacyProRoomNetworkBridge();
+const bridge = proRoomServerBridge;
 let active = false;
 let refreshInFlight = false;
 let visibilityBound = false;
@@ -151,38 +147,20 @@ interface PlaylistRuntimeLease {
 }
 let playlistRuntimeGeneration = 0;
 let playlistRuntimeLease: PlaylistRuntimeLease | null = null;
-let coordinatorRefresh: Promise<void> | null = null;
-let checkpointInFlight = false;
-let checkpointDirty = false;
 let effectsMutationTail: Promise<void> = Promise.resolve();
 let acceptedEffects: ProRoomEffectsSnapshot | null = null;
 let suppressEffectsCheckpoint = false;
-let lastEffectsCoordinatorEpoch = -1;
-let pendingEffectsBroadcast: {
-  commandId: string;
-  coordinatorEpoch: number;
-} | null = null;
 let queueModeMutationTail: Promise<void> = Promise.resolve();
 let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
 let suppressQueueModeCheckpoint = false;
-let lastQueueModeCoordinatorEpoch = -1;
 let queueModeCheckpointDirty = false;
 let queueModeCheckpointRetryAttempt = 0;
-let suppressPlaybackCheckpoint = false;
-let lastPlaybackRestoreKey = '';
 let terminalRecoveryInFlight = false;
-let topologyRecoveryAttempt = 0;
-let invalidationRefreshScheduled = false;
-let lastInvalidationRefreshAt = 0;
-const invalidationHighWater = new ProRoomInvalidationHighWater();
+let controlChannelRecoveryAttempt = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
 const seenQueueAdditionEventIds = new Set<string>();
 const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
 let lastAnnouncedQueueAdditionOrder = 0;
-let pendingPlaybackRestore: {
-  queueItemId: QueueItemId;
-  state: 'playing' | 'paused';
-} | null = null;
 interface PendingFileDownload {
   queueItemId: QueueItemId;
   leaseGeneration: number;
@@ -210,6 +188,23 @@ let deferredPreloadGeneration = 0;
 let uploadOperationTail: Promise<void> = Promise.resolve();
 let transferLoaderSequence = 0;
 const activeTransferLoaderIds = new Set<string>();
+let unregisterPlaybackCommandHandler: (() => void) | null = null;
+let playbackCommandTail: Promise<void> = Promise.resolve();
+let highestKnownPlaybackRevision = -1;
+let lastAppliedPlaybackRevision = -1;
+let activeServerPlaybackTransition: {
+  event: ProRoomPlaybackPrepareEvent;
+  authority: ProPlaybackAuthorityToken;
+  preparation: ReturnType<typeof prepareProPlaybackAuthority>;
+  readyReportStarted: boolean;
+  receivedAtMs: number;
+  clockAbort: AbortController;
+} | null = null;
+const playbackCommitInFlight = new Map<number, Promise<void>>();
+let playbackCommitTail: Promise<void> = Promise.resolve();
+let playbackCommitGeneration = 0;
+let youtubeManifestUpgradeTail: Promise<void> = Promise.resolve();
+const attemptedYouTubeManifestUpgrades = new Set<QueueItemId>();
 
 function openTransferLoader(kind: 'upload' | 'download', text: string): string {
   const id = `pro-room-${kind}-${++transferLoaderSequence}`;
@@ -343,6 +338,142 @@ function projectedSignature(snapshot: ProRoomSnapshot): string {
   return JSON.stringify([snapshot.playlist, snapshot.currentQueueItemId]);
 }
 
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/** Publish canonical server manifests into the legacy YouTube navigation map. */
+function hydrateProRoomYouTubeManifests(snapshot: ProRoomSnapshot): void {
+  for (const item of snapshot.playlist) {
+    if (item.source.kind !== 'youtube' || !item.source.playlistId || !item.source.videoIds) {
+      continue;
+    }
+    const current = getState('youtube.subItemsMap')[item.source.playlistId];
+    if (current && sameStringArray(current.ids, item.source.videoIds)) continue;
+    // updateSubItemIds clones the IDs and retains any richer titles already
+    // fetched by this endpoint instead of replacing them with empty labels.
+    updateSubItemIds(item.source.playlistId, item.source.videoIds);
+  }
+}
+
+/** @internal Focused regression seam for authoritative manifest hydration. */
+export function hydrateProRoomYouTubeManifestsForTests(snapshot: ProRoomSnapshot): void {
+  hydrateProRoomYouTubeManifests(snapshot);
+}
+
+function isLegacyYouTubeSourceCurrent(
+  queueItemId: QueueItemId,
+  playlistId: string,
+  videoId: string,
+): boolean {
+  const source = playlistProjection?.sourceFor(queueItemId);
+  return (
+    source?.kind === 'youtube' &&
+    source.playlistId === playlistId &&
+    source.videoId === videoId &&
+    source.videoIds === undefined
+  );
+}
+
+interface LegacyYouTubeManifestCandidate {
+  queueItemId: QueueItemId;
+  playlistId: string;
+  videoId: string;
+}
+
+function claimLegacyYouTubeManifestCandidates(
+  snapshot: ProRoomSnapshot,
+  attempted: Set<QueueItemId>,
+): LegacyYouTubeManifestCandidate[] {
+  const candidates: LegacyYouTubeManifestCandidate[] = [];
+  for (const item of snapshot.playlist) {
+    if (attempted.size >= MAX_LAZY_YOUTUBE_MANIFEST_UPGRADES) break;
+    if (
+      item.source.kind !== 'youtube' ||
+      !item.source.playlistId ||
+      item.source.videoIds ||
+      item.queueItemId === snapshot.currentQueueItemId ||
+      attempted.has(item.queueItemId)
+    ) {
+      continue;
+    }
+    attempted.add(item.queueItemId);
+    candidates.push({
+      queueItemId: item.queueItemId,
+      playlistId: item.source.playlistId,
+      videoId: item.source.videoId,
+    });
+  }
+  return candidates;
+}
+
+function scheduleLegacyYouTubeManifestUpgrades(
+  snapshot: ProRoomSnapshot,
+  lease: PlaylistRuntimeLease,
+): void {
+  const manager = playlistManager;
+  const operationSignal = playlistRuntimeAbort?.signal;
+  if (!manager || !operationSignal || operationSignal.aborted || !isPlaylistLeaseCurrent(lease)) {
+    return;
+  }
+
+  for (const { queueItemId, playlistId, videoId } of claimLegacyYouTubeManifestCandidates(
+    snapshot,
+    attemptedYouTubeManifestUpgrades,
+  )) {
+    const operation = youtubeManifestUpgradeTail.then(async () => {
+      if (
+        operationSignal.aborted ||
+        !isPlaylistLeaseCurrent(lease) ||
+        !isLegacyYouTubeSourceCurrent(queueItemId, playlistId, videoId)
+      ) {
+        return;
+      }
+
+      const resolved = await resolveYouTubePlaylistManifest(playlistId, operationSignal);
+      if (
+        operationSignal.aborted ||
+        !isPlaylistLeaseCurrent(lease) ||
+        resolved.playlistId !== playlistId ||
+        !isLegacyYouTubeSourceCurrent(queueItemId, playlistId, videoId)
+      ) {
+        return;
+      }
+      if (!resolved.videoIds.includes(videoId)) {
+        log.warn(
+          `[PRO] Legacy YouTube entry ${videoId} is absent from resolved playlist ${playlistId}`,
+        );
+        return;
+      }
+      await manager.updateYouTubeManifest(
+        queueItemId,
+        { playlistId, videoId, videoIds: resolved.videoIds },
+        { signal: operationSignal },
+      );
+    });
+    youtubeManifestUpgradeTail = operation.catch((error) => {
+      if (!operationSignal.aborted && isPlaylistLeaseCurrent(lease)) {
+        log.warn('[PRO] Legacy YouTube manifest upgrade failed', error);
+      }
+    });
+  }
+}
+
+/** @internal Stable policy seam for bounded-upgrade regression tests. */
+export function maxLazyYouTubeManifestUpgradesForTests(): number {
+  return MAX_LAZY_YOUTUBE_MANIFEST_UPGRADES;
+}
+
+/** @internal Exact bounded candidate-selection seam for regression tests. */
+export function claimLegacyYouTubeManifestCandidatesForTests(
+  snapshot: ProRoomSnapshot,
+  attempted: readonly QueueItemId[] = [],
+): QueueItemId[] {
+  return claimLegacyYouTubeManifestCandidates(snapshot, new Set(attempted)).map(
+    (candidate) => candidate.queueItemId,
+  );
+}
+
 function playlistWireItems(items: readonly PlaylistItem[]): PlaylistWireItem[] {
   return items.map((item) => ({
     queueItemId: item.queueItemId,
@@ -407,7 +538,7 @@ function reconcileRemovedProRoomQueueState(removedQueueItemIds: readonly QueueIt
     pendingPreloadDownload.controller.abort();
   }
 
-  // A PRO mutation is projected locally before the coordinator's legacy
+  // A PRO mutation is projected locally before the legacy-compatible
   // PLAYLIST_UPDATE relay. That later frame is a duplicate revision, so the
   // ordinary guest cleanup path cannot be relied upon to release background
   // bytes owned by a deleted occurrence.
@@ -485,6 +616,8 @@ async function applyProjectedPlaylist(
   lease: PlaylistRuntimeLease,
 ): Promise<void> {
   if (!isPlaylistLeaseCurrent(lease) || snapshot.roomCode !== lease.roomCode) return;
+  hydrateProRoomYouTubeManifests(snapshot);
+  scheduleLegacyYouTubeManifestUpgrades(snapshot, lease);
   const nextSignature = projectedSignature(snapshot);
   const firstProjection = playlistSignature === '';
   if (firstProjection || nextSignature !== playlistSignature) {
@@ -500,22 +633,9 @@ async function applyProjectedPlaylist(
       snapshot.currentQueueItemId,
       survivingQueueItemIds,
     );
-    const preferredShuffleSuccessor =
-      !firstProjection &&
-      isCoordinator() &&
-      getState('playlist.isShuffle') &&
-      previousCurrent !== null &&
-      removedQueueItemIds.includes(previousCurrent)
-        ? getShuffleNextPlayableQueueItemId((queueItemId) => survivingQueueItemIds.has(queueItemId))
-        : null;
     const removalTransition = firstProjection
       ? { removedCurrent: false, successorQueueItemId: null }
-      : resolveProRoomRemovalTransition(
-          previousItems,
-          playlist,
-          previousCurrent,
-          preferredShuffleSuccessor,
-        );
+      : resolveProRoomRemovalTransition(previousItems, playlist, previousCurrent, null);
     const payload = {
       list: playlistWireItems(playlist),
       // The room revision, unlike playlistRevision, also advances when the
@@ -531,16 +651,12 @@ async function applyProjectedPlaylist(
     reconcileRemovedProRoomQueueState(removedQueueItemIds);
     playlistSignature = nextSignature;
     attachCachedFiles(snapshot);
-    if (isCoordinator()) broadcast({ type: MSG.PLAYLIST_UPDATE, ...payload });
-    // A member's own accepted mutation is projected before the coordinator
-    // relays the same revision. That later PLAYLIST_UPDATE is a duplicate, so
-    // it cannot be relied upon to tear down media owned by a deleted row.
-    // Stop locally now; only the elected coordinator chooses/starts the
-    // successor and therefore remains the sole playback authority.
+    // Playlist projection is local state only. The server independently emits
+    // a revision-fenced playback PREPARE/COMMIT when selection must change.
     const stopProjectedMedia = (): void => {
       bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
       // PRO mutations bypass playlist.ts's ordinary removal teardown and
-      // the coordinator's later relay is a duplicate revision. Clear the
+      // the server's later relay is a duplicate revision. Clear the
       // invalidated occurrence's presentation and resident metadata here so
       // a deselected room cannot keep displaying or replaying the old title.
       setPlaybackTrackMeta(null);
@@ -550,26 +666,12 @@ async function applyProjectedPlaylist(
     };
     if (authoritativeDeselection) {
       stopProjectedMedia();
-    } else {
-      dispatchProRoomRemovalTransition(
-        removalTransition,
-        isCoordinator(),
-        (queueItemId) => {
-          void playTrack(queueItemId, undefined, { forceNewYouTubeOccurrence: true }).catch(
-            (error) => {
-              log.warn('[PRO] Removal successor playback failed', error);
-            },
-          );
-        },
-        stopProjectedMedia,
-      );
+    } else if (removalTransition.removedCurrent) {
+      stopProjectedMedia();
     }
-    // PRO mutations are projected through this runtime and therefore bypass
-    // playlist.ts's ordinary add/reorder/remove scheduling paths. Re-evaluate
-    // the coordinator-owned next occurrence after every accepted projection;
-    // schedulePreload preserves an exact still-valid owner and replaces only a
-    // target that actually changed.
-    if (isCoordinator()) schedulePreload();
+    // Every equal endpoint preloads directly from R2. The cache remains local
+    // and byte-bounded; no participant uploads or relays it for another.
+    schedulePreload();
     return;
   }
   attachCachedFiles(snapshot);
@@ -762,7 +864,7 @@ function deferProRoomFilePreload(
     try {
       // Foreground media owns the receive budget. Wait for every foreground
       // owner that races this hint, then begin exactly the newest deferred
-      // preload instead of dropping the one-shot coordinator message.
+      // preload instead of dropping the one-shot server queue event.
       while (pendingFileDownload) {
         const foreground = pendingFileDownload;
         try {
@@ -811,47 +913,33 @@ function cancelDeferredProRoomPreload(queueItemId?: QueueItemId): void {
 }
 
 function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
-  if (
-    snapshot.viewer?.participantId !== snapshot.presence.coordinatorParticipantId ||
-    getState('network.appRole') !== 'host'
-  ) {
-    return;
-  }
-  const present = new Set(snapshot.presence.participants.map((peer) => peer.participantId));
-  for (const peer of getState('network.connectedPeers')) {
-    if (present.has(peer.id)) continue;
-    log.info(`[PRO] Closing peer absent from authoritative presence: ${peer.id}`);
-    try {
-      peer.conn?.close();
-    } catch {
-      /* connection close is best-effort; the next topology refresh also drops it */
-    }
-  }
-}
-
-function sendCoordinatorInvalidation(snapshot: ProRoomSnapshot): void {
-  if (isCoordinator()) return;
-  sendToHost({
-    type: MSG.PRO_ROOM_INVALIDATED,
-    revision: snapshot.revision,
-    playlistRevision: snapshot.playlistRevision,
-  });
-}
-
-function shouldStartFirstProjectedItem(
-  previous: ProRoomSnapshot,
-  next: ProRoomSnapshot,
-): next is ProRoomSnapshot & { currentQueueItemId: QueueItemId } {
-  return (
-    previous.playlist.length === 0 &&
-    previous.currentQueueItemId === null &&
-    previous.playback.state === 'idle' &&
-    next.playlist.length > 0 &&
-    next.currentQueueItemId !== null &&
-    next.playback.state === 'paused' &&
-    next.playback.queueItemId === next.currentQueueItemId &&
-    next.playback.positionSeconds === 0
+  const viewerId = snapshot.viewer?.participantId ?? '';
+  const participants = [...snapshot.presence.participants].sort(
+    (left, right) =>
+      left.joinedAtMs - right.joinedAtMs || left.participantId.localeCompare(right.participantId),
   );
+  const list = participants.map((participant, index) => ({
+    id: participant.participantId,
+    label: participant.displayName,
+    // PRO lifecycle ownership is deliberately absent from the live device
+    // hierarchy. Every row is an equal controller and renders without a host
+    // or ADMIN distinction.
+    isOp: true,
+    isHost: false,
+    status: 'connected',
+    joinOrder: index,
+    connectionType: 'remote' as const,
+  }));
+  const ownIndex = participants.findIndex((participant) => participant.participantId === viewerId);
+  batchSetState({
+    'network.connectedPeers': [],
+    'network.lastKnownDeviceList': list,
+    'network.peerLabels': Object.fromEntries(
+      participants.map((participant) => [participant.participantId, participant.displayName]),
+    ),
+    'network.myJoinOrder': ownIndex >= 0 ? ownIndex : 0,
+  });
+  bus.emit('network:device-list-update', list);
 }
 
 function installLegacyMediaHooks(
@@ -897,15 +985,26 @@ function installLegacyMediaHooks(
       uploadOperationTail = operation.catch(() => undefined);
       return true;
     },
-    addYouTube(item) {
+    addYouTube(item, _sourceUrl, completeVideoIds) {
       if (!isPlaylistLeaseCurrent(lease)) return true;
       if (item.type !== 'youtube' || !item.videoId) return false;
+      const currentIds = item.playlistId
+        ? getState('youtube.subItemsMap')[item.playlistId]?.ids
+        : undefined;
+      const videoIds =
+        completeVideoIds &&
+        currentIds &&
+        completeVideoIds.includes(item.videoId) &&
+        sameStringArray(completeVideoIds, currentIds)
+          ? [...currentIds]
+          : undefined;
       void manager
         .addYouTube({
           queueItemId: item.queueItemId,
           name: item.name,
           videoId: item.videoId,
           ...(item.playlistId ? { playlistId: item.playlistId } : {}),
+          ...(videoIds ? { videoIds } : {}),
           ...(item.title === undefined ? {} : { title: item.title }),
           ...(item.artist === undefined ? {} : { artist: item.artist }),
           ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
@@ -1072,6 +1171,8 @@ function resetPlaylistRuntime(): void {
   playlistRuntimeAbort = null;
   closeAllTransferLoaders();
   uploadOperationTail = Promise.resolve();
+  youtubeManifestUpgradeTail = Promise.resolve();
+  attemptedYouTubeManifestUpgrades.clear();
   registerProRoomLegacyMediaHooks(null);
   mediaTransfer?.cache.clear();
   playlistManager = null;
@@ -1079,33 +1180,34 @@ function resetPlaylistRuntime(): void {
   mediaTransfer = null;
   playlistRoomCode = null;
   playlistSignature = '';
-  coordinatorRefresh = null;
-  invalidationRefreshScheduled = false;
-  invalidationHighWater.reset();
   seenQueueAdditionEventIds.clear();
   pendingQueueAdditions.clear();
   lastAnnouncedQueueAdditionOrder = 0;
   clearManagedTimer(QUEUE_ADDITION_FLUSH_TIMER);
-  lastInvalidationRefreshAt = 0;
-  clearManagedTimer(INVALIDATION_REFRESH_TIMER);
-  checkpointInFlight = false;
-  checkpointDirty = false;
   acceptedEffects = null;
   suppressEffectsCheckpoint = false;
-  lastEffectsCoordinatorEpoch = -1;
-  pendingEffectsBroadcast = null;
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   queueModeMutationTail = Promise.resolve();
   acceptedQueueMode = null;
   suppressQueueModeCheckpoint = false;
-  lastQueueModeCoordinatorEpoch = -1;
   queueModeCheckpointDirty = false;
   queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
-  suppressPlaybackCheckpoint = false;
-  lastPlaybackRestoreKey = '';
-  pendingPlaybackRestore = null;
-  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
+  if (activeServerPlaybackTransition) {
+    activeServerPlaybackTransition.clockAbort.abort();
+    cancelProPlaybackPreparation(activeServerPlaybackTransition.authority);
+  }
+  activeServerPlaybackTransition = null;
+  playbackCommitInFlight.clear();
+  playbackCommitGeneration += 1;
+  // A promise from the room being torn down must never serialize a canonical
+  // COMMIT for the next room incarnation behind stale media work. Its
+  // generation fence still prevents it from publishing a late result.
+  playbackCommitTail = Promise.resolve();
+  playbackCommandTail = Promise.resolve();
+  highestKnownPlaybackRevision = -1;
+  lastAppliedPlaybackRevision = -1;
+  resetProPlaybackAuthorityHooks();
 }
 
 function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateManager {
@@ -1126,19 +1228,19 @@ function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateM
     mediaTransfer,
     projection: playlistProjection,
     sink: ({ snapshot: accepted, playlist }) => applyProjectedPlaylist(accepted, playlist, lease),
-    invalidateCoordinator: ({ previous, next, playlistChanged, playbackChanged }) => {
-      if (!isPlaylistLeaseCurrent(lease)) return;
-      // The first append atomically publishes both the row and its selection.
-      // Only the elected coordinator turns that accepted intent into the
-      // existing synchronized load/play path; members merely invalidate it.
-      if (isCoordinator() && shouldStartFirstProjectedItem(previous, next)) {
-        bus.emit('playlist:play-track', next.currentQueueItemId);
-      }
-      if (playlistChanged || playbackChanged) sendCoordinatorInvalidation(next);
-    },
     reportMediaCleanupError: ({ assetId, error }) => {
       if (isPlaylistLeaseCurrent(lease)) {
         log.warn(`[PRO] Could not clean unused asset ${assetId}`, error);
+      }
+    },
+    requestFirstAppendSelection: (request, signal) =>
+      enqueueFirstAppendSelection(request, lease, signal),
+    reportFirstAppendSelectionError: ({ request, error }) => {
+      if (isPlaylistLeaseCurrent(lease)) {
+        log.warn(
+          `[PRO Playback] First appended item ${request.queueItemId} could not be selected`,
+          error,
+        );
       }
     },
   });
@@ -1153,14 +1255,9 @@ async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> 
   if (!lease) return;
   await manager.acceptSnapshot(snapshot);
   if (!isPlaylistLeaseCurrent(lease)) return;
-  invalidationHighWater.acknowledge(snapshot);
   // Coalesce signaling requests that completed out of order before rendering
   // their rows. The accepted snapshot remains the authority fence.
   scheduleAcceptedQueueAdditionFlush();
-  if (!hasPendingCoordinatorInvalidation()) {
-    invalidationRefreshScheduled = false;
-    clearManagedTimer(INVALIDATION_REFRESH_TIMER);
-  }
 }
 
 function queueAdditionOrder(frame: ProQueueAdditionFrame): number {
@@ -1199,7 +1296,7 @@ function flushAcceptedQueueAdditions(acceptedPlaylistRevision: number): void {
     // older row is more misleading than omitting that stale notification.
     if (order <= lastAnnouncedQueueAdditionOrder) continue;
     lastAnnouncedQueueAdditionOrder = order;
-    broadcastTracksAdded(frame.actorName, frame.count, frame.firstTitle);
+    announceTracksAddedLocally(frame.actorName, frame.count, frame.firstTitle);
   }
 }
 
@@ -1217,134 +1314,6 @@ function scheduleAcceptedQueueAdditionFlush(): void {
   );
 }
 
-function captureLocalPlaybackCheckpoint(): {
-  state: 'idle' | 'playing' | 'paused';
-  queueItemId: QueueItemId | null;
-  positionSeconds: number;
-  youtubeVideoId: string | null;
-  youtubeSubIndex: number | null;
-  updatedAtMs: number;
-} {
-  const mode = getState('playback.mode');
-  const activity = getState('playback.activity');
-  const queueItemId = getState('playlist.currentQueueItemId');
-  const item = queueItemId
-    ? getState('playlist.items').find((candidate) => candidate.queueItemId === queueItemId)
-    : null;
-  if (!item || !queueItemId || mode === null || mode === 'system-audio' || activity === 'idle') {
-    return {
-      state: 'idle',
-      queueItemId: null,
-      positionSeconds: 0,
-      youtubeVideoId: null,
-      youtubeSubIndex: null,
-      updatedAtMs: Date.now(),
-    };
-  }
-  const rawPosition = getTrackPosition();
-  const positionSeconds = Number.isFinite(rawPosition) ? Math.max(0, rawPosition) : 0;
-  const previous = playlistManager?.snapshot?.playback;
-  const previousMatches = previous?.queueItemId === queueItemId ? previous : null;
-  const liveYouTubeVideoId =
-    mode === 'youtube' ? (getYouTubePlayer()?.getVideoData?.()?.video_id ?? '') : '';
-  const rawYouTubeSubIndex = getState('youtube.currentSubIndex');
-  const playlistVideoIds =
-    item.type === 'youtube' && item.playlistId
-      ? getState('youtube.subItemsMap')[item.playlistId]?.ids
-      : undefined;
-  const liveYouTubeSubIndex = playlistVideoIds?.indexOf(liveYouTubeVideoId) ?? -1;
-  const youtubeVideoId =
-    item.type === 'youtube'
-      ? (/^[A-Za-z0-9_-]{11}$/.test(liveYouTubeVideoId)
-          ? liveYouTubeVideoId
-          : previousMatches?.youtubeVideoId) || item.videoId
-      : null;
-  const youtubeSubIndex =
-    item.type === 'youtube'
-      ? liveYouTubeSubIndex >= 0
-        ? liveYouTubeSubIndex
-        : Number.isSafeInteger(rawYouTubeSubIndex) && rawYouTubeSubIndex >= 0
-          ? rawYouTubeSubIndex
-          : (previousMatches?.youtubeSubIndex ?? 0)
-      : null;
-  return {
-    state: activity === 'playing' ? 'playing' : 'paused',
-    queueItemId,
-    positionSeconds,
-    youtubeVideoId,
-    youtubeSubIndex,
-    updatedAtMs: Date.now(),
-  };
-}
-
-/** Exact periodic-checkpoint observation seam used by lifecycle regression tests. */
-export function captureLocalPlaybackCheckpointForTests(): ReturnType<
-  typeof captureLocalPlaybackCheckpoint
-> {
-  return captureLocalPlaybackCheckpoint();
-}
-
-async function persistPlaybackCheckpoint(): Promise<void> {
-  const manager = playlistManager;
-  const lease = playlistRuntimeLease;
-  const operationSignal = playlistRuntimeAbort?.signal;
-  if (
-    !active ||
-    suppressPlaybackCheckpoint ||
-    !manager ||
-    !lease ||
-    !operationSignal ||
-    !isCoordinator()
-  ) {
-    return;
-  }
-  if (checkpointInFlight) {
-    checkpointDirty = true;
-    return;
-  }
-  checkpointInFlight = true;
-  try {
-    await manager.updatePlayback(captureLocalPlaybackCheckpoint(), {
-      signal: operationSignal,
-    });
-  } catch (error) {
-    if (isPlaylistLeaseCurrent(lease) && !operationSignal.aborted) {
-      log.warn('[PRO] Playback checkpoint failed', error);
-    }
-  } finally {
-    if (isPlaylistLeaseCurrent(lease)) {
-      checkpointInFlight = false;
-      if (checkpointDirty) {
-        checkpointDirty = false;
-        schedulePlaybackCheckpoint();
-      }
-    }
-  }
-}
-
-function schedulePlaybackCheckpoint(): void {
-  if (!active || suppressPlaybackCheckpoint || !isCoordinator()) return;
-  clearManagedTimer(PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER);
-  setManagedTimer(
-    PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER,
-    () => void persistPlaybackCheckpoint(),
-    PLAYBACK_CHECKPOINT_DEBOUNCE_MS,
-  );
-}
-
-function schedulePlaybackCheckpointLoop(): void {
-  clearManagedTimer(PLAYBACK_CHECKPOINT_TIMER);
-  if (!active) return;
-  setManagedTimer(
-    PLAYBACK_CHECKPOINT_TIMER,
-    () => {
-      void persistPlaybackCheckpoint();
-      schedulePlaybackCheckpointLoop();
-    },
-    PLAYBACK_CHECKPOINT_INTERVAL_MS,
-  );
-}
-
 function enqueueEffectsMutation<T>(operation: () => Promise<T>): Promise<T> {
   const result = effectsMutationTail.then(operation, operation);
   effectsMutationTail = result.then(
@@ -1358,35 +1327,129 @@ function effectsRuntimeSnapshot(): ProRoomSnapshot | null {
   return playlistManager?.snapshot ?? controller.snapshot;
 }
 
+function cloneRoomEffects(effects: RoomEffectsState): RoomEffectsState {
+  return {
+    reverb: { ...effects.reverb },
+    equalizer: {
+      bandsDb: [...effects.equalizer.bandsDb] as RoomEffectsState['equalizer']['bandsDb'],
+    },
+    virtualBass: { ...effects.virtualBass },
+    virtualSurround: { ...effects.virtualSurround },
+  };
+}
+
+/**
+ * Reapply only the fields changed relative to `base` onto a newer canonical
+ * snapshot. Two participants can therefore adjust unrelated controls without
+ * a stale full-form write erasing either change.
+ */
+function rebaseRoomEffectsIntent(
+  base: RoomEffectsState,
+  desired: RoomEffectsState,
+  canonical: RoomEffectsState,
+): RoomEffectsState {
+  const rebased = cloneRoomEffects(canonical);
+  for (const key of Object.keys(base.reverb) as (keyof RoomEffectsState['reverb'])[]) {
+    if (desired.reverb[key] !== base.reverb[key]) rebased.reverb[key] = desired.reverb[key];
+  }
+  for (let index = 0; index < desired.equalizer.bandsDb.length; index += 1) {
+    if (desired.equalizer.bandsDb[index] !== base.equalizer.bandsDb[index]) {
+      rebased.equalizer.bandsDb[index] = desired.equalizer.bandsDb[index];
+    }
+  }
+  if (desired.virtualBass.strengthPercent !== base.virtualBass.strengthPercent) {
+    rebased.virtualBass.strengthPercent = desired.virtualBass.strengthPercent;
+  }
+  if (desired.virtualSurround.widthPercent !== base.virtualSurround.widthPercent) {
+    rebased.virtualSurround.widthPercent = desired.virtualSurround.widthPercent;
+  }
+  return rebased;
+}
+
+/** @internal Deterministic seam for concurrent-effects regression tests. */
+export function rebaseRoomEffectsIntentForTests(
+  base: RoomEffectsState,
+  desired: RoomEffectsState,
+  canonical: RoomEffectsState,
+): RoomEffectsState {
+  return rebaseRoomEffectsIntent(base, desired, canonical);
+}
+
+function applyCanonicalRoomEffects(effects: RoomEffectsState): boolean {
+  suppressEffectsCheckpoint = true;
+  try {
+    // PRO effect state is server-fanned-out. Applying it locally must never
+    // create a second browser-originated broadcast path.
+    return applyRoomEffectsState(effects, { broadcast: false });
+  } finally {
+    suppressEffectsCheckpoint = false;
+  }
+}
+
 async function persistRoomEffects(): Promise<void> {
   const lease = playlistRuntimeLease;
-  if (!active || suppressEffectsCheckpoint || !lease || !isCoordinator()) return;
+  if (!active || suppressEffectsCheckpoint || !lease) return;
   await enqueueEffectsMutation(async () => {
     const snapshot = effectsRuntimeSnapshot();
-    if (
-      !active ||
-      !isPlaylistLeaseCurrent(lease) ||
-      !isCoordinator() ||
-      snapshot?.roomCode !== lease.roomCode
-    ) {
+    if (!active || !isPlaylistLeaseCurrent(lease) || snapshot?.roomCode !== lease.roomCode) {
       return;
     }
-    const effects = captureRoomEffectsState();
-    if (
-      acceptedEffects?.roomCode === snapshot.roomCode &&
-      roomEffectsEqual(acceptedEffects.effects, effects)
-    ) {
-      return;
-    }
+    let desired = captureRoomEffectsState();
+    let base = acceptedEffects?.roomCode === snapshot.roomCode ? acceptedEffects : null;
     try {
-      const accepted = await api.updateEffects({
-        code: snapshot.roomCode,
-        coordinatorEpoch: snapshot.presence.coordinatorEpoch,
-        effects,
-      });
-      if (active && isPlaylistLeaseCurrent(lease) && isCoordinator()) {
-        acceptedEffects = accepted;
-        lastEffectsCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
+      if (!base || snapshot.effectsRevision > base.revision) {
+        const previousBase = base;
+        const desiredBeforeRead = desired;
+        const canonical = await api.getEffects(snapshot.roomCode, playlistRuntimeAbort?.signal);
+        if (!active || !isPlaylistLeaseCurrent(lease)) return;
+        const latestLocal = captureRoomEffectsState();
+        desired = previousBase
+          ? rebaseRoomEffectsIntent(previousBase.effects, desiredBeforeRead, canonical.effects)
+          : desiredBeforeRead;
+        // Preserve adjustments made while the canonical GET was in flight.
+        desired = rebaseRoomEffectsIntent(desiredBeforeRead, latestLocal, desired);
+        base = canonical;
+        acceptedEffects = canonical;
+        if (!roomEffectsEqual(latestLocal, desired)) applyCanonicalRoomEffects(desired);
+      }
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (roomEffectsEqual(base.effects, desired)) return;
+        try {
+          const accepted = await api.updateEffects(
+            {
+              code: snapshot.roomCode,
+              coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+              baseRevision: base.revision,
+              effects: desired,
+            },
+            playlistRuntimeAbort?.signal,
+          );
+          if (active && isPlaylistLeaseCurrent(lease)) acceptedEffects = accepted;
+          return;
+        } catch (error) {
+          if (
+            attempt !== 0 ||
+            !(error instanceof ProRoomApiError) ||
+            error.code !== 'EFFECTS_REVISION_CONFLICT'
+          ) {
+            throw error;
+          }
+          const previousBase = base;
+          const desiredBeforeRead = desired;
+          const canonical = await api.getEffects(snapshot.roomCode, playlistRuntimeAbort?.signal);
+          if (!active || !isPlaylistLeaseCurrent(lease)) return;
+          const latestLocal = captureRoomEffectsState();
+          desired = rebaseRoomEffectsIntent(
+            previousBase.effects,
+            desiredBeforeRead,
+            canonical.effects,
+          );
+          desired = rebaseRoomEffectsIntent(desiredBeforeRead, latestLocal, desired);
+          base = canonical;
+          acceptedEffects = canonical;
+          if (!roomEffectsEqual(latestLocal, desired)) applyCanonicalRoomEffects(desired);
+        }
       }
     } catch (error) {
       if (active && isPlaylistLeaseCurrent(lease)) {
@@ -1397,7 +1460,7 @@ async function persistRoomEffects(): Promise<void> {
 }
 
 function scheduleEffectsCheckpoint(): void {
-  if (!active || suppressEffectsCheckpoint || !isCoordinator()) return;
+  if (!active || suppressEffectsCheckpoint) return;
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   setManagedTimer(
     EFFECTS_CHECKPOINT_DEBOUNCE_TIMER,
@@ -1406,40 +1469,20 @@ function scheduleEffectsCheckpoint(): void {
   );
 }
 
-async function refreshPersistedEffectsUnlocked(
-  snapshot: ProRoomSnapshot,
-  options: { broadcast?: boolean } = {},
-): Promise<boolean> {
+async function refreshPersistedEffectsUnlocked(snapshot: ProRoomSnapshot): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!lease || !isPlaylistLeaseCurrent(lease) || lease.roomCode !== snapshot.roomCode)
     return false;
-  const accepted = await api.getEffects(snapshot.roomCode);
+  const accepted = await api.getEffects(snapshot.roomCode, playlistRuntimeAbort?.signal);
   const current = effectsRuntimeSnapshot();
   if (!isPlaylistLeaseCurrent(lease) || current?.roomCode !== snapshot.roomCode) return false;
-  if (
-    options.broadcast &&
-    (!active ||
-      !isCoordinator() ||
-      current.presence.coordinatorEpoch !== snapshot.presence.coordinatorEpoch)
-  ) {
-    return false;
-  }
-  suppressEffectsCheckpoint = true;
-  try {
-    if (!applyRoomEffectsState(accepted.effects, { broadcast: options.broadcast })) return false;
-    acceptedEffects = accepted;
-    lastEffectsCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
-    return true;
-  } finally {
-    suppressEffectsCheckpoint = false;
-  }
+  if (!applyCanonicalRoomEffects(accepted.effects)) return false;
+  acceptedEffects = accepted;
+  return true;
 }
 
-async function refreshPersistedEffects(
-  snapshot: ProRoomSnapshot,
-  options: { broadcast?: boolean } = {},
-): Promise<boolean> {
-  return enqueueEffectsMutation(() => refreshPersistedEffectsUnlocked(snapshot, options));
+async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boolean> {
+  return enqueueEffectsMutation(() => refreshPersistedEffectsUnlocked(snapshot));
 }
 
 function queueModeMatchesPlaylist(
@@ -1473,7 +1516,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
   const manager = playlistManager;
   const lease = playlistRuntimeLease;
   const signal = playlistRuntimeAbort?.signal;
-  if (!active || suppressQueueModeCheckpoint || !manager || !lease || !signal || !isCoordinator()) {
+  if (!active || suppressQueueModeCheckpoint || !manager || !lease || !signal) {
     return;
   }
   await enqueueQueueModeMutation(async () => {
@@ -1481,8 +1524,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
       !active ||
       suppressQueueModeCheckpoint ||
       !isPlaylistLeaseCurrent(lease) ||
-      signal.aborted ||
-      !isCoordinator()
+      signal.aborted
     ) {
       return;
     }
@@ -1495,7 +1537,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
       acceptedQueueMode.roomCode !== snapshot.roomCode ||
       !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
     ) {
-      await refreshPersistedQueueModeUnlocked(snapshot, { broadcast: isCoordinator() });
+      await refreshPersistedQueueModeUnlocked(snapshot);
       const canonical = acceptedQueueMode;
       const canonicalSemanticUnchanged =
         previousAccepted !== null &&
@@ -1548,7 +1590,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
         (error.code === 'QUEUE_MODE_REVISION_CONFLICT' ||
           error.code === 'PLAYLIST_REVISION_CONFLICT')
       ) {
-        await refreshPersistedQueueModeUnlocked(snapshot, { broadcast: isCoordinator() });
+        await refreshPersistedQueueModeUnlocked(snapshot);
         queueModeCheckpointDirty = false;
         queueModeCheckpointRetryAttempt = 0;
         return;
@@ -1572,14 +1614,13 @@ async function persistQueueModeCheckpoint(): Promise<void> {
     }
     if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
     acceptedQueueMode = accepted;
-    lastQueueModeCoordinatorEpoch = snapshot.presence.coordinatorEpoch;
     queueModeCheckpointDirty = false;
     queueModeCheckpointRetryAttempt = 0;
   });
 }
 
 function scheduleQueueModeCheckpoint(): void {
-  if (!active || suppressQueueModeCheckpoint || !isCoordinator()) return;
+  if (!active || suppressQueueModeCheckpoint) return;
   queueModeCheckpointDirty = true;
   queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
@@ -1627,11 +1668,10 @@ async function refreshPersistedQueueModeUnlocked(
       return false;
     }
     acceptedQueueMode = accepted;
-    lastQueueModeCoordinatorEpoch = currentSnapshot.presence.coordinatorEpoch;
-    if (changed && options.broadcast && isCoordinator()) {
-      broadcast({ type: MSG.REPEAT_MODE, value: accepted.repeatMode });
-      broadcast({ type: MSG.SHUFFLE_MODE, value: accepted.shuffleEnabled });
-    }
+    // The server invalidation reaches every equal endpoint; never fan this
+    // state through a browser participant.
+    void changed;
+    void options;
     return true;
   } finally {
     suppressQueueModeCheckpoint = false;
@@ -1645,107 +1685,609 @@ async function refreshPersistedQueueMode(
   return enqueueQueueModeMutation(() => refreshPersistedQueueModeUnlocked(snapshot, options));
 }
 
-function showPlaybackRestoreHint(): void {
-  if (!pendingPlaybackRestore || !suppressPlaybackCheckpoint) return;
-  bus.emit('ui:show-toast', t('pro.resume_tap'));
+function serverNowForFrame(serverTimeMs: number, receivedAtMs: number): number {
+  return isProRoomServerClockCalibrated()
+    ? getProRoomServerNow()
+    : serverTimeMs + Math.max(0, Date.now() - receivedAtMs);
 }
 
-function finishPlaybackRestore(): void {
-  if (!pendingPlaybackRestore && !suppressPlaybackCheckpoint) return;
-  pendingPlaybackRestore = null;
-  suppressPlaybackCheckpoint = false;
-  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
-  schedulePlaybackCheckpoint();
+function playbackAuthorityFor(
+  roomCode: string,
+  roomEpoch: number,
+  playbackRevision: number,
+  transitionId: string | null,
+): ProPlaybackAuthorityToken {
+  return createProPlaybackAuthorityToken({
+    roomId: roomCode,
+    roomEpoch,
+    basePlaybackRevision: Math.max(0, playbackRevision - 1),
+    transitionId,
+  });
 }
 
-function cancelPlaybackRestoreForQueueOverride(): boolean {
-  const pending = pendingPlaybackRestore;
-  if (!pending) return false;
-  const selectedQueueItemId = getState('playlist.currentQueueItemId');
-  const targetExists = getState('playlist.items').some(
-    (item) => item.queueItemId === pending.queueItemId,
+function playbackPrepareRequest(
+  authority: ProPlaybackAuthorityToken,
+  playback: ProRoomPlaybackCheckpoint,
+) {
+  if (!playback.queueItemId) return null;
+  return {
+    authority,
+    queueItemId: playback.queueItemId,
+    positionSeconds: playback.positionSeconds,
+    youtubeSubIndex: playback.youtubeSubIndex,
+    youtubeVideoId: playback.youtubeVideoId,
+  } as const;
+}
+
+function sameServerTransition(
+  activeTransition: typeof activeServerPlaybackTransition,
+  event: ProRoomPlaybackPrepareEvent,
+): boolean {
+  return !!(
+    activeTransition &&
+    activeTransition.event.transitionId === event.transitionId &&
+    activeTransition.event.basePlaybackRevision === event.basePlaybackRevision
   );
-  if (selectedQueueItemId === pending.queueItemId && targetExists) return false;
-
-  // A deliberate queue selection/removal supersedes the sleeping-room
-  // checkpoint. Only this explicit override (or a successful restore) may
-  // release suppression; a timeout/decoder failure must preserve server state.
-  finishPlaybackRestore();
-  return true;
 }
 
-function reconcilePlaybackRestore(): void {
-  const pending = pendingPlaybackRestore;
-  if (!pending) return;
-  const activity = getState('playback.activity');
+function reportPlaybackPreparation(
+  transition: NonNullable<typeof activeServerPlaybackTransition>,
+): void {
+  if (transition.readyReportStarted) return;
+  transition.readyReportStarted = true;
+  void transition.preparation
+    .then(async (result) => {
+      if (activeServerPlaybackTransition !== transition) return;
+      let status: 'ready' | 'failed' = 'failed';
+      if (result.status === 'ready') {
+        const elapsedSinceReceiptMs = Math.max(0, Date.now() - transition.receivedAtMs);
+        const fallbackTimeoutMs = Math.max(
+          0,
+          transition.event.deadlineAtMs - transition.event.serverTimeMs - elapsedSinceReceiptMs,
+        );
+        const calibrated = await waitForFreshProRoomServerClockCalibration({
+          serverDeadlineAtMs: transition.event.deadlineAtMs,
+          fallbackTimeoutMs,
+          signal: transition.clockAbort.signal,
+        });
+        if (activeServerPlaybackTransition !== transition) return;
+        if (calibrated) status = 'ready';
+      }
+      try {
+        const outcome = await api.reportPlaybackTransitionReady({
+          code: transition.authority.roomId,
+          transitionId: transition.event.transitionId,
+          basePlaybackRevision: transition.event.basePlaybackRevision,
+          status,
+        });
+        // A lost WebSocket COMMIT is recovered from the canonical snapshot.
+        if (outcome === 'committed') void runHeartbeat(true);
+      } catch (error) {
+        if (
+          error instanceof ProRoomApiError &&
+          (error.code === 'PLAYBACK_TRANSITION_NOT_FOUND' ||
+            error.code === 'PLAYBACK_TRANSITION_STALE' ||
+            error.code === 'PLAYBACK_TRANSITION_NOT_IN_COHORT')
+        ) {
+          return;
+        }
+        log.warn('[PRO Playback] Could not report participant readiness', error);
+      }
+    })
+    .catch((error) => {
+      log.warn('[PRO Playback] Participant preparation failed unexpectedly', error);
+    });
+}
+
+function acceptPlaybackPrepare(
+  event: ProRoomPlaybackPrepareEvent,
+  receivedAtMs = Date.now(),
+): void {
+  const context = getState('room.context');
   if (
-    getState('playlist.currentQueueItemId') === pending.queueItemId &&
-    activity === pending.state
+    !active ||
+    context.kind !== 'pro' ||
+    !context.roomId ||
+    event.target.coordinatorEpoch !== context.epoch ||
+    event.target.revision !== event.basePlaybackRevision + 1 ||
+    event.target.state === 'idle' ||
+    !event.target.queueItemId ||
+    event.basePlaybackRevision < highestKnownPlaybackRevision
   ) {
-    finishPlaybackRestore();
+    return;
   }
+  if (sameServerTransition(activeServerPlaybackTransition, event)) return;
+
+  if (activeServerPlaybackTransition) {
+    activeServerPlaybackTransition.clockAbort.abort();
+    cancelProPlaybackPreparation(activeServerPlaybackTransition.authority);
+  }
+  const authority = createProPlaybackAuthorityToken({
+    roomId: context.roomId,
+    roomEpoch: context.epoch,
+    basePlaybackRevision: event.basePlaybackRevision,
+    transitionId: event.transitionId,
+  });
+  const request = playbackPrepareRequest(authority, event.target);
+  if (!request) return;
+  const transition = {
+    event,
+    authority,
+    preparation: prepareProPlaybackAuthority(request),
+    readyReportStarted: false,
+    receivedAtMs,
+    clockAbort: new AbortController(),
+  };
+  activeServerPlaybackTransition = transition;
+  reportPlaybackPreparation(transition);
+}
+
+function acceptPlaybackCancel(transitionId: string): void {
+  const transition = activeServerPlaybackTransition;
+  if (!transition || transition.event.transitionId !== transitionId) return;
+  transition.clockAbort.abort();
+  cancelProPlaybackPreparation(transition.authority);
+  activeServerPlaybackTransition = null;
+}
+
+function playbackCommitStillCurrent(
+  event: ProRoomPlaybackCommitEvent,
+  generation: number,
+): boolean {
+  const context = getState('room.context');
+  return !!(
+    active &&
+    generation === playbackCommitGeneration &&
+    context.kind === 'pro' &&
+    !!context.roomId &&
+    context.epoch === event.playback.coordinatorEpoch &&
+    event.playback.revision > lastAppliedPlaybackRevision &&
+    event.playback.revision >= highestKnownPlaybackRevision
+  );
+}
+
+function playbackCommitTiming(
+  event: ProRoomPlaybackCommitEvent,
+  receivedAtMs: number,
+): { positionSeconds: number; scheduleDelayMs: number } {
+  const nowMs = serverNowForFrame(event.serverTimeMs, receivedAtMs);
+  return {
+    scheduleDelayMs: Math.max(0, event.executeAtMs - nowMs),
+    positionSeconds:
+      event.playback.state === 'playing'
+        ? event.playback.positionSeconds + Math.max(0, nowMs - event.executeAtMs) / 1_000
+        : event.playback.positionSeconds,
+  };
+}
+
+function clearServerPlaybackTransition(
+  transition: NonNullable<typeof activeServerPlaybackTransition>,
+): void {
+  transition.clockAbort.abort();
+  cancelProPlaybackPreparation(transition.authority);
+  if (activeServerPlaybackTransition === transition) activeServerPlaybackTransition = null;
+}
+
+async function catchUpExactPlaybackCheckpoint(
+  event: ProRoomPlaybackCommitEvent,
+  receivedAtMs: number,
+  generation: number,
+  roomCode: string,
+  roomEpoch: number,
+) {
+  const playback = event.playback;
+  if (playback.state === 'idle' || !playback.queueItemId) return null;
+  const authority = playbackAuthorityFor(
+    roomCode,
+    roomEpoch,
+    playback.revision,
+    `snapshot_${playback.revision}`,
+  );
+  const request = playbackPrepareRequest(authority, playback);
+  if (!request) return null;
+  const prepared = await prepareProPlaybackAuthority(request);
+  if (!playbackCommitStillCurrent(event, generation)) {
+    cancelProPlaybackPreparation(authority);
+    return null;
+  }
+  if (prepared.status !== 'ready') {
+    cancelProPlaybackPreparation(authority);
+    return null;
+  }
+  const timing = playbackCommitTiming(event, receivedAtMs);
+  return commitProPlaybackAuthority({
+    authority,
+    committedPlaybackRevision: playback.revision,
+    queueItemId: playback.queueItemId,
+    state: playback.state,
+    positionSeconds: timing.positionSeconds,
+    scheduleDelayMs: timing.scheduleDelayMs,
+    youtubeSubIndex: playback.youtubeSubIndex,
+    youtubeVideoId: playback.youtubeVideoId,
+    isCurrent: () => playbackCommitStillCurrent(event, generation),
+  });
+}
+
+async function applyPlaybackCommit(
+  event: ProRoomPlaybackCommitEvent,
+  receivedAtMs: number,
+  generation: number,
+): Promise<void> {
+  const context = getState('room.context');
+  const playback = event.playback;
+  if (
+    !active ||
+    context.kind !== 'pro' ||
+    !context.roomId ||
+    playback.coordinatorEpoch !== context.epoch ||
+    playback.revision <= lastAppliedPlaybackRevision ||
+    playback.revision < highestKnownPlaybackRevision
+  ) {
+    return;
+  }
+  if (!playbackCommitStillCurrent(event, generation)) return;
+
+  highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, playback.revision);
+  let authority: ProPlaybackAuthorityToken;
+  let preparation: ReturnType<typeof prepareProPlaybackAuthority> | null = null;
+  const activeTransition = activeServerPlaybackTransition;
+  if (
+    event.transitionId !== null &&
+    activeTransition?.event.transitionId === event.transitionId &&
+    activeTransition.event.target.revision === playback.revision
+  ) {
+    authority = activeTransition.authority;
+    preparation = activeTransition.preparation;
+  } else if (event.transitionId !== null && playback.queueItemId) {
+    if (activeTransition) cancelProPlaybackPreparation(activeTransition.authority);
+    authority = playbackAuthorityFor(
+      context.roomId,
+      context.epoch,
+      playback.revision,
+      event.transitionId,
+    );
+    const request = playbackPrepareRequest(authority, playback);
+    preparation = request ? prepareProPlaybackAuthority(request) : null;
+  } else {
+    authority = playbackAuthorityFor(context.roomId, context.epoch, playback.revision, null);
+  }
+
+  if (preparation) {
+    const prepared = await preparation;
+    if (!playbackCommitStillCurrent(event, generation)) return;
+    if (prepared.status !== 'ready') {
+      if (activeTransition) clearServerPlaybackTransition(activeTransition);
+      const catchup = await catchUpExactPlaybackCheckpoint(
+        event,
+        receivedAtMs,
+        generation,
+        context.roomId,
+        context.epoch,
+      );
+      if (!playbackCommitStillCurrent(event, generation) || catchup?.status !== 'applied') return;
+      lastAppliedPlaybackRevision = playback.revision;
+      void runHeartbeat(true);
+      return;
+    }
+  }
+
+  if (!playbackCommitStillCurrent(event, generation)) return;
+  const timing = playbackCommitTiming(event, receivedAtMs);
+  let result = await commitProPlaybackAuthority({
+    authority,
+    committedPlaybackRevision: playback.revision,
+    queueItemId: playback.queueItemId,
+    state: playback.state,
+    positionSeconds: timing.positionSeconds,
+    scheduleDelayMs: timing.scheduleDelayMs,
+    youtubeSubIndex: playback.youtubeSubIndex,
+    youtubeVideoId: playback.youtubeVideoId,
+    isCurrent: () => playbackCommitStillCurrent(event, generation),
+  });
+  if (!playbackCommitStillCurrent(event, generation)) return;
+
+  // A direct pause/seek or a canonical transition whose resident media was
+  // superseded can reach a freshly resumed endpoint before hydration. Clear
+  // the failed transition and catch up from the exact committed checkpoint
+  // immediately rather than waiting for the next heartbeat.
+  if (result.status !== 'applied' && playback.state !== 'idle' && playback.queueItemId) {
+    if (activeTransition) clearServerPlaybackTransition(activeTransition);
+    result =
+      (await catchUpExactPlaybackCheckpoint(
+        event,
+        receivedAtMs,
+        generation,
+        context.roomId,
+        context.epoch,
+      )) ?? result;
+  }
+
+  if (result.status !== 'applied' || !playbackCommitStillCurrent(event, generation)) return;
+  lastAppliedPlaybackRevision = playback.revision;
+  if (
+    activeServerPlaybackTransition?.event.transitionId === event.transitionId ||
+    activeServerPlaybackTransition?.authority === authority
+  ) {
+    activeServerPlaybackTransition.clockAbort.abort();
+    activeServerPlaybackTransition = null;
+  }
+  void runHeartbeat(true);
+}
+
+function acceptPlaybackCommit(event: ProRoomPlaybackCommitEvent): void {
+  if (event.playback.revision <= lastAppliedPlaybackRevision) return;
+  // A lower revision can arrive after a newer WebSocket frame when a heartbeat
+  // snapshot and the live channel cross. Reject it before advancing the local
+  // generation; otherwise it would cancel the newer COMMIT and then reject
+  // itself against highestKnownPlaybackRevision.
+  if (event.playback.revision < highestKnownPlaybackRevision) return;
+  const existing = playbackCommitInFlight.get(event.playback.revision);
+  if (existing) return;
+  const receivedAtMs = Date.now();
+  highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, event.playback.revision);
+  const generation = ++playbackCommitGeneration;
+  const operation = playbackCommitTail
+    .then(
+      () => applyPlaybackCommit(event, receivedAtMs, generation),
+      () => applyPlaybackCommit(event, receivedAtMs, generation),
+    )
+    .finally(() => {
+      if (playbackCommitInFlight.get(event.playback.revision) === operation) {
+        playbackCommitInFlight.delete(event.playback.revision);
+      }
+    });
+  playbackCommitTail = operation.catch(() => undefined);
+  playbackCommitInFlight.set(event.playback.revision, operation);
+  void operation.catch((error) => {
+    log.warn('[PRO Playback] Canonical COMMIT could not be applied', error);
+  });
+}
+
+function commandForPlaybackIntent(
+  intent: Readonly<ProPlaybackUserIntent>,
+  baseRevision: number,
+): ProRoomPlaybackCommand {
+  if (
+    intent.kind === 'play' ||
+    intent.kind === 'pause' ||
+    intent.kind === 'stop' ||
+    intent.kind === 'next' ||
+    intent.kind === 'previous'
+  ) {
+    return { type: intent.kind, baseRevision };
+  }
+  if (intent.kind === 'advance-sub-video') {
+    // The server already owns manifest traversal for `next`. The distinct
+    // client intent exists only to preserve the exact observation revision;
+    // it deliberately does not add another public Worker command shape.
+    return { type: 'next', baseRevision };
+  }
+  if (intent.kind === 'seek') {
+    return { type: 'seek', baseRevision, positionSeconds: intent.positionSeconds };
+  }
+  if (intent.kind === 'select') {
+    const youtubeIdentity = {
+      ...(intent.youtubeSubIndex === null ? {} : { youtubeSubIndex: intent.youtubeSubIndex }),
+      ...(intent.youtubeVideoId ? { youtubeVideoId: intent.youtubeVideoId } : {}),
+    };
+    return {
+      type: 'select',
+      baseRevision,
+      queueItemId: intent.queueItemId,
+      state: 'playing',
+      positionSeconds: intent.positionSeconds,
+      ...youtubeIdentity,
+    };
+  }
+  if (intent.kind === 'ended' || intent.kind === 'unavailable') {
+    const youtubeIdentity = {
+      ...(intent.youtubeSubIndex === null || intent.youtubeSubIndex === undefined
+        ? {}
+        : { youtubeSubIndex: intent.youtubeSubIndex }),
+      ...(intent.youtubeVideoId ? { youtubeVideoId: intent.youtubeVideoId } : {}),
+    };
+    return {
+      type: intent.kind,
+      baseRevision,
+      queueItemId: intent.queueItemId,
+      mediaKind: intent.mediaKind,
+      observedPositionSeconds: intent.observedPositionSeconds,
+      durationSeconds: intent.durationSeconds,
+      ...youtubeIdentity,
+    };
+  }
+  throw new Error('PRO_PLAYBACK_INTENT_UNSUPPORTED');
+}
+
+async function submitPlaybackIntent(
+  intent: Readonly<ProPlaybackUserIntent>,
+  exactBasePlaybackRevision?: number,
+): Promise<void> {
+  const context = getState('room.context');
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  if (
+    !active ||
+    context.kind !== 'pro' ||
+    !context.roomId ||
+    context.roomId !== intent.roomId ||
+    context.epoch !== intent.roomEpoch ||
+    snapshot?.roomCode !== intent.roomId
+  ) {
+    return;
+  }
+  const exactRevisionIsCurrent =
+    exactBasePlaybackRevision === undefined ||
+    (highestKnownPlaybackRevision <= exactBasePlaybackRevision &&
+      (intent.kind === 'advance-sub-video'
+        ? // COMMIT application precedes the heartbeat that refreshes the
+          // playlist snapshot. The local media revision is therefore the
+          // exact fence for iframe observations during that short window.
+          lastAppliedPlaybackRevision === exactBasePlaybackRevision
+        : snapshot.playback.revision === exactBasePlaybackRevision));
+  if (!exactRevisionIsCurrent) {
+    // Revision-fenced automatic work is intentionally weaker than a human
+    // command. Never rebase a delayed media observation over another
+    // participant's selection/command.
+    await runHeartbeat(true);
+    return;
+  }
+  const baseRevision =
+    exactBasePlaybackRevision ?? Math.max(highestKnownPlaybackRevision, snapshot.playback.revision);
+  try {
+    const result = await api.executePlaybackCommand({
+      code: intent.roomId,
+      command: commandForPlaybackIntent(intent, baseRevision),
+      idempotencyKey: createProRoomIdempotencyKey(),
+    });
+    highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, result.playback.revision);
+    if (result.status === 'preparing' && result.transition) {
+      acceptPlaybackPrepare(result.transition);
+    } else if (result.status === 'committed') {
+      acceptPlaybackCommit({
+        type: 'pro-playback-commit',
+        transitionId: null,
+        serverTimeMs: result.serverTimeMs,
+        executeAtMs: result.playback.updatedAtMs,
+        playback: result.playback,
+      });
+    } else if (result.playback.revision > lastAppliedPlaybackRevision) {
+      void restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
+    }
+  } catch (error) {
+    if (
+      error instanceof ProRoomApiError &&
+      (error.code === 'PLAYBACK_REVISION_CONFLICT' ||
+        error.code === 'PLAYBACK_OBSERVATION_STALE' ||
+        error.code === 'PLAYBACK_TRANSITION_PENDING')
+    ) {
+      await runHeartbeat(true);
+      return;
+    }
+    if (isTerminalSessionError(error)) {
+      await recoverTerminalSession(error);
+      return;
+    }
+    log.warn('[PRO Playback] Server command failed', error);
+  }
+}
+
+function enqueueFirstAppendSelection(
+  request: Readonly<ProRoomFirstAppendSelectionRequest>,
+  lease: PlaylistRuntimeLease,
+  signal?: AbortSignal,
+): Promise<void> {
+  const submit = async () => {
+    const context = getState('room.context');
+    const snapshot = playlistManager?.snapshot;
+    const item = snapshot?.playlist.find(
+      (candidate) => candidate.queueItemId === request.queueItemId,
+    );
+    if (
+      signal?.aborted ||
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      context.kind !== 'pro' ||
+      context.roomId !== request.roomCode ||
+      context.epoch !== request.coordinatorEpoch ||
+      snapshot?.roomCode !== request.roomCode ||
+      snapshot.playlist[0]?.queueItemId !== request.queueItemId ||
+      snapshot.currentQueueItemId !== null ||
+      snapshot.playback.state !== 'idle' ||
+      snapshot.playback.queueItemId !== null ||
+      snapshot.playback.revision !== request.basePlaybackRevision ||
+      !item ||
+      (item.source.kind === 'youtube'
+        ? item.source.videoId !== request.youtubeVideoId ||
+          (item.source.videoIds?.indexOf(item.source.videoId) ?? 0) !== request.youtubeSubIndex
+        : request.youtubeVideoId !== null || request.youtubeSubIndex !== null)
+    ) {
+      return;
+    }
+    await submitPlaybackIntent(
+      {
+        kind: 'select',
+        roomId: request.roomCode,
+        roomEpoch: request.coordinatorEpoch,
+        queueItemId: request.queueItemId,
+        positionSeconds: 0,
+        youtubeVideoId: request.youtubeVideoId,
+        youtubeSubIndex: request.youtubeSubIndex,
+      },
+      request.basePlaybackRevision,
+    );
+  };
+  // A preceding user command failure must not starve a newly committed first
+  // row; the exact playback revision fence still prevents selection theft.
+  const operation = playbackCommandTail.then(submit, submit);
+  playbackCommandTail = operation.catch(() => undefined);
+  return operation;
+}
+
+/** @internal Exact first-append command seam for coordinator-free regressions. */
+export function requestFirstAppendSelectionForTests(
+  request: Readonly<ProRoomFirstAppendSelectionRequest>,
+  signal?: AbortSignal,
+): Promise<void> {
+  const lease = playlistRuntimeLease;
+  return lease ? enqueueFirstAppendSelection(request, lease, signal) : Promise.resolve();
+}
+
+function enqueuePlaybackIntent(intent: Readonly<ProPlaybackUserIntent>): Promise<void> {
+  const exactBaseRevision =
+    intent.kind === 'ended' || intent.kind === 'unavailable' || intent.kind === 'advance-sub-video'
+      ? intent.observedPlaybackRevision
+      : undefined;
+  const operation = playbackCommandTail.then(
+    () => submitPlaybackIntent(intent, exactBaseRevision),
+    () => submitPlaybackIntent(intent, exactBaseRevision),
+  );
+  playbackCommandTail = operation.catch(() => undefined);
+  return operation;
+}
+
+async function restorePlaybackCheckpoint(
+  playback: ProRoomPlaybackCheckpoint,
+  roomCode: string,
+  roomEpoch: number,
+): Promise<void> {
+  const context = getState('room.context');
+  if (
+    context.kind !== 'pro' ||
+    context.roomId !== roomCode ||
+    context.epoch !== roomEpoch ||
+    playback.coordinatorEpoch !== roomEpoch ||
+    playback.revision <= lastAppliedPlaybackRevision ||
+    playback.revision < highestKnownPlaybackRevision
+  ) {
+    return;
+  }
+  if (playback.revision === 0) {
+    if (playback.state === 'idle') lastAppliedPlaybackRevision = 0;
+    return;
+  }
+  const transition = activeServerPlaybackTransition;
+  if (transition && transition.event.target.revision > playback.revision) return;
+  acceptPlaybackCommit({
+    type: 'pro-playback-commit',
+    transitionId:
+      transition?.event.target.revision === playback.revision
+        ? transition.event.transitionId
+        : `snapshot_${playback.revision}`,
+    serverTimeMs: getProRoomServerNow(),
+    executeAtMs: playback.updatedAtMs,
+    playback,
+  });
 }
 
 async function restorePersistedPlayback(snapshot: ProRoomSnapshot): Promise<void> {
   const lease = playlistRuntimeLease;
   if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease)) return;
-  if (!isCoordinator() || snapshot.playback.state === 'idle' || !snapshot.playback.queueItemId) {
-    return;
-  }
-  const item = getState('playlist.items').find(
-    (candidate) => candidate.queueItemId === snapshot.playback.queueItemId,
+  highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, snapshot.playback.revision);
+  await restorePlaybackCheckpoint(
+    snapshot.playback,
+    snapshot.roomCode,
+    snapshot.presence.coordinatorEpoch,
   );
-  if (!item) return;
-  // A checkpoint revision changes during ordinary 10-second persistence. A
-  // restore belongs to one coordinator tenure, not to every checkpoint write.
-  const restoreKey = `${snapshot.roomCode}:${snapshot.presence.coordinatorEpoch}`;
-  if (restoreKey === lastPlaybackRestoreKey) return;
-  lastPlaybackRestoreKey = restoreKey;
-
-  const elapsedSeconds =
-    snapshot.playback.state === 'playing' && snapshot.playback.updatedAtMs > 0
-      ? Math.max(0, (Date.now() - snapshot.playback.updatedAtMs) / 1000)
-      : 0;
-  const positionSeconds = Math.max(0, snapshot.playback.positionSeconds + elapsedSeconds);
-  pendingPlaybackRestore = {
-    queueItemId: snapshot.playback.queueItemId,
-    state: snapshot.playback.state,
-  };
-  suppressPlaybackCheckpoint = true;
-  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
-  setManagedTimer(
-    PLAYBACK_RESTORE_TIMEOUT_TIMER,
-    () => showPlaybackRestoreHint(),
-    PLAYBACK_RESTORE_TIMEOUT_MS,
-  );
-
-  if (item.type === 'youtube') {
-    bus.emit('youtube:restore-room-playback', {
-      videoId: snapshot.playback.youtubeVideoId,
-      playlistId: item.playlistId,
-      name: item.name,
-      queueItemId: item.queueItemId,
-      autoplay: snapshot.playback.state === 'playing',
-      subIndex: snapshot.playback.youtubeSubIndex ?? 0,
-      positionSeconds,
-    });
-    return;
-  }
-
-  let restored: boolean;
-  try {
-    restored = await restoreProRoomLegacyPlayback({
-      queueItemId: item.queueItemId,
-      positionSeconds,
-      state: snapshot.playback.state,
-    });
-  } catch (error) {
-    if (!isPlaylistLeaseCurrent(lease)) return;
-    throw error;
-  }
-  if (!isPlaylistLeaseCurrent(lease)) return;
-  if (!restored) showPlaybackRestoreHint();
-  else reconcilePlaybackRestore();
 }
 
 function applyAuthority(context: RoomContext): void {
@@ -1769,25 +2311,27 @@ function applyAuthority(context: RoomContext): void {
 
 function stopLifecycle(): void {
   active = false;
-  developerControl.reset();
+  unregisterPlaybackCommandHandler?.();
+  unregisterPlaybackCommandHandler = null;
+  if (activeServerPlaybackTransition) {
+    activeServerPlaybackTransition.clockAbort.abort();
+    cancelProPlaybackPreparation(activeServerPlaybackTransition.authority);
+  }
+  activeServerPlaybackTransition = null;
+  playbackCommitGeneration += 1;
+  resetProPlaybackAuthorityHooks();
   heartbeatSingleFlight.reset();
   refreshInFlight = false;
-  topologyRecoveryAttempt = 0;
+  controlChannelRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
-  clearManagedTimer(SIGNALING_REFRESH_TIMER);
-  clearManagedTimer(PLAYBACK_CHECKPOINT_TIMER);
-  clearManagedTimer(PLAYBACK_CHECKPOINT_DEBOUNCE_TIMER);
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
-  clearManagedTimer(PLAYBACK_RESTORE_TIMEOUT_TIMER);
-  clearManagedTimer(INVALIDATION_REFRESH_TIMER);
-  invalidationRefreshScheduled = false;
 }
 
 const observer: ProRoomSessionObserver = {
   snapshot(snapshot) {
     // Runtime entry points accept playlist state transactionally. The observer
-    // only enforces topology authority, avoiding a duplicate async projection
-    // of the same snapshot racing that explicit accept.
+    // only refreshes session-scoped adjunct state, avoiding a duplicate async
+    // playlist projection of the same snapshot racing that explicit accept.
     bindProSystemAudioSession(snapshot);
     reconcileAuthoritativePeers(snapshot);
   },
@@ -1804,246 +2348,6 @@ const observer: ProRoomSessionObserver = {
 };
 
 const controller = new ProRoomSessionController(api, bridge, observer);
-
-function isDeveloperControlBusy(): boolean {
-  return (
-    pendingFileDownload !== null ||
-    isFilePipelineBusyForPlay() ||
-    isPlayLocked() ||
-    isYtLoadInProgress() ||
-    getState('player.isSeeking')
-  );
-}
-
-function cancelPendingDeveloperFileTransitions(): void {
-  // Mirror the coordinator's ordinary play/pause controls without surfacing
-  // their user-initiated "auto play canceled" toast. Otherwise a file that
-  // is waiting in the standard 3-second start window can overwrite an API
-  // pause, or replay from zero shortly after an API play/seek succeeded.
-  clearManagedTimer('autoPlayTimer');
-  clearManagedTimer('ended-advance-retry');
-  clearManagedTimer('ended-advance-next');
-}
-
-/** Exact timer-cancellation seam for the developer-control regression test. */
-export function cancelPendingDeveloperFileTransitionsForTests(): void {
-  cancelPendingDeveloperFileTransitions();
-}
-
-interface DeveloperPlayItemOptions {
-  explicitPlaybackIntent: true;
-}
-
-type DeveloperPlayItemStarter = (
-  queueItemId: QueueItemId,
-  options: DeveloperPlayItemOptions,
-) => Promise<void>;
-
-const startDeveloperPlayItem: DeveloperPlayItemStarter = (queueItemId, options) =>
-  playTrack(queueItemId, undefined, options);
-
-function beginDeveloperPlayItemIntent(
-  queueItemId: QueueItemId,
-  starter: DeveloperPlayItemStarter = startDeveloperPlayItem,
-): boolean {
-  // playTrack synchronously commits the queue selection before its first
-  // await. That selection is the bounded API contract; R2 download/decode may
-  // legitimately continue for minutes and must not keep a short-lived command
-  // open past its epoch/TTL. The existing player pipeline owns all later UX,
-  // retry, and failure transitions.
-  const completion = starter(queueItemId, { explicitPlaybackIntent: true });
-  void completion.catch((error) => {
-    log.warn('[PRO] Developer play-item background pipeline failed', error);
-  });
-  return getState('playlist.currentQueueItemId') === queueItemId;
-}
-
-/** Exact synchronous-intent seam for long-running play-item regression tests. */
-export function beginDeveloperPlayItemIntentForTests(
-  queueItemId: QueueItemId,
-  starter: DeveloperPlayItemStarter,
-): boolean {
-  return beginDeveloperPlayItemIntent(queueItemId, starter);
-}
-
-async function executeDeveloperCommand(
-  command: DeveloperCommandFrame['command'],
-  snapshot: ProRoomSnapshot,
-): Promise<Exclude<DeveloperCommandResultCode, 'already_applied' | 'expired'>> {
-  if (command.type === 'set_effects') {
-    const lease = playlistRuntimeLease;
-    if (!lease || lease.roomCode !== snapshot.roomCode) return 'execution_failed';
-    const current = effectsRuntimeSnapshot();
-    return !active ||
-      !isPlaylistLeaseCurrent(lease) ||
-      !isCoordinator() ||
-      current?.roomCode !== snapshot.roomCode ||
-      current.presence.coordinatorEpoch !== snapshot.presence.coordinatorEpoch
-      ? 'execution_failed'
-      : 'applied';
-  }
-
-  if (isDeveloperControlBusy()) return 'busy';
-
-  if (command.type === 'play_item') {
-    const localItem = getState('playlist.items').find(
-      (item) => item.queueItemId === command.queueItemId,
-    );
-    if (!localItem) return 'stale_queue';
-    return beginDeveloperPlayItemIntent(command.queueItemId) ? 'applied' : 'execution_failed';
-  }
-
-  const queueItemId = snapshot.currentQueueItemId;
-  if (!queueItemId || getState('playlist.currentQueueItemId') !== queueItemId) {
-    return queueItemId ? 'stale_queue' : 'no_media';
-  }
-  const item = snapshot.playlist.find((candidate) => candidate.queueItemId === queueItemId);
-  if (!item) return 'stale_queue';
-
-  const playback = getPlaybackModeActivity();
-  if (playback.mode === 'system-audio') return 'unsupported_mode';
-
-  if (command.type === 'next') {
-    // Keep Developer API traversal identical to the visible Next control:
-    // YouTube aggregates advance their internal sub-index first, then the
-    // shared queue/repeat/shuffle path chooses the next top-level item.
-    playNextTrack();
-    return 'applied';
-  }
-
-  if (item.source.kind === 'youtube') {
-    const player = getYouTubePlayer();
-    if (!player || playback.mode !== 'youtube') return 'no_media';
-    const playerState = player.getPlayerState();
-    const currentTime = Math.max(0, Number(player.getCurrentTime()) || 0);
-
-    if (command.type === 'play') {
-      if (playerState === 1 && playback.activity === 'playing') return 'applied';
-      bus.emit('youtube:auto-play', {
-        targetTime: currentTime,
-        skipSeek: true,
-        state: 1,
-      });
-      return 'applied';
-    }
-    if (command.type === 'pause') {
-      if (playerState === 2 && playback.activity === 'paused') return 'applied';
-      bus.emit('youtube:auto-play', {
-        targetTime: currentTime,
-        skipSeek: true,
-        state: 2,
-      });
-      return 'applied';
-    }
-    seekTo(command.positionSeconds);
-    return 'applied';
-  }
-
-  if (playback.mode !== 'file') return 'no_media';
-  const resident = getState('files.current');
-  if (!getCurrentAudioBuffer() || resident?.queueItemId !== queueItemId) return 'no_media';
-  cancelPendingDeveloperFileTransitions();
-
-  if (command.type === 'play') {
-    if (playback.activity === 'playing') return 'applied';
-    if (playback.activity !== 'paused') return 'no_media';
-    const position = Math.max(0, Number(getState('player.pausedAt')) || 0);
-    await play(position);
-    if (
-      getState('playlist.currentQueueItemId') !== queueItemId ||
-      getPlaybackModeActivity().activity !== 'playing'
-    ) {
-      return 'execution_failed';
-    }
-    broadcast({
-      type: MSG.PLAY,
-      time: position,
-      queueItemId,
-      hostPlayAt: getHostNow() + DEVELOPER_FILE_PLAY_SCHEDULE_AHEAD_MS,
-    });
-    return 'applied';
-  }
-
-  if (command.type === 'pause') {
-    if (playback.activity === 'paused') return 'applied';
-    if (playback.activity !== 'playing') return 'no_media';
-    const position = getTrackPosition();
-    pause(position, { showToast: false });
-    broadcast({
-      type: MSG.PAUSE,
-      time: position,
-      queueItemId,
-      reason: 'pause',
-    });
-    return 'applied';
-  }
-
-  seekTo(command.positionSeconds);
-  return 'applied';
-}
-
-async function refreshDeveloperControlSnapshot(): Promise<ProRoomSnapshot | null> {
-  const lease = playlistRuntimeLease;
-  if (!active || !lease || !isCoordinator()) return null;
-  const incoming = await controller.refresh();
-  if (!active || !isPlaylistLeaseCurrent(lease) || !isCoordinator()) return null;
-  await acceptPlaylistSnapshot(incoming);
-  if (!active || !isPlaylistLeaseCurrent(lease) || !isCoordinator()) return null;
-  return playlistManager?.snapshot ?? incoming;
-}
-
-const developerControl = new DeveloperControlExecutor({
-  now: () => Date.now(),
-  isActive: () => active,
-  isCoordinator,
-  snapshot: () => playlistManager?.snapshot ?? controller.snapshot,
-  refreshSnapshot: refreshDeveloperControlSnapshot,
-  execute: executeDeveloperCommand,
-  acknowledge: async (frame, resultCode) => {
-    const committedEffects =
-      frame.command.type === 'set_effects' &&
-      (resultCode === 'applied' || resultCode === 'already_applied');
-    if (!committedEffects) {
-      await api.ackDeveloperCommand({
-        code: frame.roomCode,
-        commandId: frame.commandId,
-        resultCode,
-      });
-      return;
-    }
-
-    const pending = {
-      commandId: frame.commandId,
-      coordinatorEpoch: frame.coordinatorEpoch,
-    };
-    pendingEffectsBroadcast = pending;
-    await enqueueEffectsMutation(async () => {
-      await api.ackDeveloperCommand({
-        code: frame.roomCode,
-        commandId: frame.commandId,
-        resultCode,
-      });
-      const snapshot = effectsRuntimeSnapshot();
-      if (
-        snapshot?.roomCode === frame.roomCode &&
-        snapshot.presence.coordinatorEpoch === frame.coordinatorEpoch
-      ) {
-        try {
-          if (
-            (await refreshPersistedEffectsUnlocked(snapshot, { broadcast: true })) &&
-            pendingEffectsBroadcast?.commandId === pending.commandId
-          ) {
-            pendingEffectsBroadcast = null;
-          }
-        } catch (error) {
-          // The ACK may already be durable even when its response or the
-          // follow-up read is lost. Heartbeat retries the canonical broadcast.
-          log.warn('[PRO] Applied Developer API effects refresh failed', error);
-        }
-      }
-    });
-  },
-});
 
 onProRoomTabTakeover((roomCode) => {
   if (!active || controller.snapshot?.roomCode !== roomCode) return;
@@ -2091,14 +2395,17 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
   try {
     await heartbeatSingleFlight.run(
       async () => {
-        const invalidationGeneration = invalidationHighWater.beginHeartbeat();
         const localDisplayName = getState('network.myDeviceLabel').trim();
         const snapshot = await controller.heartbeat(
           undefined,
           localDisplayName || controller.snapshot?.viewer?.displayName,
         );
         await acceptPlaylistSnapshot(snapshot);
-        if (snapshot.presence.coordinatorEpoch !== lastEffectsCoordinatorEpoch) {
+        if (
+          !acceptedEffects ||
+          acceptedEffects.roomCode !== snapshot.roomCode ||
+          snapshot.effectsRevision > acceptedEffects.revision
+        ) {
           await refreshPersistedEffects(snapshot).catch((error) => {
             // Effects are a dedicated rolling-deploy resource. A transient
             // read failure must not tear down presence or media playback.
@@ -2106,52 +2413,23 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
           });
         }
         if (
-          isCoordinator() ||
-          snapshot.presence.coordinatorEpoch !== lastQueueModeCoordinatorEpoch
+          !acceptedQueueMode ||
+          acceptedQueueMode.roomCode !== snapshot.roomCode ||
+          snapshot.queueModeRevision > acceptedQueueMode.revision ||
+          !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
         ) {
-          await refreshPersistedQueueMode(snapshot, { broadcast: isCoordinator() }).catch(
-            (error) => {
-              // The dedicated resource is deliberately optional during a
-              // rolling Worker/app deployment. A later heartbeat retries it.
-              log.warn('[PRO] Queue mode refresh failed', error);
-            },
-          );
-        }
-        if (
-          pendingEffectsBroadcast !== null &&
-          pendingEffectsBroadcast.coordinatorEpoch !== snapshot.presence.coordinatorEpoch
-        ) {
-          // A new coordinator causes every participant to refresh canonical
-          // effects above, so an old coordinator's pending broadcast is stale.
-          pendingEffectsBroadcast = null;
-        } else if (pendingEffectsBroadcast !== null && isCoordinator()) {
-          const pending = pendingEffectsBroadcast;
-          try {
-            if (
-              (await refreshPersistedEffects(snapshot, { broadcast: true })) &&
-              pendingEffectsBroadcast?.commandId === pending.commandId
-            ) {
-              pendingEffectsBroadcast = null;
-            }
-          } catch (error) {
-            log.warn('[PRO] Pending Developer API effects broadcast failed', error);
-          }
-        }
-        if (isCoordinator()) {
-          await refreshProSystemAudioState().catch((error) => {
-            // The media lease is intentionally independent from presence.
-            // A transient state refresh must not tear down a healthy room.
-            log.warn('[PRO] System-audio state refresh failed', error);
+          await refreshPersistedQueueMode(snapshot).catch((error) => {
+            log.warn('[PRO] Queue mode refresh failed', error);
           });
         }
-        invalidationHighWater.finishHeartbeat(snapshot, invalidationGeneration);
-        if (!invalidationHighWater.pending) {
-          invalidationRefreshScheduled = false;
-          clearManagedTimer(INVALIDATION_REFRESH_TIMER);
-        }
+        await refreshProSystemAudioState().catch((error) => {
+          // The media lease is intentionally independent from presence.
+          // A transient state refresh must not tear down a healthy room.
+          log.warn('[PRO] System-audio state refresh failed', error);
+        });
         void restorePersistedPlayback(snapshot).catch((error) => {
-          log.warn('[PRO] Coordinator playback restore failed', error);
-          showPlaybackRestoreHint();
+          log.warn('[PRO] Server playback reconciliation failed', error);
+          bus.emit('ui:show-toast', t('pro.resume_tap'));
         });
       },
       { forceFollowUp },
@@ -2161,7 +2439,7 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
       await recoverTerminalSession(error);
     } else {
       // Presence is eventually reconciled by the DO TTL. A transient heartbeat
-      // failure must not tear down healthy P2P media during the ordinary loop.
+      // failure must not tear down healthy local media during the ordinary loop.
       log.warn('[PRO] Presence heartbeat failed', error);
     }
     if (propagateFailure) throw error;
@@ -2172,64 +2450,76 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
   }
 }
 
-async function runTopologyRecovery(): Promise<void> {
+async function runControlChannelRecovery(): Promise<void> {
   const lease = playlistRuntimeLease;
   if (!active || !lease) return;
   clearManagedTimer(HEARTBEAT_TIMER);
   try {
     await runHeartbeat(true, true);
-    topologyRecoveryAttempt = 0;
+    // A transition may have started while this socket was offline. Its exact
+    // descriptor is carried by the replacement one-use ticket, not by the
+    // heartbeat snapshot, so consume it only after the channel is installed.
+    const pendingTransition = bridge.consumePendingPlaybackTransition();
+    if (pendingTransition) acceptPlaybackPrepare(pendingTransition);
+    controlChannelRecoveryAttempt = 0;
   } catch {
     if (!active || !isPlaylistLeaseCurrent(lease)) return;
     const delay =
-      TOPOLOGY_RECOVERY_RETRY_MS[
-        Math.min(topologyRecoveryAttempt, TOPOLOGY_RECOVERY_RETRY_MS.length - 1)
+      CONTROL_CHANNEL_RECOVERY_RETRY_MS[
+        Math.min(controlChannelRecoveryAttempt, CONTROL_CHANNEL_RECOVERY_RETRY_MS.length - 1)
       ] ?? HEARTBEAT_INTERVAL_MS;
-    topologyRecoveryAttempt += 1;
-    // A member can reach signaling just before the newly elected coordinator
-    // has attached. Every ticket is one-use, so retry through heartbeat to
-    // mint a fresh ticket; keep doing so through the 45s presence TTL for an
-    // abruptly vanished coordinator.
-    setManagedTimer(HEARTBEAT_TIMER, () => void runTopologyRecovery(), delay);
+    controlChannelRecoveryAttempt += 1;
+    // Every ticket is a one-use server-control-channel credential. Retry via
+    // heartbeat to mint a fresh ticket until this participant's channel is
+    // attached again or the authenticated presence expires.
+    setManagedTimer(HEARTBEAT_TIMER, () => void runControlChannelRecovery(), delay);
   }
 }
 
-function beginTopologyRecovery(): Promise<void> {
-  topologyRecoveryAttempt = 0;
+function beginControlChannelRecovery(): Promise<void> {
+  controlChannelRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
-  // The data topology is known dead even when authority has not changed yet.
-  // Force the next accepted heartbeat to rebuild the transport for the same
-  // coordinator as well as for a newly elected one.
-  controller.invalidateTransportAuthority();
-  return runTopologyRecovery();
+  const transition = activeServerPlaybackTransition;
+  if (transition && !playbackCommitInFlight.has(transition.event.target.revision)) {
+    // A PREPARE received on a dead channel cannot safely become audible: its
+    // COMMIT may have been missed. Cancel it locally and let the replacement
+    // ticket either reintroduce the still-pending transition or let the fresh
+    // snapshot catch up an already-committed revision.
+    transition.clockAbort.abort();
+    cancelProPlaybackPreparation(transition.authority);
+    if (activeServerPlaybackTransition === transition) activeServerPlaybackTransition = null;
+  }
+  // The authenticated server channel is known dead even when the room
+  // incarnation is unchanged. Force the next accepted heartbeat to rebuild it.
+  controller.invalidateControlChannel();
+  return runControlChannelRecovery();
 }
 
 async function refreshSignalingCredential(): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!active || refreshInFlight || !lease) return false;
+  // A signaling ticket is a one-use WebSocket handshake credential, not a
+  // renewable socket session. Mint one only for a disconnected channel;
+  // periodic creation while connected produced unused server-side tickets.
+  if (bridge.connected) return true;
   refreshInFlight = true;
   try {
     await controller.refreshSignaling();
+    const pendingTransition = bridge.consumePendingPlaybackTransition();
+    if (pendingTransition) acceptPlaybackPrepare(pendingTransition);
     return true;
   } catch (error) {
     if (isTerminalSessionError(error)) {
       await recoverTerminalSession(error);
       return false;
     }
-    // Existing data channels remain valid without signaling. Retry soon so a
-    // later coordinator failover or new member can still connect.
+    // A disconnected server control channel cannot receive canonical room
+    // events. Retry soon with a fresh one-use credential.
     log.warn('[PRO] Signaling credential refresh failed', error);
     return false;
   } finally {
     if (isPlaylistLeaseCurrent(lease)) {
       refreshInFlight = false;
-      if (active) {
-        setManagedTimer(
-          SIGNALING_REFRESH_TIMER,
-          () => void refreshSignalingCredential(),
-          SIGNALING_REFRESH_INTERVAL_MS,
-        );
-      }
     }
   }
 }
@@ -2240,29 +2530,20 @@ function bindVisibilityRefresh(): void {
   document.addEventListener('visibilitychange', () => {
     if (!active || document.visibilityState !== 'visible') return;
     clearManagedTimer(HEARTBEAT_TIMER);
-    clearManagedTimer(SIGNALING_REFRESH_TIMER);
     void runHeartbeat();
-    void refreshSignalingCredential();
   });
 }
 
 function startLifecycle(): void {
-  developerControl.reset();
   active = true;
+  unregisterPlaybackCommandHandler?.();
+  unregisterPlaybackCommandHandler = registerProPlaybackCommandHandler(enqueuePlaybackIntent);
   terminalRecoveryInFlight = false;
   bindVisibilityRefresh();
   clearManagedTimer(HEARTBEAT_TIMER);
-  clearManagedTimer(SIGNALING_REFRESH_TIMER);
   setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
-  setManagedTimer(
-    SIGNALING_REFRESH_TIMER,
-    () => void refreshSignalingCredential(),
-    SIGNALING_REFRESH_INTERVAL_MS,
-  );
-  schedulePlaybackCheckpointLoop();
-  // The legacy topology assigns the final public label (Peer 0, Peer 1, or a
-  // renamed label) only after PRO authentication. Reconcile it immediately so
-  // queue notices never stay pinned to the login-time generic "Peer" value.
+  // Reconcile the authenticated display name immediately so queue notices
+  // never stay pinned to the login-time generic "Peer" value.
   void runHeartbeat(true);
 }
 
@@ -2308,13 +2589,17 @@ async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSna
     throw error;
   }
   startLifecycle();
+  const pendingTransition = bridge.consumePendingPlaybackTransition();
+  if (pendingTransition) acceptPlaybackPrepare(pendingTransition);
   void refreshProSystemAudioState().catch((error) => {
     log.warn('[PRO] Initial system-audio state refresh failed', error);
   });
-  void restorePersistedPlayback(snapshot).catch((error) => {
-    log.warn('[PRO] Persistent playback restore failed', error);
-    showPlaybackRestoreHint();
-  });
+  if (!pendingTransition) {
+    void restorePersistedPlayback(snapshot).catch((error) => {
+      log.warn('[PRO] Persistent playback restore failed', error);
+      bus.emit('ui:show-toast', t('pro.resume_tap'));
+    });
+  }
   return snapshot;
 }
 
@@ -2358,8 +2643,8 @@ export async function changeActiveProRoomPin(pin: string, signal?: AbortSignal):
   try {
     // PIN rotation revokes every other cookie session. Pull the resulting
     // presence snapshot through the authority-aware heartbeat path. Do not
-    // report success until a new-epoch coordinator ticket has rebuilt
-    // signaling and closed every revoked old-epoch peer.
+    // report success until a new-incarnation member ticket has rebuilt the
+    // server control channel and closed every revoked old-incarnation socket.
     const completed = await completeProRoomPinRotation({
       changePin: async () => {
         await api.changePin(code, pin, signal);
@@ -2418,10 +2703,10 @@ function startAtomicPresenceClose(snapshot: ProRoomSnapshot): Promise<void> | nu
     return null;
   }
 
-  const checkpoint =
-    !suppressPlaybackCheckpoint && playlistManager
-      ? buildProRoomUnloadCheckpoint(snapshot, captureLocalPlaybackCheckpoint())
-      : { currentQueueItemId: null, playback: null };
+  // The DO derives the freeze position from its own canonical server-time
+  // anchor when the final presence leaves. A browser observation here would
+  // reintroduce browser authority and background-tab clock drift.
+  const checkpoint = { currentQueueItemId: null, playback: null };
   return api.closePresenceOnUnload({
     code: snapshot.roomCode,
     expectedParticipantId: viewer.participantId,
@@ -2443,7 +2728,7 @@ function hardCloseActiveProRoom(): boolean {
   if (!active || !snapshot) return false;
   // Calling the async API method synchronously reaches fetch() before it
   // yields. Only after the keepalive request has started may local teardown
-  // abort managers, timers, and the WebRTC facade.
+  // abort managers, timers, and the server control channel.
   const closeRequest = startAtomicPresenceClose(snapshot);
   if (!closeRequest) return false;
   stopLifecycle();
@@ -2458,24 +2743,10 @@ function hardCloseActiveProRoom(): boolean {
   return true;
 }
 
-for (const event of [
-  'state:playback.mode',
-  'state:playback.activity',
-  'state:playlist.currentQueueItemId',
-  'state:playlist.items',
-  'state:player.startedAt',
-  'state:player.pausedAt',
-] as const) {
-  bus.on(event, () => {
-    if (event === 'state:playlist.currentQueueItemId') {
-      cancelSupersededFileDownload(getState('playlist.currentQueueItemId'));
-      pruneNonCurrentProRoomFileRows();
-    }
-    if (cancelPlaybackRestoreForQueueOverride()) return;
-    reconcilePlaybackRestore();
-    schedulePlaybackCheckpoint();
-  });
-}
+bus.on('state:playlist.currentQueueItemId', () => {
+  cancelSupersededFileDownload(getState('playlist.currentQueueItemId'));
+  pruneNonCurrentProRoomFileRows();
+});
 
 for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as const) {
   bus.on(event, () => scheduleQueueModeCheckpoint());
@@ -2499,123 +2770,10 @@ for (const event of [
   bus.on(event, () => scheduleEffectsCheckpoint());
 }
 
-function hasPendingCoordinatorInvalidation(): boolean {
-  return invalidationHighWater.pending;
-}
-
-function scheduleCoordinatorInvalidationRefresh(): void {
-  if (
-    !active ||
-    !isCoordinator() ||
-    !hasPendingCoordinatorInvalidation() ||
-    coordinatorRefresh ||
-    invalidationRefreshScheduled
-  ) {
-    return;
-  }
-
-  const delay = Math.max(
-    0,
-    INVALIDATION_REFRESH_MIN_INTERVAL_MS - (Date.now() - lastInvalidationRefreshAt),
-  );
-  if (delay > 0) {
-    invalidationRefreshScheduled = true;
-    setManagedTimer(
-      INVALIDATION_REFRESH_TIMER,
-      () => {
-        invalidationRefreshScheduled = false;
-        void runCoordinatorInvalidationRefresh();
-      },
-      delay,
-    );
-    return;
-  }
-  void runCoordinatorInvalidationRefresh();
-}
-
-async function runCoordinatorInvalidationRefresh(): Promise<void> {
-  const lease = playlistRuntimeLease;
-  if (!active || !isCoordinator() || coordinatorRefresh || !lease) return;
-  invalidationRefreshScheduled = false;
-  clearManagedTimer(INVALIDATION_REFRESH_TIMER);
-  const attemptedRevision = invalidationHighWater.revision;
-  const attemptedPlaylistRevision = invalidationHighWater.playlistRevision;
-
-  const refresh = (async () => {
-    const snapshot = await controller.refresh();
-    await acceptPlaylistSnapshot(snapshot);
-    if (isPlaylistLeaseCurrent(lease) && isCoordinator()) {
-      await refreshPersistedQueueMode(snapshot, { broadcast: true });
-    }
-  })();
-  coordinatorRefresh = refresh;
-  try {
-    await refresh;
-  } catch (error) {
-    if (isTerminalSessionError(error)) await recoverTerminalSession(error);
-    else log.warn('[PRO] Coordinator playlist refresh failed', error);
-  } finally {
-    if (isPlaylistLeaseCurrent(lease) && coordinatorRefresh === refresh) {
-      coordinatorRefresh = null;
-      lastInvalidationRefreshAt = Date.now();
-      // A hint arriving during this request may describe a later commit than
-      // the snapshot we just fetched. Preserve its high-water mark and
-      // schedule one throttled follow-up. A forged/server-ahead mark is not
-      // spun forever; the regular heartbeat will reconcile it later.
-      if (
-        invalidationHighWater.revision > attemptedRevision ||
-        invalidationHighWater.playlistRevision > attemptedPlaylistRevision
-      ) {
-        scheduleCoordinatorInvalidationRefresh();
-      }
-    }
-  }
-}
-
-registerHandler(MSG.PRO_ROOM_INVALIDATED, (data, conn: DataConnection) => {
-  const context = getState('room.context');
-  const current = playlistManager?.snapshot;
-  if (
-    context.kind !== 'pro' ||
-    !isCoordinator() ||
-    !verifyPeerCapability(conn, 'queue.mutate') ||
-    (data.revision <= (current?.revision ?? -1) &&
-      data.playlistRevision <= (current?.playlistRevision ?? -1))
-  ) {
-    return;
-  }
-
-  if (!invalidationHighWater.offer(data, current ?? { revision: -1, playlistRevision: -1 })) return;
-  scheduleCoordinatorInvalidationRefresh();
-});
-
-function acceptDeveloperInvalidation(frame: DeveloperInvalidationFrame): void {
-  const context = getState('room.context');
-  const current = playlistManager?.snapshot;
-  if (
-    context.kind !== 'pro' ||
-    !isCoordinator() ||
-    context.roomId !== frame.roomCode ||
-    context.epoch !== frame.coordinatorEpoch ||
-    (frame.revision <= (current?.revision ?? -1) &&
-      frame.playlistRevision <= (current?.playlistRevision ?? -1))
-  ) {
-    return;
-  }
-
-  if (!invalidationHighWater.offer(frame, current ?? { revision: -1, playlistRevision: -1 })) {
-    return;
-  }
-  scheduleCoordinatorInvalidationRefresh();
-}
-
-bus.on('network:developer-invalidation', acceptDeveloperInvalidation);
-
-bus.on('network:pro-queue-addition', (frame) => {
+function acceptQueueAddition(frame: ProQueueAdditionFrame): void {
   const context = getState('room.context');
   if (
     context.kind !== 'pro' ||
-    !isCoordinator() ||
     context.roomId !== frame.roomCode ||
     context.epoch !== frame.coordinatorEpoch ||
     seenQueueAdditionEventIds.has(frame.eventId) ||
@@ -2630,18 +2788,95 @@ bus.on('network:pro-queue-addition', (frame) => {
     pendingQueueAdditions.delete(oldest);
   }
   scheduleAcceptedQueueAdditionFlush();
+}
+
+bus.on('network:pro-queue-addition', acceptQueueAddition);
+
+onProRoomRealtimeConnection((connected) => {
+  if (!active) return;
+  if (connected) {
+    markProRoomTransportRecovered();
+    return;
+  }
+  requestProRoomTransportRecovery();
 });
 
-bus.on('network:developer-command', (frame) => {
-  void developerControl.handle(frame).catch((error) => {
-    // A failed authoritative refresh is deliberately left unacknowledged;
-    // after execution, the RAM dedupe entry remains even when only the ACK
-    // failed, so bounded redelivery cannot repeat an applied side effect.
-    log.warn('[PRO] Developer command delivery was not acknowledged', error);
-  });
+function acceptProRoomRealtimeFrame(
+  frame: ProServerEventEnvelope | ProRealtimeRelayEnvelope,
+): void {
+  if (!active) return;
+  const context = getState('room.context');
+  if (
+    context.kind !== 'pro' ||
+    context.roomId !== frame.roomCode ||
+    context.epoch !== frame.coordinatorEpoch
+  ) {
+    return;
+  }
+
+  if (frame.type === 'pro-realtime') {
+    receiveProRoomRealtimeChat(frame);
+    return;
+  }
+
+  const prepareEvent = parseProRoomPlaybackPrepareEvent(frame.event);
+  if (prepareEvent) {
+    acceptPlaybackPrepare(prepareEvent, Date.now());
+    return;
+  }
+  const commitEvent = parseProRoomPlaybackCommitEvent(frame.event);
+  if (commitEvent) {
+    acceptPlaybackCommit(commitEvent);
+    return;
+  }
+  const cancelEvent = parseProRoomPlaybackCancelEvent(frame.event);
+  if (cancelEvent) {
+    acceptPlaybackCancel(cancelEvent.transitionId);
+    return;
+  }
+
+  const queueAddition = parseProQueueAdditionFrame(frame.event.addition);
+  if (queueAddition) acceptQueueAddition(queueAddition);
+
+  if (frame.event.type === 'pro-room-invalidated' || frame.event.type === 'pro-presence-snapshot') {
+    void runHeartbeat(true);
+    return;
+  }
+  if (frame.event.type === 'system-audio-invalidated') {
+    void refreshProSystemAudioState().catch((error) => {
+      log.warn('[PRO] Realtime system-audio refresh failed', error);
+    });
+  }
+}
+
+/** @internal Exact server-channel seam for runtime integration regressions. */
+export function acceptProRoomRealtimeFrameForTests(
+  frame: ProServerEventEnvelope | ProRealtimeRelayEnvelope,
+): void {
+  acceptProRoomRealtimeFrame(frame);
+}
+
+onProRoomRealtimeEvent(acceptProRoomRealtimeFrame);
+
+bus.on('pro-room:kick-member', (participantId) => {
+  const context = getState('room.context');
+  if (!active || context.kind !== 'pro' || !context.roomId) return;
+  void api
+    .kickPresence(context.roomId, participantId)
+    .then(async (snapshot) => {
+      await acceptPlaylistSnapshot(snapshot);
+      reconcileAuthoritativePeers(snapshot);
+    })
+    .catch((error) => {
+      if (isTerminalSessionError(error)) {
+        void recoverTerminalSession(error);
+        return;
+      }
+      log.warn('[PRO] Could not remove participant', error);
+    });
 });
 
 registerProRoomHardCloseHandler(() => hardCloseActiveProRoom());
 registerProRoomLeaveHandler(() => leaveActiveProRoom());
 registerProRoomSignalingReconnectHandler(() => refreshSignalingCredential());
-registerProRoomSignalingEpochAdvanceHandler(() => beginTopologyRecovery());
+registerProRoomSignalingEpochAdvanceHandler(() => beginControlChannelRecovery());

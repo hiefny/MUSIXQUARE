@@ -83,8 +83,9 @@ const FULLY_DEAD_BASELINE = [
 // ── TEST-ONLY count baseline ─────────────────────────────────────
 // Number of exports referenced only by unit tests (excluding the sanctioned
 // /ForTests$/ seams). Fails only if the count GROWS; update manually when it
-// shrinks. The reviewed baseline is 17.
-const TEST_ONLY_BASELINE_COUNT = 17;
+// shrinks. Reviewed at 19 after the coordinator-free PRO migration retired
+// obsolete coordinator call sites while retaining focused regression seams.
+const TEST_ONLY_BASELINE_COUNT = 19;
 
 // ── SELF-ONLY count baseline ─────────────────────────────────────
 // Number of exports with no live reference outside their defining file(s).
@@ -92,15 +93,18 @@ const TEST_ONLY_BASELINE_COUNT = 17;
 // unit-test-imported symbols (self-ref
 // precedence places them here, not in TEST-ONLY) plus the types/index.ts
 // barrel. Fails only if the count GROWS; update manually when it shrinks.
-const SELF_ONLY_BASELINE_COUNT = 51;
+// Reviewed at 64 after adding the server-authority protocol/type surface.
+const SELF_ONLY_BASELINE_COUNT = 64;
 
 // ── Walk / strip helpers (mirrors check-bus-pairing.mjs) ─────────
 
 function stripComments(text) {
-  return text
-    // Blank block comments but keep their newlines so line numbers stay accurate.
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  return (
+    text
+      // Blank block comments but keep their newlines so line numbers stay accurate.
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+  );
 }
 
 function stripHtmlComments(text) {
@@ -124,13 +128,13 @@ function walk(dir, exts, out = []) {
 }
 
 const isTestPath = (relPath) =>
-  relPath.includes('/__tests__/') ||
-  relPath.endsWith('.test.ts') ||
-  relPath.endsWith('.spec.ts');
+  relPath.includes('/__tests__/') || relPath.endsWith('.test.ts') || relPath.endsWith('.spec.ts');
 
 const isProdSrc = (relPath) =>
-  relPath.startsWith('src/') && relPath.endsWith('.ts') &&
-  !relPath.endsWith('.d.ts') && !isTestPath(relPath);
+  relPath.startsWith('src/') &&
+  relPath.endsWith('.ts') &&
+  !relPath.endsWith('.d.ts') &&
+  !isTestPath(relPath);
 
 // ── Gather the corpus ────────────────────────────────────────────
 // corpus: relPath -> comment-stripped text, tagged by role:
@@ -345,12 +349,8 @@ if (testOnlyGrowth) {
   console.log(
     `TEST-ONLY EXPORT COUNT GREW: ${testOnly.length} > baseline ${TEST_ONLY_BASELINE_COUNT}`,
   );
-  console.log(
-    pad('A new test-only export needs a decision: either it is a sanctioned seam'),
-  );
-  console.log(
-    pad('(rename it to the /ForTests$/ convention) or the test should use the'),
-  );
+  console.log(pad('A new test-only export needs a decision: either it is a sanctioned seam'));
+  console.log(pad('(rename it to the /ForTests$/ convention) or the test should use the'));
   console.log(pad('public surface. Raising the baseline requires owner review.'));
   console.log('');
 }
@@ -360,15 +360,9 @@ if (selfOnlyGrowth) {
   console.log(
     `SELF-ONLY EXPORT COUNT GREW: ${selfOnly.length} > baseline ${SELF_ONLY_BASELINE_COUNT}`,
   );
-  console.log(
-    pad('A new self-only export needs a decision: if nothing outside the file'),
-  );
-  console.log(
-    pad('(including unit tests) references it, drop the export keyword; if a'),
-  );
-  console.log(
-    pad('test imports it, consider the /ForTests$/ seam convention instead.'),
-  );
+  console.log(pad('A new self-only export needs a decision: if nothing outside the file'));
+  console.log(pad('(including unit tests) references it, drop the export keyword; if a'));
+  console.log(pad('test imports it, consider the /ForTests$/ seam convention instead.'));
   console.log(pad('Raising the baseline requires owner review.'));
   console.log('');
 }
@@ -421,14 +415,11 @@ if (selfOnly.length < SELF_ONLY_BASELINE_COUNT && !failed) {
 }
 
 if (!failed) {
-  console.log(
-    'OK — no new fully-dead exports; test-only and self-only counts within ratchet.',
-  );
+  console.log('OK — no new fully-dead exports; test-only and self-only counts within ratchet.');
   process.exit(0);
 }
 
 console.log(
-  'Total findings: ' +
-    (newDead.length + (testOnlyGrowth ? 1 : 0) + (selfOnlyGrowth ? 1 : 0)),
+  'Total findings: ' + (newDead.length + (testOnlyGrowth ? 1 : 0) + (selfOnlyGrowth ? 1 : 0)),
 );
 process.exit(1);

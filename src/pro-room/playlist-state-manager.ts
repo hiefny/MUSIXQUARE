@@ -61,17 +61,19 @@ type ProRoomPlaylistProjectionSink = (
   event: ProRoomPlaylistProjectionEvent,
 ) => void | Promise<void>;
 
-interface ProRoomCoordinatorInvalidationEvent {
-  previous: ProRoomSnapshot;
-  next: ProRoomSnapshot;
-  playlistChanged: boolean;
-  playbackChanged: boolean;
-  coordinatorEpochChanged: boolean;
+export interface ProRoomFirstAppendSelectionRequest {
+  roomCode: string;
+  queueItemId: QueueItemId;
+  coordinatorEpoch: number;
+  basePlaybackRevision: number;
+  youtubeVideoId: string | null;
+  youtubeSubIndex: number | null;
 }
 
-type ProRoomCoordinatorInvalidator = (
-  event: ProRoomCoordinatorInvalidationEvent,
-) => void | Promise<void>;
+interface ProRoomFirstAppendSelectionErrorEvent {
+  request: ProRoomFirstAppendSelectionRequest;
+  error: unknown;
+}
 
 interface ProRoomPlaylistStateManagerOptions {
   code: string;
@@ -79,8 +81,14 @@ interface ProRoomPlaylistStateManagerOptions {
   mediaTransfer: ProRoomPlaylistMediaTransfer;
   sink: ProRoomPlaylistProjectionSink;
   projection?: ProRoomPlaylistProjection;
-  invalidateCoordinator?: ProRoomCoordinatorInvalidator;
   reportMediaCleanupError?: ProRoomMediaCleanupErrorReporter;
+  requestFirstAppendSelection?: (
+    request: ProRoomFirstAppendSelectionRequest,
+    signal?: AbortSignal,
+  ) => void | Promise<void>;
+  reportFirstAppendSelectionError?: (
+    event: ProRoomFirstAppendSelectionErrorEvent,
+  ) => void | Promise<void>;
   createIdempotencyKey?: () => string;
   createQueueItemId?: () => QueueItemId;
   now?: () => number;
@@ -91,6 +99,7 @@ interface AddProRoomYouTubeInput {
   name: string;
   videoId: string;
   playlistId?: string;
+  videoIds?: readonly string[];
   title?: string;
   artist?: string;
   thumbnail?: string;
@@ -102,6 +111,13 @@ interface UpdateProRoomPlaylistMetadataInput {
   title?: string | null;
   artist?: string | null;
   thumbnail?: string | null;
+}
+
+interface UpdateProRoomYouTubeManifestInput {
+  /** Identity fence captured before asynchronous playlist resolution. */
+  playlistId: string;
+  videoId: string;
+  videoIds: readonly string[];
 }
 
 interface AddProRoomLocalFileInput {
@@ -261,47 +277,12 @@ function idlePlayback(
   };
 }
 
-function selectFirstItemPlayback(
-  playback: ProRoomPlaybackCheckpoint,
-  item: ProRoomPlaylistWireItem,
-  updatedAtMs: number,
-): ProRoomPlaybackCheckpoint {
-  if (playback.revision >= Number.MAX_SAFE_INTEGER) {
-    throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_REVISION_EXHAUSTED');
-  }
-  return {
-    coordinatorEpoch: playback.coordinatorEpoch,
-    revision: playback.revision + 1,
-    state: 'paused',
-    queueItemId: item.queueItemId,
-    positionSeconds: 0,
-    youtubeVideoId: item.source.kind === 'youtube' ? item.source.videoId : null,
-    youtubeSubIndex: item.source.kind === 'youtube' ? 0 : null,
-    updatedAtMs: Math.max(playback.updatedAtMs, updatedAtMs),
-  };
-}
-
-function shouldInvalidateCoordinator(
-  previous: ProRoomSnapshot,
-  next: ProRoomSnapshot,
-): Omit<ProRoomCoordinatorInvalidationEvent, 'previous' | 'next'> | null {
-  const playlistChanged =
-    previous.playlistRevision !== next.playlistRevision ||
-    previous.currentQueueItemId !== next.currentQueueItemId;
-  const playbackChanged = !jsonEqual(previous.playback, next.playback);
-  const coordinatorEpochChanged =
-    previous.presence.coordinatorEpoch !== next.presence.coordinatorEpoch;
-  return playlistChanged || playbackChanged || coordinatorEpochChanged
-    ? { playlistChanged, playbackChanged, coordinatorEpochChanged }
-    : null;
-}
-
 /**
- * Isolated authoritative PRO-room playlist coordinator.
+ * Isolated authoritative PRO-room playlist state manager.
  *
  * This class deliberately has no app bus or transport dependency. Integrators
- * inject the API, projected-playlist sink, and coordinator invalidation hook.
- * Mutations are locally serialized and use one bounded CAS refresh/rebase.
+ * inject the API and projected-playlist sink. Mutations are locally serialized
+ * and use one bounded CAS refresh/rebase against the server authority.
  */
 export class ProRoomPlaylistStateManager {
   readonly #code: string;
@@ -309,8 +290,9 @@ export class ProRoomPlaylistStateManager {
   readonly #mediaTransfer: ProRoomPlaylistMediaTransfer;
   readonly #sink: ProRoomPlaylistProjectionSink;
   readonly #projection: ProRoomPlaylistProjection;
-  readonly #invalidateCoordinator?: ProRoomCoordinatorInvalidator;
   readonly #reportMediaCleanupError?: ProRoomMediaCleanupErrorReporter;
+  readonly #requestFirstAppendSelection?: ProRoomPlaylistStateManagerOptions['requestFirstAppendSelection'];
+  readonly #reportFirstAppendSelectionError?: ProRoomPlaylistStateManagerOptions['reportFirstAppendSelectionError'];
   readonly #createIdempotencyKey: () => string;
   readonly #createQueueItemId: () => QueueItemId;
   readonly #now: () => number;
@@ -327,8 +309,9 @@ export class ProRoomPlaylistStateManager {
     this.#mediaTransfer = options.mediaTransfer;
     this.#sink = options.sink;
     this.#projection = options.projection ?? new ProRoomPlaylistProjection();
-    this.#invalidateCoordinator = options.invalidateCoordinator;
     this.#reportMediaCleanupError = options.reportMediaCleanupError;
+    this.#requestFirstAppendSelection = options.requestFirstAppendSelection;
+    this.#reportFirstAppendSelectionError = options.reportFirstAppendSelectionError;
     this.#createIdempotencyKey = options.createIdempotencyKey ?? createProRoomIdempotencyKey;
     this.#createQueueItemId = options.createQueueItemId ?? defaultQueueItemId;
     this.#now = options.now ?? Date.now;
@@ -360,9 +343,69 @@ export class ProRoomPlaylistStateManager {
           kind: 'youtube',
           videoId: input.videoId,
           ...(input.playlistId === undefined ? {} : { playlistId: input.playlistId }),
+          ...(input.videoIds === undefined ? {} : { videoIds: [...input.videoIds] }),
         },
       });
       return this.#appendCanonicalItem(item, input.signal);
+    });
+  }
+
+  /**
+   * Upgrade one legacy YouTube playlist source with its immutable manifest.
+   * The source identity is rechecked after a CAS refresh so a late resolver
+   * can never annotate a replaced/reordered queue occurrence.
+   */
+  updateYouTubeManifest(
+    queueItemId: QueueItemId,
+    input: UpdateProRoomYouTubeManifestInput,
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    return this.#enqueue(() => {
+      this.#validateQueueItemId(queueItemId);
+      const canonicalSource = canonicalItem({
+        queueItemId,
+        name: 'manifest-validation',
+        source: {
+          kind: 'youtube',
+          playlistId: input.playlistId,
+          videoId: input.videoId,
+          videoIds: [...input.videoIds],
+        },
+      }).source;
+      if (canonicalSource.kind !== 'youtube' || !canonicalSource.videoIds) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_YOUTUBE_MANIFEST_INVALID');
+      }
+      const canonicalVideoIds = [...canonicalSource.videoIds];
+
+      return this.#mutate((snapshot) => {
+        const index = snapshot.playlist.findIndex((item) => item.queueItemId === queueItemId);
+        if (index === -1) return null;
+        const current = snapshot.playlist[index]!;
+        if (
+          current.source.kind !== 'youtube' ||
+          current.source.playlistId !== input.playlistId ||
+          current.source.videoId !== input.videoId
+        ) {
+          return null;
+        }
+        // A manifest is immutable after the one legacy absent -> present
+        // upgrade. Duplicate or conflicting late resolvers are both no-ops.
+        if (current.source.videoIds) return null;
+
+        const playlist = clonePlaylist(snapshot.playlist);
+        playlist[index] = canonicalItem({
+          ...current,
+          source: {
+            ...current.source,
+            videoIds: canonicalVideoIds,
+          },
+        });
+        return {
+          playlist,
+          currentQueueItemId: snapshot.currentQueueItemId,
+          playback: clonePlayback(snapshot.playback),
+        };
+      }, options.signal);
     });
   }
 
@@ -609,12 +652,17 @@ export class ProRoomPlaylistStateManager {
         if (selectedItem?.source.kind === 'youtube') {
           youtubeVideoId =
             input.youtubeVideoId === undefined ? selectedItem.source.videoId : input.youtubeVideoId;
-          youtubeSubIndex = input.youtubeSubIndex === undefined ? 0 : input.youtubeSubIndex;
+          youtubeSubIndex =
+            input.youtubeSubIndex === undefined
+              ? (selectedItem.source.videoIds?.indexOf(youtubeVideoId ?? '') ?? 0)
+              : input.youtubeSubIndex;
           if (
             youtubeVideoId === null ||
             youtubeSubIndex === null ||
             !/^[A-Za-z0-9_-]{11}$/.test(youtubeVideoId) ||
-            !isSafeNonNegativeInteger(youtubeSubIndex)
+            !isSafeNonNegativeInteger(youtubeSubIndex) ||
+            (selectedItem.source.videoIds !== undefined &&
+              selectedItem.source.videoIds[youtubeSubIndex] !== youtubeVideoId)
           ) {
             throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_PLAYBACK_YOUTUBE_INVALID');
           }
@@ -654,11 +702,16 @@ export class ProRoomPlaylistStateManager {
     });
   }
 
-  #appendCanonicalItem(
+  async #appendCanonicalItem(
     item: ProRoomPlaylistWireItem,
     signal?: AbortSignal,
   ): Promise<ProRoomSnapshot> {
-    return this.#mutate((snapshot) => {
+    let firstSelectionRequest: ProRoomFirstAppendSelectionRequest | null = null;
+    const accepted = await this.#mutate((snapshot) => {
+      // The intent may run again after a CAS refresh. Only the actor whose
+      // rebased canonical view is still truly empty may request first-track
+      // selection; a concurrent winner makes this null on the second pass.
+      firstSelectionRequest = null;
       const existing = snapshot.playlist.find(
         (candidate) => candidate.queueItemId === item.queueItemId,
       );
@@ -667,18 +720,58 @@ export class ProRoomPlaylistStateManager {
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
       }
       this.#assertCapacity(snapshot, 1);
-      const selectFirstItem =
+      const canSelectFirstItem =
         snapshot.playlist.length === 0 &&
         snapshot.currentQueueItemId === null &&
         snapshot.playback.state === 'idle';
+      if (canSelectFirstItem) {
+        firstSelectionRequest = {
+          roomCode: snapshot.roomCode,
+          queueItemId: item.queueItemId,
+          coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+          basePlaybackRevision: snapshot.playback.revision,
+          youtubeVideoId: item.source.kind === 'youtube' ? item.source.videoId : null,
+          youtubeSubIndex:
+            item.source.kind === 'youtube'
+              ? (item.source.videoIds?.indexOf(item.source.videoId) ?? 0)
+              : null,
+        };
+      }
       return {
         playlist: [...clonePlaylist(snapshot.playlist), canonicalItem(item)],
-        currentQueueItemId: selectFirstItem ? item.queueItemId : snapshot.currentQueueItemId,
-        playback: selectFirstItem
-          ? selectFirstItemPlayback(snapshot.playback, item, this.#currentTimeMs())
-          : clonePlayback(snapshot.playback),
+        // Queue mutations carry observations only. Selection/playback is
+        // exclusively changed through the server playback command endpoint.
+        currentQueueItemId: snapshot.currentQueueItemId,
+        playback: clonePlayback(snapshot.playback),
       };
     }, signal);
+
+    const request = firstSelectionRequest as ProRoomFirstAppendSelectionRequest | null;
+    const firstItem = accepted.playlist[0];
+    if (
+      request &&
+      this.#requestFirstAppendSelection &&
+      firstItem?.queueItemId === item.queueItemId &&
+      accepted.currentQueueItemId === null &&
+      accepted.playback.state === 'idle' &&
+      accepted.playback.queueItemId === null &&
+      accepted.playback.revision === request.basePlaybackRevision &&
+      accepted.presence.coordinatorEpoch === request.coordinatorEpoch
+    ) {
+      try {
+        await this.#requestFirstAppendSelection(request, signal);
+      } catch (error) {
+        // The row (and, for files, its R2 asset reference) is already
+        // canonical. A follow-up playback failure must never turn that
+        // committed asset into an "uploaded orphan" cleanup candidate.
+        try {
+          await this.#reportFirstAppendSelectionError?.({ request, error });
+        } catch {
+          /* reporting is best effort */
+        }
+      }
+    }
+    return accepted;
   }
 
   async #mutate(intent: PlaylistIntent, signal?: AbortSignal): Promise<ProRoomSnapshot> {
@@ -786,7 +879,6 @@ export class ProRoomPlaylistStateManager {
     if (result.outcome === 'duplicate') return cloneSnapshot(accepted);
 
     const projected = this.#projection.project(accepted.playlist);
-    const previous = this.#snapshot;
 
     // Projection is part of accepting a snapshot, not a best-effort side
     // effect. Do not advance the manager clock until the sink has committed
@@ -795,17 +887,6 @@ export class ProRoomPlaylistStateManager {
     // be projected on retry.
     await this.#sink({ snapshot: cloneSnapshot(accepted), playlist: projected });
     this.#snapshot = accepted;
-
-    if (previous && this.#invalidateCoordinator) {
-      const reason = shouldInvalidateCoordinator(previous, accepted);
-      if (reason) {
-        await this.#invalidateCoordinator({
-          previous: cloneSnapshot(previous),
-          next: cloneSnapshot(accepted),
-          ...reason,
-        });
-      }
-    }
     return cloneSnapshot(accepted);
   }
 

@@ -51,20 +51,27 @@ the routing change does not itself require a service-worker cache-version bump.
 
 ### 2. Coalesce only pure PRO presence-heartbeat durability
 
-An ordinary authenticated heartbeat still validates the participant and
+A pure authenticated PRO heartbeat still validates the participant and
 presence incarnation, updates the in-memory `lastSeenAtMs`, evaluates expiry
 and compatibility conditions, and responds immediately. The first heartbeat
 after a quiet period persists inline, exactly as before. If another pure
 heartbeat arrives inside the following one-second window, only those dense
 renewals are coalesced until the end of that window.
 
+This heartbeat belongs to the canonical PRO room Durable Object. It renews the
+authoritative HTTP presence lease; it is not a ping emitted by a browser
+coordinator and it does not own a WebSocket. Hibernatable browser sockets,
+attachments, and realtime fan-out belong to the separate signaling Durable
+Object. The optimization therefore changes neither socket membership nor the
+server-owned playback timeline.
+
 Every semantically meaningful mutation remains an immediate full persistence
 boundary, including:
 
 - participant join, explicit leave, expiry removal, or session invalidation;
-- coordinator election, coordinator epoch, topology, or authorization changes;
-- PIN, room lifecycle, system-audio, playback, playlist, quota, or media
-  mutations; and
+- room-control incarnation, presence topology, or authorization changes;
+- PIN, room lifecycle, system-audio, playback transition/READY, playlist,
+  quota, or media mutations; and
 - Developer API command changes and required legacy rollback-shadow refreshes.
 
 An immediate persistence absorbs any pending heartbeat flush, cancels its
@@ -95,7 +102,7 @@ single-participant rooms while reducing dense write amplification.
 
 The schema stays at v2. A Durable Object interruption can discard only pure
 renewals accepted during the open window of at most one second; it cannot lose
-a committed participant topology or coordinator change. For an affected
+a committed participant topology or room-control change. For an affected
 participant the durable timestamp can fall back to its preceding client
 heartbeat (normally about 15 seconds earlier), still leaving roughly 30 seconds
 inside the default 45-second expiry lease for the next heartbeat to recover.

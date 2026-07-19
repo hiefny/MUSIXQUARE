@@ -3,6 +3,7 @@ import {
   capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_MAX_PRESENCE_ITEMS,
+  PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   proRoomRoleCanForTests as proRoomRoleCan,
   type ProRoomCapability,
@@ -28,7 +29,6 @@ const OWNER_CAPABILITIES: ProRoomCapability[] = [
   'playback.control',
   'effects.control',
   'asset.upload',
-  'coordinator.eligible',
   'members.manage',
   'room.configure',
 ];
@@ -41,6 +41,8 @@ function activeSnapshot(): ProRoomSnapshot {
     runtime: 'awake',
     revision: 12,
     playlistRevision: 7,
+    effectsRevision: 2,
+    queueModeRevision: 3,
     playlist: [
       {
         queueItemId: Q1,
@@ -79,7 +81,7 @@ function activeSnapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 3,
       revision: 5,
-      coordinatorParticipantId: PARTICIPANT_ID,
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
@@ -102,7 +104,7 @@ function activeSnapshot(): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
   };
 }
@@ -115,6 +117,8 @@ function unactivatedSnapshot(): ProRoomSnapshot {
     runtime: 'sleeping',
     revision: 0,
     playlistRevision: 0,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {
@@ -150,7 +154,6 @@ describe('PRO room roles and credentials', () => {
       'playback.control',
       'effects.control',
       'asset.upload',
-      'coordinator.eligible',
       'members.manage',
     ]);
     expect(capabilitiesForProRoomRole('owner')).toEqual(OWNER_CAPABILITIES);
@@ -189,6 +192,41 @@ describe('PRO playlist wire items', () => {
     if (malformedVideo?.source.kind !== 'youtube') throw new Error('fixture');
     malformedVideo.source.videoId = 'too-short';
     expect(parseProRoomPlaylistItem(malformedVideo)).toBeNull();
+  });
+
+  it('strictly validates an ordered YouTube playlist manifest without deduplicating occurrences', () => {
+    const item = structuredClone(activeSnapshot().playlist[1]);
+    if (item?.source.kind !== 'youtube') throw new Error('fixture');
+    item.source.videoIds = ['dQw4w9WgXcQ', 'aaaaaaaaaaa', 'dQw4w9WgXcQ'];
+    expect(parseProRoomPlaylistItem(item)?.source).toEqual(item.source);
+
+    const detached = parseProRoomPlaylistItem(item);
+    item.source.videoIds[1] = 'bbbbbbbbbbb';
+    expect(detached?.source.kind === 'youtube' ? detached.source.videoIds?.[1] : null).toBe(
+      'aaaaaaaaaaa',
+    );
+
+    const withoutPlaylist = structuredClone(item);
+    if (withoutPlaylist.source.kind !== 'youtube') throw new Error('fixture');
+    delete withoutPlaylist.source.playlistId;
+    expect(parseProRoomPlaylistItem(withoutPlaylist)).toBeNull();
+
+    const nonFirstEntry = structuredClone(item);
+    if (nonFirstEntry.source.kind !== 'youtube' || !nonFirstEntry.source.videoIds) {
+      throw new Error('fixture');
+    }
+    nonFirstEntry.source.videoIds = ['aaaaaaaaaaa', nonFirstEntry.source.videoId];
+    expect(parseProRoomPlaylistItem(nonFirstEntry)).not.toBeNull();
+    nonFirstEntry.source.videoIds = ['aaaaaaaaaaa'];
+    expect(parseProRoomPlaylistItem(nonFirstEntry)).toBeNull();
+
+    const tooLarge = structuredClone(item);
+    if (tooLarge.source.kind !== 'youtube') throw new Error('fixture');
+    tooLarge.source.videoIds = Array.from(
+      { length: PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS + 1 },
+      () => tooLarge.source.kind === 'youtube' && tooLarge.source.videoId,
+    ).filter((videoId): videoId is string => typeof videoId === 'string');
+    expect(parseProRoomPlaylistItem(tooLarge)).toBeNull();
   });
 
   it('rejects flattened, oversized, unversioned, and weakly identified R2 assets', () => {
@@ -236,6 +274,20 @@ describe('PRO room snapshot validation', () => {
     expect(parsed?.playback).not.toBe(raw.playback);
   });
 
+  it('requires non-negative safe effects and queue-mode revision heads', () => {
+    const missingEffects = activeSnapshot() as unknown as Record<string, unknown>;
+    delete missingEffects.effectsRevision;
+    expect(parseProRoomSnapshot(missingEffects)).toBeNull();
+
+    const malformedEffects = activeSnapshot();
+    malformedEffects.effectsRevision = -1;
+    expect(parseProRoomSnapshot(malformedEffects)).toBeNull();
+
+    const malformedQueueMode = activeSnapshot();
+    malformedQueueMode.queueModeRevision = Number.MAX_SAFE_INTEGER + 1;
+    expect(parseProRoomSnapshot(malformedQueueMode)).toBeNull();
+  });
+
   it('accepts the empty unactivated lifecycle and keeps runtime separate', () => {
     expect(parseProRoomSnapshot(unactivatedSnapshot())).toEqual(unactivatedSnapshot());
 
@@ -252,15 +304,12 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(sleeping)).not.toBeNull();
   });
 
-  it('keeps coordinator authority separate from current device eligibility', () => {
-    const nonCoordinator = activeSnapshot();
-    if (!nonCoordinator.viewer) throw new Error('fixture');
-    nonCoordinator.viewer.coordinatorEligible = false;
-    nonCoordinator.presence.coordinatorParticipantId = null;
-    expect(parseProRoomSnapshot(nonCoordinator)).not.toBeNull();
+  it('accepts coordinator-free authority and rejects a stale elected-browser snapshot', () => {
+    const coordinatorFree = activeSnapshot();
+    expect(parseProRoomSnapshot(coordinatorFree)).not.toBeNull();
 
-    nonCoordinator.presence.coordinatorParticipantId = PARTICIPANT_ID;
-    expect(parseProRoomSnapshot(nonCoordinator)).toBeNull();
+    coordinatorFree.presence.coordinatorParticipantId = PARTICIPANT_ID;
+    expect(parseProRoomSnapshot(coordinatorFree)).toBeNull();
   });
 
   it('requires a suspended room to sleep and strips all effective capabilities', () => {
@@ -339,6 +388,27 @@ describe('PRO room snapshot validation', () => {
 
     youtube.playback.youtubeSubIndex = 7;
     youtube.playback.youtubeVideoId = null;
+    expect(parseProRoomSnapshot(youtube)).toBeNull();
+  });
+
+  it('requires a manifested YouTube checkpoint to match the canonical ID at its index', () => {
+    const youtube = activeSnapshot();
+    const item = youtube.playlist[1]!;
+    if (item.source.kind !== 'youtube') throw new Error('fixture');
+    item.source.videoIds = ['dQw4w9WgXcQ', 'aaaaaaaaaaa'];
+    youtube.currentQueueItemId = Q2;
+    youtube.playback = {
+      ...youtube.playback,
+      queueItemId: Q2,
+      youtubeVideoId: 'aaaaaaaaaaa',
+      youtubeSubIndex: 1,
+    };
+    expect(parseProRoomSnapshot(youtube)).not.toBeNull();
+
+    youtube.playback.youtubeVideoId = 'dQw4w9WgXcQ';
+    expect(parseProRoomSnapshot(youtube)).toBeNull();
+    youtube.playback.youtubeVideoId = 'aaaaaaaaaaa';
+    youtube.playback.youtubeSubIndex = 2;
     expect(parseProRoomSnapshot(youtube)).toBeNull();
   });
 

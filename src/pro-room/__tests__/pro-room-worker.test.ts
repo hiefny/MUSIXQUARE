@@ -11,10 +11,1820 @@ import developerApiWorker, {
   developerApiScopes,
 } from '../../../cloudflare/developer-api-worker.js';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
+import { ProRoomApiError, type UpdateProRoomSnapshotInput } from '../api.ts';
+import type { ProRoomR2Source, ProRoomSnapshot } from '../contracts.ts';
+import {
+  ProRoomPlaylistStateManager,
+  type ProRoomFirstAppendSelectionRequest,
+  type ProRoomPlaylistMediaTransferForTests,
+  type ProRoomPlaylistStateApiForTests,
+} from '../playlist-state-manager.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('PRO room server-authoritative playback', () => {
+  const firstQueueItemId = '11111111-1111-4111-8111-111111111111';
+  const secondQueueItemId = '22222222-2222-4222-8222-222222222222';
+  const duplicateVideoPlaylist = [
+    {
+      queueItemId: firstQueueItemId,
+      name: 'Repeated video A',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    },
+    {
+      queueItemId: secondQueueItemId,
+      name: 'Repeated video B',
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    },
+  ];
+  const playlistManifest = [
+    {
+      queueItemId: firstQueueItemId,
+      name: 'Server playlist',
+      source: {
+        kind: 'youtube',
+        videoId: 'dQw4w9WgXcQ',
+        playlistId: 'PL_SERVER_AUTHORITY',
+        videoIds: ['9bZkp7q19f0', 'dQw4w9WgXcQ', 'M7lc1UVf-VE', 'jNQXAC9IVRw'],
+      },
+    },
+    {
+      queueItemId: secondQueueItemId,
+      name: 'Outer video',
+      source: { kind: 'youtube', videoId: 'aqz-KE-bpKQ' },
+    },
+  ];
+
+  async function addMember(
+    context: Awaited<ReturnType<typeof activatedRoom>>,
+    displayName = 'Friend',
+  ) {
+    const response = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName }),
+    );
+    expect(response.status).toBe(200);
+    const cookie = cookieFrom(response);
+    const envelope = await responseJson(response);
+    bindCookiePresence(cookie, envelope);
+    return { cookie, envelope };
+  }
+
+  function installRealtimeRecorder(context: Awaited<ReturnType<typeof activatedRoom>>) {
+    const messages: Record<string, any>[] = [];
+    const fetch = vi.fn(async (request: Request) => {
+      messages.push((await request.clone().json()) as Record<string, any>);
+      return Response.json({ broadcast: true, eligible: 2, sent: 2 });
+    });
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch })),
+    };
+    return { internal, fetch, messages };
+  }
+
+  async function selectAndCommit(
+    context: Awaited<ReturnType<typeof activatedRoom>>,
+    queueItemId: string,
+    options: {
+      state?: 'playing' | 'paused';
+      positionSeconds?: number;
+      youtubeVideoId?: string;
+      youtubeSubIndex?: number;
+      key?: string;
+    } = {},
+  ) {
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: before.snapshot.playback.revision,
+          queueItemId,
+          state: options.state || 'playing',
+          positionSeconds: options.positionSeconds || 0,
+          ...(options.youtubeVideoId === undefined
+            ? {}
+            : {
+                youtubeVideoId: options.youtubeVideoId,
+                youtubeSubIndex: options.youtubeSubIndex,
+              }),
+        },
+        context.ownerCookie,
+        options.key || `authority-select-${queueItemId}`,
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    const readyResponse = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: selected.transition.basePlaybackRevision,
+          status: 'ready',
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(readyResponse.status).toBe(200);
+    await expect(readyResponse.json()).resolves.toMatchObject({ status: 'committed' });
+    return responseJson(await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)));
+  }
+
+  async function commitCurrentTransition(context: Awaited<ReturnType<typeof activatedRoom>>) {
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const pending = internal.room.pendingPlaybackTransition;
+    expect(pending).not.toBeNull();
+    const response = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${pending.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: pending.basePlaybackRevision, status: 'ready' },
+        context.ownerCookie,
+      ),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ status: 'committed' });
+    return internal.room.playback as Record<string, any>;
+  }
+
+  it('never elects a browser coordinator and signs every signaling ticket as a named member', async () => {
+    const context = await activatedRoom();
+    expect(context.activationEnvelope.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(context.activationEnvelope.snapshot.viewer.coordinatorEligible).toBe(false);
+    expect(context.activationEnvelope.snapshot.viewer.capabilities).not.toContain(
+      'coordinator.eligible',
+    );
+
+    const response = await context.worker.fetch(
+      request('/signaling-tickets', { method: 'POST' }, context.ownerCookie),
+    );
+    expect(response.status).toBe(200);
+    const envelope = await responseJson(response);
+    expect(envelope).toMatchObject({
+      role: 'member',
+      coordinatorEpoch: context.activationEnvelope.snapshot.presence.coordinatorEpoch,
+      pendingPlaybackTransition: null,
+    });
+    const [encodedPayload] = String(envelope.ticket).split('.');
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload!, 'base64url').toString('utf8'),
+    ) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      kind: 'pro-signaling',
+      role: 'member',
+      displayName: 'Owner',
+    });
+    expect(payload).not.toHaveProperty('developerControlVersion');
+  });
+
+  it('persists and publicly restores the bounded ordered YouTube manifest in a v2 row', async () => {
+    const context = await activatedRoom();
+    const response = await replacePlaylist(context, playlistManifest, 'manifest-persistence');
+    expect(response.status).toBe(200);
+    const envelope = await responseJson(response);
+    expect(envelope.snapshot.playlist[0].source).toEqual(playlistManifest[0].source);
+    expect(
+      context.state.storage.data.get(`pro-room:v2:playlist:${firstQueueItemId}`),
+    ).toMatchObject({
+      source: playlistManifest[0].source,
+    });
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const restored = await restarted.fetch(request('/snapshot', {}, context.ownerCookie));
+    expect(restored.status).toBe(200);
+    const restoredEnvelope = await responseJson(restored);
+    expect(restoredEnvelope.snapshot.playlist[0].source).toEqual(playlistManifest[0].source);
+  });
+
+  it('accepts 5,000 ordered manifest entries including duplicates within the row budget', async () => {
+    const context = await activatedRoom();
+    const videoIds = Array.from({ length: 5_000 }, () => 'dQw4w9WgXcQ');
+    const response = await replacePlaylist(
+      context,
+      [
+        {
+          queueItemId: firstQueueItemId,
+          name: 'Maximum manifest',
+          source: {
+            kind: 'youtube',
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_MAXIMUM_MANIFEST',
+            videoIds,
+          },
+        },
+      ],
+      'manifest-maximum',
+    );
+    expect(response.status).toBe(200);
+    const stored = context.state.storage.data.get(
+      `pro-room:v2:playlist:${firstQueueItemId}`,
+    ) as Record<string, any>;
+    expect(stored.source.videoIds).toHaveLength(5_000);
+    expect(new TextEncoder().encode(JSON.stringify(stored)).byteLength).toBeLessThanOrEqual(
+      128 * 1024,
+    );
+  });
+
+  it('allows one canonical legacy manifest upgrade and rejects every later manifest mutation', async () => {
+    const context = await activatedRoom();
+    const legacy = playlistManifest.map((item, index) =>
+      index === 0
+        ? {
+            ...item,
+            source: {
+              kind: 'youtube',
+              videoId: item.source.videoId,
+              playlistId: item.source.playlistId,
+            },
+          }
+        : item,
+    );
+    expect((await replacePlaylist(context, legacy, 'manifest-legacy')).status).toBe(200);
+    expect((await replacePlaylist(context, playlistManifest, 'manifest-upgrade')).status).toBe(200);
+
+    const changed = structuredClone(playlistManifest);
+    changed[0]!.source.videoIds = ['dQw4w9WgXcQ', 'M7lc1UVf-VE'];
+    const mutation = await replacePlaylist(context, changed, 'manifest-mutation');
+    expect(mutation.status).toBe(409);
+    await expect(mutation.json()).resolves.toEqual({ error: 'PLAYLIST_MANIFEST_IMMUTABLE' });
+  });
+
+  it('uses the same manifest reducer for participant, Developer API, and BOT next commands', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(
+      (await replacePlaylist(context, playlistManifest, 'manifest-shared-reducer')).status,
+    ).toBe(200);
+    const entered = await selectAndCommit(context, firstQueueItemId, {
+      key: 'manifest-shared-select-0001',
+    });
+    expect(entered.snapshot.playback).toMatchObject({
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 1,
+    });
+
+    const participantNext = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'next', baseRevision: internal.room.playback.revision },
+        context.ownerCookie,
+        'manifest-shared-participant-next-0002',
+      ),
+    );
+    expect(participantNext.status).toBe(202);
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+    });
+    await commitCurrentTransition(context);
+    await expect(
+      internalDeveloperRead(context.worker, 'playback').then(responseJson),
+    ).resolves.toMatchObject({
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+    });
+
+    const developerNext = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'manifest-shared-developer-next-0003',
+      { type: 'next' },
+    );
+    expect(developerNext.status).toBe(202);
+    await expect(developerNext.json()).resolves.toMatchObject({ status: 'pending' });
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'jNQXAC9IVRw',
+      youtubeSubIndex: 3,
+    });
+    await commitCurrentTransition(context);
+
+    const requestId = 'manifest-shared-bot-next-0004';
+    const botContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'next' },
+      context.ownerCookie,
+    );
+    expect(botContext.status).toBe(200);
+    const { leaseToken } = await responseJson(botContext);
+    const botNext = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken,
+        plan: { intent: 'playback', playbackCommand: 'next' },
+        tracks: [],
+      },
+      context.ownerCookie,
+    );
+    expect(botNext.status).toBe(200);
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: secondQueueItemId,
+      youtubeVideoId: 'aqz-KE-bpKQ',
+      youtubeSubIndex: 0,
+    });
+    await commitCurrentTransition(context);
+  });
+
+  it('applies shuffle and repeat-all only when manifest traversal reaches an outer boundary', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(
+      (await replacePlaylist(context, playlistManifest, 'manifest-outer-boundary')).status,
+    ).toBe(200);
+    internal.room.queueMode = {
+      revision: internal.room.queueMode.revision + 1,
+      updatedAtMs: Date.now(),
+      repeatMode: 1,
+      shuffleEnabled: true,
+      shuffleOrder: [secondQueueItemId, firstQueueItemId],
+    };
+    await selectAndCommit(context, firstQueueItemId, {
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+      key: 'manifest-boundary-select-0001',
+    });
+
+    await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'next', baseRevision: internal.room.playback.revision },
+        context.ownerCookie,
+        'manifest-boundary-internal-next-0002',
+      ),
+    );
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'jNQXAC9IVRw',
+      youtubeSubIndex: 3,
+    });
+    await commitCurrentTransition(context);
+
+    await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'next', baseRevision: internal.room.playback.revision },
+        context.ownerCookie,
+        'manifest-boundary-outer-next-0003',
+      ),
+    );
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: secondQueueItemId,
+      youtubeVideoId: 'aqz-KE-bpKQ',
+      youtubeSubIndex: 0,
+    });
+  });
+
+  it('navigates previous and unavailable inside a manifest and repeats the exact inner item', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(
+      (await replacePlaylist(context, playlistManifest, 'manifest-inner-semantics')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, {
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+      key: 'manifest-inner-select-0001',
+    });
+
+    const previous = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'previous', baseRevision: internal.room.playback.revision },
+        context.ownerCookie,
+        'manifest-inner-previous-0002',
+      ),
+    );
+    expect(previous.status).toBe(202);
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 1,
+    });
+    await commitCurrentTransition(context);
+
+    const unavailable = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'unavailable',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+          mediaKind: 'youtube',
+          observedPositionSeconds: 0,
+          durationSeconds: null,
+          youtubeVideoId: 'dQw4w9WgXcQ',
+          youtubeSubIndex: 1,
+        },
+        context.ownerCookie,
+        'manifest-inner-unavailable-0003',
+      ),
+    );
+    expect(unavailable.status).toBe(202);
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+    });
+    await commitCurrentTransition(context);
+
+    const endedForward = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'ended',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+          mediaKind: 'youtube',
+          observedPositionSeconds: 0.1,
+          durationSeconds: 0.1,
+          youtubeVideoId: 'M7lc1UVf-VE',
+          youtubeSubIndex: 2,
+        },
+        context.ownerCookie,
+        'manifest-inner-ended-forward-0004',
+      ),
+    );
+    expect(endedForward.status).toBe(202);
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'jNQXAC9IVRw',
+      youtubeSubIndex: 3,
+    });
+    await commitCurrentTransition(context);
+    await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'previous', baseRevision: internal.room.playback.revision },
+        context.ownerCookie,
+        'manifest-inner-return-0005',
+      ),
+    );
+    await commitCurrentTransition(context);
+
+    const mode = await updateInternalDeveloperQueueMode(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'manifest-inner-repeat-one-0006',
+      {
+        baseRevision: internal.room.queueMode.revision,
+        repeatMode: 'one',
+        shuffleEnabled: false,
+      },
+    );
+    expect(mode.status).toBe(200);
+    const ended = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'ended',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+          mediaKind: 'youtube',
+          observedPositionSeconds: 0.1,
+          durationSeconds: 0.1,
+          youtubeVideoId: 'M7lc1UVf-VE',
+          youtubeSubIndex: 2,
+        },
+        context.ownerCookie,
+        'manifest-inner-ended-repeat-0007',
+      ),
+    );
+    expect(ended.status).toBe(202);
+    expect(internal.room.pendingPlaybackTransition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      positionSeconds: 0,
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+    });
+  });
+
+  it('rejects forged or out-of-range manifest selects and requires a manifest for traversal', async () => {
+    const context = await activatedRoom();
+    expect((await replacePlaylist(context, playlistManifest, 'manifest-select-guard')).status).toBe(
+      200,
+    );
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const invalidSelections = [
+      { youtubeVideoId: 'M7lc1UVf-VE', youtubeSubIndex: 1 },
+      { youtubeVideoId: 'aqz-KE-bpKQ', youtubeSubIndex: 4 },
+    ];
+    for (const [index, identity] of invalidSelections.entries()) {
+      const response = await context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          {
+            type: 'select',
+            baseRevision: before.snapshot.playback.revision,
+            queueItemId: firstQueueItemId,
+            ...identity,
+          },
+          context.ownerCookie,
+          `manifest-invalid-select-000${index}`,
+        ),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_PLAYBACK_TARGET' });
+    }
+
+    const legacyContext = await activatedRoom();
+    const legacyPlaylist = structuredClone(playlistManifest);
+    delete legacyPlaylist[0]!.source.videoIds;
+    expect(
+      (await replacePlaylist(legacyContext, legacyPlaylist, 'manifest-missing-seed')).status,
+    ).toBe(200);
+    await selectAndCommit(legacyContext, firstQueueItemId, {
+      key: 'manifest-missing-select-0003',
+    });
+    const internal = legacyContext.worker as unknown as { room: Record<string, any> };
+    const commands = [
+      { type: 'next' },
+      { type: 'previous' },
+      {
+        type: 'ended',
+        queueItemId: firstQueueItemId,
+        mediaKind: 'youtube',
+        observedPositionSeconds: 0.1,
+        durationSeconds: 0.1,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+      },
+      {
+        type: 'unavailable',
+        queueItemId: firstQueueItemId,
+        mediaKind: 'youtube',
+        observedPositionSeconds: 0,
+        durationSeconds: null,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+      },
+    ];
+    for (const [index, command] of commands.entries()) {
+      const response = await legacyContext.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          { ...command, baseRevision: internal.room.playback.revision },
+          legacyContext.ownerCookie,
+          `manifest-required-command-000${index}`,
+        ),
+      );
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({ error: 'PLAYLIST_MANIFEST_REQUIRED' });
+    }
+  });
+
+  it('rendezvous-loads once, coalesces duplicate ended observations, and commits at the deadline', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const friend = await addMember(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-rendezvous')).status,
+    ).toBe(200);
+
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const select = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: before.snapshot.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'authority-select-command-0001',
+      ),
+    );
+    expect(select.status).toBe(202);
+    const selecting = await responseJson(select);
+    expect(selecting).toMatchObject({
+      status: 'preparing',
+      transition: {
+        type: 'pro-playback-prepare',
+        basePlaybackRevision: before.snapshot.playback.revision,
+        target: { queueItemId: firstQueueItemId, state: 'playing', positionSeconds: 0 },
+      },
+    });
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toHaveLength(2);
+
+    const readyBody = {
+      basePlaybackRevision: selecting.transition.basePlaybackRevision,
+      status: 'ready',
+    };
+    const ownerReady = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selecting.transition.transitionId}/ready`,
+        'POST',
+        readyBody,
+        context.ownerCookie,
+      ),
+    );
+    expect(await responseJson(ownerReady)).toMatchObject({ status: 'waiting' });
+    const friendReady = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selecting.transition.transitionId}/ready`,
+        'POST',
+        readyBody,
+        friend.cookie,
+      ),
+    );
+    expect(await responseJson(friendReady)).toMatchObject({
+      status: 'committed',
+      playbackRevision: before.snapshot.playback.revision + 1,
+    });
+    expect(realtime.internal.room.playback).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+      state: 'playing',
+    });
+
+    const endedBaseRevision = realtime.internal.room.playback.revision;
+    const endedBody = {
+      type: 'ended',
+      baseRevision: endedBaseRevision,
+      queueItemId: firstQueueItemId,
+      mediaKind: 'youtube',
+      observedPositionSeconds: 0.1,
+      durationSeconds: 0.1,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+    const firstEnded = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        endedBody,
+        context.ownerCookie,
+        'authority-ended-command-0001',
+      ),
+    );
+    const firstTransition = await responseJson(firstEnded);
+    expect(firstEnded.status).toBe(202);
+    expect(firstTransition.transition.target.queueItemId).toBe(secondQueueItemId);
+    const originalDeadline = firstTransition.transition.deadlineAtMs;
+
+    const duplicateEnded = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        endedBody,
+        friend.cookie,
+        'authority-ended-command-0002',
+      ),
+    );
+    const duplicateTransition = await responseJson(duplicateEnded);
+    expect(duplicateEnded.status).toBe(202);
+    expect(duplicateTransition.transition.transitionId).toBe(
+      firstTransition.transition.transitionId,
+    );
+    expect(duplicateTransition.transition.deadlineAtMs).toBe(originalDeadline);
+    expect(
+      realtime.messages.filter(
+        (message) =>
+          message.event?.type === 'pro-playback-prepare' &&
+          message.event.transitionId === firstTransition.transition.transitionId,
+      ),
+    ).toHaveLength(1);
+
+    realtime.internal.room.pendingPlaybackTransition.deadlineAtMs = Date.now() - 1;
+    const committed = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(committed.snapshot.playback).toMatchObject({
+      revision: endedBaseRevision + 1,
+      queueItemId: secondQueueItemId,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+      state: 'playing',
+    });
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+
+    const staleObservation = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        endedBody,
+        context.ownerCookie,
+        'authority-ended-command-stale-0003',
+      ),
+    );
+    expect(staleObservation.status).toBe(409);
+    await expect(staleObservation.json()).resolves.toEqual({
+      error: 'PLAYBACK_REVISION_CONFLICT',
+    });
+
+    const superseded = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'authority-superseded-select-0004',
+      ),
+    );
+    expect(superseded.status).toBe(202);
+    const pending = await responseJson(superseded);
+    const paused = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'pause', baseRevision: realtime.internal.room.playback.revision },
+        context.ownerCookie,
+        'authority-superseding-pause-0005',
+      ),
+    );
+    expect(paused.status).toBe(200);
+    const cancel = realtime.messages.find(
+      (message) =>
+        message.event?.type === 'pro-playback-cancel' &&
+        message.event.transitionId === pending.transition.transitionId,
+    )?.event;
+    expect(cancel).toEqual({
+      type: 'pro-playback-cancel',
+      transitionId: pending.transition.transitionId,
+      serverTimeMs: expect.any(Number),
+      reason: 'superseded',
+    });
+  });
+
+  it('accepts ENDED only for the exact playing identity at a defensible end position', async () => {
+    const context = await activatedRoom();
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-ended-guards')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, {
+      key: 'authority-ended-guards-select-0001',
+    });
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const command = (extra: Record<string, unknown> = {}) => ({
+      type: 'ended',
+      baseRevision: internal.room.playback.revision,
+      queueItemId: firstQueueItemId,
+      mediaKind: 'youtube',
+      observedPositionSeconds: 299.9,
+      durationSeconds: 300,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+      ...extra,
+    });
+
+    // A local player must not advance the room merely because it emitted an
+    // early/spurious ENDED event. The canonical server clock is authoritative.
+    const early = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        command(),
+        context.ownerCookie,
+        'authority-ended-guards-early-0002',
+      ),
+    );
+    expect(early.status).toBe(409);
+    await expect(early.json()).resolves.toEqual({ error: 'PLAYBACK_OBSERVATION_NOT_AT_END' });
+
+    internal.room.playback.positionSeconds = 299.9;
+    internal.room.playback.updatedAtMs = Date.now();
+    internal.room.playback.state = 'paused';
+    const paused = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        command(),
+        context.ownerCookie,
+        'authority-ended-guards-paused-0003',
+      ),
+    );
+    expect(paused.status).toBe(409);
+    await expect(paused.json()).resolves.toEqual({ error: 'PLAYBACK_OBSERVATION_STALE' });
+
+    internal.room.playback.state = 'playing';
+    const wrongMedia = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        command({ mediaKind: 'file' }),
+        context.ownerCookie,
+        'authority-ended-guards-media-0004',
+      ),
+    );
+    expect(wrongMedia.status).toBe(409);
+    await expect(wrongMedia.json()).resolves.toEqual({ error: 'PLAYBACK_OBSERVATION_STALE' });
+
+    const accepted = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        command(),
+        context.ownerCookie,
+        'authority-ended-guards-valid-0005',
+      ),
+    );
+    expect(accepted.status).toBe(202);
+    await expect(accepted.json()).resolves.toMatchObject({
+      status: 'preparing',
+      transition: { target: { queueItemId: secondQueueItemId } },
+    });
+  });
+
+  it('supports an aligned unknown-duration ENDED observation after a bounded playing floor', async () => {
+    const context = await activatedRoom();
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-ended-live')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, {
+      positionSeconds: 40,
+      key: 'authority-ended-live-select-0001',
+    });
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    internal.room.playback.updatedAtMs = Date.now() - 1_000;
+
+    const response = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'ended',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+          mediaKind: 'youtube',
+          observedPositionSeconds: 41,
+          durationSeconds: null,
+          youtubeVideoId: 'dQw4w9WgXcQ',
+          youtubeSubIndex: 0,
+        },
+        context.ownerCookie,
+        'authority-ended-live-valid-0002',
+      ),
+    );
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'preparing',
+      transition: { target: { queueItemId: secondQueueItemId } },
+    });
+  });
+
+  it('lets a late member arm PREPARE without extending its fixed cohort', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-late-join')).status,
+    ).toBe(200);
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const selected = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: before.snapshot.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'authority-late-join-select-0001',
+      ),
+    );
+    expect(selected.status).toBe(202);
+    const prepared = await responseJson(selected);
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toHaveLength(1);
+
+    const lateMember = await addMember(context, 'Late member');
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toHaveLength(1);
+    const lateTicket = await context.worker.fetch(
+      request('/signaling-tickets', { method: 'POST' }, lateMember.cookie),
+    );
+    expect(lateTicket.status).toBe(200);
+    await expect(lateTicket.json()).resolves.toMatchObject({
+      pendingPlaybackTransition: {
+        type: 'pro-playback-prepare',
+        transitionId: prepared.transition.transitionId,
+        deadlineAtMs: prepared.transition.deadlineAtMs,
+      },
+    });
+
+    const readyBody = {
+      basePlaybackRevision: prepared.transition.basePlaybackRevision,
+      status: 'ready',
+    };
+    const lateReady = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${prepared.transition.transitionId}/ready`,
+        'POST',
+        readyBody,
+        lateMember.cookie,
+      ),
+    );
+    expect(lateReady.status).toBe(409);
+    await expect(lateReady.json()).resolves.toEqual({
+      error: 'PLAYBACK_TRANSITION_NOT_IN_COHORT',
+    });
+    const ownerReady = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${prepared.transition.transitionId}/ready`,
+        'POST',
+        readyBody,
+        context.ownerCookie,
+      ),
+    );
+    await expect(ownerReady.json()).resolves.toMatchObject({ status: 'committed' });
+  });
+
+  it('keeps takeover identity rotation and departure shrink inside the original cohort', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const friend = await addMember(context, 'Cohort member');
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-fixed-cohort')).status,
+    ).toBe(200);
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const selected = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          {
+            type: 'select',
+            baseRevision: before.snapshot.playback.revision,
+            queueItemId: firstQueueItemId,
+          },
+          context.ownerCookie,
+          'authority-fixed-cohort-select-0001',
+        ),
+      ),
+    );
+    const originalOwnerIncarnation = before.snapshot.viewer.presenceIncarnationId;
+    const originalCohort = [...realtime.internal.room.pendingPlaybackTransition.cohort] as string[];
+    expect(originalCohort).toHaveLength(2);
+
+    const takeover = await context.worker.fetch(
+      jsonRequest('/presence/enter', 'POST', { takeover: true }, context.ownerCookie),
+    );
+    expect(takeover.status).toBe(200);
+    const takeoverEnvelope = await responseJson(takeover);
+    bindCookiePresence(context.ownerCookie, takeoverEnvelope);
+    const replacementIncarnation = takeoverEnvelope.snapshot.viewer.presenceIncarnationId;
+    expect(replacementIncarnation).not.toBe(originalOwnerIncarnation);
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).not.toContain(
+      originalOwnerIncarnation,
+    );
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toContain(
+      replacementIncarnation,
+    );
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toHaveLength(2);
+
+    const ownerReady = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: selected.transition.basePlaybackRevision, status: 'ready' },
+        context.ownerCookie,
+      ),
+    );
+    await expect(ownerReady.json()).resolves.toMatchObject({ status: 'waiting' });
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, friend.cookie),
+        )
+      ).status,
+    ).toBe(200);
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+    expect(realtime.internal.room.playback).toMatchObject({
+      queueItemId: firstQueueItemId,
+      state: 'playing',
+    });
+  });
+
+  it('rendezvous-resumes paused media, rendezvous-seeks while playing, and seeks paused media directly', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-resume-seek')).status,
+    ).toBe(200);
+    const paused = await selectAndCommit(context, firstQueueItemId, {
+      state: 'paused',
+      positionSeconds: 12,
+      key: 'authority-resume-seek-select-0001',
+    });
+
+    const resumedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'play', baseRevision: paused.snapshot.playback.revision },
+        context.ownerCookie,
+        'authority-resume-seek-play-0002',
+      ),
+    );
+    expect(resumedResponse.status).toBe(202);
+    const resumed = await responseJson(resumedResponse);
+    expect(resumed.transition.target).toMatchObject({
+      queueItemId: firstQueueItemId,
+      state: 'playing',
+      positionSeconds: 12,
+    });
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/playback/transitions/${resumed.transition.transitionId}/ready`,
+            'POST',
+            { basePlaybackRevision: resumed.transition.basePlaybackRevision, status: 'ready' },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const playingRevision = realtime.internal.room.playback.revision;
+    const seekPlayingResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'seek', baseRevision: playingRevision, positionSeconds: 33 },
+        context.ownerCookie,
+        'authority-resume-seek-playing-0003',
+      ),
+    );
+    expect(seekPlayingResponse.status).toBe(202);
+    const seekPlaying = await responseJson(seekPlayingResponse);
+    expect(seekPlaying.transition.target).toMatchObject({
+      state: 'playing',
+      positionSeconds: 33,
+    });
+
+    const pauseResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'pause', baseRevision: playingRevision },
+        context.ownerCookie,
+        'authority-resume-seek-pause-0004',
+      ),
+    );
+    expect(pauseResponse.status).toBe(200);
+    const pauseBody = await responseJson(pauseResponse);
+    expect(pauseBody.status).toBe('committed');
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+
+    const seekPausedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'seek',
+          baseRevision: pauseBody.playback.revision,
+          positionSeconds: 44,
+        },
+        context.ownerCookie,
+        'authority-resume-seek-paused-0005',
+      ),
+    );
+    expect(seekPausedResponse.status).toBe(200);
+    await expect(seekPausedResponse.json()).resolves.toMatchObject({
+      status: 'committed',
+      playback: { state: 'paused', positionSeconds: 44 },
+    });
+  });
+
+  it('wakes resume-playing through a sole-member PREPARE from the frozen position', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.parse('2026-07-20T03:00:00.000Z');
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-wake-playing')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, {
+      positionSeconds: 15,
+      key: 'authority-wake-playing-select-0001',
+    });
+    vi.setSystemTime(startedAtMs + 10_000);
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+        )
+      ).status,
+    ).toBe(200);
+    const frozenPosition = realtime.internal.room.playback.positionSeconds as number;
+    expect(frozenPosition).toBeCloseTo(24.3, 5);
+
+    vi.setSystemTime(startedAtMs + 2 * 60 * 60 * 1_000);
+    const returning = await addMember(context, 'Wake member');
+    const pending = realtime.internal.room.pendingPlaybackTransition;
+    expect(pending).toMatchObject({
+      resumeFromSleep: true,
+      target: {
+        queueItemId: firstQueueItemId,
+        state: 'playing',
+        positionSeconds: frozenPosition,
+      },
+    });
+    expect(pending.cohort).toEqual([returning.envelope.snapshot.viewer.presenceIncarnationId]);
+    expect(realtime.internal.room.playback.positionSeconds).toBe(frozenPosition);
+
+    const ticket = await context.worker.fetch(
+      request('/signaling-tickets', { method: 'POST' }, returning.cookie),
+    );
+    expect(ticket.status).toBe(200);
+    await expect(ticket.json()).resolves.toMatchObject({
+      pendingPlaybackTransition: {
+        type: 'pro-playback-prepare',
+        transitionId: pending.transitionId,
+        target: { positionSeconds: frozenPosition, state: 'playing' },
+      },
+    });
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${pending.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: pending.basePlaybackRevision, status: 'ready' },
+        returning.cookie,
+      ),
+    );
+    await expect(ready.json()).resolves.toMatchObject({ status: 'committed' });
+    expect(realtime.internal.room.playback.positionSeconds).toBe(frozenPosition);
+  });
+
+  it('keeps paused wake paused and does not create a playback transition', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.parse('2026-07-20T04:00:00.000Z');
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-wake-paused')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, {
+      state: 'paused',
+      positionSeconds: 27,
+      key: 'authority-wake-paused-select-0001',
+    });
+    await context.worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+    );
+    vi.setSystemTime(startedAtMs + 6 * 60 * 60 * 1_000);
+    const returning = await addMember(context, 'Paused wake member');
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+    expect(realtime.internal.room.playback).toMatchObject({
+      queueItemId: firstQueueItemId,
+      state: 'paused',
+      positionSeconds: 27,
+    });
+    const ticket = await context.worker.fetch(
+      request('/signaling-tickets', { method: 'POST' }, returning.cookie),
+    );
+    await expect(ticket.json()).resolves.toMatchObject({ pendingPlaybackTransition: null });
+  });
+
+  it('keeps sleeping play, pause, and seek commands on the frozen timeline', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.parse('2026-07-20T05:00:00.000Z');
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-sleep-clock')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, {
+      positionSeconds: 12,
+      key: 'authority-sleep-clock-select-0001',
+    });
+    await context.worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+    );
+    const frozenPosition = realtime.internal.room.playback.positionSeconds as number;
+
+    vi.setSystemTime(startedAtMs + 60 * 60 * 1_000);
+    const paused = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'authority-sleep-clock-pause-0002',
+      { type: 'pause' },
+    );
+    await expect(paused.json()).resolves.toMatchObject({ status: 'applied' });
+    expect(realtime.internal.room.playback).toMatchObject({
+      state: 'paused',
+      positionSeconds: frozenPosition,
+    });
+
+    await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'authority-sleep-clock-seek-0003',
+      { type: 'seek', positionSeconds: 42 },
+    );
+    expect(realtime.internal.room.playback).toMatchObject({
+      state: 'paused',
+      positionSeconds: 42,
+    });
+    await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'authority-sleep-clock-play-0004',
+      { type: 'play' },
+    );
+    expect(realtime.internal.room.playback).toMatchObject({
+      state: 'playing',
+      positionSeconds: 42,
+    });
+
+    vi.setSystemTime(startedAtMs + 2 * 60 * 60 * 1_000);
+    await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'authority-sleep-clock-seek-0005',
+      { type: 'seek', positionSeconds: 7 },
+    );
+    expect(realtime.internal.room.playback).toMatchObject({
+      state: 'playing',
+      positionSeconds: 7,
+    });
+  });
+
+  it('schedules a next-tick alarm when persistence observes an already-due PREPARE', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.parse('2026-07-20T06:00:00.000Z');
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-due-alarm')).status,
+    ).toBe(200);
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const response = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: before.snapshot.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'authority-due-alarm-select-0001',
+      ),
+    );
+    expect(response.status).toBe(202);
+    const internal = context.worker as unknown as {
+      room: Record<string, any>;
+      scheduledAlarmMs: number | null;
+      persist(): Promise<boolean>;
+      alarm(): Promise<void>;
+    };
+    context.state.storage.alarm = null;
+    internal.scheduledAlarmMs = null;
+    vi.setSystemTime(startedAtMs + 3_001);
+
+    await internal.persist();
+    expect(context.state.storage.alarm).toBe(startedAtMs + 3_002);
+    vi.setSystemTime(startedAtMs + 3_002);
+    await internal.alarm();
+    expect(internal.room.pendingPlaybackTransition).toBeNull();
+    expect(internal.room.playback).toMatchObject({
+      queueItemId: firstQueueItemId,
+      state: 'playing',
+    });
+  });
+
+  it('applies Developer API playback while sleeping without a browser relay and preserves the queue', async () => {
+    const context = await activatedRoom();
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-sleeping-developer'))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+        )
+      ).status,
+    ).toBe(200);
+
+    const command = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'authority-sleeping-play-0001',
+      { type: 'play_item', queueItemId: firstQueueItemId },
+    );
+    expect(command.status).toBe(202);
+    await expect(command.json()).resolves.toMatchObject({
+      status: 'applied',
+      resultCode: 'applied',
+    });
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(internal.room).toMatchObject({
+      runtime: 'sleeping',
+      currentQueueItemId: firstQueueItemId,
+      playback: { queueItemId: firstQueueItemId, state: 'playing' },
+    });
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const queue = await responseJson(await internalDeveloperRead(restarted, 'queue'));
+    expect(queue.items.map((item: Record<string, unknown>) => item.queueItemId)).toEqual([
+      firstQueueItemId,
+      secondQueueItemId,
+    ]);
+  });
+
+  it('atomically stops the selected item at zero without losing its media identity', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect((await replacePlaylist(context, duplicateVideoPlaylist, 'authority-stop')).status).toBe(
+      200,
+    );
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const select = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          {
+            type: 'select',
+            baseRevision: before.snapshot.playback.revision,
+            queueItemId: firstQueueItemId,
+          },
+          context.ownerCookie,
+          'authority-stop-select-0001',
+        ),
+      ),
+    );
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${select.transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: select.transition.basePlaybackRevision, status: 'ready' },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+
+    const selected = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const stopped = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'stop', baseRevision: selected.snapshot.playback.revision },
+        context.ownerCookie,
+        'authority-stop-command-0002',
+      ),
+    );
+    expect(stopped.status).toBe(200);
+    const stoppedBody = await responseJson(stopped);
+    expect(stoppedBody).toMatchObject({
+      status: 'committed',
+      playback: {
+        state: 'paused',
+        queueItemId: firstQueueItemId,
+        positionSeconds: 0,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+      },
+    });
+    const stopCommit = [...realtime.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.event?.type === 'pro-playback-commit' &&
+          message.event.playback?.state === 'paused' &&
+          message.event.playback?.positionSeconds === 0,
+      )?.event;
+    expect(stopCommit).toEqual({
+      type: 'pro-playback-commit',
+      transitionId: null,
+      serverTimeMs: expect.any(Number),
+      executeAtMs: expect.any(Number),
+      playback: expect.objectContaining({
+        queueItemId: firstQueueItemId,
+        state: 'paused',
+        positionSeconds: 0,
+      }),
+    });
+
+    const stoppedAgain = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'stop', baseRevision: stoppedBody.playback.revision },
+        context.ownerCookie,
+        'authority-stop-command-0003',
+      ),
+    );
+    expect(stoppedAgain.status).toBe(200);
+    await expect(stoppedAgain.json()).resolves.toMatchObject({
+      status: 'unchanged',
+      playback: { positionSeconds: 0 },
+    });
+  });
+
+  it('persists a playback PREPARE before dispatch and removes it only after full delivery', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.room.pendingPresenceBroadcast = null;
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'durable-outbox-persist-first'))
+        .status,
+    ).toBe(200);
+
+    const dispatch = vi.fn(async (dispatchRequest: Request) => {
+      const message = (await dispatchRequest.clone().json()) as Record<string, any>;
+      const stored = context.state.storage.data.get('pro-room:v2:core') as {
+        core: Record<string, any>;
+      };
+      expect(stored.core.pendingPlaybackBroadcasts).toHaveLength(1);
+      expect(stored.core.pendingPlaybackBroadcasts[0].event).toEqual(message.event);
+      return Response.json({ broadcast: true, eligible: 1, sent: 1 });
+    });
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatch })),
+    };
+
+    const response = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'durable-outbox-persist-first-command',
+      ),
+    );
+    expect(response.status).toBe(202);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(internal.room.pendingPlaybackBroadcasts).toEqual([]);
+    expect(
+      (context.state.storage.data.get('pro-room:v2:core') as { core: Record<string, any> }).core
+        .pendingPlaybackBroadcasts,
+    ).toEqual([]);
+  });
+
+  it('keeps a failed playback dispatch durable and clears it after a restarted alarm retry', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.UTC(2026, 6, 20, 1, 2, 3);
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.room.pendingPresenceBroadcast = null;
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'durable-outbox-restart')).status,
+    ).toBe(200);
+    const failedDispatch = vi.fn(async () => {
+      throw new Error('signaling unavailable');
+    });
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: failedDispatch })),
+    };
+
+    const response = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'durable-outbox-restart-command',
+      ),
+    );
+    expect(response.status).toBe(202);
+    const pending = internal.room.pendingPlaybackBroadcasts[0] as Record<string, any>;
+    expect(pending).toMatchObject({ kind: 'prepare', attempts: 1 });
+    expect(pending.retryAtMs).toBe(startedAtMs + 1_000);
+    expect(context.state.storage.alarm).toBe(pending.retryAtMs);
+
+    const successfulDispatch = vi.fn(async () =>
+      Response.json({ broadcast: true, eligible: 1, sent: 1 }),
+    );
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      {
+        ...environment(context.bucket),
+        PRO_SIGNALING_ROOMS: {
+          idFromName: vi.fn((value: string) => value),
+          get: vi.fn(() => ({ fetch: successfulDispatch })),
+        },
+      } as never,
+    );
+    vi.setSystemTime(pending.retryAtMs);
+    await restarted.alarm();
+
+    expect(successfulDispatch).toHaveBeenCalledTimes(1);
+    expect(
+      (restarted as unknown as { room: Record<string, any> }).room.pendingPlaybackBroadcasts,
+    ).toEqual([]);
+    expect(
+      (context.state.storage.data.get('pro-room:v2:core') as { core: Record<string, any> }).core
+        .pendingPlaybackBroadcasts,
+    ).toEqual([]);
+  });
+
+  it('retries a partial playback delivery instead of treating HTTP 200 as success', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.UTC(2026, 6, 20, 2, 3, 4);
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.room.pendingPresenceBroadcast = null;
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'durable-outbox-partial')).status,
+    ).toBe(200);
+    const dispatch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ broadcast: true, eligible: 2, sent: 1 }))
+      .mockResolvedValue(Response.json({ broadcast: true, eligible: 1, sent: 1 }));
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatch })),
+    };
+
+    const response = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'durable-outbox-partial-command',
+      ),
+    );
+    expect(response.status).toBe(202);
+    expect(internal.room.pendingPlaybackBroadcasts[0]).toMatchObject({ attempts: 1 });
+    const retryAtMs = internal.room.pendingPlaybackBroadcasts[0].retryAtMs as number;
+    vi.setSystemTime(retryAtMs);
+    await context.worker.alarm();
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(internal.room.pendingPlaybackBroadcasts).toEqual([]);
+  });
+
+  it('supersedes an undelivered PREPARE with a durable CANCEL then COMMIT FIFO pair', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    realtime.internal.room.pendingPresenceBroadcast = null;
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'durable-outbox-fifo')).status,
+    ).toBe(200);
+    await selectAndCommit(context, firstQueueItemId, {
+      key: 'durable-outbox-fifo-initial-select',
+    });
+    realtime.messages.splice(0);
+    realtime.fetch.mockClear();
+    realtime.fetch.mockImplementationOnce(async (dispatchRequest: Request) => {
+      realtime.messages.push((await dispatchRequest.clone().json()) as Record<string, any>);
+      return Response.json({ broadcast: true, eligible: 2, sent: 1 });
+    });
+    realtime.fetch.mockImplementationOnce(async (dispatchRequest: Request) => {
+      realtime.messages.push((await dispatchRequest.clone().json()) as Record<string, any>);
+      const stored = context.state.storage.data.get('pro-room:v2:core') as {
+        core: Record<string, any>;
+      };
+      expect(stored.core.pendingPlaybackBroadcasts.map((record: any) => record.kind)).toEqual([
+        'cancel',
+        'commit',
+      ]);
+      return Response.json({ broadcast: true, eligible: 1, sent: 1 });
+    });
+
+    const selected = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: secondQueueItemId,
+        },
+        context.ownerCookie,
+        'durable-outbox-fifo-pending-select',
+      ),
+    );
+    expect(selected.status).toBe(202);
+    const paused = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'pause', baseRevision: realtime.internal.room.playback.revision },
+        context.ownerCookie,
+        'durable-outbox-fifo-pause',
+      ),
+    );
+    expect(paused.status).toBe(200);
+    expect(realtime.messages.map((message) => message.event.type)).toEqual([
+      'pro-playback-prepare',
+      'pro-playback-cancel',
+      'pro-playback-commit',
+    ]);
+    expect(realtime.internal.room.pendingPlaybackBroadcasts).toEqual([]);
+  });
+
+  it('replaces an undelivered PREPARE with the deadline COMMIT and keeps the 700ms lead', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    realtime.internal.room.pendingPresenceBroadcast = null;
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'durable-outbox-deadline')).status,
+    ).toBe(200);
+    realtime.messages.splice(0);
+    realtime.fetch.mockClear();
+    realtime.fetch.mockImplementation(async (dispatchRequest: Request) => {
+      const message = (await dispatchRequest.clone().json()) as Record<string, any>;
+      realtime.messages.push(message);
+      if (message.event?.type === 'pro-playback-prepare') {
+        return Response.json({ broadcast: true, eligible: 2, sent: 1 });
+      }
+      if (message.event?.type === 'pro-playback-commit') {
+        const stored = context.state.storage.data.get('pro-room:v2:core') as {
+          core: Record<string, any>;
+        };
+        expect(stored.core.pendingPlaybackBroadcasts).toHaveLength(1);
+        expect(stored.core.pendingPlaybackBroadcasts[0].kind).toBe('commit');
+      }
+      return Response.json({ broadcast: true, eligible: 1, sent: 1 });
+    });
+
+    const selected = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'durable-outbox-deadline-select',
+      ),
+    );
+    expect(selected.status).toBe(202);
+    realtime.internal.room.pendingPlaybackTransition.deadlineAtMs = Date.now() - 1;
+    const snapshot = await context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
+    expect(snapshot.status).toBe(200);
+
+    const playbackMessages = realtime.messages.filter((message) =>
+      String(message.event?.type || '').startsWith('pro-playback-'),
+    );
+    expect(playbackMessages.map((message) => message.event.type)).toEqual([
+      'pro-playback-prepare',
+      'pro-playback-commit',
+    ]);
+    const commit = playbackMessages[1]?.event;
+    expect(commit.executeAtMs - commit.serverTimeMs).toBe(700);
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+    expect(realtime.internal.room.pendingPlaybackBroadcasts).toEqual([]);
+  });
+
+  it('migrates a stored coordinator fence without touching persisted playlist rows', async () => {
+    const context = await activatedRoom();
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-stored-migration')).status,
+    ).toBe(200);
+    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, any>;
+      playlistOrder: string[];
+    };
+    stored.core.presence.coordinatorParticipantId =
+      context.activationEnvelope.snapshot.viewer.participantId;
+    stored.core.presence.coordinatorEpoch = 7;
+    stored.core.playback.coordinatorEpoch = 7;
+    stored.core.playback.revision = 9;
+    context.state.storage.data.set('pro-room:v2:core', stored);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const snapshot = await responseJson(
+      await restarted.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(snapshot.snapshot.presence).toMatchObject({
+      coordinatorParticipantId: null,
+      coordinatorEpoch: 8,
+    });
+    expect(snapshot.snapshot.playback).toMatchObject({
+      coordinatorEpoch: 8,
+      revision: 10,
+    });
+    expect(
+      snapshot.snapshot.playlist.map((item: Record<string, unknown>) => item.queueItemId),
+    ).toEqual([firstQueueItemId, secondQueueItemId]);
+    expect(stored.playlistOrder).toEqual([firstQueueItemId, secondQueueItemId]);
+  });
+
+  it('lets any active member change shared effects and remove another member', async () => {
+    const context = await activatedRoom();
+    installRealtimeRecorder(context);
+    const friend = await addMember(context, 'Equal member');
+    const epoch = friend.envelope.snapshot.presence.coordinatorEpoch as number;
+    const effects = {
+      reverb: {
+        mixPercent: 20,
+        decaySeconds: 1,
+        preDelaySeconds: 0.02,
+        lowCutPercent: 0,
+        highCutPercent: 0,
+      },
+      equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+      virtualBass: { strengthPercent: 40 },
+      virtualSurround: { widthPercent: 120 },
+    };
+    const updated = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch, baseRevision: 0, effects },
+        friend.cookie,
+      ),
+    );
+    expect(updated.status).toBe(200);
+    await expect(updated.json()).resolves.toMatchObject({ revision: 1, effects });
+
+    const ownerParticipantId = context.activationEnvelope.snapshot.viewer.participantId as string;
+    const kicked = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick',
+        'POST',
+        { targetParticipantId: ownerParticipantId },
+        friend.cookie,
+      ),
+    );
+    expect(kicked.status).toBe(200);
+    const kickedEnvelope = await responseJson(kicked);
+    expect(kickedEnvelope.snapshot.presence.participants).toHaveLength(1);
+    expect(kickedEnvelope.snapshot.presence.coordinatorParticipantId).toBeNull();
+
+    const revokedOwner = await context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
+    expect(revokedOwner.status).toBe(401);
+  });
 });
 
 const ROOM_CODE = '000001';
@@ -444,6 +2254,278 @@ function playlistItem(
   };
 }
 
+function realWorkerPlaylistApi(
+  context: Awaited<ReturnType<typeof activatedRoom>>,
+  cookie: string,
+): ProRoomPlaylistStateApiForTests {
+  const readSnapshot = async (response: Response): Promise<ProRoomSnapshot> => {
+    const value = await responseJson(response);
+    if (!response.ok) throw new ProRoomApiError(String(value.error || 'UNKNOWN'), response.status);
+    const snapshot = parseProRoomSnapshot(value.snapshot);
+    if (!snapshot) throw new Error('invalid real Worker snapshot');
+    return snapshot;
+  };
+  return {
+    getSnapshot: async () =>
+      readSnapshot(await context.worker.fetch(request('/snapshot', {}, cookie))),
+    updateSnapshot: async (input: UpdateProRoomSnapshotInput) =>
+      readSnapshot(
+        await context.worker.fetch(
+          jsonRequest(
+            '/snapshot',
+            'PUT',
+            {
+              baseRevision: input.baseRevision,
+              playlist: input.playlist,
+              currentQueueItemId: input.currentQueueItemId,
+              playback: input.playback,
+            },
+            cookie,
+            input.idempotencyKey,
+          ),
+        ),
+      ),
+  };
+}
+
+function inertPlaylistMediaTransfer(): ProRoomPlaylistMediaTransferForTests {
+  return {
+    upload: vi.fn(async () => {
+      throw new Error('unexpected upload');
+    }),
+    deleteAsset: vi.fn(async () => undefined),
+  };
+}
+
+async function selectFirstAppendThroughWorker(
+  context: Awaited<ReturnType<typeof activatedRoom>>,
+  cookie: string,
+  request: ProRoomFirstAppendSelectionRequest,
+  suffix: string,
+  readyCookies: readonly string[] = [cookie],
+): Promise<void> {
+  const response = await context.worker.fetch(
+    jsonRequest(
+      '/playback/commands',
+      'POST',
+      {
+        type: 'select',
+        baseRevision: request.basePlaybackRevision,
+        queueItemId: request.queueItemId,
+        state: 'playing',
+        positionSeconds: 0,
+        ...(request.youtubeVideoId === null
+          ? {}
+          : {
+              youtubeVideoId: request.youtubeVideoId,
+              youtubeSubIndex: request.youtubeSubIndex,
+            }),
+      },
+      cookie,
+      `${IDEMPOTENCY_KEY}-${suffix}-select`,
+    ),
+  );
+  expect([200, 202]).toContain(response.status);
+  const result = await responseJson(response);
+  if (response.status !== 202) return;
+  for (const readyCookie of readyCookies) {
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${result.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: result.transition.basePlaybackRevision,
+          status: 'ready',
+        },
+        readyCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+  }
+}
+
+describe('PRO first-append client/Worker integration', () => {
+  it('persists an observation-only first YouTube row before selecting it through server authority', async () => {
+    const context = await activatedRoom();
+    const initial = parseProRoomSnapshot(context.activationEnvelope.snapshot)!;
+    const queueItemId = '51111111-1111-4111-8111-111111111111';
+    const select = vi.fn((request: ProRoomFirstAppendSelectionRequest) =>
+      selectFirstAppendThroughWorker(context, context.ownerCookie, request, 'first-youtube'),
+    );
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: realWorkerPlaylistApi(context, context.ownerCookie),
+      mediaTransfer: inertPlaylistMediaTransfer(),
+      sink: vi.fn(),
+      requestFirstAppendSelection: select,
+      createIdempotencyKey: () => `${IDEMPOTENCY_KEY}-first-youtube-snapshot`,
+      createQueueItemId: () => queueItemId,
+    });
+    await manager.acceptSnapshot(initial);
+
+    const appended = await manager.addYouTube({
+      name: 'First YouTube',
+      videoId: 'dQw4w9WgXcQ',
+    });
+
+    expect(appended.currentQueueItemId).toBeNull();
+    expect(appended.playback.state).toBe('idle');
+    expect(select).toHaveBeenCalledOnce();
+    const canonical = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(canonical.snapshot.playlist).toHaveLength(1);
+    expect(canonical.snapshot.currentQueueItemId).toBe(queueItemId);
+    expect(canonical.snapshot.playback).toMatchObject({
+      state: 'playing',
+      queueItemId,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    });
+  });
+
+  it('keeps a completed R2 asset referenced while first-file selection uses server authority', async () => {
+    const context = await activatedRoom();
+    const { asset } = await completeReadyAsset(context, 'first-r2');
+    const initial = parseProRoomSnapshot(
+      (
+        await responseJson(
+          await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+        )
+      ).snapshot,
+    )!;
+    const queueItemId = '52222222-2222-4222-8222-222222222222';
+    const source: ProRoomR2Source = {
+      kind: 'pro-r2',
+      assetId: asset.assetId,
+      version: asset.version,
+      byteLength: asset.byteLength,
+      mime: asset.mime,
+      ...(asset.sha256 ? { sha256: asset.sha256 } : {}),
+    };
+    const media = {
+      upload: vi.fn(async () => ({ asset: source, quota: initial.quota })),
+      deleteAsset: vi.fn(async () => undefined),
+    } satisfies ProRoomPlaylistMediaTransferForTests;
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: realWorkerPlaylistApi(context, context.ownerCookie),
+      mediaTransfer: media,
+      sink: vi.fn(),
+      requestFirstAppendSelection: (selection) =>
+        selectFirstAppendThroughWorker(context, context.ownerCookie, selection, 'first-r2'),
+      createIdempotencyKey: () => `${IDEMPOTENCY_KEY}-first-r2-snapshot`,
+      createQueueItemId: () => queueItemId,
+    });
+    await manager.acceptSnapshot(initial);
+
+    await manager.addLocalFiles(
+      [new File(['audio'], 'first-r2.flac', { type: 'audio/flac' })].map((file) => ({ file })),
+    );
+
+    expect(media.deleteAsset).not.toHaveBeenCalled();
+    const canonical = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(canonical.snapshot.playlist[0].source).toMatchObject(source);
+    expect(canonical.snapshot.currentQueueItemId).toBe(queueItemId);
+    expect(canonical.snapshot.playback).toMatchObject({
+      state: 'playing',
+      queueItemId,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
+    });
+  });
+
+  it('lets only the canonical first append request selection during a two-actor CAS race', async () => {
+    const context = await activatedRoom();
+    const memberResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+    const ownerInitial = parseProRoomSnapshot(
+      (
+        await responseJson(
+          await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+        )
+      ).snapshot,
+    )!;
+    const memberInitial = parseProRoomSnapshot(
+      (await responseJson(await context.worker.fetch(request('/snapshot', {}, memberCookie))))
+        .snapshot,
+    )!;
+    const firstId = '53333333-3333-4333-8333-333333333333';
+    const secondId = '54444444-4444-4444-8444-444444444444';
+    let releaseFirstSelection!: () => void;
+    const firstSelectionGate = new Promise<void>((resolve) => {
+      releaseFirstSelection = resolve;
+    });
+    let firstSelectionStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      firstSelectionStarted = resolve;
+    });
+    const firstSelect = vi.fn(async (selection: ProRoomFirstAppendSelectionRequest) => {
+      firstSelectionStarted();
+      await firstSelectionGate;
+      await selectFirstAppendThroughWorker(
+        context,
+        context.ownerCookie,
+        selection,
+        'concurrent-first',
+        [context.ownerCookie, memberCookie],
+      );
+    });
+    const secondSelect = vi.fn(async () => undefined);
+    const firstManager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: realWorkerPlaylistApi(context, context.ownerCookie),
+      mediaTransfer: inertPlaylistMediaTransfer(),
+      sink: vi.fn(),
+      requestFirstAppendSelection: firstSelect,
+      createIdempotencyKey: () => `${IDEMPOTENCY_KEY}-concurrent-first-snapshot`,
+      createQueueItemId: () => firstId,
+    });
+    const secondManager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: realWorkerPlaylistApi(context, memberCookie),
+      mediaTransfer: inertPlaylistMediaTransfer(),
+      sink: vi.fn(),
+      requestFirstAppendSelection: secondSelect,
+      createIdempotencyKey: (() => {
+        let index = 0;
+        return () => `${IDEMPOTENCY_KEY}-concurrent-second-snapshot-${++index}`;
+      })(),
+      createQueueItemId: () => secondId,
+    });
+    await firstManager.acceptSnapshot(ownerInitial);
+    await secondManager.acceptSnapshot(memberInitial);
+
+    const firstAppend = firstManager.addYouTube({
+      name: 'Canonical first',
+      videoId: 'dQw4w9WgXcQ',
+    });
+    await firstStarted;
+    const secondAppend = await secondManager.addYouTube({
+      name: 'Concurrent second',
+      videoId: '9bZkp7q19f0',
+    });
+    expect(secondAppend.playlist.map((item) => item.queueItemId)).toEqual([firstId, secondId]);
+    expect(secondSelect).not.toHaveBeenCalled();
+
+    releaseFirstSelection();
+    await firstAppend;
+    const canonical = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(firstSelect).toHaveBeenCalledOnce();
+    expect(
+      canonical.snapshot.playlist.map((item: { queueItemId: string }) => item.queueItemId),
+    ).toEqual([firstId, secondId]);
+    expect(canonical.snapshot.currentQueueItemId).toBe(firstId);
+  });
+});
+
 function internalDeveloperRead(
   worker: MusixquareProRoom,
   projection: 'room' | 'playback' | 'queue' | 'effects' | 'queue-mode',
@@ -664,6 +2746,50 @@ describe('PRO room server BOT boundary', () => {
     );
     expect(execute.status).toBe(200);
     await expect(execute.json()).resolves.toMatchObject({ ok: true, summary: 'done' });
+  });
+
+  it('treats a terminally rejected Developer 202 as BOT failure on first call and replay', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const requestId = 'bot-terminal-rejection-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'play now' },
+      ownerCookie,
+    );
+    expect(context.status).toBe(200);
+    const contextPayload = await responseJson(context);
+    const executeBody = {
+      roomCode: ROOM_CODE,
+      requestId,
+      leaseToken: contextPayload.leaseToken,
+      plan: { intent: 'playback', playbackCommand: 'play' },
+      tracks: [],
+    };
+
+    const first = await internalBotRequest(worker, 'execute', executeBody, ownerCookie);
+    expect(first.status).toBe(409);
+    await expect(first.json()).resolves.toEqual({ error: 'BOT_ACTION_FAILED' });
+    const [command] = Object.values(internal.room.developerCommands) as Record<string, any>[];
+    expect(command).toMatchObject({
+      keyId: 'MxqrGeminiBot001',
+      status: 'rejected',
+      resultCode: 'no_media',
+    });
+
+    const replay = await internalBotRequest(worker, 'execute', executeBody, ownerCookie);
+    expect(replay.status).toBe(409);
+    await expect(replay.json()).resolves.toEqual({ error: 'BOT_ACTION_FAILED' });
+    expect(Object.values(internal.room.developerCommands)).toHaveLength(1);
+    expect(Object.values(internal.room.developerCommandIdempotency)[0]).toMatchObject({
+      body: {
+        commandId: command.commandId,
+        status: 'rejected',
+        resultCode: 'no_media',
+      },
+      status: 202,
+    });
   });
 
   it('requires the current active presence before exposing bounded context', async () => {
@@ -915,27 +3041,47 @@ describe('PRO room server BOT boundary', () => {
         /^developer:MxqrGeminiBot001:queue:add_youtube_batch:bot-queue-[a-f0-9]{64}$/u.test(key),
       ),
     ).toBe(true);
-    expect(Object.values(internal.room.developerCommands)).toContainEqual(
-      expect.objectContaining({
-        keyId: 'MxqrGeminiBot001',
-        idempotencyKey: expect.stringMatching(/^bot-command-[a-f0-9]{64}$/u),
-        command: { type: 'play_item', queueItemId },
-        status: 'dispatched',
-      }),
-    );
-    expect(dispatched.filter((entry) => entry.path === '/internal/developer/v1/dispatch')).toEqual([
-      expect.objectContaining({
-        body: expect.objectContaining({
-          frame: expect.objectContaining({
-            command: { type: 'play_item', queueItemId },
-            expected: expect.objectContaining({
-              queueItemId: null,
-              playlistRevision: internal.room.playlistRevision,
+    const command = Object.values(internal.room.developerCommands).find(
+      (candidate: any) => candidate.command?.queueItemId === queueItemId,
+    ) as Record<string, any>;
+    expect(command).toMatchObject({
+      keyId: 'MxqrGeminiBot001',
+      idempotencyKey: expect.stringMatching(/^bot-command-[a-f0-9]{64}$/u),
+      command: { type: 'play_item', queueItemId },
+      status: 'pending',
+    });
+    const pending = internal.room.pendingPlaybackTransition;
+    expect(pending).toMatchObject({
+      developerCommandId: command.commandId,
+      target: { queueItemId, state: 'playing' },
+    });
+    expect(dispatched.filter((entry) => entry.path === '/internal/realtime/v1/broadcast')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: expect.objectContaining({
+            event: expect.objectContaining({
+              type: 'pro-playback-prepare',
+              transitionId: pending.transitionId,
             }),
           }),
         }),
-      }),
-    ]);
+      ]),
+    );
+
+    const ready = await worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${pending.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: pending.basePlaybackRevision, status: 'ready' },
+        ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    expect(internal.room.developerCommands[command.commandId]).toMatchObject({
+      status: 'applied',
+      resultCode: 'applied',
+    });
+    expect(internal.room.playback).toMatchObject({ queueItemId, state: 'playing' });
   });
 
   it('removes an exact item set and clears the queue through one idempotent BOT mutation each', async () => {
@@ -1370,7 +3516,7 @@ describe('PRO room private Developer API projections', () => {
       runtime: 'awake',
       revision: 9,
       participantCount: 1,
-      controlAvailable: false,
+      controlAvailable: true,
       quota: {
         limitBytes: 1_073_741_824,
         perAssetLimitBytes: 209_715_200,
@@ -1389,6 +3535,8 @@ describe('PRO room private Developer API projections', () => {
       state: 'playing',
       queueItemId,
       positionSeconds: 12,
+      youtubeVideoId: null,
+      youtubeSubIndex: null,
       observedAtMs: Date.now(),
       item: {
         queueItemId,
@@ -1651,6 +3799,7 @@ describe('PRO room private Developer API projections', () => {
       type: 'add_youtube',
       videoId: 'dQw4w9WgXcQ',
       playlistId: 'PL_SINGLE_KEEP',
+      videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0'],
       name: 'Never Gonna Give You Up',
       title: 'Never Gonna Give You Up',
       artist: 'Rick Astley',
@@ -1685,6 +3834,7 @@ describe('PRO room private Developer API projections', () => {
       kind: 'youtube',
       videoId: mutation.videoId,
       playlistId: mutation.playlistId,
+      videoIds: mutation.videoIds,
     });
     expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
     const queueIdempotencyRecord = Object.values(internal.room.idempotency).find(
@@ -1706,6 +3856,7 @@ describe('PRO room private Developer API projections', () => {
     const conflict = await mutateInternalDeveloperQueue(worker, keyId, 'developer-queue-add-0001', {
       ...mutation,
       videoId: 'M7lc1UVf-VE',
+      videoIds: ['M7lc1UVf-VE', '9bZkp7q19f0'],
     });
     expect(conflict.status).toBe(409);
     expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
@@ -1804,7 +3955,7 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.playlist).toHaveLength(2);
   });
 
-  it('keeps flat videos while collapsing each repeated playlist aggregate to its first row', async () => {
+  it('keeps flat videos while collapsing repeated playlist rows into ordered manifests', async () => {
     const { worker } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };
     const keyId = 'C'.repeat(16);
@@ -1859,7 +4010,12 @@ describe('PRO room private Developer API projections', () => {
     ).toEqual([
       {
         name: 'Playlist alpha first',
-        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ', playlistId: 'PL_ALPHA' },
+        source: {
+          kind: 'youtube',
+          videoId: 'dQw4w9WgXcQ',
+          playlistId: 'PL_ALPHA',
+          videoIds: ['dQw4w9WgXcQ', '9bZkp7q19f0'],
+        },
       },
       {
         name: 'Standalone one',
@@ -1867,7 +4023,12 @@ describe('PRO room private Developer API projections', () => {
       },
       {
         name: 'Playlist beta first',
-        source: { kind: 'youtube', videoId: 'aqz-KE-bpKQ', playlistId: 'PL_BETA' },
+        source: {
+          kind: 'youtube',
+          videoId: 'aqz-KE-bpKQ',
+          playlistId: 'PL_BETA',
+          videoIds: ['aqz-KE-bpKQ', 'jNQXAC9IVRw'],
+        },
       },
       {
         name: 'Standalone two',
@@ -1906,6 +4067,69 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.playlist).toHaveLength(4);
   });
 
+  it('deduplicates identical canonical batch manifests and rejects ambiguous mixed rows', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const keyId = 'M'.repeat(16);
+    const videoIds = ['9bZkp7q19f0', 'dQw4w9WgXcQ', 'M7lc1UVf-VE'];
+    const identical = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-identical-manifests',
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_CANONICAL',
+            videoIds,
+            name: 'Canonical entry',
+          },
+          {
+            videoId: 'M7lc1UVf-VE',
+            playlistId: 'PL_CANONICAL',
+            videoIds,
+            name: 'Same canonical manifest',
+          },
+        ],
+      },
+    );
+    expect(identical.status).toBe(201);
+    expect(internal.room.playlist).toHaveLength(1);
+    expect(internal.room.playlist[0].source).toEqual({
+      kind: 'youtube',
+      videoId: 'dQw4w9WgXcQ',
+      playlistId: 'PL_CANONICAL',
+      videoIds,
+    });
+
+    const before = structuredClone(internal.room.playlist);
+    const mixed = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-queue-mixed-manifest-rows',
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_MIXED',
+            videoIds,
+            name: 'Manifest row',
+          },
+          {
+            videoId: 'M7lc1UVf-VE',
+            playlistId: 'PL_MIXED',
+            name: 'Manifest-less row',
+          },
+        ],
+      },
+    );
+    expect(mixed.status).toBe(400);
+    await expect(mixed.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(internal.room.playlist).toEqual(before);
+  });
+
   it('rejects invalid or over-capacity YouTube batches without a partial append', async () => {
     const { worker } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };
@@ -1924,6 +4148,60 @@ describe('PRO room private Developer API projections', () => {
         items: [
           { videoId: 'dQw4w9WgXcQ', name: 'Valid' },
           { videoId: 'invalid', name: 'Invalid' },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            name: 'Manifest without playlist',
+            videoIds: ['dQw4w9WgXcQ'],
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_INVALID_EMPTY',
+            name: 'Empty manifest',
+            videoIds: [],
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_INVALID_FIRST',
+            name: 'Missing entry video',
+            videoIds: ['9bZkp7q19f0', 'M7lc1UVf-VE'],
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_INVALID_ID',
+            name: 'Invalid manifest ID',
+            videoIds: ['dQw4w9WgXcQ', 'invalid'],
+          },
+        ],
+      },
+      {
+        type: 'add_youtube_batch',
+        items: [
+          {
+            videoId: 'dQw4w9WgXcQ',
+            playlistId: 'PL_TOO_LONG',
+            name: 'Too-long manifest',
+            videoIds: Array.from({ length: 5001 }, () => 'dQw4w9WgXcQ'),
+          },
         ],
       },
     ];
@@ -2391,7 +4669,11 @@ describe('PRO room private Developer API projections', () => {
       youtubeSubIndex: null,
     });
     expect(asset.gcAfterMs).toBe(Date.now() + 15 * 60 * 1_000);
-    await vi.waitFor(() => expect(dispatched).toHaveLength(1));
+    await vi.waitFor(() => expect(dispatched).toHaveLength(2));
+    expect(dispatched.map((message) => message.event?.type).sort()).toEqual([
+      'pro-playback-commit',
+      'pro-room-invalidated',
+    ]);
 
     const replay = await mutateInternalDeveloperQueue(
       worker,
@@ -2404,7 +4686,7 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.revision).toBe(before.revision + 1);
     expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
     expect(internal.room.playback.revision).toBe(before.playbackRevision + 1);
-    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(2);
 
     const beforeMissing = structuredClone(internal.room);
     const missing = await mutateInternalDeveloperQueue(
@@ -2534,15 +4816,25 @@ describe('PRO room private Developer API projections', () => {
     });
     expect(asset.gcAfterMs).toBe(Date.now() + 15 * 60 * 1_000);
     expect((state.storage.data.get('pro-room:v1') as Record<string, any>).playlist).toEqual([]);
-    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(1));
-    expect(dispatchedBodies[0]).toMatchObject({
-      roomCode: ROOM_CODE,
-      frame: {
-        type: 'developer-invalidation',
-        revision: before.revision + 1,
-        playlistRevision: before.playlistRevision + 1,
-      },
-    });
+    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(2));
+    expect(dispatchedBodies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          roomCode: ROOM_CODE,
+          event: expect.objectContaining({
+            type: 'pro-playback-commit',
+            playback: expect.objectContaining({ state: 'idle', queueItemId: null }),
+          }),
+        }),
+        expect.objectContaining({
+          roomCode: ROOM_CODE,
+          event: expect.objectContaining({
+            type: 'pro-room-invalidated',
+            playlistRevision: before.playlistRevision + 1,
+          }),
+        }),
+      ]),
+    );
 
     const replay = await mutateInternalDeveloperQueue(
       worker,
@@ -2555,7 +4847,7 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.revision).toBe(before.revision + 1);
     expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
     expect(internal.room.playback.revision).toBe(before.playbackRevision + 1);
-    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(2);
 
     const emptyNoOp = await mutateInternalDeveloperQueue(
       worker,
@@ -2567,7 +4859,7 @@ describe('PRO room private Developer API projections', () => {
     expect(await responseJson(emptyNoOp)).toEqual(clearedQueue);
     expect(internal.room.revision).toBe(before.revision + 1);
     expect(internal.room.playlistRevision).toBe(before.playlistRevision + 1);
-    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(2);
   });
 
   it('clears only the current API key additions while preserving participant playback and replay safety', async () => {
@@ -3061,7 +5353,7 @@ describe('PRO room private Developer API projections', () => {
     expect(asset.gcAfterMs).toBeGreaterThan(Date.now());
   });
 
-  it('hints the exact capable coordinator only after queue and upload completion commits', async () => {
+  it('broadcasts committed queue and upload invalidations to every active member', async () => {
     const { worker, state, bucket, ownerCookie } = await activatedRoom();
     const internal = worker as unknown as {
       env: Record<string, any>;
@@ -3077,8 +5369,8 @@ describe('PRO room private Developer API projections', () => {
       const body = (await request.json()) as Record<string, any>;
       dispatchedBodies.push(body);
       const persisted = state.storage.data.get('pro-room:v1') as Record<string, any>;
-      expect(persisted.revision).toBe(body.frame.revision);
-      expect(persisted.playlistRevision).toBe(body.frame.playlistRevision);
+      expect(persisted.revision).toBe(body.event.roomRevision);
+      expect(persisted.playlistRevision).toBe(body.event.playlistRevision);
       return Response.json({ dispatched: true });
     });
     internal.env.PRO_SIGNALING_ROOMS = {
@@ -3097,37 +5389,30 @@ describe('PRO room private Developer API projections', () => {
     await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(1));
 
     const firstRequest = dispatchFetch.mock.calls[0]?.[0];
-    expect(new URL(firstRequest.url).pathname).toBe('/internal/developer/v1/invalidate');
+    expect(new URL(firstRequest.url).pathname).toBe('/internal/realtime/v1/broadcast');
     const firstBody = dispatchedBodies[0]!;
     expect(firstBody).toMatchObject({
       roomCode: ROOM_CODE,
       coordinatorEpoch: internal.room.presence.coordinatorEpoch,
-      coordinatorParticipantId: internal.room.presence.coordinatorParticipantId,
-      developerControlVersion: 1,
-      frame: {
-        type: 'developer-invalidation',
-        version: 1,
-        roomCode: ROOM_CODE,
-        coordinatorEpoch: internal.room.presence.coordinatorEpoch,
-        revision: internal.room.revision,
+      event: {
+        type: 'pro-room-invalidated',
+        roomRevision: internal.room.revision,
         playlistRevision: internal.room.playlistRevision,
-      },
-      addition: {
-        type: 'pro-queue-addition',
-        version: 1,
-        roomCode: ROOM_CODE,
-        coordinatorEpoch: internal.room.presence.coordinatorEpoch,
-        playlistRevision: internal.room.playlistRevision,
-        actorName: '🎧'.repeat(15),
-        count: 1,
-        firstTitle: 'Queue hint',
+        addition: {
+          type: 'pro-queue-addition',
+          version: 1,
+          roomCode: ROOM_CODE,
+          coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+          playlistRevision: internal.room.playlistRevision,
+          actorName: '🎧'.repeat(15),
+          count: 1,
+          firstTitle: 'Queue hint',
+        },
       },
     });
-    expect(firstBody.addition.actorName.length).toBe(30);
-    expect(firstBody.addition.eventId).toMatch(/^qa_000001_\d+_\d+$/);
-    expect(firstBody.coordinatorPresenceIncarnationId).toBe(
-      internal.room.presence.participants[firstBody.coordinatorParticipantId].presenceIncarnationId,
-    );
+    expect(firstBody.event.addition.actorName.length).toBe(30);
+    expect(firstBody.event.addition.eventId).toMatch(/^qa_000001_\d+_\d+$/);
+    expect(firstBody.targets).toHaveLength(1);
 
     const queueReplay = await mutateInternalDeveloperQueue(
       worker,
@@ -3172,12 +5457,12 @@ describe('PRO room private Developer API projections', () => {
     expect(completion.status).toBe(201);
     await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(2));
     const secondBody = dispatchedBodies[1]!;
-    expect(secondBody.frame).toMatchObject({
-      type: 'developer-invalidation',
-      revision: internal.room.revision,
+    expect(secondBody.event).toMatchObject({
+      type: 'pro-room-invalidated',
+      roomRevision: internal.room.revision,
       playlistRevision: internal.room.playlistRevision,
     });
-    expect(secondBody.addition).toMatchObject({
+    expect(secondBody.event.addition).toMatchObject({
       type: 'pro-queue-addition',
       actorName: 'Uploader bot',
       count: 1,
@@ -3200,7 +5485,7 @@ describe('PRO room private Developer API projections', () => {
     );
     expect(batchResponse.status).toBe(201);
     await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(3));
-    expect(dispatchedBodies[2]?.addition).toMatchObject({
+    expect(dispatchedBodies[2]?.event.addition).toMatchObject({
       type: 'pro-queue-addition',
       actorName: 'Batch bot',
       count: 2,
@@ -3232,8 +5517,10 @@ describe('PRO room private Developer API projections', () => {
       ),
     );
     expect(participantMutation.status).toBe(200);
-    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(4));
-    expect(dispatchedBodies[3]?.addition).toMatchObject({
+    // A participant queue edit first invalidates the canonical resource, then
+    // emits the optional queue-addition chat hint as a second invalidation.
+    await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(5));
+    expect(dispatchedBodies[4]?.event.addition).toMatchObject({
       type: 'pro-queue-addition',
       actorName: 'Owner',
       count: 1,
@@ -3296,7 +5583,7 @@ describe('PRO room private Developer API projections', () => {
     expect(response.status).toBe(404);
   });
 
-  it('persists, dispatches, deduplicates, acknowledges, and fences Developer API commands', async () => {
+  it('persists, applies, deduplicates, and server-completes Developer API commands', async () => {
     const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
     const dispatchFetch = vi.fn(async () => Response.json({ dispatched: true }));
     const internal = worker as unknown as {
@@ -3369,23 +5656,18 @@ describe('PRO room private Developer API projections', () => {
     expect(created).toMatchObject({
       schemaVersion: 1,
       roomCode: ROOM_CODE,
-      status: 'dispatched',
+      status: 'pending',
     });
+    expect(created).not.toHaveProperty('resultCode');
     expect(created.commandId).toMatch(/^cmd_[A-Za-z0-9_-]{22}$/);
     expect(dispatchFetch).toHaveBeenCalledTimes(1);
-    expect(persistedSizes).toHaveLength(2);
-    // The persisted pre-dispatch capacity reserve is consumed before the
-    // cross-DO send, so the post-send write can never be the larger state.
-    expect(persistedSizes[1]).toBeLessThanOrEqual(persistedSizes[0]!);
+    expect(persistedSizes).toHaveLength(1);
     const dispatchedRequest = dispatchFetch.mock.calls[0]?.[0] as Request;
     await expect(dispatchedRequest.json()).resolves.toMatchObject({
       roomCode: ROOM_CODE,
-      coordinatorParticipantId: activationEnvelope.snapshot.viewer.participantId,
-      developerControlVersion: 1,
-      frame: {
-        commandId: created.commandId,
-        expected: { queueItemId, playlistRevision: 2, playbackRevision: 4 },
-        command: { type: 'play' },
+      event: {
+        type: 'pro-playback-prepare',
+        target: { revision: 5, queueItemId, state: 'playing' },
       },
     });
 
@@ -3396,6 +5678,30 @@ describe('PRO room private Developer API projections', () => {
     expect(conflict.status).toBe(409);
     expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
 
+    const pending = (internal.room as Record<string, any>).pendingPlaybackTransition;
+    const ready = await worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${pending.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: pending.basePlaybackRevision, status: 'ready' },
+        ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    expect(dispatchFetch).toHaveBeenCalledTimes(2);
+    expect(
+      (internal.room as Record<string, any>).developerCommands[created.commandId],
+    ).toMatchObject({
+      status: 'applied',
+      resultCode: 'applied',
+    });
+    const terminalReplay = await responseJson(await createRequest({ type: 'play' }));
+    expect(terminalReplay).toMatchObject({
+      commandId: created.commandId,
+      status: 'applied',
+      resultCode: 'applied',
+    });
+
     const ack = await worker.fetch(
       jsonRequest(
         `/developer-commands/${created.commandId}/ack`,
@@ -3404,8 +5710,8 @@ describe('PRO room private Developer API projections', () => {
         ownerCookie,
       ),
     );
-    expect(ack.status).toBe(200);
-    expect(await responseJson(ack)).toEqual({ ok: true });
+    expect(ack.status).toBe(410);
+    expect(await responseJson(ack)).toEqual({ error: 'COMMAND_ACK_NOT_REQUIRED' });
     const duplicateAck = await worker.fetch(
       jsonRequest(
         `/developer-commands/${created.commandId}/ack`,
@@ -3414,7 +5720,7 @@ describe('PRO room private Developer API projections', () => {
         ownerCookie,
       ),
     );
-    expect(duplicateAck.status).toBe(200);
+    expect(duplicateAck.status).toBe(410);
 
     const status = await worker.fetch(
       new Request('https://pro-room.internal/internal/developer/v1/commands/status', {
@@ -3429,47 +5735,35 @@ describe('PRO room private Developer API projections', () => {
     expect(await responseJson(status)).toMatchObject({ status: 'applied', resultCode: 'applied' });
   });
 
-  it('requires a v3 coordinator and dispatches next as a v3 command frame', async () => {
+  it('applies next on the server without depending on a browser control version', async () => {
     const { worker, ownerCookie, dispatchFetch, internal } = await preparedDeveloperCommandRoom();
     const v2Capability = await worker.fetch(
       jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 2 }, ownerCookie),
     );
     expect(v2Capability.status).toBe(200);
 
-    const incompatible = await createInternalDeveloperCommand(
+    const accepted = await createInternalDeveloperCommand(
       worker,
       DEVELOPER_KEY_ID,
       'developer-next-command-v2-0001',
       { type: 'next' },
     );
-    expect(incompatible.status).toBe(409);
-    await expect(incompatible.json()).resolves.toEqual({ error: 'COORDINATOR_INCOMPATIBLE' });
-    expect(dispatchFetch).not.toHaveBeenCalled();
-
-    const v3Capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 3 }, ownerCookie),
-    );
-    expect(v3Capability.status).toBe(200);
-
-    const accepted = await createInternalDeveloperCommand(
-      worker,
-      DEVELOPER_KEY_ID,
-      'developer-next-command-v3-0001',
-      { type: 'next' },
-    );
     expect(accepted.status).toBe(202);
     const body = await responseJson(accepted);
-    expect(body).toMatchObject({ status: expect.stringMatching(/pending|dispatched/) });
+    expect(body).toMatchObject({ status: 'applied', resultCode: 'applied' });
     expect(internal.room.developerCommands[body.commandId]).toMatchObject({
       developerControlVersion: 3,
       command: { type: 'next' },
+      status: 'applied',
     });
     expect(dispatchFetch).toHaveBeenCalledOnce();
     await expect(
       (dispatchFetch.mock.calls[0]?.[0] as Request).clone().json(),
     ).resolves.toMatchObject({
-      developerControlVersion: 3,
-      frame: { version: 3, command: { type: 'next' } },
+      event: {
+        type: 'pro-playback-commit',
+        playback: { revision: 5, state: 'idle', queueItemId: null },
+      },
     });
   });
 
@@ -3498,6 +5792,24 @@ describe('PRO room private Developer API projections', () => {
     expect(Object.keys(internal.room.idempotency)).toHaveLength(256);
     expect(Object.keys(internal.room.developerCommandIdempotency)).toHaveLength(1);
 
+    const pending = internal.room.pendingPlaybackTransition;
+    expect(
+      (
+        await worker.fetch(
+          jsonRequest(
+            `/playback/transitions/${pending.transitionId}/ready`,
+            'POST',
+            { basePlaybackRevision: pending.basePlaybackRevision, status: 'ready' },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(internal.room.developerCommands[first.commandId]).toMatchObject({
+      status: 'applied',
+      resultCode: 'applied',
+    });
+
     const ack = await worker.fetch(
       jsonRequest(
         `/developer-commands/${first.commandId}/ack`,
@@ -3506,7 +5818,7 @@ describe('PRO room private Developer API projections', () => {
         ownerCookie,
       ),
     );
-    expect(ack.status).toBe(200);
+    expect(ack.status).toBe(410);
 
     // Fill the bounded command-status ledger with newer terminal entries. The
     // oldest command may be evicted, but its dedicated idempotency record must
@@ -3523,10 +5835,7 @@ describe('PRO room private Developer API projections', () => {
         expiresAtMs: nowMs + 30_000,
         retainUntilMs: nowMs + 10 * 60 * 1000,
         coordinatorEpoch: internal.room.presence.coordinatorEpoch,
-        coordinatorParticipantId: internal.room.presence.coordinatorParticipantId,
-        coordinatorPresenceIncarnationId:
-          internal.room.presence.participants[internal.room.presence.coordinatorParticipantId]
-            .presenceIncarnationId,
+        developerControlVersion: 1,
         expected: {
           queueItemId: internal.room.currentQueueItemId,
           playlistRevision: internal.room.playlistRevision,
@@ -3552,7 +5861,7 @@ describe('PRO room private Developer API projections', () => {
       status: 'applied',
       resultCode: 'applied',
     });
-    expect(dispatchFetch).toHaveBeenCalledTimes(2);
+    expect(dispatchFetch).toHaveBeenCalledTimes(3);
 
     const retainedStatusRequest = (requestedKeyId: string) =>
       worker.fetch(
@@ -3580,7 +5889,7 @@ describe('PRO room private Developer API projections', () => {
     expect(otherKeyStatus.status).toBe(404);
   });
 
-  it('bounds a stalled signaling dispatch and leaves a retryable tracked command', async () => {
+  it('bounds a stalled realtime broadcast without rolling back server-applied control', async () => {
     const stalledDispatch = vi.fn(
       (request: Request) =>
         new Promise<Response>((_resolve, reject) => {
@@ -3595,21 +5904,22 @@ describe('PRO room private Developer API projections', () => {
       worker,
       'ApiKeyId12345678',
       'developer-command-timeout',
-      { type: 'play' },
+      { type: 'seek', positionSeconds: 12 },
     );
     const response = await create;
     expect(Date.now() - startedAt).toBeLessThan(2_000);
     expect(response.status).toBe(202);
     const body = await responseJson(response);
-    expect(body).toMatchObject({ status: 'pending' });
+    expect(body).toMatchObject({ status: 'applied', resultCode: 'applied' });
     expect(stalledDispatch).toHaveBeenCalledTimes(1);
     expect(internal.room.developerCommands[body.commandId]).toMatchObject({
-      status: 'pending',
-      attempts: 1,
+      status: 'applied',
+      resultCode: 'applied',
     });
+    expect(internal.room.playback).toMatchObject({ state: 'paused', positionSeconds: 12 });
   });
 
-  it('accepts only an exact coordinator expired ACK after server-side expiry', async () => {
+  it('rejects every obsolete browser ACK after server-side command completion', async () => {
     const { worker, ownerCookie, internal } = await preparedDeveloperCommandRoom();
     const created = await responseJson(
       await createInternalDeveloperCommand(
@@ -3619,6 +5929,19 @@ describe('PRO room private Developer API projections', () => {
         { type: 'play' },
       ),
     );
+    const pending = internal.room.pendingPlaybackTransition;
+    expect(
+      (
+        await worker.fetch(
+          jsonRequest(
+            `/playback/transitions/${pending.transitionId}/ready`,
+            'POST',
+            { basePlaybackRevision: pending.basePlaybackRevision, status: 'ready' },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
     internal.room.developerCommands[created.commandId].expiresAtMs = Date.now() - 1;
 
     const expiredAck = await worker.fetch(
@@ -3629,14 +5952,13 @@ describe('PRO room private Developer API projections', () => {
         ownerCookie,
       ),
     );
-    expect(expiredAck.status).toBe(200);
+    expect(expiredAck.status).toBe(410);
+    await expect(expiredAck.json()).resolves.toEqual({ error: 'COMMAND_ACK_NOT_REQUIRED' });
     expect(internal.room.developerCommands[created.commandId]).toMatchObject({
-      status: 'expired',
-      resultCode: 'expired',
+      status: 'applied',
+      resultCode: 'applied',
     });
-    expect(
-      Number.isSafeInteger(internal.room.developerCommands[created.commandId].acknowledgedAtMs),
-    ).toBe(true);
+    expect(internal.room.developerCommands[created.commandId].acknowledgedAtMs).toBeUndefined();
 
     const conflictingAck = await worker.fetch(
       jsonRequest(
@@ -3646,7 +5968,7 @@ describe('PRO room private Developer API projections', () => {
         ownerCookie,
       ),
     );
-    expect(conflictingAck.status).toBe(409);
+    expect(conflictingAck.status).toBe(410);
   });
 });
 
@@ -4563,7 +6885,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
         'playback.control',
         'effects.control',
         'asset.upload',
-        'coordinator.eligible',
         'members.manage',
       ],
     });
@@ -4578,9 +6899,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(ownerAfterRotationResponse.status).toBe(200);
     const ownerAfterRotation = await responseJson(ownerAfterRotationResponse);
     expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
-    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBe(
-      ownerAfterRotation.snapshot.viewer.participantId,
-    );
+    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBeNull();
     expect((await worker.fetch(request('/snapshot', {}, controllerCookie))).status).toBe(401);
 
     const oldPin = await worker.fetch(
@@ -4610,12 +6929,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       request('/presence/current', { method: 'DELETE' }, ownerCookie),
     );
     expect(leaveOwner.status).toBe(200);
-    const memberAsCoordinator = await responseJson(
+    const memberAfterOwnerLeave = await responseJson(
       await worker.fetch(request('/snapshot', {}, firstMemberCookie)),
     );
-    expect(memberAsCoordinator.snapshot.presence.coordinatorParticipantId).toBe(
-      memberAsCoordinator.snapshot.viewer.participantId,
-    );
+    expect(memberAfterOwnerLeave.snapshot.presence.coordinatorParticipantId).toBeNull();
 
     const ownerReentryResponse = await worker.fetch(
       request('/presence/enter', { method: 'POST' }, ownerCookie),
@@ -4627,9 +6944,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const presenceRevisionBeforeRotation = ownerReentry.snapshot.presence.revision as number;
     const playbackRevisionBeforeRotation = ownerReentry.snapshot.playback.revision as number;
     expect(ownerReentry.snapshot.presence.participants).toHaveLength(3);
-    expect(ownerReentry.snapshot.presence.coordinatorParticipantId).not.toBe(
-      ownerReentry.snapshot.viewer.participantId,
-    );
+    expect(ownerReentry.snapshot.presence.coordinatorParticipantId).toBeNull();
 
     const rotate = await worker.fetch(
       jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
@@ -4639,9 +6954,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/snapshot', {}, ownerCookie)),
     );
     expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
-    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBe(
-      ownerAfterRotation.snapshot.viewer.participantId,
-    );
+    expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBeNull();
     expect(ownerAfterRotation.snapshot.presence.participants).toEqual([
       expect.objectContaining({ participantId: ownerAfterRotation.snapshot.viewer.participantId }),
     ]);
@@ -4680,7 +6993,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(validOtherAddress.status).toBe(200);
   });
 
-  it('freezes an empty room, wakes on return, and scopes signaling tickets to the coordinator epoch', async () => {
+  it('freezes an empty room, wakes on return, and scopes member tickets to the room epoch', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const asleep = await worker.fetch(
       request('/presence/current', { method: 'DELETE' }, ownerCookie),
@@ -4719,8 +7032,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
       'coordinatorEpoch',
       'presenceIncarnationId',
       'ticketSequence',
+      'pendingPlaybackTransition',
     ]);
-    expect(envelope).toMatchObject({ role: 'coordinator', coordinatorEpoch: 3 });
+    expect(envelope).toMatchObject({
+      role: 'member',
+      coordinatorEpoch: 3,
+      pendingPlaybackTransition: null,
+    });
     expect(envelope.ticket).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     expect(envelope.expiresAtMs).toBeGreaterThan(Date.now());
     const [payload] = String(envelope.ticket).split('.');
@@ -4733,11 +7051,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
       'kind',
       'roomCode',
       'participantId',
+      'displayName',
       'role',
       'coordinatorEpoch',
       'presenceIncarnationId',
+      'presenceRevision',
       'ticketSequence',
-      'developerControlVersion',
       'jti',
       'iat',
       'exp',
@@ -4746,11 +7065,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
       v: 1,
       kind: 'pro-signaling',
       roomCode: ROOM_CODE,
-      role: 'coordinator',
+      displayName: 'Owner',
+      role: 'member',
       coordinatorEpoch: 3,
       presenceIncarnationId: awakeSnapshot.viewer.presenceIncarnationId,
+      presenceRevision: awakeSnapshot.presence.revision,
       ticketSequence: 1,
-      developerControlVersion: 0,
     });
     expect((decoded.exp as number) - (decoded.iat as number)).toBe(90);
   });
@@ -4831,6 +7151,101 @@ describe('persistent PRO room authentication, presence, and state', () => {
       request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
     );
     expect(Object.keys(await responseJson(legacy))).toEqual(['snapshot']);
+  });
+
+  it('durably retries a presence snapshot after transient signaling failures and isolate restart', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T03:00:00.000Z'));
+    const context = await activatedRoom();
+    const dispatched: Array<Record<string, any>> = [];
+    let signalingAvailable = false;
+    const dispatchFetch = vi.fn(async (request: Request) => {
+      dispatched.push((await request.json()) as Record<string, any>);
+      return signalingAvailable
+        ? Response.json({ broadcast: true, eligible: 2, sent: 2 })
+        : Response.json({ error: 'temporary signaling outage' }, { status: 503 });
+    });
+    const signalingNamespace = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = signalingNamespace;
+
+    const memberResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
+    );
+    expect(memberResponse.status).toBe(200);
+    bindCookiePresence(cookieFrom(memberResponse), await responseJson(memberResponse));
+
+    await vi.waitFor(() => expect(dispatchFetch).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(internal.room.pendingPresenceBroadcast).not.toBeNull());
+    const firstRetry = structuredClone(internal.room.pendingPresenceBroadcast) as Record<
+      string,
+      number
+    >;
+    expect(firstRetry).toMatchObject({
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      presenceRevision: internal.room.presence.revision,
+      roomRevision: internal.room.revision,
+      attempts: 0,
+    });
+    expect(firstRetry.retryAtMs).toBeGreaterThan(Date.now());
+    expect(firstRetry.retryAtMs).toBeLessThanOrEqual(Date.now() + 1_000);
+    expect(context.state.storage.alarm).toBe(firstRetry.retryAtMs);
+    expect(
+      (context.state.storage.data.get('pro-room:v2:core') as Record<string, any>).core
+        .pendingPresenceBroadcast,
+    ).toEqual(firstRetry);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      {
+        ...environment(context.bucket),
+        PRO_SIGNALING_ROOMS: signalingNamespace,
+      } as never,
+    );
+    const restartedInternal = restarted as unknown as {
+      alarm(): Promise<void>;
+      room: Record<string, any>;
+    };
+    vi.setSystemTime(firstRetry.retryAtMs);
+    await restartedInternal.alarm();
+    expect(dispatchFetch).toHaveBeenCalledTimes(4);
+    const secondRetry = restartedInternal.room.pendingPresenceBroadcast as Record<string, number>;
+    expect(secondRetry).toMatchObject({
+      coordinatorEpoch: firstRetry.coordinatorEpoch,
+      presenceRevision: firstRetry.presenceRevision,
+      attempts: 1,
+      retryAtMs: firstRetry.retryAtMs + 2_000,
+    });
+    expect(context.state.storage.alarm).toBe(secondRetry.retryAtMs);
+
+    signalingAvailable = true;
+    vi.setSystemTime(secondRetry.retryAtMs);
+    await restartedInternal.alarm();
+    expect(dispatchFetch).toHaveBeenCalledTimes(5);
+    expect(restartedInternal.room.pendingPresenceBroadcast).toBeNull();
+    expect(
+      (context.state.storage.data.get('pro-room:v2:core') as Record<string, any>).core
+        .pendingPresenceBroadcast,
+    ).toBeNull();
+    expect(dispatched.at(-1)).toMatchObject({
+      coordinatorEpoch: firstRetry.coordinatorEpoch,
+      targets: expect.arrayContaining(
+        Object.values(restartedInternal.room.presence.participants).map(
+          (participant: any) => participant.presenceIncarnationId,
+        ),
+      ),
+      event: {
+        type: 'pro-presence-snapshot',
+        presenceRevision: firstRetry.presenceRevision,
+        roomRevision: firstRetry.roomRevision,
+      },
+    });
   });
 
   it('checkpoints the legacy shadow and alarm without rewriting both on every heartbeat', async () => {
@@ -4987,6 +7402,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         'PUT',
         {
           coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+          baseRevision: 0,
           effects: {
             reverb: {
               mixPercent: 15,
@@ -5100,6 +7516,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         'PUT',
         {
           coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+          baseRevision: 0,
           effects,
         },
         ownerCookie,
@@ -5131,6 +7548,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
     const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
     const internal = worker as unknown as {
+      room: { effects: { revision: number } };
       heartbeatDurabilityDirty: boolean;
       pendingHeartbeatFlushGeneration: number | null;
     };
@@ -5156,6 +7574,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
           'PUT',
           {
             coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+            baseRevision: 0,
             effects: {
               reverb: {
                 mixPercent: 10,
@@ -5175,11 +7594,103 @@ describe('persistent PRO room authentication, presence, and state', () => {
     ).rejects.toThrow('benchmark storage failure');
     expect(internal.heartbeatDurabilityDirty).toBe(true);
     expect(internal.pendingHeartbeatFlushGeneration).toBe(generation);
+    expect(internal.room.effects.revision).toBe(0);
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(internal.heartbeatDurabilityDirty).toBe(false);
     expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
     expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(3);
+    expect(internal.room.effects.revision).toBe(0);
+    expect(
+      (state.storage.data.get('pro-room:v2:core') as Record<string, any>).core.effects.revision,
+    ).toBe(0);
+
+    const retried = await worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        {
+          coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+          baseRevision: 0,
+          effects: {
+            reverb: {
+              mixPercent: 10,
+              decaySeconds: 2,
+              preDelaySeconds: 0.02,
+              lowCutPercent: 0,
+              highCutPercent: 0,
+            },
+            equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+            virtualBass: { strengthPercent: 0 },
+            virtualSurround: { widthPercent: 100 },
+          },
+        },
+        ownerCookie,
+      ),
+    );
+    expect(retried.status).toBe(200);
+    expect(internal.room.effects.revision).toBe(1);
+  });
+
+  it('keeps a committed mutation successful when post-commit alarm maintenance fails', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
+    const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: { effects: { revision: number } };
+      scheduledAlarmMs: number | null;
+      alarmMaintenanceDirty: boolean;
+      alarmMaintenanceRetryAttempt: number;
+    };
+    internal.scheduledAlarmMs = null;
+    state.storage.alarm = null;
+    const originalSetAlarm = state.storage.setAlarm.bind(state.storage);
+    let failOnce = true;
+    const setAlarm = vi.spyOn(state.storage, 'setAlarm').mockImplementation(async (value) => {
+      if (failOnce) {
+        failOnce = false;
+        throw new Error('simulated alarm failure');
+      }
+      await originalSetAlarm(value);
+    });
+
+    const response = await worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        {
+          coordinatorEpoch: activationEnvelope.snapshot.presence.coordinatorEpoch,
+          baseRevision: 0,
+          effects: {
+            reverb: {
+              mixPercent: 15,
+              decaySeconds: 2,
+              preDelaySeconds: 0.02,
+              lowCutPercent: 0,
+              highCutPercent: 0,
+            },
+            equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+            virtualBass: { strengthPercent: 0 },
+            virtualSurround: { widthPercent: 100 },
+          },
+        },
+        ownerCookie,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(internal.room.effects.revision).toBe(1);
+    expect(
+      (state.storage.data.get('pro-room:v2:core') as Record<string, any>).core.effects.revision,
+    ).toBe(1);
+    expect(internal.alarmMaintenanceDirty).toBe(true);
+    expect(internal.alarmMaintenanceRetryAttempt).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(setAlarm).toHaveBeenCalledTimes(2);
+    expect(internal.alarmMaintenanceDirty).toBe(false);
+    expect(internal.alarmMaintenanceRetryAttempt).toBe(0);
+    expect(state.storage.alarm).not.toBeNull();
   });
 
   it('keeps failed deferred durability retryable by the next heartbeat and alarm', async () => {
@@ -5371,7 +7882,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     },
   );
 
-  it('keeps a newly elected coordinator authoritative after the prior heartbeat timer fires', async () => {
+  it('keeps the remaining member and room epoch authoritative after the prior heartbeat timer fires', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
     const { worker, state, ownerCookie } = await activatedRoom();
@@ -5397,8 +7908,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(leave.status).toBe(200);
     const elected = await responseJson(await worker.fetch(request('/snapshot', {}, memberCookie)));
     expect(elected.snapshot.presence).toMatchObject({
-      coordinatorParticipantId: memberParticipantId,
-      coordinatorEpoch: beforeEpoch + 1,
+      coordinatorParticipantId: null,
+      coordinatorEpoch: beforeEpoch,
+      participants: [expect.objectContaining({ participantId: memberParticipantId })],
     });
     expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
     expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
@@ -5408,8 +7920,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
     const stored = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
     expect(stored.core.presence).toMatchObject({
-      coordinatorParticipantId: memberParticipantId,
-      coordinatorEpoch: beforeEpoch + 1,
+      coordinatorParticipantId: null,
+      coordinatorEpoch: beforeEpoch,
     });
   });
 
@@ -5480,7 +7992,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
-  it('keeps a multi-peer leave response contract-valid while electing the next coordinator', async () => {
+  it('keeps a multi-peer leave response contract-valid without electing a browser manager', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controller = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
@@ -5495,12 +8007,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/snapshot', {}, controllerCookie)),
     );
     expect(current.snapshot.presence.participants).toHaveLength(1);
-    expect(current.snapshot.presence.coordinatorParticipantId).toBe(
-      current.snapshot.viewer.participantId,
-    );
+    expect(current.snapshot.presence.coordinatorParticipantId).toBeNull();
   });
 
-  it('keeps the active coordinator stable until a confirmed tab takeover', async () => {
+  it('keeps room authority stable while a confirmed tab takeover rotates only its incarnation', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
 
@@ -5551,7 +8061,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       before.snapshot.viewer.presenceIncarnationId,
     );
     expect(entered.snapshot.presence.coordinatorEpoch).toBe(
-      before.snapshot.presence.coordinatorEpoch + 1,
+      before.snapshot.presence.coordinatorEpoch,
     );
 
     const refreshed = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
@@ -5560,7 +8070,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
   });
 
-  it('requires confirmation to move a member tab without advancing coordinator authority', async () => {
+  it('requires confirmation to move a member tab without advancing the room epoch', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const memberResponse = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
@@ -5594,9 +8104,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(entered.snapshot.presence.coordinatorEpoch).toBe(
       ownerBefore.snapshot.presence.coordinatorEpoch,
     );
-    expect(entered.snapshot.presence.coordinatorParticipantId).toBe(
-      ownerBefore.snapshot.viewer.participantId,
-    );
+    expect(entered.snapshot.presence.coordinatorParticipantId).toBeNull();
   });
 
   it('fences every old-tab active request after a same-cookie tab enters', async () => {
@@ -5622,7 +8130,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     const entered = await responseJson(enteredResponse);
     bindCookiePresence(ownerCookie, entered);
-    expect(entered.snapshot.presence.coordinatorEpoch).toBe(oldEpoch + 1);
+    expect(entered.snapshot.presence.coordinatorEpoch).toBe(oldEpoch);
 
     const staleRequests = [
       requestWithPresence('/snapshot', {}, ownerCookie, oldIdentity),
@@ -5664,7 +8172,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(newTicket).toMatchObject({
       ticketSequence: 2,
       presenceIncarnationId: entered.snapshot.viewer.presenceIncarnationId,
-      coordinatorEpoch: oldEpoch + 1,
+      coordinatorEpoch: oldEpoch,
     });
     expect(
       (await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie))).status,
@@ -5765,41 +8273,59 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(Object.keys(internal.room.sessions)).toHaveLength(1);
   });
 
-  it('atomically checkpoints and leaves on unload while retaining an idempotent resumable session', async () => {
-    const { worker, ownerCookie } = await activatedRoom();
-    const initial = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+  it('atomically leaves on unload without letting a browser checkpoint replace server playback', async () => {
+    const context = await activatedRoom();
+    const { worker, ownerCookie } = context;
     const queueItemId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-    const selected = await responseJson(
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [
+            {
+              queueItemId,
+              name: 'Persistent video',
+              source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+            },
+          ],
+          'unload-server-authority',
+        )
+      ).status,
+    ).toBe(200);
+    const queued = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const prepare = await responseJson(
       await worker.fetch(
         jsonRequest(
-          '/snapshot',
-          'PUT',
+          '/playback/commands',
+          'POST',
           {
-            baseRevision: initial.snapshot.revision,
-            playlist: [
-              {
-                queueItemId,
-                name: 'Persistent video',
-                source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
-              },
-            ],
-            currentQueueItemId: queueItemId,
-            playback: {
-              coordinatorEpoch: initial.snapshot.presence.coordinatorEpoch,
-              revision: initial.snapshot.playback.revision + 1,
-              state: 'paused',
-              queueItemId,
-              positionSeconds: 10,
-              updatedAtMs: Date.now(),
-              youtubeVideoId: 'dQw4w9WgXcQ',
-              youtubeSubIndex: 0,
-            },
+            type: 'select',
+            baseRevision: queued.snapshot.playback.revision,
+            queueItemId,
+            state: 'paused',
+            positionSeconds: 10,
           },
           ownerCookie,
-          `${IDEMPOTENCY_KEY}-unload-seed`,
+          `${IDEMPOTENCY_KEY}-unload-select`,
         ),
       ),
     );
+    expect(
+      (
+        await worker.fetch(
+          jsonRequest(
+            `/playback/transitions/${prepare.transition.transitionId}/ready`,
+            'POST',
+            {
+              basePlaybackRevision: prepare.transition.basePlaybackRevision,
+              status: 'ready',
+            },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const selected = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
     const closeBody = {
       expectedParticipantId: selected.snapshot.viewer.participantId,
       expectedPresenceIncarnationId: selected.snapshot.viewer.presenceIncarnationId,
@@ -5816,8 +8342,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
         youtubeSubIndex: 7,
       },
     };
-    // Simulate an already in-flight periodic checkpoint winning the Durable
-    // Object queue after pagehide captured closeBody from the same base.
+    // A legacy periodic snapshot may still arrive during a rolling deploy,
+    // but it can only round-trip the canonical selection, never advance it.
     const periodic = await worker.fetch(
       jsonRequest(
         '/snapshot',
@@ -5826,13 +8352,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
           baseRevision: selected.snapshot.revision,
           playlist: selected.snapshot.playlist,
           currentQueueItemId: queueItemId,
-          playback: {
-            ...selected.snapshot.playback,
-            revision: selected.snapshot.playback.revision + 1,
-            state: 'playing',
-            positionSeconds: 40,
-            updatedAtMs: Date.now(),
-          },
+          playback: selected.snapshot.playback,
         },
         ownerCookie,
         `${IDEMPOTENCY_KEY}-unload-periodic-race`,
@@ -5858,11 +8378,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(Object.keys(internal.room.presence.participants)).toHaveLength(0);
     expect(Object.keys(internal.room.sessions)).toHaveLength(1);
     expect(internal.room.playback).toMatchObject({
-      state: 'playing',
-      youtubeVideoId: '9bZkp7q19f0',
-      youtubeSubIndex: 7,
+      state: 'paused',
+      positionSeconds: 10,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
     });
-    expect(internal.room.playback.positionSeconds).toBeGreaterThanOrEqual(42.25);
     const committedRevision = internal.room.revision;
 
     const replay = await worker.fetch(unloadCloseRequest(closeBody, ownerCookie, closeKey));
@@ -5913,7 +8433,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(Object.keys(internal.room.presence.participants)).toHaveLength(1);
   });
 
-  it('authorizes and validates unload checkpoint revisions and YouTube metadata before leaving', async () => {
+  it('validates unload identity and revisions while treating playback as an observation only', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controllerResponse = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
@@ -5973,7 +8493,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       error: 'PRESENCE_IDENTITY_MISMATCH',
     });
 
-    const unauthorized = await worker.fetch(
+    const memberClose = await worker.fetch(
       unloadCloseRequest(
         {
           ...baseBody,
@@ -5984,12 +8504,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
         `${IDEMPOTENCY_KEY}-unload-member-playback`,
       ),
     );
-    expect(unauthorized.status).toBe(403);
-    expect(await responseJson(unauthorized)).toEqual({ error: 'COORDINATOR_REQUIRED' });
+    expect(memberClose.status).toBe(200);
+    expect(await responseJson(memberClose)).toEqual({ ok: true });
 
     const futureRevision = await worker.fetch(
       unloadCloseRequest(
-        { ...baseBody, baseRevision: current.snapshot.revision + 1 },
+        { ...baseBody, baseRevision: current.snapshot.revision + 100 },
         ownerCookie,
         `${IDEMPOTENCY_KEY}-unload-future`,
       ),
@@ -5997,60 +8517,19 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(futureRevision.status).toBe(400);
     expect(await responseJson(futureRevision)).toEqual({ error: 'INVALID_REVISION' });
 
-    const queueItemId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-    const selected = await responseJson(
-      await worker.fetch(
-        jsonRequest(
-          '/snapshot',
-          'PUT',
-          {
-            baseRevision: current.snapshot.revision,
-            playlist: [
-              {
-                queueItemId,
-                name: 'Video',
-                source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
-              },
-            ],
-            currentQueueItemId: queueItemId,
-            playback: {
-              coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
-              revision: current.snapshot.playback.revision + 1,
-              state: 'paused',
-              queueItemId,
-              positionSeconds: 1,
-              updatedAtMs: Date.now(),
-              youtubeVideoId: 'dQw4w9WgXcQ',
-              youtubeSubIndex: 0,
-            },
-          },
-          ownerCookie,
-          `${IDEMPOTENCY_KEY}-unload-validation-seed`,
-        ),
+    const invalidSelection = await worker.fetch(
+      unloadCloseRequest(
+        { ...baseBody, currentQueueItemId: 'not-a-queue-item' },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-unload-invalid-selection`,
       ),
     );
-    const invalidPlayback = {
-      expectedParticipantId: selected.snapshot.viewer.participantId,
-      expectedPresenceIncarnationId: selected.snapshot.viewer.presenceIncarnationId,
-      baseRevision: selected.snapshot.revision,
-      currentQueueItemId: queueItemId,
-      playback: {
-        ...selected.snapshot.playback,
-        revision: selected.snapshot.playback.revision + 1,
-        positionSeconds: 2,
-        updatedAtMs: Date.now(),
-        youtubeVideoId: null,
-      },
-    };
-    const invalidYouTube = await worker.fetch(
-      unloadCloseRequest(invalidPlayback, ownerCookie, `${IDEMPOTENCY_KEY}-unload-invalid-youtube`),
-    );
-    expect(invalidYouTube.status).toBe(400);
-    expect(await responseJson(invalidYouTube)).toEqual({ error: 'INVALID_PLAYBACK' });
+    expect(invalidSelection.status).toBe(400);
+    expect(await responseJson(invalidSelection)).toEqual({ error: 'INVALID_PLAYBACK' });
     const stillPresent = await responseJson(
       await worker.fetch(request('/snapshot', {}, ownerCookie)),
     );
-    expect(stillPresent.snapshot.presence.participants).toHaveLength(2);
+    expect(stillPresent.snapshot.presence.participants).toHaveLength(1);
   });
 
   it('allows 100 total same-NAT devices and evicts only inactive sessions during long churn', async () => {
@@ -6207,22 +8686,17 @@ describe('persistent PRO room authentication, presence, and state', () => {
           source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
         },
       ],
-      currentQueueItemId: queueItemId,
-      playback: {
-        coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
-        revision: current.snapshot.playback.revision + 1,
-        state: 'paused',
-        queueItemId,
-        positionSeconds: 12.5,
-        updatedAtMs: Date.now(),
-        youtubeVideoId: 'dQw4w9WgXcQ',
-        youtubeSubIndex: 0,
-      },
+      currentQueueItemId: null,
+      // During the rolling cutover the field remains on the wire, but it is
+      // only an observation. Queue mutations cannot mint playback authority.
+      playback: current.snapshot.playback,
     };
     const first = await worker.fetch(
       jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
     );
+    expect(first.status).toBe(200);
     const firstEnvelope = await responseJson(first);
+    expect(firstEnvelope.snapshot.playback).toEqual(current.snapshot.playback);
     const controller = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
     );
@@ -6230,7 +8704,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const replay = await worker.fetch(
       jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
     );
-    expect(first.status).toBe(200);
     const replayEnvelope = await responseJson(replay);
     expect(replayEnvelope.snapshot.revision).toBeGreaterThan(firstEnvelope.snapshot.revision);
     expect(replayEnvelope.snapshot.playlist).toEqual(firstEnvelope.snapshot.playlist);
@@ -6248,70 +8721,157 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(record).not.toHaveProperty('body');
   });
 
-  it('rejects playback revision jumps, stale clocks, excessive positions, and invalid YouTube checkpoints', async () => {
-    const { worker, ownerCookie } = await activatedRoom();
-    const current = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+  it('keeps queue snapshots observation-only and validates server playback commands', async () => {
+    const context = await activatedRoom();
     const queueItemId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    const baseBody = {
-      baseRevision: current.snapshot.revision,
-      playlist: [
-        {
-          queueItemId,
-          name: 'Video',
-          source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
-        },
-      ],
-      currentQueueItemId: queueItemId,
-      playback: {
-        coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
-        revision: current.snapshot.playback.revision + 1,
-        state: 'paused',
+    const playlist = [
+      {
         queueItemId,
-        positionSeconds: 42,
-        updatedAtMs: Date.now(),
-        youtubeVideoId: 'dQw4w9WgXcQ',
-        youtubeSubIndex: 0,
+        name: 'Video',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
       },
-    };
-    const attempts = [
-      { ...baseBody.playback, revision: current.snapshot.playback.revision + 99 },
-      { ...baseBody.playback, updatedAtMs: Date.now() + 5 * 60_000 },
-      { ...baseBody.playback, positionSeconds: 8 * 24 * 60 * 60 },
-      { ...baseBody.playback, youtubeVideoId: null },
-      { ...baseBody.playback, youtubeSubIndex: null },
     ];
-    for (const [index, playback] of attempts.entries()) {
-      const rejected = await worker.fetch(
-        jsonRequest(
-          '/snapshot',
-          'PUT',
-          { ...baseBody, playback },
-          ownerCookie,
-          `${IDEMPOTENCY_KEY}-poison-${index}`,
-        ),
-      );
-      expect(rejected.status).toBe(400);
-      expect(await responseJson(rejected)).toEqual({ error: 'INVALID_PLAYBACK' });
-    }
-    const acceptedAt = Date.now();
-    const accepted = await worker.fetch(
+    expect((await replacePlaylist(context, playlist, 'authority-command-validation')).status).toBe(
+      200,
+    );
+    const current = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+
+    const forgedSnapshot = await context.worker.fetch(
       jsonRequest(
         '/snapshot',
         'PUT',
-        { ...baseBody, playback: { ...baseBody.playback, updatedAtMs: acceptedAt } },
-        ownerCookie,
-        `${IDEMPOTENCY_KEY}-playback-valid`,
+        {
+          baseRevision: current.snapshot.revision,
+          playlist,
+          currentQueueItemId: queueItemId,
+          playback: {
+            ...current.snapshot.playback,
+            revision: current.snapshot.playback.revision + 1,
+            state: 'paused',
+            queueItemId,
+            positionSeconds: 42,
+            updatedAtMs: Date.now(),
+            youtubeVideoId: 'dQw4w9WgXcQ',
+            youtubeSubIndex: 0,
+          },
+        },
+        context.ownerCookie,
+        `${IDEMPOTENCY_KEY}-forged-snapshot`,
       ),
     );
-    expect(accepted.status).toBe(200);
-    const envelope = await responseJson(accepted);
+    expect(forgedSnapshot.status).toBe(409);
+    await expect(forgedSnapshot.json()).resolves.toEqual({ error: 'PLAYBACK_COMMAND_REQUIRED' });
+
+    const invalidCommands = [
+      {
+        type: 'seek',
+        baseRevision: current.snapshot.playback.revision,
+        positionSeconds: 8 * 24 * 60 * 60,
+      },
+      {
+        type: 'select',
+        baseRevision: current.snapshot.playback.revision,
+        queueItemId,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+      },
+      {
+        type: 'select',
+        baseRevision: current.snapshot.playback.revision,
+        queueItemId,
+        updatedAtMs: Date.now(),
+      },
+    ];
+    for (const [index, command] of invalidCommands.entries()) {
+      const rejected = await context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          command,
+          context.ownerCookie,
+          `${IDEMPOTENCY_KEY}-invalid-command-${index}`,
+        ),
+      );
+      expect(rejected.status).toBe(400);
+      await expect(rejected.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    }
+
+    const stale = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: current.snapshot.playback.revision + 99,
+          queueItemId,
+        },
+        context.ownerCookie,
+        `${IDEMPOTENCY_KEY}-stale-command`,
+      ),
+    );
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({ error: 'PLAYBACK_REVISION_CONFLICT' });
+
+    const missing = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: current.snapshot.playback.revision,
+          queueItemId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        },
+        context.ownerCookie,
+        `${IDEMPOTENCY_KEY}-missing-target`,
+      ),
+    );
+    expect(missing.status).toBe(400);
+    await expect(missing.json()).resolves.toEqual({ error: 'INVALID_PLAYBACK_TARGET' });
+
+    const accepted = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: current.snapshot.playback.revision,
+          queueItemId,
+          state: 'paused',
+          positionSeconds: 42,
+          youtubeVideoId: 'dQw4w9WgXcQ',
+          youtubeSubIndex: 0,
+        },
+        context.ownerCookie,
+        `${IDEMPOTENCY_KEY}-valid-command`,
+      ),
+    );
+    expect(accepted.status).toBe(202);
+    const prepared = await responseJson(accepted);
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${prepared.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: prepared.transition.basePlaybackRevision,
+          status: 'ready',
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    const envelope = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
     expect(envelope.snapshot.playback).toMatchObject({
       revision: current.snapshot.playback.revision + 1,
+      state: 'paused',
+      queueItemId,
       youtubeVideoId: 'dQw4w9WgXcQ',
       youtubeSubIndex: 0,
+      positionSeconds: 42,
     });
-    expect(envelope.snapshot.playback.updatedAtMs).toBeGreaterThanOrEqual(acceptedAt);
-    expect(envelope.snapshot.playback.updatedAtMs).toBeLessThanOrEqual(Date.now());
+    expect(envelope.snapshot.currentQueueItemId).toBe(queueItemId);
   });
 
   it('persists a playlist above the legacy single-record budget and restores it from v2 rows', async () => {
@@ -7548,8 +10108,17 @@ describe('persistent PRO room audio effects', () => {
     virtualSurround: { widthPercent: 120 },
   };
 
-  it('persists one strict effects resource without changing snapshot v1', async () => {
+  it('persists one strict effects resource and publishes its revision head in snapshot v1', async () => {
     const context = await activatedRoom();
+    const beforeSnapshot = context.activationEnvelope.snapshot;
+    const dispatchFetch = vi.fn(async () =>
+      Response.json({ broadcast: true, eligible: 1, sent: 1 }),
+    );
+    const internal = context.worker as unknown as { env: Record<string, any> };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
     const before = await responseJson(
       await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
     );
@@ -7567,7 +10136,7 @@ describe('persistent PRO room audio effects', () => {
       jsonRequest(
         '/effects',
         'PUT',
-        { coordinatorEpoch: epoch, effects: configuredEffects },
+        { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffects },
         context.ownerCookie,
       ),
     );
@@ -7586,6 +10155,38 @@ describe('persistent PRO room audio effects', () => {
     );
     expect(parseProRoomSnapshot(snapshot.snapshot)).not.toBeNull();
     expect(snapshot.snapshot).not.toHaveProperty('effects');
+    expect(snapshot.snapshot).toMatchObject({
+      revision: beforeSnapshot.revision + 1,
+      effectsRevision: 1,
+      queueModeRevision: 0,
+    });
+    const recovered = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/presence/heartbeat',
+          'POST',
+          {
+            revision: beforeSnapshot.revision,
+            playlistRevision: beforeSnapshot.playlistRevision,
+            presenceRevision: beforeSnapshot.presence.revision,
+            playbackRevision: beforeSnapshot.playback.revision,
+            coordinatorEpoch: beforeSnapshot.presence.coordinatorEpoch,
+          },
+          context.ownerCookie,
+        ),
+      ),
+    );
+    expect(recovered).not.toHaveProperty('notModified');
+    expect(recovered.snapshot).toMatchObject({
+      revision: beforeSnapshot.revision + 1,
+      effectsRevision: 1,
+    });
+    expect(dispatchFetch).toHaveBeenCalledOnce();
+    await expect(
+      (dispatchFetch.mock.calls[0]?.[0] as Request).clone().json(),
+    ).resolves.toMatchObject({
+      event: { type: 'pro-room-invalidated', effectsRevision: 1 },
+    });
 
     const developerRead = await internalDeveloperRead(context.worker, 'effects');
     expect(developerRead.status).toBe(200);
@@ -7605,20 +10206,88 @@ describe('persistent PRO room audio effects', () => {
     expect(afterRestart).toMatchObject({ revision: 1, effects: configuredEffects });
   });
 
-  it('fences updates to the active coordinator and rejects malformed full state', async () => {
+  it('rejects stale effects writers with the canonical resource and leaves revision unchanged', async () => {
+    const context = await activatedRoom();
+    const dispatchFetch = vi.fn(async () =>
+      Response.json({ broadcast: true, eligible: 1, sent: 1 }),
+    );
+    const internal = context.worker as unknown as { env: Record<string, any> };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+    const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+
+    const first = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffects },
+        context.ownerCookie,
+      ),
+    );
+    expect(first.status).toBe(200);
+
+    const staleEffects = {
+      ...configuredEffects,
+      virtualBass: { strengthPercent: 10 },
+    };
+    const stale = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch, baseRevision: 0, effects: staleEffects },
+        context.ownerCookie,
+      ),
+    );
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({
+      error: 'EFFECTS_REVISION_CONFLICT',
+      effects: expect.objectContaining({ revision: 1, effects: configuredEffects }),
+    });
+    expect(dispatchFetch).toHaveBeenCalledOnce();
+
+    const unchangedRetry = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch, baseRevision: 1, effects: configuredEffects },
+        context.ownerCookie,
+      ),
+    );
+    expect(unchangedRetry.status).toBe(200);
+    await expect(unchangedRetry.json()).resolves.toMatchObject({
+      revision: 1,
+      effects: configuredEffects,
+    });
+    expect(dispatchFetch).toHaveBeenCalledOnce();
+  });
+
+  it('fences updates to the active room epoch and rejects malformed full state', async () => {
     const context = await activatedRoom();
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+
+    const missingBaseRevision = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        { coordinatorEpoch: epoch, effects: configuredEffects },
+        context.ownerCookie,
+      ),
+    );
+    expect(missingBaseRevision.status).toBe(400);
+    await expect(missingBaseRevision.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
 
     const stale = await context.worker.fetch(
       jsonRequest(
         '/effects',
         'PUT',
-        { coordinatorEpoch: epoch + 1, effects: configuredEffects },
+        { coordinatorEpoch: epoch + 1, baseRevision: 0, effects: configuredEffects },
         context.ownerCookie,
       ),
     );
     expect(stale.status).toBe(409);
-    await expect(stale.json()).resolves.toEqual({ error: 'COORDINATOR_EPOCH_MISMATCH' });
+    await expect(stale.json()).resolves.toEqual({ error: 'ROOM_EPOCH_MISMATCH' });
 
     const malformed = await context.worker.fetch(
       jsonRequest(
@@ -7626,6 +10295,7 @@ describe('persistent PRO room audio effects', () => {
         'PUT',
         {
           coordinatorEpoch: epoch,
+          baseRevision: 0,
           effects: { ...configuredEffects, virtualBass: { strengthPercent: 101 } },
         },
         context.ownerCookie,
@@ -7665,7 +10335,7 @@ describe('persistent PRO room audio effects', () => {
     ).toBeDefined();
   });
 
-  it('accepts set_effects in an empty but awake compatible room', async () => {
+  it('applies set_effects on the server without a browser control capability', async () => {
     const dispatchFetch = vi.fn(async () => Response.json({ dispatched: true }));
     const context = await activatedRoom();
     const internal = context.worker as unknown as {
@@ -7685,35 +10355,17 @@ describe('persistent PRO room audio effects', () => {
       ),
     );
     expect(legacyCapability.status).toBe(200);
-    const legacyAttempt = await createInternalDeveloperCommand(
+    const applied = await createInternalDeveloperCommand(
       context.worker,
       DEVELOPER_KEY_ID,
       'developer-effects-legacy-0001',
       { type: 'set_effects', effects: { virtualBass: { strengthPercent: 60 } } },
     );
-    expect(legacyAttempt.status).toBe(409);
-    await expect(legacyAttempt.json()).resolves.toEqual({ error: 'COORDINATOR_INCOMPATIBLE' });
-
-    const capability = await context.worker.fetch(
-      jsonRequest(
-        '/signaling-tickets',
-        'POST',
-        { developerControlVersion: 2 },
-        context.ownerCookie,
-      ),
-    );
-    expect(capability.status).toBe(200);
-
-    const created = await createInternalDeveloperCommand(
-      context.worker,
-      DEVELOPER_KEY_ID,
-      'developer-effects-command-0001',
-      { type: 'set_effects', effects: { virtualBass: { strengthPercent: 60 } } },
-    );
-    expect(created.status).toBe(202);
-    const body = await responseJson(created);
+    expect(applied.status).toBe(202);
+    const body = await responseJson(applied);
     expect(body).toMatchObject({
-      status: expect.stringMatching(/pending|dispatched/),
+      status: 'applied',
+      resultCode: 'applied',
     });
     expect(internal.room.developerCommands[body.commandId].command).toEqual({
       type: 'set_effects',
@@ -7724,12 +10376,16 @@ describe('persistent PRO room audio effects', () => {
     await expect(
       (dispatchFetch.mock.calls[0]?.[0] as Request).clone().json(),
     ).resolves.toMatchObject({
-      developerControlVersion: 2,
-      frame: { version: 2, command: { type: 'set_effects' } },
+      event: {
+        type: 'pro-room-invalidated',
+        effectsRevision: 1,
+      },
     });
 
-    const beforeAck = structuredClone(internal.room.effects);
-    expect(beforeAck.effects.virtualBass.strengthPercent).toBe(0);
+    expect(internal.room.effects).toMatchObject({
+      revision: 1,
+      effects: { virtualBass: { strengthPercent: 60 } },
+    });
     const ack = await context.worker.fetch(
       jsonRequest(
         `/developer-commands/${body.commandId}/ack`,
@@ -7738,46 +10394,23 @@ describe('persistent PRO room audio effects', () => {
         context.ownerCookie,
       ),
     );
-    expect(ack.status).toBe(200);
-    expect(internal.room.developerCommands[body.commandId]).toMatchObject({
-      status: 'applied',
-      resultCode: 'applied',
-    });
-    expect(internal.room.effects).toMatchObject({
-      revision: beforeAck.revision + 1,
-      effects: { virtualBass: { strengthPercent: 60 } },
-    });
-    const duplicateAck = await context.worker.fetch(
-      jsonRequest(
-        `/developer-commands/${body.commandId}/ack`,
-        'POST',
-        { resultCode: 'already_applied' },
-        context.ownerCookie,
-      ),
-    );
-    expect(duplicateAck.status).toBe(200);
-    expect(internal.room.effects.revision).toBe(beforeAck.revision + 1);
+    expect(ack.status).toBe(410);
+    await expect(ack.json()).resolves.toEqual({ error: 'COMMAND_ACK_NOT_REQUIRED' });
 
-    const rejected = await createInternalDeveloperCommand(
+    const second = await createInternalDeveloperCommand(
       context.worker,
       DEVELOPER_KEY_ID,
       'developer-effects-command-0002',
       { type: 'set_effects', effects: { reverb: { mixPercent: 40 } } },
     );
-    expect(rejected.status).toBe(202);
-    const rejectedBody = await responseJson(rejected);
-    const rejectedAck = await context.worker.fetch(
-      jsonRequest(
-        `/developer-commands/${rejectedBody.commandId}/ack`,
-        'POST',
-        { resultCode: 'execution_failed' },
-        context.ownerCookie,
-      ),
-    );
-    expect(rejectedAck.status).toBe(200);
+    expect(second.status).toBe(202);
+    await expect(second.json()).resolves.toMatchObject({
+      status: 'applied',
+      resultCode: 'applied',
+    });
     expect(internal.room.effects).toMatchObject({
-      revision: beforeAck.revision + 1,
-      effects: { reverb: { mixPercent: 0 }, virtualBass: { strengthPercent: 60 } },
+      revision: 2,
+      effects: { reverb: { mixPercent: 40 }, virtualBass: { strengthPercent: 60 } },
     });
   });
 });
@@ -7854,6 +10487,32 @@ describe('persistent PRO room repeat and shuffle mode', () => {
     );
     expect(parseProRoomSnapshot(publicSnapshot.snapshot)).not.toBeNull();
     expect(publicSnapshot.snapshot).not.toHaveProperty('queueMode');
+    expect(publicSnapshot.snapshot).toMatchObject({
+      revision: current.snapshot.revision + 1,
+      effectsRevision: 0,
+      queueModeRevision: 1,
+    });
+    const recovered = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/presence/heartbeat',
+          'POST',
+          {
+            revision: current.snapshot.revision,
+            playlistRevision: current.snapshot.playlistRevision,
+            presenceRevision: current.snapshot.presence.revision,
+            playbackRevision: current.snapshot.playback.revision,
+            coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
+          },
+          context.ownerCookie,
+        ),
+      ),
+    );
+    expect(recovered).not.toHaveProperty('notModified');
+    expect(recovered.snapshot).toMatchObject({
+      revision: current.snapshot.revision + 1,
+      queueModeRevision: 1,
+    });
 
     const restarted = new MusixquareProRoom(
       context.state as never,
@@ -8056,7 +10715,7 @@ describe('persistent PRO room repeat and shuffle mode', () => {
     });
   });
 
-  it('fences writes to the exact coordinator epoch and playlist revision', async () => {
+  it('fences writes to the exact room epoch and playlist revision', async () => {
     const context = await activatedRoom();
     expect((await replacePlaylist(context, items, 'queue-mode-fence')).status).toBe(200);
     const current = await responseJson(

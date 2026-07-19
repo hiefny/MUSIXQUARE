@@ -253,7 +253,7 @@ describe('YouTube Sync', () => {
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0.25);
     });
 
-    it('preserves the actually-applied boundary offset when a PRO member is promoted', async () => {
+    it('does not create a new offset boundary when an equal PRO endpoint role label changes', async () => {
       const playerMod = await import('../_state.ts');
       const player = {
         getCurrentTime: vi.fn(() => 0),
@@ -276,27 +276,15 @@ describe('YouTube Sync', () => {
         snapshotRevision: 1,
         capabilities: ['playback.control'],
       });
-      const hostConn = { open: true, peer: 'participant-0' } as DataConnection;
-      setState('network.hostConn', hostConn);
+      setState('network.hostConn', null);
 
       const { initYouTubeSync } = await import('../sync.ts');
-      const { registerHandlers } = await import('../../network/protocol.ts');
       initYouTubeSync();
-      const handlers = vi.mocked(registerHandlers).mock.calls.at(-1)?.[0] as Record<
-        string,
-        SyncHandler
-      >;
-      handlers[MSG.YOUTUBE_SYNC]?.(
-        {
-          queueItemId: QUEUE_ITEM_ID,
-          time: 1,
-          state: 2,
-          videoId: 'same-video',
-        },
-        hostConn,
-      );
+      // The role label is no longer an authority boundary. Seed the offset
+      // that the participant-local COMMIT path actually applied, then prove a
+      // legacy member→coordinator label change cannot rebase it.
+      setState('sync.youtubeCoordinatorAppliedOffset', -1);
 
-      setState('network.hostConn', null);
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',

@@ -25,7 +25,6 @@ const OWNER_CAPABILITIES: ProRoomCapability[] = [
   'playback.control',
   'effects.control',
   'asset.upload',
-  'coordinator.eligible',
   'members.manage',
   'room.configure',
 ];
@@ -38,6 +37,8 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
     runtime: 'awake',
     revision: 3,
     playlistRevision: 1,
+    effectsRevision: 2,
+    queueModeRevision: 4,
     playlist: [
       {
         queueItemId: QUEUE_ITEM_ID,
@@ -59,7 +60,7 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 1,
       revision: 1,
-      coordinatorParticipantId: 'participant_00001',
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: 'participant_00001',
@@ -82,7 +83,7 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
       displayName: 'Owner',
       role: 'owner',
       capabilities: [...OWNER_CAPABILITIES],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
   };
 }
@@ -379,7 +380,7 @@ describe('PRO room cookie session API', () => {
     await expect(client.heartbeat(ROOM_CODE, undefined, snapshot, 'Peer 1')).resolves.toBe(
       snapshot,
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).toEqual({
       revision: snapshot.revision,
       playlistRevision: snapshot.playlistRevision,
       presenceRevision: snapshot.presence.revision,
@@ -499,8 +500,25 @@ describe('PRO room cookie session API', () => {
     );
   });
 
-  it('leaves presence explicitly and obtains a short-lived signaling ticket', async () => {
+  it('leaves presence explicitly and obtains a member ticket with the pending transition', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
+    const pendingPlaybackTransition = {
+      type: 'pro-playback-prepare' as const,
+      transitionId: 'transition_1234567890123456789012',
+      serverTimeMs: 1_000,
+      deadlineAtMs: 4_000,
+      basePlaybackRevision: 0,
+      target: {
+        coordinatorEpoch: 4,
+        revision: 1,
+        state: 'playing' as const,
+        queueItemId: '12345678-1234-4123-8123-123456789abc',
+        positionSeconds: 0,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        youtubeSubIndex: 0,
+        updatedAtMs: 1_000,
+      },
+    };
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
@@ -509,10 +527,11 @@ describe('PRO room cookie session API', () => {
         jsonResponse({
           ticket,
           expiresAtMs: 1_900_000_000_000,
-          role: 'coordinator',
+          role: 'member',
           coordinatorEpoch: 4,
           presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
           ticketSequence: 7,
+          pendingPlaybackTransition,
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }));
@@ -520,15 +539,16 @@ describe('PRO room cookie session API', () => {
     await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual({
       ticket,
       expiresAtMs: 1_900_000_000_000,
-      role: 'coordinator',
+      role: 'member',
       coordinatorEpoch: 4,
       presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
       ticketSequence: 7,
+      pendingPlaybackTransition,
     });
     const ticketRequest = fetchMock.mock.calls[0]?.[1];
-    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 4 }));
+    expect(ticketRequest?.body).toBeUndefined();
     const ticketHeaders = new Headers(ticketRequest?.headers);
-    expect(ticketHeaders.get('content-type')).toBe('application/json');
+    expect(ticketHeaders.has('content-type')).toBe(false);
     expect(ticketHeaders.get('x-mxqr-pro-participant-id')).toBe(
       activeSnapshot().viewer!.participantId,
     );
@@ -544,35 +564,38 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['POST', 'DELETE']);
   });
 
-  it('falls back to a capability-free ticket only for the legacy empty-body contract', async () => {
+  it('rejects legacy coordinator tickets and tickets missing the pending-transition field', async () => {
     const ticket = `v1.${'s'.repeat(32)}.${'T'.repeat(43)}`;
     const envelope = {
       ticket,
       expiresAtMs: 1_900_000_000_000,
-      role: 'coordinator',
+      role: 'member',
       coordinatorEpoch: 4,
       presenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
       ticketSequence: 7,
+      pendingPlaybackTransition: null,
     };
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
-      .mockResolvedValueOnce(jsonResponse(envelope));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...envelope, role: 'coordinator' }));
+    await expect(client.createSignalingTicket(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
 
-    await expect(client.createSignalingTicket(ROOM_CODE)).resolves.toEqual(envelope);
+    const missingPending = Object.fromEntries(
+      Object.entries(envelope).filter(([key]) => key !== 'pendingPlaybackTransition'),
+    );
+    fetchMock.mockResolvedValueOnce(jsonResponse(missingPending));
+    await expect(client.createSignalingTicket(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const advertised = fetchMock.mock.calls[0]?.[1];
-    const fallback = fetchMock.mock.calls[1]?.[1];
-    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 4 }));
-    expect(new Headers(advertised?.headers).get('content-type')).toBe('application/json');
-    expect(fallback?.body).toBeUndefined();
-    expect(new Headers(fallback?.headers).has('content-type')).toBe(false);
-    expect(new Headers(fallback?.headers).get('x-mxqr-pro-participant-id')).toBe(
-      activeSnapshot().viewer!.participantId,
-    );
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.body).toBeUndefined();
+      expect(new Headers(init?.headers).has('content-type')).toBe(false);
+    }
   });
 
   it('does not downgrade signaling capability for any other ticket error', async () => {
@@ -956,6 +979,52 @@ describe('PRO room cookie session API', () => {
       retryAfterSeconds: null,
     });
   });
+
+  it('allows a canonical YouTube sub-index with an optional video-ID assertion', async () => {
+    const snapshot = activeSnapshot();
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock, snapshot);
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        schemaVersion: 1,
+        roomCode: ROOM_CODE,
+        status: 'unchanged',
+        playback: snapshot.playback,
+        serverTimeMs: snapshot.playback.updatedAtMs,
+      }),
+    );
+
+    await client.executePlaybackCommand({
+      code: ROOM_CODE,
+      command: {
+        type: 'select',
+        baseRevision: snapshot.playback.revision,
+        queueItemId: QUEUE_ITEM_ID,
+        youtubeSubIndex: 0,
+      },
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      type: 'select',
+      baseRevision: snapshot.playback.revision,
+      queueItemId: QUEUE_ITEM_ID,
+      youtubeSubIndex: 0,
+    });
+    expect(() =>
+      client.executePlaybackCommand({
+        code: ROOM_CODE,
+        command: {
+          type: 'select',
+          baseRevision: snapshot.playback.revision,
+          queueItemId: QUEUE_ITEM_ID,
+          youtubeVideoId: 'dQw4w9WgXcQ',
+        },
+        idempotencyKey: IDEMPOTENCY_KEY,
+      }),
+    ).toThrow('PRO_ROOM_API_INVALID_YOUTUBE_IDENTITY');
+  });
 });
 
 describe('PRO room effects API', () => {
@@ -990,7 +1059,7 @@ describe('PRO room effects API', () => {
 
     await expect(client.getEffects(ROOM_CODE)).resolves.toEqual(projection);
     await expect(
-      client.updateEffects({ code: ROOM_CODE, coordinatorEpoch: 1, effects }),
+      client.updateEffects({ code: ROOM_CODE, coordinatorEpoch: 1, baseRevision: 2, effects }),
     ).resolves.toEqual({ ...projection, revision: 3 });
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
@@ -1000,6 +1069,7 @@ describe('PRO room effects API', () => {
     expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('PUT');
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       coordinatorEpoch: 1,
+      baseRevision: 2,
       effects,
     });
   });
@@ -1013,6 +1083,7 @@ describe('PRO room effects API', () => {
       client.updateEffects({
         code: ROOM_CODE,
         coordinatorEpoch: 1,
+        baseRevision: 2,
         effects: {
           ...effects,
           virtualBass: { strengthPercent: 101 },
@@ -1021,11 +1092,42 @@ describe('PRO room effects API', () => {
     ).toThrow('PRO_ROOM_API_INVALID_EFFECTS');
     expect(fetchMock).not.toHaveBeenCalled();
 
+    expect(() =>
+      client.updateEffects({
+        code: ROOM_CODE,
+        coordinatorEpoch: 1,
+        baseRevision: -1,
+        effects,
+      }),
+    ).toThrow('PRO_ROOM_API_INVALID_REVISION');
+    expect(fetchMock).not.toHaveBeenCalled();
+
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ ...projection, effects: { ...effects, localVolume: 0.5 } }),
     );
     await expect(client.getEffects(ROOM_CODE)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
+    });
+  });
+
+  it('surfaces a stale effects CAS as its explicit server conflict code', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: 'EFFECTS_REVISION_CONFLICT', effects: projection }, { status: 409 }),
+    );
+
+    await expect(
+      client.updateEffects({
+        code: ROOM_CODE,
+        coordinatorEpoch: 1,
+        baseRevision: 1,
+        effects,
+      }),
+    ).rejects.toMatchObject({
+      code: 'EFFECTS_REVISION_CONFLICT',
+      status: 409,
     });
   });
 });

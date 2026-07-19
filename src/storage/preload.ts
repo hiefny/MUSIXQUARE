@@ -60,7 +60,6 @@ import {
   isGuestR2FileDelivery,
   recordGuestFileDelivery,
 } from '../share/file-delivery-policy.ts';
-import { isCoordinator } from '../rooms/authority.ts';
 import {
   cancelProRoomPlaylistFilePreload,
   hasProRoomPlaylistFilePreload,
@@ -665,10 +664,9 @@ async function preloadNextTrack(): Promise<void> {
 
   const roomContext = getState('room.context');
   if (roomContext.kind === 'pro') {
-    // The coordinator chooses the authoritative next occurrence (especially
-    // for shuffle) and sends only that identity. Every member downloads the
-    // immutable object independently from the persistent room bucket.
-    if (!isCoordinator() || getState('network.hostConn')) return;
+    // Every equal PRO endpoint preloads the same next occurrence from the
+    // immutable room object. The server owns queue order; no browser forwards
+    // the file or acts as a preload coordinator.
   } else if (getState('network.hostConn')) {
     return;
   }
@@ -2033,10 +2031,7 @@ export function getPreloadMemoryStats(): {
 export function initPreload(): void {
   let observedProHostConn = getState('network.hostConn');
   const initialRoomContext = getState('room.context');
-  let observedCoordinatorRoomId =
-    initialRoomContext.kind === 'pro' && initialRoomContext.role === 'coordinator'
-      ? initialRoomContext.roomId
-      : null;
+  let observedProRoomId = initialRoomContext.kind === 'pro' ? initialRoomContext.roomId : null;
   registerInboundRateLimitExemptionGuard(MSG.PRELOAD_CHUNK, isActiveHostPreloadChunkForRateLimit);
   registerHandlers({
     [MSG.PRO_FILE_PRELOAD]: handleProRoomFilePreload,
@@ -2219,13 +2214,12 @@ export function initPreload(): void {
   // exact active preload owner once its data connection becomes eligible;
   // duplicate hints are idempotent on the member.
   const sendProRoomPreloadHintToPeer = (peerId: string): void => {
-    if (
-      !PRO_ROOM_FILE_PRELOAD_ENABLED ||
-      getState('room.context').kind !== 'pro' ||
-      !isCoordinator()
-    ) {
+    if (!PRO_ROOM_FILE_PRELOAD_ENABLED || getState('room.context').kind !== 'pro') {
       return;
     }
+    // Coordinator-free PRO rooms never create browser data targets. Keep this
+    // legacy listener inert if an unrelated orchestrator event leaks through.
+    if (!getState('network.connectedPeers').some((candidate) => candidate.id === peerId)) return;
     const target = getState('preload.activeTarget');
     const queueItemId = getState('preload.nextQueueItemId');
     const sessionId = Number(target?.sessionId);
@@ -2262,24 +2256,21 @@ export function initPreload(): void {
     cancelProRoomPlaylistFilePreload();
     _proRoomPreloadOwner = null;
     resetPreloadReceiveAuthority();
-    if (!next && isCoordinator()) schedulePreload(0);
+    if (!next) schedulePreload(0);
   });
 
   bus.on('state:room.context', () => {
     const context = getState('room.context');
-    const nextCoordinatorRoomId =
-      context.kind === 'pro' && context.role === 'coordinator' ? context.roomId : null;
-    const gainedCoordinatorAuthority =
-      !!nextCoordinatorRoomId && nextCoordinatorRoomId !== observedCoordinatorRoomId;
-    observedCoordinatorRoomId = nextCoordinatorRoomId;
+    const nextProRoomId = context.kind === 'pro' ? context.roomId : null;
+    const enteredProRoom = !!nextProRoomId && nextProRoomId !== observedProRoomId;
+    observedProRoomId = nextProRoomId;
     if (context.kind !== 'pro') {
       _pendingProRoomPreloadHint = null;
       return;
     }
     // Authority can flip member→coordinator before network.hostConn is
-    // cleared. Reset on the role edge itself so peer-joined cannot rebroadcast
-    // the predecessor's cached SID under the newly elected coordinator.
-    if (gainedCoordinatorAuthority) {
+    // Reset room-scoped preload ownership when entering another persistent room.
+    if (enteredProRoom) {
       cancelProRoomPlaylistFilePreload();
       _proRoomPreloadOwner = null;
       resetPreloadReceiveAuthority();
@@ -2287,9 +2278,8 @@ export function initPreload(): void {
       return;
     }
     replayPendingProRoomPreloadHint();
-    // hostConn may be cleared before the refreshed context announces our new
-    // coordinator role. Re-schedule here as the complementary ordering edge.
-    if (!getState('network.hostConn') && isCoordinator()) schedulePreload(0);
+    // Every PRO endpoint independently fetches the next immutable R2 object.
+    if (!getState('network.hostConn')) schedulePreload(0);
   });
 
   // Clean up module-local variables when the session is left

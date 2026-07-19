@@ -235,7 +235,8 @@ describe('updateRoleBadge', () => {
 
   it('renders every PRO member as the same compact identity without ping or route color', () => {
     const badge = renderBadge();
-    setState('network.hostConn', makeConnection('coordinator'));
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
     setState('network.myDeviceLabel', 'Listening Room');
     setState('network.connectionType', 'remote');
     setState('sync.lastLatencyMs', 87);
@@ -243,7 +244,7 @@ describe('updateRoleBadge', () => {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: 'coordinator',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['playback.control'],
@@ -251,21 +252,22 @@ describe('updateRoleBadge', () => {
 
     updateRoleBadge();
 
-    expect(badge.classList.contains('connected')).toBe(true);
+    expect(badge.classList.contains('connected')).toBe(false);
     expect(badge.classList.contains('remote')).toBe(false);
+    expect(badge.classList.contains('pro-equal')).toBe(true);
     expect(document.getElementById('role-text')?.textContent).toBe('Listening Room');
     expect(document.querySelector('.badge-ping')).toBeNull();
   });
 
-  it('uses the same PRO identity contract for the active coordinator', () => {
+  it('uses the same neutral PRO identity contract for another equal member', () => {
     const badge = renderBadge();
     setState('network.appRole', 'host');
     setState('network.myDeviceLabel', 'Peer 0');
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: 'participant-0',
+      role: 'member',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['playback.control'],
@@ -273,8 +275,9 @@ describe('updateRoleBadge', () => {
 
     updateRoleBadge();
 
-    expect(badge.classList.contains('connected')).toBe(true);
+    expect(badge.classList.contains('connected')).toBe(false);
     expect(badge.classList.contains('remote')).toBe(false);
+    expect(badge.classList.contains('pro-equal')).toBe(true);
     expect(document.getElementById('role-text')?.textContent).toBe('Peer 0');
     expect(document.querySelector('.badge-ping')).toBeNull();
   });
@@ -366,13 +369,13 @@ describe('PRO room media-source capabilities', () => {
       <div id="youtube-url-input"></div>
       <button id="btn-system-audio"></button>
     `;
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', makeConnection('coordinator'));
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: 'coordinator',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['queue.mutate', 'asset.upload'],
@@ -402,13 +405,13 @@ describe('PRO room media-source capabilities', () => {
       <div id="media-source-overlay"></div>
       <button id="btn-system-audio"><span class="media-source-label-text"></span></button>
     `;
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', makeConnection('coordinator'));
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: 'coordinator',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['queue.mutate', 'asset.upload'],
@@ -432,19 +435,19 @@ describe('PRO room media-source capabilities', () => {
     expect(showToast).toHaveBeenCalledWith(t('system_audio.owner_active', { name: 'Peer 2' }));
   });
 
-  it('asks for a coordinator update instead of starting an unsupported PRO publisher', () => {
+  it('reports an unavailable PRO publishing capability before opening the native picker', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>
       <div id="media-source-overlay"></div>
       <button id="btn-system-audio"><span class="media-source-label-text"></span></button>
     `;
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', makeConnection('coordinator'));
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
-      coordinatorId: 'coordinator',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['queue.mutate', 'asset.upload'],
@@ -537,7 +540,7 @@ describe('initPlayerControls playback mode rendering', () => {
     },
   );
 
-  it('shows the loading play button while a PRO member awaits the coordinator selection', () => {
+  it('shows the loading play button while a PRO member awaits server selection', () => {
     renderPlaybackControls();
     setState('network.pendingTrackChangeQueueItemId', PLAY_QUEUE_ITEM_ID);
 
@@ -814,14 +817,14 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('opens the same local YouTube nudge panel for a PRO coordinator', () => {
+  it('opens the same local YouTube nudge panel for an equal PRO participant', () => {
     renderSyncControls();
     setState('network.appRole', 'host');
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: 'participant-0',
+      role: 'member',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['playback.control'],
@@ -837,14 +840,14 @@ describe('initPlayerControls sync button', () => {
     expect(guestRendezvousSync).not.toHaveBeenCalled();
   });
 
-  it('keeps the PRO coordinator nudge panel closed during zero-start', () => {
+  it('keeps the PRO participant nudge panel closed during zero-start', () => {
     renderSyncControls();
     setState('network.appRole', 'host');
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: 'participant-0',
+      role: 'member',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['playback.control'],
@@ -901,14 +904,14 @@ describe('initPlayerControls sync button', () => {
     );
   });
 
-  it('opens the local-file nudge panel without broadcasting for a PRO coordinator', () => {
+  it('opens the local-file nudge panel without peer broadcasting for a PRO participant', () => {
     renderSyncControls();
     setState('network.appRole', 'host');
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: 'participant-0',
+      role: 'member',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['playback.control'],

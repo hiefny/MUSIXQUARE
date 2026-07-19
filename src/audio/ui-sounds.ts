@@ -76,7 +76,7 @@ function ensureOutputGraph(context: AudioContext): OutputGraph {
   if (outputGraph?.context === context) return outputGraph;
 
   const input = context.createGain();
-  input.gain.value = 0.42;
+  input.gain.value = 1;
 
   const compressor = context.createDynamicsCompressor();
   compressor.threshold.value = -24;

@@ -22,6 +22,7 @@ import {
 
 type FakeAudioContext = AudioContext & {
   createBufferSource: ReturnType<typeof vi.fn>;
+  createGain: ReturnType<typeof vi.fn>;
   createOscillator: ReturnType<typeof vi.fn>;
 };
 
@@ -114,6 +115,14 @@ describe('UI sounds', () => {
     playUiTouchSound({ force: true });
     await flushSounds();
     expect(context.createBufferSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays through a unity-gain output bus', async () => {
+    playUiTouchSound({ force: true });
+    await flushSounds();
+
+    const output = context.createGain.mock.results[0]?.value as GainNode | undefined;
+    expect(output?.gain.value).toBe(1);
   });
 
   it('plays the self-entry micro echo only when a session actually starts', async () => {

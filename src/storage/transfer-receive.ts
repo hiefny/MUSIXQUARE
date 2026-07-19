@@ -76,6 +76,8 @@ let nextExpectedChunk = 0;
 let lastChunkTime = 0;
 let rejectedMainSessionId = 0;
 let _filePrepareGeneration = 0;
+let lastTransferProgressSessionId = 0;
+let lastTransferProgressPercent = -1;
 const MAX_FILE_TOTAL = 200_000;
 
 function setActiveFileSessionOwner(sessionId: number, queueItemId: QueueItemId): void {
@@ -1664,7 +1666,11 @@ function applyFileChunk(data: Record<string, unknown>): void {
   const total = (currentMeta?.total as number) || 0;
   if (total > 0) {
     const percent = Math.min(100, Math.floor((receivedCount / total) * 100));
-    bus.emit('storage:transfer-progress', percent, total);
+    if (incomingSid !== lastTransferProgressSessionId || percent !== lastTransferProgressPercent) {
+      lastTransferProgressSessionId = incomingSid;
+      lastTransferProgressPercent = percent;
+      bus.emit('storage:transfer-progress', percent, total);
+    }
   }
 
   // File complete check
@@ -1857,6 +1863,8 @@ function clearReceiveState(): void {
   fileQueueItemBySession.clear();
   rejectedMainSessionId = 0;
   nextExpectedChunk = 0;
+  lastTransferProgressSessionId = 0;
+  lastTransferProgressPercent = -1;
   setState('transfer.staleChunkBurstStart', 0);
   setState('transfer.staleChunkBurstCount', 0);
 }

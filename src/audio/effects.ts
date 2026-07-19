@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
   createDefaultRoomEffectsState,
   parseRoomEffectsState,
@@ -60,16 +60,14 @@ import {
 // ─── Apply All Settings ────────────────────────────────────────────
 
 /** Apply settings without exposing a rejected promise to synchronous callers. */
-export function applySettingsAsync(): void {
-  applySettings().catch((e) => log.warn('[Effects] applySettings failed:', e));
+export function applySettingsAsync(deferReverbImpulse = false): void {
+  applySettings(deferReverbImpulse).catch((e) => log.warn('[Effects] applySettings failed:', e));
 }
 
-export async function applySettings(): Promise<void> {
+export async function applySettings(deferReverbImpulse = false): Promise<void> {
   if (!getMasterGain()) return;
 
   const reverbMix = getState('audio.reverbMix');
-  const reverbDecay = getState('audio.reverbDecay');
-  const reverbPreDelay = getState('audio.reverbPreDelay');
   const reverbLowCut = getState('audio.reverbLowCut');
   const reverbHighCut = getState('audio.reverbHighCut');
   const stereoWidth = getState('audio.stereoWidth');
@@ -171,27 +169,56 @@ export async function applySettings(): Promise<void> {
     rampParam(mg.gain, masterVolume, RAMP_TIME);
   }
 
-  // Regenerate the synchronous reverb impulse response when its shape changes.
-  const rev = getReverb();
-  if (rev) {
-    // Check if decay or preDelay actually changed by comparing with stored values
-    const currentDecay = _lastReverbDecay;
-    const currentPreDelay = _lastReverbPreDelay;
-    if (currentDecay !== reverbDecay || currentPreDelay !== reverbPreDelay) {
-      _lastReverbDecay = reverbDecay;
-      _lastReverbPreDelay = reverbPreDelay;
-      rev.buffer = generateReverbIR(reverbDecay, reverbPreDelay);
-    }
+  // Decay/pre-delay previews arrive at pointer-event cadence. Mix, damping,
+  // EQ, and every other cheap AudioParam above still apply immediately, while
+  // the expensive impulse rebuild is coalesced. The slider's final `change`
+  // event calls the non-deferred path and commits the exact final value.
+  if (deferReverbImpulse) scheduleReverbImpulseRefresh();
+  else {
+    clearManagedTimer(REVERB_IR_REFRESH_TIMER);
+    refreshReverbImpulse();
   }
 }
 
 // Track last reverb params to avoid unnecessary IR regeneration
 let _lastReverbDecay = REVERB_DEFAULT_DECAY;
 let _lastReverbPreDelay = REVERB_DEFAULT_PREDELAY;
+let _lastReverbNode: ConvolverNode | null = null;
+const REVERB_IR_REFRESH_TIMER = 'audio-reverb-ir-refresh';
+const REVERB_IR_COALESCE_MS = 140;
+
+function refreshReverbImpulse(): void {
+  const rev = getReverb();
+  if (!rev) return;
+  const decay = getState('audio.reverbDecay');
+  const preDelay = getState('audio.reverbPreDelay');
+  const graphChanged = _lastReverbNode !== rev;
+  _lastReverbNode = rev;
+  // Engine initialization already installs the default impulse. Remember the
+  // new graph without generating that same multi-megabyte buffer twice.
+  if (graphChanged && decay === REVERB_DEFAULT_DECAY && preDelay === REVERB_DEFAULT_PREDELAY) {
+    _lastReverbDecay = decay;
+    _lastReverbPreDelay = preDelay;
+    return;
+  }
+  if (!graphChanged && _lastReverbDecay === decay && _lastReverbPreDelay === preDelay) return;
+  _lastReverbDecay = decay;
+  _lastReverbPreDelay = preDelay;
+  rev.buffer = generateReverbIR(decay, preDelay);
+}
+
+function scheduleReverbImpulseRefresh(): void {
+  setManagedTimer(REVERB_IR_REFRESH_TIMER, refreshReverbImpulse, REVERB_IR_COALESCE_MS);
+}
 
 // ─── Reverb Controls ───────────────────────────────────────────────
 
-export function setReverbParam(param: string, val: number, skipApply = false): void {
+export function setReverbParam(
+  param: string,
+  val: number,
+  skipApply = false,
+  deferReverbImpulse = false,
+): void {
   const v = Number(val);
   if (!Number.isFinite(v)) return;
 
@@ -213,7 +240,7 @@ export function setReverbParam(param: string, val: number, skipApply = false): v
       break;
   }
 
-  if (!skipApply) applySettingsAsync();
+  if (!skipApply) applySettingsAsync(deferReverbImpulse);
 }
 
 function resetReverb(): void {
@@ -449,8 +476,9 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
   if (!Number.isFinite(value)) return;
 
   switch (type) {
-    case 'reverb':
-      setReverbParam(param, value);
+    case 'reverb': {
+      const deferImpulse = !!isPreview && (param === 'decay' || param === 'predelay');
+      setReverbParam(param, value, false, deferImpulse);
       if (!isPreview) {
         const REVERB_MSG_MAP: Record<string, string> = {
           mix: MSG.REVERB,
@@ -463,6 +491,7 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
         if (msgType) _broadcastOrRequestSetting(msgType, value);
       }
       break;
+    }
     case 'stereo':
       if (param === 'mix') {
         setStereoWidth(value);

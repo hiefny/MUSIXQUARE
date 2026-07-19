@@ -233,6 +233,25 @@ describe('manual sync nudge routing', () => {
 });
 
 describe('SYNC_PING playback snapshot', () => {
+  it('records transport liveness without replacing the global peer list', async () => {
+    initSync();
+    const conn = { peer: 'guest-liveness', open: true, send: vi.fn() } as DataConnection;
+    const peer = {
+      id: conn.peer,
+      conn,
+      status: 'connected',
+      lastHeartbeat: 1,
+    } as ConnectedPeer;
+    const connectedPeers = [peer];
+    setState('network.connectedPeers', connectedPeers);
+
+    await handleData({ type: MSG.SYNC_PING, pingId: 6 }, conn);
+
+    expect(getState('network.connectedPeers')).toBe(connectedPeers);
+    expect(getState('network.connectedPeers')[0]).toBe(peer);
+    expect(conn.send).toHaveBeenCalledTimes(1);
+  });
+
   it('does not advertise PLAYING_AUDIO while host is decoded but waiting to start', async () => {
     initSync();
     setPlaybackFilePlaying();

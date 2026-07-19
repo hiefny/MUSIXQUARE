@@ -208,6 +208,45 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
+  it('reports the first visible progress again when a replacement host reuses the same SID', async () => {
+    const { handleFileStart, handleFileChunk, resetIncomingTransferAuthority } =
+      await import('../transfer-receive.ts');
+    const progress = vi.fn();
+    bus.on('storage:transfer-progress', progress);
+    const start = {
+      type: 'file-start',
+      name: 'replacement.mp3',
+      mime: 'audio/mpeg',
+      total: 200,
+      size: 199 * CHUNK_SIZE + 1,
+      sessionId: 1,
+      queueItemId: Q[1],
+    };
+    const chunk = {
+      type: 'file-chunk',
+      ...start,
+      chunkIndex: 0,
+      chunk: u8(0xaa),
+    };
+
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    resetIncomingTransferAuthority();
+    handleFileStart(start, conn);
+    handleFileChunk(chunk, conn);
+    expect(progress).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveBeenLastCalledWith(0, 200);
+
+    resetIncomingTransferAuthority();
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    handleFileStart(start, conn);
+    handleFileChunk(chunk, conn);
+
+    expect(progress).toHaveBeenCalledTimes(2);
+    expect(progress).toHaveBeenLastCalledWith(0, 200);
+  });
+
   it('honors startChunk on a same-session resume backed by the store prefix', async () => {
     const { handleFileResume } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');

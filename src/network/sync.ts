@@ -60,6 +60,13 @@ let _wasPlaying = false;
 let _softFileDriftDirection: -1 | 0 | 1 = 0;
 let _softFileDriftSamples = 0;
 let _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
+// Heartbeats are transport liveness, not user-visible peer state. Keep the hot
+// one-ping-per-peer path off the global immutable state tree: at the 100-peer
+// room limit, cloning connectedPeers for every ping turns a linear heartbeat
+// stream into quadratic allocation and wakes unrelated state subscribers.
+// Keying by the live connection also prevents a reconnect that reuses a peer id
+// from inheriting the previous connection's lease.
+const _lastHeartbeatByConnection = new WeakMap<DataConnection, number>();
 
 const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1000;
 const FILE_SYNC_END_FENCE_SEC = 0.1;
@@ -357,12 +364,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
     if (conn?.peer) {
       const connectedPeers = getState('network.connectedPeers');
       const p = connectedPeers.find((x) => x.id === conn.peer);
-      if (p) {
-        setState(
-          'network.connectedPeers',
-          connectedPeers.map((x) => (x.id === conn.peer ? { ...x, lastHeartbeat: Date.now() } : x)),
-        );
-      }
+      if (p) _lastHeartbeatByConnection.set(conn, Date.now());
     }
   } catch (e) {
     log.debug('[Sync] Liveness update error:', e);
@@ -889,7 +891,11 @@ function startHeartbeatMonitor(): void {
 
       for (const p of connectedPeers) {
         if (p.status !== 'connected') continue;
-        const elapsed = now - ((p.lastHeartbeat as number) || 0);
+        const conn = p.conn as DataConnection | undefined;
+        const lastHeartbeat =
+          (conn ? _lastHeartbeatByConnection.get(conn) : undefined) ??
+          ((p.lastHeartbeat as number) || 0);
+        const elapsed = now - lastHeartbeat;
         if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
           log.warn(
             `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,

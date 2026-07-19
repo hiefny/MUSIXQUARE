@@ -81,6 +81,8 @@ const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 /** Queue identity bound to each buffered transfer session, including early chunks. */
 const preloadQueueItemBySid = new Map<number, string>();
 let latestPreloadSessionId = 0;
+let lastPreloadUiSessionId = 0;
+let lastPreloadUiPercent = -1;
 const MAX_EARLY_PRELOAD_SESSIONS = 4;
 const MAX_EARLY_PRELOAD_CHUNKS = 64;
 const MAX_EARLY_PRELOAD_BYTES = 4 * 1024 * 1024;
@@ -392,6 +394,8 @@ export function resetPreloadReceiveAuthority(): void {
   _activePlayPreloadedQueueItemId = undefined;
   _pendingProRoomPreloadHint = null;
   latestPreloadSessionId = 0;
+  lastPreloadUiSessionId = 0;
+  lastPreloadUiPercent = -1;
 
   const sessionIds = new Set<number>([
     ...preloadReorderBuffer.keys(),
@@ -1431,8 +1435,6 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   while (sessionBuffer.has(nextChunkPtr)) {
     const chunk = sessionBuffer.get(nextChunkPtr)!;
 
-    // Give the storage command an independent buffer from the reorder map.
-    const chunkClone = new Uint8Array(chunk);
     const fileName = session.name;
 
     // If we still don't know the filename, keep buffering
@@ -1440,7 +1442,10 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 
     postCommand({
       command: 'STORAGE_WRITE',
-      chunk: chunkClone.buffer as ArrayBuffer,
+      // handlePreloadChunk already made one exact-span owned copy before this
+      // reorder map. RAM storage is synchronous/in-process, so hand that same
+      // backing buffer over instead of copying every chunk a second time.
+      chunk: chunk.buffer as ArrayBuffer,
       chunkIndex: nextChunkPtr,
       isPreload: true,
       queueItemId: session.queueItemId,
@@ -1496,8 +1501,12 @@ function drainPreloadReorderBuffer(sessionId: number): void {
       transferState === TRANSFER_STATE.IDLE ||
       !transferState
     ) {
-      showLoader(true, t('toast.preparing_next_pct', { pct }));
-      updateLoader(pct);
+      if (lastPreloadUiSessionId !== sessionId || lastPreloadUiPercent !== pct) {
+        lastPreloadUiSessionId = sessionId;
+        lastPreloadUiPercent = pct;
+        showLoader(true, t('toast.preparing_next_pct', { pct }));
+        updateLoader(pct);
+      }
     }
   }
 

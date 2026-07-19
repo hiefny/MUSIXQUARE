@@ -575,12 +575,15 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
       log.debug('[BufferMode] Playing in Stereo');
     }
 
-    newNode.addEventListener('ended', () => {
+    // Use the onended slot because stopPlayerNode clears that exact callback.
+    // addEventListener + `onended = null` would leave the closure (and its
+    // captured load epoch) attached to retired WebKit source nodes.
+    newNode.onended = () => {
       if (!isCurrentLoadEpoch(myLoadEpoch)) return;
       if (isFilePlaybackPlaying()) {
         handleEnded();
       }
-    });
+    };
 
     // Determine the exact audio-context time to start
     const startWhen = scheduleDelay > 0 ? ctx.currentTime + scheduleDelay : 0;

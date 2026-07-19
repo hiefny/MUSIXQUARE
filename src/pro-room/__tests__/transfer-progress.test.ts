@@ -10,7 +10,7 @@ describe('PRO room aggregate transfer progress', () => {
     expect(report).toHaveBeenLastCalledWith(0.25);
 
     large!.onProgress(0.5);
-    expect(report).toHaveBeenLastCalledWith(0.625);
+    expect(report).toHaveBeenLastCalledWith(0.62);
 
     large!.onProgress(1);
     expect(report).toHaveBeenLastCalledWith(1);
@@ -25,6 +25,17 @@ describe('PRO room aggregate transfer progress', () => {
     entry!.onProgress(Number.NaN);
     entry!.onProgress(2);
 
-    expect(report.mock.calls.map(([fraction]) => fraction)).toEqual([0.7, 0.7, 0.7, 1]);
+    expect(report.mock.calls.map(([fraction]) => fraction)).toEqual([0.7, 1]);
+  });
+
+  it('reports at most once per visible integer percent', () => {
+    const report = vi.fn();
+    const [entry] = createByteWeightedProgressEntries([{ size: 10 }], report);
+
+    entry!.onProgress(0.201);
+    entry!.onProgress(0.209);
+    entry!.onProgress(0.21);
+
+    expect(report.mock.calls.map(([fraction]) => fraction)).toEqual([0.2, 0.21]);
   });
 });

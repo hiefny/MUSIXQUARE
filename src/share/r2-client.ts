@@ -43,6 +43,18 @@ interface RemoteUploadMeta {
 
 type ProgressHandler = (progress: number) => void;
 
+/** Keep transport liveness byte-accurate while bounding presentation updates. */
+function createDisplayProgressReporter(callback?: ProgressHandler): ProgressHandler {
+  let previousPercent = -1;
+  return (fraction): void => {
+    const normalized = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
+    const percent = normalized >= 1 ? 100 : Math.floor(normalized * 100);
+    if (percent === previousPercent) return;
+    previousPercent = percent;
+    callback?.(percent / 100);
+  };
+}
+
 declare global {
   interface Window {
     __MUSIXQUARE_REMOTE_SHARE_ENDPOINT__?: unknown;
@@ -395,6 +407,7 @@ export async function uploadEncryptedBlob(
   if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
 
   const session = await requestUploadSession(endpoint, encryptedBlob, meta, signal);
+  const reportProgress = createDisplayProgressReporter(onProgress);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -429,7 +442,7 @@ export async function uploadEncryptedBlob(
         stall.reset();
       }
       if (event.lengthComputable && onProgress) {
-        onProgress(event.loaded / event.total);
+        reportProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
@@ -439,7 +452,7 @@ export async function uploadEncryptedBlob(
         void completeDirectUpload(endpoint, session, meta, signal).then((body) => {
           if (settled) return;
           settled = true;
-          onProgress?.(1);
+          reportProgress(1);
           resolve(body);
         }, rejectWithCleanup);
         return;
@@ -484,6 +497,7 @@ export function downloadEncryptedObject(
     }
 
     const requestUrl = buildDownloadUrl(roomId, objectId, downloadUrl);
+    const reportProgress = createDisplayProgressReporter(onProgress);
     const xhr = new XMLHttpRequest();
     xhr.open('GET', requestUrl, true);
     xhr.responseType = 'arraybuffer';
@@ -509,7 +523,7 @@ export function downloadEncryptedObject(
         return;
       }
       if (event.lengthComputable && onProgress) {
-        onProgress(event.loaded / event.total);
+        reportProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
@@ -533,7 +547,7 @@ export function downloadEncryptedObject(
         xhr.response instanceof ArrayBuffer &&
         xhr.response.byteLength === expectedEncryptedSize
       ) {
-        onProgress?.(1);
+        reportProgress(1);
         resolve(xhr.response);
         return;
       }

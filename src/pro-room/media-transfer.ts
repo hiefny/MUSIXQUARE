@@ -95,12 +95,13 @@ function reportProgress(callback: ProRoomMediaProgress | undefined, fraction: nu
 }
 
 function createProgressReporter(callback?: ProRoomMediaProgress): ProRoomMediaProgress {
-  let previous = -1;
+  let previousPercent = -1;
   return (fraction): void => {
-    const normalized = Math.max(0, Math.min(1, fraction));
-    if (normalized === previous) return;
-    previous = normalized;
-    reportProgress(callback, normalized);
+    const normalized = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
+    const percent = normalized >= 1 ? 100 : Math.floor(normalized * 100);
+    if (percent === previousPercent) return;
+    previousPercent = percent;
+    reportProgress(callback, percent / 100);
   };
 }
 

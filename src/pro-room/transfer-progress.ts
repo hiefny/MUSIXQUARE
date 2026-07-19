@@ -30,6 +30,7 @@ export function createByteWeightedProgressEntries<T extends ByteSizedValue>(
   const totalBytes = weights.reduce((sum, size) => sum + size, 0);
   const fractions = values.map(() => 0);
   let lastReported = 0;
+  let lastReportedPercent = -1;
 
   return values.map((value, index) => ({
     value,
@@ -43,7 +44,10 @@ export function createByteWeightedProgressEntries<T extends ByteSizedValue>(
           : fractions.reduce((sum, valueFraction) => sum + valueFraction, 0) /
             Math.max(1, fractions.length);
       lastReported = Math.max(lastReported, clampFraction(weightedFraction));
-      report(lastReported);
+      const percent = lastReported >= 1 ? 100 : Math.floor(lastReported * 100);
+      if (percent === lastReportedPercent) return;
+      lastReportedPercent = percent;
+      report(percent / 100);
     },
   }));
 }

@@ -141,6 +141,7 @@ const hostBatchCommits = new Map<
     roomCode: string;
     fileCount: number;
     committedCount: number;
+    firstTitle: string | null;
     updatedAt: number;
   }
 >();
@@ -366,18 +367,28 @@ function hostBatchKey(peerId: string, requestId: string): string {
   return `${peerId}:${requestId}`;
 }
 
+function trackTitleFromFileName(name: string): string {
+  return name.replace(/\.[^/.]+$/, '');
+}
+
 function recordHostBatchCommit(upload: HostUpload): void {
   const key = hostBatchKey(upload.peerId, upload.requestId);
   const existing = hostBatchCommits.get(key);
   if (existing) {
     if (existing.conn !== upload.conn || existing.roomCode !== upload.roomCode) return;
+    existing.firstTitle ??= trackTitleFromFileName(upload.name);
     existing.committedCount += 1;
     existing.updatedAt = Date.now();
     return;
   }
   // A pre-batch client has no additive BATCH_START terminal. Preserve rolling
   // compatibility by announcing each authoritative file commit immediately.
-  bus.emit('standard-room:operator-files-added', upload.conn, 1);
+  bus.emit(
+    'standard-room:operator-files-added',
+    upload.conn,
+    1,
+    trackTitleFromFileName(upload.name),
+  );
 }
 
 function pruneHostBatchLedgers(now = Date.now()): void {
@@ -426,6 +437,7 @@ function handleUploadBatchStart(
     roomCode,
     fileCount: data.fileCount,
     committedCount: 0,
+    firstTitle: null,
     updatedAt: Date.now(),
   });
   pruneHostBatchLedgers();
@@ -460,7 +472,12 @@ function handleUploadBatchComplete(
   }
   hostBatchCommits.delete(key);
   announcedHostBatches.set(key, Date.now());
-  bus.emit('standard-room:operator-files-added', conn, batch.committedCount);
+  bus.emit(
+    'standard-room:operator-files-added',
+    conn,
+    batch.committedCount,
+    batch.firstTitle ?? undefined,
+  );
 }
 
 function rememberSettledHostSession(

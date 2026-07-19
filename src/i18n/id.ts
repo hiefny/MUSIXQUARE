@@ -646,6 +646,8 @@ const id: Record<I18nKey, string> = {
   'chat.seek_to': 'Pindah ke {{time}}',
   'chat.peer_connected': '{{name}} bergabung',
   'chat.tracks_added': '{{name}} menambahkan {{count}} lagu',
+  'chat.track_added_named': '{{name}} menambahkan 1 lagu: {{title}}',
+  'chat.tracks_added_named': '{{name}} menambahkan {{count}} lagu, termasuk {{title}}',
   'chat.peer_disconnected': '{{name}} keluar',
   'chat.empty_html': 'Belum ada pesan.<br>Kirim pesan pertama!',
   'chat.msg_truncated': 'Pesan dipotong menjadi {{max}} karakter',

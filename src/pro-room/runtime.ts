@@ -1199,7 +1199,7 @@ function flushAcceptedQueueAdditions(acceptedPlaylistRevision: number): void {
     // older row is more misleading than omitting that stale notification.
     if (order <= lastAnnouncedQueueAdditionOrder) continue;
     lastAnnouncedQueueAdditionOrder = order;
-    broadcastTracksAdded(frame.actorName, frame.count);
+    broadcastTracksAdded(frame.actorName, frame.count, frame.firstTitle);
   }
 }
 
@@ -2092,7 +2092,11 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
     await heartbeatSingleFlight.run(
       async () => {
         const invalidationGeneration = invalidationHighWater.beginHeartbeat();
-        const snapshot = await controller.heartbeat();
+        const localDisplayName = getState('network.myDeviceLabel').trim();
+        const snapshot = await controller.heartbeat(
+          undefined,
+          localDisplayName || controller.snapshot?.viewer?.displayName,
+        );
         await acceptPlaylistSnapshot(snapshot);
         if (snapshot.presence.coordinatorEpoch !== lastEffectsCoordinatorEpoch) {
           await refreshPersistedEffects(snapshot).catch((error) => {
@@ -2256,6 +2260,10 @@ function startLifecycle(): void {
     SIGNALING_REFRESH_INTERVAL_MS,
   );
   schedulePlaybackCheckpointLoop();
+  // The legacy topology assigns the final public label (Peer 0, Peer 1, or a
+  // renamed label) only after PRO authentication. Reconcile it immediately so
+  // queue notices never stay pinned to the login-time generic "Peer" value.
+  void runHeartbeat(true);
 }
 
 export function getProRoomBootstrap(code: string, signal?: AbortSignal): Promise<ProRoomBootstrap> {
@@ -2473,6 +2481,10 @@ for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as
   bus.on(event, () => scheduleQueueModeCheckpoint());
 }
 bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint());
+
+bus.on('state:network.myDeviceLabel', () => {
+  if (active) void runHeartbeat(true);
+});
 
 for (const event of [
   'state:audio.reverbMix',

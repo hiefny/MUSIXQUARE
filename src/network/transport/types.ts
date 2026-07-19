@@ -59,6 +59,8 @@ export interface ProQueueAdditionFrame {
   readonly eventId: string;
   readonly actorName: string;
   readonly count: number;
+  /** Present only when the elected coordinator advertised protocol v4+. */
+  readonly firstTitle?: string;
 }
 
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
@@ -70,9 +72,14 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+function hasExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
   const actual = Object.keys(value);
-  return actual.length === keys.length && actual.every((key) => keys.includes(key));
+  const allowed = [...keys, ...optional];
+  return keys.every((key) => actual.includes(key)) && actual.every((key) => allowed.includes(key));
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
@@ -81,6 +88,18 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 
 function isDeveloperQueueItemId(value: unknown): value is string {
   return typeof value === 'string' && DEVELOPER_COMMAND_QUEUE_ITEM_ID_RE.test(value);
+}
+
+function hasUnsafeQueueMetadataCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (
+      codePoint <= 0x1f ||
+      codePoint === 0x7f ||
+      (codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint >= 0x2066 && codePoint <= 0x2069)
+    );
+  });
 }
 
 /**
@@ -208,18 +227,23 @@ export function parseDeveloperInvalidationFrame(value: unknown): DeveloperInvali
 }
 
 export function parseProQueueAdditionFrame(value: unknown): ProQueueAdditionFrame | null {
+  const firstTitle = isPlainRecord(value) ? value.firstTitle : undefined;
   if (
     !isPlainRecord(value) ||
-    !hasExactKeys(value, [
-      'type',
-      'version',
-      'roomCode',
-      'coordinatorEpoch',
-      'playlistRevision',
-      'eventId',
-      'actorName',
-      'count',
-    ]) ||
+    !hasExactKeys(
+      value,
+      [
+        'type',
+        'version',
+        'roomCode',
+        'coordinatorEpoch',
+        'playlistRevision',
+        'eventId',
+        'actorName',
+        'count',
+      ],
+      ['firstTitle'],
+    ) ||
     value.type !== 'pro-queue-addition' ||
     value.version !== 1 ||
     typeof value.roomCode !== 'string' ||
@@ -235,7 +259,13 @@ export function parseProQueueAdditionFrame(value: unknown): ProQueueAdditionFram
     value.actorName.length > 30 ||
     !isNonNegativeSafeInteger(value.count) ||
     value.count < 1 ||
-    value.count > 1000
+    value.count > 1000 ||
+    (firstTitle !== undefined &&
+      (typeof firstTitle !== 'string' ||
+        firstTitle.length < 1 ||
+        firstTitle.length > 120 ||
+        firstTitle.trim() !== firstTitle ||
+        hasUnsafeQueueMetadataCharacter(firstTitle)))
   ) {
     return null;
   }
@@ -248,6 +278,7 @@ export function parseProQueueAdditionFrame(value: unknown): ProQueueAdditionFram
     eventId: value.eventId,
     actorName: value.actorName,
     count: value.count,
+    ...(typeof firstTitle === 'string' ? { firstTitle } : {}),
   };
 }
 

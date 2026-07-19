@@ -1288,7 +1288,11 @@ interface BaseEventMap {
     sourceConnection?: DataConnection,
   ];
   'standard-room:operator-file-uplink-progress': [progress: StandardOperatorFileUplinkProgress];
-  'standard-room:operator-files-added': [sourceConnection: DataConnection, count: number];
+  'standard-room:operator-files-added': [
+    sourceConnection: DataConnection,
+    count: number,
+    firstTitle?: string,
+  ];
   'standard-room:queue-mutation-failed': [
     reason: 'send-failed' | 'accept-timeout' | 'settle-timeout' | 'rejected',
     code:

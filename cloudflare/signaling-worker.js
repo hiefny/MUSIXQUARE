@@ -38,7 +38,8 @@ const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
 const DEVELOPER_CONTROL_VERSION = 1;
 const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
 const DEVELOPER_NEXT_CONTROL_VERSION = 3;
-const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_NEXT_CONTROL_VERSION;
+const DEVELOPER_QUEUE_TITLE_CONTROL_VERSION = 4;
+const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_QUEUE_TITLE_CONTROL_VERSION;
 const DEVELOPER_COMMAND_BODY_MAX_BYTES = 4 * 1024;
 const INTERNAL_ADMIN_BODY_MAX_BYTES = 1024;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -484,17 +485,22 @@ function normalizeDeveloperInvalidationFrame(value) {
 }
 
 function normalizeProQueueAdditionFrame(value) {
+  const firstTitle = value?.firstTitle;
   if (
-    !hasExactKeys(value, [
-      'type',
-      'version',
-      'roomCode',
-      'coordinatorEpoch',
-      'playlistRevision',
-      'eventId',
-      'actorName',
-      'count',
-    ]) ||
+    !hasExactKeys(
+      value,
+      [
+        'type',
+        'version',
+        'roomCode',
+        'coordinatorEpoch',
+        'playlistRevision',
+        'eventId',
+        'actorName',
+        'count',
+      ],
+      ['firstTitle'],
+    ) ||
     value.type !== 'pro-queue-addition' ||
     value.version !== DEVELOPER_CONTROL_VERSION ||
     !isProNamespaceRoomCode(value.roomCode) ||
@@ -508,7 +514,13 @@ function normalizeProQueueAdditionFrame(value) {
     value.actorName.length > 30 ||
     !Number.isSafeInteger(value.count) ||
     value.count < 1 ||
-    value.count > 1000
+    value.count > 1000 ||
+    (firstTitle !== undefined &&
+      (typeof firstTitle !== 'string' ||
+        firstTitle.length < 1 ||
+        firstTitle.length > 120 ||
+        firstTitle.trim() !== firstTitle ||
+        /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(firstTitle)))
   ) {
     return null;
   }
@@ -521,6 +533,7 @@ function normalizeProQueueAdditionFrame(value) {
     eventId: value.eventId,
     actorName: value.actorName,
     count: value.count,
+    ...(typeof firstTitle === 'string' ? { firstTitle } : {}),
   };
 }
 

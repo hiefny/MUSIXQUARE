@@ -987,29 +987,58 @@ export class ProRoomApiClient {
     });
   }
 
-  heartbeat(
+  async heartbeat(
     code: string,
     signal?: AbortSignal,
     knownSnapshot?: ProRoomSnapshot,
+    displayName?: string,
   ): Promise<ProRoomSnapshot> {
     const path = roomPath(code);
-    return this.#request(`${path}/presence/heartbeat`, {
-      method: 'POST',
-      ...(knownSnapshot === undefined
-        ? {}
-        : {
-            body: {
-              revision: knownSnapshot.revision,
-              playlistRevision: knownSnapshot.playlistRevision,
-              presenceRevision: knownSnapshot.presence.revision,
-              playbackRevision: knownSnapshot.playback.revision,
-              coordinatorEpoch: knownSnapshot.presence.coordinatorEpoch,
-            },
-          }),
-      signal,
-      activeRoomCode: code,
-      parser: (value) => parseHeartbeatEnvelope(value, code, knownSnapshot ?? null),
-    });
+    const normalizedDisplayName =
+      displayName === undefined
+        ? undefined
+        : parseBoundedString(displayName, MAX_DISPLAY_NAME_LENGTH);
+    if (displayName !== undefined && normalizedDisplayName === null) {
+      throw new ProRoomApiError('INVALID_DISPLAY_NAME');
+    }
+    const requestHeartbeat = (includeDisplayName: boolean) =>
+      this.#request(`${path}/presence/heartbeat`, {
+        method: 'POST',
+        ...(knownSnapshot === undefined
+          ? {}
+          : {
+              body: {
+                revision: knownSnapshot.revision,
+                playlistRevision: knownSnapshot.playlistRevision,
+                presenceRevision: knownSnapshot.presence.revision,
+                playbackRevision: knownSnapshot.playback.revision,
+                coordinatorEpoch: knownSnapshot.presence.coordinatorEpoch,
+                ...(includeDisplayName && normalizedDisplayName !== undefined
+                  ? { displayName: normalizedDisplayName }
+                  : {}),
+              },
+            }),
+        signal,
+        activeRoomCode: code,
+        parser: (value) => parseHeartbeatEnvelope(value, code, knownSnapshot ?? null),
+      });
+    try {
+      return await requestHeartbeat(true);
+    } catch (error) {
+      // During a rollback, an older Worker rejects the rolling optional field.
+      // Preserve presence with the old exact body; only the richer actor label
+      // is deferred until the server supports it again.
+      if (
+        normalizedDisplayName === undefined ||
+        signal?.aborted ||
+        !(error instanceof ProRoomApiError) ||
+        error.status !== 400 ||
+        error.code !== 'INVALID_REQUEST'
+      ) {
+        throw error;
+      }
+      return requestHeartbeat(false);
+    }
   }
 
   getEffects(code: string, signal?: AbortSignal): Promise<ProRoomEffectsSnapshot> {
@@ -1257,7 +1286,7 @@ export class ProRoomApiClient {
     const requestTicket = (advertiseDeveloperControl: boolean) =>
       this.#request(`${path}/signaling-tickets`, {
         method: 'POST',
-        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 3 } } : {}),
+        ...(advertiseDeveloperControl ? { body: { developerControlVersion: 4 } } : {}),
         signal,
         activeRoomCode: code,
         maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,

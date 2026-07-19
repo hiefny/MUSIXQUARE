@@ -152,12 +152,12 @@ describe('standard operator file uplink host receiver', () => {
   it('summarizes a negotiated multi-file batch once at its terminal frame', async () => {
     const { conn } = makeConnection('admin-batch');
     enterHost([{ conn }]);
-    const additions: Array<{ conn: DataConnection; count: number }> = [];
+    const additions: Array<{ conn: DataConnection; count: number; firstTitle?: string }> = [];
     const offReceived = bus.on('standard-room:operator-file-received', (_file, acknowledge) => {
       acknowledge(true);
     });
-    const offAdded = bus.on('standard-room:operator-files-added', (source, count) => {
-      additions.push({ conn: source, count });
+    const offAdded = bus.on('standard-room:operator-files-added', (source, count, firstTitle) => {
+      additions.push({ conn: source, count, firstTitle });
     });
 
     await handleData(
@@ -203,7 +203,7 @@ describe('standard operator file uplink host receiver', () => {
     } as const;
     await handleData(terminal, conn);
     await handleData(terminal, conn);
-    expect(additions).toEqual([{ conn, count: 2 }]);
+    expect(additions).toEqual([{ conn, count: 2, firstTitle: 'track-1' }]);
     offAdded();
     offReceived();
   });

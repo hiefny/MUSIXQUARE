@@ -647,6 +647,8 @@ const ja: Record<I18nKey, string> = {
   'chat.seek_to': '{{time}} へ移動',
   'chat.peer_connected': '{{name}} が参加しました',
   'chat.tracks_added': '{{name}} が{{count}}曲追加しました',
+  'chat.track_added_named': '{{name}} が1曲追加しました：{{title}}',
+  'chat.tracks_added_named': '{{name}} が{{count}}曲追加しました（{{title}} ほか）',
   'chat.peer_disconnected': '{{name}} が退出しました',
   'chat.empty_html': 'まだメッセージはありません。<br>最初のメッセージを送ってみましょう！',
   'chat.msg_truncated': 'メッセージは {{max}} 文字に切り詰められました',

@@ -149,12 +149,14 @@ const PLAYBACK_CLOCK_SKEW_MS = 60_000;
 const RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 // v1 covers direct playback controls and queue invalidations. v2 adds
-// set_effects; v3 adds aggregate-aware next. Older frames remain valid so a
-// rolling deploy does not strand an already-open tab.
+// set_effects; v3 adds aggregate-aware next; v4 adds a bounded first-track
+// title to queue-addition hints. Older frames remain valid so a rolling deploy
+// does not strand an already-open tab.
 const DEVELOPER_CONTROL_VERSION = 1;
 const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
 const DEVELOPER_NEXT_CONTROL_VERSION = 3;
-const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_NEXT_CONTROL_VERSION;
+const DEVELOPER_QUEUE_TITLE_CONTROL_VERSION = 4;
+const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_QUEUE_TITLE_CONTROL_VERSION;
 const DEVELOPER_COMMAND_TTL_MS = 30 * 1000;
 const DEVELOPER_COMMAND_RETRY_MS = 5 * 1000;
 const DEVELOPER_COMMAND_MAX_ATTEMPTS = 3;
@@ -364,6 +366,20 @@ function queueAdditionActorName(value, fallback = 'Peer') {
     result += character;
   }
   return result || 'Peer';
+}
+
+function queueAdditionTrackTitle(value) {
+  const normalized =
+    typeof value === 'string'
+      ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').trim()
+      : '';
+  if (!normalized) return null;
+  let result = '';
+  for (const character of normalized) {
+    if (result.length + character.length > 120) break;
+    result += character;
+  }
+  return result || null;
 }
 
 function isSafeNonNegativeInteger(value) {
@@ -3699,7 +3715,15 @@ export class MusixquareProRoom {
             : 0;
       this.scheduleDeveloperInvalidationHint(
         addedCount > 0
-          ? { actorName: parsed.value.actorName, fallback: 'API', count: addedCount }
+          ? {
+              actorName: parsed.value.actorName,
+              fallback: 'API',
+              count: addedCount,
+              firstTitle:
+                mutation.type === 'add_youtube'
+                  ? mutation.title || mutation.name
+                  : mutation.items[0]?.title || mutation.items[0]?.name,
+            }
           : null,
       );
     }
@@ -4051,6 +4075,7 @@ export class MusixquareProRoom {
       actorName: parsed.value.actorName,
       fallback: 'API',
       count: 1,
+      firstTitle: queueItem.title || queueItem.name,
     });
     // State is authoritative once persisted. Staging cleanup is deliberately
     // after that commit, so interruption cannot strand a reserved asset whose
@@ -4154,6 +4179,7 @@ export class MusixquareProRoom {
     ) {
       return;
     }
+    const firstTitle = queueAdditionTrackTitle(addition?.firstTitle);
     const normalizedAddition =
       addition &&
       Number.isSafeInteger(addition.count) &&
@@ -4168,6 +4194,10 @@ export class MusixquareProRoom {
             eventId: `qa_${this.room.roomCode}_${this.room.playlistRevision}_${this.room.revision}`,
             actorName: queueAdditionActorName(addition.actorName, addition.fallback),
             count: addition.count,
+            ...(firstTitle &&
+            supportsDeveloperControl(coordinator, DEVELOPER_QUEUE_TITLE_CONTROL_VERSION)
+              ? { firstTitle }
+              : {}),
           }
         : null;
     const dispatch = this.dispatchDeveloperInvalidationHint({
@@ -5733,22 +5763,48 @@ export class MusixquareProRoom {
     const known = parsed.empty ? null : parsed.value;
     if (
       known !== null &&
-      (!hasExactKeys(known, [
-        'revision',
-        'playlistRevision',
-        'presenceRevision',
-        'playbackRevision',
-        'coordinatorEpoch',
-      ]) ||
+      (!hasExactKeys(
+        known,
+        [
+          'revision',
+          'playlistRevision',
+          'presenceRevision',
+          'playbackRevision',
+          'coordinatorEpoch',
+        ],
+        ['displayName'],
+      ) ||
         !isSafeNonNegativeInteger(known.revision) ||
         !isSafeNonNegativeInteger(known.playlistRevision) ||
         !isSafeNonNegativeInteger(known.presenceRevision) ||
         !isSafeNonNegativeInteger(known.playbackRevision) ||
-        !isSafeNonNegativeInteger(known.coordinatorEpoch))
+        !isSafeNonNegativeInteger(known.coordinatorEpoch) ||
+        (known.displayName !== undefined && !validDeveloperActorName(known.displayName)))
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const nowMs = Date.now();
+    const nextDisplayName =
+      known?.displayName === undefined
+        ? auth.session.displayName
+        : boundedString(known.displayName, MAX_DISPLAY_NAME_LENGTH);
+    const displayNameChanged =
+      nextDisplayName !== null &&
+      (auth.session.displayName !== nextDisplayName ||
+        auth.participant.displayName !== nextDisplayName);
+    if (
+      displayNameChanged &&
+      (this.room.revision >= Number.MAX_SAFE_INTEGER ||
+        this.room.presence.revision >= Number.MAX_SAFE_INTEGER)
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+    if (displayNameChanged) {
+      auth.session.displayName = nextDisplayName;
+      auth.participant.displayName = nextDisplayName;
+      this.room.presence.revision += 1;
+      this.room.revision += 1;
+    }
     const previousLastSeenAtMs = this.persistedPresenceLastSeenAtMs.get(
       auth.participant.participantId,
     );
@@ -5762,6 +5818,7 @@ export class MusixquareProRoom {
     this.heartbeatDurabilityDirty = true;
     const developerCommandsChanged = await this.processDeveloperCommands(nowMs);
     const refreshLegacyShadow =
+      displayNameChanged ||
       developerCommandsChanged ||
       nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS;
     if (
@@ -6246,10 +6303,8 @@ export class MusixquareProRoom {
         ? { ...item, developerOwnerKeyId: existingOwnerKeyId }
         : item;
     });
-    const addedCount = playlist.reduce(
-      (count, item) => count + (previousPlaylistById.has(item.queueItemId) ? 0 : 1),
-      0,
-    );
+    const addedItems = playlist.filter((item) => !previousPlaylistById.has(item.queueItemId));
+    const addedCount = addedItems.length;
     const playlistById = new Map(playlist.map((item) => [item.queueItemId, item]));
     if (
       currentQueueItemId !== null &&
@@ -6289,6 +6344,7 @@ export class MusixquareProRoom {
         actorName: auth.session.displayName,
         fallback: 'Peer',
         count: addedCount,
+        firstTitle: addedItems[0]?.title || addedItems[0]?.name,
       });
     }
     return jsonResponse(responseBody);

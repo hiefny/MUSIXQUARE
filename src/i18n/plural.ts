@@ -10,6 +10,7 @@ export const PLURAL_PARAM_BY_KEY = {
   'chat.cmd_slowmode_on': 'sec',
   'chat.cmd_slowmode_wait': 'sec',
   'chat.tracks_added': 'count',
+  'chat.tracks_added_named': 'count',
   'toast.added_tracks': 'count',
   'toast.unsupported_files_excluded': 'count',
   'dialog.file_drop.message': 'count',
@@ -35,6 +36,9 @@ export const PLURAL_MESSAGES = {
     'chat.cmd_slowmode_on': { one: 'Slow mode: {{sec}} second between messages' },
     'chat.cmd_slowmode_wait': { one: 'Wait {{sec}} second before sending' },
     'chat.tracks_added': { one: '{{name}} added {{count}} track' },
+    'chat.tracks_added_named': {
+      one: '{{name}} added {{count}} track, including {{title}}',
+    },
     'toast.added_tracks': { one: '{{count}} track added' },
     'toast.unsupported_files_excluded': { one: 'Unsupported file skipped: {{count}}' },
     'dialog.file_drop.message': { one: 'Add {{count}} track?' },
@@ -51,6 +55,9 @@ export const PLURAL_MESSAGES = {
     'chat.cmd_slowmode_on': { one: 'Langsammodus: {{sec}} Sekunde zwischen Nachrichten' },
     'chat.cmd_slowmode_wait': { one: 'Warte {{sec}} Sekunde vor dem Senden' },
     'chat.tracks_added': { one: '{{name}} hat {{count}} Titel hinzugefügt' },
+    'chat.tracks_added_named': {
+      one: '{{name}} hat {{count}} Titel hinzugefügt, darunter {{title}}',
+    },
     'toast.added_tracks': { one: '{{count}} Titel hinzugefügt' },
     'toast.unsupported_files_excluded': {
       one: 'Nicht unterstützte Datei übersprungen: {{count}}',
@@ -69,6 +76,9 @@ export const PLURAL_MESSAGES = {
     'chat.cmd_slowmode_on': { one: 'Modo lento: {{sec}} segundo entre mensajes' },
     'chat.cmd_slowmode_wait': { one: 'Espera {{sec}} segundo antes de enviar' },
     'chat.tracks_added': { one: '{{name}} añadió {{count}} pista' },
+    'chat.tracks_added_named': {
+      one: '{{name}} añadió {{count}} pista, incluida {{title}}',
+    },
     'toast.added_tracks': { one: '{{count}} pista añadida' },
     'toast.unsupported_files_excluded': {
       one: 'Archivo no compatible omitido: {{count}}',
@@ -87,6 +97,9 @@ export const PLURAL_MESSAGES = {
     'chat.cmd_slowmode_on': { one: 'Mode lent : {{sec}} seconde entre les messages' },
     'chat.cmd_slowmode_wait': { one: 'Attendez {{sec}} seconde avant d’envoyer' },
     'chat.tracks_added': { one: '{{name}} a ajouté {{count}} titre' },
+    'chat.tracks_added_named': {
+      one: '{{name}} a ajouté {{count}} titre, dont {{title}}',
+    },
     'toast.added_tracks': { one: '{{count}} piste ajoutée' },
     'toast.unsupported_files_excluded': {
       one: 'Fichier non pris en charge ignoré : {{count}}',
@@ -109,6 +122,9 @@ export const PLURAL_MESSAGES = {
       one: 'Attendi {{sec}} secondo prima di inviare un nuovo messaggio',
     },
     'chat.tracks_added': { one: '{{name}} ha aggiunto {{count}} brano' },
+    'chat.tracks_added_named': {
+      one: '{{name}} ha aggiunto {{count}} brano, incluso {{title}}',
+    },
     'toast.added_tracks': { one: '{{count}} brano aggiunto' },
     'toast.unsupported_files_excluded': { one: 'File non supportato escluso: {{count}}' },
     'dialog.file_drop.message': { one: 'Aggiungere {{count}} brano?' },
@@ -125,6 +141,9 @@ export const PLURAL_MESSAGES = {
     'chat.cmd_slowmode_on': { one: 'Langzame modus: {{sec}} seconde tussen berichten' },
     'chat.cmd_slowmode_wait': { one: 'Wacht {{sec}} seconde voordat je verstuurt' },
     'chat.tracks_added': { one: '{{name}} heeft {{count}} nummer toegevoegd' },
+    'chat.tracks_added_named': {
+      one: '{{name}} heeft {{count}} nummer toegevoegd, waaronder {{title}}',
+    },
     'toast.added_tracks': { one: '{{count}} nummer toegevoegd' },
     'toast.unsupported_files_excluded': {
       one: 'Niet-ondersteund bestand overgeslagen: {{count}}',
@@ -143,6 +162,9 @@ export const PLURAL_MESSAGES = {
     'chat.cmd_slowmode_on': { one: 'Modo lento: {{sec}} segundo entre mensagens' },
     'chat.cmd_slowmode_wait': { one: 'Aguarde {{sec}} segundo antes de enviar' },
     'chat.tracks_added': { one: '{{name}} adicionou {{count}} faixa' },
+    'chat.tracks_added_named': {
+      one: '{{name}} adicionou {{count}} faixa, incluindo {{title}}',
+    },
     'toast.added_tracks': { one: '{{count}} faixa adicionada' },
     'toast.unsupported_files_excluded': {
       one: 'Arquivo não compatível ignorado: {{count}}',
@@ -182,6 +204,11 @@ export const PLURAL_MESSAGES = {
       one: '{{name}} dodał(a) {{count}} utwór',
       few: '{{name}} dodał(a) {{count}} utwory',
       many: '{{name}} dodał(a) {{count}} utworów',
+    },
+    'chat.tracks_added_named': {
+      one: '{{name}} dodał(a) {{count}} utwór, w tym {{title}}',
+      few: '{{name}} dodał(a) {{count}} utwory, w tym {{title}}',
+      many: '{{name}} dodał(a) {{count}} utworów, w tym {{title}}',
     },
     'toast.added_tracks': {
       one: 'Dodano {{count}} utwór',
@@ -234,6 +261,11 @@ export const PLURAL_MESSAGES = {
       one: '{{name}} добавил(а) {{count}} трек',
       few: '{{name}} добавил(а) {{count}} трека',
       many: '{{name}} добавил(а) {{count}} треков',
+    },
+    'chat.tracks_added_named': {
+      one: '{{name}} добавил(а) {{count}} трек, включая {{title}}',
+      few: '{{name}} добавил(а) {{count}} трека, включая {{title}}',
+      many: '{{name}} добавил(а) {{count}} треков, включая {{title}}',
     },
     'toast.added_tracks': {
       one: 'Добавлен {{count}} трек',

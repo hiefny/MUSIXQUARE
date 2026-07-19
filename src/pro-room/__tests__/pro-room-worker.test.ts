@@ -3068,7 +3068,7 @@ describe('PRO room private Developer API projections', () => {
       room: Record<string, any>;
     };
     const capability = await worker.fetch(
-      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 1 }, ownerCookie),
+      jsonRequest('/signaling-tickets', 'POST', { developerControlVersion: 4 }, ownerCookie),
     );
     expect(capability.status).toBe(200);
 
@@ -3120,6 +3120,7 @@ describe('PRO room private Developer API projections', () => {
         playlistRevision: internal.room.playlistRevision,
         actorName: '🎧'.repeat(15),
         count: 1,
+        firstTitle: 'Queue hint',
       },
     });
     expect(firstBody.addition.actorName.length).toBe(30);
@@ -3180,6 +3181,7 @@ describe('PRO room private Developer API projections', () => {
       type: 'pro-queue-addition',
       actorName: 'Uploader bot',
       count: 1,
+      firstTitle: 'Hint.wav',
       playlistRevision: internal.room.playlistRevision,
     });
 
@@ -3202,6 +3204,7 @@ describe('PRO room private Developer API projections', () => {
       type: 'pro-queue-addition',
       actorName: 'Batch bot',
       count: 2,
+      firstTitle: 'Batch one',
       playlistRevision: internal.room.playlistRevision,
     });
 
@@ -3234,6 +3237,7 @@ describe('PRO room private Developer API projections', () => {
       type: 'pro-queue-addition',
       actorName: 'Owner',
       count: 1,
+      firstTitle: 'Owner addition',
       playlistRevision: internal.room.playlistRevision,
     });
   });
@@ -4779,6 +4783,33 @@ describe('persistent PRO room authentication, presence, and state', () => {
       playbackRevision: known.playback.revision,
       coordinatorEpoch: known.presence.coordinatorEpoch,
     });
+
+    const renamed = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: known.revision,
+          playlistRevision: known.playlistRevision,
+          presenceRevision: known.presence.revision,
+          playbackRevision: known.playback.revision,
+          coordinatorEpoch: known.presence.coordinatorEpoch,
+          displayName: 'Peer 0',
+        },
+        ownerCookie,
+      ),
+    );
+    expect(renamed.status).toBe(200);
+    const renamedSnapshot = (await responseJson(renamed)).snapshot;
+    expect(renamedSnapshot.viewer.displayName).toBe('Peer 0');
+    expect(renamedSnapshot.presence.participants).toContainEqual(
+      expect.objectContaining({
+        participantId: renamedSnapshot.viewer.participantId,
+        displayName: 'Peer 0',
+      }),
+    );
+    expect(renamedSnapshot.revision).toBe(known.revision + 1);
+    expect(renamedSnapshot.presence.revision).toBe(known.presence.revision + 1);
 
     const stale = await worker.fetch(
       jsonRequest(

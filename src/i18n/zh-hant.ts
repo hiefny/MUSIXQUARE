@@ -620,6 +620,8 @@ const zhHant: Record<I18nKey, string> = {
   'chat.seek_to': '跳至 {{time}}',
   'chat.peer_connected': '{{name}} 已加入',
   'chat.tracks_added': '{{name}} 新增了 {{count}} 首歌曲',
+  'chat.track_added_named': '{{name}} 新增了 1 首歌曲：{{title}}',
+  'chat.tracks_added_named': '{{name}} 新增了 {{count}} 首歌曲，包括 {{title}}',
   'chat.peer_disconnected': '{{name}} 已離開',
   'chat.empty_html': '還沒有訊息。<br>傳送第一則訊息吧！',
   'chat.msg_truncated': '訊息已截斷為 {{max}} 個字元',

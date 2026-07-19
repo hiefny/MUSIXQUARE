@@ -296,7 +296,9 @@ describe('local file admission', () => {
         count: 1,
       })}`,
     );
-    expect(systemMessages).toEqual([t('chat.tracks_added', { name: 'Studio Host', count: 2 })]);
+    expect(systemMessages).toEqual([
+      t('chat.tracks_added_named', { name: 'Studio Host', count: 2, title: 'track' }),
+    ]);
   });
 
   it('delegates filtered PRO uploads without mutating the legacy queue', async () => {

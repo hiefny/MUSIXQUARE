@@ -20,6 +20,36 @@ function normalizeQueueActorName(value: unknown, fallback = 'HOST'): string {
   return result || 'HOST';
 }
 
+const MAX_QUEUE_ANNOUNCEMENT_TITLE_LENGTH = 120;
+
+function isQueueMetadataControl(character: string): boolean {
+  const codePoint = character.codePointAt(0) ?? 0;
+  return (
+    codePoint <= 0x1f ||
+    codePoint === 0x7f ||
+    (codePoint >= 0x202a && codePoint <= 0x202e) ||
+    (codePoint >= 0x2066 && codePoint <= 0x2069)
+  );
+}
+
+/** Keep automatic rows compact and strip control/bidi characters from media metadata. */
+function normalizeQueueTrackTitle(value: unknown): string | null {
+  const normalized =
+    typeof value === 'string'
+      ? [...value]
+          .filter((character) => !isQueueMetadataControl(character))
+          .join('')
+          .trim()
+      : '';
+  if (!normalized) return null;
+  let result = '';
+  for (const character of normalized) {
+    if (result.length + character.length > MAX_QUEUE_ANNOUNCEMENT_TITLE_LENGTH) break;
+    result += character;
+  }
+  return result || null;
+}
+
 export function localQueueActorName(): string {
   return normalizeQueueActorName(getState('network.myDeviceLabel'));
 }
@@ -32,11 +62,22 @@ export function queueActorNameForConnection(conn: DataConnection): string | null
   return peer ? normalizeQueueActorName(peer.label, t('common.unknown')) : null;
 }
 
-export function broadcastTracksAdded(actorName: unknown, count: number): boolean {
+export function broadcastTracksAdded(
+  actorName: unknown,
+  count: number,
+  firstTitle?: unknown,
+): boolean {
   if (!Number.isSafeInteger(count) || count < 1 || count > 1000) return false;
-  broadcastSystemMessage('chat.tracks_added', {
-    name: normalizeQueueActorName(actorName, t('common.unknown')),
-    count,
-  });
+  const name = normalizeQueueActorName(actorName, t('common.unknown'));
+  const title = normalizeQueueTrackTitle(firstTitle);
+  if (title) {
+    broadcastSystemMessage(count === 1 ? 'chat.track_added_named' : 'chat.tracks_added_named', {
+      name,
+      count,
+      title,
+    });
+  } else {
+    broadcastSystemMessage('chat.tracks_added', { name, count });
+  }
   return true;
 }

@@ -657,6 +657,8 @@ const ptBr: Record<I18nKey, string> = {
   'chat.seek_to': 'Ir para {{time}}',
   'chat.peer_connected': '{{name}} entrou',
   'chat.tracks_added': '{{name}} adicionou {{count}} faixas',
+  'chat.track_added_named': '{{name}} adicionou 1 faixa: {{title}}',
+  'chat.tracks_added_named': '{{name}} adicionou {{count}} faixas, incluindo {{title}}',
   'chat.peer_disconnected': '{{name}} saiu',
   'chat.empty_html': 'Ainda não há mensagens.<br>Envie a primeira!',
   'chat.msg_truncated': 'Mensagem cortada para {{max}} caracteres',

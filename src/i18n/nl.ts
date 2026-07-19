@@ -376,6 +376,8 @@ const nl: Record<I18nKey, string> = {
   'chat.seek_to': 'Spoel naar {{time}}',
   'chat.peer_connected': '{{name}} neemt nu deel',
   'chat.tracks_added': '{{name}} heeft {{count}} nummers toegevoegd',
+  'chat.track_added_named': '{{name}} heeft 1 nummer toegevoegd: {{title}}',
+  'chat.tracks_added_named': '{{name}} heeft {{count}} nummers toegevoegd, waaronder {{title}}',
   'chat.peer_disconnected': '{{name}} is vertrokken',
   'chat.empty_html': 'Nog geen berichten.<br>Stuur het eerste bericht!',
   'chat.msg_truncated': 'Bericht ingekort tot {{max}} tekens',

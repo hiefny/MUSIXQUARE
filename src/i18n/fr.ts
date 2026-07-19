@@ -659,6 +659,8 @@ const fr: Record<I18nKey, string> = {
   'chat.seek_to': 'Aller à {{time}}',
   'chat.peer_connected': '{{name}} a rejoint la salle',
   'chat.tracks_added': '{{name}} a ajouté {{count}} titres',
+  'chat.track_added_named': '{{name}} a ajouté 1 titre : {{title}}',
+  'chat.tracks_added_named': '{{name}} a ajouté {{count}} titres, dont {{title}}',
   'chat.peer_disconnected': '{{name}} est parti',
   'chat.empty_html': 'Aucun message pour l’instant.<br>Envoyez le premier !',
   'chat.msg_truncated': 'Message tronqué à {{max}} caractères',

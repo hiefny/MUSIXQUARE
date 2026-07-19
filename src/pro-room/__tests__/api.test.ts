@@ -376,14 +376,39 @@ describe('PRO room cookie session API', () => {
       }),
     );
 
-    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).resolves.toBe(snapshot);
+    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot, 'Peer 1')).resolves.toBe(
+      snapshot,
+    );
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       revision: snapshot.revision,
       playlistRevision: snapshot.playlistRevision,
       presenceRevision: snapshot.presence.revision,
       playbackRevision: snapshot.playback.revision,
       coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+      displayName: 'Peer 1',
     });
+  });
+
+  it('retries a name-aware heartbeat with the legacy exact body during a Worker rollback', async () => {
+    const snapshot = activeSnapshot();
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock, snapshot);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
+      .mockResolvedValueOnce(jsonResponse({ snapshot }));
+
+    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot, 'Peer 1')).resolves.toEqual(
+      snapshot,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toHaveProperty(
+      'displayName',
+      'Peer 1',
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).not.toHaveProperty(
+      'displayName',
+    );
   });
 
   it('rejects a compact heartbeat reply that does not match the caller snapshot', async () => {
@@ -501,7 +526,7 @@ describe('PRO room cookie session API', () => {
       ticketSequence: 7,
     });
     const ticketRequest = fetchMock.mock.calls[0]?.[1];
-    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 3 }));
+    expect(ticketRequest?.body).toBe(JSON.stringify({ developerControlVersion: 4 }));
     const ticketHeaders = new Headers(ticketRequest?.headers);
     expect(ticketHeaders.get('content-type')).toBe('application/json');
     expect(ticketHeaders.get('x-mxqr-pro-participant-id')).toBe(
@@ -541,7 +566,7 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const advertised = fetchMock.mock.calls[0]?.[1];
     const fallback = fetchMock.mock.calls[1]?.[1];
-    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 3 }));
+    expect(advertised?.body).toBe(JSON.stringify({ developerControlVersion: 4 }));
     expect(new Headers(advertised?.headers).get('content-type')).toBe('application/json');
     expect(fallback?.body).toBeUndefined();
     expect(new Headers(fallback?.headers).has('content-type')).toBe(false);

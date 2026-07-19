@@ -619,6 +619,8 @@ const zhHans: Record<I18nKey, string> = {
   'chat.seek_to': '跳转到 {{time}}',
   'chat.peer_connected': '{{name}} 已加入',
   'chat.tracks_added': '{{name}} 添加了 {{count}} 首歌曲',
+  'chat.track_added_named': '{{name}} 添加了 1 首歌曲：{{title}}',
+  'chat.tracks_added_named': '{{name}} 添加了 {{count}} 首歌曲，包括 {{title}}',
   'chat.peer_disconnected': '{{name}} 已离开',
   'chat.empty_html': '还没有消息。<br>发送第一条消息吧！',
   'chat.msg_truncated': '消息已截断为 {{max}} 个字符',

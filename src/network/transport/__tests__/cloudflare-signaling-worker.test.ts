@@ -34,7 +34,7 @@ type ProTicketPayload = {
   coordinatorEpoch: number;
   presenceIncarnationId: string;
   ticketSequence: number;
-  developerControlVersion?: 0 | 1 | 2 | 3;
+  developerControlVersion?: 0 | 1 | 2 | 3 | 4;
   jti: string;
   iat: number;
   exp: number;
@@ -1001,7 +1001,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         participantId: 'coordinator-device',
         presenceIncarnationId: 'presence-incarnation-0001',
         jti: 'coordinator-ticket-0001',
-        developerControlVersion: 1,
+        developerControlVersion: 4,
       }),
     );
     const coordinator = lastServer();
@@ -1022,6 +1022,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       eventId: 'qa_000001_4_9',
       actorName: 'Studio bot',
       count: 25,
+      firstTitle: 'Gangnam Style',
     };
     const invalidate = (
       presenceIncarnationId: string,
@@ -1069,6 +1070,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       actorName: 'x'.repeat(31),
     });
     expect(malformedAddition.status).toBe(400);
+    expect(coordinator.sent).toHaveLength(sentCount);
+
+    const malformedTitle = await invalidate('presence-incarnation-0001', frame, {
+      ...addition,
+      firstTitle: 'bad\u202ename',
+    });
+    expect(malformedTitle.status).toBe(400);
     expect(coordinator.sent).toHaveLength(sentCount);
 
     const sendAttempts: unknown[] = [];

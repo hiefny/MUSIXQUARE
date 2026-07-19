@@ -29,10 +29,10 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(10);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(11);
   });
 
-  it('uses natural English singular and plural copy for all ten messages', async () => {
+  it('uses natural English singular and plural copy for all eleven messages', async () => {
     const t = await loadTranslator('en-US');
 
     const cases = [
@@ -58,6 +58,16 @@ describe('count-sensitive translations', () => {
       ['toast.added_tracks', { count: 2 }, '2 tracks added'],
       ['chat.tracks_added', { name: 'Alex', count: 1 }, 'Alex added 1 track'],
       ['chat.tracks_added', { name: 'Alex', count: 2 }, 'Alex added 2 tracks'],
+      [
+        'chat.tracks_added_named',
+        { name: 'Alex', count: 1, title: 'First' },
+        'Alex added 1 track, including First',
+      ],
+      [
+        'chat.tracks_added_named',
+        { name: 'Alex', count: 2, title: 'First' },
+        'Alex added 2 tracks, including First',
+      ],
       ['toast.unsupported_files_excluded', { count: 1 }, 'Unsupported file skipped: 1'],
       ['toast.unsupported_files_excluded', { count: 2 }, 'Unsupported files skipped: 2'],
       ['dialog.file_drop.message', { count: 1 }, 'Add 1 track?'],
@@ -126,8 +136,11 @@ describe('count-sensitive translations', () => {
             placeholders.filter((placeholder) => placeholder === parameter),
             `${locale}.${key}.${form}`,
           ).toEqual([parameter]);
-          if (key === 'chat.tracks_added') {
+          if (key === 'chat.tracks_added' || key === 'chat.tracks_added_named') {
             expect(placeholders, `${locale}.${key}.${form}`).toContain('name');
+          }
+          if (key === 'chat.tracks_added_named') {
+            expect(placeholders, `${locale}.${key}.${form}`).toContain('title');
           }
         }
       }

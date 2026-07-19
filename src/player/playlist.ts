@@ -1811,7 +1811,12 @@ function appendStandardHostFiles(
   if (getState('playlist.isShuffle')) generateShuffleOrder();
   broadcastPlaylistSnapshot();
   bus.emit('playlist:items-added', addedQueueItemIds);
-  if (announceAddition) broadcastTracksAdded(actorName, addedQueueItemIds.length);
+  if (announceAddition) {
+    const firstAddedTitle = playlist.find(
+      (item) => item.queueItemId === firstAddedQueueItemId,
+    )?.title;
+    broadcastTracksAdded(actorName, addedQueueItemIds.length, firstAddedTitle);
+  }
 
   const addedMessage = t('toast.added_tracks', { count: addedQueueItemIds.length });
   showToast(
@@ -2298,9 +2303,9 @@ export function initPlaylist(): void {
     }
   });
 
-  bus.on('standard-room:operator-files-added', (sourceConnection, count) => {
+  bus.on('standard-room:operator-files-added', (sourceConnection, count, firstTitle) => {
     const actorName = queueActorNameForConnection(sourceConnection);
-    if (actorName) broadcastTracksAdded(actorName, count);
+    if (actorName) broadcastTracksAdded(actorName, count, firstTitle);
   });
 
   // Play specific track from playlist view click

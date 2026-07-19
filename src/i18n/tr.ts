@@ -639,6 +639,8 @@ const tr: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Kodu girdim ama bağlanamıyorum:</strong> Kodu doğrulayın ve kısa süre sonra tekrar deneyin. Şirket, okul veya VPN ağları bağlantıyı engelliyor olabilir.</li><li><strong>Kararsız bağlantı:</strong> Yerel misafirlerin Wi-Fi yönlendiricisine yakın durması, uzaktaki misafirlerin ise istikrarlı bir internet kullanması önerilir.</li><li><strong>Diğer sorunlar:</strong> Ağ durumunu kontrol edin ve tüm cihazlarda uygulamayı yeniden başlatın. Diğer sorularınız için <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Sıkça Sorulan Sorular (FAQ)</a> sayfasına bakabilir veya en alttaki e-posta adresi üzerinden bizimle iletişime geçebilirsiniz.</li></ul>',
   'chat.peer_connected': '{{name}} odaya katıldı',
   'chat.tracks_added': '{{name}} {{count}} parça ekledi',
+  'chat.track_added_named': '{{name}} 1 parça ekledi: {{title}}',
+  'chat.tracks_added_named': '{{name}} {{count}} parça ekledi; bunlardan biri {{title}}',
   'chat.peer_disconnected': '{{name}} odadan ayrıldı',
   'chat.empty_html': 'Henüz mesaj yok.<br>İlk mesajı gönderin!',
   'chat.msg_truncated': 'Mesaj {{max}} karakter sınırı nedeniyle kısaltıldı',

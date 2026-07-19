@@ -63,6 +63,23 @@ describe('queue-add system messages', () => {
     expect(queueActorNameForConnection(replaced)).toBeNull();
   });
 
+  it('includes one bounded first title and distinguishes single from multi-add rows', () => {
+    const messages: string[] = [];
+    bus.on('chat:system-message', (text) => messages.push(text));
+
+    expect(broadcastTracksAdded('BOT', 1, '  Gangnam Style  ')).toBe(true);
+    expect(broadcastTracksAdded('BOT', 2, `First\u202e${'x'.repeat(150)}`)).toBe(true);
+
+    expect(messages).toEqual([
+      t('chat.track_added_named', { name: 'BOT', count: 1, title: 'Gangnam Style' }),
+      t('chat.tracks_added_named', {
+        name: 'BOT',
+        count: 2,
+        title: `First${'x'.repeat(115)}`,
+      }),
+    ]);
+  });
+
   it('rejects zero, fractional, and oversized counts without emitting', () => {
     const localMessages = vi.fn();
     bus.on('chat:system-message', localMessages);

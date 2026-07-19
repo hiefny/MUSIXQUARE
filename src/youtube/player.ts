@@ -2615,7 +2615,7 @@ export function initYouTube(): void {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       broadcast({ type: MSG.PLAYLIST_UPDATE, ...playlistSnapshot });
-      broadcastTracksAdded(actorName, 1);
+      broadcastTracksAdded(actorName, 1, title);
 
       if (isIdle) {
         broadcast({

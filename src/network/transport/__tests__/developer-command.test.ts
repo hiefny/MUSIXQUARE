@@ -152,6 +152,10 @@ describe('PRO queue-addition parser', () => {
 
   it('accepts the exact bounded server event', () => {
     expect(parseProQueueAdditionFrame(valid())).toEqual(valid());
+    expect(parseProQueueAdditionFrame({ ...valid(), firstTitle: 'Gangnam Style' })).toEqual({
+      ...valid(),
+      firstTitle: 'Gangnam Style',
+    });
   });
 
   it.each([
@@ -164,6 +168,10 @@ describe('PRO queue-addition parser', () => {
     ['zero count', { ...valid(), count: 0 }],
     ['fractional count', { ...valid(), count: 1.5 }],
     ['over-limit count', { ...valid(), count: 1001 }],
+    ['empty title', { ...valid(), firstTitle: '' }],
+    ['padded title', { ...valid(), firstTitle: ' title ' }],
+    ['control title', { ...valid(), firstTitle: 'bad\u202ename' }],
+    ['overlong title', { ...valid(), firstTitle: 'x'.repeat(121) }],
   ])('rejects %s', (_label, frame) => {
     expect(parseProQueueAdditionFrame(frame)).toBeNull();
   });

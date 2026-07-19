@@ -1,4 +1,4 @@
-const BOT_ROOM_CODE = '000001';
+const PRO_ROOM_CODE_RE = /^0\d{5}$/;
 const BOT_MODEL_DEFAULT = 'gemini-3.5-flash';
 const BOT_MODEL_ALLOWLIST = new Set(['gemini-3.5-flash', 'gemini-3.1-flash-lite']);
 const BOT_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
@@ -680,7 +680,7 @@ function parseBotResult(value) {
 
 export async function handleProBotRequest(request, env, options) {
   const roomCode = options?.roomCode || '';
-  if (roomCode !== BOT_ROOM_CODE) return publicError('BOT_ROOM_ONLY');
+  if (!PRO_ROOM_CODE_RE.test(roomCode)) return publicError('BOT_ROOM_ONLY');
   if (request.method !== 'POST') {
     return json({ error: 'METHOD_NOT_ALLOWED' }, 405, { allow: 'POST' });
   }
@@ -703,6 +703,15 @@ export async function handleProBotRequest(request, env, options) {
     request.headers.get('idempotency-key') !== body.requestId
   ) {
     return publicError('INVALID_REQUEST');
+  }
+  if (typeof options?.preflightRoom === 'function') {
+    let preflightError = null;
+    try {
+      preflightError = await options.preflightRoom();
+    } catch {
+      preflightError = 'BOT_UNAVAILABLE';
+    }
+    if (preflightError) return publicError(preflightError);
   }
 
   const total = timeoutSignal(BOT_TOTAL_TIMEOUT_MS, request.signal);
@@ -771,7 +780,6 @@ export async function handleProBotRequest(request, env, options) {
 }
 
 export const proBotInternalsForTests = {
-  BOT_ROOM_CODE,
   BOT_MAX_TRACKS,
   buildGroundedContext,
   buildPlan,

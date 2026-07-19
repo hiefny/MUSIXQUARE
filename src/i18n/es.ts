@@ -584,7 +584,7 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Espera {{sec}} segundos antes de enviar',
   'chat.cmd_notice_prefix': 'Aviso',
   'chat.system_sender': 'SISTEMA',
-  'chat.bot_unavailable': 'BOT solo está disponible en la sala PRO 000001',
+  'chat.bot_unavailable': 'El BOT solo está disponible en salas PRO',
   'chat.bot_processing': 'BOT está procesando la solicitud...',
   'chat.bot_completed': 'Solicitud de BOT completada',
   'chat.bot_failed': 'BOT no pudo completar la solicitud',

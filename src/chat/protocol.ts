@@ -100,6 +100,7 @@ export type BotChatResult =
 
 type BotChatRequest = {
   ownerId: string;
+  roomId: string;
   state: 'pending' | 'complete';
   expiresAt: number;
 };
@@ -109,9 +110,9 @@ const BOT_REQUEST_TTL_MS = 60_000;
 const BOT_REQUEST_MAX_ITEMS = 100;
 const _botChatRequests = new Map<string, BotChatRequest>();
 
-function isBotBetaRoom(): boolean {
+function getBotRoomId(): string | null {
   const room = getRoomContext();
-  return room.kind === 'pro' && room.roomId === '000001';
+  return room.kind === 'pro' ? room.roomId : null;
 }
 
 function isBotCommandText(text: string): boolean {
@@ -129,15 +130,22 @@ function cleanupBotChatRequests(now = Date.now()): void {
   }
 }
 
-function rememberBotChatRequest(requestId: string, ownerId: string): boolean {
-  if (!isBotBetaRoom() || !BOT_REQUEST_ID_RE.test(requestId) || !ownerId) return false;
+function rememberBotChatRequest(
+  requestId: string,
+  ownerId: string,
+  roomId = getBotRoomId() ?? '',
+): boolean {
+  if (!roomId || getBotRoomId() !== roomId || !BOT_REQUEST_ID_RE.test(requestId) || !ownerId) {
+    return false;
+  }
   const now = Date.now();
   cleanupBotChatRequests(now);
   const existing = _botChatRequests.get(requestId);
-  if (existing && existing.ownerId !== ownerId) return false;
+  if (existing && (existing.ownerId !== ownerId || existing.roomId !== roomId)) return false;
   if (existing?.state === 'complete') return false;
   _botChatRequests.set(requestId, {
     ownerId,
+    roomId,
     state: 'pending',
     expiresAt: now + BOT_REQUEST_TTL_MS,
   });
@@ -185,11 +193,18 @@ function localizeBotChatResult(result: BotChatResult): string {
   }
 }
 
-function completeBotChatRequest(requestId: string, result: BotChatResult): boolean {
+function completeBotChatRequest(requestId: string, result: BotChatResult, roomId: string): boolean {
   const now = Date.now();
   cleanupBotChatRequests(now);
   const request = _botChatRequests.get(requestId);
-  if (!request || request.state !== 'pending' || request.expiresAt <= now) return false;
+  if (
+    !request ||
+    request.roomId !== roomId ||
+    request.state !== 'pending' ||
+    request.expiresAt <= now
+  ) {
+    return false;
+  }
   request.state = 'complete';
   request.expiresAt = now + BOT_REQUEST_TTL_MS;
   upsertBotChatMessage(requestId, 'complete', localizeBotChatResult(result));
@@ -197,21 +212,29 @@ function completeBotChatRequest(requestId: string, result: BotChatResult): boole
 }
 
 /** Register the requester's locally rendered BOT placeholder before the API call. */
-export function beginLocalBotChatRequest(requestId: string): boolean {
+export function beginLocalBotChatRequest(
+  requestId: string,
+  roomId = getBotRoomId() ?? '',
+): boolean {
   const myId = getState('network.myId') || '';
-  if (!rememberBotChatRequest(requestId, myId)) return false;
+  if (!rememberBotChatRequest(requestId, myId, roomId)) return false;
   upsertBotChatMessage(requestId, 'typing');
   return true;
 }
 
 /** Complete the local BOT bubble and relay one terminal result through chat authority. */
-export function publishBotChatResult(requestId: string, result: BotChatResult): boolean {
-  if (!isBotBetaRoom()) return false;
+export function publishBotChatResult(
+  requestId: string,
+  result: BotChatResult,
+  roomId = getBotRoomId() ?? '',
+): boolean {
+  if (!roomId || getBotRoomId() !== roomId) return false;
   const normalized = normalizeBotChatResult(result);
   const myId = getState('network.myId') || '';
   const request = _botChatRequests.get(requestId);
-  if (!normalized || !request || request.ownerId !== myId) return false;
-  if (!completeBotChatRequest(requestId, normalized)) return false;
+  if (!normalized || !request || request.ownerId !== myId || request.roomId !== roomId)
+    return false;
+  if (!completeBotChatRequest(requestId, normalized, roomId)) return false;
 
   const frame = {
     type: MSG.CHAT_BOT_RESULT,
@@ -406,7 +429,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   if (isValidBotRequest) {
     upsertBotChatMessage(botRequestId, 'typing');
   } else if (!hostConn && Object.prototype.hasOwnProperty.call(data, 'botRequestId')) {
-    // Do not propagate BOT metadata outside the beta room, on non-BOT text,
+    // Do not propagate BOT metadata outside a PRO room, on non-BOT text,
     // or when an id is already owned by another participant.
     delete data.botRequestId;
   }
@@ -435,7 +458,8 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 }
 
 function handleChatBotResult(data: Record<string, unknown>, conn: DataConnection): void {
-  if (!isBotBetaRoom()) return;
+  const roomId = getBotRoomId();
+  if (!roomId) return;
   const normalized = normalizeBotChatResult(data.result as BotChatResult);
   if (!normalized) return;
 
@@ -444,7 +468,14 @@ function handleChatBotResult(data: Record<string, unknown>, conn: DataConnection
   const claimedOwnerId = data.senderId as string;
   cleanupBotChatRequests();
   const request = _botChatRequests.get(requestId);
-  if (!request || request.state !== 'pending' || request.ownerId !== claimedOwnerId) return;
+  if (
+    !request ||
+    request.roomId !== roomId ||
+    request.state !== 'pending' ||
+    request.ownerId !== claimedOwnerId
+  ) {
+    return;
+  }
 
   if (!hostConn) {
     // Coordinator: only the same authenticated peer that introduced the
@@ -453,7 +484,7 @@ function handleChatBotResult(data: Record<string, unknown>, conn: DataConnection
     // locally when its API call completed).
     const senderPeerId = conn?.peer || '';
     if (!senderPeerId || senderPeerId !== claimedOwnerId) return;
-    if (!completeBotChatRequest(requestId, normalized)) return;
+    if (!completeBotChatRequest(requestId, normalized, roomId)) return;
     data.senderId = senderPeerId;
     data.result = normalized;
     bus.emit('network:broadcast-except', senderPeerId, data);
@@ -464,7 +495,7 @@ function handleChatBotResult(data: Record<string, unknown>, conn: DataConnection
   // arrive from the current coordinator connection. The earlier CHAT mapping
   // still binds them to the original requester across coordinator handoff.
   if (!isFromHost(conn)) return;
-  completeBotChatRequest(requestId, normalized);
+  completeBotChatRequest(requestId, normalized, roomId);
 }
 
 // ─── Admin Handlers ──────────────────────────────────────────────

@@ -551,7 +551,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '请等待 {{sec}} 秒后再发送',
   'chat.cmd_notice_prefix': '公告',
   'chat.system_sender': '系统',
-  'chat.bot_unavailable': 'BOT 仅在 PRO 房间 000001 中可用',
+  'chat.bot_unavailable': 'BOT 仅可在 PRO 房间中使用',
   'chat.bot_processing': 'BOT 正在处理请求…',
   'chat.bot_completed': 'BOT 请求已完成',
   'chat.bot_failed': 'BOT 无法完成请求',

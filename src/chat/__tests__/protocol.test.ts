@@ -285,10 +285,10 @@ describe('host whisper relay canonicalization', () => {
 describe('PRO BOT chat correlation', () => {
   const requestId = (suffix: string): string => `mxqr-pro-${suffix.repeat(48).slice(0, 48)}`;
 
-  function enterBotRoom(role: 'coordinator' | 'member'): void {
+  function enterBotRoom(role: 'coordinator' | 'member', roomId = '000002'): void {
     setState('room.context', {
       kind: 'pro',
-      roomId: '000001',
+      roomId,
       role,
       coordinatorId: role === 'coordinator' ? 'host-bot' : 'remote-host',
       epoch: 1,
@@ -589,7 +589,7 @@ describe('PRO BOT chat correlation', () => {
     }
   });
 
-  it('strips a BOT request id from ordinary non-command text inside the beta room', async () => {
+  it('strips a BOT request id from ordinary non-command text inside a PRO room', async () => {
     enterBotRoom('coordinator');
     setState('network.myId', 'host-bot');
     const conn = { peer: 'guest-bot-non-command', open: true } as DataConnection;
@@ -615,7 +615,7 @@ describe('PRO BOT chat correlation', () => {
     expect(upsertBotChatMessage).not.toHaveBeenCalled();
   });
 
-  it('strips BOT metadata outside the beta room before coordinator fan-out', async () => {
+  it('strips BOT metadata outside a PRO room before coordinator fan-out', async () => {
     setState('network.myId', 'host-standard');
     const conn = { peer: 'guest-standard', open: true } as DataConnection;
     const relayed: Array<Record<string, unknown>> = [];
@@ -638,5 +638,18 @@ describe('PRO BOT chat correlation', () => {
     expect(relayed).toHaveLength(1);
     expect(relayed[0]).not.toHaveProperty('botRequestId');
     expect(upsertBotChatMessage).not.toHaveBeenCalled();
+  });
+
+  it('binds a local BOT result to the PRO room where its placeholder began', () => {
+    enterBotRoom('member', '000001');
+    setState('network.myId', 'member-room-bound');
+    const id = requestId('k');
+
+    expect(beginLocalBotChatRequest(id)).toBe(true);
+    enterBotRoom('member', '000002');
+    expect(publishBotChatResult(id, { kind: 'answer', text: 'late result' })).toBe(false);
+
+    expect(upsertBotChatMessage).toHaveBeenCalledTimes(1);
+    expect(upsertBotChatMessage).toHaveBeenCalledWith(id, 'typing');
   });
 });

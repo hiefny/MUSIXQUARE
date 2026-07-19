@@ -84,6 +84,6 @@ MXQR_TURNSTILE_DISABLED = "true"
 # Required production secrets:
 # - MXQR_CAPABILITY_SECRET
 # - MXQR_DEVELOPER_API_KEY_PEPPER (same >=32-character value as Developer API Worker)
-# - GEMINI_API_KEY (server-only key for the 000001 PRO-room BOT beta)
+# - GEMINI_API_KEY (server-only key for the PRO-room BOT beta)
 # Local/emergency only; production guards reject these:
 # - MXQR_ALLOW_UNGUARDED_PAID_APIS = "true"

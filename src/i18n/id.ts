@@ -574,7 +574,7 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Tunggu {{sec}} dtk sebelum mengirim',
   'chat.cmd_notice_prefix': 'Pemberitahuan',
   'chat.system_sender': 'SISTEM',
-  'chat.bot_unavailable': 'BOT hanya tersedia di ruang PRO 000001',
+  'chat.bot_unavailable': 'BOT hanya tersedia di ruang PRO',
   'chat.bot_processing': 'BOT sedang memproses permintaan...',
   'chat.bot_completed': 'Permintaan BOT selesai',
   'chat.bot_failed': 'BOT tidak dapat menyelesaikan permintaan',

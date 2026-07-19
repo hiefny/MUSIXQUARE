@@ -552,7 +552,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '請等待 {{sec}} 秒後再傳送',
   'chat.cmd_notice_prefix': '公告',
   'chat.system_sender': '系統',
-  'chat.bot_unavailable': 'BOT 僅限 PRO 房間 000001 使用',
+  'chat.bot_unavailable': 'BOT 僅可在 PRO 房間中使用',
   'chat.bot_processing': 'BOT 正在處理要求…',
   'chat.bot_completed': 'BOT 要求已完成',
   'chat.bot_failed': 'BOT 無法完成要求',

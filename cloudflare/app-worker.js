@@ -224,6 +224,26 @@ function withFacadeProRoomCookies(response, roomCode) {
   });
 }
 
+async function preflightRegisteredProBotRoom(env, roomCode) {
+  const db = getAdminDb(env);
+  if (!db?.prepare) return 'BOT_UNAVAILABLE';
+  try {
+    const statement = db
+      .prepare(
+        `SELECT status FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHERE room_code = ?1 LIMIT 1`,
+      )
+      .bind(roomCode);
+    const row =
+      typeof statement.first === 'function'
+        ? await statement.first()
+        : (await statement.all())?.results?.[0] || null;
+    return row?.status === 'registered' ? null : 'BOT_ROOM_ONLY';
+  } catch {
+    return 'BOT_UNAVAILABLE';
+  }
+}
+
 async function handleProRoomFacade(request, env, url) {
   const isHealth = url.pathname === PRO_ROOM_FACADE_HEALTH_PATH;
   const route = url.pathname.match(PRO_ROOM_FACADE_PATH_RE);
@@ -237,6 +257,7 @@ async function handleProRoomFacade(request, env, url) {
       return handleProBotRequest(request, env, {
         roomCode,
         forwardedCookies: forwardedProRoomCookies(request.headers.get('Cookie'), roomCode),
+        preflightRoom: () => preflightRegisteredProBotRoom(env, roomCode),
       });
     }
   }

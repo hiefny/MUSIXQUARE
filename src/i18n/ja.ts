@@ -573,7 +573,7 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '送信する前に {{sec}}秒お待ちください',
   'chat.cmd_notice_prefix': 'お知らせ',
   'chat.system_sender': 'システム',
-  'chat.bot_unavailable': 'BOTはPROルーム000001でのみ利用できます',
+  'chat.bot_unavailable': 'BOTはPROルームでのみ利用できます',
   'chat.bot_processing': 'BOTがリクエストを処理しています…',
   'chat.bot_completed': 'BOTのリクエストが完了しました',
   'chat.bot_failed': 'BOTはリクエストを完了できませんでした',

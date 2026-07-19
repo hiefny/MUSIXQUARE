@@ -305,19 +305,28 @@ function bindCookiePresence(cookie: string, envelope: Record<string, any>): void
   });
 }
 
-async function activatedRoom() {
+async function activatedRoom(roomCode = ROOM_CODE) {
   const state = new FakeState();
   const bucket = new FakeR2Bucket();
   const worker = new MusixquareProRoom(state as never, environment(bucket) as never);
-  const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+  if (roomCode !== '000000' && roomCode !== '000001') {
+    const provision = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/provision', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      }),
+    );
+    expect(provision.status).toBe(200);
+  }
+  const claimToken = await issueProRoomActivationClaim(roomCode, ACTIVATION_SECRET, {
     nowMs: Date.now() - 1_000,
     expiresAtMs: Date.now() + 60_000,
     nonce: 'fixed-activation-nonce',
   });
   const activation = await worker.fetch(
-    jsonRequest('/activation', 'POST', {
+    jsonRequestForRoom(roomCode, '/activation', 'POST', {
       claimToken,
-      temporaryPin: '00000001',
+      temporaryPin: roomCode.padStart(8, '0'),
       newPin: '12345678',
       ownerName: 'Owner',
     }),
@@ -326,13 +335,14 @@ async function activatedRoom() {
   const ownerCookie = cookieFrom(activation);
   const ownerRecoveryCookie = activation.headers
     .getSetCookie()
-    .find((value) => value.startsWith(`__Host-mxqr_pro_owner_${ROOM_CODE}=`))
+    .find((value) => value.startsWith(`__Host-mxqr_pro_owner_${roomCode}=`))
     ?.split(';')[0];
   expect(ownerRecoveryCookie).toBeTruthy();
   const activationEnvelope = await responseJson(activation);
   bindCookiePresence(ownerCookie, activationEnvelope);
   expect(Object.keys(activationEnvelope)).toEqual(['snapshot']);
   return {
+    roomCode,
     worker,
     state,
     bucket,
@@ -599,12 +609,13 @@ function internalBotRequest(
   path: 'context' | 'execute',
   body: Record<string, unknown>,
   cookie: string,
-  options: { includePresence?: boolean } = {},
+  options: { includePresence?: boolean; roomCode?: string } = {},
 ): Promise<Response> {
+  const roomCode = options.roomCode ?? ROOM_CODE;
   const headers = new Headers({
     'content-type': 'application/json',
     cookie,
-    'x-mxqr-pro-room-code': ROOM_CODE,
+    'x-mxqr-pro-room-code': roomCode,
   });
   if (options.includePresence !== false) {
     const presence = presenceByCookie.get(cookie);
@@ -622,6 +633,39 @@ function internalBotRequest(
 }
 
 describe('PRO room server BOT boundary', () => {
+  it('serves every provisioned active PRO room', async () => {
+    const roomCode = '000002';
+    const { worker, ownerCookie } = await activatedRoom(roomCode);
+    const requestId = 'bot-context-all-pro-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode, requestId, prompt: 'test' },
+      ownerCookie,
+      { roomCode },
+    );
+
+    expect(context.status).toBe(200);
+    const contextPayload = await responseJson(context);
+    expect(contextPayload).toMatchObject({ actorName: 'Owner' });
+
+    const execute = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        roomCode,
+        requestId,
+        leaseToken: contextPayload.leaseToken,
+        plan: { intent: 'answer', answer: 'done' },
+        tracks: [],
+      },
+      ownerCookie,
+      { roomCode },
+    );
+    expect(execute.status).toBe(200);
+    await expect(execute.json()).resolves.toMatchObject({ ok: true, summary: 'done' });
+  });
+
   it('requires the current active presence before exposing bounded context', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const response = await internalBotRequest(
@@ -1383,7 +1427,8 @@ describe('PRO room private Developer API projections', () => {
   });
 
   it('composes the public API through the private facade into a real PRO room projection', async () => {
-    const { worker } = await activatedRoom();
+    const roomCode = '000002';
+    const { worker } = await activatedRoom(roomCode);
     const internal = worker as unknown as {
       room: {
         playlistRevision: number;
@@ -1419,7 +1464,7 @@ describe('PRO room private Developer API projections', () => {
         bind: vi.fn(() => ({
           first: vi.fn(async () => ({
             key_id: keyId,
-            room_code: ROOM_CODE,
+            room_code: roomCode,
             label: 'Composed API',
             secret_digest: secretDigest,
             digest_version: 1,
@@ -1463,15 +1508,14 @@ describe('PRO room private Developer API projections', () => {
         }),
     };
     const response = await developerApiWorker.fetch(
-      new Request(`https://api.musixquare.com/v1/rooms/${ROOM_CODE}/queue`, {
+      new Request(`https://api.musixquare.com/v1/rooms/${roomCode}/queue`, {
         headers: {
           authorization: `Bearer mxqr_live_${keyId}.${keySecret}`,
           'cf-connecting-ip': '203.0.113.50',
         },
       }),
       {
-        DEVELOPER_API_MODE: 'canary',
-        DEVELOPER_API_CANARY_ROOMS: ROOM_CODE,
+        DEVELOPER_API_MODE: 'enabled',
         MXQR_DEVELOPER_API_KEY_PEPPER: pepper,
         MXQR_DEVELOPER_API_RATE_SECRET: 'developer-api-rate'.padEnd(48, 'r'),
         DEVELOPER_API_DB: database,
@@ -1484,7 +1528,7 @@ describe('PRO room private Developer API projections', () => {
     expect(payload).toEqual({
       schemaVersion: 1,
       view: 'queue',
-      roomCode: ROOM_CODE,
+      roomCode,
       playlistRevision: 5,
       currentQueueItemId: queueItemId,
       items: [

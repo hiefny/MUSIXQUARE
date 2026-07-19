@@ -302,7 +302,7 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Yeni bir mesaj göndermek için lütfen {{sec}} saniye bekleyin',
   'chat.cmd_notice_prefix': 'Duyuru',
   'chat.system_sender': 'SİSTEM',
-  'chat.bot_unavailable': 'BOT yalnızca 000001 PRO odasında kullanılabilir',
+  'chat.bot_unavailable': 'BOT yalnızca PRO odalarında kullanılabilir',
   'chat.bot_processing': 'BOT isteği işliyor...',
   'chat.bot_completed': 'BOT isteği tamamlandı',
   'chat.bot_failed': 'BOT isteği tamamlayamadı',

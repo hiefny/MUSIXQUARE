@@ -2262,18 +2262,24 @@ export function getProRoomBootstrap(code: string, signal?: AbortSignal): Promise
   return api.getBootstrap(code, signal);
 }
 
-/** Submit a beta BOT request through the already-authenticated tab-local API client. */
-export function requestActiveProRoomBotCommand(
+/** Submit a BOT request through the already-authenticated tab-local API client. */
+export async function requestActiveProRoomBotCommand(
+  expectedRoomCode: string,
   prompt: string,
   requestIdOrSignal?: string | AbortSignal,
   maybeSignal?: AbortSignal,
 ): Promise<ProRoomBotCommandResult> {
   const code = controller.snapshot?.roomCode;
-  if (code !== '000001') throw new ProRoomApiError('BOT_UNAVAILABLE');
+  if (!code || code !== expectedRoomCode) throw new ProRoomApiError('BOT_UNAVAILABLE');
+  const lease = controller.captureSessionLease();
   const requestId =
     typeof requestIdOrSignal === 'string' ? requestIdOrSignal : createProRoomIdempotencyKey();
   const signal = typeof requestIdOrSignal === 'string' ? maybeSignal : requestIdOrSignal;
-  return api.runBotCommand({ code, prompt, requestId }, signal);
+  const result = await api.runBotCommand({ code, prompt, requestId }, signal);
+  if (!controller.isSessionLeaseCurrent(lease, code)) {
+    throw new ProRoomApiError('BOT_SESSION_SUPERSEDED');
+  }
+  return result;
 }
 
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {

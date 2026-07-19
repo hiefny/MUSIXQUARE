@@ -119,13 +119,13 @@ describe('getAvailableCommands permission filtering', () => {
   });
 });
 
-describe('/bot beta command', () => {
+describe('/bot PRO-room command', () => {
   const requestId = `mxqr-pro-${'a'.repeat(48)}`;
 
-  function enterBotRoom(): void {
+  function enterBotRoom(roomId = '000002'): void {
     setState('room.context', {
       kind: 'pro',
-      roomId: '000001',
+      roomId,
       role: 'member',
       coordinatorId: 'participant_00001',
       epoch: 1,
@@ -134,7 +134,7 @@ describe('/bot beta command', () => {
     });
   }
 
-  it('is suggested only in PRO room 000001 and fails locally elsewhere', () => {
+  it('is suggested in every PRO room and fails locally elsewhere', () => {
     expect(getAvailableCommands().map((command) => command.name)).not.toContain('bot');
 
     executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' });
@@ -142,7 +142,10 @@ describe('/bot beta command', () => {
     expect(mocks.requestActiveProRoomBotCommand).not.toHaveBeenCalled();
     expect(mocks.addSystemChatMessage).toHaveBeenCalledOnce();
 
-    enterBotRoom();
+    enterBotRoom('000000');
+    expect(getAvailableCommands().map((command) => command.name)).toContain('bot');
+
+    enterBotRoom('000002');
     expect(getAvailableCommands().map((command) => command.name)).toContain('bot');
     expect(shouldBroadcastCommand(parseCommand('/bot next')!)).toBe(true);
     expect(shouldBroadcastCommand(parseCommand('/bot')!)).toBe(false);
@@ -167,9 +170,10 @@ describe('/bot beta command', () => {
     );
 
     expect(mocks.addSystemChatMessage).not.toHaveBeenCalled();
-    expect(mocks.beginLocalBotChatRequest).toHaveBeenCalledWith(requestId);
+    expect(mocks.beginLocalBotChatRequest).toHaveBeenCalledWith(requestId, '000002');
     await vi.waitFor(() => {
       expect(mocks.requestActiveProRoomBotCommand).toHaveBeenCalledWith(
+        '000002',
         '인기곡 3개 추가해줘',
         requestId,
       );
@@ -286,6 +290,40 @@ describe('/bot beta command', () => {
     expect(mocks.publishBotChatResult.mock.calls.flat().join(' ')).not.toContain(
       'secret upstream detail',
     );
+  });
+
+  it('does not publish a late result after moving to another PRO room', async () => {
+    let resolveResult!: (value: {
+      ok: true;
+      summary: string;
+      addedCount: number;
+      playbackChanged: boolean;
+    }) => void;
+    mocks.requestActiveProRoomBotCommand.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveResult = resolve;
+      }),
+    );
+    enterBotRoom('000001');
+
+    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });
+    await vi.waitFor(() => expect(mocks.requestActiveProRoomBotCommand).toHaveBeenCalledOnce());
+
+    enterBotRoom('000002');
+    expect(shouldBroadcastCommand(parseCommand('/bot next')!)).toBe(true);
+    enterBotRoom('000001');
+    expect(shouldBroadcastCommand(parseCommand('/bot next')!)).toBe(false);
+    enterBotRoom('000002');
+    resolveResult({
+      ok: true,
+      summary: 'done',
+      addedCount: 0,
+      playbackChanged: true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.publishBotChatResult).not.toHaveBeenCalled();
+    expect(shouldBroadcastCommand(parseCommand('/bot next')!)).toBe(true);
   });
 
   it('shows usage without contacting the server for an empty request', () => {

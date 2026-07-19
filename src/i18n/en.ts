@@ -300,7 +300,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Wait {{sec}} seconds before sending',
   'chat.cmd_notice_prefix': 'Notice',
   'chat.system_sender': 'SYSTEM',
-  'chat.bot_unavailable': 'BOT is only available in PRO room 000001',
+  'chat.bot_unavailable': 'The bot is only available in PRO rooms',
   'chat.bot_processing': 'BOT is working on it...',
   'chat.bot_completed': 'BOT request completed',
   'chat.bot_failed': 'BOT could not complete the request',

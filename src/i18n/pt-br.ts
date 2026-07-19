@@ -583,7 +583,7 @@ const ptBr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Aguarde {{sec}} segundos antes de enviar',
   'chat.cmd_notice_prefix': 'Aviso',
   'chat.system_sender': 'SISTEMA',
-  'chat.bot_unavailable': 'O BOT está disponível apenas na sala PRO 000001',
+  'chat.bot_unavailable': 'O BOT está disponível apenas em salas PRO',
   'chat.bot_processing': 'O BOT está processando a solicitação...',
   'chat.bot_completed': 'Solicitação do BOT concluída',
   'chat.bot_failed': 'O BOT não conseguiu concluir a solicitação',

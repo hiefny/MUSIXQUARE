@@ -304,7 +304,7 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Poczekaj {{sec}} s przed wysłaniem kolejnej wiadomości',
   'chat.cmd_notice_prefix': 'Ogłoszenie',
   'chat.system_sender': 'SYSTEM',
-  'chat.bot_unavailable': 'BOT jest dostępny tylko w pokoju PRO 000001',
+  'chat.bot_unavailable': 'BOT jest dostępny tylko w pokojach PRO',
   'chat.bot_processing': 'BOT przetwarza żądanie...',
   'chat.bot_completed': 'Żądanie BOT zakończone',
   'chat.bot_failed': 'BOT nie mógł wykonać żądania',

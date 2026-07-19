@@ -466,12 +466,16 @@ function cmdUsers(): void {
   addSystemChatMessage(lines.join('\n'));
 }
 
-function isBotBetaRoom(): boolean {
+function getBotRoomId(): string | null {
   const room = getRoomContext();
-  return room.kind === 'pro' && room.roomId === '000001';
+  return room.kind === 'pro' ? room.roomId : null;
 }
 
-let _botRequestInFlight = false;
+function isBotRoom(): boolean {
+  return getBotRoomId() !== null;
+}
+
+const _botRequestsInFlight = new Map<string, { requestId: string }>();
 
 function getBotRateLimitRetryAfter(error: unknown): number | null {
   if (error === null || typeof error !== 'object') return null;
@@ -491,7 +495,8 @@ function getBotRateLimitRetryAfter(error: unknown): number | null {
 }
 
 async function runBotCommand(rawArgs: string, requestId?: string): Promise<void> {
-  if (!isBotBetaRoom()) {
+  const roomId = getBotRoomId();
+  if (!roomId) {
     addSystemChatMessage(t('chat.bot_unavailable'));
     return;
   }
@@ -500,22 +505,24 @@ async function runBotCommand(rawArgs: string, requestId?: string): Promise<void>
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_bot') }));
     return;
   }
-  if (_botRequestInFlight) {
+  if (_botRequestsInFlight.has(roomId)) {
     addSystemChatMessage(t('chat.bot_processing'));
     return;
   }
 
   const resolvedRequestId = requestId ?? createProRoomIdempotencyKey();
-  if (!beginLocalBotChatRequest(resolvedRequestId)) {
+  if (!beginLocalBotChatRequest(resolvedRequestId, roomId)) {
     addSystemChatMessage(t('chat.bot_failed'));
     return;
   }
 
-  _botRequestInFlight = true;
+  const operation = { requestId: resolvedRequestId };
+  _botRequestsInFlight.set(roomId, operation);
   try {
     const { requestActiveProRoomBotCommand } = await import('../pro-room/runtime.ts');
-    const result = await requestActiveProRoomBotCommand(prompt, resolvedRequestId);
-    if (!isBotBetaRoom()) return;
+    if (getBotRoomId() !== roomId) return;
+    const result = await requestActiveProRoomBotCommand(roomId, prompt, resolvedRequestId);
+    if (getBotRoomId() !== roomId) return;
     const terminal: BotChatResult =
       result.addedCount > 0
         ? {
@@ -526,13 +533,20 @@ async function runBotCommand(rawArgs: string, requestId?: string): Promise<void>
         : { kind: 'answer', text: result.summary };
     publishBotChatResult(resolvedRequestId, terminal);
   } catch (error) {
-    if (!isBotBetaRoom()) return;
+    if (getBotRoomId() !== roomId) return;
+    if (
+      error !== null &&
+      typeof error === 'object' &&
+      (error as { code?: unknown }).code === 'BOT_SESSION_SUPERSEDED'
+    ) {
+      return;
+    }
     const retryAfterSeconds = getBotRateLimitRetryAfter(error);
     const terminal: BotChatResult =
       retryAfterSeconds === null ? { kind: 'failed' } : { kind: 'rate_limited', retryAfterSeconds };
     publishBotChatResult(resolvedRequestId, terminal);
   } finally {
-    _botRequestInFlight = false;
+    if (_botRequestsInFlight.get(roomId) === operation) _botRequestsInFlight.delete(roomId);
   }
 }
 
@@ -565,7 +579,7 @@ const COMMANDS_DEF: Record<
     execute: cmdBot,
     usageKey: 'chat.cmd_u_bot',
     descKey: 'chat.cmd_d_bot',
-    suggestWhen: isBotBetaRoom,
+    suggestWhen: isBotRoom,
   },
   clear: {
     permission: 'host+op',
@@ -712,8 +726,12 @@ export function getCommandArgHint(cmdName: string): string {
  * ordinary room chat. Every other slash command remains a local command.
  */
 export function shouldBroadcastCommand(cmd: ParsedCommand): boolean {
+  const roomId = getBotRoomId();
   return (
-    cmd.name === 'bot' && isBotBetaRoom() && cmd.rawArgs.trim().length > 0 && !_botRequestInFlight
+    cmd.name === 'bot' &&
+    roomId !== null &&
+    cmd.rawArgs.trim().length > 0 &&
+    !_botRequestsInFlight.has(roomId)
   );
 }
 

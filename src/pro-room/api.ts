@@ -1307,7 +1307,6 @@ export class ProRoomApiClient {
     input: ProRoomBotCommandInput,
     signal?: AbortSignal,
   ): Promise<ProRoomBotCommandResult> {
-    if (input.code !== '000001') throw new ProRoomApiError('BOT_UNAVAILABLE');
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
     if (!prompt || prompt.length > MAX_BOT_PROMPT_LENGTH) {
       throw new ProRoomApiError('INVALID_BOT_PROMPT');

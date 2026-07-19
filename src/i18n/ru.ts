@@ -304,7 +304,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Подождите {{sec}} сек. перед отправкой следующего сообщения',
   'chat.cmd_notice_prefix': 'Объявление',
   'chat.system_sender': 'СИСТЕМА',
-  'chat.bot_unavailable': 'BOT доступен только в PRO-комнате 000001',
+  'chat.bot_unavailable': 'BOT доступен только в PRO-комнатах',
   'chat.bot_processing': 'BOT обрабатывает запрос...',
   'chat.bot_completed': 'Запрос BOT выполнен',
   'chat.bot_failed': 'BOT не удалось выполнить запрос',

@@ -42,7 +42,6 @@ const DEVELOPER_AUDIO_EXTENSIONS = new Set([
 const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 const DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
-const BOT_BETA_ROOM_CODE = '000001';
 const BOT_DEVELOPER_KEY_ID = 'MxqrGeminiBot001';
 const BOT_REQUEST_ID_RE = IDEMPOTENCY_KEY_RE;
 // A 24-byte random token is encoded as exactly 32 Base64URL characters. Unlike
@@ -2936,7 +2935,6 @@ export class MusixquareProRoom {
 
   async handleInternalBotContext(request) {
     if (
-      this.room.roomCode !== BOT_BETA_ROOM_CODE ||
       !this.room.provisioned ||
       this.room.status !== 'active'
     ) {
@@ -3031,7 +3029,6 @@ export class MusixquareProRoom {
 
   async handleInternalBotExecute(request) {
     if (
-      this.room.roomCode !== BOT_BETA_ROOM_CODE ||
       !this.room.provisioned ||
       this.room.status !== 'active'
     ) {

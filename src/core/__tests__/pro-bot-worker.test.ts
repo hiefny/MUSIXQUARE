@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
-import { proBotInternalsForTests } from '../../../cloudflare/pro-bot.js';
+import { handleProBotRequest, proBotInternalsForTests } from '../../../cloudflare/pro-bot.js';
 
 const ROOM_CODE = '000001';
 const REQUEST_ID = 'bot-request-00000001';
@@ -59,6 +59,26 @@ function roomNamespace(handler: (request: Request) => Response | Promise<Respons
   };
 }
 
+function appBotEnvironment(
+  namespace: ReturnType<typeof roomNamespace>,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const registeredRooms = new Set(['000001', '000002']);
+  return {
+    PRO_ROOM_ADMIN_ROOMS: namespace.binding,
+    MUSIXQUARE_ADMIN_DB: {
+      prepare: vi.fn(() => ({
+        bind: vi.fn((roomCode: string) => ({
+          first: vi.fn(async () =>
+            registeredRooms.has(roomCode) ? { status: 'registered' } : null,
+          ),
+        })),
+      })),
+    },
+    ...overrides,
+  };
+}
+
 function roomContextResponse(): Response {
   return Response.json({
     leaseToken: LEASE_TOKEN,
@@ -87,16 +107,48 @@ function geminiPlanResponse(args: Record<string, unknown>): Response {
 }
 
 describe('server-only PRO BOT app boundary', () => {
-  it('fails closed on cross-origin, non-beta-room, malformed body, or mismatched idempotency', async () => {
+  it('rejects an invalid PRO room code before touching the room or AI providers', async () => {
     const namespace = roomNamespace(() => roomContextResponse());
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const env = { PRO_ROOM_ADMIN_ROOMS: namespace.binding };
+
+    const response = await handleProBotRequest(
+      botRequest(),
+      { PRO_ROOM_ADMIN_ROOMS: namespace.binding },
+      { roomCode: '100001' },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_ROOM_ONLY' });
+    expect(namespace.requests).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unregistered PRO room before waking its room or AI providers', async () => {
+    const namespace = roomNamespace(() => roomContextResponse());
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await appWorker.fetch(
+      botRequest({ roomCode: '000003' }),
+      appBotEnvironment(namespace),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_ROOM_ONLY' });
+    expect(namespace.requests).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on cross-origin, malformed body, or mismatched idempotency', async () => {
+    const namespace = roomNamespace(() => roomContextResponse());
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const env = appBotEnvironment(namespace);
 
     const cases = [
       botRequest({ origin: null }),
       botRequest({ origin: 'https://evil.example' }),
-      botRequest({ roomCode: '000002' }),
       botRequest({ body: { prompt: 'hello', requestId: REQUEST_ID, extra: true } }),
       botRequest({ body: { prompt: 'x'.repeat(501), requestId: REQUEST_ID } }),
       botRequest({ idempotencyKey: 'bot-request-00000002' }),
@@ -106,28 +158,28 @@ describe('server-only PRO BOT app boundary', () => {
     for (const request of cases) {
       const response = await appWorker.fetch(request, env);
       expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({
-        error: request.url.includes('/000002/') ? 'BOT_ROOM_ONLY' : 'INVALID_REQUEST',
-      });
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
     }
     expect(namespace.requests).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('forwards only the scoped PRO session boundary and fails before fetch without a server key', async () => {
+    const roomCode = '000002';
     const namespace = roomNamespace(() => roomContextResponse());
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const response = await appWorker.fetch(
       botRequest({
+        roomCode,
         cookie: [
-          '__Secure-mxqr_pro_session_000001=session-secret',
-          '__Secure-mxqr_pro_owner_000001=owner-secret',
-          '__Secure-mxqr_pro_session_000002=other-room-secret',
+          '__Secure-mxqr_pro_session_000002=session-secret',
+          '__Secure-mxqr_pro_owner_000002=owner-secret',
+          '__Secure-mxqr_pro_session_000001=other-room-secret',
           '__Host-mxqr_admin=admin-secret',
         ].join('; '),
       }),
-      { PRO_ROOM_ADMIN_ROOMS: namespace.binding },
+      appBotEnvironment(namespace),
     );
 
     expect(response.status).toBe(503);
@@ -138,13 +190,13 @@ describe('server-only PRO BOT app boundary', () => {
     const forwarded = namespace.requests[0]!;
     expect(new URL(forwarded.url).pathname).toBe('/internal/bot/context');
     expect(forwarded.headers.get('cookie')).toBe(
-      '__Host-mxqr_pro_session_000001=session-secret; __Host-mxqr_pro_owner_000001=owner-secret',
+      '__Host-mxqr_pro_session_000002=session-secret; __Host-mxqr_pro_owner_000002=owner-secret',
     );
     expect(forwarded.headers.get('origin')).toBeNull();
     expect(forwarded.headers.get('authorization')).toBeNull();
     expect(forwarded.headers.get('x-goog-api-key')).toBeNull();
     await expect(forwarded.json()).resolves.toEqual({
-      roomCode: ROOM_CODE,
+      roomCode,
       requestId: REQUEST_ID,
       prompt: 'Add one test song',
     });
@@ -163,11 +215,13 @@ describe('server-only PRO BOT app boundary', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const terminal = roomNamespace(() => Response.json({ replay: terminalResult }));
-    const terminalResponse = await appWorker.fetch(botRequest(), {
-      PRO_ROOM_ADMIN_ROOMS: terminal.binding,
-      GEMINI_API_KEY: GEMINI_KEY,
-      YOUTUBE_API_KEY: YOUTUBE_KEY,
-    });
+    const terminalResponse = await appWorker.fetch(
+      botRequest(),
+      appBotEnvironment(terminal, {
+        GEMINI_API_KEY: GEMINI_KEY,
+        YOUTUBE_API_KEY: YOUTUBE_KEY,
+      }),
+    );
     expect(terminalResponse.status).toBe(200);
     await expect(terminalResponse.json()).resolves.toEqual(terminalResult);
 
@@ -177,11 +231,13 @@ describe('server-only PRO BOT app boundary', () => {
         { status: 409, headers: { 'retry-after': '30' } },
       ),
     );
-    const pendingResponse = await appWorker.fetch(botRequest(), {
-      PRO_ROOM_ADMIN_ROOMS: pending.binding,
-      GEMINI_API_KEY: GEMINI_KEY,
-      YOUTUBE_API_KEY: YOUTUBE_KEY,
-    });
+    const pendingResponse = await appWorker.fetch(
+      botRequest(),
+      appBotEnvironment(pending, {
+        GEMINI_API_KEY: GEMINI_KEY,
+        YOUTUBE_API_KEY: YOUTUBE_KEY,
+      }),
+    );
     expect(pendingResponse.status).toBe(409);
     expect(pendingResponse.headers.get('retry-after')).toBe('30');
     await expect(pendingResponse.json()).resolves.toEqual({ error: 'BOT_REQUEST_IN_PROGRESS' });
@@ -196,11 +252,10 @@ describe('server-only PRO BOT app boundary', () => {
       botRequest({
         body: { prompt: '오늘 한국 인기곡 3개 추가해줘', requestId: REQUEST_ID },
       }),
-      {
-        PRO_ROOM_ADMIN_ROOMS: namespace.binding,
+      appBotEnvironment(namespace, {
         GEMINI_API_KEY: GEMINI_KEY,
         YOUTUBE_API_KEY: YOUTUBE_KEY,
-      },
+      }),
     );
 
     expect(response.status).toBe(503);
@@ -254,11 +309,13 @@ describe('server-only PRO BOT app boundary', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await appWorker.fetch(botRequest(), {
-      PRO_ROOM_ADMIN_ROOMS: namespace.binding,
-      GEMINI_API_KEY: GEMINI_KEY,
-      YOUTUBE_API_KEY: YOUTUBE_KEY,
-    });
+    const response = await appWorker.fetch(
+      botRequest(),
+      appBotEnvironment(namespace, {
+        GEMINI_API_KEY: GEMINI_KEY,
+        YOUTUBE_API_KEY: YOUTUBE_KEY,
+      }),
+    );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -328,11 +385,10 @@ describe('server-only PRO BOT app boundary', () => {
       botRequest({
         body: { prompt: '재생목록을 전부 비워줘', requestId: REQUEST_ID },
       }),
-      {
-        PRO_ROOM_ADMIN_ROOMS: namespace.binding,
+      appBotEnvironment(namespace, {
         GEMINI_API_KEY: GEMINI_KEY,
         YOUTUBE_API_KEY: YOUTUBE_KEY,
-      },
+      }),
     );
 
     expect(response.status).toBe(200);

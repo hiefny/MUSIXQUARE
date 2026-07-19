@@ -63,7 +63,7 @@ describe('policy-page accordions', () => {
       privacy.window.document.body.textContent ?? '',
     ].join(' ');
     for (const phrase of [
-      'PRO room 000001',
+      'PRO rooms',
       '/bot',
       'Google Gemini API',
       'minimum playlist metadata',
@@ -76,6 +76,7 @@ describe('policy-page accordions', () => {
     ]) {
       expect(disclosure).toContain(phrase);
     }
+    expect(disclosure).not.toContain('000001');
   });
 
   it('preserves the public errors deep link without changing privacy or terms', async () => {

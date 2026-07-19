@@ -385,10 +385,14 @@ describe('Chat Module', () => {
       expect(outbound).toMatchObject({ text: '/bot 인기곡 3개 추가해줘' });
       expect(outbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
       expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith(
+        '000001',
         '인기곡 3개 추가해줘',
         outbound.botRequestId,
       );
-      expect(botProtocolMocks.beginLocalBotChatRequest).toHaveBeenCalledWith(outbound.botRequestId);
+      expect(botProtocolMocks.beginLocalBotChatRequest).toHaveBeenCalledWith(
+        outbound.botRequestId,
+        '000001',
+      );
       expect(botProtocolMocks.publishBotChatResult).toHaveBeenCalledWith(outbound.botRequestId, {
         kind: 'added',
         count: 3,
@@ -434,6 +438,7 @@ describe('Chat Module', () => {
       expect(outbound.text).toBe('//강남스타일 틀어줘');
       expect(outbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
       expect(requestActiveProRoomBotCommand).toHaveBeenCalledWith(
+        '000001',
         '강남스타일 틀어줘',
         outbound.botRequestId,
       );

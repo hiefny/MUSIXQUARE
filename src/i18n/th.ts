@@ -302,7 +302,7 @@ const th: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'รอ {{sec}} วินาทีก่อนส่ง',
   'chat.cmd_notice_prefix': 'ประกาศ',
   'chat.system_sender': 'ระบบ',
-  'chat.bot_unavailable': 'BOT ใช้ได้เฉพาะในห้อง PRO 000001',
+  'chat.bot_unavailable': 'BOT ใช้ได้เฉพาะในห้อง PRO',
   'chat.bot_processing': 'BOT กำลังดำเนินการ...',
   'chat.bot_completed': 'คำขอ BOT เสร็จแล้ว',
   'chat.bot_failed': 'BOT ดำเนินการไม่สำเร็จ',

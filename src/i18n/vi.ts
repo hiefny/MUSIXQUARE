@@ -567,7 +567,7 @@ const vi: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Chờ {{sec}} giây trước khi gửi',
   'chat.cmd_notice_prefix': 'Thông báo',
   'chat.system_sender': 'HỆ THỐNG',
-  'chat.bot_unavailable': 'BOT chỉ dùng được trong phòng PRO 000001',
+  'chat.bot_unavailable': 'BOT chỉ dùng được trong phòng PRO',
   'chat.bot_processing': 'BOT đang xử lý yêu cầu...',
   'chat.bot_completed': 'Yêu cầu BOT đã hoàn tất',
   'chat.bot_failed': 'BOT không thể hoàn tất yêu cầu',

@@ -30,10 +30,10 @@ const OWNER_CAPABILITIES: ProRoomCapability[] = [
   'room.configure',
 ];
 
-function activeSnapshot(): ProRoomSnapshot {
+function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
   return {
     schemaVersion: 1,
-    roomCode: ROOM_CODE,
+    roomCode,
     status: 'active',
     runtime: 'awake',
     revision: 3,
@@ -611,10 +611,12 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('submits a 000001 BOT command with idempotency and the active presence fence', async () => {
+  it('submits a BOT command for any PRO room with idempotency and the active presence fence', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
+    const roomCode = '000002';
+    const snapshot = activeSnapshot(roomCode);
+    await establishPresence(client, fetchMock, snapshot);
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         ok: true,
@@ -626,7 +628,7 @@ describe('PRO room cookie session API', () => {
 
     await expect(
       client.runBotCommand({
-        code: ROOM_CODE,
+        code: roomCode,
         prompt: '  지금 한국에서 인기 있는 곡 3개 추가해줘  ',
         requestId: IDEMPOTENCY_KEY,
       }),
@@ -638,7 +640,7 @@ describe('PRO room cookie session API', () => {
     });
 
     const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/bot/commands`);
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000002/bot/commands`);
     expect(init).toMatchObject({
       method: 'POST',
       credentials: 'include',
@@ -650,23 +652,23 @@ describe('PRO room cookie session API', () => {
     });
     const headers = new Headers(init.headers);
     expect(headers.get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
-    expect(headers.get('x-mxqr-pro-participant-id')).toBe(activeSnapshot().viewer!.participantId);
+    expect(headers.get('x-mxqr-pro-participant-id')).toBe(snapshot.viewer!.participantId);
     expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe(
-      activeSnapshot().viewer!.presenceIncarnationId,
+      snapshot.viewer!.presenceIncarnationId,
     );
   });
 
-  it('rejects unavailable or malformed BOT commands before fetch', async () => {
+  it('rejects invalid-room or malformed BOT commands before fetch', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     expect(() =>
       client.runBotCommand({
-        code: '000000',
+        code: '100001',
         prompt: 'play something',
         requestId: IDEMPOTENCY_KEY,
       }),
-    ).toThrow('PRO_ROOM_API_BOT_UNAVAILABLE');
+    ).toThrow('PRO_ROOM_API_INVALID_ROOM_CODE');
     expect(() =>
       client.runBotCommand({ code: ROOM_CODE, prompt: '   ', requestId: IDEMPOTENCY_KEY }),
     ).toThrow('PRO_ROOM_API_INVALID_BOT_PROMPT');

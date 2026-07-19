@@ -303,7 +303,7 @@ const nl: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Wacht {{sec}} seconden voordat je verstuurt',
   'chat.cmd_notice_prefix': 'Melding',
   'chat.system_sender': 'SYSTEEM',
-  'chat.bot_unavailable': 'BOT is alleen beschikbaar in PRO-ruimte 000001',
+  'chat.bot_unavailable': 'De BOT is alleen beschikbaar in PRO-ruimtes',
   'chat.bot_processing': 'BOT verwerkt het verzoek...',
   'chat.bot_completed': 'BOT-verzoek voltooid',
   'chat.bot_failed': 'BOT kon het verzoek niet uitvoeren',

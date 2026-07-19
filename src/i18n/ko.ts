@@ -298,7 +298,7 @@ const ko = {
   'chat.cmd_slowmode_wait': '{{sec}}초 후에 메시지를 보낼 수 있어요',
   'chat.cmd_notice_prefix': '공지',
   'chat.system_sender': '시스템',
-  'chat.bot_unavailable': 'BOT은 000001번 PRO 방에서만 사용할 수 있어요',
+  'chat.bot_unavailable': '봇은 프로 방에서만 사용할 수 있어요',
   'chat.bot_processing': 'BOT이 요청을 처리하고 있어요...',
   'chat.bot_completed': 'BOT 요청을 완료했어요',
   'chat.bot_failed': 'BOT 요청을 처리하지 못했어요',

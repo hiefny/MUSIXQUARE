@@ -2,27 +2,19 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveTemporaryProRoomPin,
   formatProRoomPinForTests as formatProRoomPin,
-  initialProRoomCodesForTests as INITIAL_PRO_ROOM_CODES,
-  isInitialProRoomCodeForTests as isInitialProRoomCode,
   isProRoomCode,
   normalizeProRoomPin,
 } from '../room-code.ts';
 
 describe('PRO room code namespace', () => {
-  it('reserves the leading-zero six-digit range without overlapping standard rooms', () => {
+  it('accepts the dynamically provisioned PRO range without overlapping standard rooms', () => {
     expect(isProRoomCode('000000')).toBe(true);
     expect(isProRoomCode('000001')).toBe(true);
+    expect(isProRoomCode('000002')).toBe(true);
     expect(isProRoomCode('099999')).toBe(true);
     expect(isProRoomCode('100000')).toBe(false);
     expect(isProRoomCode('999999')).toBe(false);
     expect(isProRoomCode('00000')).toBe(false);
-  });
-
-  it('ships only the two explicitly provisioned beta rooms', () => {
-    expect(INITIAL_PRO_ROOM_CODES).toEqual(['000000', '000001']);
-    expect(isInitialProRoomCode('000000')).toBe(true);
-    expect(isInitialProRoomCode('000001')).toBe(true);
-    expect(isInitialProRoomCode('000002')).toBe(false);
   });
 
   it('derives the requested temporary bootstrap PIN from the room code', () => {

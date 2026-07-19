@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v183';
-const RETIRED_CACHE_VERSION = 'v182';
+const ACTIVE_CACHE_VERSION = 'v184';
+const RETIRED_CACHE_VERSION = 'v183';
 
 type FetchListener = (event: {
   request: Request;
@@ -268,13 +268,15 @@ describe('service worker cache policy', () => {
 
   it('uses the canonical installed shell for an offline room navigation', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
-    cacheMatch.mockImplementation(async (request: RequestInfo, options?: { cacheName?: string }) => {
-      const requestUrl = typeof request === 'string' ? request : request.url;
-      return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
-        requestUrl.endsWith('index.html')
-        ? new Response('canonical room shell', { status: 200 })
-        : undefined;
-    });
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
+          ? new Response('canonical room shell', { status: 200 })
+          : undefined;
+      },
+    );
 
     const response = await dispatch(
       new Request('https://musixquare.com/000001', { headers: { accept: 'text/html' } }),

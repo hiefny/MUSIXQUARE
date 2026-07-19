@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v183';
+const CACHE_VERSION = 'v184';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
@@ -277,7 +277,10 @@ self.addEventListener('fetch', (event) => {
     // duplicate cache entries. index.html is already the canonical offline
     // shell in APP_SHELL.
     const cacheUpdate = isRoomNavigation(request)
-      ? networkResponse.then(() => undefined, () => undefined)
+      ? networkResponse.then(
+          () => undefined,
+          () => undefined,
+        )
       : networkResponse
           .then((fresh) => {
             if (!fresh.ok || fresh.status === 206) return undefined;

@@ -314,6 +314,49 @@ describe('YouTube Player', () => {
       expect(player.setVolume).toHaveBeenLastCalledWith(63);
       expect(player.unMute).toHaveBeenCalledOnce();
     });
+
+    it('keeps a participant-local PRO pause gate closed across volume changes', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const player = {
+        setVolume: vi.fn(),
+        mute: vi.fn(),
+        unMute: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(player);
+      setState('audio.masterVolume', 0.8);
+      initYouTube();
+
+      bus.emit('pro-playback:ui-control-pending', {
+        token: 91,
+        kind: 'pause',
+        queueItemId: QUEUE_ITEM_ID,
+        targetSeconds: 12,
+        wasPlaying: true,
+      });
+      bus.emit('youtube:set-volume', 80);
+
+      expect(player.mute).toHaveBeenCalledTimes(2);
+      expect(player.unMute).not.toHaveBeenCalled();
+
+      bus.emit('pro-playback:ui-control-settled', {
+        token: 90,
+        kind: 'pause',
+        queueItemId: QUEUE_ITEM_ID,
+        status: 'superseded',
+      });
+      expect(player.unMute).not.toHaveBeenCalled();
+
+      bus.emit('pro-playback:ui-control-settled', {
+        token: 91,
+        kind: 'pause',
+        queueItemId: QUEUE_ITEM_ID,
+        status: 'applied',
+        positionSeconds: 12.7,
+      });
+      expect(player.setVolume).toHaveBeenLastCalledWith(80);
+      expect(player.unMute).toHaveBeenCalledOnce();
+    });
   });
 
   describe('synchronized pause ownership', () => {

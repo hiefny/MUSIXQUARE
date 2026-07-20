@@ -119,6 +119,34 @@ export type QueueItemId = string;
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
+export type ProPlaybackUiControlKind = 'play' | 'pause' | 'seek';
+
+/**
+ * Participant-local projection for one PRO playback command.
+ *
+ * This token never crosses the network. It lets the initiating browser show
+ * immediate, reversible feedback while the server remains the sole playback
+ * authority.
+ */
+export interface ProPlaybackUiControlPendingEvent {
+  readonly token: number;
+  readonly kind: ProPlaybackUiControlKind;
+  readonly queueItemId: QueueItemId | null;
+  readonly targetSeconds: number;
+  readonly wasPlaying: boolean;
+}
+
+export type ProPlaybackUiControlSettlementStatus = 'applied' | 'failed' | 'superseded';
+
+export interface ProPlaybackUiControlSettledEvent {
+  readonly token: number;
+  readonly kind: ProPlaybackUiControlKind;
+  readonly queueItemId: QueueItemId | null;
+  readonly status: ProPlaybackUiControlSettlementStatus;
+  /** Canonical position when known; consumers may otherwise sample their live engine. */
+  readonly positionSeconds?: number;
+}
+
 export type YouTubeZeroStartPlatform = 'ios' | 'android' | 'other';
 export type YouTubeZeroStartCommitReason = 'all-ready' | 'guest-timeout' | 'host-delayed';
 export type YouTubeZeroStartAbortReason =
@@ -1108,6 +1136,10 @@ interface BaseEventMap {
   'playback:refresh-current-position': [];
   'player:check-ended': [];
   'player:buffer-changed': [];
+  /** Local-only feedback while a PRO playback command awaits canonical media application. */
+  'pro-playback:ui-control-pending': [event: Readonly<ProPlaybackUiControlPendingEvent>];
+  /** Exact terminal result for the matching local PRO UI control token. */
+  'pro-playback:ui-control-settled': [event: Readonly<ProPlaybackUiControlSettledEvent>];
 
   // ── Playlist ──────────────────────────────────────────────────────
   'playlist:prev-track': [];

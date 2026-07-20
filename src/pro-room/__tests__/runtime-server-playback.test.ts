@@ -3,10 +3,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
+import { bus } from '../../core/events.ts';
 import { getState, resetState } from '../../core/state.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   ProRoomApiClient,
+  ProRoomApiError,
   type ProRoomPlaybackCommitEvent,
   type ProRoomPlaybackPrepareEvent,
   type ProRoomSignalingAccess,
@@ -282,19 +284,22 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     ).toBe(true);
 
     await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
-    expect(executeCommand).toHaveBeenCalledWith({
-      code: ROOM_CODE,
-      command: {
-        type: 'select',
-        baseRevision: 0,
-        queueItemId: QUEUE_ITEM_ID,
-        state: 'playing',
-        positionSeconds: 4.5,
-        youtubeVideoId: VIDEO_ID,
-        youtubeSubIndex: 0,
+    expect(executeCommand).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        command: {
+          type: 'select',
+          baseRevision: 0,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+          positionSeconds: 4.5,
+          youtubeVideoId: VIDEO_ID,
+          youtubeSubIndex: 0,
+        },
+        idempotencyKey: expect.any(String),
       },
-      idempotencyKey: expect.any(String),
-    });
+      expect.any(AbortSignal),
+    );
   });
 
   it('submits first-append auto-play as one exact server-authority select command', async () => {
@@ -307,19 +312,149 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       youtubeSubIndex: 0,
     });
 
-    expect(executeCommand).toHaveBeenCalledWith({
-      code: ROOM_CODE,
-      command: {
-        type: 'select',
-        baseRevision: 0,
-        queueItemId: QUEUE_ITEM_ID,
-        state: 'playing',
-        positionSeconds: 0,
-        youtubeVideoId: VIDEO_ID,
-        youtubeSubIndex: 0,
+    expect(executeCommand).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        command: {
+          type: 'select',
+          baseRevision: 0,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+          positionSeconds: 0,
+          youtubeVideoId: VIDEO_ID,
+          youtubeSubIndex: 0,
+        },
+        idempotencyKey: expect.any(String),
       },
-      idempotencyKey: expect.any(String),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('replays one lost playback response with the same idempotency key', async () => {
+    executeCommand
+      .mockRejectedValueOnce(new ProRoomApiError('NETWORK_ERROR'))
+      .mockResolvedValueOnce({
+        schemaVersion: 1,
+        roomCode: ROOM_CODE,
+        status: 'unchanged',
+        transition: null,
+        playback: playback(0),
+        serverTimeMs: 10_000,
+      });
+    const settled: Array<{ status: string }> = [];
+    const off = bus.on('pro-playback:ui-control-settled', (event) => settled.push(event));
+    try {
+      routeProPlaybackCommand(
+        { kind: 'play', queueItemId: QUEUE_ITEM_ID, positionSeconds: 0 },
+        { wasPlaying: false },
+      );
+
+      await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledTimes(2));
+      expect(executeCommand.mock.calls[0]?.[0].idempotencyKey).toBe(
+        executeCommand.mock.calls[1]?.[0].idempotencyKey,
+      );
+      await vi.waitFor(() =>
+        expect(settled).toEqual([expect.objectContaining({ status: 'applied' })]),
+      );
+    } finally {
+      off();
+    }
+  });
+
+  it('drops a superseded UI command before it reaches the serialized API tail', async () => {
+    let resolveFirst!: (
+      value: Awaited<ReturnType<ProRoomApiClient['executePlaybackCommand']>>,
+    ) => void;
+    executeCommand
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        schemaVersion: 1,
+        roomCode: ROOM_CODE,
+        status: 'unchanged',
+        transition: null,
+        playback: playback(0),
+        serverTimeMs: 10_001,
+      });
+
+    routeProPlaybackCommand(
+      { kind: 'pause', queueItemId: QUEUE_ITEM_ID, positionSeconds: 10 },
+      { wasPlaying: true },
+    );
+    await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
+    routeProPlaybackCommand(
+      { kind: 'seek', queueItemId: QUEUE_ITEM_ID, positionSeconds: 30 },
+      { wasPlaying: true },
+    );
+    routeProPlaybackCommand(
+      { kind: 'play', queueItemId: QUEUE_ITEM_ID, positionSeconds: 30 },
+      { wasPlaying: false },
+    );
+
+    resolveFirst({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      status: 'unchanged',
+      transition: null,
+      playback: playback(0),
+      serverTimeMs: 10_000,
     });
+
+    await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledTimes(2));
+    expect(executeCommand.mock.calls.map(([input]) => input.command.type)).toEqual([
+      'pause',
+      'play',
+    ]);
+  });
+
+  it('does not restart a PREPARE cancelled before its HTTP response arrives', async () => {
+    let resolveCommand!: (
+      value: Awaited<ReturnType<ProRoomApiClient['executePlaybackCommand']>>,
+    ) => void;
+    executeCommand.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCommand = resolve;
+        }),
+    );
+    const settled: Array<{ status: string }> = [];
+    const off = bus.on('pro-playback:ui-control-settled', (event) => settled.push(event));
+    try {
+      routeProPlaybackCommand(
+        { kind: 'seek', queueItemId: QUEUE_ITEM_ID, positionSeconds: 42 },
+        { wasPlaying: true },
+      );
+      await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
+
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({
+          type: 'pro-playback-cancel',
+          transitionId: TRANSITION_READY,
+          serverTimeMs: 10_050,
+          reason: 'superseded',
+        }),
+      );
+      resolveCommand({
+        schemaVersion: 1,
+        roomCode: ROOM_CODE,
+        status: 'preparing',
+        transition: prepareEvent(TRANSITION_READY),
+        playback: playback(0),
+        serverTimeMs: 10_000,
+      });
+
+      await vi.waitFor(() =>
+        expect(settled).toEqual([expect.objectContaining({ status: 'superseded' })]),
+      );
+      expect(prepareMedia).not.toHaveBeenCalled();
+      expect(reportReady).not.toHaveBeenCalled();
+    } finally {
+      off();
+    }
   });
 
   it('drops stale first-append auto-play after another actor advances playback', async () => {
@@ -724,6 +859,91 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       type: 'next',
       baseRevision: 1,
     });
+  });
+
+  it('settles a local seek token only after the canonical media endpoint applies', async () => {
+    const targetPlayback = playback(1, { positionSeconds: 42 });
+    const transition = {
+      ...prepareEvent(TRANSITION_READY),
+      target: targetPlayback,
+    };
+    executeCommand.mockResolvedValueOnce({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      status: 'preparing',
+      transition,
+      playback: playback(0),
+      serverTimeMs: 10_000,
+    });
+    let resolveCommit!: (value: {
+      status: 'applied';
+      authority: ProPlaybackAuthorityToken;
+    }) => void;
+    commitMedia.mockImplementationOnce(
+      (request) =>
+        new Promise((resolve) => {
+          resolveCommit = resolve;
+        }),
+    );
+    const settled: Array<{ token: number; status: string }> = [];
+    const off = bus.on('pro-playback:ui-control-settled', (event) => settled.push(event));
+    try {
+      routeProPlaybackCommand(
+        { kind: 'seek', queueItemId: QUEUE_ITEM_ID, positionSeconds: 42 },
+        { wasPlaying: true },
+      );
+      await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({
+          ...commitEvent(TRANSITION_READY, 1),
+          playback: targetPlayback,
+        } as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      expect(settled).toEqual([]);
+
+      const request = commitMedia.mock.calls[0]?.[0];
+      resolveCommit({ status: 'applied', authority: request.authority });
+      await vi.waitFor(() =>
+        expect(settled).toEqual([expect.objectContaining({ status: 'applied' })]),
+      );
+    } finally {
+      off();
+    }
+  });
+
+  it('does not mistake another participant revision for a provisional local command', async () => {
+    let rejectCommand!: (error: unknown) => void;
+    executeCommand.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectCommand = reject;
+        }),
+    );
+    const settled: Array<{ token: number; status: string }> = [];
+    const off = bus.on('pro-playback:ui-control-settled', (event) => settled.push(event));
+    try {
+      routeProPlaybackCommand(
+        { kind: 'seek', queueItemId: QUEUE_ITEM_ID, positionSeconds: 42 },
+        { wasPlaying: true },
+      );
+      await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
+
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      expect(settled.some((event) => event.status === 'applied')).toBe(false);
+
+      rejectCommand(new ProRoomApiError('PLAYBACK_REVISION_CONFLICT', 409));
+      await vi.waitFor(() =>
+        expect(settled).toEqual([expect.objectContaining({ status: 'superseded' })]),
+      );
+    } finally {
+      off();
+    }
   });
 
   it('never rebases a delayed native sub-video boundary onto a newer revision', async () => {

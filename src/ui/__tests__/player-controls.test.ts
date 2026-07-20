@@ -555,6 +555,88 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
   });
+
+  it('keeps the play spinner bound to the exact pending PRO play token', () => {
+    renderPlaybackControls();
+    initPlayerControls();
+    const playBtn = document.getElementById('play-btn');
+
+    bus.emit('pro-playback:ui-control-pending', {
+      token: 10,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      targetSeconds: 12,
+      wasPlaying: false,
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 9,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'superseded',
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 10,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'applied',
+      positionSeconds: 12,
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('shows a spinner for a playing seek but makes a pending pause look immediate', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+    const playBtn = document.getElementById('play-btn');
+    const icon = playBtn?.querySelector('path');
+
+    bus.emit('pro-playback:ui-control-pending', {
+      token: 20,
+      kind: 'seek',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      targetSeconds: 30,
+      wasPlaying: true,
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 20,
+      kind: 'seek',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'applied',
+      positionSeconds: 30,
+    });
+    bus.emit('pro-playback:ui-control-pending', {
+      token: 21,
+      kind: 'pause',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      targetSeconds: 31,
+      wasPlaying: true,
+    });
+    // A late engine state notification must not paint the pause icon back
+    // over the participant-local pause projection.
+    setState('playback.activity', 'paused');
+    setState('playback.activity', 'playing');
+
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 21,
+      kind: 'pause',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'applied',
+      positionSeconds: 31,
+    });
+  });
 });
 
 describe('initPlayerControls tab title marquee wiring', () => {

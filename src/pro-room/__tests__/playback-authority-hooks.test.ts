@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { bus } from '../../core/events.ts';
 import { setState } from '../../core/state.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   cancelProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
   prepareProPlaybackAuthority,
+  refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
   registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
@@ -52,6 +55,7 @@ afterEach(() => {
   registerProPlaybackCommandHandler(null);
   registerProPlaybackMediaEndpoint(null);
   resetProPlaybackAuthorityHooks();
+  clearAllManagedTimers();
   setState('room.context', {
     kind: 'standard',
     roomId: null,
@@ -64,6 +68,77 @@ afterEach(() => {
 });
 
 describe('coordinator-free PRO playback authority seam', () => {
+  it('refuses to re-arm a UI control after its fail-open deadline', () => {
+    vi.useFakeTimers();
+    const handler = vi.fn(() => new Promise<void>(() => {}));
+    registerProPlaybackCommandHandler(handler);
+    let token = 0;
+    const offPending = bus.on('pro-playback:ui-control-pending', (event) => {
+      token = event.token;
+    });
+    const settled: unknown[] = [];
+    const offSettled = bus.on('pro-playback:ui-control-settled', (event) => settled.push(event));
+    try {
+      routeProPlaybackCommand(
+        { kind: 'play', queueItemId: Q1, positionSeconds: 0 },
+        { wasPlaying: false },
+      );
+      vi.advanceTimersByTime(15_000);
+
+      expect(settled).toEqual([expect.objectContaining({ token, kind: 'play', status: 'failed' })]);
+      expect(refreshProPlaybackUiControlTimeout(token)).toBe(false);
+    } finally {
+      offPending();
+      offSettled();
+      vi.useRealTimers();
+    }
+  });
+
+  it('projects tokenized UI controls and supersedes only the previous token', async () => {
+    const handler = vi.fn(() => new Promise<void>(() => {}));
+    registerProPlaybackCommandHandler(handler);
+    const pending: unknown[] = [];
+    const settled: unknown[] = [];
+    const offPending = bus.on('pro-playback:ui-control-pending', (event) => pending.push(event));
+    const offSettled = bus.on('pro-playback:ui-control-settled', (event) => settled.push(event));
+    try {
+      expect(
+        routeProPlaybackCommand(
+          { kind: 'seek', queueItemId: Q1, positionSeconds: 18 },
+          { wasPlaying: true },
+        ),
+      ).toBe(true);
+      expect(
+        routeProPlaybackCommand(
+          { kind: 'play', queueItemId: Q1, positionSeconds: 18 },
+          { wasPlaying: false },
+        ),
+      ).toBe(true);
+
+      expect(pending).toEqual([
+        expect.objectContaining({ kind: 'seek', targetSeconds: 18 }),
+        expect.objectContaining({ kind: 'play', targetSeconds: 18 }),
+      ]);
+      const firstToken = (pending[0] as { token: number }).token;
+      const secondToken = (pending[1] as { token: number }).token;
+      expect(settled).toEqual([
+        expect.objectContaining({ token: firstToken, kind: 'seek', status: 'superseded' }),
+      ]);
+      expect(handler).toHaveBeenLastCalledWith(
+        expect.objectContaining({ clientUiControlToken: secondToken, kind: 'play' }),
+      );
+
+      resetProPlaybackAuthorityHooks();
+      expect(settled).toEqual([
+        expect.objectContaining({ token: firstToken, status: 'superseded' }),
+        expect.objectContaining({ token: secondToken, kind: 'play', status: 'failed' }),
+      ]);
+    } finally {
+      offPending();
+      offSettled();
+    }
+  });
+
   it('routes a PRO action through the registered server handler', async () => {
     const handler = vi.fn();
     registerProPlaybackCommandHandler(handler);

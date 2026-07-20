@@ -13,6 +13,8 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { getCurrentQueueItemId } from '../player/queue-model.ts';
+import type { ProPlaybackUiControlPendingEvent } from '../types/index.ts';
 import { syncRangeProgress } from './range-drag.ts';
 
 function isSeekUnavailable(): boolean {
@@ -44,15 +46,54 @@ function setSeekSliderMax(slider: HTMLInputElement, value: string): void {
   syncRangeProgress(slider);
 }
 
+const SEEK_DRAFT_RELEASE_TIMER = 'seekbar-draft-release';
+const SEEK_DRAFT_RELEASE_FALLBACK_MS = 350;
+let _seekDraftActive = false;
+
+function anchorSeekDraft(slider: HTMLInputElement): void {
+  const value = Number.parseFloat(slider.value);
+  if (!Number.isFinite(value) || value < 0) return;
+  _rafAnchorTime = value;
+  _rafAnchorTs = performance.now();
+}
+
+function beginSeekDraft(slider: HTMLInputElement): void {
+  clearManagedTimer(SEEK_DRAFT_RELEASE_TIMER);
+  anchorSeekDraft(slider);
+  if (_seekDraftActive && getState('player.isSeeking')) return;
+  _seekDraftActive = true;
+  setState('player.isSeeking', true);
+}
+
+function finishSeekDraft(slider?: HTMLInputElement): void {
+  clearManagedTimer(SEEK_DRAFT_RELEASE_TIMER);
+  if (slider) anchorSeekDraft(slider);
+  _seekDraftActive = false;
+  setState('player.isSeeking', false);
+}
+
+function scheduleSeekDraftRelease(slider: HTMLInputElement): void {
+  if (!_seekDraftActive && !getState('player.isSeeking')) return;
+  anchorSeekDraft(slider);
+  // iOS may deliver pointerup before the range input's change event. Hold the
+  // draft across that render opportunity so the old physical position cannot
+  // repaint between release and command admission.
+  setManagedTimer(
+    SEEK_DRAFT_RELEASE_TIMER,
+    () => finishSeekDraft(slider),
+    SEEK_DRAFT_RELEASE_FALLBACK_MS,
+  );
+}
+
 // ─── Seek Bar Input Events ──────────────────────────────────────
 
 function initSeekBarInput(): void {
   const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
   if (!slider) return;
 
-  slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
-  slider.addEventListener('pointerdown', () => setState('player.isSeeking', true));
-  slider.addEventListener('touchstart', () => setState('player.isSeeking', true), {
+  slider.addEventListener('mousedown', () => beginSeekDraft(slider));
+  slider.addEventListener('pointerdown', () => beginSeekDraft(slider));
+  slider.addEventListener('touchstart', () => beginSeekDraft(slider), {
     passive: true,
   });
   slider.addEventListener('input', () => {
@@ -60,38 +101,39 @@ function initSeekBarInput(): void {
       setSeekSliderValue(slider, '0');
       return;
     }
+    // Keyboard seeks do not have a pointerdown/touchstart boundary.
+    beginSeekDraft(slider);
     const formatted = fmtTime(parseFloat(slider.value));
     const tc = document.getElementById('time-curr');
     if (tc) tc.innerText = formatted;
     slider.setAttribute('aria-valuetext', formatted);
   });
 
-  function releaseSeek() {
-    if (slider) {
-      _rafAnchorTime = parseFloat(slider.value) || 0;
-      _rafAnchorTs = performance.now();
-    }
-    setState('player.isSeeking', false);
-  }
-
   slider.addEventListener('change', () => {
-    releaseSeek();
+    beginSeekDraft(slider);
     if (isSeekUnavailable()) {
       setSeekSliderValue(slider, '0');
+      finishSeekDraft(slider);
       return;
     }
     const seekTime = parseFloat(slider.value);
-
-    seekTo(seekTime);
+    try {
+      // PRO command admission emits its pending token synchronously. Release
+      // the input draft only after that longer-lived projection can take over.
+      seekTo(seekTime);
+    } finally {
+      finishSeekDraft(slider);
+    }
   });
 
-  slider.addEventListener('mouseup', releaseSeek);
-  slider.addEventListener('pointerup', releaseSeek);
-  slider.addEventListener('pointercancel', releaseSeek);
-  slider.addEventListener('lostpointercapture', releaseSeek);
-  slider.addEventListener('touchend', releaseSeek, { passive: true });
-  slider.addEventListener('touchcancel', releaseSeek, { passive: true });
-  slider.addEventListener('contextmenu', releaseSeek);
+  slider.addEventListener('mouseup', () => scheduleSeekDraftRelease(slider));
+  slider.addEventListener('pointerup', () => scheduleSeekDraftRelease(slider));
+  slider.addEventListener('lostpointercapture', () => scheduleSeekDraftRelease(slider));
+  slider.addEventListener('touchend', () => scheduleSeekDraftRelease(slider), { passive: true });
+  slider.addEventListener('pointercancel', () => finishSeekDraft(slider));
+  slider.addEventListener('touchcancel', () => finishSeekDraft(slider), { passive: true });
+  slider.addEventListener('contextmenu', () => finishSeekDraft(slider));
+  slider.addEventListener('blur', () => finishSeekDraft(slider));
 }
 
 // ─── rAF Interpolation Loop ─────────────────────────────────────
@@ -101,7 +143,21 @@ let _rafAnchorTime = 0;
 let _rafAnchorTs = 0;
 let _rafLastFmtSec = -1;
 let _systemAudioZerosApplied = false;
+let _pendingProSeek: Readonly<ProPlaybackUiControlPendingEvent> | null = null;
 const SYSTEM_AUDIO_POLL_MS = 1000;
+
+function renderSeekPosition(positionSeconds: number): void {
+  const safePosition = Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0;
+  const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+  const current = document.getElementById('time-curr');
+  const formatted = fmtTime(safePosition);
+  if (slider) {
+    setSeekSliderValue(slider, String(safePosition));
+    slider.setAttribute('aria-valuetext', formatted);
+  }
+  if (current) current.innerText = formatted;
+  _rafLastFmtSec = Math.floor(safePosition);
+}
 
 function _seekRafLoop(now: number): void {
   // System audio: no seek position — write zeros ONCE then poll at 1Hz.
@@ -139,7 +195,7 @@ function _seekRafLoop(now: number): void {
   // interpolation is correct. PAUSED / IDLE / DECODING leave the thumb
   // wherever it last was, which matches user expectation.
   const isPlaying = isFileActivelyPlaying();
-  if (!isSeeking && isPlaying) {
+  if (!isSeeking && !_pendingProSeek && isPlaying) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {
@@ -161,7 +217,7 @@ function _seekRafLoop(now: number): void {
 
 function _startSeekRaf(): void {
   if (_rafId) return;
-  _rafAnchorTime = getTrackPosition();
+  _rafAnchorTime = _pendingProSeek?.targetSeconds ?? getTrackPosition();
   _rafAnchorTs = performance.now();
   _rafLastFmtSec = -1;
   _rafId = requestAnimationFrame(_seekRafLoop);
@@ -184,6 +240,8 @@ const _busScope = createBusScope();
 
 function initSeekBarBusHandlers(): void {
   _busScope.dispose();
+  finishSeekDraft();
+  _pendingProSeek = null;
 
   _busScope.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
@@ -195,14 +253,23 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('ui:seek-reset', () => {
+    finishSeekDraft();
+    clearManagedTimer('time-update-loop');
+    _stopSeekRaf();
+    // A PRO playing seek intentionally tears down and re-prepares the same
+    // resident media. Its internal stop emits seek-reset, but the initiating
+    // browser should keep showing the requested target until canonical apply.
+    if (_pendingProSeek?.queueItemId === getCurrentQueueItemId()) {
+      renderSeekPosition(_pendingProSeek.targetSeconds);
+      return;
+    }
+    _pendingProSeek = null;
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {
       setSeekSliderValue(slider, '0');
     }
     if (tc) tc.innerText = '0:00';
-    clearManagedTimer('time-update-loop');
-    _stopSeekRaf();
   });
 
   let _endedCheckCounter = 0;
@@ -236,7 +303,7 @@ function initSeekBarBusHandlers(): void {
         //    until the next 250ms tick collapses it again. Treat 0 as
         //    transient and let the existing anchor (set by _startSeekRaf
         //    or by the previous valid tick) keep advancing via dt.
-        if (isFileActivelyPlaying()) {
+        if (!_pendingProSeek && isFileActivelyPlaying()) {
           const pos = getTrackPosition();
           if (pos > 0 && Number.isFinite(pos)) {
             _rafAnchorTime = pos;
@@ -256,8 +323,48 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('player:stop-all-media', () => {
+    finishSeekDraft();
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
+    if (_pendingProSeek?.queueItemId === getCurrentQueueItemId()) {
+      renderSeekPosition(_pendingProSeek.targetSeconds);
+      return;
+    }
+    _pendingProSeek = null;
+  });
+
+  _busScope.on('pro-playback:ui-control-pending', (event) => {
+    if (event.kind !== 'seek') return;
+    _pendingProSeek = event;
+    _rafAnchorTime = event.targetSeconds;
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(event.targetSeconds);
+  });
+
+  _busScope.on('pro-playback:ui-control-settled', (event) => {
+    if (event.kind !== 'seek' || _pendingProSeek?.token !== event.token) return;
+    const projectedPosition = _pendingProSeek.targetSeconds;
+    _pendingProSeek = null;
+    const livePosition = getTrackPosition();
+    const canonicalPosition = Number.isFinite(event.positionSeconds)
+      ? event.positionSeconds
+      : undefined;
+    // PREPARE teardown can transiently report 0 even though the previous
+    // resident timeline is about to be restored. Never manufacture a 0 flash
+    // on a rejected/cancelled command: leave the user's projection in place
+    // until the next real engine time sample repaints it.
+    const position =
+      canonicalPosition ??
+      (event.status === 'applied' || livePosition > 0 ? livePosition : projectedPosition);
+    _rafAnchorTime = Math.max(0, position);
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(position);
+  });
+
+  _busScope.on('state:playlist.currentQueueItemId', (queueItemId) => {
+    if (_pendingProSeek && _pendingProSeek.queueItemId !== queueItemId) {
+      _pendingProSeek = null;
+    }
   });
 
   // Mode-driven time display sync. The rAF system-audio zeroing branch is
@@ -299,14 +406,14 @@ function initSeekBarBusHandlers(): void {
       if (duration > 0) {
         setSeekSliderMax(slider, String(duration));
       }
-      if (!isSeeking && duration > 0) {
+      if (!isSeeking && !_pendingProSeek && duration > 0) {
         setSeekSliderValue(slider, String(currentTime));
         slider.setAttribute('aria-valuetext', currentFormatted);
       }
     }
     // Always update time text — even during duration=0 (new video loading),
     // so the user sees "0:03" ticking instead of a frozen display.
-    if (tc && !isSeeking) tc.innerText = currentFormatted;
+    if (tc && !isSeeking && !_pendingProSeek) tc.innerText = currentFormatted;
     if (tt && duration > 0) tt.innerText = totalFormatted;
   });
 }

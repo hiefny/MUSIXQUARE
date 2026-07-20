@@ -1,6 +1,13 @@
 import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import type { QueueItemId } from '../types/index.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import type {
+  ProPlaybackUiControlKind,
+  ProPlaybackUiControlPendingEvent,
+  ProPlaybackUiControlSettlementStatus,
+  QueueItemId,
+} from '../types/index.ts';
 
 /**
  * Coordinator-free PRO playback seam.
@@ -20,6 +27,8 @@ interface ProPlaybackIntentBase {
   roomEpoch: number;
   queueItemId: QueueItemId | null;
   positionSeconds: number;
+  /** Participant-local UI correlation only; omitted from every Worker command. */
+  clientUiControlToken?: number;
 }
 
 export type ProPlaybackUserIntent =
@@ -76,9 +85,90 @@ export function registerProPlaybackCommandHandler(
 }
 
 type RoutedIntentOf<T> = T extends ProPlaybackUserIntent
-  ? Omit<T, 'roomId' | 'roomEpoch' | 'observedPlaybackRevision'>
+  ? Omit<T, 'roomId' | 'roomEpoch' | 'observedPlaybackRevision' | 'clientUiControlToken'>
   : never;
 type RoutedIntent = RoutedIntentOf<ProPlaybackUserIntent>;
+type RoutedUiIntent = RoutedIntent & { kind: ProPlaybackUiControlKind };
+
+interface ProPlaybackUiProjection {
+  readonly wasPlaying: boolean;
+}
+
+const UI_CONTROL_TIMEOUT_TIMER = 'pro-playback-ui-control-timeout';
+const UI_CONTROL_FAIL_OPEN_MS = 15_000;
+let uiControlSequence = 0;
+let activeUiControl: Readonly<ProPlaybackUiControlPendingEvent> | null = null;
+
+function emitUiControlSettlement(
+  event: Readonly<ProPlaybackUiControlPendingEvent>,
+  status: ProPlaybackUiControlSettlementStatus,
+  positionSeconds?: number,
+): void {
+  bus.emit('pro-playback:ui-control-settled', {
+    token: event.token,
+    kind: event.kind,
+    queueItemId: event.queueItemId,
+    status,
+    ...(Number.isFinite(positionSeconds) ? { positionSeconds } : {}),
+  });
+}
+
+function beginUiControl(
+  intent: RoutedUiIntent,
+  projection: Readonly<ProPlaybackUiProjection>,
+): Readonly<ProPlaybackUiControlPendingEvent> {
+  const previous = activeUiControl;
+  if (previous) emitUiControlSettlement(previous, 'superseded');
+
+  const event = Object.freeze({
+    token: ++uiControlSequence,
+    kind: intent.kind,
+    queueItemId: intent.queueItemId,
+    targetSeconds: Number.isFinite(intent.positionSeconds)
+      ? Math.max(0, intent.positionSeconds)
+      : 0,
+    wasPlaying: projection.wasPlaying,
+  });
+  activeUiControl = event;
+  clearManagedTimer(UI_CONTROL_TIMEOUT_TIMER);
+  bus.emit('pro-playback:ui-control-pending', event);
+  setManagedTimer(
+    UI_CONTROL_TIMEOUT_TIMER,
+    () => settleProPlaybackUiControl(event.token, 'failed'),
+    UI_CONTROL_FAIL_OPEN_MS,
+  );
+  return event;
+}
+
+/**
+ * Confirm that a queued local control is still the active projection and give
+ * its actual network/media stage a fresh fail-open window. A superseded or
+ * already-expired command must never be submitted later from the serial tail.
+ */
+export function refreshProPlaybackUiControlTimeout(token: number): boolean {
+  const event = activeUiControl;
+  if (!event || event.token !== token) return false;
+  clearManagedTimer(UI_CONTROL_TIMEOUT_TIMER);
+  setManagedTimer(
+    UI_CONTROL_TIMEOUT_TIMER,
+    () => settleProPlaybackUiControl(event.token, 'failed'),
+    UI_CONTROL_FAIL_OPEN_MS,
+  );
+  return true;
+}
+
+export function settleProPlaybackUiControl(
+  token: number,
+  status: ProPlaybackUiControlSettlementStatus,
+  positionSeconds?: number,
+): boolean {
+  const event = activeUiControl;
+  if (!event || event.token !== token) return false;
+  activeUiControl = null;
+  clearManagedTimer(UI_CONTROL_TIMEOUT_TIMER);
+  emitUiControlSettlement(event, status, positionSeconds);
+  return true;
+}
 
 /**
  * Route an action whenever a coordinator-free PRO context is active.
@@ -88,7 +178,10 @@ type RoutedIntent = RoutedIntentOf<ProPlaybackUserIntent>;
  * that short window so only a server-accepted command can move canonical
  * playback. Returning false is reserved for ordinary rooms.
  */
-export function routeProPlaybackCommand(intent: RoutedIntent): boolean {
+export function routeProPlaybackCommand(
+  intent: RoutedIntent,
+  uiProjection?: Readonly<ProPlaybackUiProjection>,
+): boolean {
   const context = getState('room.context');
   const handler = commandHandler;
   if (context.kind !== 'pro' || !context.roomId) return false;
@@ -97,10 +190,16 @@ export function routeProPlaybackCommand(intent: RoutedIntent): boolean {
     return true;
   }
 
+  const uiControl =
+    uiProjection && (intent.kind === 'play' || intent.kind === 'pause' || intent.kind === 'seek')
+      ? beginUiControl(intent as RoutedUiIntent, uiProjection)
+      : null;
+
   const command = {
     ...intent,
     roomId: context.roomId,
     roomEpoch: context.epoch,
+    ...(uiControl ? { clientUiControlToken: uiControl.token } : {}),
     ...(intent.kind === 'ended' ||
     intent.kind === 'unavailable' ||
     intent.kind === 'advance-sub-video'
@@ -110,9 +209,11 @@ export function routeProPlaybackCommand(intent: RoutedIntent): boolean {
   try {
     void Promise.resolve(handler(command)).catch((error) => {
       log.warn('[PRO Playback] Server command rejected', error);
+      if (uiControl) settleProPlaybackUiControl(uiControl.token, 'failed');
     });
   } catch (error) {
     log.warn('[PRO Playback] Server command handler threw', error);
+    if (uiControl) settleProPlaybackUiControl(uiControl.token, 'failed');
   }
   return true;
 }
@@ -473,4 +574,10 @@ export function resetProPlaybackAuthorityHooks(): void {
   highestSeen = null;
   latestApplied = null;
   highestCommittedPlaybackRevision = 0;
+  const pendingUiControl = activeUiControl;
+  if (pendingUiControl) {
+    activeUiControl = null;
+    clearManagedTimer(UI_CONTROL_TIMEOUT_TIMER);
+    emitUiControlSettlement(pendingUiControl, 'failed');
+  }
 }

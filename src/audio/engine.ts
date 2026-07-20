@@ -155,6 +155,7 @@ function createEmptyGraph(): AudioGraph {
 }
 
 let _graph: AudioGraph = createEmptyGraph();
+let _proPlaybackPauseGateToken: number | null = null;
 
 let _initAudioPromise: Promise<void> | null = null;
 let _ctxStateChangeCtx: AudioContext | null = null;
@@ -596,10 +597,27 @@ bus.on('audio:set-volume', (volume) => {
   const clamped = Math.max(0, Math.min(1, volume));
   setState('audio.masterVolume', clamped);
   if (_graph.masterGain) {
-    rampParam(_graph.masterGain.gain, clamped, 0.1);
+    rampParam(_graph.masterGain.gain, _proPlaybackPauseGateToken === null ? clamped : 0, 0.1);
   }
   bus.emit('audio:volume-changed', clamped);
   bus.emit('youtube:set-volume', Math.round(clamped * 100));
+});
+
+// A PRO pause remains server-authoritative, but the initiating device should
+// become silent at click time. Gate only the physical output; the AudioBuffer
+// timeline keeps running until the canonical pause arrives, so failure recovery
+// is a simple un-gate instead of a drift-prone stop/seek/restart rollback.
+bus.on('pro-playback:ui-control-pending', (event) => {
+  if (event.kind !== 'pause') return;
+  _proPlaybackPauseGateToken = event.token;
+  if (_graph.masterGain) rampParam(_graph.masterGain.gain, 0, 0.015);
+});
+
+bus.on('pro-playback:ui-control-settled', (event) => {
+  if (event.kind !== 'pause' || _proPlaybackPauseGateToken !== event.token) return;
+  _proPlaybackPauseGateToken = null;
+  const volume = Math.max(0, Math.min(1, getState('audio.masterVolume') ?? 1));
+  if (_graph.masterGain) rampParam(_graph.masterGain.gain, volume, 0.03);
 });
 
 /** Apply volume to YouTube player */

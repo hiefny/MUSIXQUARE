@@ -357,11 +357,16 @@ export function seekTo(time: number): void {
 
   if (
     !isSystemAudioOwner() &&
-    routeProPlaybackCommand({
-      kind: 'seek',
-      queueItemId,
-      positionSeconds: Number.isFinite(time) ? Math.max(0, time) : 0,
-    })
+    routeProPlaybackCommand(
+      {
+        kind: 'seek',
+        queueItemId,
+        positionSeconds: Number.isFinite(time) ? Math.max(0, time) : 0,
+      },
+      {
+        wasPlaying: getState('playback.activity') === 'playing',
+      },
+    )
   ) {
     return;
   }
@@ -828,13 +833,18 @@ export function handleEnded(): void {
 export function togglePlay(): void {
   if (isGuestBlocked()) return;
 
+  const wasPlaying = getState('playback.activity') === 'playing';
+
   if (
     !isSystemAudioOwner() &&
-    routeProPlaybackCommand({
-      kind: getState('playback.activity') === 'playing' ? 'pause' : 'play',
-      queueItemId: getCurrentQueueItemId(),
-      positionSeconds: getTrackPosition(),
-    })
+    routeProPlaybackCommand(
+      {
+        kind: wasPlaying ? 'pause' : 'play',
+        queueItemId: getCurrentQueueItemId(),
+        positionSeconds: getTrackPosition(),
+      },
+      { wasPlaying },
+    )
   ) {
     return;
   }
@@ -1044,11 +1054,16 @@ export function skipTime(sec: number): void {
   if (isSystemAudioOwner()) return; // No skip on live stream
   const requestedSkipTarget = Math.max(0, getTrackPosition() + (Number.isFinite(sec) ? sec : 0));
   if (
-    routeProPlaybackCommand({
-      kind: 'seek',
-      queueItemId,
-      positionSeconds: requestedSkipTarget,
-    })
+    routeProPlaybackCommand(
+      {
+        kind: 'seek',
+        queueItemId,
+        positionSeconds: requestedSkipTarget,
+      },
+      {
+        wasPlaying: getState('playback.activity') === 'playing',
+      },
+    )
   ) {
     return;
   }

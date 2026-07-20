@@ -88,6 +88,12 @@ let _pendingAutoSyncOwner: {
   youtubeSessionId: number;
 } | null = null;
 let _pendingAutoSyncGeneration = 0;
+let _proPlaybackPauseGateToken: number | null = null;
+
+function youtubeZeroStartOwnsHardMute(): boolean {
+  const phase = getYouTubeZeroStartSnapshot()?.phase;
+  return phase === 'muting' || phase === 'warming' || phase === 'settling';
+}
 
 function clearPendingAutoSync(): void {
   _pendingAutoSyncOnReady = false;
@@ -731,7 +737,7 @@ export async function applyProPlaybackYouTubeCommit(
       Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
     );
     player.setVolume?.(volume);
-    if (volume === 0) player.mute?.();
+    if (volume === 0 || _proPlaybackPauseGateToken !== null) player.mute?.();
     else player.unMute?.();
 
     if (request.state === 'playing') {
@@ -3103,14 +3109,32 @@ export function initYouTube(): void {
       // an unmute must be deferred; its controller restores the latest desired
       // state before arming. Once audio restoration begins, direct changes are
       // safe again and are included in the controller's verification poll.
-      const zeroStartPhase = getYouTubeZeroStartSnapshot()?.phase;
-      const zeroStartOwnsHardMute =
-        zeroStartPhase === 'muting' ||
-        zeroStartPhase === 'warming' ||
-        zeroStartPhase === 'settling';
-      if (shouldMute) player.mute?.();
-      else if (!zeroStartOwnsHardMute) player.unMute?.();
+      if (shouldMute || _proPlaybackPauseGateToken !== null) player.mute?.();
+      else if (!youtubeZeroStartOwnsHardMute()) player.unMute?.();
     }
+  });
+
+  // Match the WebAudio output gate: pause feels immediate on the initiating
+  // PRO participant without changing iframe playback state before the server's
+  // revisioned commit. Volume changes remain stored but cannot open the gate.
+  bus.on('pro-playback:ui-control-pending', (event) => {
+    if (event.kind !== 'pause') return;
+    _proPlaybackPauseGateToken = event.token;
+    getYouTubePlayer()?.mute?.();
+  });
+
+  bus.on('pro-playback:ui-control-settled', (event) => {
+    if (event.kind !== 'pause' || _proPlaybackPauseGateToken !== event.token) return;
+    _proPlaybackPauseGateToken = null;
+    const player = getYouTubePlayer();
+    if (!player) return;
+    const volume = Math.max(
+      0,
+      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
+    );
+    player.setVolume?.(volume);
+    if (volume === 0) player.mute?.();
+    else if (!youtubeZeroStartOwnsHardMute()) player.unMute?.();
   });
 
   // YouTube sub-item seek (from playlist-view sub-item click)

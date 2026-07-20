@@ -37,6 +37,7 @@ import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
+import type { ProPlaybackUiControlKind } from '../types/index.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
@@ -78,6 +79,9 @@ const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 const LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS = 200;
 let _ytPlayButtonLoading = false;
 let _filePlayButtonLoading = false;
+let _proPlaybackControlLoading = false;
+let _proPlaybackControlToken: number | null = null;
+let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
 let _manualSyncPreviousFocus: HTMLElement | null = null;
 
 function isFilePlayButtonLoading(): boolean {
@@ -93,8 +97,9 @@ function isFilePlayButtonLoading(): boolean {
 function syncPlayButtonLoadingClass(): void {
   const btn = document.getElementById('play-btn');
   if (!btn) return;
-  btn.classList.toggle('yt-syncing', _ytPlayButtonLoading || _filePlayButtonLoading);
-  btn.setAttribute('aria-busy', String(_ytPlayButtonLoading || _filePlayButtonLoading));
+  const loading = _ytPlayButtonLoading || _filePlayButtonLoading || _proPlaybackControlLoading;
+  btn.classList.toggle('yt-syncing', loading);
+  btn.setAttribute('aria-busy', String(loading));
 }
 
 function refreshFilePlayButtonLoading(): void {
@@ -834,6 +839,9 @@ export function initPlayerControls(): void {
   _busScope.dispose();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
+  _proPlaybackControlLoading = false;
+  _proPlaybackControlToken = null;
+  _proPlaybackControlKind = null;
   initTabTitleMarquee(getTabTitleSnapshot);
 
   const $on = (id: string, evt: string, fn: EventListener) => {
@@ -1200,6 +1208,7 @@ export function initPlayerControls(): void {
 
   // Play/Pause visual state — derived from playback activity + YouTube play event
   function updatePlayIcon(playing: boolean): void {
+    if (_proPlaybackControlKind === 'pause') playing = false;
     const btn = document.getElementById('play-btn');
     const icon = btn?.querySelector('path');
     if (icon) {
@@ -1279,6 +1288,33 @@ export function initPlayerControls(): void {
   _busScope.on('youtube:sync-loading', (loading) => {
     _ytPlayButtonLoading = !!loading;
     syncPlayButtonLoadingClass();
+  });
+
+  _busScope.on('pro-playback:ui-control-pending', (event) => {
+    _proPlaybackControlToken = event.token;
+    _proPlaybackControlKind = event.kind;
+    _proPlaybackControlLoading =
+      event.kind === 'play' || (event.kind === 'seek' && event.wasPlaying);
+    if (event.kind === 'pause') updatePlayIcon(false);
+    syncPlayButtonLoadingClass();
+  });
+
+  _busScope.on('pro-playback:ui-control-settled', (event) => {
+    if (_proPlaybackControlToken !== event.token) return;
+    _proPlaybackControlToken = null;
+    _proPlaybackControlKind = null;
+    _proPlaybackControlLoading = false;
+    syncPlayButtonLoadingClass();
+
+    if (event.status !== 'applied') {
+      const mode = getState('playback.mode');
+      const activity = getState('playback.activity');
+      const playing =
+        mode === 'youtube'
+          ? getYouTubePlayer()?.getPlayerState?.() === 1
+          : mode !== null && activity === 'playing';
+      updatePlayIcon(playing);
+    }
   });
 
   refreshFilePlayButtonLoading();

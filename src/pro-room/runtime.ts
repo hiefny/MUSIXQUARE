@@ -47,6 +47,7 @@ import {
   type ProRoomBotCommandResult,
   type ProRoomBootstrap,
   type ProRoomPlaybackCommand,
+  type ProRoomPlaybackCommandResult,
   type ProRoomPlaybackCommitEvent,
   type ProRoomPlaybackPrepareEvent,
   type RecoverProRoomOwnerInput,
@@ -82,8 +83,10 @@ import {
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
   prepareProPlaybackAuthority,
+  refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
   resetProPlaybackAuthorityHooks,
+  settleProPlaybackUiControl,
   type ProPlaybackAuthorityToken,
   type ProPlaybackTimingMode,
   type ProPlaybackUserIntent,
@@ -125,6 +128,7 @@ const QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
 const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
 const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
+const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
 // Keep well below the manifest endpoint's per-IP minute budget so a room with
 // legacy rows cannot starve an explicit user add. Remaining rows continue on
 // a later room session.
@@ -191,6 +195,7 @@ let transferLoaderSequence = 0;
 const activeTransferLoaderIds = new Set<string>();
 let unregisterPlaybackCommandHandler: (() => void) | null = null;
 let playbackCommandTail: Promise<void> = Promise.resolve();
+let playbackCommandRequestSequence = 0;
 let highestKnownPlaybackRevision = -1;
 let lastAppliedPlaybackRevision = -1;
 let activeServerPlaybackTransition: {
@@ -204,8 +209,142 @@ let activeServerPlaybackTransition: {
 const playbackCommitInFlight = new Map<number, Promise<void>>();
 let playbackCommitTail: Promise<void> = Promise.resolve();
 let playbackCommitGeneration = 0;
+interface PendingLocalPlaybackUiControl {
+  token: number;
+  roomCode: string;
+  roomEpoch: number;
+  expectedPlaybackRevision: number;
+  admitted: boolean;
+  transitionId: string | null | undefined;
+}
+const pendingLocalPlaybackUiControls = new Map<number, PendingLocalPlaybackUiControl>();
+const cancelledPlaybackTransitionIds = new Set<string>();
+const MAX_CANCELLED_PLAYBACK_TRANSITION_IDS = 64;
+let lastAppliedPlaybackUiCheckpoint: {
+  roomCode: string;
+  roomEpoch: number;
+  revision: number;
+  positionSeconds: number;
+} | null = null;
 let youtubeManifestUpgradeTail: Promise<void> = Promise.resolve();
 const attemptedYouTubeManifestUpgrades = new Set<QueueItemId>();
+
+function trackLocalPlaybackUiControl(
+  intent: Readonly<ProPlaybackUserIntent>,
+  expectedPlaybackRevision: number,
+): PendingLocalPlaybackUiControl | null {
+  const token = intent.clientUiControlToken;
+  if (!Number.isSafeInteger(token) || !token || token < 0) return null;
+  const pending = {
+    token,
+    roomCode: intent.roomId,
+    roomEpoch: intent.roomEpoch,
+    expectedPlaybackRevision,
+    admitted: false,
+    transitionId: undefined,
+  };
+  pendingLocalPlaybackUiControls.set(token, pending);
+  return pending;
+}
+
+function settleLocalPlaybackUiControl(
+  pending: PendingLocalPlaybackUiControl | null,
+  status: 'applied' | 'failed' | 'superseded',
+  positionSeconds?: number,
+): void {
+  if (!pending) return;
+  pendingLocalPlaybackUiControls.delete(pending.token);
+  settleProPlaybackUiControl(pending.token, status, positionSeconds);
+}
+
+function settleLocalPlaybackUiControlsThrough(
+  roomCode: string,
+  roomEpoch: number,
+  playbackRevision: number,
+  positionSeconds?: number,
+): void {
+  for (const pending of pendingLocalPlaybackUiControls.values()) {
+    if (pending.roomCode !== roomCode || pending.roomEpoch !== roomEpoch) continue;
+    if (!pending.admitted) continue;
+    if (pending.expectedPlaybackRevision > playbackRevision) continue;
+    settleLocalPlaybackUiControl(
+      pending,
+      pending.expectedPlaybackRevision === playbackRevision ? 'applied' : 'superseded',
+      positionSeconds,
+    );
+  }
+}
+
+function settleLocalPlaybackUiControlByTransition(
+  transitionId: string,
+  status: 'failed' | 'superseded',
+): void {
+  for (const pending of pendingLocalPlaybackUiControls.values()) {
+    if (pending.admitted && pending.transitionId === transitionId) {
+      settleLocalPlaybackUiControl(pending, status);
+    }
+  }
+}
+
+function bindAdmittedLocalPlaybackUiControl(
+  pending: PendingLocalPlaybackUiControl | null,
+  expectedPlaybackRevision: number,
+  transitionId: string | null,
+): void {
+  if (!pending) return;
+  pending.expectedPlaybackRevision = expectedPlaybackRevision;
+  pending.transitionId = transitionId;
+  pending.admitted = true;
+  refreshProPlaybackUiControlTimeout(pending.token);
+  const checkpoint = lastAppliedPlaybackUiCheckpoint;
+  if (
+    checkpoint &&
+    checkpoint.roomCode === pending.roomCode &&
+    checkpoint.roomEpoch === pending.roomEpoch &&
+    checkpoint.revision >= pending.expectedPlaybackRevision
+  ) {
+    settleLocalPlaybackUiControl(
+      pending,
+      checkpoint.revision === pending.expectedPlaybackRevision ? 'applied' : 'superseded',
+      checkpoint.positionSeconds,
+    );
+  }
+}
+
+function failLocalPlaybackUiControlsForRevision(
+  roomCode: string,
+  roomEpoch: number,
+  playbackRevision: number,
+): void {
+  for (const pending of pendingLocalPlaybackUiControls.values()) {
+    if (
+      pending.roomCode === roomCode &&
+      pending.roomEpoch === roomEpoch &&
+      pending.admitted &&
+      pending.expectedPlaybackRevision === playbackRevision
+    ) {
+      settleLocalPlaybackUiControl(pending, 'failed');
+    }
+  }
+}
+
+function clearLocalPlaybackUiControls(): void {
+  for (const pending of pendingLocalPlaybackUiControls.values()) {
+    settleLocalPlaybackUiControl(pending, 'failed');
+  }
+  pendingLocalPlaybackUiControls.clear();
+  cancelledPlaybackTransitionIds.clear();
+  lastAppliedPlaybackUiCheckpoint = null;
+}
+
+function rememberCancelledPlaybackTransition(transitionId: string): void {
+  cancelledPlaybackTransitionIds.add(transitionId);
+  while (cancelledPlaybackTransitionIds.size > MAX_CANCELLED_PLAYBACK_TRANSITION_IDS) {
+    const oldest = cancelledPlaybackTransitionIds.values().next().value as string | undefined;
+    if (!oldest) break;
+    cancelledPlaybackTransitionIds.delete(oldest);
+  }
+}
 
 function openTransferLoader(kind: 'upload' | 'download', text: string): string {
   const id = `pro-room-${kind}-${++transferLoaderSequence}`;
@@ -248,6 +387,45 @@ function createRoomLinkedAbortController(parent?: AbortSignal): {
     controller,
     detach: () => parent?.removeEventListener('abort', abort),
   };
+}
+
+async function executePlaybackCommandWithRecovery(
+  input: Parameters<ProRoomApiClient['executePlaybackCommand']>[0],
+): Promise<ProRoomPlaybackCommandResult> {
+  const roomSignal = playlistRuntimeAbort?.signal;
+  let lastError: unknown = new ProRoomApiError('NETWORK_ERROR');
+
+  // Playback commands already carry an idempotency key. One bounded replay
+  // recovers the important "server committed, response was lost" case without
+  // ever applying the command twice or leaving the serialized control queue
+  // behind a fetch that can remain pending forever.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const linked = createRoomLinkedAbortController(roomSignal);
+    const timeoutTimer = `pro-playback-command-request-timeout-${++playbackCommandRequestSequence}`;
+    let timedOut = false;
+    setManagedTimer(
+      timeoutTimer,
+      () => {
+        timedOut = true;
+        linked.controller.abort();
+      },
+      PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS,
+    );
+    try {
+      return await api.executePlaybackCommand(input, linked.controller.signal);
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        error instanceof ProRoomApiError &&
+        (error.code === 'NETWORK_ERROR' || (error.code === 'ABORTED' && timedOut));
+      if (!retryable || attempt > 0 || roomSignal?.aborted) throw error;
+    } finally {
+      clearManagedTimer(timeoutTimer);
+      linked.detach();
+    }
+  }
+
+  throw lastError;
 }
 
 function cancelSupersededFileDownload(queueItemId: QueueItemId | null): void {
@@ -1208,6 +1386,7 @@ function resetPlaylistRuntime(): void {
   playbackCommandTail = Promise.resolve();
   highestKnownPlaybackRevision = -1;
   lastAppliedPlaybackRevision = -1;
+  clearLocalPlaybackUiControls();
   resetProPlaybackAuthorityHooks();
 }
 
@@ -1784,6 +1963,10 @@ function acceptPlaybackPrepare(
   event: ProRoomPlaybackPrepareEvent,
   receivedAtMs = Date.now(),
 ): void {
+  if (cancelledPlaybackTransitionIds.has(event.transitionId)) {
+    settleLocalPlaybackUiControlByTransition(event.transitionId, 'superseded');
+    return;
+  }
   const context = getState('room.context');
   if (
     !active ||
@@ -1800,6 +1983,10 @@ function acceptPlaybackPrepare(
   if (sameServerTransition(activeServerPlaybackTransition, event)) return;
 
   if (activeServerPlaybackTransition) {
+    settleLocalPlaybackUiControlByTransition(
+      activeServerPlaybackTransition.event.transitionId,
+      'superseded',
+    );
     activeServerPlaybackTransition.clockAbort.abort();
     cancelProPlaybackPreparation(activeServerPlaybackTransition.authority);
   }
@@ -1824,6 +2011,8 @@ function acceptPlaybackPrepare(
 }
 
 function acceptPlaybackCancel(transitionId: string): void {
+  rememberCancelledPlaybackTransition(transitionId);
+  settleLocalPlaybackUiControlByTransition(transitionId, 'superseded');
   const transition = activeServerPlaybackTransition;
   if (!transition || transition.event.transitionId !== transitionId) return;
   transition.clockAbort.abort();
@@ -1984,8 +2173,23 @@ async function applyPlaybackCommit(
         context.roomId,
         context.epoch,
       );
-      if (!playbackCommitStillCurrent(event, generation) || catchup?.status !== 'applied') return;
+      if (!playbackCommitStillCurrent(event, generation) || catchup?.status !== 'applied') {
+        failLocalPlaybackUiControlsForRevision(context.roomId, context.epoch, playback.revision);
+        return;
+      }
       lastAppliedPlaybackRevision = playback.revision;
+      lastAppliedPlaybackUiCheckpoint = {
+        roomCode: context.roomId,
+        roomEpoch: context.epoch,
+        revision: playback.revision,
+        positionSeconds: playback.positionSeconds,
+      };
+      settleLocalPlaybackUiControlsThrough(
+        context.roomId,
+        context.epoch,
+        playback.revision,
+        playback.positionSeconds,
+      );
       void runHeartbeat(true);
       return;
     }
@@ -2023,8 +2227,23 @@ async function applyPlaybackCommit(
       )) ?? result;
   }
 
-  if (result.status !== 'applied' || !playbackCommitStillCurrent(event, generation)) return;
+  if (result.status !== 'applied' || !playbackCommitStillCurrent(event, generation)) {
+    failLocalPlaybackUiControlsForRevision(context.roomId, context.epoch, playback.revision);
+    return;
+  }
   lastAppliedPlaybackRevision = playback.revision;
+  lastAppliedPlaybackUiCheckpoint = {
+    roomCode: context.roomId,
+    roomEpoch: context.epoch,
+    revision: playback.revision,
+    positionSeconds: playback.positionSeconds,
+  };
+  settleLocalPlaybackUiControlsThrough(
+    context.roomId,
+    context.epoch,
+    playback.revision,
+    playback.positionSeconds,
+  );
   if (
     activeServerPlaybackTransition?.event.transitionId === event.transitionId ||
     activeServerPlaybackTransition?.authority === authority
@@ -2134,6 +2353,15 @@ async function submitPlaybackIntent(
     context.epoch !== intent.roomEpoch ||
     snapshot?.roomCode !== intent.roomId
   ) {
+    if (intent.clientUiControlToken) {
+      settleProPlaybackUiControl(intent.clientUiControlToken, 'failed');
+    }
+    return;
+  }
+  if (
+    intent.clientUiControlToken &&
+    !refreshProPlaybackUiControlTimeout(intent.clientUiControlToken)
+  ) {
     return;
   }
   const exactRevisionIsCurrent =
@@ -2154,16 +2382,23 @@ async function submitPlaybackIntent(
   }
   const baseRevision =
     exactBasePlaybackRevision ?? Math.max(highestKnownPlaybackRevision, snapshot.playback.revision);
+  const localUiControl = trackLocalPlaybackUiControl(intent, baseRevision + 1);
   try {
-    const result = await api.executePlaybackCommand({
+    const result = await executePlaybackCommandWithRecovery({
       code: intent.roomId,
       command: commandForPlaybackIntent(intent, baseRevision),
       idempotencyKey: createProRoomIdempotencyKey(),
     });
     highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, result.playback.revision);
     if (result.status === 'preparing' && result.transition) {
+      bindAdmittedLocalPlaybackUiControl(
+        localUiControl,
+        result.transition.target.revision,
+        result.transition.transitionId,
+      );
       acceptPlaybackPrepare(result.transition);
     } else if (result.status === 'committed') {
+      bindAdmittedLocalPlaybackUiControl(localUiControl, result.playback.revision, null);
       acceptPlaybackCommit({
         type: 'pro-playback-commit',
         transitionId: null,
@@ -2171,8 +2406,11 @@ async function submitPlaybackIntent(
         executeAtMs: result.playback.updatedAtMs,
         playback: result.playback,
       });
-    } else if (result.playback.revision > lastAppliedPlaybackRevision) {
-      void restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
+    } else if (result.status === 'unchanged') {
+      settleLocalPlaybackUiControl(localUiControl, 'applied', result.playback.positionSeconds);
+      if (result.playback.revision > lastAppliedPlaybackRevision) {
+        void restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
+      }
     }
   } catch (error) {
     if (
@@ -2182,13 +2420,20 @@ async function submitPlaybackIntent(
         error.code === 'PLAYBACK_TRANSITION_PENDING')
     ) {
       await runHeartbeat(true);
+      settleLocalPlaybackUiControl(localUiControl, 'superseded');
       return;
     }
     if (isTerminalSessionError(error)) {
+      settleLocalPlaybackUiControl(localUiControl, 'failed');
       await recoverTerminalSession(error);
       return;
     }
     log.warn('[PRO Playback] Server command failed', error);
+    // Both attempts used the same idempotency key, so a lost first response was
+    // already recovered without executing twice. Reconcile any canonical room
+    // movement before releasing the participant-local projection.
+    await runHeartbeat(true);
+    settleLocalPlaybackUiControl(localUiControl, 'failed');
   }
 }
 
@@ -2340,6 +2585,7 @@ function stopLifecycle(): void {
   }
   activeServerPlaybackTransition = null;
   playbackCommitGeneration += 1;
+  clearLocalPlaybackUiControls();
   resetProPlaybackAuthorityHooks();
   heartbeatSingleFlight.reset();
   refreshInFlight = false;

@@ -3021,8 +3021,14 @@
     fill: currentColor;
   }
 
+  .administrator-row:not(.is-offline) .d-name {
+    color: var(--text-main);
+    font-weight: 600;
+  }
+
   .administrator-row.is-offline .d-name {
-    color: var(--text-sub);
+    color: var(--text-muted);
+    font-weight: 500;
   }
 
   .administrator-action-button {
@@ -5530,11 +5536,11 @@
   }
 
   .chat-badge-host {
-    color: #f5c842;
+    color: #f5b51b;
   }
 
   .chat-badge-op {
-    color: #999;
+    color: var(--text-muted);
   }
 
   .chat-join-order {

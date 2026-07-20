@@ -77,6 +77,12 @@ describe('Developer API public documentation', () => {
     for (const route of expectedRoutes) expect(html).toContain(route);
     expect(html).toContain('server-to-server API');
     expect(html).toContain('Calls made directly from browser pages are rejected');
+    expect(html).toContain('Authority and attribution');
+    expect(html).toContain('highest-privilege room credential within its assigned scopes');
+    expect(html).toContain('separately identify the requesting user');
+    expect(html).toMatch(
+      /Require explicit confirmation for destructive or broadly scoped\s+actions/,
+    );
     expect(html).toContain('Every mutation requires a unique <code>Idempotency-Key</code>');
     expect(html).toContain('directly to a short-lived signed R2 URL');
   });
@@ -113,6 +119,9 @@ describe('Developer API public documentation', () => {
     expect(spec).toMatch(/^openapi: 3\.1\.0/m);
     expect(spec).toContain('url: https://api.musixquare.com');
     expect(spec).toContain('developerApiKey: []');
+    expect(spec).toContain('highest-privilege room credential within its assigned scopes');
+    expect(spec).toContain('MUSIXQUARE does not verify the human requester');
+    expect(spec).toContain('must confirm destructive or broadly scoped actions explicitly');
     expect(spec).toContain('Idempotency-Key');
     expect(spec).toContain('queueItemIds');
     expect(spec).toContain('sha256:');

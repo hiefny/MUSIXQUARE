@@ -149,6 +149,22 @@ describe('Chat Module', () => {
       }
     });
 
+    it('uses the complete administrator-list crown silhouette for chat roles', async () => {
+      renderMessageShell();
+      const { addChatMessage } = await import('../chat-render.ts');
+
+      addChatMessage('Owner', 'owner message', false, 'host', 0, 'member-owner');
+      addChatMessage('Administrator', 'admin message', false, 'op', 1, 'member-admin');
+
+      const expectedCrownPath = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
+      expect(document.querySelector('.chat-badge-host .chat-crown path')?.getAttribute('d')).toBe(
+        expectedCrownPath,
+      );
+      expect(document.querySelector('.chat-badge-op .chat-crown path')?.getAttribute('d')).toBe(
+        expectedCrownPath,
+      );
+    });
+
     it('gives every standalone regular, system, and whisper group an entry motion hook', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 0, 1, 9, 5));

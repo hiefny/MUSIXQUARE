@@ -51,7 +51,7 @@
       <p class="policy-kicker">PRIVATE BETA</p>
       <h1>Developer API</h1>
       <p>Connect a server, bot, or integration to one MUSIXQUARE PRO room.</p>
-      <p class="policy-date">API version: v1 · Updated July 18, 2026</p>
+      <p class="policy-date">API version: v1 · Updated July 21, 2026</p>
     </section>
 
     <article class="policy-doc">
@@ -94,6 +94,17 @@
             <dd>
               A key is shown only when issued. Store it as a secret, redact it from logs, and request revocation if it
               may have been exposed. Never send a key belonging to one room with another room code.
+            </dd>
+          </div>
+          <div>
+            <dt>Authority and attribution</dt>
+            <dd>
+              Treat every Developer API key as a highest-privilege room credential within its assigned scopes. API
+              actions are room-authoritative automation, not actions whose human requester MUSIXQUARE has verified.
+              A bot or integration must separately identify the requesting user, the integration executing the
+              command, and the user’s exact intent. Require explicit confirmation for destructive or broadly scoped
+              actions, and never treat another user’s message or shared conversation context as the current user’s
+              intent.
             </dd>
           </div>
         </dl>

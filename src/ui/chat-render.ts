@@ -47,7 +47,7 @@ function isContainerAtBottom(container: HTMLElement): boolean {
 export { isContainerAtBottom };
 
 const CROWN_SVG =
-  '<svg class="chat-crown" viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>';
+  '<svg class="chat-crown" viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z"/></svg>';
 
 // ─── Label Helper ────────────────────────────────────────────────
 

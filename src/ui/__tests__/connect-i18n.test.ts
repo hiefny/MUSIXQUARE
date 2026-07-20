@@ -662,6 +662,31 @@ describe('member-level connection and administrator UI', () => {
     expect(actionRules).toContain('padding-top: 6px');
   });
 
+  it('shares crown colors with chat and distinguishes online from offline administrators', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const administratorCrownRules =
+      stylesheet.match(/\.administrator-crown\s*\{([^}]*)\}/)?.[1] ?? '';
+    const ownerCrownRules =
+      stylesheet.match(/\.administrator-crown\.owner\s*\{([^}]*)\}/)?.[1] ?? '';
+    const chatHostCrownRules = stylesheet.match(/\.chat-badge-host\s*\{([^}]*)\}/)?.[1] ?? '';
+    const chatAdministratorCrownRules =
+      stylesheet.match(/\.chat-badge-op\s*\{([^}]*)\}/)?.[1] ?? '';
+    const onlineAdministratorNameRules =
+      stylesheet.match(/\.administrator-row:not\(\.is-offline\)\s+\.d-name\s*\{([^}]*)\}/)?.[1] ??
+      '';
+    const offlineAdministratorNameRules =
+      stylesheet.match(/\.administrator-row\.is-offline\s+\.d-name\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(ownerCrownRules).toContain('color: #f5b51b');
+    expect(chatHostCrownRules).toContain('color: #f5b51b');
+    expect(administratorCrownRules).toContain('color: var(--text-muted)');
+    expect(chatAdministratorCrownRules).toContain('color: var(--text-muted)');
+    expect(onlineAdministratorNameRules).toContain('color: var(--text-main)');
+    expect(onlineAdministratorNameRules).toContain('font-weight: 600');
+    expect(offlineAdministratorNameRules).toContain('color: var(--text-muted)');
+    expect(offlineAdministratorNameRules).toContain('font-weight: 500');
+  });
+
   it('focuses the permission switches without scrolling the modal', async () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'owner-device');

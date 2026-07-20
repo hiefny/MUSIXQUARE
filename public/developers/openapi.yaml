@@ -6,6 +6,10 @@ info:
     Server-to-server API for one room-bound MUSIXQUARE PRO room.
     The API can read and control persistent room-wide audio effects as well as playback and the playlist.
     API keys must never be embedded in browser code or other public clients.
+    Treat every key as a highest-privilege room credential within its assigned scopes. API actions are
+    room-authoritative automation, not actions whose human requester MUSIXQUARE has verified. Integrations must
+    separately identify the requesting user, the executing integration, and the user's exact intent, and require
+    explicit confirmation for destructive or broadly scoped actions.
   contact:
     name: MUSIXQUARE
     email: contact@musixquare.com
@@ -443,6 +447,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: mxqr_live_<key-id>.<secret>
+      description: |
+        Highest-privilege room credential within its assigned scopes. MUSIXQUARE does not verify the human requester
+        behind an API action. The integration must authenticate and distinguish the requesting user, the executing
+        integration, and the user's exact intent, and must confirm destructive or broadly scoped actions explicitly.
   parameters:
     RoomCode:
       name: roomCode

@@ -13,6 +13,7 @@ const OAUTH_FLOW_COOKIE_SCAN_MAX = 12;
 const ACCOUNT_CSRF_HEADER = 'X-MXQR-Account-CSRF';
 
 const GOOGLE_AUTHORIZATION_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_AUTHORIZATION_RESPONSE_ISSUER = 'https://accounts.google.com';
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_JWKS_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/certs';
 const DEFAULT_REDIRECT_URI = 'https://musixquare.com/api/auth/google/callback';
@@ -964,25 +965,33 @@ async function handleGoogleCallback(request, config, url) {
 
   const errors = url.searchParams.getAll('error');
   const codes = url.searchParams.getAll('code');
+  // Google includes its RFC 9207 authorization-server issuer on both success
+  // and error responses. Require the exact singleton value before trusting the
+  // rest of either response shape.
+  const issuers = url.searchParams.getAll('iss');
+  const hasValidIssuer =
+    issuers.length === 1 && issuers[0] === GOOGLE_AUTHORIZATION_RESPONSE_ISSUER;
   const providerDenied =
+    hasValidIssuer &&
     errors.length === 1 &&
     errors[0].length > 0 &&
     errors[0].length <= 256 &&
     codes.length === 0 &&
     hasOnlySingleValueParameters(
       url.searchParams,
-      new Set(['error', 'error_description', 'error_uri', 'state']),
+      new Set(['error', 'error_description', 'error_uri', 'state', 'iss']),
     ) &&
     (url.searchParams.get('error_description')?.length ?? 0) <= 1024 &&
     (url.searchParams.get('error_uri')?.length ?? 0) <= 2048;
   const successfulResponse =
+    hasValidIssuer &&
     codes.length === 1 &&
     codes[0].length >= 8 &&
     codes[0].length <= 4096 &&
     errors.length === 0 &&
     hasOnlySingleValueParameters(
       url.searchParams,
-      new Set(['code', 'state', 'scope', 'authuser', 'prompt']),
+      new Set(['code', 'state', 'scope', 'authuser', 'prompt', 'iss']),
     );
 
   try {

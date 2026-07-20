@@ -439,6 +439,7 @@ function changed(changes: number): { success: true; meta: { changes: number } } 
 const CLIENT_ID = 'mxqr-test.apps.googleusercontent.com';
 const GOOGLE_SUBJECT = 'google-subject-123';
 const GOOGLE_EMAIL = 'person@example.com';
+const GOOGLE_CALLBACK_ISSUER_QUERY = 'iss=https%3A%2F%2Faccounts.google.com';
 const SESSION_PEPPER = 'session-pepper-for-tests-at-least-32-bytes';
 const SUBJECT_PEPPER = 'subject-pepper-for-tests-at-least-32-bytes';
 const STATE_SECRET = 'oauth-state-secret-for-tests-at-least-32-bytes';
@@ -670,7 +671,7 @@ async function completeLogin(
   const google = stubGoogle(started.location.searchParams.get('nonce')!, options);
   const callback = await handleAccountAuthRequest(
     new Request(
-      `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${encodeURIComponent(started.location.searchParams.get('state')!)}`,
+      `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${encodeURIComponent(started.location.searchParams.get('state')!)}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
       { headers: { Cookie: started.flowCookie } },
     ),
     env,
@@ -891,7 +892,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
     });
     const firstCallback = await handleAccountAuthRequest(
       new Request(
-        `https://musixquare.com/api/auth/google/callback?code=${firstCode}&state=${first.location.searchParams.get('state')}`,
+        `https://musixquare.com/api/auth/google/callback?code=${firstCode}&state=${first.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
         { headers: { Cookie: cookieHeader(jar) } },
       ),
       env,
@@ -907,7 +908,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
 
     const secondCallback = await handleAccountAuthRequest(
       new Request(
-        `https://musixquare.com/api/auth/google/callback?code=${secondCode}&state=${second.location.searchParams.get('state')}`,
+        `https://musixquare.com/api/auth/google/callback?code=${secondCode}&state=${second.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
         { headers: { Cookie: cookieHeader(jar) } },
       ),
       env,
@@ -987,7 +988,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
     expect(mismatch?.status).toBe(400);
     expect(google.mock).not.toHaveBeenCalled();
 
-    const validUrl = `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${started.location.searchParams.get('state')}`;
+    const validUrl = `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${started.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`;
     const first = await handleAccountAuthRequest(
       new Request(validUrl, { headers: { Cookie: started.flowCookie } }),
       env,
@@ -1019,7 +1020,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
         { headers: { Cookie: started.flowCookie } },
       ),
       new Request(
-        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${state}`,
+        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${state}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
         { headers: { Cookie: `${started.flowCookie}; ${started.flowCookie}` } },
       ),
     ];
@@ -1034,7 +1035,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
 
     const valid = await handleAccountAuthRequest(
       new Request(
-        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${state}`,
+        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${state}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
         { headers: { Cookie: started.flowCookie } },
       ),
       env,
@@ -1064,7 +1065,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
     const google = stubGoogle(started.location.searchParams.get('nonce')!);
     const valid = await handleAccountAuthRequest(
       new Request(
-        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${started.location.searchParams.get('state')}`,
+        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${started.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
         { headers: { Cookie: started.flowCookie } },
       ),
       env,
@@ -1080,7 +1081,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
     const state = started.location.searchParams.get('state')!;
     const denied = await handleAccountAuthRequest(
       new Request(
-        `https://musixquare.com/api/auth/google/callback?error=access_denied&error_description=cancelled&state=${state}`,
+        `https://musixquare.com/api/auth/google/callback?error=access_denied&error_description=cancelled&state=${state}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
         { headers: { Cookie: started.flowCookie } },
       ),
       env,
@@ -1102,6 +1103,74 @@ describe('Google Authorization Code + PKCE account flow', () => {
     );
     expect(replay?.status).toBe(400);
     await expect(replay?.json()).resolves.toEqual({ error: 'AUTH_FLOW_INVALID' });
+  });
+
+  it('requires exactly the Google authorization issuer on successful callbacks', async () => {
+    const issuerCases = [
+      ['missing', []],
+      ['wrong', ['https://evil.example']],
+      ['duplicate', ['https://accounts.google.com', 'https://accounts.google.com']],
+    ] as const;
+
+    for (const [, issuers] of issuerCases) {
+      const db = new FakeAuthDb();
+      const env = authEnv(db);
+      const started = await startLogin(env);
+      const google = stubGoogle(started.location.searchParams.get('nonce')!);
+      const query = new URLSearchParams({
+        code: 'authorization-code-123',
+        state: started.location.searchParams.get('state')!,
+      });
+      for (const issuer of issuers) query.append('iss', issuer);
+
+      const callback = await handleAccountAuthRequest(
+        new Request(`https://musixquare.com/api/auth/google/callback?${query}`, {
+          headers: { Cookie: started.flowCookie },
+        }),
+        env,
+      );
+
+      expect(callback?.status).toBe(303);
+      expect(callback?.headers.get('Location')).toBe(
+        'https://musixquare.com/000001?panel=connect&accountAuth=error#account',
+      );
+      expect(google.mock).not.toHaveBeenCalled();
+      expect(db.flows.size).toBe(1);
+    }
+  });
+
+  it('requires exactly the Google authorization issuer on denied callbacks', async () => {
+    const issuerCases = [
+      ['missing', []],
+      ['wrong', ['https://evil.example']],
+      ['duplicate', ['https://accounts.google.com', 'https://accounts.google.com']],
+    ] as const;
+
+    for (const [, issuers] of issuerCases) {
+      const db = new FakeAuthDb();
+      const env = authEnv(db);
+      const started = await startLogin(env);
+      const google = stubGoogle(started.location.searchParams.get('nonce')!);
+      const query = new URLSearchParams({
+        error: 'access_denied',
+        state: started.location.searchParams.get('state')!,
+      });
+      for (const issuer of issuers) query.append('iss', issuer);
+
+      const callback = await handleAccountAuthRequest(
+        new Request(`https://musixquare.com/api/auth/google/callback?${query}`, {
+          headers: { Cookie: started.flowCookie },
+        }),
+        env,
+      );
+
+      expect(callback?.status).toBe(303);
+      expect(callback?.headers.get('Location')).toBe(
+        'https://musixquare.com/000001?panel=connect&accountAuth=error#account',
+      );
+      expect(google.mock).not.toHaveBeenCalled();
+      expect(db.flows.size).toBe(1);
+    }
   });
 
   it.each([
@@ -1138,7 +1207,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
     db.fail = true;
     const callback = await handleAccountAuthRequest(
       new Request(
-        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${started.location.searchParams.get('state')}`,
+        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${started.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
         { headers: { Cookie: started.flowCookie } },
       ),
       env,

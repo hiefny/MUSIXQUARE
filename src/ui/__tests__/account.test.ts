@@ -89,7 +89,14 @@ describe('optional account UI', () => {
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
     const focus = vi.fn();
-    const open = vi.spyOn(window, 'open').mockReturnValue({ focus } as unknown as Window);
+    const replace = vi.fn();
+    const popup = {
+      closed: false,
+      focus,
+      location: { replace },
+      opener: window,
+    } as unknown as Window;
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup);
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     openAccountDialog();
@@ -97,12 +104,16 @@ describe('optional account UI', () => {
     document.getElementById('btn-account-google')?.click();
 
     expect(open).toHaveBeenCalledWith(
+      'about:blank',
+      expect.stringMatching(/^mxqr-google-login-/),
+      expect.stringContaining('popup=yes'),
+    );
+    expect(replace).toHaveBeenCalledWith(
       expect.stringMatching(
         /^\/api\/auth\/google\/start\?returnTo=%2Faccount-complete\.html%3FaccountClient%3D/,
       ),
-      'mxqr-google-login',
-      expect.stringContaining('popup=yes'),
     );
+    expect(popup.opener).toBeNull();
     expect(focus).toHaveBeenCalledOnce();
   });
 
@@ -159,7 +170,12 @@ describe('optional account UI', () => {
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
     const focus = vi.fn();
-    const popup = { closed: false, focus } as unknown as Window;
+    const popup = {
+      closed: false,
+      focus,
+      location: { replace: vi.fn() },
+      opener: window,
+    } as unknown as Window;
     const open = vi.spyOn(window, 'open').mockReturnValue(popup);
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
@@ -195,14 +211,20 @@ describe('optional account UI', () => {
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
     const focus = vi.fn();
+    const replace = vi.fn();
     const open = vi
       .spyOn(window, 'open')
-      .mockReturnValue({ closed: false, focus } as unknown as Window);
+      .mockReturnValue({
+        closed: false,
+        focus,
+        location: { replace },
+        opener: window,
+      } as unknown as Window);
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     openAccountDialog();
     document.getElementById('btn-account-google')?.click();
-    const startUrl = String(open.mock.calls[0]?.[0] || '');
+    const startUrl = String(replace.mock.calls[0]?.[0] || '');
     const returnTo = new URL(startUrl, window.location.origin).searchParams.get('returnTo') || '';
     const accountClient = new URL(returnTo, window.location.origin).searchParams.get(
       'accountClient',

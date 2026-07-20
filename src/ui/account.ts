@@ -314,21 +314,36 @@ function bindAccountDialog(): void {
         _accountLoginPopup.focus?.();
         return;
       }
+      const loginUrl = buildGoogleLoginUrl(
+        location,
+        `${ACCOUNT_COMPLETION_PATH}?accountClient=${encodeURIComponent(ACCOUNT_CLIENT_ID)}`,
+      );
+      // Start with a same-origin blank document so the opener can be severed
+      // before Google owns the popup. Opening the OAuth URL directly can race
+      // its redirect and make `popup.opener = null` a cross-origin access.
       const popup = window.open(
-        buildGoogleLoginUrl(
-          location,
-          `${ACCOUNT_COMPLETION_PATH}?accountClient=${encodeURIComponent(ACCOUNT_CLIENT_ID)}`,
-        ),
-        'mxqr-google-login',
+        'about:blank',
+        `mxqr-google-login-${ACCOUNT_CLIENT_ID}`,
         'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes',
       );
       if (!popup) return;
+      try {
+        // The completion page uses BroadcastChannel/storage, so it does not
+        // need a live opener reference while visiting the OAuth provider.
+        popup.opener = null;
+        popup.location.replace(loginUrl);
+      } catch {
+        // If a constrained browser rejects the isolated-popup bootstrap,
+        // close the blank window and preserve the anchor's same-tab fallback.
+        try {
+          popup.close();
+        } catch {
+          // Best-effort cleanup only; the same-tab anchor remains available.
+        }
+        return;
+      }
       event.preventDefault();
       _accountLoginPopup = popup;
-      // The completion page also uses BroadcastChannel/storage, so it does
-      // not need a live opener reference while visiting the OAuth provider.
-      // Sever it before the popup leaves the initial same-origin document.
-      popup.opener = null;
       popup.focus?.();
     } catch {
       // Popup blocking and constrained installed-app browsers fall back to the

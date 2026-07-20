@@ -178,5 +178,8 @@
 
   const close = () => window.close();
   document.getElementById('account-complete-close').addEventListener('click', close);
-  window.setTimeout(close, 250);
+  // Successful popup authentication is already reflected in the source tab,
+  // so finish unobtrusively. Keep cancellation and failure explanations open
+  // until the user dismisses them instead of flashing the message for 250 ms.
+  if (outcome === 'success') window.setTimeout(close, 250);
 })();

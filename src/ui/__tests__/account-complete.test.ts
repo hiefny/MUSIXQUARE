@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 const COMPLETION_HTML = 'public/account-complete.html';
 const COMPLETION_SCRIPT = 'public/account-complete.js';
 
+type CompletionDom = JSDOM & { scheduledTimeouts: Array<() => void> };
+
 const localizedCompletionCopy = [
   ['en', 'en', 'Sign-in complete. You may close this window.', 'Close'],
   ['ko', 'ko', '로그인이 완료됐어요. 이 창을 닫아도 돼요.', '닫기'],
@@ -25,7 +27,7 @@ const localizedCompletionCopy = [
   ['th', 'th', 'เข้าสู่ระบบเรียบร้อยแล้ว คุณปิดหน้าต่างนี้ได้', 'ปิด'],
 ] as const;
 
-async function renderCompletion(language: string, marker = ''): Promise<JSDOM> {
+async function renderCompletion(language: string, marker = ''): Promise<CompletionDom> {
   const [html, script] = await Promise.all([
     readFile(COMPLETION_HTML, 'utf8'),
     readFile(COMPLETION_SCRIPT, 'utf8'),
@@ -34,9 +36,17 @@ async function renderCompletion(language: string, marker = ''): Promise<JSDOM> {
     runScripts: 'outside-only',
     url: `https://musixquare.com/account-complete.html${marker}`,
   });
+  const scheduledTimeouts: Array<() => void> = [];
+  Object.defineProperty(dom.window, 'setTimeout', {
+    configurable: true,
+    value: (handler: unknown) => {
+      if (typeof handler === 'function') scheduledTimeouts.push(() => handler());
+      return scheduledTimeouts.length;
+    },
+  });
   dom.window.localStorage.setItem('musixquare-lang', language);
   dom.window.eval(script);
-  return dom;
+  return Object.assign(dom, { scheduledTimeouts });
 }
 
 describe('account completion localization', () => {
@@ -47,6 +57,7 @@ describe('account completion localization', () => {
         type: 'refresh',
       },
     );
+    expect(success.scheduledTimeouts).toHaveLength(1);
     success.window.close();
   });
 
@@ -98,6 +109,7 @@ describe('account completion localization', () => {
       accountClient: 'tab-12345678',
     });
     expect(cancelledPulse.id).toEqual(expect.stringMatching(/^result:/));
+    expect(cancelled.scheduledTimeouts).toHaveLength(0);
     cancelled.window.close();
 
     const failed = await renderCompletion('en', '?accountAuth=error&accountClient=tab-12345678');
@@ -108,6 +120,7 @@ describe('account completion localization', () => {
       failed.window.localStorage.getItem('mxqr-account-refresh') || '{}',
     ) as Record<string, unknown>;
     expect(failedPulse).toMatchObject({ type: 'refresh', accountAuth: 'error' });
+    expect(failed.scheduledTimeouts).toHaveLength(0);
     failed.window.close();
   });
 });

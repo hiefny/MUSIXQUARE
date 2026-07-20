@@ -30,6 +30,11 @@ const proPlaybackRuntime = vi.hoisted(() => ({
   reconcile: vi.fn<() => Promise<boolean>>(),
 }));
 
+const proRoomClock = vi.hoisted(() => ({
+  connected: false,
+  offsetMs: 0,
+}));
+
 const proSystemAudio = vi.hoisted(() => ({
   view: {
     roomCode: '000001',
@@ -60,6 +65,15 @@ vi.mock('../../youtube/zero-start.ts', () => ({
 
 vi.mock('../../pro-room/runtime.ts', () => ({
   requestActiveProRoomPlaybackReconciliation: proPlaybackRuntime.reconcile,
+}));
+
+vi.mock('../../pro-room/network-bridge.ts', () => ({
+  getProRoomServerNow: vi.fn(() => Date.now() + proRoomClock.offsetMs),
+  proRoomServerBridge: {
+    get connected() {
+      return proRoomClock.connected;
+    },
+  },
 }));
 
 vi.mock('../toast.ts', () => ({
@@ -97,6 +111,8 @@ beforeEach(() => {
   });
   proSystemAudio.ownerName = null;
   proSystemAudio.coordinatorCompatible = true;
+  proRoomClock.connected = false;
+  proRoomClock.offsetMs = 0;
   zeroStartFacade.active = false;
   proPlaybackRuntime.reconcile.mockResolvedValue(true);
   document.body.innerHTML = '';
@@ -302,6 +318,44 @@ describe('updateRoleBadge', () => {
       expect(dot.classList.contains('clock-beat')).toBe(false);
 
       vi.advanceTimersByTime(640);
+      expect(dot.classList.contains('clock-beat')).toBe(true);
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('pulses an authenticated PRO role dot from the connected server clock', () => {
+    vi.useFakeTimers();
+    try {
+      const badge = renderBadge();
+      const dot = badge.querySelector('.role-dot') as HTMLElement;
+      vi.setSystemTime(0);
+      proRoomClock.connected = true;
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', null);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+      applyAccountSession({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+      });
+
+      updateRoleBadge();
+
+      expect(badge.classList.contains('account-authenticated')).toBe(true);
+      expect(dot.classList.contains('clock-beat')).toBe(true);
+      vi.advanceTimersByTime(120);
+      expect(dot.classList.contains('clock-beat')).toBe(false);
+      vi.advanceTimersByTime(120);
       expect(dot.classList.contains('clock-beat')).toBe(true);
     } finally {
       clearAllManagedTimers();

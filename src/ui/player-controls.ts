@@ -61,6 +61,7 @@ import {
 } from '../pro-room/system-audio-bridge.ts';
 import { getAccountSnapshot } from '../account/state.ts';
 import { openAccountDialog } from './account.ts';
+import { getProRoomServerNow, proRoomServerBridge } from '../pro-room/network-bridge.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -262,9 +263,14 @@ function getRoleClockDot(): HTMLElement | null {
 
 function shouldPulseRoleClock(): boolean {
   if (document.visibilityState === 'hidden') return false;
+  if (getRoomContext().kind === 'pro') return proRoomServerBridge.connected;
   const appRole = getState('network.appRole');
   if (appRole === 'host') return true;
   return !!getState('network.hostConn') && isClockCalibrated();
+}
+
+function getRoleClockNow(): number {
+  return getRoomContext().kind === 'pro' ? getProRoomServerNow() : getHostNow();
 }
 
 function stopRoleClockPulse(): void {
@@ -290,8 +296,8 @@ function scheduleRoleClockPulse(realign = false): void {
     return;
   }
 
-  const hostNow = getHostNow();
-  const phase = ((hostNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
+  const roomNow = getRoleClockNow();
+  const phase = ((roomNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
 
   let activeUntilMs = 0;
   let nextPulseDelayMs = ROLE_CLOCK_SECOND_MS - phase;

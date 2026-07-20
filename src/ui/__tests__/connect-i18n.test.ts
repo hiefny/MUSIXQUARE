@@ -644,6 +644,8 @@ describe('member-level connection and administrator UI', () => {
       stylesheet.match(
         /\.administrator-permissions-dialog\s+\.dialog-actions\s*\{([^}]*)\}/,
       )?.[1] ?? '';
+    const permissionRowRules =
+      stylesheet.match(/\.administrator-permission-row\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(desktopStylesheet).toMatch(
       /#desktop-connect-content \.qr-container,\s*#desktop-connect-content \.administrator-list,\s*#desktop-connect-content \.device-list,/,
     );
@@ -657,9 +659,12 @@ describe('member-level connection and administrator UI', () => {
     expect(dialogRules).not.toContain('scale(');
     expect(shownDialogRules).toContain('transform: translateY(0)');
     expect(shownDialogRules).not.toContain('scale(');
-    expect(headerRules).toContain('padding: 30px 32px 18px');
-    expect(listRules).toContain('padding: 0 32px 24px');
-    expect(actionRules).toContain('padding-top: 6px');
+    expect(headerRules).toContain('padding: 30px 32px 14px');
+    expect(listRules).toContain('padding: 0 32px 16px');
+    expect(listRules).toContain('gap: 4px');
+    expect(permissionRowRules).toContain('min-height: 48px');
+    expect(permissionRowRules).toContain('padding: 0 8px');
+    expect(actionRules).toContain('padding-top: 0');
   });
 
   it('shares crown colors with chat and distinguishes online from offline administrators', async () => {
@@ -671,16 +676,23 @@ describe('member-level connection and administrator UI', () => {
     const chatHostCrownRules = stylesheet.match(/\.chat-badge-host\s*\{([^}]*)\}/)?.[1] ?? '';
     const chatAdministratorCrownRules =
       stylesheet.match(/\.chat-badge-op\s*\{([^}]*)\}/)?.[1] ?? '';
+    const chatCrownRules = stylesheet.match(/\.chat-crown\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticatedRoleDotRules =
+      stylesheet.match(/\.role-badge\.account-authenticated\s+\.role-dot\s*\{([^}]*)\}/)?.[1] ??
+      '';
     const onlineAdministratorNameRules =
       stylesheet.match(/\.administrator-row:not\(\.is-offline\)\s+\.d-name\s*\{([^}]*)\}/)?.[1] ??
       '';
     const offlineAdministratorNameRules =
       stylesheet.match(/\.administrator-row\.is-offline\s+\.d-name\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(ownerCrownRules).toContain('color: #f5b51b');
-    expect(chatHostCrownRules).toContain('color: #f5b51b');
+    expect(ownerCrownRules).toContain('color: #f5c842');
+    expect(chatHostCrownRules).toContain('color: #f5c842');
     expect(administratorCrownRules).toContain('color: var(--text-muted)');
     expect(chatAdministratorCrownRules).toContain('color: var(--text-muted)');
+    expect(chatCrownRules).toContain('top: -1px');
+    expect(authenticatedRoleDotRules).toContain('background: white');
+    expect(authenticatedRoleDotRules).not.toContain('opacity:');
     expect(onlineAdministratorNameRules).toContain('color: var(--text-main)');
     expect(onlineAdministratorNameRules).toContain('font-weight: 600');
     expect(offlineAdministratorNameRules).toContain('color: var(--text-muted)');

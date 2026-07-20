@@ -3855,21 +3855,21 @@ export async function kickActiveProRoomMember(
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
   try {
     await acceptPlaylistSnapshot(snapshot);
-    await refreshPersistedEffects(snapshot).catch((error) => {
-      // Keep room entry compatible during a staggered Worker/app rollout.
-      // The next heartbeat retries the authoritative effects read.
-      log.warn('[PRO] Initial room effects refresh failed', error);
-    });
-    await refreshPersistedQueueMode(snapshot).catch((error) => {
-      // Keep entry compatible while the Worker endpoint rolls out. The first
-      // heartbeat retries without discarding playlist/playback restoration.
-      log.warn('[PRO] Initial queue mode refresh failed', error);
-    });
   } catch (error) {
     await controller.leave().catch(() => undefined);
     throw error;
   }
   startLifecycle();
+  // These dedicated resources are optional adjunct state. In particular, a
+  // mobile document can suspend their fetches while an OAuth popup owns the
+  // foreground. Never keep an already-authenticated room behind the setup
+  // spinner; the heartbeat path coalesces and retries both reads.
+  void refreshPersistedEffects(snapshot).catch((error) => {
+    log.warn('[PRO] Initial room effects refresh failed', error);
+  });
+  void refreshPersistedQueueMode(snapshot).catch((error) => {
+    log.warn('[PRO] Initial queue mode refresh failed', error);
+  });
   const pendingTransition = bridge.consumePendingPlaybackTransition();
   if (pendingTransition) acceptPlaybackPrepare(pendingTransition);
   void refreshProSystemAudioState().catch((error) => {

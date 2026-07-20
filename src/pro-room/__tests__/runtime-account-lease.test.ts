@@ -185,4 +185,27 @@ describe.sequential('PRO runtime account identity lease', () => {
       expect(getState('room.context').capabilities).toEqual(['playback.control']),
     );
   });
+
+  it('does not gate room entry on optional initial adjunct reads', async () => {
+    vi.mocked(ProRoomApiClient.prototype.getEffects).mockReturnValue(
+      new Promise<never>(() => undefined),
+    );
+    vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockReturnValue(
+      new Promise<never>(() => undefined),
+    );
+
+    await expect(
+      joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Minsu' }),
+    ).resolves.toMatchObject({ roomCode: ROOM_CODE });
+
+    expect(ProRoomApiClient.prototype.getEffects).toHaveBeenCalledWith(
+      ROOM_CODE,
+      expect.any(AbortSignal),
+    );
+    expect(ProRoomApiClient.prototype.getQueueMode).toHaveBeenCalledWith(
+      ROOM_CODE,
+      expect.any(AbortSignal),
+    );
+    expect(getState('network.isConnecting')).toBe(false);
+  });
 });

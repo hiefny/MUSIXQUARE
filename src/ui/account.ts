@@ -19,6 +19,7 @@ const _busScope = createBusScope();
 const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
+const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
 type AccountAuthOutcome = 'cancelled' | 'error';
 
 function createAccountClientId(): string {
@@ -40,6 +41,7 @@ let _profilePromptShown = false;
 let _profilePromptActive = false;
 let _accountActionPending = false;
 let _accountLoginPopup: Window | null = null;
+let _accountLoginPopupMonitor: ReturnType<typeof setInterval> | null = null;
 let _accountResultChannel: BroadcastChannel | null = null;
 let _accountResultLifecycleBound = false;
 let _profilePromptVisibilityBound = false;
@@ -96,8 +98,46 @@ function handleAccountAuthOutcome(outcome: AccountAuthOutcome, id: string): void
     if (typeof oldest === 'string') _handledAccountResultIds.delete(oldest);
   }
   _accountLoginPopup = null;
+  stopAccountLoginPopupMonitor();
   openAccountDialog();
   showToast(t(outcome === 'cancelled' ? 'account.login_cancelled' : 'account.login_failed'));
+}
+
+function stopAccountLoginPopupMonitor(): void {
+  if (_accountLoginPopupMonitor === null) return;
+  globalThis.clearInterval(_accountLoginPopupMonitor);
+  _accountLoginPopupMonitor = null;
+}
+
+function monitorAccountLoginPopup(popup: Window): void {
+  stopAccountLoginPopupMonitor();
+  const monitor = globalThis.setInterval(() => {
+    if (_accountLoginPopup !== popup) {
+      globalThis.clearInterval(monitor);
+      if (_accountLoginPopupMonitor === monitor) _accountLoginPopupMonitor = null;
+      return;
+    }
+
+    let closed: boolean;
+    try {
+      closed = popup.closed;
+    } catch {
+      // Reading `closed` is normally cross-origin safe, but constrained
+      // WebViews can still reject access while the provider owns the window.
+      return;
+    }
+    if (!closed) return;
+
+    _accountLoginPopup = null;
+    globalThis.clearInterval(monitor);
+    if (_accountLoginPopupMonitor === monitor) _accountLoginPopupMonitor = null;
+    // A manually closed provider window cannot run the completion page, so it
+    // emits no BroadcastChannel/storage pulse. Reconcile the HttpOnly cookie
+    // directly; startAccountSessionRefresh also queues a follow-up if another
+    // account read happens to be in flight.
+    startAccountSessionRefresh();
+  }, ACCOUNT_LOGIN_POPUP_POLL_MS);
+  _accountLoginPopupMonitor = monitor;
 }
 
 function handleAccountResultMessage(event: MessageEvent): void {
@@ -344,6 +384,7 @@ function bindAccountDialog(): void {
       }
       event.preventDefault();
       _accountLoginPopup = popup;
+      monitorAccountLoginPopup(popup);
       popup.focus?.();
     } catch {
       // Popup blocking and constrained installed-app browsers fall back to the
@@ -488,6 +529,7 @@ export function __resetAccountUiForTests(): void {
   _profilePromptActive = false;
   _accountActionPending = false;
   _accountLoginPopup = null;
+  stopAccountLoginPopupMonitor();
   _handledAccountResultIds.clear();
   if (_accountResultLifecycleBound && typeof window !== 'undefined') {
     window.removeEventListener('message', handleAccountResultMessage);

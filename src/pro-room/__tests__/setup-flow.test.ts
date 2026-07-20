@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProRoomApiError } from '../api.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -51,15 +51,45 @@ beforeEach(() => {
   mocks.recoverOwner.mockResolvedValue({});
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('PRO room setup flow', () => {
   it('resumes an active cookie session without opening a PIN dialog', async () => {
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
-    expect(mocks.resume).toHaveBeenCalledWith(ROOM_CODE);
+    expect(mocks.resume).toHaveBeenCalledWith(ROOM_CODE, {
+      signal: expect.any(AbortSignal),
+    });
     expect(mocks.showDialog).not.toHaveBeenCalled();
     expect(mocks.join).not.toHaveBeenCalled();
+  });
+
+  it('aborts a stalled entry operation instead of leaving setup busy forever', async () => {
+    vi.useFakeTimers();
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    let resumeSignal: AbortSignal | null = null;
+    mocks.resume.mockImplementation((_code: string, options: { signal?: AbortSignal } = {}) => {
+      resumeSignal = options.signal ?? null;
+      // Model a mobile request that never reports either success or failure
+      // after the document returns from an OAuth window.
+      return new Promise<never>(() => undefined);
+    });
+
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.resume).toHaveBeenCalledOnce();
+    const rejection = expect(entering).rejects.toMatchObject({
+      code: 'PRO_ROOM_ENTRY_TIMEOUT',
+      status: 408,
+    });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+    expect(resumeSignal?.aborted).toBe(true);
   });
 
   it('falls back to an eight-digit PIN only when the cookie session is missing', async () => {
@@ -69,11 +99,14 @@ describe('PRO room setup flow', () => {
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
-    expect(mocks.join).toHaveBeenCalledWith({
-      code: ROOM_CODE,
-      pin: '12345678',
-      displayName: 'Peer 1',
-    });
+    expect(mocks.join).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        pin: '12345678',
+        displayName: 'Peer 1',
+      },
+      expect.any(AbortSignal),
+    );
   });
 
   it('keeps the existing tab connected when takeover confirmation is cancelled', async () => {
@@ -104,7 +137,13 @@ describe('PRO room setup flow', () => {
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
-    expect(mocks.resume.mock.calls).toEqual([[ROOM_CODE], [ROOM_CODE, { takeover: true }]]);
+    expect(mocks.resume).toHaveBeenNthCalledWith(1, ROOM_CODE, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(mocks.resume).toHaveBeenNthCalledWith(2, ROOM_CODE, {
+      takeover: true,
+      signal: expect.any(AbortSignal),
+    });
     expect(mocks.announceTakeover).toHaveBeenCalledWith(ROOM_CODE);
   });
 
@@ -124,7 +163,10 @@ describe('PRO room setup flow', () => {
     expect(mocks.showDialog.mock.calls[1]?.[0]).toMatchObject({
       message: 'pro.pin_retry_message',
     });
-    expect(mocks.join).toHaveBeenLastCalledWith(expect.objectContaining({ pin: '22222222' }));
+    expect(mocks.join).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pin: '22222222' }),
+      expect.any(AbortSignal),
+    );
   });
 
   it('activates a claimed room with its derived temporary PIN and chosen owner PIN', async () => {
@@ -141,13 +183,16 @@ describe('PRO room setup flow', () => {
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
-    expect(mocks.activate).toHaveBeenCalledWith({
-      code: ROOM_CODE,
-      claimToken: CLAIM,
-      temporaryPin: '00000001',
-      newPin: '87654321',
-      ownerName: 'Peer 1',
-    });
+    expect(mocks.activate).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        claimToken: CLAIM,
+        temporaryPin: '00000001',
+        newPin: '87654321',
+        ownerName: 'Peer 1',
+      },
+      expect.any(AbortSignal),
+    );
   });
 
   it('recovers an active owner before cookie resume or the normal PIN flow', async () => {
@@ -160,11 +205,14 @@ describe('PRO room setup flow', () => {
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
-    expect(mocks.recoverOwner).toHaveBeenCalledWith({
-      code: ROOM_CODE,
-      claimToken: CLAIM,
-      displayName: 'Peer 1',
-    });
+    expect(mocks.recoverOwner).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        claimToken: CLAIM,
+        displayName: 'Peer 1',
+      },
+      expect.any(AbortSignal),
+    );
     expect(mocks.resume).not.toHaveBeenCalled();
     expect(mocks.join).not.toHaveBeenCalled();
     expect(mocks.showDialog).not.toHaveBeenCalled();

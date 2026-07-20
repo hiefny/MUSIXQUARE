@@ -6,6 +6,38 @@ import { takeProRoomClaimsFromFragment } from './claim-fragment.ts';
 import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 import { announceProRoomTabTakeover } from './tab-handoff.ts';
 
+const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
+
+/**
+ * Bound only one network-facing entry operation. Each prompt gets a fresh
+ * deadline so time spent entering a PIN or confirming a takeover never counts
+ * as a connection failure.
+ */
+async function runEntryOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const abort = new AbortController();
+  const timeoutError = new ProRoomApiError('PRO_ROOM_ENTRY_TIMEOUT', 408);
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = globalThis.setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+      reject(timeoutError);
+    }, PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([Promise.resolve().then(() => operation(abort.signal)), deadline]);
+  } catch (error) {
+    // Abort-aware fetches can reject synchronously from abort before the
+    // deadline promise wins the race. Preserve one stable user-facing cause.
+    if (timedOut) throw timeoutError;
+    throw error;
+  } finally {
+    if (timeout !== null) globalThis.clearTimeout(timeout);
+  }
+}
+
 async function showUnavailable(title: string, message: string): Promise<void> {
   await showDialog({ title, message, buttonText: t('common.ok') });
 }
@@ -66,7 +98,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   // the runtime bridges back into peer.ts and would otherwise form an eager
   // guest -> runtime -> peer -> guest evaluation cycle at app startup.
   const runtime = await import('./runtime.ts');
-  const bootstrap = await runtime.getProRoomBootstrap(code);
+  const bootstrap = await runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal));
 
   if (bootstrap.status === 'suspended') {
     await showUnavailable(t('pro.suspended_title'), t('pro.suspended_message'));
@@ -74,7 +106,8 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   }
 
   if (bootstrap.status === 'activation_required') {
-    if (!fragmentClaims.activationClaimToken) {
+    const activationClaimToken = fragmentClaims.activationClaimToken;
+    if (!activationClaimToken) {
       await showUnavailable(t('pro.not_ready_title'), t('pro.not_ready_message'));
       return false;
     }
@@ -86,27 +119,38 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
       temporaryPin,
     });
     if (!newPin) return false;
-    await runtime.activateProRoom({
-      code,
-      claimToken: fragmentClaims.activationClaimToken,
-      temporaryPin,
-      newPin,
-      ownerName: getState('network.myDeviceLabel') || 'Owner',
-    });
+    await runEntryOperation((signal) =>
+      runtime.activateProRoom(
+        {
+          code,
+          claimToken: activationClaimToken,
+          temporaryPin,
+          newPin,
+          ownerName: getState('network.myDeviceLabel') || 'Owner',
+        },
+        signal,
+      ),
+    );
     return true;
   }
 
   if (fragmentClaims.ownerRecoveryClaimPresent) {
-    if (!fragmentClaims.ownerRecoveryClaimToken) {
+    const ownerRecoveryClaimToken = fragmentClaims.ownerRecoveryClaimToken;
+    if (!ownerRecoveryClaimToken) {
       await showUnavailable(t('pro.suspended_title'), t('pro.connect_failed'));
       return false;
     }
     try {
-      await runtime.recoverProRoomOwner({
-        code,
-        claimToken: fragmentClaims.ownerRecoveryClaimToken,
-        displayName: getState('network.myDeviceLabel') || 'Owner',
-      });
+      await runEntryOperation((signal) =>
+        runtime.recoverProRoomOwner(
+          {
+            code,
+            claimToken: ownerRecoveryClaimToken,
+            displayName: getState('network.myDeviceLabel') || 'Owner',
+          },
+          signal,
+        ),
+      );
       return true;
     } catch {
       // Recovery failures deliberately collapse to one generic UI result. A
@@ -120,7 +164,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   // A host-only HttpOnly cookie survives a reload. Try it before asking for
   // the 8-digit PIN again; only an authentication miss falls through.
   try {
-    await runtime.resumeProRoom(code);
+    await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
     return true;
   } catch (error) {
     if (isActiveInAnotherTab(error)) {
@@ -133,7 +177,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
         defaultFocus: 'secondary',
       });
       if (result.action !== 'ok') return false;
-      await runtime.resumeProRoom(code, { takeover: true });
+      await runEntryOperation((signal) => runtime.resumeProRoom(code, { takeover: true, signal }));
       // The server is the source of truth. Broadcast only after it commits the
       // new incarnation so the previous tab can stop immediately instead of
       // waiting for its next signaling/heartbeat failure.
@@ -152,11 +196,16 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     });
     if (!pin) return false;
     try {
-      await runtime.joinProRoom({
-        code,
-        pin,
-        displayName: getState('network.myDeviceLabel') || 'Peer',
-      });
+      await runEntryOperation((signal) =>
+        runtime.joinProRoom(
+          {
+            code,
+            pin,
+            displayName: getState('network.myDeviceLabel') || 'Peer',
+          },
+          signal,
+        ),
+      );
       return true;
     } catch (error) {
       if (error instanceof ProRoomApiError && error.code === 'PIN_INVALID') {

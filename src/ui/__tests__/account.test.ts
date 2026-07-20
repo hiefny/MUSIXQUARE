@@ -189,6 +189,39 @@ describe('optional account UI', () => {
     expect(focus).toHaveBeenCalledTimes(2);
   });
 
+  it('forces a session reconciliation when the login popup is manually closed', async () => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null }),
+      );
+    let popupClosed = false;
+    const popup = {
+      get closed() {
+        return popupClosed;
+      },
+      focus: vi.fn(),
+      location: { replace: vi.fn() },
+      opener: window,
+    } as unknown as Window;
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+
+    vi.useFakeTimers();
+    document.getElementById('btn-account-google')?.click();
+    popupClosed = true;
+    await vi.advanceTimersByTimeAsync(250);
+    vi.useRealTimers();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(getAccountSnapshot().status).toBe('anonymous');
+  });
+
   it('restores the login dialog after a same-tab PWA cancellation and removes only its marker', async () => {
     window.history.replaceState({}, '', '/000001?panel=chat&accountAuth=cancelled#messages');
     vi.mocked(fetch).mockResolvedValue(

@@ -694,7 +694,6 @@ describe('release deployment rollback state', () => {
     }
 
     for (const scriptPath of [
-      'scripts/live-pro-room-smoke.mjs',
       'scripts/live-developer-api-smoke.mjs',
       'scripts/live-remote-share-smoke.ts',
     ]) {
@@ -704,6 +703,15 @@ describe('release deployment rollback state', () => {
       expect(source.match(/\bfetch\(/g), scriptPath).toHaveLength(1);
       expect(source.match(/\bfetchWithTimeout\(/g)?.length, scriptPath).toBeGreaterThan(1);
     }
+
+    const proRoomSmokePath = 'scripts/live-pro-room-smoke.mjs';
+    const proRoomSmoke = readFileSync(resolve(proRoomSmokePath), 'utf8');
+    expect(proRoomSmoke).toContain('export const PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS = 10_000;');
+    expect(proRoomSmoke).toContain('AbortSignal.timeout(PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS)');
+    expect(proRoomSmoke.match(/\bfetch\(/g), proRoomSmokePath).toHaveLength(1);
+    expect(proRoomSmoke.match(/\bfetchWithTimeout\(/g)?.length, proRoomSmokePath).toBeGreaterThan(
+      1,
+    );
   });
 
   it('fails closed on unknown rollback skip targets', () => {

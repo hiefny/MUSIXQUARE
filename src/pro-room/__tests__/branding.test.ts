@@ -10,27 +10,43 @@ import {
 } from '../branding.ts';
 
 beforeEach(() => {
-  document.body.innerHTML = '<span id="header-pro-badge" hidden>PRO</span>';
+  document.body.innerHTML = `
+    <svg id="header-standard-wordmark"></svg>
+    <svg id="header-pro-wordmark"></svg>
+  `;
   document.documentElement.removeAttribute('data-pro-room');
   bus.clear();
   resetState();
 });
 
 describe('PRO room branding', () => {
-  it('shares the feature badge component with both BETA badges', async () => {
+  it('uses a dedicated one-line MXQR PRO wordmark instead of a generic badge', async () => {
     const markup = await readFile('index.html', 'utf8');
+    const stylesheet = await readFile('css/style.css', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
-    const proBadge = parsed.getElementById('header-pro-badge');
+    const standardWordmark = parsed.getElementById('header-standard-wordmark');
+    const proWordmark = parsed.getElementById('header-pro-wordmark');
     const betaBadges = parsed.querySelectorAll('.media-source-beta-badge');
 
-    expect(proBadge?.classList.contains('feature-badge')).toBe(true);
+    expect(standardWordmark?.tagName).toBe('svg');
+    expect(proWordmark?.tagName).toBe('svg');
+    expect(proWordmark?.querySelectorAll('path')).toHaveLength(7);
+    expect(proWordmark?.querySelector('text')).toBeNull();
+    expect(parsed.getElementById('header-pro-badge')).toBeNull();
+    expect(stylesheet).toMatch(/\.header-pro-wordmark\s*{\s*display:\s*none;/);
+    expect(stylesheet).toMatch(
+      /html\[data-pro-room\]\s+#header-standard-wordmark\s*{\s*display:\s*none;/,
+    );
+    expect(stylesheet).toMatch(
+      /html\[data-pro-room\]\s+\.header-pro-wordmark\s*{\s*display:\s*block;/,
+    );
     expect(betaBadges).toHaveLength(2);
     for (const badge of betaBadges) {
       expect(badge.classList.contains('feature-badge')).toBe(true);
     }
   });
 
-  it('stacks the PRO badge below the wordmark in the compact sidebar', async () => {
+  it('keeps the PRO wordmark on one line before the truly short super-compact breakpoint', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
     const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
@@ -39,13 +55,10 @@ describe('PRO room branding', () => {
     const compactSidebarStyles = stylesheet.slice(compactStart, compactEnd);
 
     expect(compactSidebarStyles).toMatch(
-      /#app-logo\s*{\s*flex-direction:\s*column;\s*align-items:\s*flex-start;/,
+      /#app-logo\s*{\s*flex-direction:\s*row;\s*align-items:\s*center;/,
     );
-    expect(compactSidebarStyles).toMatch(
-      /\.header-pro-badge\s*{\s*align-self:\s*flex-start;\s*margin-top:\s*12px;\s*margin-left:\s*0;/,
-    );
-    expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*400px\)/);
-    expect(compactSidebarStyles).not.toMatch(/@media\s*\(max-height:\s*350px\)/);
+    expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*350px\)/);
+    expect(compactSidebarStyles).not.toMatch(/@media\s*\(max-height:\s*400px\)/);
   });
 
   it('keeps the persistent-storage disclosure contextual to PRO rooms', async () => {
@@ -72,35 +85,25 @@ describe('PRO room branding', () => {
   });
 
   it('stays hidden for standard and idle sessions', () => {
-    const badge = document.getElementById('header-pro-badge') as HTMLElement;
-
     syncProRoomBranding('');
-    expect(badge.hidden).toBe(true);
     expect(document.documentElement.hasAttribute('data-pro-room')).toBe(false);
 
     syncProRoomBranding('123456');
-    expect(badge.hidden).toBe(true);
     expect(document.documentElement.hasAttribute('data-pro-room')).toBe(false);
   });
 
   it('shows only inside the reserved PRO namespace', () => {
-    const badge = document.getElementById('header-pro-badge') as HTMLElement;
-
     syncProRoomBranding('000001');
-    expect(badge.hidden).toBe(false);
     expect(document.documentElement.hasAttribute('data-pro-room')).toBe(true);
   });
 
   it('reacts to the canonical session-code state', () => {
-    const badge = document.getElementById('header-pro-badge') as HTMLElement;
     initProRoomBranding();
 
     setState('network.sessionCode', '000000');
-    expect(badge.hidden).toBe(false);
     expect(document.documentElement.hasAttribute('data-pro-room')).toBe(true);
 
     setState('network.sessionCode', '654321');
-    expect(badge.hidden).toBe(true);
     expect(document.documentElement.hasAttribute('data-pro-room')).toBe(false);
   });
 });

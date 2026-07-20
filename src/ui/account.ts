@@ -228,12 +228,14 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   const nickname = byId<HTMLElement>('account-dialog-nickname');
   const content = byId<HTMLElement>('account-dialog-content');
   const google = byId<HTMLAnchorElement>('btn-account-google');
+  const googleLabel = byId<HTMLElement>('account-google-label');
   const legal = byId<HTMLElement>('account-legal-links');
   const actions = byId<HTMLElement>('account-dialog-actions');
   const rename = byId<HTMLButtonElement>('btn-account-rename');
   const logout = byId<HTMLButtonElement>('btn-account-logout');
   const remove = byId<HTMLButtonElement>('btn-account-delete');
-  if (!title || !message || !nickname || !content || !google || !legal || !actions) return;
+  if (!title || !message || !nickname || !content || !google || !googleLabel || !legal || !actions)
+    return;
 
   content.hidden = false;
   message.hidden = false;
@@ -273,7 +275,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   }
 
   message.textContent = t('account.login_message');
-  google.textContent = t('account.google_continue');
+  googleLabel.textContent = t('account.google_continue');
   google.href = buildGoogleLoginUrl();
   google.hidden = false;
   legal.hidden = false;

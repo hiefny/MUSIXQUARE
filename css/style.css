@@ -783,12 +783,16 @@
     width: auto;
   }
 
-  .header-pro-badge {
-    margin-left: 8px;
+  .header-pro-wordmark {
+    display: none;
   }
 
-  .header-pro-badge[hidden] {
+  html[data-pro-room] #header-standard-wordmark {
     display: none;
+  }
+
+  html[data-pro-room] .header-pro-wordmark {
+    display: block;
   }
 
   .logo-brand {
@@ -3750,7 +3754,7 @@
     gap: 16px;
     /* This full declaration intentionally outranks the generic .dialog-header
        shorthand below. Keep a stable, explicit gap above the first switch. */
-    padding: 30px 32px 14px;
+    padding: 30px 32px 22px;
   }
 
   .administrator-permissions-member {
@@ -3764,17 +3768,19 @@
   }
 
   .administrator-permissions-list {
+    flex: 1 1 auto;
     min-height: 0;
     padding: 0 32px 16px;
     display: grid;
     gap: 4px;
     overflow-y: auto;
     overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .administrator-permissions-dialog .dialog-actions {
     flex: 0 0 auto;
-    padding-top: 0;
+    padding-top: 8px;
   }
 
   .administrator-permission-row {
@@ -3948,17 +3954,68 @@
   .account-google-button {
     min-height: 54px;
     margin-top: 18px;
-    padding: 0 24px;
-    display: flex;
+    padding: 0 12px;
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) 24px;
     align-items: center;
-    justify-content: center;
+    gap: 10px;
+    border: 0;
     border-radius: 999px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 15px;
-    font-weight: 700;
+    background: #ffffff;
+    box-shadow: none;
+    color: #1f1f1f;
+    font-family: 'Google Sans', Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
     text-decoration: none;
-    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+    box-sizing: border-box;
+    transition:
+      background-color 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .account-google-button:hover {
+    background: #f2f2f2;
+  }
+
+  .account-google-button:active {
+    transform: scale(0.98);
+  }
+
+  html[data-theme='light'] .account-google-button {
+    background: #131314;
+    color: #e3e3e3;
+  }
+
+  html[data-theme='light'] .account-google-button:hover {
+    background: #1f1f20;
+  }
+
+  .account-google-mark,
+  .account-google-balance {
+    width: 24px;
+    height: 24px;
+  }
+
+  .account-google-mark {
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #fff;
+  }
+
+  .account-google-mark svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+  }
+
+  .account-google-label {
+    min-width: 0;
+    overflow: hidden;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .account-legal-links {
@@ -3992,22 +4049,40 @@
   }
 
   .account-dialog-actions .dialog-primary,
-  .account-dialog-actions .dialog-secondary {
+  .account-dialog-actions .dialog-secondary,
+  .account-dialog-actions .account-delete-button {
     min-width: 0;
     padding-inline: 18px;
   }
 
-  .account-delete-button {
+  #btn-account-rename {
     grid-column: 1 / -1;
-    min-height: 40px;
-    padding: 0 16px;
-    border: 0;
-    background: transparent;
+    width: 100%;
+  }
+
+  .account-delete-button {
+    min-height: 54px;
+    border: 1px solid transparent;
+    border-radius: 18px;
+    background: rgba(239, 68, 68, 0.1);
     color: #ef4444;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
+    line-height: 1.2;
     cursor: pointer;
+    transition:
+      background-color 0.18s ease,
+      transform 0.2s ease;
+  }
+
+  .account-delete-button:hover {
+    background: rgba(239, 68, 68, 0.16);
+  }
+
+  .account-delete-button:active {
+    background: rgba(239, 68, 68, 0.2);
+    transform: scale(0.97);
   }
 
   .account-dialog[aria-busy='true'] {
@@ -7788,17 +7863,11 @@
       align-items: center !important;
     }
 
-    /* Keep the compact sidebar wordmark centered as a group while placing
-       the room tier directly beneath its left edge. */
+    /* Standard and PRO rooms both use one-line wordmarks, so the compact
+       sidebar preserves the same vertical rhythm in either room type. */
     #app-logo {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-
-    .header-pro-badge {
-      align-self: flex-start;
-      margin-top: 12px;
-      margin-left: 0;
+      flex-direction: row;
+      align-items: center;
     }
 
     /* Hide header behind setup overlay */
@@ -8127,11 +8196,11 @@
       transform: translateY(-50%) !important;
     }
 
-    /* ── Super-Compact Landscape (≤ 400px height) ──
+    /* ── Super-Compact Landscape (≤ 350px height) ──
            Guarded with html:not(.keyboard-open) so the soft keyboard shrinking
            the viewport doesn't trigger this compact layout transformation,
            which would cause layout recalculation explosion. */
-    @media (max-height: 400px) {
+    @media (max-height: 350px) {
       /* Hide 'Help' tab in super-compact mode */
       html:not(.keyboard-open) #nav-guide {
         display: none !important;

@@ -659,12 +659,15 @@ describe('member-level connection and administrator UI', () => {
     expect(dialogRules).not.toContain('scale(');
     expect(shownDialogRules).toContain('transform: translateY(0)');
     expect(shownDialogRules).not.toContain('scale(');
-    expect(headerRules).toContain('padding: 30px 32px 14px');
+    expect(headerRules).toContain('padding: 30px 32px 22px');
+    expect(listRules).toContain('flex: 1 1 auto');
     expect(listRules).toContain('padding: 0 32px 16px');
     expect(listRules).toContain('gap: 4px');
+    expect(listRules).toContain('overflow-y: auto');
+    expect(listRules).toContain('-webkit-overflow-scrolling: touch');
     expect(permissionRowRules).toContain('min-height: 48px');
     expect(permissionRowRules).toContain('padding: 0 8px');
-    expect(actionRules).toContain('padding-top: 0');
+    expect(actionRules).toContain('padding-top: 8px');
   });
 
   it('shares crown colors with chat and distinguishes online from offline administrators', async () => {
@@ -678,8 +681,7 @@ describe('member-level connection and administrator UI', () => {
       stylesheet.match(/\.chat-badge-op\s*\{([^}]*)\}/)?.[1] ?? '';
     const chatCrownRules = stylesheet.match(/\.chat-crown\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticatedRoleDotRules =
-      stylesheet.match(/\.role-badge\.account-authenticated\s+\.role-dot\s*\{([^}]*)\}/)?.[1] ??
-      '';
+      stylesheet.match(/\.role-badge\.account-authenticated\s+\.role-dot\s*\{([^}]*)\}/)?.[1] ?? '';
     const onlineAdministratorNameRules =
       stylesheet.match(/\.administrator-row:not\(\.is-offline\)\s+\.d-name\s*\{([^}]*)\}/)?.[1] ??
       '';

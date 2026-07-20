@@ -39,7 +39,7 @@ function renderAccountDialog(): void {
         <div id="account-dialog-content">
           <p id="account-dialog-message"></p>
           <strong id="account-dialog-nickname" hidden></strong>
-          <a id="btn-account-google" hidden></a>
+          <a id="btn-account-google" hidden><span id="account-google-label"></span></a>
           <nav id="account-legal-links" hidden></nav>
         </div>
         <div id="account-dialog-actions" hidden>
@@ -86,6 +86,7 @@ describe('optional account UI', () => {
     expect(document.getElementById('btn-account-google')?.getAttribute('href')).toContain(
       '/api/auth/google/start?returnTo=',
     );
+    expect(document.getElementById('account-google-label')?.textContent).not.toBe('');
     expect(document.getElementById('account-legal-links')?.hidden).toBe(false);
   });
 
@@ -577,6 +578,10 @@ describe('optional account UI', () => {
       stylesheet.match(
         /\.account-dialog-content\[hidden\]\s*\+\s*\.account-dialog-actions:not\(\[hidden\]\)\s*\{([^}]*)\}/,
       )?.[1] ?? '';
+    const accountActionsRules =
+      stylesheet.match(/\.account-dialog-actions\s*\{([^}]*)\}/)?.[1] ?? '';
+    const renameRules = stylesheet.match(/#btn-account-rename\s*\{([^}]*)\}/)?.[1] ?? '';
+    const deleteRules = stylesheet.match(/^\s{2}\.account-delete-button\s*\{([^}]*)\}/m)?.[1] ?? '';
 
     expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
     expect(dialogRules).toContain('transform: translateY(18px)');
@@ -588,5 +593,26 @@ describe('optional account UI', () => {
     expect(contentRules).toContain('overflow-y: auto');
     expect(contentRules).toContain('overflow-anchor: none');
     expect(authenticatedActionsRules).toContain('padding-top: 18px');
+    expect(accountActionsRules).toContain('grid-template-columns: 1fr 1fr');
+    expect(renameRules).toContain('grid-column: 1 / -1');
+    expect(deleteRules).toContain('min-height: 54px');
+    expect(deleteRules).toContain('border-radius: 18px');
+    expect(deleteRules).not.toContain('grid-column: 1 / -1');
+  });
+
+  it('inverts the borderless Google button against the active app theme', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const baseRules = stylesheet.match(/\.account-google-button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const lightThemeRules =
+      stylesheet.match(/html\[data-theme='light'\]\s+\.account-google-button\s*\{([^}]*)\}/)?.[1] ??
+      '';
+
+    expect(baseRules).toContain('border: 0');
+    expect(baseRules).toContain('box-shadow: none');
+    expect(baseRules).toContain('background: #ffffff');
+    expect(baseRules).toContain('color: #1f1f1f');
+    expect(lightThemeRules).toContain('background: #131314');
+    expect(lightThemeRules).toContain('color: #e3e3e3');
+    expect(lightThemeRules).not.toContain('border:');
   });
 });

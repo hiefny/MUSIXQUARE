@@ -106,6 +106,7 @@
         >
           <svg
             class="logo-svg logo-header"
+            id="header-standard-wordmark"
             viewBox="43 12 214 24"
             aria-hidden="true"
             fill="currentColor"
@@ -140,14 +141,30 @@
             <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
             <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
           </svg>
-          <span
-            class="feature-badge header-pro-badge"
-            id="header-pro-badge"
-            aria-label="PRO"
-            hidden
+          <svg
+            class="logo-svg logo-header header-pro-wordmark"
+            id="header-pro-wordmark"
+            viewBox="0 0 170 24"
+            aria-hidden="true"
+            fill="currentColor"
+            fill-rule="evenodd"
+            xmlns="http://www.w3.org/2000/svg"
           >
-            PRO
-          </span>
+            <!-- MXQR PRO: a compact one-line companion to the MUSIXQUARE grid wordmark. -->
+            <path d="M0 0h22.5v22.5H18v-18h-4.5v18H9v-18H4.5v18H0V0Z" />
+            <path
+              d="m41.85 0-4.72 7.16L32.4 0H27l7.43 11.25L27 22.5h5.4l4.73-7.16 4.73 7.16h5.4l-7.43-11.25L47.25 0h-5.4Z"
+            />
+            <path d="M51.75 0h18v18H63v2.7h-4.5V18h-6.75V0Zm4.5 4.5v9h9v-9h-9Z" />
+            <path
+              d="M74.25 0h18v13.5h-4.12l5.83 9h-5.2l-5.2-9h-4.81v9h-4.5V0Zm4.5 4.5V9h9V4.5h-9Z"
+            />
+            <path d="M105.75 0h18v13.5h-13.5v9h-4.5V0Zm4.5 4.5V9h9V4.5h-9Z" />
+            <path
+              d="M128.25 0h18v13.5h-4.12l5.83 9h-5.2l-5.2-9h-4.81v9h-4.5V0Zm4.5 4.5V9h9V4.5h-9Z"
+            />
+            <path d="M151.75 0h18v22.5h-18V0Zm4.5 4.5V18h9V4.5h-9Z" />
+          </svg>
         </button>
         <div class="header-loading-text" id="header-loading-text">Loading...</div>
       </div>
@@ -2543,7 +2560,31 @@
         <div class="account-dialog-content" id="account-dialog-content">
           <p class="account-dialog-message" id="account-dialog-message"></p>
           <strong class="account-dialog-nickname" id="account-dialog-nickname" hidden></strong>
-          <a class="account-google-button" id="btn-account-google" href="#" hidden></a>
+          <a class="account-google-button" id="btn-account-google" href="#" hidden>
+            <span class="account-google-mark" aria-hidden="true">
+              <!-- Standard-color Google G. Keep its colors and proportions unchanged. -->
+              <svg viewBox="0 0 18 18" focusable="false">
+                <path
+                  fill="#4285f4"
+                  d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.908c1.703-1.567 2.685-3.874 2.685-6.615Z"
+                />
+                <path
+                  fill="#34a853"
+                  d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.258c-.806.54-1.836.859-3.048.859-2.344 0-4.329-1.585-5.037-3.716H.956v2.333A9 9 0 0 0 9 18Z"
+                />
+                <path
+                  fill="#fbbc05"
+                  d="M3.963 10.705A5.42 5.42 0 0 1 3.68 9c0-.593.102-1.169.283-1.705V4.962H.956A9 9 0 0 0 0 9c0 1.453.347 2.827.956 4.038l3.007-2.333Z"
+                />
+                <path
+                  fill="#ea4335"
+                  d="M9 3.579c1.321 0 2.508.454 3.44 1.346l2.582-2.581C13.463.892 11.426 0 9 0A9 9 0 0 0 .956 4.962l3.007 2.333C4.67 5.165 6.656 3.579 9 3.579Z"
+                />
+              </svg>
+            </span>
+            <span class="account-google-label" id="account-google-label"></span>
+            <span class="account-google-balance" aria-hidden="true"></span>
+          </a>
           <nav class="account-legal-links" id="account-legal-links" hidden>
             <a
               href="/terms"

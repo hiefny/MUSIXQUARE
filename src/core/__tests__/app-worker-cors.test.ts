@@ -2213,6 +2213,17 @@ describe('Cloudflare app worker admin dashboard', () => {
           if (url.pathname === '/internal/admin/resume') {
             return Response.json({ ok: true, roomCode, status: 'active', changed: true });
           }
+          if (url.pathname === '/internal/admin/owner-recovery-claim') {
+            return Response.json({
+              roomCode,
+              recoveryUrl:
+                roomCode === '000005'
+                  ? `https://musixquare.com.evil/${roomCode}#pro-recovery=v1.payload.signature`
+                  : `https://musixquare.com/${roomCode}#pro-recovery=v1.payload.signature`,
+              expiresAt: Date.now() + 10 * 60 * 1000,
+              ownerAccountLinked: roomCode === '000002',
+            });
+          }
           if (roomCode === '000004') {
             return Response.json({ error: 'PRO_ROOM_ACTIVATION_UNAVAILABLE' }, { status: 409 });
           }
@@ -2236,6 +2247,17 @@ describe('Cloudflare app worker admin dashboard', () => {
       env,
     );
     expect(unauthenticated.status).toBe(401);
+    expect(namespace.get).not.toHaveBeenCalled();
+
+    const unauthenticatedRecovery = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/owner-recovery-claim', {
+        method: 'POST',
+        headers: adminMutationHeaders(),
+        body: '{}',
+      }),
+      env,
+    );
+    expect(unauthenticatedRecovery.status).toBe(401);
     expect(namespace.get).not.toHaveBeenCalled();
 
     const login = await appWorker.fetch(
@@ -2286,6 +2308,22 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(claimPayload.activationUrl).toContain('#pro-claim=');
 
     rows.get('000002')!.activation_state = 'active';
+    const recoveryClaim = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000002/owner-recovery-claim', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: '{}',
+      }),
+      env,
+    );
+    expect(recoveryClaim.status).toBe(200);
+    expect(recoveryClaim.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(await recoveryClaim.json()).toMatchObject({
+      roomCode: '000002',
+      recoveryUrl: 'https://musixquare.com/000002#pro-recovery=v1.payload.signature',
+      ownerAccountLinked: true,
+    });
+
     const suspended = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/pro-rooms/000002/state', {
         method: 'POST',
@@ -2322,7 +2360,7 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     failAudit = true;
     const withheldClaim = await appWorker.fetch(
-      new Request('https://musixquare.com/api/admin/pro-rooms/000002/activation-claim', {
+      new Request('https://musixquare.com/api/admin/pro-rooms/000002/owner-recovery-claim', {
         method: 'POST',
         headers: adminHeaders,
         body: '{}',
@@ -2387,6 +2425,25 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(staleClaim.status).toBe(409);
     expect(rows.get('000004')?.activation_state).toBe('active');
 
+    rows.set('000005', {
+      room_code: '000005',
+      label: 'Invalid recovery response room',
+      status: 'registered',
+      activation_state: 'active',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    const invalidRecoveryClaim = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000005/owner-recovery-claim', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: '{}',
+      }),
+      env,
+    );
+    expect(invalidRecoveryClaim.status).toBe(502);
+    expect(await invalidRecoveryClaim.json()).toEqual({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' });
+
     for (let index = 4; index < 1000; index += 1) {
       const roomCode = `0${String(index).padStart(5, '0')}`;
       rows.set(roomCode, {
@@ -2413,23 +2470,31 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(seen).toEqual([
       { roomCode: '000002', url: '/internal/admin/provision', authorization: '' },
       { roomCode: '000002', url: '/internal/admin/activation-claim', authorization: '' },
+      { roomCode: '000002', url: '/internal/admin/owner-recovery-claim', authorization: '' },
       { roomCode: '000002', url: '/internal/admin/suspend', authorization: '' },
       { roomCode: '000002', url: '/internal/admin/resume', authorization: '' },
-      { roomCode: '000002', url: '/internal/admin/activation-claim', authorization: '' },
+      { roomCode: '000002', url: '/internal/admin/owner-recovery-claim', authorization: '' },
       { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
       { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
       { roomCode: '000004', url: '/internal/admin/activation-claim', authorization: '' },
       { roomCode: '000004', url: '/internal/admin/status', authorization: '' },
+      { roomCode: '000005', url: '/internal/admin/owner-recovery-claim', authorization: '' },
     ]);
     expect(claim.headers.has('Authorization')).toBe(false);
     expect(audits).toMatchObject([
       { action: 'room.register', result: 'created', roomCode: '000002' },
       { action: 'activation_claim.issue', result: 'issued', roomCode: '000002' },
+      { action: 'owner_recovery_claim.issue', result: 'issued', roomCode: '000002' },
       { action: 'room.suspend', result: 'changed', roomCode: '000002' },
       { action: 'room.resume', result: 'changed', roomCode: '000002' },
       { action: 'room.register', result: 'provision_failed', roomCode: '000003' },
       { action: 'room.register', result: 'provisioning_recovered', roomCode: '000003' },
       { action: 'activation_claim.issue', result: 'service_rejected', roomCode: '000004' },
+      {
+        action: 'owner_recovery_claim.issue',
+        result: 'invalid_service_response',
+        roomCode: '000005',
+      },
       { action: 'room.register', result: 'registry_capacity_reached', roomCode: '001000' },
     ]);
     expect(audits.every((entry) => /^admin_[A-Za-z0-9_-]{32}$/.test(entry.actorId))).toBe(true);

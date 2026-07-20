@@ -181,9 +181,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     document.dispatchEvent(new Event('visibilitychange'));
 
     await vi.waitFor(() => expect(renew).toHaveBeenCalledTimes(2));
-    await vi.waitFor(() =>
-      expect(getState('room.context').capabilities).toEqual(['playback.control']),
-    );
+    await vi.waitFor(() => expect(getState('room.context').capabilities).toEqual([]));
   });
 
   it('does not gate room entry on optional initial adjunct reads', async () => {

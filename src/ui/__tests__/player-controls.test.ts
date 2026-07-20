@@ -563,6 +563,31 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
   });
 
+  it('updates a ready PRO play button immediately when playback authority is revoked or granted', () => {
+    renderPlaybackControls();
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control' as const],
+    };
+    setState('room.context', context);
+    initPlayerControls();
+    const playBtn = document.getElementById('play-btn');
+
+    bus.emit('ui:play-btn-state', true);
+    expect(playBtn?.getAttribute('aria-disabled')).toBe('false');
+
+    setState('room.context', { ...context, snapshotRevision: 2, capabilities: [] });
+    expect(playBtn?.getAttribute('aria-disabled')).toBe('true');
+
+    setState('room.context', { ...context, snapshotRevision: 3 });
+    expect(playBtn?.getAttribute('aria-disabled')).toBe('false');
+  });
+
   it.each([PLAYBACK_STATE.DOWNLOADING, PLAYBACK_STATE.AWAITING_PRELOAD, PLAYBACK_STATE.DECODING])(
     'shows the loading play button while a local file is preparing (%s)',
     (lifecycle) => {

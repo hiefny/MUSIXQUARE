@@ -1,5 +1,6 @@
 import type { QueueItemId } from '../types/index.ts';
 import {
+  capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
   PRO_ROOM_MAX_PRESENCE_ITEMS,
@@ -9,6 +10,7 @@ import {
   type ProRoomPlaybackCheckpoint,
   type ProRoomAdministrator,
   type ProRoomCapability,
+  type ProRoomPermission,
   type ProRoomPermissionSet,
   type ProRoomPlaylistWireItem,
   type ProRoomPresenceParticipant,
@@ -147,13 +149,30 @@ function parseCapabilities(value: unknown): ProRoomCapability[] | null {
 function parsePermissionSet(value: unknown): ProRoomPermissionSet | null {
   if (!isRecord(value) || !hasExactKeys(value, PERMISSION_KEYS)) return null;
   if (PERMISSION_KEYS.some((key) => typeof value[key] !== 'boolean')) return null;
-  if (value['playback.control'] !== true) return null;
   return {
     'media.add': value['media.add'],
-    'playback.control': true,
+    'playback.control': value['playback.control'],
     'members.kick': value['members.kick'],
     'chat.notice': value['chat.notice'],
   } as ProRoomPermissionSet;
+}
+
+function parseInheritedPermissions(value: unknown): ProRoomPermission[] | null {
+  if (!Array.isArray(value)) return null;
+  const permissions: ProRoomPermission[] = [];
+  const unique = new Set<ProRoomPermission>();
+  for (const permission of value) {
+    if (
+      typeof permission !== 'string' ||
+      !PERMISSION_KEYS.includes(permission as ProRoomPermission) ||
+      unique.has(permission as ProRoomPermission)
+    ) {
+      return null;
+    }
+    unique.add(permission as ProRoomPermission);
+    permissions.push(permission as ProRoomPermission);
+  }
+  return PERMISSION_KEYS.filter((permission) => permissions.includes(permission));
 }
 
 function cloneOptionalMetadata(
@@ -665,6 +684,13 @@ export function parseProRoomAdministrator(value: unknown): ProRoomAdministrator 
     return null;
   }
   const permissions = parsePermissionSet(value.permissions);
+  const inheritedPermissions = parseInheritedPermissions(value.inheritedPermissions);
+  const hasNoInheritedPermissions = inheritedPermissions?.length === 0;
+  const hasLegacyPlaybackInheritance =
+    inheritedPermissions?.length === 1 && inheritedPermissions[0] === 'playback.control';
+  const hasFullOwnerInheritance =
+    inheritedPermissions?.length === PERMISSION_KEYS.length &&
+    PERMISSION_KEYS.every((permission) => inheritedPermissions.includes(permission));
   if (
     typeof value.memberId !== 'string' ||
     !OPAQUE_ID_RE.test(value.memberId) ||
@@ -675,9 +701,7 @@ export function parseProRoomAdministrator(value: unknown): ProRoomAdministrator 
     !isBoundedString(value.displayName, MAX_DISPLAY_NAME_LENGTH) ||
     (value.role !== 'owner' && value.role !== 'controller') ||
     !permissions ||
-    !Array.isArray(value.inheritedPermissions) ||
-    value.inheritedPermissions.length !== 1 ||
-    value.inheritedPermissions[0] !== 'playback.control' ||
+    !inheritedPermissions ||
     !Number.isSafeInteger(value.onlineDeviceCount) ||
     (value.onlineDeviceCount as number) < 0 ||
     (value.onlineDeviceCount as number) > PRO_ROOM_MAX_PRESENCE_ITEMS
@@ -689,6 +713,18 @@ export function parseProRoomAdministrator(value: unknown): ProRoomAdministrator 
   if (value.role === 'owner' && PERMISSION_KEYS.some((permission) => !permissions[permission])) {
     return null;
   }
+  if (value.role === 'owner' && !hasLegacyPlaybackInheritance && !hasFullOwnerInheritance) {
+    return null;
+  }
+  if (
+    value.role === 'controller' &&
+    !(
+      hasNoInheritedPermissions ||
+      (hasLegacyPlaybackInheritance && permissions['playback.control'])
+    )
+  ) {
+    return null;
+  }
   return {
     memberId: value.memberId,
     memberDisplayNumber: value.memberDisplayNumber as number,
@@ -696,7 +732,7 @@ export function parseProRoomAdministrator(value: unknown): ProRoomAdministrator 
     displayName: value.displayName,
     role: value.role,
     permissions,
-    inheritedPermissions: ['playback.control'],
+    inheritedPermissions: [...inheritedPermissions],
     onlineDeviceCount: value.onlineDeviceCount as number,
   };
 }
@@ -705,28 +741,26 @@ function expectedAuthorityCapabilities(
   role: ProRoomRole,
   permissions: ProRoomPermissionSet | null,
 ): ProRoomCapability[] {
-  if (role === 'owner') {
-    return [
-      'queue.mutate',
-      'playback.control',
-      'effects.control',
-      'asset.upload',
-      'members.manage',
-      'room.configure',
-    ];
-  }
-  if (role === 'member') return ['playback.control'];
-  if (!permissions) return [];
-  return [
-    ...(permissions['media.add'] ? (['queue.mutate'] as const) : []),
-    'playback.control',
-    ...(permissions['media.add'] ? (['asset.upload'] as const) : []),
-    ...(permissions['members.kick'] ? (['members.manage'] as const) : []),
-  ];
+  return [...capabilitiesForProRoomRole(role, permissions)];
 }
 
 function sameCapabilities(left: readonly ProRoomCapability[], right: readonly ProRoomCapability[]) {
   return left.length === right.length && left.every((capability) => right.includes(capability));
+}
+
+function matchesAuthorityCapabilities(
+  role: ProRoomRole,
+  actual: readonly ProRoomCapability[],
+  expected: readonly ProRoomCapability[],
+  allowLegacyMemberPlayback: boolean,
+): boolean {
+  if (sameCapabilities(actual, expected)) return true;
+  return (
+    allowLegacyMemberPlayback &&
+    role === 'member' &&
+    expected.length === 0 &&
+    sameCapabilities(actual, ['playback.control'])
+  );
 }
 
 export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
@@ -919,13 +953,6 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   }
 
   if (
-    !hasAuthorityProjection &&
-    (viewer?.role === 'member' ||
-      presence.participants.some((participant) => participant.role === 'member'))
-  ) {
-    return null;
-  }
-  if (
     hasAuthorityProjection &&
     presence.participants.some((participant) => participant.capabilities === undefined)
   ) {
@@ -965,7 +992,16 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
         value.status === 'active'
           ? expectedAuthorityCapabilities(participant.role, administrator?.permissions || null)
           : [];
-      if (!sameCapabilities(participant.capabilities || [], expectedCapabilities)) return null;
+      if (
+        !matchesAuthorityCapabilities(
+          participant.role,
+          participant.capabilities || [],
+          expectedCapabilities,
+          value.status === 'active',
+        )
+      ) {
+        return null;
+      }
       if (
         administrator &&
         (administrator.memberDisplayNumber !== participant.memberDisplayNumber ||
@@ -1002,14 +1038,25 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
                 'members.manage',
                 'room.configure',
               ]
-            : [
-                'queue.mutate',
-                'playback.control',
-                'effects.control',
-                'asset.upload',
-                'members.manage',
-              ];
-    if (!sameCapabilities(viewer.capabilities, expectedCapabilities)) return null;
+            : viewer.role === 'member'
+              ? ['playback.control']
+              : [
+                  'queue.mutate',
+                  'playback.control',
+                  'effects.control',
+                  'asset.upload',
+                  'members.manage',
+                ];
+    if (
+      !matchesAuthorityCapabilities(
+        viewer.role,
+        viewer.capabilities,
+        expectedCapabilities,
+        value.status === 'active' && hasAuthorityProjection,
+      )
+    ) {
+      return null;
+    }
     if (
       hasAuthorityProjection &&
       (viewer.role === 'owner' || viewer.role === 'controller') !== !!administrator

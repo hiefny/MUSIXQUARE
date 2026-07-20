@@ -20,8 +20,10 @@ This contradicts the persistent-room product model. A backgrounded, suspended,
 reloaded, or disconnected coordinator can temporarily remain authoritative,
 publish a stale media clock, or force every other browser to rebuild its
 topology. Coordinator election also exposes an implementation detail as a
-user-visible role even though every authenticated PRO participant is intended
-to have the same live-room controls.
+user-visible role. Removing that browser role is independent of product access
+control: the room server can remain the sole playback authority while granting
+different command capabilities to owner, delegated controller, and ordinary
+member sessions.
 
 PRO already has one serialized Durable Object per room, authenticated
 participant sessions, persistent queue state, direct R2 downloads, and a
@@ -43,14 +45,14 @@ PRO rooms have **no browser coordinator and no browser host**. The
 - authoritative PRO presence and the source events consumed by live-room
   fan-out.
 
-Every authenticated PRO participant is equal in the live playback plane. Any
-participant may play, pause, seek, select, skip, and use the shared queue
-controls allowed by the room policy. The owner credential remains meaningful
-for PIN and recovery security, while Access-protected operators retain
-suspension and permanent-deletion lifecycle authority. Neither receives a
-stronger playback clock or command precedence. A temporary system-audio
-publisher lease identifies the media source only and never creates a room
-manager.
+No participant becomes a stronger playback clock or receives command precedence
+by acting as a browser host. Product authorization is nevertheless
+capability-based: the owner always retains playback control, an explicitly
+delegated controller receives it only while its playback permission is enabled,
+and an ordinary member has no playback capability. Access-protected operators
+retain suspension and permanent-deletion lifecycle authority. A temporary
+system-audio publisher lease identifies the media source only and never creates
+a room manager or playback capability.
 
 The server manages state; browsers still download, decode, render, apply audio
 effects, and schedule output locally. This decision does not stream decoded
@@ -119,7 +121,7 @@ The minimal frame families are:
 | room API               | playback READY                  | prove that this presence incarnation armed that exact transition |
 | WebSocket server event | playback COMMIT                 | publish the sole audible start/paused anchor                     |
 | WebSocket server event | playback CANCEL                 | cancel a superseded or invalid transition                        |
-| room API               | ended / unavailable observation | submit a revision-fenced media observation                       |
+| room API               | ended / unavailable observation | submit an authorized, revision-fenced media observation          |
 | snapshot + local prep  | late-join catch-up              | project the current anchor without restarting the room           |
 
 Frames use an exact-key schema and a protocol version. Payload sizes, numeric
@@ -281,9 +283,14 @@ that are already playing.
 
 ### 8. ENDED and unavailable arbitration
 
-Browsers report observations; they do not directly advance the room. Every
-`ended` or `unavailable` command uses a unique idempotency key and includes the
-exact locally accepted playback revision, queue/media identity, observed
+Browsers report observations; they do not directly advance the room. Because an
+accepted `ended` or `unavailable` report still mutates the canonical queue, the
+server accepts either report only from the owner or a delegated administrator
+whose `playback.control` permission is currently enabled. An ordinary member's
+report is rejected before duration, revision, or media evidence is considered;
+in particular, an unknown duration can never turn a member observation into
+authority. Every authorized report uses a unique idempotency key and includes
+the exact locally accepted playback revision, queue/media identity, observed
 position, and finite duration when the browser exposes one. The observation
 revision is captured before entering the client command queue and is never
 rebased onto a later canonical revision.
@@ -303,6 +310,14 @@ rebased onto a later canonical revision.
   remain a later product decision rather than an implied property of v1.
 - Reports from a prior item, prior transition, replaced tab, prior control
   epoch, or already-advanced revision cannot affect playback.
+
+This strict boundary means natural queue advance requires at least one online,
+playback-authorized browser to observe the end. If only ordinary listeners are
+online, their local media may end while the canonical anchor remains on that
+item until an authorized browser returns or issues a control. A future
+server-derived timer may remove that availability trade-off only after media
+duration is sourced from trusted server metadata; client-declared duration is
+not sufficient authority.
 
 Queue traversal, shuffle, repeat-one, repeat-all, and YouTube playlist
 sub-index selection are server reducer operations. UI controls, ENDED reports,
@@ -454,7 +469,7 @@ ordinary rooms remain live.
 2. Enable a PRO maintenance gate that freezes each current anchor and rejects
    new old-protocol entry with a typed `PRO_PROTOCOL_UPGRADE_REQUIRED` result.
 3. Deploy signaling changes that remove browser-coordinator authority, add the
-   hibernatable equal-member socket path, and retain media/decommission
+   hibernatable capability-aware socket path, and retain media/decommission
    dependencies required by the new server path.
 4. Deploy the PRO Worker schema, canonical reducer, timeline, and transition
    alarms.

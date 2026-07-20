@@ -3266,12 +3266,10 @@ function applyAuthority(context: RoomContext): void {
     accountAuthorityFailClosed && context.kind === 'pro'
       ? {
           ...context,
-          // Anonymous PRO members retain the room's universal playback
-          // baseline, but no account-bound administration may survive a
-          // definitive local logout while detachment is in flight.
-          capabilities: context.capabilities.filter(
-            (capability) => capability === 'playback.control',
-          ),
+          // No account-bound authority may survive a definitive local logout
+          // while detachment is in flight. Ordinary PRO members have no
+          // implicit control baseline, so fail closed to an empty projection.
+          capabilities: [],
         }
       : context;
   setRoomContext(acceptedContext);

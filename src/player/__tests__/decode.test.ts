@@ -404,7 +404,7 @@ describe('guest file finalization sync', () => {
 
   it.each([
     { isOperator: false, expectedEnabled: false, label: 'standard guest' },
-    { isOperator: true, expectedEnabled: true, label: 'operator/PRO-compatible guest' },
+    { isOperator: true, expectedEnabled: true, label: 'standard administrator' },
   ])(
     'keeps the play-button affordance aligned for $label after decode',
     async ({ isOperator, expectedEnabled }) => {
@@ -424,6 +424,39 @@ describe('guest file finalization sync', () => {
       await finalizeGuestFile(file, item.queueItemId, 7);
 
       expect(buttonStates).toEqual([expectedEnabled]);
+    },
+  );
+
+  it.each([
+    { capabilities: [] as const, label: 'ordinary PRO member' },
+    { capabilities: ['playback.control'] as const, label: 'authorized PRO controller' },
+  ])(
+    'reports decoded-media readiness independently for $label without a host connection',
+    async ({ capabilities }) => {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', null);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [...capabilities],
+      });
+      const item = makeTrack('pro-song.mp3');
+      const file = new File([new Uint8Array([1, 2, 3])], item.name, { type: 'audio/mpeg' });
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
+      stageMainTransfer(item, file, 7);
+
+      const buttonStates: boolean[] = [];
+      bus.on('ui:play-btn-state', (enabled) => buttonStates.push(enabled));
+
+      const { finalizeGuestFile } = await import('../decode.ts');
+      await finalizeGuestFile(file, item.queueItemId, 7);
+
+      expect(buttonStates).toEqual([true]);
     },
   );
 

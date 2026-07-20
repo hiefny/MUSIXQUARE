@@ -1017,6 +1017,9 @@ export function loadYouTubeVideo(
     SCRIPT_LOAD_TIMEOUT_MS,
   );
 
+  // This event reports media readiness. player-controls projects the current
+  // PRO playback capability separately so an in-place grant/revoke can update
+  // the affordance without reloading the iframe.
   bus.emit('ui:play-btn-state', true);
 
   // Keep the fullscreen button visible: .video-wrapper contains the YouTube
@@ -2391,6 +2394,12 @@ function updateYouTubeUI(): void {
           `[YouTube] Pre-empting native auto-advance (remaining: ${timeRemaining.toFixed(2)}s)`,
         );
         _ifr.lastPreemptIdx = playlistIdx;
+        // Route a PRO playlist boundary through the authority seam rather than
+        // exposing a public `next` command. An authorized controller reports
+        // the current video's near-end observation; an ordinary listener is
+        // consumed locally without mutating the room. Standard rooms retain
+        // the legacy internal-navigation fallback below.
+        if (routeCurrentProYouTubeObservation('ended')) return;
         bus.emit('youtube:try-next-internal', () => {});
         return;
       }

@@ -627,14 +627,13 @@ function validateAdministratorPermissions(value: ProRoomPermissionSet): ProRoomP
   if (
     !isRecord(value) ||
     !hasExactKeys(value, keys) ||
-    keys.some((key) => typeof value[key] !== 'boolean') ||
-    value['playback.control'] !== true
+    keys.some((key) => typeof value[key] !== 'boolean')
   ) {
     throw new ProRoomApiError('INVALID_ADMINISTRATOR_PERMISSIONS');
   }
   return {
     'media.add': value['media.add'],
-    'playback.control': true,
+    'playback.control': value['playback.control'],
     'members.kick': value['members.kick'],
     'chat.notice': value['chat.notice'],
   };

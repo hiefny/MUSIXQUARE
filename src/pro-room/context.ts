@@ -42,9 +42,9 @@ export function projectProRoomContext(snapshot: ProRoomSnapshot): RoomContext | 
   return {
     kind: 'pro',
     roomId: snapshot.roomCode,
-    // PRO playback authority belongs exclusively to the room Durable Object.
-    // `member` therefore means an equal local playback endpoint, never a
-    // browser subordinate to another participant.
+    // PRO playback state belongs exclusively to the room Durable Object.
+    // Every browser remains a coordinator-free endpoint; the projected
+    // capabilities independently decide which user controls it may invoke.
     role: 'member',
     coordinatorId: null,
     epoch: snapshot.presence.coordinatorEpoch,

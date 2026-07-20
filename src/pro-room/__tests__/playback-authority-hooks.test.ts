@@ -69,6 +69,57 @@ afterEach(() => {
 });
 
 describe('coordinator-free PRO playback authority seam', () => {
+  it('consumes every member control and queue-mutating media observation locally', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 7,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    const handler = vi.fn();
+    registerProPlaybackCommandHandler(handler);
+    const pending = vi.fn();
+    const offPending = bus.on('pro-playback:ui-control-pending', pending);
+
+    try {
+      expect(
+        routeProPlaybackCommand(
+          { kind: 'play', queueItemId: Q1, positionSeconds: 0 },
+          { wasPlaying: false },
+        ),
+      ).toBe(true);
+      expect(
+        routeProPlaybackCommand({
+          kind: 'ended',
+          queueItemId: Q1,
+          positionSeconds: 9.9,
+          observedPositionSeconds: 9.9,
+          durationSeconds: 10,
+          mediaKind: 'file',
+        }),
+      ).toBe(true);
+      expect(
+        routeProPlaybackCommand({
+          kind: 'unavailable',
+          queueItemId: Q1,
+          positionSeconds: 9.9,
+          observedPositionSeconds: 9.9,
+          durationSeconds: 10,
+          mediaKind: 'file',
+        }),
+      ).toBe(true);
+
+      await Promise.resolve();
+      expect(pending).not.toHaveBeenCalled();
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      offPending();
+    }
+  });
+
   it('refuses to re-arm a UI control after its fail-open deadline', () => {
     vi.useFakeTimers();
     const handler = vi.fn(() => new Promise<void>(() => {}));

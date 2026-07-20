@@ -1245,18 +1245,35 @@ describe('PRO room administrator API', () => {
     expect(JSON.parse(String(init.body))).toEqual({ targetMemberId: DELEGATED_MEMBER_ID });
   });
 
-  it('rejects removing inherited playback authority before making a request', async () => {
+  it('sends an explicit playback denial for a delegated administrator', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
 
-    expect(() =>
+    const updatedDirectory = administratorDirectory();
+    updatedDirectory.administrators[1] = {
+      ...updatedDirectory.administrators[1]!,
+      permissions: {
+        ...DELEGATED_PERMISSIONS,
+        'playback.control': false,
+      },
+      inheritedPermissions: [],
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(updatedDirectory));
+
+    await expect(
       client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, {
         ...DELEGATED_PERMISSIONS,
         'playback.control': false,
       }),
-    ).toThrow('PRO_ROOM_API_INVALID_ADMINISTRATOR_PERMISSIONS');
-    expect(fetchMock).not.toHaveBeenCalled();
+    ).resolves.toEqual(updatedDirectory);
+    const { init } = requestParts(fetchMock);
+    expect(JSON.parse(String(init.body))).toEqual({
+      permissions: {
+        ...DELEGATED_PERMISSIONS,
+        'playback.control': false,
+      },
+    });
   });
 
   it('rejects a malformed administrator directory instead of trusting partial authority', async () => {

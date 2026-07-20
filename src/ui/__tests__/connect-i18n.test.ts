@@ -581,7 +581,7 @@ describe('member-level connection and administrator UI', () => {
     expect(rows[1]?.querySelectorAll('.administrator-action-button')).toHaveLength(2);
   });
 
-  it('locks inherited PRO playback control and saves only the four canonical permissions', async () => {
+  it('migrates legacy inherited PRO playback control to an editable explicit permission', async () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'owner-device');
     setState('room.context', {
@@ -646,18 +646,19 @@ describe('member-level connection and administrator UI', () => {
     const media = document.querySelector<HTMLButtonElement>(
       '[data-administrator-permission="media.add"]',
     );
-    expect(playback?.disabled).toBe(true);
+    expect(playback?.disabled).toBe(false);
     expect(playback?.getAttribute('aria-checked')).toBe('true');
     expect(
       playback?.querySelector<HTMLElement>('.administrator-permission-inherited')?.hidden,
-    ).toBe(false);
+    ).toBe(true);
+    playback?.click();
     media?.click();
     document.getElementById('btn-administrator-permissions-save')?.click();
 
     await vi.waitFor(() =>
       expect(mockedUpdateActiveProRoomAdministrator).toHaveBeenCalledWith('admin-member', {
         'media.add': false,
-        'playback.control': true,
+        'playback.control': false,
         'members.kick': false,
         'chat.notice': false,
       }),

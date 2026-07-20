@@ -80,6 +80,8 @@ const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
 const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activation-claim)?$/;
+const ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE =
+  /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-recovery-claim$/;
 const ADMIN_PRO_ROOM_STATE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/state$/;
 const ADMIN_PRO_ROOM_DELETE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})$/;
 const ADMIN_DEVELOPER_API_KEY_PATH_RE =
@@ -90,6 +92,7 @@ const ADMIN_PRO_ROOM_AUDIT_TABLE = 'mxqr_pro_room_admin_audit';
 const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
 const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
+const ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
 const ADMIN_DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const ADMIN_DEVELOPER_API_KEY_SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
 const ADMIN_DEVELOPER_API_KEY_DEFAULT_DAYS = 90;
@@ -1488,6 +1491,36 @@ function isValidAdminActivationLink(payload, roomCode) {
   }
 }
 
+function isValidAdminOwnerRecoveryLink(payload, roomCode) {
+  const nowMs = Date.now();
+  if (
+    !payload ||
+    payload.roomCode !== roomCode ||
+    typeof payload.recoveryUrl !== 'string' ||
+    typeof payload.ownerAccountLinked !== 'boolean' ||
+    !Number.isSafeInteger(payload.expiresAt) ||
+    payload.expiresAt <= nowMs ||
+    payload.expiresAt > nowMs + ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS + 5_000
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(payload.recoveryUrl);
+    return (
+      url.protocol === 'https:' &&
+      url.username === '' &&
+      url.password === '' &&
+      url.hostname === 'musixquare.com' &&
+      url.port === '' &&
+      url.pathname === `/${roomCode}` &&
+      url.search === '' &&
+      /^#pro-recovery=v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(url.hash)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getDeveloperApiAdminDb(env) {
   return env.DEVELOPER_API_DB?.prepare ? env.DEVELOPER_API_DB : null;
 }
@@ -2236,6 +2269,118 @@ async function handleAdminProRooms(request, env, pathname) {
   // no unaudited link can subsequently be used.
   if (auditError) return auditError;
   return json(issued.payload);
+}
+
+async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
+  const route = pathname.match(ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const roomCode = route[1];
+  const methodError = adminApiMethodAllowed(request, ['POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const db = getAdminDb(env);
+  if (!db?.prepare || !getProRoomAdminNamespace(env)) {
+    return json({ error: 'PRO_ROOM_ADMIN_NOT_CONFIGURED' }, 503);
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 0) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_recovery_claim.issue',
+      'invalid_request',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+
+  let room;
+  try {
+    room = await readAdminProRoom(db, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_recovery_claim.issue',
+      'room_not_found',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.status === 'decommissioning' || room.status === 'decommissioned') {
+    return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+  }
+  if (room.status !== 'registered' || room.activationState !== 'active') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_recovery_claim.issue',
+      room.status === 'suspended' ? 'room_suspended' : 'room_not_active',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE' }, 409);
+  }
+
+  const issued = await callProRoomAdminObject(
+    env,
+    roomCode,
+    '/internal/admin/owner-recovery-claim',
+  );
+  if (!issued.response?.ok) {
+    await reconcileAdminProRoomStatus(env, db, roomCode).catch(() => {});
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_recovery_claim.issue',
+      issued.response ? 'service_rejected' : 'service_unavailable',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return proRoomObjectError(issued);
+  }
+  if (!isValidAdminOwnerRecoveryLink(issued.payload, roomCode)) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_recovery_claim.issue',
+      'invalid_service_response',
+      roomCode,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+  const auditError = await writeAdminProRoomAuditOrFail(
+    db,
+    request,
+    env,
+    'owner_recovery_claim.issue',
+    'issued',
+    roomCode,
+  );
+  // Recovery URLs are bearer credentials. If the audit write cannot be
+  // confirmed, discard the response and never expose the URL to the browser.
+  if (auditError) return auditError;
+  return json({
+    roomCode,
+    recoveryUrl: issued.payload.recoveryUrl,
+    expiresAt: issued.payload.expiresAt,
+    ownerAccountLinked: issued.payload.ownerAccountLinked,
+  });
 }
 
 async function handleAdminProRoomState(request, env, pathname) {
@@ -5604,6 +5749,10 @@ export default {
 
     if (ADMIN_PRO_ROOM_PATH_RE.test(url.pathname)) {
       return handleAdminProRooms(request, env, url.pathname);
+    }
+
+    if (ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE.test(url.pathname)) {
+      return handleAdminProRoomOwnerRecoveryClaim(request, env, url.pathname);
     }
 
     if (ADMIN_PRO_ROOM_STATE_PATH_RE.test(url.pathname)) {

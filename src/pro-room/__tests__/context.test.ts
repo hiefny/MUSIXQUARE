@@ -185,6 +185,70 @@ describe('PRO room authority projection', () => {
     expect(projectProRoomContext(value)?.capabilities).toEqual(['playback.control']);
   });
 
+  it('projects a new ordinary member with no playback capability', () => {
+    const value = snapshot();
+    value.viewer = {
+      ...value.viewer!,
+      memberId: 'member_ordinary_0001',
+      memberDisplayNumber: 1,
+      role: 'member',
+      capabilities: [],
+      coordinatorEligible: false,
+    };
+    value.authorityVersion = 1;
+    value.administrators = [
+      {
+        memberId: 'member_owner_0000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 0,
+      },
+    ];
+
+    expect(projectProRoomContext(value)?.capabilities).toEqual([]);
+  });
+
+  it('preserves a legacy member playback capability until the server projection converges', () => {
+    const value = snapshot();
+    value.viewer = {
+      ...value.viewer!,
+      memberId: 'member_ordinary_0001',
+      memberDisplayNumber: 1,
+      role: 'member',
+      capabilities: ['playback.control'],
+      coordinatorEligible: false,
+    };
+    value.authorityVersion = 1;
+    value.administrators = [
+      {
+        memberId: 'member_owner_0000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 0,
+      },
+    ];
+
+    expect(projectProRoomContext(value)?.capabilities).toEqual(['playback.control']);
+  });
+
   it('refuses unauthenticated or suspended snapshots', () => {
     const unauthenticated = snapshot();
     unauthenticated.viewer = null;

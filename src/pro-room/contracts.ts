@@ -25,31 +25,37 @@ export type ProRoomCapability =
   | 'room.configure'
   | 'coordinator.eligible';
 
-const MEMBER_CAPABILITIES = ['playback.control'] as const satisfies readonly ProRoomCapability[];
+const MEMBER_CAPABILITIES = [] as const satisfies readonly ProRoomCapability[];
 
-const CONTROLLER_CAPABILITIES = [
+const OWNER_CAPABILITIES = [
   'queue.mutate',
   'playback.control',
   'effects.control',
   'asset.upload',
   'members.manage',
-] as const satisfies readonly ProRoomCapability[];
-
-const OWNER_CAPABILITIES = [
-  ...CONTROLLER_CAPABILITIES,
   'room.configure',
 ] as const satisfies readonly ProRoomCapability[];
 
-export function capabilitiesForProRoomRole(role: ProRoomRole): readonly ProRoomCapability[] {
-  return role === 'owner'
-    ? OWNER_CAPABILITIES
-    : role === 'controller'
-      ? CONTROLLER_CAPABILITIES
-      : MEMBER_CAPABILITIES;
+export function capabilitiesForProRoomRole(
+  role: ProRoomRole,
+  permissions: Readonly<ProRoomPermissionSet> | null = null,
+): readonly ProRoomCapability[] {
+  if (role === 'owner') return OWNER_CAPABILITIES;
+  if (role === 'member' || !permissions) return MEMBER_CAPABILITIES;
+  return [
+    ...(permissions['media.add'] ? (['queue.mutate'] as const) : []),
+    ...(permissions['playback.control'] ? (['playback.control'] as const) : []),
+    ...(permissions['media.add'] ? (['asset.upload'] as const) : []),
+    ...(permissions['members.kick'] ? (['members.manage'] as const) : []),
+  ];
 }
 
-function proRoomRoleCan(role: ProRoomRole, capability: ProRoomCapability): boolean {
-  return (capabilitiesForProRoomRole(role) as readonly ProRoomCapability[]).includes(capability);
+function proRoomRoleCan(
+  role: ProRoomRole,
+  capability: ProRoomCapability,
+  permissions: Readonly<ProRoomPermissionSet> | null = null,
+): boolean {
+  return capabilitiesForProRoomRole(role, permissions).includes(capability);
 }
 
 export { proRoomRoleCan as proRoomRoleCanForTests };

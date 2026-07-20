@@ -6846,6 +6846,78 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(JSON.stringify(await responseJson(current))).not.toContain('pro-claim');
   });
 
+  it('issues a short-lived owner recovery link only for an active room', async () => {
+    const { worker } = await activatedRoom();
+    const issuedAt = Date.now();
+    const statusResponse = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/status', {
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(statusResponse.status).toBe(200);
+    expect(await responseJson(statusResponse)).toMatchObject({
+      roomCode: ROOM_CODE,
+      provisioned: true,
+      status: 'active',
+      ownerAccountLinked: false,
+    });
+
+    const response = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store, max-age=0');
+    const payload = await responseJson(response);
+    expect(payload).toMatchObject({ roomCode: ROOM_CODE, ownerAccountLinked: false });
+    expect(payload.expiresAt).toBeGreaterThan(issuedAt);
+    expect(payload.expiresAt).toBeLessThanOrEqual(issuedAt + 10 * 60 * 1000 + 1_000);
+    const recoveryUrl = new URL(payload.recoveryUrl);
+    expect(recoveryUrl.origin).toBe('https://musixquare.com');
+    expect(recoveryUrl.pathname).toBe(`/${ROOM_CODE}`);
+    expect(recoveryUrl.hash).toMatch(/^#pro-recovery=v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  });
+
+  it('refuses owner recovery link issuance before activation and while suspended', async () => {
+    const roomCode = '000002';
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/provision', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      }),
+    );
+
+    const unactivated = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      }),
+    );
+    expect(unactivated.status).toBe(409);
+    expect(unactivated.headers.get('cache-control')).toBe('no-store, max-age=0');
+    expect(await responseJson(unactivated)).toMatchObject({
+      error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE',
+      status: 'unactivated',
+    });
+
+    const internal = worker as unknown as { room: { status: string } };
+    internal.room.status = 'suspended';
+    const suspended = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': roomCode },
+      }),
+    );
+    expect(suspended.status).toBe(409);
+    expect(await responseJson(suspended)).toMatchObject({
+      error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE',
+      status: 'suspended',
+    });
+  });
+
   it('refuses activation claims whose requested lifetime exceeds fifteen minutes', async () => {
     const nowMs = Date.now();
     await expect(
@@ -6877,9 +6949,11 @@ describe('persistent PRO room bootstrap and activation', () => {
     };
     for (const path of [
       '/internal/admin/provision',
+      '/internal/admin/owner-recovery-claim',
       '/internal/admin/suspend',
       '/internal/admin/resume',
       '/v1/rooms/000002/internal/admin/provision',
+      '/v1/rooms/000002/internal/admin/owner-recovery-claim',
       '/v1/rooms/000002/internal/admin/suspend',
       '/v1/rooms/000002/internal/admin/resume',
     ]) {
@@ -7263,7 +7337,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(expiredView.snapshot.viewer).toMatchObject({
       isAuthenticated: false,
       role: 'member',
-      capabilities: ['playback.control'],
+      capabilities: [],
     });
     expect(expiredView.snapshot.viewer.memberId).not.toBe(memberId);
     expect(expiredView.snapshot.presence.participants).toHaveLength(3);
@@ -7486,7 +7560,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(detached.snapshot.viewer).toMatchObject({
       role: 'member',
       isAuthenticated: false,
-      capabilities: ['playback.control'],
+      capabilities: [],
     });
     expect(detached.snapshot.viewer.memberId).not.toBe(accountMemberId);
     expect(detached.snapshot.viewer.displayName).toBe(
@@ -7622,7 +7696,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(detached.snapshot.viewer).toMatchObject({
       role: 'member',
       isAuthenticated: false,
-      capabilities: ['playback.control'],
+      capabilities: [],
     });
     expect(internal.room.ownerAccountId).toBe(accountId);
     expect(internal.room.accountMembers[accountId]).toMatchObject({
@@ -7651,11 +7725,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(legacyEnvelope.snapshot.viewer).toMatchObject({
       role: 'member',
       isAuthenticated: false,
-      capabilities: ['playback.control'],
+      capabilities: [],
     });
   });
 
-  it('gives an ordinary PRO member only the shared playback baseline', async () => {
+  it('keeps an ordinary PRO member read-only, including end and unavailable observations', async () => {
     const context = await activatedRoom();
     enableMemberAuthority(context);
     const friend = await addAuthorityMember(context, 'Listener');
@@ -7665,17 +7739,94 @@ describe('persistent PRO room authentication, presence, and state', () => {
       authorityVersion: 1,
       viewer: {
         role: 'member',
-        capabilities: ['playback.control'],
+        capabilities: [],
       },
     });
     expect(friend.envelope.snapshot.administrators).toMatchObject([
       {
         role: 'owner',
         permissions: { 'playback.control': true },
-        inheritedPermissions: ['playback.control'],
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
       },
     ]);
     expect(parseProRoomSnapshot(friend.envelope.snapshot)).not.toBeNull();
+
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const queueItemId = 'abababab-abab-4bab-8bab-abababababab';
+    internal.room.playlist = [
+      {
+        queueItemId,
+        name: 'Listener policy fixture',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ];
+    internal.room.currentQueueItemId = queueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: 7,
+      state: 'playing',
+      queueItemId,
+      positionSeconds: 0,
+      updatedAtMs: Date.now() - 1_000,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+      youtubeSubIndex: 0,
+    };
+    const deniedPause = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        { type: 'pause', baseRevision: 7 },
+        friend.cookie,
+        'listener-playback-policy-pause',
+      ),
+    );
+    expect(deniedPause.status).toBe(403);
+    await expect(deniedPause.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+    const deniedUnavailable = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'unavailable',
+          baseRevision: 7,
+          queueItemId,
+          mediaKind: 'youtube',
+          observedPositionSeconds: 0,
+          durationSeconds: null,
+          youtubeVideoId: 'dQw4w9WgXcQ',
+          youtubeSubIndex: 0,
+        },
+        friend.cookie,
+        'listener-playback-policy-unavailable',
+      ),
+    );
+    expect(deniedUnavailable.status).toBe(403);
+    await expect(deniedUnavailable.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+    const observedEnd = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'ended',
+          baseRevision: 7,
+          queueItemId,
+          mediaKind: 'youtube',
+          observedPositionSeconds: 0.1,
+          durationSeconds: 0.1,
+          youtubeVideoId: 'dQw4w9WgXcQ',
+          youtubeSubIndex: 0,
+        },
+        friend.cookie,
+        'listener-playback-policy-ended',
+      ),
+    );
+    expect(observedEnd.status).toBe(403);
+    await expect(observedEnd.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+    expect(internal.room.playback).toMatchObject({
+      revision: 7,
+      state: 'playing',
+      queueItemId,
+    });
 
     const initialQueueMode = await responseJson(
       await context.worker.fetch(request('/queue-mode', {}, friend.cookie)),
@@ -7696,7 +7847,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(deniedQueueConfiguration.status).toBe(403);
-    await expect(deniedQueueConfiguration.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+    await expect(deniedQueueConfiguration.json()).resolves.toEqual({
+      error: 'CAPABILITY_REQUIRED',
+    });
 
     const deniedNotice = await context.worker.fetch(
       new Request('https://pro-room.internal/internal/authority/check', {
@@ -7763,7 +7916,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const friend = await addAuthorityMember(context, 'Anonymous admin');
     const memberId = friend.envelope.snapshot.viewer.memberId as string;
 
-    const cannotRemoveBaseline = await context.worker.fetch(
+    const delegatedWithoutPlayback = await context.worker.fetch(
       jsonRequest(
         `/administrators/${memberId}`,
         'PUT',
@@ -7773,9 +7926,24 @@ describe('persistent PRO room authentication, presence, and state', () => {
         context.ownerCookie,
       ),
     );
-    expect(cannotRemoveBaseline.status).toBe(409);
-    await expect(cannotRemoveBaseline.json()).resolves.toEqual({
-      error: 'PLAYBACK_PERMISSION_INHERITED',
+    expect(delegatedWithoutPlayback.status).toBe(200);
+    await expect(delegatedWithoutPlayback.json()).resolves.toMatchObject({
+      administrators: [
+        { role: 'owner' },
+        {
+          memberId,
+          role: 'controller',
+          permissions: { 'playback.control': false },
+          inheritedPermissions: [],
+        },
+      ],
+    });
+    const playbackDisabled = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, friend.cookie)),
+    );
+    expect(playbackDisabled.snapshot.viewer).toMatchObject({
+      role: 'controller',
+      capabilities: ['queue.mutate', 'asset.upload', 'members.manage'],
     });
 
     const delegated = await context.worker.fetch(
@@ -7795,7 +7963,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         role: 'controller',
         isAuthenticated: false,
         permissions: fullDelegatedPermissions,
-        inheritedPermissions: ['playback.control'],
+        inheritedPermissions: [],
         onlineDeviceCount: 1,
       },
     ]);
@@ -8230,7 +8398,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(afterRevoke.snapshot.viewer).toMatchObject({
       memberId: accountMemberId,
       role: 'member',
-      capabilities: ['playback.control'],
+      capabilities: [],
     });
 
     const anonymous = await addAuthorityMember(context, 'One-shot admin');
@@ -8450,7 +8618,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       displayName: 'Signed-in member',
       role: 'member',
       isAuthenticated: true,
-      capabilities: ['playback.control'],
+      capabilities: [],
     });
     expect(attached.snapshot.viewer.memberId).not.toBe(anonymousMemberId);
     expect(
@@ -8595,7 +8763,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(rejoined.snapshot.viewer).toMatchObject({
       role: 'member',
       isAuthenticated: true,
-      capabilities: ['playback.control'],
+      capabilities: [],
     });
     expect(rejoined.snapshot.viewer.memberId).not.toBe(memberId);
   });
@@ -9054,7 +9222,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
   });
 
   it('redeems a short-lived owner recovery claim once and revokes prior owner credentials', async () => {
-    const { worker, ownerCookie } = await activatedRoom();
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const { worker, ownerCookie } = context;
+    const recoveryAccountId = 'acct_recoverowner0123456789';
     const controllerResponse = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Friend' }),
     );
@@ -9067,7 +9238,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
       nonce: 'wrong-room-recovery-nonce',
     });
     const wrongRoom = await worker.fetch(
-      jsonRequest('/owner-recovery', 'POST', { claimToken: wrongRoomClaim }),
+      await withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken: wrongRoomClaim }),
+        recoveryAccountId,
+        'Recovered owner',
+      ),
     );
     expect(wrongRoom.status).toBe(401);
     expect(await responseJson(wrongRoom)).toEqual({ error: 'RECOVERY_INVALID' });
@@ -9083,14 +9258,31 @@ describe('persistent PRO room authentication, presence, and state', () => {
       expiresAtMs: nowMs + 60_000,
       nonce: 'fixed-owner-recovery-nonce',
     });
+    const internal = worker as unknown as { room: Record<string, any> };
+    const originalOwnerCredentialHash = internal.room.ownerCredentialHash;
+    const anonymous = await worker.fetch(
+      jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Anonymous owner' }),
+    );
+    expect(anonymous.status).toBe(401);
+    expect(await responseJson(anonymous)).toEqual({ error: 'ACCOUNT_SESSION_REQUIRED' });
+    expect(internal.room.ownerAccountId).toBeNull();
+    expect(internal.room.ownerCredentialHash).toBe(originalOwnerCredentialHash);
+    expect(internal.room.consumedRecoveryNonces).toEqual({});
+    expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(200);
+
     const recovered = await worker.fetch(
-      jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Recovered Owner' }),
+      await withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Ignored' }),
+        recoveryAccountId,
+        'Recovered owner',
+      ),
     );
     expect(recovered.status).toBe(200);
     const recoveryEnvelope = await responseJson(recovered);
     expect(recoveryEnvelope.snapshot.viewer).toMatchObject({
       role: 'owner',
-      displayName: 'Recovered Owner',
+      isAuthenticated: true,
+      displayName: 'Recovered owner',
     });
     expect(recovered.headers.getSetCookie()).toEqual(
       expect.arrayContaining([
@@ -9102,10 +9294,90 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect((await worker.fetch(request('/snapshot', {}, controllerCookie))).status).toBe(200);
 
     const replay = await worker.fetch(
-      jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Replay' }),
+      await withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Replay' }),
+        recoveryAccountId,
+        'Recovered owner',
+      ),
     );
     expect(replay.status).toBe(409);
     expect(await responseJson(replay)).toEqual({ error: 'RECOVERY_CLAIM_USED' });
+  });
+
+  it('promotes a signed-in member account through recovery without leaving a ghost device', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const accountId = 'acct_abcdefghijkl0123456789';
+    const joinDevice = async () => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          'Room owner',
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { cookie, envelope };
+    };
+    const first = await joinDevice();
+    const second = await joinDevice();
+    expect(first.envelope.snapshot.viewer.role).toBe('member');
+    expect(second.envelope.snapshot.presence.participants).toHaveLength(3);
+
+    const nowMs = Date.now();
+    const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: nowMs - 1_000,
+      expiresAtMs: nowMs + 60_000,
+      nonce: 'signed-in-member-recovery-nonce',
+    });
+    const recovered = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest(
+          '/owner-recovery',
+          'POST',
+          { claimToken, displayName: 'Ignored by account' },
+          first.cookie,
+        ),
+        accountId,
+        'Room owner',
+      ),
+    );
+    expect(recovered.status).toBe(200);
+    const recoveryEnvelope = await responseJson(recovered);
+    expect(recoveryEnvelope.snapshot.viewer).toMatchObject({
+      role: 'owner',
+      isAuthenticated: true,
+      memberDisplayNumber: 0,
+      displayName: 'Room owner',
+    });
+    expect(recoveryEnvelope.snapshot.presence.participants).toHaveLength(2);
+    expect(
+      recoveryEnvelope.snapshot.presence.participants.every(
+        (participant: Record<string, unknown>) => participant.role === 'owner',
+      ),
+    ).toBe(true);
+    expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
+    const secondDevice = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, second.cookie)),
+    );
+    expect(secondDevice.snapshot.viewer).toMatchObject({
+      role: 'owner',
+      isAuthenticated: true,
+      memberDisplayNumber: 0,
+    });
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      401,
+    );
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(internal.room.ownerAccountId).toBe(accountId);
+    expect(
+      Object.values(internal.room.sessions).filter(
+        (session: any) => session.accountId === accountId,
+      ),
+    ).toHaveLength(2);
   });
 
   it('does not recover an account-bound owner as a different signed-in account', async () => {
@@ -9128,6 +9400,16 @@ describe('persistent PRO room authentication, presence, and state', () => {
       nonce: 'foreign-account-recovery-nonce',
     });
 
+    const invalidClaim = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken: 'not-a-recovery-claim' }),
+        foreignAccountId,
+        'Foreign owner',
+      ),
+    );
+    expect(invalidClaim.status).toBe(401);
+    expect(await responseJson(invalidClaim)).toEqual({ error: 'RECOVERY_INVALID' });
+
     const rejected = await context.worker.fetch(
       await withAccountAssertion(
         jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Foreign owner' }),
@@ -9145,6 +9427,93 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(internal.room.ownerAccountId).toBe(ownerAccountId);
     expect(internal.room.accountMembers[foreignAccountId]).toBeUndefined();
     expect(internal.room.consumedRecoveryNonces).toEqual({});
+
+    const recoveredByLinkedAccount = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest(
+          '/owner-recovery',
+          'POST',
+          { claimToken, displayName: 'Ignored' },
+          context.ownerCookie,
+        ),
+        ownerAccountId,
+        'Original owner',
+      ),
+    );
+    expect(recoveredByLinkedAccount.status).toBe(200);
+    await expect(recoveredByLinkedAccount.json()).resolves.toMatchObject({
+      snapshot: {
+        viewer: { role: 'owner', isAuthenticated: true, displayName: 'Original owner' },
+      },
+    });
+  });
+
+  it('leaves the claim and existing owner untouched when owner account capacity is full', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const nowMs = Date.now();
+    for (let index = 1; index <= 100; index += 1) {
+      const accountId = `acct_cap${String(index).padStart(19, '0')}`;
+      internal.room.accountMembers[accountId] = {
+        memberId: `member_capacity_${String(index).padStart(3, '0')}`,
+        displayName: `Capacity member ${index}`,
+        displayNumber: index,
+        role: 'member',
+        permissions: {
+          'media.add': false,
+          'playback.control': false,
+          'members.kick': false,
+          'chat.notice': false,
+        },
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      };
+    }
+    const ownerCredentialHash = internal.room.ownerCredentialHash;
+    const ownerSessionCount = Object.values(internal.room.sessions).filter(
+      (session: any) => session.role === 'owner',
+    ).length;
+    const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: nowMs - 1_000,
+      expiresAtMs: nowMs + 60_000,
+      nonce: 'account-capacity-recovery-nonce',
+    });
+    const accountId = 'acct_capacitytarg0123456789';
+    const rejected = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken }),
+        accountId,
+        'Capacity target',
+      ),
+    );
+    expect(rejected.status).toBe(409);
+    expect(await responseJson(rejected)).toEqual({
+      error: 'ACCOUNT_MEMBER_CAPACITY_EXCEEDED',
+    });
+    expect(internal.room.ownerAccountId).toBeNull();
+    expect(internal.room.ownerCredentialHash).toBe(ownerCredentialHash);
+    expect(internal.room.accountMembers[accountId]).toBeUndefined();
+    expect(internal.room.consumedRecoveryNonces).toEqual({});
+    expect(
+      Object.values(internal.room.sessions).filter((session: any) => session.role === 'owner'),
+    ).toHaveLength(ownerSessionCount);
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
+
+    delete internal.room.accountMembers.acct_cap0000000000000000100;
+    const recovered = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken }),
+        accountId,
+        'Capacity target',
+      ),
+    );
+    expect(recovered.status).toBe(200);
+    await expect(recovered.json()).resolves.toMatchObject({
+      snapshot: { viewer: { role: 'owner', isAuthenticated: true } },
+    });
   });
 
   it('revokes controller sessions on owner PIN rotation while retaining the owner session', async () => {

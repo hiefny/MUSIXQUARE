@@ -45,6 +45,7 @@ let proRoomsLoaded = false;
 let articlesLoaded = false;
 let announcementLoaded = false;
 const issuedActivationLinks = new Set();
+const issuedOwnerRecoveryLinks = new Set();
 const expandedProRooms = new Set();
 const proRoomApiCache = new Map();
 const proRoomApiSecrets = new Map();
@@ -312,23 +313,31 @@ function dismissProRoomClaim() {
 function clearProRoomClaimState() {
   dismissProRoomClaim();
   issuedActivationLinks.clear();
+  issuedOwnerRecoveryLinks.clear();
 }
 
-function showProRoomClaim(payload) {
+function showProRoomClaim(payload, kind = 'activation') {
   if (!proRoomClaimEl || !proRoomClaimUrlEl) return;
   const roomCode = normalizeProRoomCode(payload.roomCode);
-  if (!roomCode || typeof payload.activationUrl !== 'string' || !payload.activationUrl) {
-    throw new Error('INVALID_ACTIVATION_LINK');
+  const isRecovery = kind === 'recovery';
+  const claimUrl = isRecovery ? payload.recoveryUrl : payload.activationUrl;
+  if (!roomCode || typeof claimUrl !== 'string' || !claimUrl) {
+    throw new Error(isRecovery ? 'INVALID_OWNER_RECOVERY_LINK' : 'INVALID_ACTIVATION_LINK');
   }
-  issuedActivationLinks.add(roomCode);
+  if (isRecovery) issuedOwnerRecoveryLinks.add(roomCode);
+  else issuedActivationLinks.add(roomCode);
   if (proRoomClaimTitleEl) {
-    proRoomClaimTitleEl.textContent = `${roomCode} owner activation link`;
+    proRoomClaimTitleEl.textContent = `${roomCode} owner ${isRecovery ? 'recovery' : 'activation'} link`;
   }
   if (proRoomClaimExpiryEl) {
     const expiry = formatAdminDateTime(payload.expiresAt);
     proRoomClaimExpiryEl.textContent = expiry ? `Expires ${expiry}` : 'Short-lived link';
   }
-  proRoomClaimUrlEl.value = payload.activationUrl;
+  proRoomClaimUrlEl.value = claimUrl;
+  proRoomClaimUrlEl.setAttribute(
+    'aria-label',
+    isRecovery ? 'Owner recovery link' : 'Owner activation link',
+  );
   proRoomClaimEl.hidden = false;
   proRoomClaimEl.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
 }
@@ -447,6 +456,7 @@ function focusProRoomListAfterDestroy() {
 function clearDestroyedProRoomState(roomCode) {
   expandedProRooms.delete(roomCode);
   issuedActivationLinks.delete(roomCode);
+  issuedOwnerRecoveryLinks.delete(roomCode);
   proRoomApiCache.delete(roomCode);
   proRoomApiRequestGenerations.set(roomCode, (proRoomApiRequestGenerations.get(roomCode) || 0) + 1);
   clearProRoomApiSecret(roomCode);
@@ -1045,12 +1055,39 @@ function renderProRoomActions(room, roomCode, rawStatus) {
         setProRoomStatus(adminErrorMessage(error, 'Provisioning retry failed.'), true);
       }
     });
+  } else if (rawStatus === 'active') {
+    activation.textContent = issuedOwnerRecoveryLinks.has(roomCode)
+      ? 'Issue another owner recovery link'
+      : 'Issue owner recovery link';
+    activation.title =
+      'Sign in to the intended owner account first, then open this one-time link in the same browser. It replaces the room owner credential; an already-linked room requires that same account.';
+    activation.addEventListener('click', async () => {
+      activation.disabled = true;
+      activation.textContent = 'Issuing...';
+      setProRoomStatus('');
+      try {
+        const payload = await fetchJson(
+          `/api/admin/pro-rooms/${roomCode}/owner-recovery-claim`,
+          {
+            method: 'POST',
+            body: '{}',
+          },
+        );
+        showProRoomClaim(payload, 'recovery');
+        activation.textContent = 'Issue another owner recovery link';
+        activation.disabled = false;
+      } catch (error) {
+        activation.disabled = false;
+        activation.textContent = 'Issue owner recovery link';
+        setProRoomStatus(adminErrorMessage(error, 'Owner recovery link failed.'), true);
+        loadProRooms({ updateTimestamp: false }).catch(() => {});
+      }
+    });
   } else {
     activation.textContent = issuedActivationLinks.has(roomCode)
       ? 'Reissue activation link'
       : 'Issue activation link';
-    activation.disabled = rawStatus === 'active' || rawStatus === 'suspended';
-    if (rawStatus === 'active') activation.title = 'This room is already active.';
+    activation.disabled = rawStatus === 'suspended';
     if (rawStatus === 'suspended') activation.title = 'Resume the room before issuing a link.';
     activation.addEventListener('click', async () => {
       activation.disabled = true;

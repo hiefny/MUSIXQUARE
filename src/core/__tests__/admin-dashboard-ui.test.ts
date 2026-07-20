@@ -156,6 +156,91 @@ describe('admin PRO room claim lifecycle', () => {
     expect(document.querySelector<HTMLElement>('[data-pro-room-claim]')?.hidden).toBe(true);
     expect(document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value).toBe('');
   });
+
+  it('issues an active room owner recovery link in the existing sensitive-link panel', async () => {
+    installAdminDom();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000001',
+              label: 'Friends room',
+              status: 'registered',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000001/owner-recovery-claim') {
+        expect(init?.method).toBe('POST');
+        expect(init?.body).toBe('{}');
+        expect(new Headers(init?.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+        return Response.json({
+          roomCode: '000001',
+          recoveryUrl: 'https://musixquare.com/000001#pro-recovery=v1.payload.signature',
+          expiresAt: Date.now() + 10 * 60 * 1000,
+          ownerAccountLinked: false,
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const issueButton = await vi.waitFor(() => {
+      const value = [
+        ...document.querySelectorAll<HTMLButtonElement>('.pro-room-actions button'),
+      ].find((button) => button.textContent === 'Issue owner recovery link');
+      expect(value).not.toBeUndefined();
+      return value!;
+    });
+    expect(issueButton.title).toContain('replaces the room owner credential');
+    issueButton.click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-pro-room-claim-title]')?.textContent).toBe(
+        '000001 owner recovery link',
+      );
+      expect(document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value).toBe(
+        'https://musixquare.com/000001#pro-recovery=v1.payload.signature',
+      );
+      expect(
+        document
+          .querySelector<HTMLInputElement>('[data-pro-room-claim-url]')
+          ?.getAttribute('aria-label'),
+      ).toBe('Owner recovery link');
+      expect(issueButton.textContent).toBe('Issue another owner recovery link');
+    });
+  });
 });
 
 describe('admin PRO room operations dashboard', () => {

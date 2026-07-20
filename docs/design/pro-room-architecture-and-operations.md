@@ -67,13 +67,13 @@ ordinary app requests.
 The former custom-domain cookies are host-only and cannot migrate to the facade.
 On the first facade visit, an existing participant therefore enters the PIN
 once more. Existing room owners must redeem a one-time owner-recovery claim
-after the cutover to receive the new room-scoped owner cookie. Active rooms do
-not expose this operation in the admin UI: issue a short-lived claim with
-`scripts/issue-pro-room-activation-claim.mjs --recovery <room-code>` and redeem
-it only in the intended owner browser. The old browser cookies remain
-untouched, but redemption revokes the previous server-side owner credential;
-rolling back the client endpoint would therefore require another recovery on
-the old origin.
+after the cutover to receive the new room-scoped owner cookie. For an active
+room, an operator issues the short-lived link from that room's controls in the
+Access-protected admin dashboard and redeems it only in the intended owner
+browser. The offline CLI remains an emergency fallback. The old browser cookies
+remain untouched, but redemption revokes the previous server-side owner
+credential; rolling back the client endpoint would therefore require another
+recovery on the old origin.
 
 The public PRO front door cold-loads a bounded set of `registered` D1 rows,
 including the two launch rooms, and replaces that cache on a five-second
@@ -161,8 +161,12 @@ dependencies are not ready.
   invalidates every older unredeemed activation link. Activation consumes the
   generation by moving the room out of `unactivated` state.
 - A separate short-lived, one-time `#pro-recovery=...` claim restores ownership
-  after browser data or the owner cookie is lost. Recovery revokes the previous
-  owner credential without changing the room's controller sessions or data.
+  after browser data or the owner cookie is lost. It is issued only for an
+  active room through an Access-protected, admin-session-authenticated endpoint.
+  Redemption requires a current verified MUSIXQUARE account assertion; the
+  bearer claim alone cannot create an anonymous owner. Recovery revokes the
+  previous owner credential without changing the room's controller sessions or
+  data.
 - Activation requires the claim and a new eight-digit PIN. The client derives
   the historical bootstrap value from the room code and supplies it
   automatically; the user does not type it and operators must not describe it
@@ -178,10 +182,13 @@ dependencies are not ready.
   verified owner account lets another physical session of that account recover
   owner authority, but a room code, PIN, or first-arrival position never creates
   ownership.
-- PIN-admitted PRO members inherit shared playback control. Persistent media
-  addition, member removal, and chat announcements are separate capabilities
-  delegated by the owner. Queue deletion/reordering/clear, effects, repeat,
-  shuffle, PIN/recovery, and other room configuration remain owner-only. BOT and
+- Under member-authority projection `1`, a PIN-admitted ordinary PRO member has
+  no playback or mutation capability. The owner always retains playback
+  control. A delegated administrator receives playback, persistent media
+  addition, member removal, and chat-announcement capabilities only through
+  their respective explicit toggles; disabling the playback toggle removes
+  `playback.control`. Queue deletion/reordering/clear, effects, repeat, shuffle,
+  PIN/recovery, and other room configuration remain owner-only. BOT and
   Developer API commands are checked as the initiating room member and cannot
   bypass those capability boundaries. An anonymous delegation is session-lived;
   a verified account delegation is persisted in the room until owner revocation
@@ -659,7 +666,29 @@ Use recovery only when the owner cookie is unavailable. A normal PIN login
 creates a controller session but deliberately cannot grant owner-only room
 configuration rights.
 
-Generate a room-scoped recovery fragment from the same operator workstation:
+First sign in to MUSIXQUARE with the account that should own the room. Then open
+`/admin`, expand the active PRO room, and select **Issue owner recovery link**.
+Open the issued link in that same signed-in browser. The App Worker requires
+both the outer Cloudflare Access policy and its inner admin session, writes an
+`owner_recovery_claim.issue` audit result, and
+returns the credential with `Cache-Control: no-store`. Before showing the link,
+it strictly validates the HTTPS origin, room path, fragment shape, expiry, and
+the service response. The response may expose `ownerAccountLinked` as a boolean
+operator hint; it never exposes an account identifier. If the audit write cannot
+be confirmed, the App Worker withholds the link.
+
+The link panel is intentionally sensitive and in-memory only. Copy the link to
+the intended owner, then dismiss the panel. Issuing another link is allowed,
+but each recovered nonce can be redeemed only once. Redemption by a different
+signed-in account fails with `OWNER_ACCOUNT_LINK_CONFLICT` before the existing
+owner credential is revoked. A browser without a verified account fails with
+`ACCOUNT_SESSION_REQUIRED`; account-link and bounded-member-capacity failures
+also leave the recovery nonce unconsumed, so the same link may be retried after
+the account condition is corrected.
+
+If the admin dashboard path is unavailable and the operator securely has
+`PRO_ROOM_ACTIVATION_SECRET`, generate the same room-scoped recovery fragment
+from the operator workstation as an emergency fallback:
 
 ```powershell
 $secure = Read-Host "PRO room activation secret" -AsSecureString
@@ -760,10 +789,11 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
    same fixed link and QR code.
 3. At the Stage-1 checkpoint, confirm each PIN-admitted device retains the
    pre-account equal-member compatibility behavior and none is exposed as a
-   browser host/coordinator. At Stage 2, confirm every member can use shared
-   playback, but only the owner or an explicitly delegated capability can add
-   media, remove a member, or post an announcement; queue destruction,
-   reordering, effects, repeat, and shuffle remain owner-only.
+   browser host/coordinator. At Stage 2, confirm an ordinary member cannot
+   control playback, the owner always can, and a delegated administrator can do
+   so only while its playback toggle is enabled. Confirm media addition, member
+   removal, and announcements follow their independent toggles; queue
+   destruction, reordering, effects, repeat, and shuffle remain owner-only.
 4. Add YouTube media, empty the room, reopen from another device, and verify the
    playlist and frozen server anchor resume correctly. While another
    item is playing, add a playlist-only YouTube URL and confirm the current

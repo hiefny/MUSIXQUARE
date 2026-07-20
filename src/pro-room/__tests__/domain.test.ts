@@ -147,22 +147,73 @@ function unactivatedSnapshot(): ProRoomSnapshot {
   };
 }
 
+function authorityMemberSnapshot(capabilities: ProRoomCapability[]): ProRoomSnapshot {
+  const value = activeSnapshot();
+  const memberId = 'member_ordinary_0001';
+  value.memberIdentityVersion = 1;
+  value.authorityVersion = 1;
+  value.administrators = [
+    {
+      memberId: 'member_owner_0000001',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
+      displayName: 'Owner',
+      role: 'owner',
+      permissions: {
+        'media.add': true,
+        'playback.control': true,
+        'members.kick': true,
+        'chat.notice': true,
+      },
+      inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+      onlineDeviceCount: 0,
+    },
+  ];
+  value.viewer = {
+    ...value.viewer!,
+    memberId,
+    memberDisplayNumber: 1,
+    isAuthenticated: true,
+    displayName: 'Member',
+    role: 'member',
+    capabilities: [...capabilities],
+  };
+  value.presence.participants = [
+    {
+      ...value.presence.participants[0]!,
+      memberId,
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
+      displayName: 'Member',
+      role: 'member',
+      capabilities: [...capabilities],
+    },
+  ];
+  return value;
+}
+
 describe('PRO room roles and credentials', () => {
   it('lets trusted controllers manage members while reserving room configuration for owners', () => {
-    expect(capabilitiesForProRoomRole('controller')).toEqual([
+    const delegatedPermissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': true,
+      'chat.notice': false,
+    } as const;
+    expect(capabilitiesForProRoomRole('controller')).toEqual([]);
+    expect(capabilitiesForProRoomRole('controller', delegatedPermissions)).toEqual([
       'queue.mutate',
       'playback.control',
-      'effects.control',
       'asset.upload',
       'members.manage',
     ]);
     expect(capabilitiesForProRoomRole('owner')).toEqual(OWNER_CAPABILITIES);
-    expect(capabilitiesForProRoomRole('member')).toEqual(['playback.control']);
-    expect(proRoomRoleCan('controller', 'playback.control')).toBe(true);
-    expect(proRoomRoleCan('controller', 'members.manage')).toBe(true);
-    expect(proRoomRoleCan('controller', 'room.configure')).toBe(false);
+    expect(capabilitiesForProRoomRole('member')).toEqual([]);
+    expect(proRoomRoleCan('controller', 'playback.control', delegatedPermissions)).toBe(true);
+    expect(proRoomRoleCan('controller', 'members.manage', delegatedPermissions)).toBe(true);
+    expect(proRoomRoleCan('controller', 'room.configure', delegatedPermissions)).toBe(false);
     expect(proRoomRoleCan('owner', 'members.manage')).toBe(true);
-    expect(proRoomRoleCan('member', 'playback.control')).toBe(true);
+    expect(proRoomRoleCan('member', 'playback.control')).toBe(false);
     expect(proRoomRoleCan('member', 'queue.mutate')).toBe(false);
   });
 
@@ -275,6 +326,33 @@ describe('PRO room snapshot validation', () => {
     expect(parsed).not.toBe(raw);
     expect(parsed?.playlist).not.toBe(raw.playlist);
     expect(parsed?.playback).not.toBe(raw.playback);
+  });
+
+  it('accepts both new member denial and legacy member playback without widening either', () => {
+    const denied = parseProRoomSnapshot(authorityMemberSnapshot([]));
+    expect(denied?.viewer?.capabilities).toEqual([]);
+    expect(denied?.presence.participants[0]?.capabilities).toEqual([]);
+
+    const legacy = parseProRoomSnapshot(authorityMemberSnapshot(['playback.control']));
+    expect(legacy?.viewer?.capabilities).toEqual(['playback.control']);
+    expect(legacy?.presence.participants[0]?.capabilities).toEqual(['playback.control']);
+
+    expect(parseProRoomSnapshot(authorityMemberSnapshot(['queue.mutate']))).toBeNull();
+  });
+
+  it('accepts a persisted member when authority projection rolls back to legacy playback', () => {
+    const rolledBack = authorityMemberSnapshot(['playback.control']);
+    delete rolledBack.authorityVersion;
+    delete rolledBack.administrators;
+    delete rolledBack.presence.participants[0]!.capabilities;
+
+    const parsed = parseProRoomSnapshot(rolledBack);
+    expect(parsed?.viewer).toMatchObject({
+      role: 'member',
+      capabilities: ['playback.control'],
+    });
+    expect(parsed?.presence.participants[0]).toMatchObject({ role: 'member' });
+    expect(parsed?.presence.participants[0]?.capabilities).toBeUndefined();
   });
 
   it('requires non-negative safe effects and queue-mode revision heads', () => {

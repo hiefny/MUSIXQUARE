@@ -231,12 +231,13 @@ const CONTROLLER_CAPABILITIES = [
   'asset.upload',
   'members.manage',
 ];
-const MEMBER_CAPABILITIES = ['playback.control'];
+const MEMBER_CAPABILITIES = [];
+const LEGACY_MEMBER_CAPABILITIES = ['playback.control'];
 const OWNER_CAPABILITIES = [...CONTROLLER_CAPABILITIES, 'room.configure'];
 const PRO_ROOM_PERMISSION_KEYS = ['media.add', 'playback.control', 'members.kick', 'chat.notice'];
 const MEMBER_PERMISSIONS = Object.freeze({
   'media.add': false,
-  'playback.control': true,
+  'playback.control': false,
   'members.kick': false,
   'chat.notice': false,
 });
@@ -264,7 +265,7 @@ function normalizePermissionSet(value, fallback = null) {
   }
   if (!hasExactKeys(value, PRO_ROOM_PERMISSION_KEYS)) return null;
   if (PRO_ROOM_PERMISSION_KEYS.some((key) => typeof value[key] !== 'boolean')) return null;
-  return { ...clonePermissionSet(value), 'playback.control': true };
+  return clonePermissionSet(value);
 }
 
 function capabilitiesFromPermissions(role, permissions) {
@@ -272,12 +273,13 @@ function capabilitiesFromPermissions(role, permissions) {
     return [...OWNER_CAPABILITIES];
   }
   if (role === 'member') return [...MEMBER_CAPABILITIES];
-  // Shared playback is the PRO-room baseline. `queue.mutate` is emitted only
-  // as a rolling-client compatibility alias for the add path; the mutation
-  // handler separately fences every existing-item edit to the owner.
-  const effective = permissions['media.add']
-    ? ['queue.mutate', 'playback.control', 'asset.upload']
-    : ['playback.control'];
+  // `queue.mutate` remains a rolling-client compatibility alias for the add
+  // path; the mutation handler separately fences every existing-item edit to
+  // the owner. Playback is now an explicit delegated permission rather than a
+  // capability inherited by every room participant.
+  const effective = permissions['media.add'] ? ['queue.mutate'] : [];
+  if (permissions['playback.control']) effective.push('playback.control');
+  if (permissions['media.add']) effective.push('asset.upload');
   if (permissions['members.kick']) effective.push('members.manage');
   return effective;
 }
@@ -1379,7 +1381,7 @@ function sessionCapabilities(room, session) {
       ...(session.role === 'owner'
         ? OWNER_CAPABILITIES
         : session.role === 'member'
-          ? MEMBER_CAPABILITIES
+          ? LEGACY_MEMBER_CAPABILITIES
           : CONTROLLER_CAPABILITIES),
     ];
   }
@@ -1400,7 +1402,7 @@ function publicAdministrators(room) {
       displayName: ownerAccount?.displayName || room.ownerDisplayName || 'Owner',
       role: 'owner',
       permissions: clonePermissionSet(OWNER_PERMISSIONS),
-      inheritedPermissions: ['playback.control'],
+      inheritedPermissions: [...PRO_ROOM_PERMISSION_KEYS],
       onlineDeviceCount: liveCounts.get(room.ownerMemberId) || 0,
     },
   ];
@@ -1413,7 +1415,7 @@ function publicAdministrators(room) {
       displayName: member.displayName,
       role: 'controller',
       permissions: clonePermissionSet(member.permissions),
-      inheritedPermissions: ['playback.control'],
+      inheritedPermissions: [],
       onlineDeviceCount: liveCounts.get(member.memberId) || 0,
     });
   }
@@ -1425,7 +1427,7 @@ function publicAdministrators(room) {
       displayName: administrator.displayName,
       role: 'controller',
       permissions: clonePermissionSet(administrator.permissions),
-      inheritedPermissions: ['playback.control'],
+      inheritedPermissions: [],
       onlineDeviceCount: liveCounts.get(administrator.memberId) || 0,
     });
   }
@@ -3885,6 +3887,7 @@ export class MusixquareProRoom {
           roomCode: this.room.roomCode,
           provisioned: this.room.provisioned,
           status: this.room.status,
+          ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
         });
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/provision') {
@@ -3914,6 +3917,9 @@ export class MusixquareProRoom {
             rollbackStorageFailure: true,
           }),
         );
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/owner-recovery-claim') {
+        return this.handleInternalOwnerRecoveryClaim();
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/suspend') {
         return this.withMutation(() =>
@@ -5559,6 +5565,35 @@ export class MusixquareProRoom {
     });
   }
 
+  async handleInternalOwnerRecoveryClaim() {
+    if (!this.room.provisioned) return errorResponse('PRO_ROOM_NOT_FOUND', 404);
+    if (this.room.status !== 'active') {
+      return jsonResponse(
+        { error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE', status: this.room.status },
+        409,
+        { 'cache-control': 'no-store, max-age=0' },
+      );
+    }
+    const secret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    if (secret.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    const nowMs = Date.now();
+    const expiresAt = nowMs + 10 * 60 * 1000;
+    const claim = await issueProRoomOwnerRecoveryClaim(this.room.roomCode, secret, {
+      nowMs,
+      expiresAtMs: expiresAt,
+    });
+    return jsonResponse(
+      {
+        roomCode: this.room.roomCode,
+        recoveryUrl: `https://musixquare.com/${this.room.roomCode}#pro-recovery=${encodeURIComponent(claim)}`,
+        expiresAt,
+        ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
+      },
+      200,
+      { 'cache-control': 'no-store, max-age=0' },
+    );
+  }
+
   markRegistryActivationActive() {
     const db = this.env?.MUSIXQUARE_ADMIN_DB || this.env?.ADMIN_METRICS_DB || null;
     if (!db?.prepare) return;
@@ -5951,6 +5986,37 @@ export class MusixquareProRoom {
     return { accountId: account.accountId, ...member };
   }
 
+  prepareOwnerAccountMember(account, nowMs) {
+    if (!account) return null;
+    const linkedOwner = this.room.ownerAccountId === account.accountId;
+    if (this.room.ownerAccountId && !linkedOwner) return null;
+    const existing = this.room.accountMembers[account.accountId] || null;
+    if (!existing && Object.keys(this.room.accountMembers).length >= ACCOUNT_MEMBER_MAX_ITEMS) {
+      return null;
+    }
+    return {
+      accountId: account.accountId,
+      ...(existing || {
+        memberId: this.room.ownerMemberId,
+        createdAtMs: nowMs,
+      }),
+      memberId: this.room.ownerMemberId,
+      displayName: account.nickname,
+      displayNumber: 0,
+      role: 'owner',
+      permissions: clonePermissionSet(OWNER_PERMISSIONS),
+      updatedAtMs: nowMs,
+    };
+  }
+
+  commitOwnerAccountMember(accountMember) {
+    const { accountId, ...member } = accountMember;
+    this.room.accountMembers[accountId] = member;
+    this.room.ownerAccountId = accountId;
+    this.room.ownerDisplayName = member.displayName;
+    this.syncAccountMemberSessions(accountId, member);
+  }
+
   authorityProjectionEnabled() {
     return this.room.__memberAuthorityProjectionEnabled === true;
   }
@@ -6051,9 +6117,7 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const permissions = normalizePermissionSet(parsed.value.permissions);
-    if (!permissions || parsed.value.permissions['playback.control'] !== true) {
-      return errorResponse('PLAYBACK_PERMISSION_INHERITED', 409);
-    }
+    if (!permissions) return errorResponse('INVALID_REQUEST', 400);
     const nowMs = Date.now();
     const accountEntry = this.findAccountMemberByMemberId(memberId);
     if (accountEntry) {
@@ -6447,7 +6511,6 @@ export class MusixquareProRoom {
       );
     }
     if (session.role === 'owner') return true;
-    if (permission === 'playback.control') return true;
     return sessionPermissionSet(this.room, session)[permission] === true;
   }
 
@@ -8407,17 +8470,10 @@ export class MusixquareProRoom {
     const nowMs = Date.now();
     const asserted = await this.accountAssertion(request);
     if (asserted.response) return asserted.response;
-    // A recovery claim proves control of the room recovery channel, but it
-    // must not silently detach an owner identity already bound to a different
-    // Google account. Fail before revoking any live owner session so the user
-    // can sign out or return with the account that owns this room.
-    if (
-      asserted.account &&
-      this.room.ownerAccountId &&
-      this.room.ownerAccountId !== asserted.account.accountId
-    ) {
-      return errorResponse('OWNER_ACCOUNT_LINK_CONFLICT', 409);
-    }
+    // Ownership recovery is an account-binding operation, not an anonymous
+    // bearer-login escape hatch. A missing assertion must fail before the
+    // claim or any existing owner state can be consumed.
+    if (!asserted.account) return errorResponse('ACCOUNT_SESSION_REQUIRED', 401);
     const claim = await verifyOwnerRecoveryClaim(
       parsed.value.claimToken,
       this.room.roomCode,
@@ -8433,21 +8489,45 @@ export class MusixquareProRoom {
       return errorResponse('RECOVERY_CAPACITY_EXCEEDED', 409);
     }
 
+    // Validate the recovery claim before exposing whether this room is linked
+    // to another account. A valid claim still cannot transfer a linked room,
+    // and every account-capacity check remains non-mutating so the same claim
+    // can be retried after the operator resolves the account condition.
+    if (
+      this.room.ownerAccountId &&
+      this.room.ownerAccountId !== asserted.account.accountId
+    ) {
+      return errorResponse('OWNER_ACCOUNT_LINK_CONFLICT', 409);
+    }
+    const accountMember = this.prepareOwnerAccountMember(asserted.account, nowMs);
+    if (!accountMember) return errorResponse('ACCOUNT_MEMBER_CAPACITY_EXCEEDED', 409);
+    const ownerCredential = await this.createOwnerCredential();
+    if (!ownerCredential) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+
+    // The recovery page can be opened from a browser that is already present
+    // as an ordinary room member. Its response replaces that browser's
+    // session cookie, so retire the superseded physical session now instead
+    // of leaving an unreachable owner presence behind until TTL expiry. Other
+    // devices of the same proven account remain live and are upgraded below.
+    const recoveringSession = await this.authenticate(request);
+    if (recoveringSession) {
+      this.removePresence(recoveringSession.session.participantId, nowMs);
+      this.removeSessionRecord(recoveringSession.tokenHash);
+    }
     for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
       if (session.role !== 'owner') continue;
       this.removePresence(session.participantId, nowMs);
       this.removeSessionRecord(tokenHash);
     }
-    const ownerCredential = await this.createOwnerCredential();
-    const accountMember = this.resolveAccountMember(asserted.account, 'owner', nowMs);
     const created = await this.createSessionRecord(
       'owner',
-      accountMember?.displayName || displayName,
+      accountMember.displayName || displayName,
       nowMs,
       this.room.ownerMemberId,
       accountMember,
     );
-    if (!created || !ownerCredential) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    if (!created) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    this.commitOwnerAccountMember(accountMember);
     this.room.ownerCredentialHash = ownerCredential.hash;
     this.room.ownerDisplayName = created.session.displayName;
     this.room.consumedRecoveryNonces[nonceHash] = claim.exp;
@@ -9174,10 +9254,7 @@ export class MusixquareProRoom {
   }
 
   async handlePlaybackCommand(request) {
-    const auth = await this.requireSession(request, {
-      activePresence: true,
-      capability: 'playback.control',
-    });
+    const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     const key = this.readIdempotencyKey(request);
     if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
@@ -9185,6 +9262,14 @@ export class MusixquareProRoom {
     if (parsed.response) return parsed.response;
     const command = parsePlaybackAuthorityCommand(parsed.value);
     if (!command) return errorResponse('INVALID_REQUEST', 400);
+    // Every room-wide playback mutation, including media observations that
+    // can advance or skip the queue, requires explicit playback authority.
+    // Revision/media/clock fences make an authorized observation idempotent;
+    // they are not proof that an ordinary member is entitled to mutate the
+    // canonical timeline.
+    if (!this.sessionHasPermission(auth.session, 'playback.control')) {
+      return errorResponse('PERMISSION_REQUIRED', 403);
+    }
     const scope = `participant:${auth.session.participantId}:playback-authority`;
     const fingerprint = await this.idempotencyFingerprint(scope, command);
     const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);

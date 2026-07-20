@@ -15,8 +15,8 @@ Ordinary room codes, peer IDs, IP addresses, raw Access identities, and user
 agents are not stored. The PRO registry necessarily stores its explicitly
 registered `0xxxxx` room codes and operator labels. Its audit stores a
 session-scoped HMAC actor pseudonym, action/result, PRO room code, and timestamp
-only. It must never store a PIN, activation claim, activation URL, admin cookie,
-or Access token.
+only. It must never store a PIN, activation or owner-recovery claim, bearer URL,
+admin cookie, account identifier, or Access token.
 
 Events:
 

@@ -674,7 +674,11 @@ function syncPermissionDialogRows(administrator: AdministratorView): void {
   for (const row of permissionRows()) {
     const key = row.dataset.administratorPermission as ProRoomPermission | undefined;
     if (!key) continue;
-    const isInherited = inherited.has(key);
+    // Only the owner has immutable authority, and the owner dialog cannot be
+    // opened. A legacy controller may still arrive with playback listed as an
+    // inherited permission; expose it as an ordinary explicit toggle so the
+    // next save migrates that controller to the new permission model.
+    const isInherited = administrator.isOwner && inherited.has(key);
     row.disabled = isInherited;
     row.setAttribute(
       'aria-checked',
@@ -780,12 +784,11 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
 async function saveAdministratorPermissions(): Promise<void> {
   const target = _permissionDialogTarget;
   if (!target || _permissionDialogBusy || !_canManageAdministrators()) return;
-  const inherited = new Set(target.inheritedPermissions);
   const permissions = clonePermissions(target.permissions);
   for (const row of permissionRows()) {
     const key = row.dataset.administratorPermission as ProRoomPermission | undefined;
     if (!key) continue;
-    permissions[key] = inherited.has(key) || row.getAttribute('aria-checked') === 'true';
+    permissions[key] = row.getAttribute('aria-checked') === 'true';
   }
 
   const dialog = document.getElementById('administrator-permissions-dialog');

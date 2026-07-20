@@ -86,6 +86,7 @@ let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
 let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
 let _manualSyncPreviousFocus: HTMLElement | null = null;
+let _playButtonMediaEnabled = false;
 
 function isFilePlayButtonLoading(): boolean {
   const lifecycle = getState('playback.lifecycle');
@@ -107,6 +108,14 @@ function syncPlayButtonLoadingClass(): void {
     _proPlaybackTransitionLoading;
   btn.classList.toggle('yt-syncing', loading);
   btn.setAttribute('aria-busy', String(loading));
+}
+
+function syncPlayButtonAuthority(): void {
+  const btn = document.getElementById('play-btn');
+  if (!btn) return;
+  const context = getRoomContext();
+  const hasAuthority = context.kind !== 'pro' || hasRoomCapability('playback.control');
+  btn.setAttribute('aria-disabled', String(!_playButtonMediaEnabled || !hasAuthority));
 }
 
 function refreshFilePlayButtonLoading(): void {
@@ -650,9 +659,10 @@ function handleMainSyncBtn(): void {
     return;
   }
 
-  // Every PRO participant is an equal playback endpoint. Sync is therefore a
-  // participant-local server reconciliation followed by a speaker nudge,
-  // never a command sent to another browser.
+  // Every PRO participant is a local playback endpoint, regardless of whether
+  // it may issue room commands. Sync is therefore a participant-local server
+  // reconciliation followed by a speaker nudge, never a command sent to
+  // another browser.
   if (isProRoom) {
     const roomId = room.roomId;
     void import('../pro-room/runtime.ts')
@@ -836,6 +846,8 @@ export function initPlayerControls(): void {
   _proPlaybackTransitionLoading = false;
   _proPlaybackControlToken = null;
   _proPlaybackControlKind = null;
+  _playButtonMediaEnabled =
+    document.getElementById('play-btn')?.getAttribute('aria-disabled') === 'false';
   initTabTitleMarquee(getTabTitleSnapshot);
 
   const $on = (id: string, evt: string, fn: EventListener) => {
@@ -1120,10 +1132,12 @@ export function initPlayerControls(): void {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
+    syncPlayButtonAuthority();
   });
   updateRoleBadge();
   syncMediaSourceButtonAuthority();
   syncQueueModeButtonAuthority();
+  syncPlayButtonAuthority();
 
   // Language switch → refresh translated track title + tab title
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
@@ -1195,10 +1209,11 @@ export function initPlayerControls(): void {
   // fires when there's no media — _internalPlay surfaces a toast hint
   // ("미디어를 추가해주세요") that real `disabled` would silence.
   _busScope.on('ui:play-btn-state', (enabled) => {
-    const btn = document.getElementById('play-btn');
-    if (btn) {
-      btn.setAttribute('aria-disabled', String(!enabled));
-    }
+    // Media readiness and room authority change independently. Preserve the
+    // former across an administrator grant/revoke, then project both into the
+    // actual affordance so a room.context update cannot leave stale UI.
+    _playButtonMediaEnabled = enabled;
+    syncPlayButtonAuthority();
   });
 
   // Play/Pause visual state — derived from playback activity + YouTube play event

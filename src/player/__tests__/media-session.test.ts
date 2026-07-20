@@ -208,6 +208,55 @@ describe('initMediaSession', () => {
     expect(togglePlay).not.toHaveBeenCalled();
   });
 
+  it('keeps coordinator-free PRO member media keys local and blocks room controls', () => {
+    const localYouTubeToggle = vi.fn();
+    const nextTrack = vi.fn();
+    bus.on('youtube:local-toggle-play', localYouTubeToggle);
+    bus.on('playlist:next-track', nextTrack);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setPlaybackYouTubePlaying();
+
+    _handlers['pause']();
+    _handlers['nexttrack']();
+    _handlers['seekforward']({ seekOffset: 30 });
+    _handlers['stop']();
+
+    expect(localYouTubeToggle).toHaveBeenCalledOnce();
+    expect(togglePlay).not.toHaveBeenCalled();
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(skipTime).not.toHaveBeenCalled();
+    expect(stopPlayback).not.toHaveBeenCalled();
+  });
+
+  it('allows a PRO controller with explicit playback authority to use room media keys', () => {
+    const nextTrack = vi.fn();
+    bus.on('playlist:next-track', nextTrack);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setPlaybackYouTubePlaying();
+
+    _handlers['pause']();
+    _handlers['nexttrack']();
+
+    expect(togglePlay).toHaveBeenCalledOnce();
+    expect(nextTrack).toHaveBeenCalledOnce();
+  });
+
   it('pause handler does nothing when already paused', () => {
     setPlaybackFilePaused();
     _handlers['pause']();

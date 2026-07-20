@@ -185,6 +185,17 @@ export function routeProPlaybackCommand(
   const context = getState('room.context');
   const handler = commandHandler;
   if (context.kind !== 'pro' || !context.roomId) return false;
+  // The UI normally hides room-wide playback controls from an ordinary PRO
+  // listener, but every call path still crosses this authority seam.  Consume
+  // a stale keyboard/media-session/programmatic action here instead of
+  // creating a pending spinner and relying on the Worker to reject it later.
+  // An `ended`/`unavailable` observation can still mutate the canonical queue,
+  // so it follows the same capability boundary as an explicit user control.
+  // The Worker independently enforces this boundary as the security backstop.
+  if (!context.capabilities.includes('playback.control')) {
+    log.warn('[PRO Playback] Ignored action without delegated playback authority');
+    return true;
+  }
   if (!handler) {
     log.warn('[PRO Playback] Ignored action while the server command channel is not ready');
     return true;

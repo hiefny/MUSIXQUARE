@@ -283,6 +283,32 @@ describe('IFrame runtime readiness identity', () => {
     handle.fireReady();
     expect(isYtPlayerReady()).toBe(true);
   });
+
+  it.each([
+    { capabilities: [] as const, label: 'ordinary member' },
+    { capabilities: ['playback.control'] as const, label: 'authorized controller' },
+  ])('reports YouTube readiness independently for a PRO $label', async ({ capabilities }) => {
+    const player = createMockYtPlayer();
+    installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [...capabilities],
+    });
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    const buttonStates: boolean[] = [];
+    bus.on('ui:play-btn-state', (enabled) => buttonStates.push(enabled));
+
+    loadYouTubeVideo('readyEpoch2', null, false, 0);
+
+    expect(buttonStates.at(-1)).toBe(true);
+  });
 });
 
 describe('scrape poll supersession (F-2401)', () => {

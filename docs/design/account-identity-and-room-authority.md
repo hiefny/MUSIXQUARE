@@ -144,9 +144,12 @@ remainder as grace. A later valid assertion may reattach the device.
 
 PRO ownership is never claimed merely by being the first logged-in visitor. An
 existing owner credential or a recovery claim must explicitly link the initial
-owner account. After that link, another device with the same verified account
-can recover owner authority. The room PIN remains an independent admission
-secret and is not bypassed by login.
+owner account. Recovery always requires a current verified account assertion;
+the claim alone can never create an anonymous owner session. A missing, invalid,
+conflicting, or capacity-blocked account leaves the claim unconsumed and the
+existing owner unchanged. After that link, another device with the same verified
+account can recover owner authority. The room PIN remains an independent
+admission secret and is not bypassed by login.
 
 ### 6. Capabilities and product baselines
 
@@ -179,11 +182,12 @@ transport: the room PIN, administrator grant editor, system-audio publisher,
 coordinator eligibility, host-only inbound trust, and teardown stay bound to
 the physical host browser. Logging out or losing the verified room identity on
 that second device removes the projection immediately; matching nicknames are
-never authority evidence. PRO guests retain the
-product's existing shared playback baseline, so `playback.control` can be shown
-as inherited/locked in a PRO permission editor rather than misleadingly toggled
-off. Delegated PRO administrators receive only additive capabilities selected
-by the owner.
+never authority evidence. Under PRO member-authority projection `1`, an
+ordinary PRO member receives no playback capability. The owner always retains
+`playback.control`; a delegated PRO administrator receives it only when the
+owner explicitly enables the playback toggle, and revoking that toggle removes
+the capability. Other delegated capabilities remain independently selected by
+the owner.
 
 An account-wide kick removes every active device for the target room member and
 invalidates stale room tickets. An administrator may not kick the owner or
@@ -250,8 +254,8 @@ room. The production rollout therefore has two explicit stages.
 
 The repository intentionally checks in both projection flags as `0` for this
 stage. That is a rollout checkpoint, not the final authorization policy. PRO
-rooms temporarily retain the former equal-member compatibility behavior while
-cached clients converge.
+rooms temporarily retain the former equal-member compatibility behavior,
+including its shared-playback baseline, while cached clients converge.
 
 ### Stage 2: account activation
 
@@ -289,9 +293,10 @@ tombstones, and PRO data so cleanup remains possible. Removing an OAuth/session
 secret may make the service report `configured:false`; deleting D1 or rotating
 the subject pepper is not an application rollback.
 
-Projection `0` restores the historical PIN-admitted equal-member policy. If an
-incident cannot safely tolerate that temporary expansion, put PRO entry into
-maintenance rather than rolling below the compatibility floor.
+Projection `0` restores the historical PIN-admitted equal-member policy,
+including playback control for ordinary members. If an incident cannot safely
+tolerate that temporary authority expansion, put PRO entry into maintenance
+rather than rolling below the compatibility floor.
 
 ## Required verification
 
@@ -333,6 +338,7 @@ with that room.
 
 ### Keep all PRO participants as full administrators
 
-Rejected for the account-aware product. Shared playback remains a PRO baseline,
-but persistent media, BOT, kick, and announcement authority must be explicit and
-revocable by the room owner.
+Rejected for the account-aware product. Ordinary PRO members are listeners by
+default. Playback, persistent media, BOT, kick, and announcement authority must
+be explicitly delegated and revocable by the room owner; the owner always
+retains playback control.

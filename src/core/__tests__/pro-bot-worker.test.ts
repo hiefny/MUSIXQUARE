@@ -402,6 +402,62 @@ describe('server-only PRO BOT app boundary', () => {
 });
 
 describe('PRO BOT Gemini plan and YouTube normalization', () => {
+  it('uses Flash-Lite by default while retaining an explicit Flash override', () => {
+    const { modelName } = proBotInternalsForTests;
+    expect(modelName({})).toBe('gemini-3.1-flash-lite');
+    expect(modelName({ GEMINI_BOT_MODEL: 'gemini-3.5-flash' })).toBe('gemini-3.5-flash');
+    expect(modelName({ GEMINI_BOT_MODEL: 'unsupported-model' })).toBe('gemini-3.1-flash-lite');
+  });
+
+  it('retries only an invalid Flash-Lite plan once with Flash', async () => {
+    const requestedModels: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+        requestedModels.push(url.pathname);
+        if (requestedModels.length === 1) {
+          return Response.json({ candidates: [{ content: { parts: [{ text: 'invalid' }] } }] });
+        }
+        return geminiPlanResponse({
+          intent: 'playback',
+          playbackCommand: 'pause',
+          answer: 'Paused.',
+        });
+      }),
+    );
+
+    await expect(
+      proBotInternalsForTests.buildPlan(
+        'pause',
+        { room: { playlist: [] } },
+        '',
+        { GEMINI_API_KEY: GEMINI_KEY },
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ intent: 'playback', playbackCommand: 'pause', answer: 'Paused.' });
+    expect(requestedModels).toEqual([
+      '/v1beta/models/gemini-3.1-flash-lite:generateContent',
+      '/v1beta/models/gemini-3.5-flash:generateContent',
+    ]);
+  });
+
+  it('does not spend a Flash fallback call on upstream availability errors', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ error: 'busy' }, { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      proBotInternalsForTests.buildPlan(
+        'pause',
+        { room: { playlist: [] } },
+        '',
+        { GEMINI_API_KEY: GEMINI_KEY },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('BOT_UPSTREAM_BUSY');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('recognizes explicit playback requests across supported UI languages without matching 재생목록', () => {
     const { explicitlyRequestsPlayback } = proBotInternalsForTests;
     for (const prompt of [

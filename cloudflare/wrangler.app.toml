@@ -53,6 +53,13 @@ binding = "DEVELOPER_API_DB"
 database_name = "musixquare-developer-api"
 database_id = "237d63d2-6eea-4b01-b396-7784b5b8b6f0"
 
+# Dedicated optional-account store. It contains pseudonymous account IDs,
+# nickname/profile state, session digests, and bounded room-cleanup indexes.
+[[d1_databases]]
+binding = "MUSIXQUARE_AUTH_DB"
+database_name = "musixquare-auth"
+database_id = "a1284975-2dac-4dbb-b1cb-ff60375833ae"
+
 # Cross-script Durable Object binding for Access + admin-session protected PRO
 # provisioning. The PRO Worker's public router cannot reach these root-level
 # internal endpoints, and activation claims are never persisted in D1.

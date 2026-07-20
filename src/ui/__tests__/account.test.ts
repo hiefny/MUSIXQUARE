@@ -566,6 +566,12 @@ describe('optional account UI', () => {
   it('keeps account controls reachable in a short landscape viewport', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const dialogRules = stylesheet.match(/\.dialog\.account-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
+    const shownDialogRules =
+      stylesheet.match(/\.account-dialog-overlay\.show\s+\.account-dialog\s*\{([^}]*)\}/)?.[1] ??
+      '';
+    const headerRules =
+      stylesheet.match(/\.dialog\.account-dialog\s+\.account-dialog-header\s*\{([^}]*)\}/)?.[1] ??
+      '';
     const contentRules = stylesheet.match(/\.account-dialog-content\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticatedActionsRules =
       stylesheet.match(
@@ -573,6 +579,11 @@ describe('optional account UI', () => {
       )?.[1] ?? '';
 
     expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
+    expect(dialogRules).toContain('transform: translateY(18px)');
+    expect(dialogRules).not.toContain('scale(');
+    expect(shownDialogRules).toContain('transform: translateY(0)');
+    expect(shownDialogRules).not.toContain('scale(');
+    expect(headerRules).toContain('padding: 30px 72px 6px 32px');
     expect(contentRules).toContain('min-height: 0');
     expect(contentRules).toContain('overflow-y: auto');
     expect(contentRules).toContain('overflow-anchor: none');

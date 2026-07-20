@@ -628,12 +628,100 @@ describe('member-level connection and administrator UI', () => {
   it('keeps administrator layout aligned and permission rows free of pill hover fills', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const desktopStylesheet = await readFile('css/desktop.css', 'utf8');
+    const deviceCountRules = stylesheet.match(/\.d-device-count\s*\{([^}]*)\}/)?.[1] ?? '';
+    const dialogRules =
+      stylesheet.match(/\.dialog\.administrator-permissions-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
+    const shownDialogRules =
+      stylesheet.match(
+        /\.administrator-permissions-overlay\.show\s+\.administrator-permissions-dialog\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const headerRules =
+      stylesheet.match(
+        /\.dialog\.administrator-permissions-dialog\s+\.administrator-permissions-header\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const listRules = stylesheet.match(/\.administrator-permissions-list\s*\{([^}]*)\}/)?.[1] ?? '';
+    const actionRules =
+      stylesheet.match(
+        /\.administrator-permissions-dialog\s+\.dialog-actions\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
     expect(desktopStylesheet).toMatch(
       /#desktop-connect-content \.qr-container,\s*#desktop-connect-content \.administrator-list,\s*#desktop-connect-content \.device-list,/,
     );
     expect(stylesheet).toMatch(
       /\.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
     );
+    expect(deviceCountRules).toContain('background: transparent');
+    expect(deviceCountRules).toContain('color: var(--primary)');
+    expect(deviceCountRules).not.toContain('border-radius: 999px');
+    expect(dialogRules).toContain('transform: translateY(18px)');
+    expect(dialogRules).not.toContain('scale(');
+    expect(shownDialogRules).toContain('transform: translateY(0)');
+    expect(shownDialogRules).not.toContain('scale(');
+    expect(headerRules).toContain('padding: 30px 32px 18px');
+    expect(listRules).toContain('padding: 0 32px 24px');
+    expect(actionRules).toContain('padding-top: 6px');
+  });
+
+  it('focuses the permission switches without scrolling the modal', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    const fullPermissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': true,
+      'chat.notice': true,
+    } as const;
+    const administrators = [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner' as const,
+        permissions: { ...fullPermissions },
+        inheritedPermissions: [
+          'media.add' as const,
+          'playback.control' as const,
+          'members.kick' as const,
+          'chat.notice' as const,
+        ],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller' as const,
+        permissions: { ...fullPermissions },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ];
+    initConnect();
+    bus.emit('pro-room:administrators-updated', administrators);
+
+    const firstSwitch = document.querySelector<HTMLButtonElement>(
+      '[data-administrator-permission="media.add"]',
+    );
+    const focus = vi.spyOn(firstSwitch!, 'focus');
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-administrator-list .administrator-action-button.settings',
+      )
+      ?.click();
+    await Promise.resolve();
+
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
   });
 
   it('migrates legacy inherited PRO playback control to an editable explicit permission', async () => {

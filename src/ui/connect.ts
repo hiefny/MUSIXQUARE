@@ -779,11 +779,14 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('administrator-permissions-overlay');
-  queueMicrotask(() =>
-    permissionRows()
-      .find((row) => !row.disabled)
-      ?.focus(),
-  );
+  queueMicrotask(() => {
+    const firstEditableRow = permissionRows().find((row) => !row.disabled);
+    try {
+      firstEditableRow?.focus({ preventScroll: true });
+    } catch {
+      firstEditableRow?.focus();
+    }
+  });
 }
 
 async function saveAdministratorPermissions(): Promise<void> {

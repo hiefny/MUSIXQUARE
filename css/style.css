@@ -2938,23 +2938,20 @@
 
   .d-device-count {
     flex: 0 0 auto;
-    min-width: 15px;
-    height: 15px;
-    margin-left: 3px;
-    padding: 0 4px;
-    box-sizing: border-box;
+    min-width: 0;
+    height: auto;
+    margin-left: 2px;
+    padding: 0;
     align-self: flex-start;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 9px;
+    display: inline-block;
+    border-radius: 0;
+    background: transparent;
+    color: var(--primary);
+    font-size: 10px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     line-height: 1;
-    transform: translateY(-4px);
+    transform: translateY(-0.45em);
   }
 
   .sr-only {
@@ -3684,7 +3681,7 @@
     flex-direction: column;
     animation: none;
     opacity: 0;
-    transform: translateY(18px) scale(0.98);
+    transform: translateY(18px);
     transition:
       opacity 0.2s ease-in,
       transform 0.2s ease-in;
@@ -3692,7 +3689,7 @@
 
   .account-dialog-overlay.show .account-dialog {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
     transition:
       opacity 0.28s ease-out,
       transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
@@ -3726,7 +3723,7 @@
     flex-direction: column;
     animation: none;
     opacity: 0;
-    transform: translateY(18px) scale(0.98);
+    transform: translateY(18px);
     transition:
       opacity 0.2s ease-in,
       transform 0.2s ease-in;
@@ -3734,19 +3731,21 @@
 
   .administrator-permissions-overlay.show .administrator-permissions-dialog {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
     transition:
       opacity 0.28s ease-out,
       transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  .administrator-permissions-header {
+  .dialog.administrator-permissions-dialog .administrator-permissions-header {
     flex: 0 0 auto;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 16px;
-    padding-bottom: 18px;
+    /* This full declaration intentionally outranks the generic .dialog-header
+       shorthand below. Keep a stable, explicit gap above the first switch. */
+    padding: 30px 32px 18px;
   }
 
   .administrator-permissions-member {
@@ -3902,9 +3901,10 @@
     fill: currentColor;
   }
 
-  .account-dialog-header {
+  .dialog.account-dialog .account-dialog-header {
     flex: 0 0 auto;
-    padding-right: 72px;
+    /* Reserve the close-button column even for a long account nickname. */
+    padding: 30px 72px 6px 32px;
   }
 
   .account-dialog-content {

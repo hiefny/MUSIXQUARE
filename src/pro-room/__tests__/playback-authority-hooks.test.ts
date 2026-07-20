@@ -106,6 +106,7 @@ describe('coordinator-free PRO playback authority seam', () => {
         state: 'playing',
         positionSeconds: 9,
         scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
       }),
     ).resolves.toMatchObject({ status: 'applied' });
 
@@ -229,6 +230,7 @@ describe('coordinator-free PRO playback authority seam', () => {
       state: 'paused',
       positionSeconds: 3,
       scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
     });
     const stale = await commitProPlaybackAuthority({
       authority: authority(8, null),
@@ -237,6 +239,7 @@ describe('coordinator-free PRO playback authority seam', () => {
       state: 'playing',
       positionSeconds: 3,
       scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
     });
 
     expect(newer.status).toBe('applied');
@@ -265,6 +268,7 @@ describe('coordinator-free PRO playback authority seam', () => {
       state: 'playing',
       positionSeconds: 0,
       scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
       isCurrent: () => current,
     });
     await vi.waitFor(() => expect(commit).toHaveBeenCalledOnce());
@@ -295,6 +299,7 @@ describe('coordinator-free PRO playback authority seam', () => {
         state: 'paused',
         positionSeconds: 0,
         scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
       }),
     ).resolves.toMatchObject({ status: 'applied' });
 
@@ -325,6 +330,7 @@ describe('coordinator-free PRO playback authority seam', () => {
         state: 'playing',
         positionSeconds: 0,
         scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
       }),
     ).resolves.toMatchObject({ status: 'failed', reason: 'inactive-room' });
     expect(commit).not.toHaveBeenCalled();
@@ -357,6 +363,7 @@ describe('coordinator-free PRO playback authority seam', () => {
         state: 'playing',
         positionSeconds: 0,
         scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
       }),
     ).resolves.toMatchObject({ status: 'superseded', reason: 'stale-authority' });
   });
@@ -412,6 +419,7 @@ describe('coordinator-free PRO playback authority seam', () => {
         state: 'paused',
         positionSeconds: 4,
         scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
       }),
     ).resolves.toMatchObject({ status: 'applied' });
   });

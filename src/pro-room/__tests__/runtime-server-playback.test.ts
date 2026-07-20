@@ -132,12 +132,16 @@ function prepareEvent(transitionId: string, basePlaybackRevision = 0): ProRoomPl
   };
 }
 
-function commitEvent(transitionId: string | null, revision = 1): ProRoomPlaybackCommitEvent {
+function commitEvent(
+  transitionId: string | null,
+  revision = 1,
+  wireLeadMs = 0,
+): ProRoomPlaybackCommitEvent {
   return {
     type: 'pro-playback-commit',
     transitionId,
     serverTimeMs: 10_100,
-    executeAtMs: 10_100,
+    executeAtMs: 10_100 + wireLeadMs,
     playback: playback(revision),
   };
 }
@@ -474,6 +478,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         committedPlaybackRevision: 1,
         queueItemId: QUEUE_ITEM_ID,
         state: 'playing',
+        timingMode: 'scheduled-control',
       }),
     );
   });
@@ -590,7 +595,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));
     await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
 
-    const committed = commitEvent(TRANSITION_COMMIT);
+    const committed = commitEvent(TRANSITION_COMMIT, 1, 699);
     acceptProRoomRealtimeFrameForTests(
       serverFrame(committed as unknown as Record<string, unknown>),
     );
@@ -600,6 +605,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         committedPlaybackRevision: 1,
         queueItemId: QUEUE_ITEM_ID,
         state: 'playing',
+        timingMode: 'zero-start',
         youtubeVideoId: VIDEO_ID,
         youtubeSubIndex: 0,
       }),
@@ -626,6 +632,35 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
 
     expect(commitMedia).toHaveBeenCalledOnce();
     expect(cancelMedia).not.toHaveBeenCalled();
+  });
+
+  it('treats the legacy transition timing as a scheduled control', async () => {
+    const prepared = prepareEvent(TRANSITION_COMMIT);
+    acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));
+    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(TRANSITION_COMMIT, 1, 700) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    expect(commitMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ timingMode: 'scheduled-control' }),
+    );
+  });
+
+  it('treats an unknown transition timing as a scheduled control', async () => {
+    const nextPrepared = prepareEvent(TRANSITION_FAILED);
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(nextPrepared as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(TRANSITION_FAILED, 1, 702) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    expect(commitMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ timingMode: 'scheduled-control' }),
+    );
   });
 
   it('advances command baseRevision after a canonical COMMIT', async () => {

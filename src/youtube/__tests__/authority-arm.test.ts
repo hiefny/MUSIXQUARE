@@ -148,7 +148,11 @@ describe('YouTubeAuthorityArmController', () => {
     await prepareReady(controller, 'resident', 22);
     const seeksBeforeCommit = count(player, 'seekTo');
     const playsBeforeCommit = count(player, 'playVideo');
-    const committed = controller.commit({ ...identity, executeDelayMs: 700 });
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 700,
+      timingMode: 'scheduled-control',
+    });
 
     await vi.advanceTimersByTimeAsync(699);
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
@@ -176,10 +180,13 @@ describe('YouTubeAuthorityArmController', () => {
     });
     setPlayer(replacement as YouTubeAuthorityArmPlayer);
 
-    await expect(controller.commit({ ...identity, executeDelayMs: 700 })).resolves.toEqual({
-      status: 'superseded',
-      reason: 'identity-mismatch',
-    });
+    await expect(
+      controller.commit({
+        ...identity,
+        executeDelayMs: 700,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toEqual({ status: 'superseded', reason: 'identity-mismatch' });
     await vi.runAllTimersAsync();
 
     expect(count(player, 'playVideo')).toBe(oldPlayerPlays);
@@ -273,7 +280,11 @@ describe('YouTubeAuthorityArmController', () => {
       if (unmuteAttempts >= 3) player.__muted = false;
     };
 
-    const committed = controller.commit({ ...identity, executeDelayMs: 0 });
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 0,
+      timingMode: 'scheduled-control',
+    });
     await vi.advanceTimersByTimeAsync(1_800);
 
     await expect(committed).resolves.toEqual({ status: 'failed', reason: 'release-timeout' });
@@ -284,20 +295,75 @@ describe('YouTubeAuthorityArmController', () => {
     expect(player.__volume).toBe(53);
   });
 
-  it('applies platform lead and performs one catch-up seek for a runtime-rebased late target', async () => {
-    expect(getYouTubeAuthorityPlatformLeadMsForTests('ios')).toBe(270);
-    expect(getYouTubeAuthorityPlatformLeadMsForTests('android')).toBe(250);
-    expect(getYouTubeAuthorityPlatformLeadMsForTests('other')).toBe(0);
+  it.each([
+    { platform: 'ios' as const, leadMs: 270 },
+    { platform: 'android' as const, leadMs: 250 },
+  ])(
+    'applies the $platform platform lead to a true zero-start release',
+    async ({ platform, leadMs }) => {
+      expect(getYouTubeAuthorityPlatformLeadMsForTests('ios')).toBe(270);
+      expect(getYouTubeAuthorityPlatformLeadMsForTests('android')).toBe(250);
+      expect(getYouTubeAuthorityPlatformLeadMsForTests('other')).toBe(0);
 
+      const { controller, player } = makeHarness({ platform });
+      await prepareReady(controller, 'resident', 10);
+      const playsBeforeCommit = count(player, 'playVideo');
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 700,
+        timingMode: 'zero-start',
+      });
+
+      await vi.advanceTimersByTimeAsync(700 - leadMs - 1);
+      expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        platformLeadMs: leadMs,
+        catchUpSeconds: 0,
+      });
+      expect(count(player, 'playVideo')).toBe(playsBeforeCommit + 1);
+    },
+  );
+
+  it('does not apply platform lead to a scheduled control and still catches up a late target', async () => {
     const { controller, player } = makeHarness({ platform: 'ios' });
     await prepareReady(controller, 'resident', 10);
     const seekCount = count(player, 'seekTo');
+    const playsBeforeCommit = count(player, 'playVideo');
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 700,
+      targetSeconds: 10.25,
+      timingMode: 'scheduled-control',
+    });
+
+    await vi.advanceTimersByTimeAsync(699);
+    expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      platformLeadMs: 0,
+      catchUpSeconds: 0.25,
+    });
+    expect(count(player, 'seekTo')).toBe(seekCount + 1);
+    expect(player.__log.filter((call) => call.op === 'seekTo').at(-1)?.args).toEqual([10.25, true]);
+  });
+
+  it('keeps platform lead on a late true zero-start while rebasing its target', async () => {
+    const { controller, player } = makeHarness({ platform: 'ios' });
+    await prepareReady(controller, 'resident', 10);
+    const seekCount = count(player, 'seekTo');
+
     const committed = controller.commit({
       ...identity,
       executeDelayMs: 0,
       targetSeconds: 10.25,
+      timingMode: 'zero-start',
     });
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
 
     await expect(committed).resolves.toMatchObject({
       status: 'applied',
@@ -305,6 +371,26 @@ describe('YouTubeAuthorityArmController', () => {
       catchUpSeconds: 0.25,
     });
     expect(count(player, 'seekTo')).toBe(seekCount + 1);
-    expect(player.__log.filter((call) => call.op === 'seekTo').at(-1)?.args).toEqual([10.25, true]);
+  });
+
+  it('runs an already-late scheduled control immediately without platform lead', async () => {
+    const { controller, player } = makeHarness({ platform: 'ios' });
+    await prepareReady(controller, 'resident', 10);
+    const playsBeforeCommit = count(player, 'playVideo');
+
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 0,
+      targetSeconds: 10.25,
+      timingMode: 'scheduled-control',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      platformLeadMs: 0,
+      catchUpSeconds: 0.25,
+    });
+    expect(count(player, 'playVideo')).toBe(playsBeforeCommit + 1);
   });
 });

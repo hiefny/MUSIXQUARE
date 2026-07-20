@@ -158,7 +158,16 @@ const MAX_MEDIA_NAME_LENGTH = 2048;
 const MAX_TEXT_LENGTH = 2048;
 const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 const PLAYBACK_TRANSITION_DEADLINE_MS = 3_000;
+// Encode the transition kind in a numeric field that older Workers already
+// accept. This keeps an in-flight transition readable after a Worker rollback;
+// the one millisecond deadline difference is operationally inert.
+const PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS = PLAYBACK_TRANSITION_DEADLINE_MS - 1;
 const PLAYBACK_COMMIT_LEAD_MS = 700;
+// Strict event parsers make a new COMMIT JSON key unsafe during a rolling PWA
+// deployment. A -1ms lead is an inert marker to old clients and lets refreshed
+// clients recognize only an explicitly classified true zero-start. Legacy and
+// unknown 700ms transitions fail safely as ordinary scheduled controls.
+const PLAYBACK_ZERO_START_COMMIT_LEAD_MS = PLAYBACK_COMMIT_LEAD_MS - 1;
 // A browser ENDED event is an observation, not a control command.  When the
 // media reports a finite duration, require both the browser cursor and the
 // server-projected room cursor to be genuinely near that end.  Unknown/live
@@ -5581,6 +5590,7 @@ export class MusixquareProRoom {
         if (target) {
           const wakeTransition = this.preparePlaybackTransition(target, nowMs, null, {
             resumeFromSleep: true,
+            timingMode: 'scheduled-control',
           });
           if (wakeTransition.cancelEvent) this.scheduleServerEvent(wakeTransition.cancelEvent);
           if (wakeTransition.event) {
@@ -6203,11 +6213,16 @@ export class MusixquareProRoom {
   }
 
   preparePlaybackTransition(target, nowMs, developerCommandId = null, options = {}) {
+    const timingMode = options.timingMode === 'zero-start' ? 'zero-start' : 'scheduled-control';
     const existing = this.room.pendingPlaybackTransition;
     if (
       existing &&
       existing.coordinatorEpoch === this.room.presence.coordinatorEpoch &&
       existing.basePlaybackRevision === this.room.playback.revision &&
+      (existing.resumeFromSleep !== true &&
+      existing.deadlineAtMs - existing.createdAtMs === PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
+        ? 'zero-start'
+        : 'scheduled-control') === timingMode &&
       playbackSemanticallyEqual(existing.target, target)
     ) {
       // Several devices commonly report the same YouTube ENDED observation.
@@ -6230,7 +6245,11 @@ export class MusixquareProRoom {
       return { ...committed, cancelEvent: cancelEvent || committed.cancelEvent };
     }
     const transitionId = `transition_${randomToken(16)}`;
-    const deadlineAtMs = nowMs + PLAYBACK_TRANSITION_DEADLINE_MS;
+    const deadlineAtMs =
+      nowMs +
+      (timingMode === 'zero-start'
+        ? PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
+        : PLAYBACK_TRANSITION_DEADLINE_MS);
     const pending = {
       transitionId,
       coordinatorEpoch: this.room.presence.coordinatorEpoch,
@@ -6262,7 +6281,12 @@ export class MusixquareProRoom {
     ) {
       return { cancelEvent: this.cancelPendingPlayback('stale', nowMs), event: null };
     }
-    const executeAtMs = nowMs + PLAYBACK_COMMIT_LEAD_MS;
+    const executeAtMs =
+      nowMs +
+      (pending.resumeFromSleep !== true &&
+      pending.deadlineAtMs - pending.createdAtMs === PLAYBACK_ZERO_START_TRANSITION_DEADLINE_MS
+        ? PLAYBACK_ZERO_START_COMMIT_LEAD_MS
+        : PLAYBACK_COMMIT_LEAD_MS);
     pending.target.updatedAtMs = executeAtMs;
     this.room.currentQueueItemId = pending.target.queueItemId;
     this.room.playback = pending.target;
@@ -6299,6 +6323,7 @@ export class MusixquareProRoom {
         : playback.positionSeconds;
     let target;
     let requiresPrepare = false;
+    let timingMode = 'scheduled-control';
 
     if (command.type === 'play') {
       if (playback.state === 'playing') return { status: 'unchanged', event: null };
@@ -6319,6 +6344,7 @@ export class MusixquareProRoom {
       // has the same item resident. A direct COMMIT lets a cold/late endpoint
       // start behind the rest of the room.
       requiresPrepare = true;
+      timingMode = playback.state === 'idle' ? 'zero-start' : 'scheduled-control';
     } else if (command.type === 'pause') {
       if (playback.state === 'idle') return { error: 'NO_MEDIA', status: 409 };
       if (playback.state === 'paused') return { status: 'unchanged', event: null };
@@ -6345,6 +6371,7 @@ export class MusixquareProRoom {
         currentIdentity,
       );
       requiresPrepare = playback.state === 'playing';
+      timingMode = 'scheduled-control';
     } else {
       let queueItemId = null;
       let state = 'playing';
@@ -6517,11 +6544,12 @@ export class MusixquareProRoom {
         mediaIdentity,
       );
       requiresPrepare = queueItemId !== null;
+      timingMode = 'zero-start';
     }
 
     if (!target) return { error: 'INVALID_PLAYBACK_TARGET', status: 400 };
     return requiresPrepare
-      ? this.preparePlaybackTransition(target, nowMs, developerCommandId)
+      ? this.preparePlaybackTransition(target, nowMs, developerCommandId, { timingMode })
       : this.directPlaybackCommit(target, nowMs, developerCommandId);
   }
 

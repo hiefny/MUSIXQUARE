@@ -85,6 +85,7 @@ import {
   registerProPlaybackCommandHandler,
   resetProPlaybackAuthorityHooks,
   type ProPlaybackAuthorityToken,
+  type ProPlaybackTimingMode,
   type ProPlaybackUserIntent,
 } from './playback-authority-hooks.ts';
 import { completeProRoomPinRotation } from './pin-rotation.ts';
@@ -1846,13 +1847,27 @@ function playbackCommitStillCurrent(
   );
 }
 
+const PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS = 699;
+
 function playbackCommitTiming(
   event: ProRoomPlaybackCommitEvent,
   receivedAtMs: number,
-): { positionSeconds: number; scheduleDelayMs: number } {
+): {
+  positionSeconds: number;
+  scheduleDelayMs: number;
+  timingMode: ProPlaybackTimingMode;
+} {
   const nowMs = serverNowForFrame(event.serverTimeMs, receivedAtMs);
+  // Wire-compatible rollout marker: old clients treat 699ms as an ordinary
+  // future COMMIT instant. Refreshed clients grant platform lead only to this
+  // explicit marker; legacy, direct, and malformed timings fail safely as
+  // running-timeline controls.
+  const zeroStart =
+    event.transitionId !== null &&
+    event.executeAtMs - event.serverTimeMs === PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS;
   return {
     scheduleDelayMs: Math.max(0, event.executeAtMs - nowMs),
+    timingMode: zeroStart ? 'zero-start' : 'scheduled-control',
     positionSeconds:
       event.playback.state === 'playing'
         ? event.playback.positionSeconds + Math.max(0, nowMs - event.executeAtMs) / 1_000
@@ -1902,6 +1917,9 @@ async function catchUpExactPlaybackCheckpoint(
     state: playback.state,
     positionSeconds: timing.positionSeconds,
     scheduleDelayMs: timing.scheduleDelayMs,
+    // Catch-up is already following a committed running checkpoint; applying
+    // the one-time zero-start lead here would move a late endpoint ahead.
+    timingMode: 'scheduled-control',
     youtubeSubIndex: playback.youtubeSubIndex,
     youtubeVideoId: playback.youtubeVideoId,
     isCurrent: () => playbackCommitStillCurrent(event, generation),
@@ -1930,6 +1948,7 @@ async function applyPlaybackCommit(
   highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, playback.revision);
   let authority: ProPlaybackAuthorityToken;
   let preparation: ReturnType<typeof prepareProPlaybackAuthority> | null = null;
+  let preparedFromMatchingTransition = false;
   const activeTransition = activeServerPlaybackTransition;
   if (
     event.transitionId !== null &&
@@ -1938,6 +1957,7 @@ async function applyPlaybackCommit(
   ) {
     authority = activeTransition.authority;
     preparation = activeTransition.preparation;
+    preparedFromMatchingTransition = true;
   } else if (event.transitionId !== null && playback.queueItemId) {
     if (activeTransition) cancelProPlaybackPreparation(activeTransition.authority);
     authority = playbackAuthorityFor(
@@ -1980,6 +2000,7 @@ async function applyPlaybackCommit(
     state: playback.state,
     positionSeconds: timing.positionSeconds,
     scheduleDelayMs: timing.scheduleDelayMs,
+    timingMode: preparedFromMatchingTransition ? timing.timingMode : 'scheduled-control',
     youtubeSubIndex: playback.youtubeSubIndex,
     youtubeVideoId: playback.youtubeVideoId,
     isCurrent: () => playbackCommitStillCurrent(event, generation),

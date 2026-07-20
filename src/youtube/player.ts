@@ -664,6 +664,7 @@ export async function applyProPlaybackYouTubeCommit(
         subIndex: request.youtubeSubIndex ?? null,
         targetSeconds: target.localTime,
         executeDelayMs: request.scheduleDelayMs,
+        timingMode: request.timingMode,
       });
       if (
         committed.status !== 'applied' ||

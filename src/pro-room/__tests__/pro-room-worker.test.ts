@@ -126,6 +126,12 @@ describe('PRO room server-authoritative playback', () => {
     );
     expect(selectedResponse.status).toBe(202);
     const selected = await responseJson(selectedResponse);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(
+      internal.room.pendingPlaybackTransition.deadlineAtMs -
+        internal.room.pendingPlaybackTransition.createdAtMs,
+    ).toBe(2_999);
+    expect(internal.room.pendingPlaybackTransition).not.toHaveProperty('timingMode');
     const readyResponse = await context.worker.fetch(
       jsonRequest(
         `/playback/transitions/${selected.transition.transitionId}/ready`,
@@ -146,6 +152,8 @@ describe('PRO room server-authoritative playback', () => {
     const internal = context.worker as unknown as { room: Record<string, any> };
     const pending = internal.room.pendingPlaybackTransition;
     expect(pending).not.toBeNull();
+    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(2_999);
+    expect(pending).not.toHaveProperty('timingMode');
     const response = await context.worker.fetch(
       jsonRequest(
         `/playback/transitions/${pending.transitionId}/ready`,
@@ -1065,6 +1073,10 @@ describe('PRO room server-authoritative playback', () => {
       positionSeconds: 12,
     });
     expect(
+      realtime.internal.room.pendingPlaybackTransition.deadlineAtMs -
+        realtime.internal.room.pendingPlaybackTransition.createdAtMs,
+    ).toBe(3_000);
+    expect(
       (
         await context.worker.fetch(
           jsonRequest(
@@ -1076,6 +1088,10 @@ describe('PRO room server-authoritative playback', () => {
         )
       ).status,
     ).toBe(200);
+    const resumeCommit = [...realtime.messages]
+      .reverse()
+      .find((message) => message.event?.transitionId === resumed.transition.transitionId)?.event;
+    expect(resumeCommit.executeAtMs - resumeCommit.serverTimeMs).toBe(700);
 
     const playingRevision = realtime.internal.room.playback.revision;
     const seekPlayingResponse = await context.worker.fetch(
@@ -1093,12 +1109,37 @@ describe('PRO room server-authoritative playback', () => {
       state: 'playing',
       positionSeconds: 33,
     });
+    expect(
+      realtime.internal.room.pendingPlaybackTransition.deadlineAtMs -
+        realtime.internal.room.pendingPlaybackTransition.createdAtMs,
+    ).toBe(3_000);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/playback/transitions/${seekPlaying.transition.transitionId}/ready`,
+            'POST',
+            {
+              basePlaybackRevision: seekPlaying.transition.basePlaybackRevision,
+              status: 'ready',
+            },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const seekCommit = [...realtime.messages]
+      .reverse()
+      .find(
+        (message) => message.event?.transitionId === seekPlaying.transition.transitionId,
+      )?.event;
+    expect(seekCommit.executeAtMs - seekCommit.serverTimeMs).toBe(700);
 
     const pauseResponse = await context.worker.fetch(
       jsonRequest(
         '/playback/commands',
         'POST',
-        { type: 'pause', baseRevision: playingRevision },
+        { type: 'pause', baseRevision: realtime.internal.room.playback.revision },
         context.ownerCookie,
         'authority-resume-seek-pause-0004',
       ),
@@ -1150,7 +1191,7 @@ describe('PRO room server-authoritative playback', () => {
       ).status,
     ).toBe(200);
     const frozenPosition = realtime.internal.room.playback.positionSeconds as number;
-    expect(frozenPosition).toBeCloseTo(24.3, 5);
+    expect(frozenPosition).toBeCloseTo(24.301, 5);
 
     vi.setSystemTime(startedAtMs + 2 * 60 * 60 * 1_000);
     const returning = await addMember(context, 'Wake member');
@@ -1163,6 +1204,7 @@ describe('PRO room server-authoritative playback', () => {
         positionSeconds: frozenPosition,
       },
     });
+    expect(pending.deadlineAtMs - pending.createdAtMs).toBe(3_000);
     expect(pending.cohort).toEqual([returning.envelope.snapshot.viewer.presenceIncarnationId]);
     expect(realtime.internal.room.playback.positionSeconds).toBe(frozenPosition);
 
@@ -1187,6 +1229,10 @@ describe('PRO room server-authoritative playback', () => {
     );
     await expect(ready.json()).resolves.toMatchObject({ status: 'committed' });
     expect(realtime.internal.room.playback.positionSeconds).toBe(frozenPosition);
+    const wakeCommit = [...realtime.messages]
+      .reverse()
+      .find((message) => message.event?.transitionId === pending.transitionId)?.event;
+    expect(wakeCommit.executeAtMs - wakeCommit.serverTimeMs).toBe(700);
   });
 
   it('keeps paused wake paused and does not create a playback transition', async () => {
@@ -1687,7 +1733,7 @@ describe('PRO room server-authoritative playback', () => {
     expect(realtime.internal.room.pendingPlaybackBroadcasts).toEqual([]);
   });
 
-  it('replaces an undelivered PREPARE with the deadline COMMIT and keeps the 700ms lead', async () => {
+  it('replaces an undelivered zero-start PREPARE with its explicitly marked COMMIT', async () => {
     const context = await activatedRoom();
     const realtime = installRealtimeRecorder(context);
     realtime.internal.room.pendingPresenceBroadcast = null;
@@ -1726,7 +1772,9 @@ describe('PRO room server-authoritative playback', () => {
       ),
     );
     expect(selected.status).toBe(202);
-    realtime.internal.room.pendingPlaybackTransition.deadlineAtMs = Date.now() - 1;
+    const expiredDeadlineAtMs = Date.now() - 1;
+    realtime.internal.room.pendingPlaybackTransition.createdAtMs = expiredDeadlineAtMs - 2_999;
+    realtime.internal.room.pendingPlaybackTransition.deadlineAtMs = expiredDeadlineAtMs;
     const snapshot = await context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
     expect(snapshot.status).toBe(200);
 
@@ -1738,7 +1786,7 @@ describe('PRO room server-authoritative playback', () => {
       'pro-playback-commit',
     ]);
     const commit = playbackMessages[1]?.event;
-    expect(commit.executeAtMs - commit.serverTimeMs).toBe(700);
+    expect(commit.executeAtMs - commit.serverTimeMs).toBe(699);
     expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
     expect(realtime.internal.room.pendingPlaybackBroadcasts).toEqual([]);
   });

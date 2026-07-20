@@ -185,6 +185,15 @@ export interface ProPlaybackPrepareRequest {
   youtubeVideoId?: string | null;
 }
 
+/**
+ * Participant-side scheduling policy for one canonical PRO playback commit.
+ *
+ * `zero-start` may use the measured platform audio-output lead. Ordinary
+ * controls already target a running timeline and must follow the server clock
+ * without that one-time compensation.
+ */
+export type ProPlaybackTimingMode = 'zero-start' | 'scheduled-control';
+
 export type ProPlaybackPrepareFailureReason =
   | 'inactive-room'
   | 'stale-authority'
@@ -225,6 +234,7 @@ export interface ProPlaybackCommitRequest {
   positionSeconds: number;
   /** Delay from receipt to the locally compensated execution instant. */
   scheduleDelayMs: number;
+  timingMode: ProPlaybackTimingMode;
   youtubeSubIndex?: number | null;
   youtubeVideoId?: string | null;
   /** Participant-local fence for a newer canonical COMMIT or room teardown. */

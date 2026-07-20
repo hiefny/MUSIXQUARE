@@ -77,6 +77,7 @@ import {
   YouTubeAuthorityArmController,
   type YouTubeAuthorityArmCommitResult,
   type YouTubeAuthorityArmPlayer,
+  type YouTubeAuthorityTimingMode,
 } from './authority-arm.ts';
 import {
   consumePendingAutoSyncOnReady,
@@ -1067,6 +1068,7 @@ interface YouTubeAuthorityCommitRequest {
   subIndex: number | null;
   targetSeconds: number;
   executeDelayMs: number;
+  timingMode: YouTubeAuthorityTimingMode;
 }
 
 export function commitYouTubeAuthorityOccurrence(
@@ -1079,6 +1081,7 @@ export function commitYouTubeAuthorityOccurrence(
     subIndex: request.subIndex,
     targetSeconds: request.targetSeconds,
     executeDelayMs: request.executeDelayMs,
+    timingMode: request.timingMode,
   });
 }
 

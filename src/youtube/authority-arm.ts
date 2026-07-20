@@ -50,6 +50,8 @@ interface YouTubeAuthorityArmIdentity {
 
 type YouTubeAuthorityArmStrategy = 'resident' | 'load';
 
+export type YouTubeAuthorityTimingMode = 'zero-start' | 'scheduled-control';
+
 interface YouTubeAuthorityArmPrepareRequest extends YouTubeAuthorityArmIdentity {
   targetSeconds: number;
   strategy: YouTubeAuthorityArmStrategy;
@@ -80,6 +82,8 @@ type YouTubeAuthorityArmPrepareResult =
 interface YouTubeAuthorityArmCommitRequest extends YouTubeAuthorityArmIdentity {
   /** Delay from now to the canonical execution instant. */
   executeDelayMs: number;
+  /** Only a true fresh start is eligible for platform audio-output lead. */
+  timingMode: YouTubeAuthorityTimingMode;
   /**
    * Canonical target rebased by the runtime when COMMIT arrived late. Omit it
    * for an on-time commit that should release the already-settled target.
@@ -318,7 +322,10 @@ export class YouTubeAuthorityArmController {
     }
 
     const executeDelayMs = Math.max(0, finiteOr(request.executeDelayMs, 0));
-    run.platformLeadMs = getYouTubeAuthorityPlatformLeadMs(this.#deps.getPlatform());
+    run.platformLeadMs =
+      request.timingMode === 'zero-start'
+        ? getYouTubeAuthorityPlatformLeadMs(this.#deps.getPlatform())
+        : 0;
     const committedTargetSeconds = Math.max(
       0,
       finiteOr(request.targetSeconds ?? run.targetSeconds, run.targetSeconds),

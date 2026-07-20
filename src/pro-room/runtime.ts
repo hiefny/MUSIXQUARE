@@ -1350,6 +1350,15 @@ function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
     'network.peerLabels': Object.fromEntries(
       participants.map((participant) => [participant.participantId, participant.displayName]),
     ),
+    // Apply the server-owned identity in the same synchronous projection as
+    // the member directory. Account detach commits before signaling channel
+    // reconfiguration; leaving the old local nickname in this short window
+    // lets a forced heartbeat write it back as an anonymous custom name.
+    'network.myDeviceLabel':
+      snapshot.viewer?.displayName ||
+      ownParticipant?.displayName ||
+      getState('network.myDeviceLabel') ||
+      'Peer',
     'network.myJoinOrder': ownParticipant?.memberDisplayNumber ?? (ownIndex >= 0 ? ownIndex : 0),
     'network.myMemberId': snapshot.viewer?.memberId ?? ownParticipant?.memberId ?? null,
     'network.myMemberDisplayNumber':

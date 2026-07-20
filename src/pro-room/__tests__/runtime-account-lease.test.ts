@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyAccountSession, setAccountAnonymous } from '../../account/state.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
-import { getState, resetState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { ProRoomApiClient, ProRoomApiError, type ProRoomSignalingAccess } from '../api.ts';
 import {
@@ -92,6 +92,39 @@ function signalingAccess(): ProRoomSignalingAccess {
   };
 }
 
+function detachedSnapshot(): ProRoomSnapshot {
+  const initial = snapshot();
+  const participant = initial.presence.participants[0]!;
+  return {
+    ...initial,
+    revision: 2,
+    presence: {
+      ...initial.presence,
+      revision: 2,
+      participants: [
+        {
+          ...participant,
+          memberId: 'member_anonymous_lease_1',
+          memberDisplayNumber: 1,
+          isAuthenticated: false,
+          displayName: 'Peer 1',
+          role: 'member',
+          capabilities: ['playback.control'],
+        },
+      ],
+    },
+    viewer: {
+      ...initial.viewer!,
+      memberId: 'member_anonymous_lease_1',
+      memberDisplayNumber: 1,
+      isAuthenticated: false,
+      displayName: 'Peer 1',
+      role: 'member',
+      capabilities: ['playback.control'],
+    },
+  };
+}
+
 describe.sequential('PRO runtime account identity lease', () => {
   let visibilityDescriptor: PropertyDescriptor | undefined;
 
@@ -142,6 +175,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     vi.spyOn(ProRoomApiClient.prototype, 'closePresenceOnUnload').mockResolvedValue(undefined);
     vi.spyOn(ProRoomApiClient.prototype, 'closeSessionFenced').mockResolvedValue(undefined);
     vi.spyOn(ServerProRoomNetworkBridge.prototype, 'connect').mockResolvedValue(undefined);
+    vi.spyOn(ServerProRoomNetworkBridge.prototype, 'reconfigure').mockResolvedValue(undefined);
     vi.spyOn(ServerProRoomNetworkBridge.prototype, 'disconnect').mockImplementation(() => {});
   });
 
@@ -205,5 +239,38 @@ describe.sequential('PRO runtime account identity lease', () => {
       expect.any(AbortSignal),
     );
     expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('projects a detached Peer identity before signaling reconfiguration can echo the old nickname', async () => {
+    const detached = detachedSnapshot();
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue(detached);
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Minsu' });
+    await vi.waitFor(() =>
+      expect(ProRoomApiClient.prototype.attachCurrentAccount).toHaveBeenCalledOnce(),
+    );
+    setState('network.myDeviceLabel', 'Minsu');
+    vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure).mockImplementationOnce(async () => {
+      // SessionController commits the authoritative snapshot before it awaits
+      // the replacement signaling channel. The local heartbeat label must
+      // already match that snapshot inside this former race window.
+      expect(getState('network.myDeviceLabel')).toBe('Peer 1');
+    });
+
+    setAccountAnonymous(true);
+
+    await vi.waitFor(() =>
+      expect(ProRoomApiClient.prototype.detachCurrentAccount).toHaveBeenCalledOnce(),
+    );
+    await vi.waitFor(() => expect(getState('network.myDeviceLabel')).toBe('Peer 1'));
+    expect(getState('network.myMemberAuthenticated')).toBe(false);
+    expect(getState('network.myMemberId')).toBe('member_anonymous_lease_1');
+    expect(getState('network.lastKnownDeviceList')).toEqual([
+      expect.objectContaining({
+        id: PARTICIPANT_ID,
+        label: 'Peer 1',
+        memberId: 'member_anonymous_lease_1',
+      }),
+    ]);
   });
 });

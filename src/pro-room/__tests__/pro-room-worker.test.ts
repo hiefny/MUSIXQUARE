@@ -7551,6 +7551,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ).status,
     ).toBe(200);
 
+    const freshBeforeDetach = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, first.cookie)),
+    );
     const beforeRevision = internal.room.revision as number;
     const detachedResponse = await context.worker.fetch(
       request('/sessions/current/account', { method: 'DELETE' }, first.cookie),
@@ -7585,6 +7588,38 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     ).toMatchObject({ onlineDeviceCount: 1, role: 'controller' });
     expect(internal.room.revision).toBe(beforeRevision + 1);
+
+    // A heartbeat captured before logout may arrive after the detach mutation.
+    // Its stale account nickname must not turn this new anonymous identity into
+    // a second, same-named member row.
+    const accountDisplayName = freshBeforeDetach.snapshot.viewer.displayName as string;
+    const staleHeartbeat = await context.worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: freshBeforeDetach.snapshot.revision,
+          playlistRevision: freshBeforeDetach.snapshot.playlistRevision,
+          presenceRevision: freshBeforeDetach.snapshot.presence.revision,
+          playbackRevision: freshBeforeDetach.snapshot.playback.revision,
+          coordinatorEpoch: freshBeforeDetach.snapshot.presence.coordinatorEpoch,
+          displayName: accountDisplayName,
+        },
+        first.cookie,
+      ),
+    );
+    expect(staleHeartbeat.status).toBe(200);
+    const afterStaleHeartbeat = await responseJson(staleHeartbeat);
+    expect(afterStaleHeartbeat.snapshot.viewer).toMatchObject({
+      memberId: detached.snapshot.viewer.memberId,
+      displayName: detached.snapshot.viewer.displayName,
+      isAuthenticated: false,
+    });
+    expect(
+      afterStaleHeartbeat.snapshot.presence.participants.filter(
+        (participant: Record<string, unknown>) => participant.displayName === accountDisplayName,
+      ),
+    ).toHaveLength(1);
 
     const idempotent = await context.worker.fetch(
       request('/sessions/current/account', { method: 'DELETE' }, first.cookie),

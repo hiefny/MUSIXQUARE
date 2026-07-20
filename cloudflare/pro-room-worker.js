@@ -9077,12 +9077,19 @@ export class MusixquareProRoom {
     const previousPeerOrdinal = auth.session.peerOrdinal;
     const previousSessionDisplayName = auth.session.displayName;
     const previousParticipantDisplayName = auth.participant.displayName;
+    // A heartbeat can be in flight while an account attach/detach mutates this
+    // exact presence. Its displayName belongs to the identity at the captured
+    // presence revision, so never let a late pre-logout heartbeat rename the
+    // freshly detached `Peer N` session back to the old account nickname.
+    // Current-revision anonymous renames remain supported.
+    const displayNameRevisionIsCurrent =
+      known !== null && known.presenceRevision === this.room.presence.revision;
     let legacyPeerIdentity = this.ensureSessionPeerIdentity(auth.session);
     // `Peer` is the pre-auth bootstrap placeholder. Once the server has
     // resolved a session identity (or the user has a custom name), a delayed
     // heartbeat from that bootstrap state must never rename it backwards.
     const requestedDisplayName =
-      auth.session.accountId || known?.displayName === undefined
+      auth.session.accountId || known?.displayName === undefined || !displayNameRevisionIsCurrent
         ? null
         : boundedString(known.displayName, MAX_DISPLAY_NAME_LENGTH);
     const requestedBarePeerName = isGenericPeerDisplayName(requestedDisplayName);

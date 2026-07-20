@@ -1,48 +1,106 @@
 @font-face {
   font-family: 'Pretendard';
   src: url('/designsystem/fonts/PretendardVariable.woff2') format('woff2');
+  font-weight: 45 920;
+  font-style: normal;
   font-display: swap;
 }
 
 :root {
-  color-scheme: light dark;
-  font-family: Pretendard, system-ui, sans-serif;
-  background: #101113;
-  color: #f7f8fa;
+  --bg: #121212;
+  --surface-1: #1a1a1a;
+  --primary: #3b82f6;
+  --primary-rgb: 59, 130, 246;
+  --text-main: #eeeeee;
+  --text-sub: #a1a1aa;
+  --radius-l: 32px;
+  color-scheme: dark;
+  font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text-main);
 }
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
+  padding: 24px;
+  box-sizing: border-box;
   display: grid;
   place-items: center;
+  background: var(--bg);
 }
 
 main {
-  width: min(360px, calc(100vw - 48px));
+  width: min(360px, 100%);
+  padding: 32px;
+  box-sizing: border-box;
+  border-radius: var(--radius-l);
+  background: var(--surface-1);
   text-align: center;
+  filter: drop-shadow(0 20px 48px rgba(0, 0, 0, 0.32));
 }
 
 .brand {
   display: block;
-  margin-bottom: 28px;
+  margin: 0 auto 24px;
+  font-size: 18px;
+  font-weight: 800;
   letter-spacing: -0.04em;
+}
+
+@supports ((mask: url('')) or (-webkit-mask: url(''))) {
+  .brand {
+    width: 148px;
+    height: 18px;
+    background: var(--text-main);
+    font-size: 0;
+    -webkit-mask: url('/designsystem/assets/logo-wordmark.svg') center / contain no-repeat;
+    mask: url('/designsystem/assets/logo-wordmark.svg') center / contain no-repeat;
+  }
 }
 
 p {
   margin: 0 0 24px;
-  color: #b6bac2;
-  line-height: 1.6;
+  color: var(--text-sub);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.58;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 button {
   width: 100%;
-  min-height: 52px;
+  min-height: 54px;
+  padding: 0 24px;
   border: 0;
-  border-radius: 18px;
-  background: #4385f5;
+  border-radius: 999px;
+  background: var(--primary);
   color: #fff;
   font: inherit;
+  font-size: 15px;
   font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active {
+  transform: scale(0.97);
+  box-shadow: none;
+}
+
+button:focus-visible {
+  outline: 3px solid rgba(var(--primary-rgb), 0.45);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
 }

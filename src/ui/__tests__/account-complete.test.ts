@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
 const COMPLETION_HTML = 'public/account-complete.html';
+const COMPLETION_CSS = 'public/account-complete.css';
 const COMPLETION_SCRIPT = 'public/account-complete.js';
 
 type CompletionDom = JSDOM & { scheduledTimeouts: Array<() => void> };
@@ -50,6 +51,20 @@ async function renderCompletion(language: string, marker = ''): Promise<Completi
 }
 
 describe('account completion localization', () => {
+  it('uses the current wordmark card and primary pill treatment', async () => {
+    const [html, stylesheet] = await Promise.all([
+      readFile(COMPLETION_HTML, 'utf8'),
+      readFile(COMPLETION_CSS, 'utf8'),
+    ]);
+
+    expect(html).toMatch(/id="account-complete-message"\s+aria-live="polite"/);
+    expect(stylesheet).toMatch(/--primary:\s*#3b82f6;/);
+    expect(stylesheet).toMatch(/main\s*{[^}]*border-radius:\s*var\(--radius-l\);/s);
+    expect(stylesheet).toContain("url('/designsystem/assets/logo-wordmark.svg')");
+    expect(stylesheet).toMatch(/button\s*{[^}]*min-height:\s*54px;[^}]*border-radius:\s*999px;/s);
+    expect(stylesheet).toMatch(/button:focus-visible\s*{/);
+  });
+
   it('keeps successful popup completion as the existing refresh-only signal', async () => {
     const success = await renderCompletion('en', '?accountClient=tab-12345678');
     expect(JSON.parse(success.window.localStorage.getItem('mxqr-account-refresh') || '{}')).toEqual(

@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -292,6 +293,16 @@ describe('connect i18n refresh', () => {
 });
 
 describe('member-level connection and administrator UI', () => {
+  it('keeps the current member blue without a display-row background', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    expect(stylesheet).toMatch(
+      /\.device-row\.is-current-member\s*{\s*background:\s*transparent;\s*}/,
+    );
+    expect(stylesheet).toMatch(
+      /\.device-row\.is-current-member \.d-order,\s*\.device-row\.is-current-member \.d-name\s*{[^}]*color:\s*var\(--primary\);/s,
+    );
+  });
+
   it('groups only matching memberIds, keeps duplicate nicknames separate, and highlights my row', () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'minsu-phone');

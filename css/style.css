@@ -2910,7 +2910,7 @@
   }
 
   .device-row.is-current-member {
-    background: var(--surface-2);
+    background: transparent;
   }
 
   .device-row.is-current-member .d-order,

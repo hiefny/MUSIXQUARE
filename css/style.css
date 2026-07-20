@@ -4000,8 +4000,7 @@
   .account-google-mark {
     display: grid;
     place-items: center;
-    border-radius: 50%;
-    background: #fff;
+    background: transparent;
   }
 
   .account-google-mark svg {

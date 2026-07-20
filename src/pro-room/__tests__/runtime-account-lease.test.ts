@@ -241,6 +241,87 @@ describe.sequential('PRO runtime account identity lease', () => {
     expect(getState('network.isConnecting')).toBe(false);
   });
 
+  it('keeps a one-shot anonymous administrator grant after redundant account reconciliation', async () => {
+    setAccountAnonymous(true);
+    const initial = snapshot();
+    const permissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': true,
+      'chat.notice': true,
+    } as const;
+    const memberId = 'member_anonymous_0002';
+    const capabilities = [
+      'queue.mutate',
+      'playback.control',
+      'asset.upload',
+      'members.manage',
+    ] as const;
+    const delegated: ProRoomSnapshot = {
+      ...initial,
+      memberIdentityVersion: 1,
+      authorityVersion: 1,
+      administrators: [
+        {
+          memberId: initial.viewer!.memberId,
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
+          displayName: 'Owner',
+          role: 'owner',
+          permissions,
+          inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+          onlineDeviceCount: 0,
+        },
+        {
+          memberId,
+          memberDisplayNumber: 2,
+          isAuthenticated: false,
+          displayName: 'Peer 2',
+          role: 'controller',
+          permissions,
+          inheritedPermissions: [],
+          onlineDeviceCount: 1,
+        },
+      ],
+      presence: {
+        ...initial.presence,
+        participants: [
+          {
+            ...initial.presence.participants[0]!,
+            memberId,
+            memberDisplayNumber: 2,
+            isAuthenticated: false,
+            displayName: 'Peer 2',
+            role: 'controller',
+            capabilities: [...capabilities],
+          },
+        ],
+      },
+      viewer: {
+        ...initial.viewer!,
+        memberId,
+        memberDisplayNumber: 2,
+        isAuthenticated: false,
+        displayName: 'Peer 2',
+        role: 'controller',
+        capabilities: [...capabilities],
+      },
+    };
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(delegated);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(delegated);
+    const detach = vi
+      .spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount')
+      .mockResolvedValue(delegated);
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Peer 2' });
+    await Promise.resolve();
+
+    expect(detach).not.toHaveBeenCalled();
+    expect(getState('room.context').capabilities).toEqual(
+      expect.arrayContaining(['media.add', 'playback.control', 'asset.upload', 'members.manage']),
+    );
+  });
+
   it('projects a detached Peer identity before signaling reconfiguration can echo the old nickname', async () => {
     const detached = detachedSnapshot();
     vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue(detached);
@@ -272,5 +353,77 @@ describe.sequential('PRO runtime account identity lease', () => {
         memberId: 'member_anonymous_lease_1',
       }),
     ]);
+  });
+
+  it('continues an account switch after the committed detach channel rebuild fails', async () => {
+    const detached = detachedSnapshot();
+    const switched: ProRoomSnapshot = {
+      ...snapshot(),
+      revision: 3,
+      presence: {
+        ...snapshot().presence,
+        revision: 3,
+        participants: [
+          {
+            ...snapshot().presence.participants[0]!,
+            memberId: 'member_lease_0002',
+          },
+        ],
+      },
+      viewer: {
+        ...snapshot().viewer!,
+        memberId: 'member_lease_0002',
+      },
+    };
+    vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount)
+      .mockRejectedValueOnce(new ProRoomApiError('SESSION_ACCOUNT_CONFLICT', 409))
+      .mockResolvedValueOnce(switched);
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue(detached);
+    vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure)
+      .mockRejectedValueOnce(new Error('old account channel unavailable'))
+      .mockResolvedValueOnce(undefined);
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Minsu' });
+
+    await vi.waitFor(() =>
+      expect(ProRoomApiClient.prototype.attachCurrentAccount).toHaveBeenCalledTimes(2),
+    );
+    await vi.waitFor(() => expect(getState('network.myMemberAuthenticated')).toBe(true));
+    expect(ProRoomApiClient.prototype.detachCurrentAccount).toHaveBeenCalledOnce();
+    expect(ServerProRoomNetworkBridge.prototype.reconfigure).toHaveBeenCalledTimes(2);
+    expect(getState('network.myMemberId')).toBe(switched.viewer!.memberId);
+  });
+
+  it('ignores a previous account lease failure after logout has committed', async () => {
+    let rejectRenewal: ((error: unknown) => void) | undefined;
+    const renewal = new Promise<never>((_resolve, reject) => {
+      rejectRenewal = reject;
+    });
+    const renew = vi
+      .spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease')
+      .mockReturnValue(renewal);
+    const detached = detachedSnapshot();
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue(detached);
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Minsu' });
+    await vi.waitFor(() =>
+      expect(ProRoomApiClient.prototype.attachCurrentAccount).toHaveBeenCalledOnce(),
+    );
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(renew).toHaveBeenCalledOnce();
+
+    setAccountAnonymous(true);
+    await vi.waitFor(() =>
+      expect(ProRoomApiClient.prototype.detachCurrentAccount).toHaveBeenCalledOnce(),
+    );
+    await vi.waitFor(() =>
+      expect(getState('room.context').capabilities).toContain('playback.control'),
+    );
+
+    rejectRenewal?.(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getState('room.context').capabilities).toContain('playback.control');
   });
 });

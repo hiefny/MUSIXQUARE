@@ -27,6 +27,8 @@ interface ProRoomAccountReconciliationAdapter {
   failClosed(): void;
   /** Restore the server-projected capabilities only after account attachment wins. */
   acceptAuthenticated(): void;
+  /** Restore the server-projected anonymous capabilities after detachment is proven. */
+  acceptAnonymous(): void;
   failed(kind: ReconciliationKind, error: unknown): void;
 }
 
@@ -53,6 +55,8 @@ export class ProRoomAccountReconciler {
   #target: ReconciliationTarget | null = null;
   #generation = 0;
   #forceOperation = false;
+  /** An attach may have committed remotely even when its response was lost. */
+  #attachMayHaveCommitted = false;
   #operationAbort: AbortController | null = null;
   #run: Promise<void> | null = null;
 
@@ -63,7 +67,7 @@ export class ProRoomAccountReconciler {
     const profileIncompleteAccountSwitch =
       snapshot.status === 'authenticated' &&
       snapshot.account?.profileComplete === false &&
-      viewer?.isAuthenticated === true;
+      viewer?.isAuthenticated !== false;
     // A Google account replacement may yield an authenticated but incomplete
     // profile. If this physical room session still carries the old account,
     // shed it immediately; initial anonymous onboarding remains a no-op until
@@ -74,10 +78,20 @@ export class ProRoomAccountReconciler {
     if (!target) return;
     // The superseded request may already have committed at the server even
     // when abort prevents its response from updating the local viewer.
-    this.#forceOperation = this.#operationAbort !== null;
+    this.#forceOperation =
+      this.#operationAbort !== null ||
+      (target.kind === 'detach' && this.#attachMayHaveCommitted);
     this.#target = target;
     this.#generation += 1;
-    if (target.kind === 'detach') this.adapter.failClosed();
+    // A definitive logout must revoke account-only authority synchronously,
+    // including when it supersedes an attach that may already have committed
+    // remotely. An already-anonymous viewer, however, owns no account
+    // authority to revoke. Failing that no-op path closed used to leave the
+    // flag latched forever and silently strip a later one-shot administrator
+    // grant from the same anonymous PRO participant.
+    if (target.kind === 'detach' && (viewer?.isAuthenticated !== false || this.#forceOperation)) {
+      this.adapter.failClosed();
+    }
     this.#operationAbort?.abort();
     this.#start();
   }
@@ -87,6 +101,7 @@ export class ProRoomAccountReconciler {
     this.#operationAbort = null;
     this.#target = null;
     this.#forceOperation = false;
+    this.#attachMayHaveCommitted = false;
     this.#generation += 1;
   }
 
@@ -111,8 +126,12 @@ export class ProRoomAccountReconciler {
       const target = this.#target;
       const forceOperation = this.#forceOperation;
       const viewer = this.adapter.viewer();
-      if (!forceOperation && target.kind === 'detach' && viewer?.isAuthenticated !== true) {
+      if (!forceOperation && target.kind === 'detach' && viewer?.isAuthenticated === false) {
         if (generation === this.#generation) {
+          // This is either the initial anonymous room state or a canonical
+          // anonymous snapshot recovered after an uncertain detach. In both
+          // cases it is now safe to trust one-shot server authority again.
+          this.adapter.acceptAnonymous();
           this.#target = null;
           this.#forceOperation = false;
           return;
@@ -123,10 +142,20 @@ export class ProRoomAccountReconciler {
       const abort = new AbortController();
       this.#operationAbort = abort;
       try {
-        if (target.kind === 'attach') await this.adapter.attach(abort.signal);
-        else await this.adapter.detach(abort.signal);
+        if (target.kind === 'attach') {
+          // From the moment the request is dispatched, a rejected/aborted
+          // response cannot prove that the server did not commit it.
+          this.#attachMayHaveCommitted = true;
+          await this.adapter.attach(abort.signal);
+        } else {
+          await this.adapter.detach(abort.signal);
+        }
         if (generation === this.#generation && target.kind === 'attach') {
           this.adapter.acceptAuthenticated();
+          this.#attachMayHaveCommitted = false;
+        } else if (generation === this.#generation) {
+          this.adapter.acceptAnonymous();
+          this.#attachMayHaveCommitted = false;
         }
       } catch (error) {
         if (!abort.signal.aborted && generation === this.#generation) {

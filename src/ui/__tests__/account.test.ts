@@ -602,10 +602,14 @@ describe('optional account UI', () => {
 
   it('inverts the borderless Google button against the active app theme', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
+    const markup = await readFile('index.html', 'utf8');
     const baseRules = stylesheet.match(/\.account-google-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const lightThemeRules =
       stylesheet.match(/html\[data-theme='light'\]\s+\.account-google-button\s*\{([^}]*)\}/)?.[1] ??
       '';
+    const markRules = stylesheet.match(/\.account-google-mark\s*\{([^}]*)\}/)?.[1] ?? '';
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const googleMark = parsed.querySelector('.account-google-mark');
 
     expect(baseRules).toContain('border: 0');
     expect(baseRules).toContain('box-shadow: none');
@@ -614,5 +618,9 @@ describe('optional account UI', () => {
     expect(lightThemeRules).toContain('background: #131314');
     expect(lightThemeRules).toContain('color: #e3e3e3');
     expect(lightThemeRules).not.toContain('border:');
+    expect(markRules).toContain('background: transparent');
+    expect(markRules).not.toContain('border-radius');
+    expect(googleMark?.querySelectorAll('svg path')).toHaveLength(4);
+    expect(googleMark?.querySelector('circle, rect')).toBeNull();
   });
 });

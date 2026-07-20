@@ -78,6 +78,8 @@ export class ProRoomSessionController {
   #controlChannelContext: RoomContext | null = null;
   /** Sender metadata captured by the currently authenticated WebSocket. */
   #controlChannelDisplayName: string | null = null;
+  /** Member grouping captured by the currently authenticated WebSocket. */
+  #controlChannelMemberId: string | null = null;
   #operationEpoch = 0;
   #openAbort: AbortController | null = null;
   #pendingRoomCode: string | null = null;
@@ -116,6 +118,7 @@ export class ProRoomSessionController {
     if (!this.#snapshot) return;
     this.#controlChannelContext = null;
     this.#controlChannelDisplayName = null;
+    this.#controlChannelMemberId = null;
   }
 
   async join(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
@@ -188,7 +191,10 @@ export class ProRoomSessionController {
     return this.#accept(incoming, true, signal, operationEpoch);
   }
 
-  async attachCurrentAccount(signal?: AbortSignal): Promise<ProRoomSnapshot> {
+  async attachCurrentAccount(
+    signal?: AbortSignal,
+    onCommitted?: (snapshot: ProRoomSnapshot) => void,
+  ): Promise<ProRoomSnapshot> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
     let incoming: ProRoomSnapshot;
@@ -199,10 +205,13 @@ export class ProRoomSessionController {
       throw error;
     }
     this.#assertOperationCurrent(operationEpoch);
-    return this.#accept(incoming, true, signal, operationEpoch);
+    return this.#accept(incoming, true, signal, operationEpoch, onCommitted);
   }
 
-  async detachCurrentAccount(signal?: AbortSignal): Promise<ProRoomSnapshot> {
+  async detachCurrentAccount(
+    signal?: AbortSignal,
+    onCommitted?: (snapshot: ProRoomSnapshot) => void,
+  ): Promise<ProRoomSnapshot> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
     let incoming: ProRoomSnapshot;
@@ -213,7 +222,7 @@ export class ProRoomSessionController {
       throw error;
     }
     this.#assertOperationCurrent(operationEpoch);
-    return this.#accept(incoming, true, signal, operationEpoch);
+    return this.#accept(incoming, true, signal, operationEpoch, onCommitted);
   }
 
   /**
@@ -256,6 +265,7 @@ export class ProRoomSessionController {
     }
     this.#controlChannelContext = this.#context;
     this.#controlChannelDisplayName = snapshot.viewer?.displayName ?? null;
+    this.#controlChannelMemberId = snapshot.viewer?.memberId ?? null;
   }
 
   async leave(signal?: AbortSignal, capturedPresenceRelease?: Promise<void>): Promise<void> {
@@ -390,6 +400,7 @@ export class ProRoomSessionController {
       this.#assertOperationCurrent(operationEpoch);
       this.#controlChannelContext = this.#context;
       this.#controlChannelDisplayName = accepted.viewer?.displayName ?? null;
+      this.#controlChannelMemberId = accepted.viewer?.memberId ?? null;
       return accepted;
     } catch (error) {
       if (operationEpoch === this.#operationEpoch) {
@@ -420,15 +431,18 @@ export class ProRoomSessionController {
     allowTransportReconfigure: boolean,
     signal?: AbortSignal,
     operationEpoch = this.#operationEpoch,
+    onCommitted?: (snapshot: ProRoomSnapshot) => void,
   ): Promise<ProRoomSnapshot> {
     this.#assertOperationCurrent(operationEpoch);
     const accepted = this.#commit(incoming);
+    onCommitted?.(accepted);
     const nextContext = this.#context;
     if (
       allowTransportReconfigure &&
       nextContext &&
       (controlChannelIdentityChanged(this.#controlChannelContext, nextContext) ||
-        this.#controlChannelDisplayName !== accepted.viewer?.displayName)
+        this.#controlChannelDisplayName !== accepted.viewer?.displayName ||
+        this.#controlChannelMemberId !== accepted.viewer?.memberId)
     ) {
       try {
         const access = await this.api.createSignalingTicket(accepted.roomCode, signal);
@@ -438,6 +452,7 @@ export class ProRoomSessionController {
         this.#assertOperationCurrent(operationEpoch);
         this.#controlChannelContext = nextContext;
         this.#controlChannelDisplayName = accepted.viewer?.displayName ?? null;
+        this.#controlChannelMemberId = accepted.viewer?.memberId ?? null;
       } catch (error) {
         // Preserve the authenticated room when replacing its server channel
         // fails. A later heartbeat mints a fresh one-use ticket and retries.
@@ -521,6 +536,7 @@ export class ProRoomSessionController {
   #clear(): void {
     this.#controlChannelContext = null;
     this.#controlChannelDisplayName = null;
+    this.#controlChannelMemberId = null;
     const ownedPresence = this.#ownedPresence;
     this.#ownedPresence = null;
     this.#snapshot = null;

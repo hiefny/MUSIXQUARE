@@ -14,6 +14,7 @@ interface ProRoomAccountReconciliationAdapter {
   detach(signal: AbortSignal): Promise<void>;
   failClosed(): void;
   acceptAuthenticated(): void;
+  acceptAnonymous(): void;
   failed(kind: 'attach' | 'detach', error: unknown): void;
 }
 
@@ -49,6 +50,7 @@ function fixture(initialViewer: ProRoomAccountReconciliationViewer | null) {
     }),
     failClosed: vi.fn(),
     acceptAuthenticated: vi.fn(),
+    acceptAnonymous: vi.fn(),
     failed: vi.fn(),
   } satisfies ProRoomAccountReconciliationAdapter;
   return {
@@ -71,6 +73,7 @@ describe('PRO account-session reconciliation', () => {
     expect(adapter.detach).toHaveBeenCalledOnce();
     expect(adapter.attach).not.toHaveBeenCalled();
     expect(adapter.acceptAuthenticated).not.toHaveBeenCalled();
+    expect(adapter.acceptAnonymous).toHaveBeenCalledOnce();
   });
 
   it('does not detach while account state is loading or unavailable', async () => {
@@ -113,6 +116,7 @@ describe('PRO account-session reconciliation', () => {
     expect(adapter.failClosed).not.toHaveBeenCalled();
     expect(adapter.detach).not.toHaveBeenCalled();
     expect(adapter.attach).not.toHaveBeenCalled();
+    expect(adapter.acceptAnonymous).not.toHaveBeenCalled();
   });
 
   it('forces detach after aborting an attach that may already have committed', async () => {
@@ -132,7 +136,30 @@ describe('PRO account-session reconciliation', () => {
     // committed remotely. A real DELETE is therefore still mandatory.
     expect(adapter.detach).toHaveBeenCalledOnce();
     expect(adapter.acceptAuthenticated).not.toHaveBeenCalled();
+    expect(adapter.acceptAnonymous).toHaveBeenCalledOnce();
     expect(adapter.failed).not.toHaveBeenCalled();
+  });
+
+  it('forces detach after an attach response fails while the server commit remains uncertain', async () => {
+    const { adapter, reconciler } = fixture({
+      displayName: 'Peer 2',
+      isAuthenticated: false,
+    });
+    const failure = new Error('attach response lost');
+    adapter.attach.mockRejectedValueOnce(failure);
+
+    reconciler.update(accountSnapshot('authenticated', 'Minsu'));
+    await reconciler.idle();
+    expect(adapter.failed).toHaveBeenCalledWith('attach', failure);
+
+    // The local viewer is still anonymous, but that cannot prove the failed
+    // attach was not committed remotely. Logout must issue a real detach.
+    reconciler.update(accountSnapshot('anonymous'));
+    await reconciler.idle();
+
+    expect(adapter.failClosed).toHaveBeenCalledOnce();
+    expect(adapter.detach).toHaveBeenCalledOnce();
+    expect(adapter.acceptAnonymous).toHaveBeenCalledOnce();
   });
 
   it('forces attach after aborting a detach so the latest login wins', async () => {
@@ -163,6 +190,7 @@ describe('PRO account-session reconciliation', () => {
 
     expect(adapter.failed).toHaveBeenCalledWith('detach', failure);
     expect(adapter.acceptAuthenticated).not.toHaveBeenCalled();
+    expect(adapter.acceptAnonymous).not.toHaveBeenCalled();
   });
 
   it('re-proves authenticated identity but avoids redundant anonymous detach', async () => {
@@ -179,6 +207,18 @@ describe('PRO account-session reconciliation', () => {
     anonymous.reconciler.update(accountSnapshot('anonymous'));
     await anonymous.reconciler.idle();
     expect(anonymous.adapter.detach).not.toHaveBeenCalled();
-    expect(anonymous.adapter.failClosed).toHaveBeenCalledOnce();
+    expect(anonymous.adapter.failClosed).not.toHaveBeenCalled();
+    expect(anonymous.adapter.acceptAnonymous).toHaveBeenCalledOnce();
+  });
+
+  it('proves detachment when a legacy viewer omits authentication state', async () => {
+    const { adapter, reconciler } = fixture({ displayName: 'Legacy member' });
+
+    reconciler.update(accountSnapshot('anonymous'));
+    await reconciler.idle();
+
+    expect(adapter.failClosed).toHaveBeenCalledOnce();
+    expect(adapter.detach).toHaveBeenCalledOnce();
+    expect(adapter.acceptAnonymous).toHaveBeenCalledOnce();
   });
 });

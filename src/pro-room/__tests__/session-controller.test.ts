@@ -231,6 +231,78 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledOnce();
   });
 
+  it('publishes an attached account commit before a recoverable channel rebuild failure', async () => {
+    const { api, transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    const linked = snapshot({
+      revision: 2,
+      memberIdentityVersion: 1,
+      viewer: {
+        ...snapshot().viewer!,
+        memberId: 'member_authenticated_2',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Minsu',
+      },
+      presence: {
+        ...snapshot().presence,
+        revision: 2,
+        participants: [
+          {
+            ...snapshot().presence.participants[0]!,
+            memberId: 'member_authenticated_2',
+            memberDisplayNumber: 0,
+            isAuthenticated: true,
+            displayName: 'Minsu',
+          },
+        ],
+      },
+    });
+    api.attachCurrentAccount.mockResolvedValueOnce(linked);
+    transport.reconfigure.mockRejectedValueOnce(new Error('channel temporarily unavailable'));
+    const committed = vi.fn();
+
+    await expect(controller.attachCurrentAccount(undefined, committed)).rejects.toThrow(
+      'channel temporarily unavailable',
+    );
+
+    expect(committed).toHaveBeenCalledOnce();
+    expect(committed).toHaveBeenCalledWith(linked);
+    expect(controller.snapshot).toEqual(linked);
+  });
+
+  it('rebuilds the control channel when account attachment changes only the member id', async () => {
+    const { api, transport, controller } = fixtures();
+    const initial = await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    const linked = snapshot({
+      revision: 2,
+      memberIdentityVersion: 1,
+      viewer: {
+        ...initial.viewer!,
+        memberId: 'member_authenticated_2',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+      },
+      presence: {
+        ...initial.presence,
+        revision: 2,
+        participants: [
+          {
+            ...initial.presence.participants[0]!,
+            memberId: 'member_authenticated_2',
+            memberDisplayNumber: 0,
+            isAuthenticated: true,
+          },
+        ],
+      },
+    });
+    api.attachCurrentAccount.mockResolvedValueOnce(linked);
+
+    await controller.attachCurrentAccount();
+
+    expect(transport.reconfigure).toHaveBeenCalledOnce();
+  });
+
   it('accepts a detached anonymous snapshot and rebuilds the display-name-bound control channel', async () => {
     const { api, transport, controller } = fixtures();
     const linked = snapshot({

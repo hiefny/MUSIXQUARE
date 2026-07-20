@@ -200,6 +200,8 @@ let terminalRecoveryInFlight = false;
 let controlChannelRecoveryAttempt = 0;
 let accountAuthorityFailClosed = false;
 let accountLeaseRenewalInFlight = false;
+/** Invalidates lease responses issued for an older App-account projection. */
+let accountIdentityGeneration = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
 const playlistProjectionListeners = new Set<() => void>();
 interface AcceptedProPresenceMember {
@@ -3351,6 +3353,7 @@ function stopLifecycle(): void {
   visibilityPlaybackRecoveryAttempt = 0;
   playbackReconciliationInFlight = null;
   accountReconciler.stop();
+  accountIdentityGeneration += 1;
   accountAuthorityFailClosed = false;
   accountLeaseRenewalInFlight = false;
   unregisterPlaybackCommandHandler?.();
@@ -3404,10 +3407,35 @@ async function acceptAccountReconciliationSnapshot(
   signal: AbortSignal,
 ): Promise<void> {
   const lease = controller.captureSessionLease();
+  const acceptCommittedAccountAuthority = (committed: ProRoomSnapshot) => {
+    // Account authority becomes trustworthy as soon as the signed server
+    // snapshot is committed. Playlist projection and control-channel
+    // replacement are independently recoverable; neither may leave a
+    // successfully attached administrator permanently fail-closed.
+    if (signal.aborted || !controller.isSessionLeaseCurrent(lease, committed.roomCode)) return;
+    accountAuthorityFailClosed = false;
+    const context = controller.context;
+    if (active && context) applyAuthority(context);
+  };
+  const acceptCommittedAnonymousAuthority = (committed: ProRoomSnapshot) => {
+    // A committed detach has already removed every account-bound capability.
+    // Trust its anonymous projection even if the optional channel rebuild or
+    // later playlist projection needs a retry.
+    if (
+      signal.aborted ||
+      committed.viewer?.isAuthenticated === true ||
+      !controller.isSessionLeaseCurrent(lease, committed.roomCode)
+    ) {
+      return;
+    }
+    accountAuthorityFailClosed = false;
+    const context = controller.context;
+    if (active && context) applyAuthority(context);
+  };
   let snapshot: ProRoomSnapshot;
   if (operation === 'attach') {
     try {
-      snapshot = await controller.attachCurrentAccount(signal);
+      snapshot = await controller.attachCurrentAccount(signal, acceptCommittedAccountAuthority);
     } catch (error) {
       if (!(error instanceof ProRoomApiError) || error.code !== 'SESSION_ACCOUNT_CONFLICT') {
         throw error;
@@ -3420,12 +3448,24 @@ async function acceptAccountReconciliationSnapshot(
       accountAuthorityFailClosed = true;
       const context = controller.context;
       if (active && context) applyAuthority(context);
-      await controller.detachCurrentAccount(signal);
+      let anonymousDetachCommitted = false;
+      try {
+        await controller.detachCurrentAccount(signal, (committed) => {
+          anonymousDetachCommitted = true;
+          acceptCommittedAnonymousAuthority(committed);
+        });
+      } catch (detachError) {
+        // Once the signed anonymous snapshot is committed, only the optional
+        // control-channel replacement can still fail. Continue proving the
+        // newly selected account instead of leaving this tab anonymous until
+        // the next lease cycle.
+        if (!anonymousDetachCommitted) throw detachError;
+      }
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      snapshot = await controller.attachCurrentAccount(signal);
+      snapshot = await controller.attachCurrentAccount(signal, acceptCommittedAccountAuthority);
     }
   } else {
-    snapshot = await controller.detachCurrentAccount(signal);
+    snapshot = await controller.detachCurrentAccount(signal, acceptCommittedAnonymousAuthority);
   }
   if (!controller.isSessionLeaseCurrent(lease, snapshot.roomCode)) return;
   await acceptPlaylistSnapshot(snapshot);
@@ -3443,6 +3483,11 @@ const accountReconciler = new ProRoomAccountReconciler({
     if (active && context) applyAuthority(context);
   },
   acceptAuthenticated: () => {
+    accountAuthorityFailClosed = false;
+    const context = controller.context;
+    if (active && context) applyAuthority(context);
+  },
+  acceptAnonymous: () => {
     accountAuthorityFailClosed = false;
     const context = controller.context;
     if (active && context) applyAuthority(context);
@@ -3649,11 +3694,17 @@ async function renewAccountIdentityLease(): Promise<void> {
 
   const roomCode = snapshot.roomCode;
   const sessionLease = controller.captureSessionLease();
+  const identityGeneration = accountIdentityGeneration;
   accountLeaseRenewalInFlight = true;
   try {
     await api.renewCurrentAccountLease(roomCode);
   } catch (error) {
-    if (!controller.isSessionLeaseCurrent(sessionLease, roomCode)) return;
+    if (
+      identityGeneration !== accountIdentityGeneration ||
+      !controller.isSessionLeaseCurrent(sessionLease, roomCode)
+    ) {
+      return;
+    }
     const failure = classifyProAccountIdentityLeaseFailure(error);
     if (failure === 'terminal-room-session' && isTerminalSessionError(error)) {
       await recoverTerminalSession(error);
@@ -4101,6 +4152,7 @@ bus.on('state:network.myDeviceLabel', () => {
 });
 
 subscribeAccount((snapshot) => {
+  accountIdentityGeneration += 1;
   accountReconciler.update(snapshot);
 });
 

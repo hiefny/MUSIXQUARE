@@ -8665,6 +8665,57 @@ describe('persistent PRO room authentication, presence, and state', () => {
     ).toBe(false);
   });
 
+  it('applies an explicit owner grant after an anonymous participant signs in', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const anonymous = await addAuthorityMember(context, 'Before login');
+    const attachedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, anonymous.cookie),
+        'acct_explicitgrant012345678',
+        'Member Admin',
+      ),
+    );
+    expect(attachedResponse.status).toBe(200);
+    const attached = await responseJson(attachedResponse);
+    const accountMemberId = attached.snapshot.viewer.memberId as string;
+    expect(attached.snapshot.viewer).toMatchObject({
+      memberId: accountMemberId,
+      role: 'member',
+      isAuthenticated: true,
+      capabilities: [],
+    });
+
+    const grantedResponse = await context.worker.fetch(
+      jsonRequest(
+        `/administrators/${accountMemberId}`,
+        'PUT',
+        { permissions: fullDelegatedPermissions },
+        context.ownerCookie,
+      ),
+    );
+    expect(grantedResponse.status).toBe(200);
+
+    const targetView = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, anonymous.cookie)),
+    );
+    expect(targetView.snapshot.viewer).toMatchObject({
+      memberId: accountMemberId,
+      role: 'controller',
+      isAuthenticated: true,
+      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+    });
+    expect(targetView.snapshot.administrators).toContainEqual(
+      expect.objectContaining({
+        memberId: accountMemberId,
+        role: 'controller',
+        isAuthenticated: true,
+        permissions: fullDelegatedPermissions,
+      }),
+    );
+    expect(parseProRoomSnapshot(targetView.snapshot)).not.toBeNull();
+  });
+
   it('kicks every device in one account and prevents delegated admins from kicking peers', async () => {
     const context = await activatedRoom();
     enableMemberAuthority(context);

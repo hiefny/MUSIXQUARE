@@ -30,7 +30,8 @@ describe('PRO room branding', () => {
 
     expect(standardWordmark?.tagName).toBe('svg');
     expect(proWordmark?.tagName).toBe('svg');
-    expect(proWordmark?.querySelectorAll('path')).toHaveLength(7);
+    expect(proWordmark?.getAttribute('viewBox')).toBe('43 12 174 24');
+    expect(proWordmark?.querySelectorAll('[data-glyph]')).toHaveLength(7);
     expect(proWordmark?.querySelector('text')).toBeNull();
     expect(parsed.getElementById('header-pro-badge')).toBeNull();
     expect(stylesheet).toMatch(/\.header-pro-wordmark\s*{\s*display:\s*none;/);
@@ -44,6 +45,30 @@ describe('PRO room branding', () => {
     for (const badge of betaBadges) {
       expect(badge.classList.contains('feature-badge')).toBe(true);
     }
+  });
+
+  it('reuses the production M X Q R geometry verbatim and preserves the full R tail', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const standard = parsed.getElementById('header-standard-wordmark');
+    const pro = parsed.getElementById('header-pro-wordmark');
+    const standardChildren = standard ? Array.from(standard.children) : [];
+
+    expect(pro?.querySelector('[data-glyph="M"]')?.getAttribute('points')).toBe(
+      standardChildren[0]?.getAttribute('points'),
+    );
+    expect(pro?.querySelector('[data-glyph="X"]')?.getAttribute('points')).toBe(
+      standardChildren[4]?.getAttribute('points'),
+    );
+    expect(pro?.querySelector('[data-glyph="Q"]')?.getAttribute('d')).toBe(
+      standardChildren[5]?.getAttribute('d'),
+    );
+    const originalR = standardChildren[8]?.getAttribute('d');
+    const proRs = pro?.querySelectorAll('[data-glyph="R"]') ?? [];
+    expect(proRs).toHaveLength(2);
+    for (const proR of proRs) expect(proR.getAttribute('d')).toBe(originalR);
+    expect(originalR).toContain('5.8306272,10.0920839');
+    expect(originalR).toContain('-4.5310104-7.8424689');
   });
 
   it('keeps the PRO wordmark on one line before the truly short super-compact breakpoint', async () => {

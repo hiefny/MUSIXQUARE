@@ -1,4 +1,5 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
+import { getProYouTubeAudibleBaseLeadMs } from './pro-lead-learner.ts';
 
 const PLAYER_STATE = Object.freeze({
   playing: 1,
@@ -87,6 +88,8 @@ interface YouTubeAuthorityArmCommitRequest extends YouTubeAuthorityArmIdentity {
   executeDelayMs: number;
   /** Only a true fresh start is eligible for platform audio-output lead. */
   timingMode: YouTubeAuthorityTimingMode;
+  /** Session-local timeline correction learned from earlier PRO zero-starts. */
+  timelineLeadMs?: number;
   /**
    * Canonical target rebased by the runtime when COMMIT arrived late. Omit it
    * for an on-time commit that should release the already-settled target.
@@ -100,7 +103,12 @@ export type YouTubeAuthorityArmCommitResult =
       playCallAtMs: number;
       playingAtMs: number;
       callToPlayingMs: number;
+      /** Fixed audible-output compensation for this platform. */
       platformLeadMs: number;
+      /** Session-local correction learned from earlier stable starts. */
+      timelineLeadMs: number;
+      /** Total amount by which playVideo() was scheduled before the server instant. */
+      releaseLeadMs: number;
       catchUpSeconds: number;
     }
   | {
@@ -154,6 +162,7 @@ type ActiveRun = {
   commitResolve: ((result: YouTubeAuthorityArmCommitResult) => void) | null;
   playCallAtMs: number;
   platformLeadMs: number;
+  timelineLeadMs: number;
   catchUpSeconds: number;
 };
 
@@ -192,11 +201,7 @@ function sameIdentity(
 
 /** Fixed audible-output lead against the server timeline. */
 function getYouTubeAuthorityPlatformLeadMs(platform: YouTubeZeroStartPlatform): number {
-  // PRO's fully armed iOS iframe already follows the canonical release. The
-  // old 270ms ordinary-room timeline seed made every iOS zero-start early.
-  if (platform === 'ios') return 0;
-  if (platform === 'android') return 250;
-  return 0;
+  return getProYouTubeAudibleBaseLeadMs(platform);
 }
 
 export const getYouTubeAuthorityPlatformLeadMsForTests = getYouTubeAuthorityPlatformLeadMs;
@@ -328,6 +333,7 @@ export class YouTubeAuthorityArmController {
         commitResolve: null,
         playCallAtMs: 0,
         platformLeadMs: 0,
+        timelineLeadMs: 0,
         catchUpSeconds: 0,
       };
       // `cancel()` restores once synchronously. Once the successor has safely
@@ -367,6 +373,10 @@ export class YouTubeAuthorityArmController {
       request.timingMode === 'zero-start'
         ? getYouTubeAuthorityPlatformLeadMs(this.#deps.getPlatform())
         : 0;
+    run.timelineLeadMs =
+      request.timingMode === 'zero-start'
+        ? clamp(finiteOr(request.timelineLeadMs ?? 0, 0), -300, 300)
+        : 0;
     const committedTargetSeconds = Math.max(
       0,
       finiteOr(request.targetSeconds ?? run.targetSeconds, run.targetSeconds),
@@ -380,7 +390,7 @@ export class YouTubeAuthorityArmController {
     const promise = new Promise<YouTubeAuthorityArmCommitResult>((resolve) => {
       run.commitResolve = resolve;
     });
-    const callDelayMs = Math.max(0, executeDelayMs - run.platformLeadMs);
+    const callDelayMs = Math.max(0, executeDelayMs - (run.platformLeadMs + run.timelineLeadMs));
     this.#later(run, () => this.#release(run), callDelayMs);
     return promise;
   }
@@ -682,6 +692,8 @@ export class YouTubeAuthorityArmController {
       playingAtMs,
       callToPlayingMs: Math.max(0, playingAtMs - run.playCallAtMs),
       platformLeadMs: run.platformLeadMs,
+      timelineLeadMs: run.timelineLeadMs,
+      releaseLeadMs: run.platformLeadMs + run.timelineLeadMs,
       catchUpSeconds: run.catchUpSeconds,
     });
     this.#run = null;

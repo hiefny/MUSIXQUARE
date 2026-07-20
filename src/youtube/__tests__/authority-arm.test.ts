@@ -389,6 +389,30 @@ describe('YouTubeAuthorityArmController', () => {
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit + 1);
   });
 
+  it('adds a bounded learned timeline lead only to a later true zero-start', async () => {
+    const { controller, player } = makeHarness({ platform: 'android' });
+    await prepareReady(controller, 'resident', 10);
+    const playsBeforeCommit = count(player, 'playVideo');
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 700,
+      timingMode: 'zero-start',
+      timelineLeadMs: 40,
+    });
+
+    await vi.advanceTimersByTimeAsync(409);
+    expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      platformLeadMs: 250,
+      timelineLeadMs: 40,
+      releaseLeadMs: 290,
+    });
+    expect(count(player, 'playVideo')).toBe(playsBeforeCommit + 1);
+  });
+
   it.each(['ios', 'android'] as const)(
     'does not apply platform lead to a $platform scheduled control and still catches up a late target',
     async (platform) => {
@@ -401,6 +425,7 @@ describe('YouTubeAuthorityArmController', () => {
         executeDelayMs: 700,
         targetSeconds: 10.25,
         timingMode: 'scheduled-control',
+        timelineLeadMs: 300,
       });
 
       await vi.advanceTimersByTimeAsync(699);

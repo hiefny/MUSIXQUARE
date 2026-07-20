@@ -10,6 +10,9 @@ const SOCKET_OPEN_TIMEOUT_MS = 15_000;
 const MAX_SERVER_FRAME_BYTES = 256 * 1024;
 const CLOCK_REFRESH_MS = 30_000;
 const CLOCK_BURST_DELAYS_MS = [0, 120, 300, 700, 1_500] as const;
+const CLOCK_READY_BURST_DELAYS_MS = [0, 80, 180] as const;
+const CLOCK_READY_MIN_RESPONSES = 2;
+const CLOCK_READY_DECISION_WINDOW_MS = 220;
 const CLOCK_READY_FRESHNESS_MS = 5_000;
 const CLOCK_WAIT_MAX_MS = 10_000;
 
@@ -45,11 +48,30 @@ type ConnectionListener = (connected: boolean) => void;
 
 interface ClockCalibrationWaiter {
   generation: number;
+  roundId: number;
   serverDeadlineAtMs: number;
   timer: ReturnType<typeof setTimeout>;
   signal?: AbortSignal;
   onAbort?: () => void;
   resolve: (calibrated: boolean) => void;
+}
+
+interface ClockPendingSample {
+  sentAtMs: number;
+  generation: number;
+  roundId: number | null;
+}
+
+interface ClockCalibrationRound {
+  id: number;
+  generation: number;
+  started: boolean;
+  responseCount: number;
+  bestRttMs: number;
+  bestOffsetMs: number;
+  bestReceivedAtMs: number;
+  requestIds: Set<number>;
+  timers: Set<ReturnType<typeof setTimeout>>;
 }
 
 const realtimeListeners = new Set<RealtimeListener>();
@@ -150,11 +172,13 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
   #generation = 0;
   #intentionalClose = false;
   #clockRequestSequence = 0;
-  #clockPending = new Map<number, number>();
+  #clockPending = new Map<number, ClockPendingSample>();
+  #clockCalibrationRoundSequence = 0;
+  #clockCalibrationRound: ClockCalibrationRound | null = null;
   #clockBestRttMs = Number.POSITIVE_INFINITY;
   #clockOffsetMs = 0;
   #clockCalibrated = false;
-  #clockCalibratedAtMs = 0;
+  #clockReadyCalibratedAtMs = 0;
   #clockWaiters = new Set<ClockCalibrationWaiter>();
   #pendingPlaybackTransition: ProRoomPlaybackPrepareEvent | null = null;
   #timers = new Set<ReturnType<typeof setTimeout>>();
@@ -201,36 +225,26 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     const timeoutMs = Math.max(0, Math.min(CLOCK_WAIT_MAX_MS, options.fallbackTimeoutMs));
     if (timeoutMs === 0) return Promise.resolve(false);
 
-    // The previous burst's minimum RTT must not prevent a newer (slightly
-    // slower) but deadline-relevant sample from refreshing the clock.
-    this.#clockBestRttMs = Number.POSITIVE_INFINITY;
-    this.#requestClockSample();
     return new Promise<boolean>((resolve) => {
-      const settle = (calibrated: boolean) => {
-        if (!this.#clockWaiters.delete(waiter)) return;
-        clearTimeout(waiter.timer);
-        this.#timers.delete(waiter.timer);
-        if (waiter.signal && waiter.onAbort) {
-          waiter.signal.removeEventListener('abort', waiter.onAbort);
-        }
-        resolve(calibrated);
-      };
-      const timer = globalThis.setTimeout(() => settle(false), timeoutMs);
+      const round = this.#getOrCreateClockCalibrationRound(generation);
+      const timer = globalThis.setTimeout(() => this.#settleClockWaiterAtBudget(waiter), timeoutMs);
       const waiter: ClockCalibrationWaiter = {
         generation,
+        roundId: round.id,
         serverDeadlineAtMs,
         timer,
         signal,
         resolve,
       };
-      waiter.onAbort = () => settle(false);
+      waiter.onAbort = () => this.#settleClockWaiter(waiter, false);
       this.#clockWaiters.add(waiter);
       this.#timers.add(timer);
       signal?.addEventListener('abort', waiter.onAbort, { once: true });
 
-      // A synchronous fake/test socket may have answered the request before
-      // the waiter was registered. Re-check after registration.
-      if (this.#hasFreshClockCalibration()) this.#settleFreshClockWaiters();
+      // Register the waiter before starting the burst so a synchronous test
+      // socket (or an unusually fast platform implementation) cannot answer
+      // the first sample before the wait owns its calibration round.
+      if (!round.started) this.#startClockCalibrationRound(round);
     });
   }
 
@@ -277,6 +291,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     this.#clearTimers();
     this.#settleClockWaiters(false);
     this.#clockPending.clear();
+    this.#clockCalibrationRound = null;
     const socket = this.#socket;
     this.#socket = null;
     this.#access = null;
@@ -363,9 +378,10 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     this.#access = access;
     this.#pendingPlaybackTransition = access.pendingPlaybackTransition;
     this.#clockPending.clear();
+    this.#clockCalibrationRound = null;
     this.#clockBestRttMs = Number.POSITIVE_INFINITY;
     this.#clockCalibrated = false;
-    this.#clockCalibratedAtMs = 0;
+    this.#clockReadyCalibratedAtMs = 0;
 
     const url = signalingSocketUrl(snapshot.roomCode, access.ticket);
     const socket = new WebSocket(url);
@@ -445,8 +461,9 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       if (generation === this.#generation && this.#socket === socket) {
         this.#socket = null;
         this.#clockPending.clear();
+        this.#clockCalibrationRound = null;
         this.#clockCalibrated = false;
-        this.#clockCalibratedAtMs = 0;
+        this.#clockReadyCalibratedAtMs = 0;
         batchSetState({ 'network.isConnecting': false });
         this.#publishConnected(false);
       }
@@ -473,6 +490,8 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       this.#socket = null;
       this.#clearTimers();
       this.#settleClockWaiters(false);
+      this.#clockPending.clear();
+      this.#clockCalibrationRound = null;
       this.#publishConnected(false);
       if (!this.#intentionalClose) {
         log.warn('[PRO] Server control channel disconnected; recovery requested');
@@ -514,18 +533,36 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       ) {
         return;
       }
-      const sentAt = this.#clockPending.get(requestId as number);
-      if (sentAt === undefined || sentAt !== clientSentAtMs) return;
+      const pending = this.#clockPending.get(requestId as number);
+      if (
+        !pending ||
+        pending.sentAtMs !== clientSentAtMs ||
+        pending.generation !== this.#generation
+      ) {
+        return;
+      }
       this.#clockPending.delete(requestId as number);
       const receivedAt = Date.now();
-      const rtt = Math.max(0, receivedAt - sentAt);
-      const offset = serverTimeMs - (sentAt + receivedAt) / 2;
-      if (rtt <= this.#clockBestRttMs) {
-        this.#clockBestRttMs = rtt;
-        this.#clockOffsetMs = offset;
-        this.#clockCalibrated = true;
-        this.#clockCalibratedAtMs = receivedAt;
-        this.#settleFreshClockWaiters();
+      const rtt = Math.max(0, receivedAt - pending.sentAtMs);
+      const offset = serverTimeMs - (pending.sentAtMs + receivedAt) / 2;
+      this.#adoptClockSample(rtt, offset);
+
+      const round = this.#clockCalibrationRound;
+      if (
+        pending.roundId !== null &&
+        round?.id === pending.roundId &&
+        round.generation === pending.generation
+      ) {
+        round.requestIds.delete(requestId as number);
+        round.responseCount += 1;
+        if (rtt <= round.bestRttMs) {
+          round.bestRttMs = rtt;
+          round.bestOffsetMs = offset;
+          round.bestReceivedAtMs = receivedAt;
+        }
+        if (round.responseCount >= CLOCK_READY_MIN_RESPONSES) {
+          this.#finalizeClockCalibrationRound(round);
+        }
       }
       return;
     }
@@ -556,6 +593,106 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     this.#scheduleClockRefresh(generation);
   }
 
+  #getOrCreateClockCalibrationRound(generation: number): ClockCalibrationRound {
+    const active = this.#clockCalibrationRound;
+    if (active && active.generation === generation) return active;
+    const round: ClockCalibrationRound = {
+      id: ++this.#clockCalibrationRoundSequence,
+      generation,
+      started: false,
+      responseCount: 0,
+      bestRttMs: Number.POSITIVE_INFINITY,
+      bestOffsetMs: 0,
+      bestReceivedAtMs: 0,
+      requestIds: new Set<number>(),
+      timers: new Set<ReturnType<typeof setTimeout>>(),
+    };
+    this.#clockCalibrationRound = round;
+    return round;
+  }
+
+  #startClockCalibrationRound(round: ClockCalibrationRound): void {
+    if (
+      round.started ||
+      round !== this.#clockCalibrationRound ||
+      round.generation !== this.#generation
+    ) {
+      return;
+    }
+    round.started = true;
+    // A minimum RTT from an older sampling window must not prevent this
+    // deadline-relevant burst from refreshing the general scheduling clock.
+    this.#clockBestRttMs = Number.POSITIVE_INFINITY;
+
+    for (const delay of CLOCK_READY_BURST_DELAYS_MS) {
+      if (delay === 0) {
+        const requestId = this.#requestClockSample(round.id);
+        if (requestId !== null) round.requestIds.add(requestId);
+        continue;
+      }
+      const timer = this.#schedule(
+        () => {
+          const requestId = this.#requestClockSample(round.id);
+          if (requestId !== null && this.#clockCalibrationRound === round) {
+            round.requestIds.add(requestId);
+          }
+        },
+        delay,
+        round.generation,
+      );
+      round.timers.add(timer);
+    }
+
+    const decisionTimer = this.#schedule(
+      () => this.#finalizeClockCalibrationRound(round),
+      CLOCK_READY_DECISION_WINDOW_MS,
+      round.generation,
+    );
+    round.timers.add(decisionTimer);
+  }
+
+  #adoptClockSample(rtt: number, offset: number): void {
+    if (rtt > this.#clockBestRttMs) return;
+    this.#clockBestRttMs = rtt;
+    this.#clockOffsetMs = offset;
+    this.#clockCalibrated = true;
+  }
+
+  #finalizeClockCalibrationRound(round: ClockCalibrationRound): void {
+    if (round !== this.#clockCalibrationRound || round.generation !== this.#generation) {
+      return;
+    }
+    const calibrated = Number.isFinite(round.bestRttMs) && round.bestReceivedAtMs > 0;
+    if (calibrated) {
+      // Commit the minimum-RTT candidate even if a concurrent background
+      // sample arrived during the bounded window. READY must use one coherent
+      // calibration round, never whichever response happened to arrive first.
+      this.#clockBestRttMs = round.bestRttMs;
+      this.#clockOffsetMs = round.bestOffsetMs;
+      this.#clockCalibrated = true;
+      this.#clockReadyCalibratedAtMs = Date.now();
+    }
+    this.#closeClockCalibrationRound(round);
+    for (const waiter of [...this.#clockWaiters]) {
+      if (waiter.generation !== round.generation || waiter.roundId !== round.id) continue;
+      this.#settleClockWaiter(
+        waiter,
+        calibrated && Date.now() + round.bestOffsetMs <= waiter.serverDeadlineAtMs,
+      );
+    }
+  }
+
+  #closeClockCalibrationRound(round: ClockCalibrationRound): void {
+    for (const timer of round.timers) {
+      clearTimeout(timer);
+      this.#timers.delete(timer);
+    }
+    for (const requestId of round.requestIds) this.#clockPending.delete(requestId);
+    round.timers.clear();
+    round.requestIds.clear();
+    if (this.#clockCalibrationRound === round) this.#clockCalibrationRound = null;
+  }
+
   #scheduleClockRefresh(generation: number): void {
     this.#schedule(
       () => {
@@ -568,12 +705,16 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     );
   }
 
-  #requestClockSample(): void {
+  #requestClockSample(roundId: number | null = null): number | null {
     const socket = this.#socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return null;
     const requestId = ++this.#clockRequestSequence;
     const clientSentAtMs = Date.now();
-    this.#clockPending.set(requestId, clientSentAtMs);
+    this.#clockPending.set(requestId, {
+      sentAtMs: clientSentAtMs,
+      generation: this.#generation,
+      roundId,
+    });
     while (this.#clockPending.size > 16) {
       const oldest = this.#clockPending.keys().next().value as number | undefined;
       if (oldest === undefined) break;
@@ -591,15 +732,22 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       );
     } catch {
       this.#clockPending.delete(requestId);
+      return null;
     }
+    return requestId;
   }
 
-  #schedule(callback: () => void, delay: number, generation: number): void {
+  #schedule(
+    callback: () => void,
+    delay: number,
+    generation: number,
+  ): ReturnType<typeof setTimeout> {
     const timer = globalThis.setTimeout(() => {
       this.#timers.delete(timer);
       if (generation === this.#generation) callback();
     }, delay);
     this.#timers.add(timer);
+    return timer;
   }
 
   #clearTimers(): void {
@@ -608,19 +756,44 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
   }
 
   #hasFreshClockCalibration(): boolean {
-    const ageMs = Date.now() - this.#clockCalibratedAtMs;
-    return this.#clockCalibrated && ageMs >= 0 && ageMs <= CLOCK_READY_FRESHNESS_MS;
+    const ageMs = Date.now() - this.#clockReadyCalibratedAtMs;
+    return (
+      this.#clockCalibrated &&
+      this.#clockReadyCalibratedAtMs > 0 &&
+      ageMs >= 0 &&
+      ageMs <= CLOCK_READY_FRESHNESS_MS
+    );
   }
 
-  #settleFreshClockWaiters(): void {
-    if (!this.#hasFreshClockCalibration()) return;
-    for (const waiter of [...this.#clockWaiters]) {
-      if (waiter.generation !== this.#generation) {
-        this.#settleClockWaiter(waiter, false);
-        continue;
-      }
-      this.#settleClockWaiter(waiter, this.serverNowMs <= waiter.serverDeadlineAtMs);
+  #settleClockWaiterAtBudget(waiter: ClockCalibrationWaiter): void {
+    if (!this.#clockWaiters.has(waiter)) return;
+    const round = this.#clockCalibrationRound;
+    if (
+      waiter.generation !== this.#generation ||
+      !round ||
+      round.id !== waiter.roundId ||
+      round.generation !== waiter.generation
+    ) {
+      this.#settleClockWaiter(waiter, false);
+      return;
     }
+    if (!Number.isFinite(round.bestRttMs) || round.bestReceivedAtMs <= 0) {
+      this.#settleClockWaiter(waiter, false);
+      return;
+    }
+
+    const otherRoundWaiters = [...this.#clockWaiters].some(
+      (candidate) => candidate !== waiter && candidate.roundId === round.id,
+    );
+    if (!otherRoundWaiters) {
+      // A short PREPARE remainder cannot wait out the normal 220ms decision
+      // window. Finalize the best sample already available at its own bounded
+      // budget instead of either missing the server deadline or discarding a
+      // usable estimate.
+      this.#finalizeClockCalibrationRound(round);
+      return;
+    }
+    this.#settleClockWaiter(waiter, Date.now() + round.bestOffsetMs <= waiter.serverDeadlineAtMs);
   }
 
   #settleClockWaiters(calibrated: boolean): void {
@@ -635,6 +808,14 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       waiter.signal.removeEventListener('abort', waiter.onAbort);
     }
     waiter.resolve(calibrated);
+
+    const round = this.#clockCalibrationRound;
+    if (
+      round?.id === waiter.roundId &&
+      ![...this.#clockWaiters].some((candidate) => candidate.roundId === round.id)
+    ) {
+      this.#closeClockCalibrationRound(round);
+    }
   }
 
   #publishConnected(connected: boolean): void {

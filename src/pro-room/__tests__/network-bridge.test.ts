@@ -146,6 +146,30 @@ async function openBridge(bridge: ServerProRoomNetworkBridge): Promise<FakeWebSo
   return socket;
 }
 
+function clockRequests(socket: FakeWebSocket): Array<Record<string, unknown>> {
+  return socket.sent
+    .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+    .filter((frame) => frame.channel === 'clock');
+}
+
+function answerClockRequest(
+  socket: FakeWebSocket,
+  request: Record<string, unknown>,
+  serverTimeMs: number,
+): void {
+  const payload = request.payload as Record<string, unknown>;
+  socket.dispatch(
+    'message',
+    JSON.stringify({
+      type: 'pro-clock',
+      version: 1,
+      requestId: payload.requestId,
+      clientSentAtMs: payload.clientSentAtMs,
+      serverTimeMs,
+    }),
+  );
+}
+
 beforeEach(() => {
   resetState();
   FakeWebSocket.instances = [];
@@ -337,9 +361,10 @@ describe('coordinator-free PRO server channel', () => {
     bridge.disconnect();
   });
 
-  it('waits for a fresh generation-fenced clock sample before declaring READY', async () => {
+  it('waits for two fresh samples and commits the minimum-RTT candidate before READY', async () => {
     const bridge = new ServerProRoomNetworkBridge();
     const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
 
     const calibrated = bridge.waitForFreshClockCalibration({
       serverDeadlineAtMs: 2_000,
@@ -352,23 +377,96 @@ describe('coordinator-free PRO server channel', () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    const request = socket.sent
-      .map((raw) => JSON.parse(raw) as Record<string, unknown>)
-      .filter((frame) => frame.channel === 'clock')
-      .at(-1);
-    const payload = request?.payload as Record<string, unknown>;
-    socket.dispatch(
-      'message',
-      JSON.stringify({
-        type: 'pro-clock',
-        version: 1,
-        requestId: payload.requestId,
-        clientSentAtMs: payload.clientSentAtMs,
-        serverTimeMs: 1_500,
-      }),
-    );
+    const first = clockRequests(socket).at(-1);
+    if (!first) throw new Error('first ready clock request was not sent');
+    await vi.advanceTimersByTimeAsync(60);
+    // RTT 60ms, offset +400ms.
+    answerClockRequest(socket, first, 1_430);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(20);
+    const second = clockRequests(socket).at(-1);
+    const firstPayload = first.payload as Record<string, unknown>;
+    const secondPayload = second?.payload as Record<string, unknown> | undefined;
+    if (!second || secondPayload?.requestId === firstPayload.requestId) {
+      throw new Error('second ready clock request was not sent');
+    }
+    await vi.advanceTimersByTimeAsync(10);
+    // RTT 10ms, offset +505ms. This lower-RTT sample must win the round.
+    answerClockRequest(socket, second, 1_590);
 
     await expect(calibrated).resolves.toBe(true);
+    expect(bridge.serverNowMs).toBe(1_595);
+    bridge.disconnect();
+  });
+
+  it('uses the best available sample after the bounded 220ms decision window', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const calibrated = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 2_000,
+      fallbackTimeoutMs: 750,
+    });
+    let settled = false;
+    void calibrated.then(() => {
+      settled = true;
+    });
+    const first = clockRequests(socket).at(-1);
+    if (!first) throw new Error('ready clock request was not sent');
+
+    await vi.advanceTimersByTimeAsync(40);
+    answerClockRequest(socket, first, 1_500);
+    await vi.advanceTimersByTimeAsync(179);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(calibrated).resolves.toBe(true);
+    expect(bridge.serverNowMs).toBe(1_700);
+    bridge.disconnect();
+  });
+
+  it('finishes a short PREPARE budget with the best sample already available', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const calibrated = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 1_600,
+      fallbackTimeoutMs: 50,
+    });
+    const first = clockRequests(socket).at(-1);
+    if (!first) throw new Error('ready clock request was not sent');
+
+    await vi.advanceTimersByTimeAsync(30);
+    answerClockRequest(socket, first, 1_530);
+    await vi.advanceTimersByTimeAsync(20);
+
+    await expect(calibrated).resolves.toBe(true);
+    expect(bridge.serverNowMs).toBe(1_565);
+    bridge.disconnect();
+  });
+
+  it('aborts a ready calibration round and ignores its late clock response', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
+    const abort = new AbortController();
+
+    const calibrated = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 2_000,
+      fallbackTimeoutMs: 750,
+      signal: abort.signal,
+    });
+    const first = clockRequests(socket).at(-1);
+    if (!first) throw new Error('ready clock request was not sent');
+
+    abort.abort();
+    await expect(calibrated).resolves.toBe(false);
+    answerClockRequest(socket, first, 1_500);
+    expect(bridge.clockCalibrated).toBe(false);
     bridge.disconnect();
   });
 

@@ -1052,6 +1052,11 @@ export type YouTubeAuthorityPreparationResult =
 
 let proAuthorityPreparationGeneration = 0;
 
+/** Participant-local fence for detached post-COMMIT timing observations. */
+export function getProYouTubeAuthorityPreparationGeneration(): number {
+  return proAuthorityPreparationGeneration;
+}
+
 function getYouTubeAuthorityArmPlayer(): YouTubeAuthorityArmPlayer | null {
   const player = getYouTubePlayer();
   if (
@@ -1116,6 +1121,7 @@ interface YouTubeAuthorityCommitRequest {
   targetSeconds: number;
   executeDelayMs: number;
   timingMode: YouTubeAuthorityTimingMode;
+  timelineLeadMs?: number;
 }
 
 export function commitYouTubeAuthorityOccurrence(
@@ -1129,6 +1135,7 @@ export function commitYouTubeAuthorityOccurrence(
     targetSeconds: request.targetSeconds,
     executeDelayMs: request.executeDelayMs,
     timingMode: request.timingMode,
+    timelineLeadMs: request.timelineLeadMs,
   });
 }
 

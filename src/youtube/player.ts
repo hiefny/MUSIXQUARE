@@ -314,6 +314,7 @@ import {
   showLiveStreamSyncWarning,
   cancelYouTubeAuthorityPreparation,
   commitYouTubeAuthorityOccurrence,
+  getProYouTubeAuthorityPreparationGeneration,
   proYouTubeAuthorityOwnsHardMute,
   updateProYouTubeAuthorityDesiredAudioState,
 } from './iframe.ts';
@@ -359,6 +360,13 @@ import {
   type YouTubeZeroStartTargetContext,
   type YouTubeZeroStartWireMessage,
 } from './zero-start.ts';
+import {
+  PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS,
+  PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS,
+  ProYouTubeLeadSession,
+  type ProYouTubeLeadPlatform,
+  type ProYouTubeLeadSample,
+} from './pro-lead-learner.ts';
 
 import type { YTNamespace, YouTubePlayerInstance } from './_state.ts';
 declare const YT: YTNamespace;
@@ -632,6 +640,135 @@ export function cancelYtAutoSync(): void {
 }
 
 let proAuthorityYouTubeCommitGeneration = 0;
+const proYouTubeLeadSession = new ProYouTubeLeadSession();
+const proYouTubeLeadCalibrationTimers = new Set<ReturnType<typeof globalThis.setTimeout>>();
+let proYouTubeLeadSessionKey: string | null = null;
+let proYouTubeLeadVisibilityGeneration = 0;
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    proYouTubeLeadVisibilityGeneration += 1;
+  });
+}
+
+function clearProYouTubeLeadCalibrationTimers(): void {
+  for (const timer of proYouTubeLeadCalibrationTimers) globalThis.clearTimeout(timer);
+  proYouTubeLeadCalibrationTimers.clear();
+}
+
+function proYouTubeLeadState(roomId: string, roomEpoch: number, platform: ProYouTubeLeadPlatform) {
+  const sessionKey = `${roomId}:${roomEpoch}`;
+  if (proYouTubeLeadSessionKey !== sessionKey) {
+    proYouTubeLeadSession.clear();
+    proYouTubeLeadSessionKey = sessionKey;
+  }
+  return { sessionKey, state: proYouTubeLeadSession.get(platform) };
+}
+
+function scheduleProYouTubeLeadCalibration(input: {
+  generation: number;
+  sessionKey: string;
+  platform: ProYouTubeLeadPlatform;
+  player: YouTubePlayerInstance;
+  queueItemId: QueueItemId;
+  videoId: string;
+  subIndex: number | null;
+  canonicalStartSeconds: number;
+  canonicalExecuteAtMs: number;
+  preparationGeneration: number;
+  localOffsetSeconds: number;
+}): void {
+  let earlySample: ProYouTubeLeadSample | null = null;
+  const visibilityGeneration = proYouTubeLeadVisibilityGeneration;
+
+  const scheduleSample = (
+    checkpointMs: typeof PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS | typeof PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS,
+  ) => {
+    const targetAtMs = input.canonicalExecuteAtMs + checkpointMs;
+    const timer = globalThis.setTimeout(
+      () => {
+        proYouTubeLeadCalibrationTimers.delete(timer);
+        const room = getState('room.context');
+        const currentPlayer = getYouTubePlayer();
+        const liveVideoId = currentPlayer?.getVideoData?.()?.video_id || '';
+        const liveSubIndex = getState('youtube.currentSubIndex') ?? 0;
+        const visible =
+          (typeof document === 'undefined' || document.visibilityState !== 'hidden') &&
+          visibilityGeneration === proYouTubeLeadVisibilityGeneration;
+        const identityMatches = !!(
+          room.kind === 'pro' &&
+          `${room.roomId}:${room.epoch}` === input.sessionKey &&
+          proYouTubeLeadSessionKey === input.sessionKey &&
+          input.generation === proAuthorityYouTubeCommitGeneration &&
+          input.preparationGeneration === getProYouTubeAuthorityPreparationGeneration() &&
+          currentPlayer === input.player &&
+          getCurrentQueueItemId() === input.queueItemId &&
+          isPlaybackModeYouTube() &&
+          liveVideoId === input.videoId &&
+          (input.subIndex === null || liveSubIndex === input.subIndex) &&
+          Math.abs((getState('sync.youtubeLocalOffset') || 0) - input.localOffsetSeconds) < 0.001 &&
+          !isYtLoadInProgress() &&
+          !getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)
+        );
+
+        let playerState = -1;
+        let timelineDriftMs = Number.NaN;
+        try {
+          playerState = currentPlayer?.getPlayerState?.() ?? -1;
+          if (currentPlayer) {
+            const sampledAtMs = performance.now();
+            const predictedCanonical =
+              input.canonicalStartSeconds +
+              Math.max(0, sampledAtMs - input.canonicalExecuteAtMs) / 1_000;
+            const duration = getYouTubeDuration(currentPlayer);
+            if (!(duration > 0 && duration - predictedCanonical < 3)) {
+              timelineDriftMs =
+                (readCanonicalYouTubeTime(currentPlayer) - predictedCanonical) * 1_000;
+            }
+          }
+        } catch {
+          // The pure learner rejects the non-finite observation below.
+        }
+
+        const sample: ProYouTubeLeadSample = {
+          checkpointMs,
+          timelineDriftMs,
+          visible,
+          // Only a normally advancing iframe is a valid timing reference.
+          buffering: playerState !== 1,
+          // IFrame API does not expose a reliable ad flag. A replaced ad/video
+          // identity is still rejected by the exact video fence above.
+          adActive: false,
+          identityMatches,
+          revisionMatches: input.generation === proAuthorityYouTubeCommitGeneration,
+        };
+        if (checkpointMs === PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS) {
+          earlySample = sample;
+          return;
+        }
+        if (!earlySample) return;
+
+        const learned = proYouTubeLeadSession.learn(input.platform, {
+          early: earlySample,
+          late: sample,
+        });
+        if (learned.accepted) {
+          log.debug('[PRO YouTube] Updated participant-local start timing', {
+            updated: learned.updated,
+            timelineLeadMs: learned.state.timelineLeadMs,
+            totalLeadMs: learned.state.totalLeadMs,
+            stableTimelineDriftMs: learned.stableTimelineDriftMs,
+          });
+        }
+      },
+      Math.max(0, targetAtMs - performance.now()),
+    );
+    proYouTubeLeadCalibrationTimers.add(timer);
+  };
+
+  scheduleSample(PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS);
+  scheduleSample(PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS);
+}
 
 /**
  * Apply a canonical PRO commit to this participant's already-prepared iframe.
@@ -643,6 +780,7 @@ export async function applyProPlaybackYouTubeCommit(
 ): Promise<boolean> {
   if (request.state === 'idle' || !request.queueItemId) return false;
   const generation = ++proAuthorityYouTubeCommitGeneration;
+  clearProYouTubeLeadCalibrationTimers();
   cancelYtAutoSync();
 
   if (
@@ -672,6 +810,15 @@ export async function applyProPlaybackYouTubeCommit(
         setYouTubeSubIndex(request.youtubeSubIndex);
       }
       setYtAutoplayIntent(true);
+      const platform = getYouTubeZeroStartPlatform();
+      const lead = proYouTubeLeadState(
+        request.authority.roomId,
+        request.authority.roomEpoch,
+        platform,
+      );
+      const canonicalExecuteAtMs =
+        performance.now() +
+        Math.max(0, Number.isFinite(request.scheduleDelayMs) ? request.scheduleDelayMs : 0);
       const committed = await commitYouTubeAuthorityOccurrence({
         authorityKey: getProPlaybackAuthorityKey(request.authority),
         queueItemId: request.queueItemId,
@@ -680,6 +827,7 @@ export async function applyProPlaybackYouTubeCommit(
         targetSeconds: target.localTime,
         executeDelayMs: request.scheduleDelayMs,
         timingMode: request.timingMode,
+        timelineLeadMs: request.timingMode === 'zero-start' ? lead.state.timelineLeadMs : undefined,
       });
       if (
         committed.status !== 'applied' ||
@@ -690,6 +838,25 @@ export async function applyProPlaybackYouTubeCommit(
       }
       setPlaybackYouTubePlaying();
       bus.emit('ui:update-play-state', true);
+      if (request.timingMode === 'zero-start') {
+        const positiveLeadWasFullyScheduled =
+          request.scheduleDelayMs >= Math.max(0, committed.releaseLeadMs);
+        if (positiveLeadWasFullyScheduled) {
+          scheduleProYouTubeLeadCalibration({
+            generation,
+            sessionKey: lead.sessionKey,
+            platform,
+            player,
+            queueItemId: request.queueItemId,
+            videoId: request.youtubeVideoId,
+            subIndex: request.youtubeSubIndex ?? null,
+            canonicalStartSeconds: target.canonicalTime,
+            canonicalExecuteAtMs,
+            preparationGeneration: getProYouTubeAuthorityPreparationGeneration(),
+            localOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
+          });
+        }
+      }
       return true;
     } catch (error) {
       log.warn('[PRO Playback] Failed to release prepared YouTube occurrence', error);

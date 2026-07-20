@@ -13,6 +13,8 @@ import {
   type ProRoomLegacyMediaHooks,
 } from '../../pro-room/legacy-media-hooks.ts';
 import {
+  createProPlaybackAuthorityToken,
+  getProPlaybackAuthorityKey,
   registerProPlaybackCommandHandler,
   resetProPlaybackAuthorityHooks,
 } from '../../pro-room/playback-authority-hooks.ts';
@@ -472,6 +474,131 @@ describe('YouTube Player', () => {
   });
 
   describe('PRO participant canonical controls', () => {
+    it('learns a stable local start residual for the next PRO zero-start only', async () => {
+      const stateMod = await import('../_state.ts');
+      const { applyProPlaybackYouTubeCommit } = await import('../player.ts');
+      const { cancelYouTubeAuthorityPreparation, prepareYouTubeAuthorityOccurrence } =
+        await import('../iframe.ts');
+      let muted = false;
+      let volume = 60;
+      let playerState = 2;
+      let baseTime = 0;
+      let playAtMs = 0;
+      const playCallsMs: number[] = [];
+      const currentTime = () =>
+        playerState === 1
+          ? baseTime + Math.max(0, performance.now() - playAtMs - 100) / 1_000
+          : baseTime;
+      const player = {
+        loadVideoById: vi.fn(),
+        playVideo: vi.fn(() => {
+          playAtMs = performance.now();
+          playCallsMs.push(playAtMs);
+          playerState = 1;
+        }),
+        pauseVideo: vi.fn(() => {
+          baseTime = currentTime();
+          playerState = 2;
+        }),
+        seekTo: vi.fn((seconds: number) => {
+          baseTime = seconds;
+          playAtMs = performance.now();
+        }),
+        mute: vi.fn(() => {
+          muted = true;
+        }),
+        unMute: vi.fn(() => {
+          muted = false;
+        }),
+        isMuted: vi.fn(() => muted),
+        setVolume: vi.fn((next: number) => {
+          volume = next;
+        }),
+        getVolume: vi.fn(() => volume),
+        getCurrentTime: vi.fn(() => currentTime()),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => playerState),
+        getVideoData: vi.fn(() => ({ video_id: 'video-1', title: 'Video' })),
+      } as unknown as YouTubePlayerInstance;
+
+      stateMod.setYouTubePlayer(player);
+      stateMod.markYtPlayerReady(player);
+      stateMod.setYouTubeSubIndex(0);
+      stateMod.setYtLoadInProgress(false);
+      setState('audio.masterVolume', 0.6);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'video-1',
+          playlistId: null,
+          name: 'Video',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 7,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      setPlaybackYouTubePlaying();
+
+      const run = async (basePlaybackRevision: number) => {
+        const authority = createProPlaybackAuthorityToken({
+          roomId: '000001',
+          roomEpoch: 7,
+          basePlaybackRevision,
+          transitionId: `transition-${basePlaybackRevision}`,
+        });
+        const preparing = prepareYouTubeAuthorityOccurrence({
+          authorityKey: getProPlaybackAuthorityKey(authority),
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: 'video-1',
+          subIndex: 0,
+          positionSeconds: 0,
+        });
+        await vi.runAllTimersAsync();
+        await expect(preparing).resolves.toMatchObject({ ready: true });
+
+        const startedAtMs = performance.now();
+        const applying = applyProPlaybackYouTubeCommit({
+          authority,
+          committedPlaybackRevision: basePlaybackRevision + 1,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+          positionSeconds: 0,
+          scheduleDelayMs: 700,
+          timingMode: 'zero-start',
+          youtubeSubIndex: 0,
+          youtubeVideoId: 'video-1',
+          isCurrent: () => true,
+        });
+        return { applying, startedAtMs };
+      };
+
+      const first = await run(1);
+      await vi.advanceTimersByTimeAsync(700);
+      await expect(first.applying).resolves.toBe(true);
+      expect(playCallsMs.at(-1)! - first.startedAtMs).toBe(700);
+
+      // The first endpoint is stably 100ms late at both checkpoints. A 0.25
+      // learning rate therefore advances only the next release by 25ms.
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      const second = await run(3);
+      const callsBeforeRelease = playCallsMs.length;
+      await vi.advanceTimersByTimeAsync(674);
+      expect(playCallsMs).toHaveLength(callsBeforeRelease);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(second.applying).resolves.toBe(true);
+      expect(playCallsMs.at(-1)! - second.startedAtMs).toBe(675);
+      cancelYouTubeAuthorityPreparation();
+    });
+
     it('keeps displayed position and paused seek messages on room time', async () => {
       const { initYouTube } = await import('../player.ts');
       const { setYouTubePlayer } = await import('../_state.ts');

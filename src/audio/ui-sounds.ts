@@ -14,6 +14,8 @@ const STORAGE_KEY = 'musixquare-ui-sounds-enabled';
 const SESSION_SOUND_COOLDOWN_MS = 300;
 const UI_TOUCH_COOLDOWN_MS = 35;
 const SELF_JOIN_DEDUP_MS = 5_000;
+const ANNOUNCEMENT_LOW_FREQUENCY_HZ = 523.25;
+const ANNOUNCEMENT_HIGH_FREQUENCY_HZ = 659.25;
 
 type OutputGraph = {
   context: AudioContext;
@@ -254,13 +256,13 @@ function playSessionSound(frequency: number): void {
 }
 
 function playParticipantJoinSound(): void {
-  // Sound Lab #42: Micro Echo · Warm.
-  playSessionSound(493.88);
+  // Echo the announcement motif's high note for an arriving participant.
+  playSessionSound(ANNOUNCEMENT_HIGH_FREQUENCY_HZ);
 }
 
 function playParticipantLeaveSound(): void {
-  // Sound Lab #41: Micro Echo · Low.
-  playSessionSound(370);
+  // Echo the announcement motif's low note for a departing participant.
+  playSessionSound(ANNOUNCEMENT_LOW_FREQUENCY_HZ);
 }
 
 export function playAnnouncementSound(): void {
@@ -269,7 +271,7 @@ export function playAnnouncementSound(): void {
     const time = output.context.currentTime + 0.008;
     // Sound Lab #10: Two Step.
     scheduleTone(output.context, output.input, time, {
-      from: 523.25,
+      from: ANNOUNCEMENT_LOW_FREQUENCY_HZ,
       duration: 0.16,
       gain: 0.055,
       attack: 0.004,
@@ -277,7 +279,7 @@ export function playAnnouncementSound(): void {
       pan: -0.04,
     });
     scheduleTone(output.context, output.input, time, {
-      from: 659.25,
+      from: ANNOUNCEMENT_HIGH_FREQUENCY_HZ,
       delay: 0.095,
       duration: 0.23,
       gain: 0.068,

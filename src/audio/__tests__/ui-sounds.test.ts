@@ -15,6 +15,7 @@ import {
   initUiSounds,
   isUiSoundsEnabled,
   playAnnouncementSound,
+  playChatSystemEventSound,
   playUiTouchSound,
   resetUiSoundsForTests,
   setUiSoundsEnabled,
@@ -80,6 +81,13 @@ async function flushSounds(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function scheduledFrequencies(context: FakeAudioContext): number[] {
+  return context.createOscillator.mock.results.map((result) => {
+    const oscillator = result.value as OscillatorNode;
+    return vi.mocked(oscillator.frequency.setValueAtTime).mock.calls[0]?.[0] ?? Number.NaN;
+  });
 }
 
 describe('UI sounds', () => {
@@ -151,5 +159,24 @@ describe('UI sounds', () => {
     playAnnouncementSound();
     await flushSounds();
     expect(context.createOscillator).toHaveBeenCalledTimes(2);
+    expect(scheduledFrequencies(context)).toEqual([523.25, 659.25]);
+  });
+
+  it('echoes the announcement high note when a participant enters', async () => {
+    setUiSoundsEnabled(true);
+
+    playChatSystemEventSound('chat.peer_connected', { name: 'Peer 2' });
+    await flushSounds();
+
+    expect(scheduledFrequencies(context)).toEqual([659.25, 659.25]);
+  });
+
+  it('echoes the announcement low note when a participant leaves', async () => {
+    setUiSoundsEnabled(true);
+
+    playChatSystemEventSound('chat.peer_disconnected', { name: 'Peer 2' });
+    await flushSounds();
+
+    expect(scheduledFrequencies(context)).toEqual([523.25, 523.25]);
   });
 });

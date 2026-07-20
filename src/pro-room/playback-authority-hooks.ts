@@ -164,6 +164,19 @@ export function isProPlaybackAuthorityToken(value: unknown): value is ProPlaybac
   );
 }
 
+/** Stable participant-local key for one exact server authority frame. */
+export function getProPlaybackAuthorityKey(authority: ProPlaybackAuthorityToken): string {
+  if (!isProPlaybackAuthorityToken(authority)) {
+    throw new TypeError('A server authority token is required');
+  }
+  return JSON.stringify([
+    authority.roomId,
+    authority.roomEpoch,
+    authority.basePlaybackRevision,
+    authority.transitionId,
+  ]);
+}
+
 export interface ProPlaybackPrepareRequest {
   authority: ProPlaybackAuthorityToken;
   queueItemId: QueueItemId;
@@ -439,8 +452,14 @@ export async function commitProPlaybackAuthority(
 
 /** Reset revision and preparation ownership on PRO leave/rejoin. */
 export function resetProPlaybackAuthorityHooks(): void {
+  const pending = activePreparation;
   prepareGeneration += 1;
   activePreparation = null;
+  // Room teardown must release participant-local media work as well as the
+  // authority bookkeeping. In particular, YouTube PREPARE owns hard-mute,
+  // warm-up, seek, and scheduled-release timers that could otherwise outlive
+  // the PRO room and mutate the iframe after the user has left.
+  if (pending) mediaEndpoint?.cancel?.(pending.authority);
   highestSeen = null;
   latestApplied = null;
   highestCommittedPlaybackRevision = 0;

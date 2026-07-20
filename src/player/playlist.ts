@@ -65,6 +65,7 @@ import {
   prepareYouTubeAuthorityOccurrence,
   prepareSameVideoOccurrenceRestart,
 } from '../youtube/iframe.ts';
+import { isYtLoadInProgress, isYtPlayerReady } from '../youtube/_state.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
@@ -101,6 +102,7 @@ import {
 } from '../pro-room/legacy-media-hooks.ts';
 import { freezeFileDeliveryMode } from '../share/file-delivery-policy.ts';
 import {
+  getProPlaybackAuthorityKey,
   isProPlaybackAuthorityToken,
   registerProPlaybackMediaEndpoint,
   routeProPlaybackCommand,
@@ -141,6 +143,8 @@ interface PlayTrackOptions {
     positionSeconds: number;
     youtubeSubIndex: number | null;
     youtubeVideoId: string | null;
+    /** The exact video is already resident in the persistent iframe. */
+    reuseResidentYouTube?: boolean;
   };
 }
 
@@ -1022,6 +1026,15 @@ export async function playTrack(
           null;
         if (!preparedVideoId) return;
         if (getState('player.isFirstTrackLoad')) setState('player.isFirstTrackLoad', false);
+        if (options.proAuthorityPreparation.reuseResidentYouTube) {
+          // A server-authoritative resume/seek (and a repeated queue
+          // occurrence of the same resolved video) only needs a new logical
+          // occurrence fence. Keep the physical iframe and its buffered media
+          // resident; the authority preparation step below owns mute, seek,
+          // stabilization, and the scheduled release.
+          schedulePreload();
+          return;
+        }
         // Server PREPARE carries the exact resolved sub-video. Force
         // single-video mode so a persistent iframe cannot auto-advance its
         // native playlist behind the server's canonical queue occurrence.
@@ -2320,6 +2333,22 @@ async function prepareAuthoritativePlayback(
         null
       : null;
 
+  let reuseResidentYouTube = false;
+  if (
+    item.type === 'youtube' &&
+    resolvedVideoId &&
+    isYouTubeOwner() &&
+    isYtPlayerReady() &&
+    !isYtLoadInProgress()
+  ) {
+    try {
+      reuseResidentYouTube =
+        (getYouTubePlayer()?.getVideoData?.()?.video_id || '') === resolvedVideoId;
+    } catch {
+      reuseResidentYouTube = false;
+    }
+  }
+
   try {
     await playTrack(request.queueItemId, item.type === 'youtube' ? subIndex : undefined, {
       navigateToPlay: false,
@@ -2330,6 +2359,7 @@ async function prepareAuthoritativePlayback(
         positionSeconds,
         youtubeSubIndex: item.type === 'youtube' ? subIndex : null,
         youtubeVideoId: resolvedVideoId,
+        reuseResidentYouTube,
       },
       ...(item.type === 'file'
         ? {
@@ -2345,6 +2375,7 @@ async function prepareAuthoritativePlayback(
     if (item.type === 'youtube') {
       if (!resolvedVideoId) return failedAuthorityPrepare(request, 'identity-mismatch');
       const prepared = await prepareYouTubeAuthorityOccurrence({
+        authorityKey: getProPlaybackAuthorityKey(request.authority),
         queueItemId: request.queueItemId,
         videoId: resolvedVideoId,
         subIndex,

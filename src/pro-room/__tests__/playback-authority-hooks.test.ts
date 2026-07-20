@@ -361,6 +361,29 @@ describe('coordinator-free PRO playback authority seam', () => {
     ).resolves.toMatchObject({ status: 'superseded', reason: 'stale-authority' });
   });
 
+  it('cancels participant media preparation when room authority is reset', async () => {
+    const token = authority(18);
+    const cancel = vi.fn();
+    registerProPlaybackMediaEndpoint({
+      prepare: vi.fn().mockResolvedValue(ready(token)),
+      commit: vi.fn(),
+      cancel,
+    });
+
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: token,
+        queueItemId: Q1,
+        positionSeconds: 0,
+      }),
+    ).resolves.toMatchObject({ status: 'ready' });
+
+    resetProPlaybackAuthorityHooks();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledWith(token);
+  });
+
   it('allows a replacement transition at the same base revision after cancellation', async () => {
     const first = authority(20, 'transition-first');
     const replacement = authority(20, 'transition-replacement');

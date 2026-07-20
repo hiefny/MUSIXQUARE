@@ -7,6 +7,8 @@ import {
   type YouTubeZeroStartPlayer,
   type YouTubeZeroStartWireMessage,
 } from '../zero-start.ts';
+
+type YouTubeZeroStartMediaAction = 'replace-media' | 'resident-reposition';
 import { makeFakeYtPlayer, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 
 const HOST_ID = '11111111-1111-4111-8111-111111111111';
@@ -69,6 +71,10 @@ function makeHarness(options?: {
   hostVolume?: number;
   guestVolume?: number;
   guestMuted?: boolean;
+  hostVideoId?: string;
+  guestVideoId?: string;
+  hostMediaAction?: YouTubeZeroStartMediaAction;
+  guestMediaAction?: YouTubeZeroStartMediaAction;
   failHostCommitSend?: boolean;
   onHostFallbackRequired?: YouTubeZeroStartDependencies['onHostFallbackRequired'];
 }): Harness {
@@ -79,11 +85,13 @@ function makeHarness(options?: {
 
   const hostPlayer = makeFakeYtPlayer({
     __autoPlayOnLoad: true,
+    __videoId: options?.hostVideoId,
     __volume: options?.hostVolume ?? 37,
     __muted: false,
   });
   const guestPlayer = makeFakeYtPlayer({
     __autoPlayOnLoad: true,
+    __videoId: options?.guestVideoId,
     __volume: options?.guestVolume ?? 0,
     __muted: options?.guestMuted ?? true,
   });
@@ -116,6 +124,7 @@ function makeHarness(options?: {
       return true;
     },
     sendToHost: () => false,
+    onPrepareSelection: () => options?.hostMediaAction,
     onHostFallbackRequired: options?.onHostFallbackRequired,
   } as YouTubeZeroStartDependencies);
 
@@ -134,6 +143,7 @@ function makeHarness(options?: {
       dispatchToHost(host, message);
       return true;
     },
+    onPrepareSelection: () => options?.guestMediaAction,
     resolveLocalTargetSec: (canonical) => canonical + guestOffset,
     toCanonicalPositionSec: (local) => local - guestOffset,
   } as YouTubeZeroStartDependencies);
@@ -430,6 +440,128 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.guest.isProtocolActive()).toBe(false);
     expect(harness.host.getSnapshot().phase).toBe('idle');
     expect(harness.guest.getSnapshot().phase).toBe('idle');
+  });
+
+  it('repositions resident host and guest media without loading or cueing the iframe again', () => {
+    const harness = makeHarness({
+      hostVideoId: VIDEO_ID,
+      guestVideoId: VIDEO_ID,
+      hostMediaAction: 'resident-reposition',
+      guestMediaAction: 'resident-reposition',
+    });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620);
+
+    for (const [controller, player] of [
+      [harness.host, harness.hostPlayer],
+      [harness.guest, harness.guestPlayer],
+    ] as const) {
+      expect(controller.getSnapshot()).toMatchObject({
+        phase: 'scheduled',
+        mediaAction: 'resident-reposition',
+      });
+      expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+      expect(player.__log.filter((call) => call.op === 'cueVideoById')).toHaveLength(0);
+      expect(player.__log.some((call) => call.op === 'playVideo')).toBe(true);
+      expect(player.__log.some((call) => call.op === 'pauseVideo')).toBe(true);
+      expect(player.__log.some((call) => call.op === 'seekTo')).toBe(true);
+    }
+
+    vi.advanceTimersByTime(700);
+    expect(harness.host.getSnapshot().phase).toBe('playing');
+    expect(harness.guest.getSnapshot().phase).toBe('playing');
+  });
+
+  it('degrades a stale resident decision to exactly one media replacement on that participant', () => {
+    const harness = makeHarness({
+      hostVideoId: VIDEO_ID,
+      guestVideoId: 'DIFFERENT_VIDEO',
+      hostMediaAction: 'resident-reposition',
+      guestMediaAction: 'resident-reposition',
+    });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620);
+
+    expect(harness.hostPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+    expect(harness.guestPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
+    expect(harness.guestPlayer.__log.filter((call) => call.op === 'cueVideoById')).toHaveLength(0);
+    expect(harness.guest.getSnapshot()).toMatchObject({
+      phase: 'scheduled',
+      mediaAction: 'replace-media',
+    });
+  });
+
+  it('keeps the default fresh-media path at exactly one load per participant', () => {
+    const harness = makeHarness();
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620);
+
+    for (const player of [harness.hostPlayer, harness.guestPlayer]) {
+      expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
+      expect(player.__log.filter((call) => call.op === 'cueVideoById')).toHaveLength(0);
+    }
+    expect(harness.host.getSnapshot().mediaAction).toBe('replace-media');
+    expect(harness.guest.getSnapshot().mediaAction).toBe('replace-media');
+  });
+
+  it('hands resident ownership to fallback without claiming that a media load was issued', () => {
+    const fallback = vi.fn();
+    const harness = makeHarness({
+      hostVideoId: VIDEO_ID,
+      guestVideoId: VIDEO_ID,
+      hostMediaAction: 'resident-reposition',
+      guestMediaAction: 'resident-reposition',
+      onHostFallbackRequired: fallback,
+    });
+    harness.hostPlayer.playVideo = () => {
+      // Model a resident iframe that accepts the warm command but never emits
+      // PLAYING; the application fallback must be told to adopt, not reload.
+      harness.hostPlayer.__log.push({ op: 'playVideo', at: Date.now() });
+    };
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(10_001);
+
+    expect(fallback).toHaveBeenCalledOnce();
+    expect(fallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mediaAction: 'resident-reposition',
+        targetLoadIssued: false,
+        handedOffPlayer: harness.hostPlayer,
+      }),
+    );
+    expect(harness.hostPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
   });
 
   it('retries active audio restoration until the iframe reports the desired state', () => {

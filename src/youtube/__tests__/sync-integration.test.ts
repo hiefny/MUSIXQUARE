@@ -736,6 +736,71 @@ describe('YouTube Sync — Regression Integration', () => {
       ]);
     });
 
+    it('settles a nonzero paused resident host iframe without reloading during fallback', async () => {
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 180,
+        __videoId: ZERO_START_VIDEO_ID,
+      });
+      player.playVideo = () => {
+        // The resident warm command is accepted but never reaches PLAYING.
+        // Host fallback must still own and reposition this exact iframe.
+        player.__log.push({ op: 'playVideo', at: Date.now() });
+      };
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      vi.mocked(broadcast).mockClear();
+      emitZeroStartAutoPlay();
+      vi.advanceTimersByTime(10_200);
+
+      expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+      expect(player.__log).toContainEqual(
+        expect.objectContaining({ op: 'seekTo', args: [0, true] }),
+      );
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_STATE,
+          state: 1,
+          time: 0,
+          videoId: ZERO_START_VIDEO_ID,
+        }),
+      );
+    });
+
+    it('reloads once when a same-video host fallback receives a rebuilt iframe', async () => {
+      const handedOffPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 180,
+        __videoId: ZERO_START_VIDEO_ID,
+      });
+      handedOffPlayer.playVideo = () => {
+        handedOffPlayer.__log.push({ op: 'playVideo', at: Date.now() });
+      };
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube } = await importPlayer();
+
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      vi.advanceTimersByTime(1);
+
+      const rebuiltPlayer = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
+      });
+      vi.advanceTimersByTime(10_200);
+
+      expect(handedOffPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+      expect(rebuiltPlayer.__log.filter((call) => call.op === 'loadVideoById')).toEqual([
+        expect.objectContaining({ args: [ZERO_START_VIDEO_ID, 0] }),
+      ]);
+    });
+
     it('retries host audio restoration boundedly after a recovery timeout', async () => {
       const handedOffPlayer = installPlayer({
         __state: 2,
@@ -1340,6 +1405,67 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(player.isMuted()).toBe(false);
       expect(player.getVolume()).toBe(73);
       expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+    });
+
+    it('settles and releases a nonzero paused resident guest iframe without reloading', async () => {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', mockHostConn as never);
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 180,
+        __videoId: ZERO_START_VIDEO_ID,
+        __muted: false,
+        __volume: 73,
+      });
+      player.playVideo = () => {
+        // Record both the stalled warm attempt and the later fallback release
+        // without manufacturing a PLAYING acknowledgement.
+        player.__log.push({ op: 'playVideo', at: Date.now() });
+      };
+      const { initYouTube } = await importPlayer();
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      const commitHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_COMMIT];
+      const prepareAtHost = Date.now();
+
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'guest-resident-nonzero-fallback',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          subIndex: 0,
+          prepareAtHost,
+          decisionAtHost: prepareAtHost + 2_300,
+          startDeadlineAtHost: prepareAtHost + 3_000,
+          hostPlatform: 'other',
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(1);
+      commitHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_COMMIT,
+          version: 1,
+          runId: 'guest-resident-nonzero-fallback',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          startAtHost: prepareAtHost + 500,
+          reason: 'guest-timeout',
+          cohort: ['host-only'],
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(600);
+
+      expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+      expect(player.__log).toContainEqual(
+        expect.objectContaining({ op: 'seekTo', args: [0, true] }),
+      );
+      expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(2);
     });
 
     it('does not release a recovered fallback player before the future COMMIT deadline', async () => {

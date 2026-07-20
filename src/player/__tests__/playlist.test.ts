@@ -15,7 +15,7 @@ import {
   stopYouTubeMode,
 } from '../../youtube/player.ts';
 import * as youtubeIframe from '../../youtube/iframe.ts';
-import { setYouTubePlayer } from '../../youtube/_state.ts';
+import { markYtPlayerReady, setYouTubePlayer } from '../../youtube/_state.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../ownership.ts';
 import {
   applyPlaylistQueueModeState,
@@ -242,6 +242,95 @@ describe('coordinator-free PRO playback routing', () => {
     );
     expect(getState('playlist.currentQueueItemId')).toBeNull();
     expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+  });
+
+  it('reuses the exact resident YouTube video during server preparation', async () => {
+    const item = youtubeItem('Resident video', 'RESIDENT_VIDEO_01');
+    setState('playlist.items', [item]);
+    selectIndex(0);
+    setPlaybackYouTubePlaying();
+    enterProRoom(['playback.control']);
+    const player = {
+      getVideoData: () => ({ video_id: 'RESIDENT_VIDEO_01' }),
+    };
+    setYouTubePlayer(player as never);
+    markYtPlayerReady(player as never);
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    vi.spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence').mockResolvedValue({
+      ready: true,
+      durationSeconds: 120,
+      videoId: 'RESIDENT_VIDEO_01',
+      subIndex: 0,
+    });
+    initPlaylist();
+    const authority = createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: 4,
+      transitionId: 'resident-resume',
+    });
+
+    await expect(
+      prepareProPlaybackAuthority({
+        authority,
+        queueItemId: item.queueItemId,
+        positionSeconds: 42,
+        youtubeSubIndex: 0,
+        youtubeVideoId: 'RESIDENT_VIDEO_01',
+      }),
+    ).resolves.toMatchObject({ status: 'ready', mediaKind: 'youtube' });
+
+    expect(load).not.toHaveBeenCalled();
+    expect(youtubeIframe.prepareYouTubeAuthorityOccurrence).toHaveBeenCalledWith({
+      authorityKey: expect.any(String),
+      queueItemId: item.queueItemId,
+      videoId: 'RESIDENT_VIDEO_01',
+      subIndex: 0,
+      positionSeconds: 42,
+    });
+  });
+
+  it('loads a different YouTube identity exactly once during server preparation', async () => {
+    const previous = youtubeItem('Previous video', 'PREVIOUS_VIDEO_01');
+    const next = youtubeItem('Next video', 'NEXT_VIDEO_01');
+    setState('playlist.items', [previous, next]);
+    selectIndex(0);
+    setPlaybackYouTubePlaying();
+    enterProRoom(['playback.control']);
+    const player = {
+      getVideoData: () => ({ video_id: 'PREVIOUS_VIDEO_01' }),
+    };
+    setYouTubePlayer(player as never);
+    markYtPlayerReady(player as never);
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    vi.spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence').mockResolvedValue({
+      ready: true,
+      durationSeconds: 120,
+      videoId: 'NEXT_VIDEO_01',
+      subIndex: 0,
+    });
+    initPlaylist();
+    const authority = createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: 5,
+      transitionId: 'different-video',
+    });
+
+    await expect(
+      prepareProPlaybackAuthority({
+        authority,
+        queueItemId: next.queueItemId,
+        positionSeconds: 0,
+        youtubeSubIndex: 0,
+        youtubeVideoId: 'NEXT_VIDEO_01',
+      }),
+    ).resolves.toMatchObject({ status: 'ready', mediaKind: 'youtube' });
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledWith('NEXT_VIDEO_01', null, next.queueItemId, false, 0);
   });
 });
 

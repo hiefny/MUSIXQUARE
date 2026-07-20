@@ -91,6 +91,8 @@ export interface YouTubeZeroStartTargetContext {
   subIndex: number | null;
 }
 
+type YouTubeZeroStartMediaAction = 'replace-media' | 'resident-reposition';
+
 interface YouTubeZeroStartBeginInput {
   queueItemId: string;
   videoId: string;
@@ -117,6 +119,7 @@ interface YouTubeZeroStartSnapshot {
   sequence: number | null;
   queueItemId: string | null;
   videoId: string | null;
+  mediaAction: YouTubeZeroStartMediaAction | null;
   phase: YouTubeZeroStartPhase;
   inFlight: boolean;
   expectedGuestIds: string[];
@@ -144,6 +147,7 @@ interface YouTubeZeroStartFallbackEvent {
   runId: string;
   queueItemId: string;
   videoId: string;
+  mediaAction: YouTubeZeroStartMediaAction;
   reason: 'cohort-excluded' | 'clock-uncalibrated' | 'prepare-failed' | 'release-timeout';
   startAtHost: number | null;
   targetPositionSec: number | null;
@@ -160,6 +164,7 @@ interface YouTubeZeroStartHostFallbackEvent {
   runId: string;
   queueItemId: string;
   videoId: string;
+  mediaAction: YouTubeZeroStartMediaAction;
   subIndex: number | null;
   reason: string;
   /** User-intended audio state captured before zero-start applied its hard mute. */
@@ -213,7 +218,15 @@ interface YouTubeZeroStartDependencies {
     hostPlatform: YouTubeZeroStartPlatform,
   ): number | null;
   onLearnedTimelineLeadMs?(update: YouTubeZeroStartLeadUpdate): void;
-  onPrepareSelection?(input: YouTubeZeroStartBeginInput): void;
+  /**
+   * Project the exact queue occurrence before preparation and optionally choose
+   * how this device should arm its iframe. Omitting a result preserves the
+   * historical replace-media behavior.
+   *
+   * Each participant decides locally: a cold or mismatched iframe may replace
+   * media while another participant repositions an already-resident target.
+   */
+  onPrepareSelection?(input: YouTubeZeroStartBeginInput): YouTubeZeroStartMediaAction | void;
   onPhaseChange?(snapshot: YouTubeZeroStartSnapshot): void;
   onBusyChange?(busy: boolean): void;
   onPlaybackStarted?(event: YouTubeZeroStartPlaybackStartedEvent): void;
@@ -231,6 +244,7 @@ type LocalRun = {
   sequence: number;
   queueItemId: string;
   videoId: string;
+  mediaAction: YouTubeZeroStartMediaAction;
   subIndex: number | null;
   prepareAtHost: number;
   decisionAtHost: number;
@@ -261,6 +275,8 @@ type LocalRun = {
   audioStateCaptured: boolean;
   targetLoadIssued: boolean;
   targetLoadPlayer: YouTubeZeroStartPlayer | null;
+  targetWarmIssued: boolean;
+  warmSettlementScheduled: boolean;
   originalMuted: boolean;
   originalVolume: number;
   calibrationEligible: boolean;
@@ -502,8 +518,8 @@ class YouTubeZeroStartController {
       sentPeerIds.push(peerId);
     }
 
-    this.#deps.onPrepareSelection?.(input);
-    if (!this.#beginLocalPrepare(prepare)) {
+    const mediaAction = this.#deps.onPrepareSelection?.(input) ?? 'replace-media';
+    if (!this.#beginLocalPrepare(prepare, undefined, mediaAction)) {
       this.cancel('player-unavailable', true);
       return false;
     }
@@ -532,13 +548,14 @@ class YouTubeZeroStartController {
     this.#cancelLocalOnly(true, true);
     this.#cancelDetachedAudioRestore();
     this.#lastGuestSequence = message.sequence;
-    this.#deps.onPrepareSelection?.({
+    const selection = {
       queueItemId: message.queueItemId,
       videoId: message.videoId,
       subIndex: message.subIndex,
-    });
+    };
+    const mediaAction = this.#deps.onPrepareSelection?.(selection) ?? 'replace-media';
     if (!this.#isPrepareRuntimeReady()) {
-      const run = this.#createFailedRun(message);
+      const run = this.#createFailedRun(message, mediaAction);
       run.phase = 'waiting-ready';
       this.#localRun = run;
       this.#emitState();
@@ -551,7 +568,7 @@ class YouTubeZeroStartController {
       this.#later(() => this.#waitForRuntimeReady(run, message), 0);
       return true;
     }
-    return this.#beginLocalPrepare(message);
+    return this.#beginLocalPrepare(message, undefined, mediaAction);
   }
 
   handleArmed(senderPeerId: string, message: YouTubeZeroStartArmedMessage): boolean {
@@ -673,29 +690,12 @@ class YouTubeZeroStartController {
 
     if (run.phase === 'warming' && state === YOUTUBE_ZERO_START_PLAYER_STATE.playing) {
       // A same-video PLAYING can arrive late from the previous occurrence.
-      // Never accept it before this exact run has at least issued its own
-      // target load command.
-      if (!run.targetLoadIssued) return true;
+      // Never accept it before this exact run has issued its own warm command.
+      // Resident reposition intentionally has no target load command.
+      if (!run.targetWarmIssued) return true;
+      if (run.targetLoadPlayer !== player) return true;
       if (this.#currentVideoId(player) !== run.videoId) return true;
-      run.warmPlayingMs = this.#now() - run.warmCallAt;
-      this.#later(() => {
-        if (!this.#isCurrentRun(run) || run.phase !== 'warming') return;
-        try {
-          player.pauseVideo();
-          run.phase = 'settling';
-          this.#emitState();
-          this.#later(() => {
-            if (!this.#isCurrentRun(run) || run.phase !== 'settling') return;
-            player.seekTo(this.#resolveLocalTarget(0, run), true);
-            this.#later(
-              () => this.#pollSettledAtTarget(run),
-              YOUTUBE_ZERO_START_TIMING.settlePollMs,
-            );
-          }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
-        } catch (error) {
-          this.#failLocalPrepare(run, 'warm-pause-failed', error);
-        }
-      }, YOUTUBE_ZERO_START_TIMING.warmupPlayMs);
+      this.#scheduleWarmSettlement(run, player);
       return true;
     }
 
@@ -847,6 +847,7 @@ class YouTubeZeroStartController {
       sequence: run?.sequence ?? barrier?.sequence ?? null,
       queueItemId: run?.queueItemId ?? barrier?.queueItemId ?? null,
       videoId: run?.videoId ?? barrier?.videoId ?? null,
+      mediaAction: run?.mediaAction ?? null,
       phase: run?.phase ?? 'idle',
       inFlight: this.isInFlight(),
       expectedGuestIds: barrier ? [...barrier.expectedGuestIds] : [],
@@ -862,6 +863,7 @@ class YouTubeZeroStartController {
   #beginLocalPrepare(
     message: YouTubeZeroStartPrepareMessage,
     startedPrepareAtLocal = this.#now(),
+    mediaAction: YouTubeZeroStartMediaAction = 'replace-media',
   ): boolean {
     this.#cancelDetachedAudioRestore();
     const player = this.#deps.getPlayer();
@@ -889,6 +891,7 @@ class YouTubeZeroStartController {
       sequence: message.sequence,
       queueItemId: message.queueItemId,
       videoId: message.videoId,
+      mediaAction,
       subIndex: message.subIndex,
       prepareAtHost: message.prepareAtHost,
       decisionAtHost: message.decisionAtHost,
@@ -918,6 +921,8 @@ class YouTubeZeroStartController {
       audioStateCaptured: true,
       targetLoadIssued: false,
       targetLoadPlayer: null,
+      targetWarmIssued: false,
+      warmSettlementScheduled: false,
       originalMuted,
       originalVolume,
       calibrationEligible:
@@ -936,7 +941,10 @@ class YouTubeZeroStartController {
     return true;
   }
 
-  #createFailedRun(message: YouTubeZeroStartPrepareMessage): LocalRun {
+  #createFailedRun(
+    message: YouTubeZeroStartPrepareMessage,
+    mediaAction: YouTubeZeroStartMediaAction = 'replace-media',
+  ): LocalRun {
     const localPlatform = this.#deps.getLocalPlatform();
     const lead = this.#relativeLead(localPlatform, message.hostPlatform);
     const player = this.#deps.getPlayer();
@@ -957,6 +965,7 @@ class YouTubeZeroStartController {
       sequence: message.sequence,
       queueItemId: message.queueItemId,
       videoId: message.videoId,
+      mediaAction,
       subIndex: message.subIndex,
       prepareAtHost: message.prepareAtHost,
       decisionAtHost: message.decisionAtHost,
@@ -986,6 +995,8 @@ class YouTubeZeroStartController {
       audioStateCaptured,
       targetLoadIssued: false,
       targetLoadPlayer: null,
+      targetWarmIssued: false,
+      warmSettlementScheduled: false,
       originalMuted,
       originalVolume,
       calibrationEligible: false,
@@ -996,7 +1007,7 @@ class YouTubeZeroStartController {
     if (!this.#isCurrentRun(run) || run.phase !== 'waiting-ready') return;
     if (this.#isPrepareRuntimeReady()) {
       const startedPrepareAtLocal = run.startedPrepareAtLocal;
-      if (!this.#beginLocalPrepare(message, startedPrepareAtLocal)) {
+      if (!this.#beginLocalPrepare(message, startedPrepareAtLocal, run.mediaAction)) {
         this.#failLocalPrepare(run, 'player-unavailable');
       }
       return;
@@ -1029,32 +1040,52 @@ class YouTubeZeroStartController {
         run.phase = 'warming';
         run.warmCallAt = this.#now();
         this.#emitState();
-        run.targetLoadIssued = true;
+        // `resident-reposition` deliberately keeps the decoder/buffer attached
+        // to the current iframe. If the caller's optimistic resident decision
+        // is stale on this participant, degrade locally to the established
+        // replace path instead of arming the wrong video.
+        if (
+          run.mediaAction === 'resident-reposition' &&
+          this.#currentVideoId(player) !== run.videoId
+        ) {
+          run.mediaAction = 'replace-media';
+          this.#debug('resident-media-mismatch', {
+            runId: run.runId,
+            expectedVideoId: run.videoId,
+            currentVideoId: this.#currentVideoId(player),
+          });
+        }
+
+        run.targetWarmIssued = true;
         run.targetLoadPlayer = player;
         try {
-          player.loadVideoById(run.videoId, this.#resolveLocalTarget(0, run));
+          if (run.mediaAction === 'resident-reposition') {
+            // Warm the already-resident decoder under hard mute without
+            // cueVideoById/loadVideoById. The normal warm PLAYING boundary is
+            // retained, so release timing and platform lead calibration remain
+            // identical to a fresh media replacement.
+            player.playVideo();
+          } else {
+            run.targetLoadIssued = true;
+            player.loadVideoById(run.videoId, this.#resolveLocalTarget(0, run));
+          }
         } catch (error) {
           run.targetLoadIssued = false;
           run.targetLoadPlayer = null;
+          run.targetWarmIssued = false;
           throw error;
         }
-        // The call returning proves that this controller handed the target to
-        // the iframe. A slower fallback owner can adopt that in-flight load
-        // instead of issuing a second loadVideoById against the same player.
-        // loadVideoById can accept the command without ever producing a
-        // PLAYING transition (offline iframe, blocked media, stalled embed).
-        // The settle loop has its own deadline, but it does not begin until
-        // that first PLAYING event, so warming needs an explicit watchdog too.
-        this.#later(
-          () => {
-            if (!this.#isCurrentRun(run) || run.phase !== 'warming') return;
-            this.#failLocalPrepare(run, 'prepare-timeout', {
-              phase: 'warming',
-              videoId: run.videoId,
-            });
-          },
-          run.startedPrepareAtLocal + YOUTUBE_ZERO_START_TIMING.prepareTimeoutMs - this.#now(),
-        );
+
+        // An already-playing resident may not emit a second PLAYING event for
+        // idempotent playVideo(). Observe it synchronously, but use the same
+        // bounded warm duration and settle sequence as the event-driven path.
+        if (
+          this.#currentVideoId(player) === run.videoId &&
+          player.getPlayerState() === YOUTUBE_ZERO_START_PLAYER_STATE.playing
+        ) {
+          this.#scheduleWarmSettlement(run, player);
+        }
+        this.#armWarmWatchdog(run);
       } catch (error) {
         this.#failLocalPrepare(run, 'youtube-load-failed', error);
       }
@@ -1076,11 +1107,74 @@ class YouTubeZeroStartController {
     );
   }
 
+  #armWarmWatchdog(run: LocalRun): void {
+    // A media command can return without ever producing PLAYING (offline
+    // iframe, blocked media, stalled embed). The settle loop starts only after
+    // the warm boundary, so this phase retains its own bounded watchdog.
+    this.#later(
+      () => {
+        if (!this.#isCurrentRun(run) || run.phase !== 'warming') return;
+        this.#failLocalPrepare(run, 'prepare-timeout', {
+          phase: 'warming',
+          videoId: run.videoId,
+          mediaAction: run.mediaAction,
+        });
+      },
+      run.startedPrepareAtLocal + YOUTUBE_ZERO_START_TIMING.prepareTimeoutMs - this.#now(),
+    );
+  }
+
+  #scheduleWarmSettlement(run: LocalRun, player: YouTubeZeroStartPlayer): void {
+    if (
+      !this.#isCurrentRun(run) ||
+      run.phase !== 'warming' ||
+      run.warmSettlementScheduled ||
+      !run.targetWarmIssued ||
+      run.targetLoadPlayer !== player ||
+      this.#deps.getPlayer() !== player ||
+      this.#currentVideoId(player) !== run.videoId
+    ) {
+      return;
+    }
+    run.warmSettlementScheduled = true;
+    run.warmPlayingMs = this.#now() - run.warmCallAt;
+    this.#later(() => {
+      if (!this.#isCurrentRun(run) || run.phase !== 'warming') return;
+      if (this.#deps.getPlayer() !== player) {
+        run.ownsPlayerState = false;
+        this.#failLocalPrepare(run, 'player-replaced');
+        return;
+      }
+      try {
+        player.pauseVideo();
+        run.phase = 'settling';
+        this.#emitState();
+        this.#later(() => {
+          if (!this.#isCurrentRun(run) || run.phase !== 'settling') return;
+          if (this.#deps.getPlayer() !== player) {
+            run.ownsPlayerState = false;
+            this.#failLocalPrepare(run, 'player-replaced');
+            return;
+          }
+          player.seekTo(this.#resolveLocalTarget(0, run), true);
+          this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ZERO_START_TIMING.settlePollMs);
+        }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
+      } catch (error) {
+        this.#failLocalPrepare(run, 'warm-pause-failed', error);
+      }
+    }, YOUTUBE_ZERO_START_TIMING.warmupPlayMs);
+  }
+
   #pollSettledAtTarget(run: LocalRun): void {
     if (!this.#isCurrentRun(run) || run.phase !== 'settling') return;
     const player = this.#deps.getPlayer();
     if (!player) {
       this.#failLocalPrepare(run, 'player-unavailable');
+      return;
+    }
+    if (player !== run.targetLoadPlayer) {
+      run.ownsPlayerState = false;
+      this.#failLocalPrepare(run, 'player-replaced');
       return;
     }
 
@@ -1106,7 +1200,13 @@ class YouTubeZeroStartController {
         if (run.settleAttempts % 6 === 0) {
           player.pauseVideo();
           this.#later(() => {
-            if (this.#isCurrentRun(run)) player.seekTo(this.#resolveLocalTarget(0, run), true);
+            if (!this.#isCurrentRun(run)) return;
+            if (this.#deps.getPlayer() !== player) {
+              run.ownsPlayerState = false;
+              this.#failLocalPrepare(run, 'player-replaced');
+              return;
+            }
+            player.seekTo(this.#resolveLocalTarget(0, run), true);
           }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
         }
       }
@@ -1443,6 +1543,7 @@ class YouTubeZeroStartController {
       runId: run.runId,
       queueItemId: run.queueItemId,
       videoId: run.videoId,
+      mediaAction: run.mediaAction,
       reason,
       startAtHost: commit.startAtHost,
       targetPositionSec,
@@ -1598,6 +1699,7 @@ class YouTubeZeroStartController {
         runId: run.runId,
         queueItemId: run.queueItemId,
         videoId: run.videoId,
+        mediaAction: run.mediaAction,
         subIndex: run.subIndex,
         reason,
         desiredMuted: run.audioStateCaptured ? run.originalMuted : null,

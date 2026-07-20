@@ -14,7 +14,7 @@ import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
-import { IS_IOS } from '../core/platform.ts';
+import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
@@ -32,6 +32,7 @@ import {
   getYouTubePlayer,
   setYouTubePlayer,
   markYtPlayerReady,
+  isYtPlayerReady,
   getCurrentSessionId,
   incrementSessionId,
   isYtScriptLoading,
@@ -67,7 +68,16 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
-import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, toCanonicalYouTubeTime } from './local-offset.ts';
+import {
+  PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
+  resolveProCoordinatorYouTubeTarget,
+  toCanonicalYouTubeTime,
+} from './local-offset.ts';
+import {
+  YouTubeAuthorityArmController,
+  type YouTubeAuthorityArmCommitResult,
+  type YouTubeAuthorityArmPlayer,
+} from './authority-arm.ts';
 import {
   consumePendingAutoSyncOnReady,
   isYouTubeZeroStartExternalFallbackActive,
@@ -985,6 +995,7 @@ export function loadYouTubeVideo(
 }
 
 export interface YouTubeAuthorityPreparationRequest {
+  authorityKey: string;
   queueItemId: QueueItemId;
   videoId: string;
   subIndex: number;
@@ -1006,9 +1017,69 @@ export type YouTubeAuthorityPreparationResult =
 
 let proAuthorityPreparationGeneration = 0;
 
+function getYouTubeAuthorityArmPlayer(): YouTubeAuthorityArmPlayer | null {
+  const player = getYouTubePlayer();
+  if (
+    !isYtPlayerReady() ||
+    !player?.loadVideoById ||
+    !player.playVideo ||
+    !player.pauseVideo ||
+    !player.seekTo ||
+    !player.mute ||
+    !player.unMute ||
+    !player.isMuted ||
+    !player.setVolume ||
+    !player.getVolume ||
+    !player.getCurrentTime ||
+    !player.getPlayerState ||
+    !player.getVideoData
+  ) {
+    return null;
+  }
+  return player as YouTubeAuthorityArmPlayer;
+}
+
+const proAuthorityArm = new YouTubeAuthorityArmController({
+  getPlayer: getYouTubeAuthorityArmPlayer,
+  getPlatform: () => (IS_IOS ? 'ios' : IS_ANDROID ? 'android' : 'other'),
+  isIdentityCurrent: ({ queueItemId, subIndex }) =>
+    getState('room.context').kind === 'pro' &&
+    getCurrentQueueItemId() === queueItemId &&
+    isPlaybackModeYouTube() &&
+    (subIndex === null || (getState('youtube.currentSubIndex') ?? 0) === subIndex),
+});
+
 /** Invalidate only coordinator-free PRO iframe preparation work. */
 export function cancelYouTubeAuthorityPreparation(): void {
   proAuthorityPreparationGeneration += 1;
+  proAuthorityArm.cancelAll();
+}
+
+/** Consume iframe states owned by coordinator-free PRO warm-up/release. */
+function handleYouTubeAuthorityPlayerState(state: number): boolean {
+  return proAuthorityArm.handlePlayerStateChange(state);
+}
+
+interface YouTubeAuthorityCommitRequest {
+  authorityKey: string;
+  queueItemId: QueueItemId;
+  videoId: string;
+  subIndex: number | null;
+  targetSeconds: number;
+  executeDelayMs: number;
+}
+
+export function commitYouTubeAuthorityOccurrence(
+  request: Readonly<YouTubeAuthorityCommitRequest>,
+): Promise<YouTubeAuthorityArmCommitResult> {
+  return proAuthorityArm.commit({
+    authorityKey: request.authorityKey,
+    queueItemId: request.queueItemId,
+    videoId: request.videoId,
+    subIndex: request.subIndex,
+    targetSeconds: request.targetSeconds,
+    executeDelayMs: request.executeDelayMs,
+  });
 }
 
 /**
@@ -1020,8 +1091,9 @@ export function cancelYouTubeAuthorityPreparation(): void {
 export async function prepareYouTubeAuthorityOccurrence(
   request: Readonly<YouTubeAuthorityPreparationRequest>,
 ): Promise<YouTubeAuthorityPreparationResult> {
+  proAuthorityArm.cancel();
   const generation = ++proAuthorityPreparationGeneration;
-  const timeoutMs = Math.max(500, Math.min(20_000, request.timeoutMs ?? 12_000));
+  const timeoutMs = Math.max(500, Math.min(2_300, request.timeoutMs ?? 2_300));
   const startedAt = Date.now();
   let sawDifferentIdentity = false;
 
@@ -1053,15 +1125,39 @@ export async function prepareYouTubeAuthorityOccurrence(
                   : request.positionSeconds,
               )
             : 0;
-
-          // A reused iframe can briefly expose the outgoing occurrence under
-          // the same video ID. Pausing and seeking after its load flag closes
-          // gives the new queue occurrence an explicit timeline boundary.
+          const target = resolveProCoordinatorYouTubeTarget(
+            canonicalPosition,
+            getState('sync.youtubeLocalOffset') || 0,
+            duration,
+          );
+          setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
           setYtAutoplayIntent(false);
-          player.mute?.();
-          player.pauseVideo?.();
-          player.seekTo?.(canonicalPosition, true);
           setYouTubeSubIndex(request.subIndex);
+          const elapsedMs = Date.now() - startedAt;
+          const remainingMs = timeoutMs - elapsedMs;
+          if (remainingMs < 500) return { ready: false, reason: 'timeout' };
+          const armed = await proAuthorityArm.prepare({
+            authorityKey: request.authorityKey,
+            queueItemId: request.queueItemId,
+            videoId: request.videoId,
+            subIndex: request.subIndex,
+            targetSeconds: target.localTime,
+            strategy: 'resident',
+            timeoutMs: remainingMs,
+          });
+          if (generation !== proAuthorityPreparationGeneration) {
+            return { ready: false, reason: 'superseded' };
+          }
+          if (armed.status !== 'ready') {
+            if (armed.reason === 'superseded') return { ready: false, reason: 'superseded' };
+            if (armed.reason === 'player-unavailable') {
+              return { ready: false, reason: 'player-unavailable' };
+            }
+            if (armed.reason === 'identity-mismatch') {
+              return { ready: false, reason: 'identity-mismatch' };
+            }
+            return { ready: false, reason: 'timeout' };
+          }
           setPlaybackYouTubePaused();
           bus.emit('ui:update-play-state', false);
           return {
@@ -1801,6 +1897,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // On the real release PLAYING the controller first closes its in-flight
   // phase and returns false, so that one event continues through the normal
   // path below exactly once.
+  if (handleYouTubeAuthorityPlayerState(state)) return;
   if (handleYouTubeZeroStartPlayerState(state)) return;
   if (isYouTubeZeroStartExternalFallbackActive()) return;
 

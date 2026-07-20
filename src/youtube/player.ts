@@ -47,6 +47,7 @@ import {
   handleProRoomYouTube,
 } from '../pro-room/legacy-media-hooks.ts';
 import {
+  getProPlaybackAuthorityKey,
   routeProPlaybackCommand,
   type ProPlaybackCommitRequest,
 } from '../pro-room/playback-authority-hooks.ts';
@@ -305,6 +306,8 @@ import {
   markYtStateBroadcast,
   clearSnapshotRetries,
   showLiveStreamSyncWarning,
+  cancelYouTubeAuthorityPreparation,
+  commitYouTubeAuthorityOccurrence,
 } from './iframe.ts';
 import { showLoader } from '../ui/toast.ts';
 
@@ -627,6 +630,61 @@ export async function applyProPlaybackYouTubeCommit(
   const generation = ++proAuthorityYouTubeCommitGeneration;
   cancelYtAutoSync();
 
+  if (
+    request.state === 'playing' &&
+    request.authority.transitionId !== null &&
+    request.youtubeVideoId
+  ) {
+    if (
+      request.isCurrent?.() === false ||
+      getState('room.context').kind !== 'pro' ||
+      getCurrentQueueItemId() !== request.queueItemId ||
+      !isPlaybackModeYouTube()
+    ) {
+      return false;
+    }
+    const player = getYouTubePlayer();
+    if (!player) return false;
+    try {
+      if ((player.getVideoData?.()?.video_id || '') !== request.youtubeVideoId) return false;
+      const target = resolveProCoordinatorYouTubeTarget(
+        Number.isFinite(request.positionSeconds) ? Math.max(0, request.positionSeconds) : 0,
+        getState('sync.youtubeLocalOffset') || 0,
+        getYouTubeDuration(player),
+      );
+      setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
+      if (request.youtubeSubIndex !== undefined && request.youtubeSubIndex !== null) {
+        setYouTubeSubIndex(request.youtubeSubIndex);
+      }
+      setYtAutoplayIntent(true);
+      const committed = await commitYouTubeAuthorityOccurrence({
+        authorityKey: getProPlaybackAuthorityKey(request.authority),
+        queueItemId: request.queueItemId,
+        videoId: request.youtubeVideoId,
+        subIndex: request.youtubeSubIndex ?? null,
+        targetSeconds: target.localTime,
+        executeDelayMs: request.scheduleDelayMs,
+      });
+      if (
+        committed.status !== 'applied' ||
+        request.isCurrent?.() === false ||
+        generation !== proAuthorityYouTubeCommitGeneration
+      ) {
+        return false;
+      }
+      setPlaybackYouTubePlaying();
+      bus.emit('ui:update-play-state', true);
+      return true;
+    } catch (error) {
+      log.warn('[PRO Playback] Failed to release prepared YouTube occurrence', error);
+      return false;
+    }
+  }
+
+  // Direct pause/stop/paused-seek frames supersede any prior arm that may
+  // still own mute or a scheduled release.
+  cancelYouTubeAuthorityPreparation();
+
   const delayMs = Number.isFinite(request.scheduleDelayMs)
     ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
     : 0;
@@ -751,6 +809,7 @@ function scheduleLateJoinRendezvousSync(
 export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   const ownerQueueItemId =
     getState('player.currentTrackMeta')?.queueItemId ?? getCurrentQueueItemId();
+  cancelYouTubeAuthorityPreparation();
   getYtScope()?.dispose();
   setYtScope(null);
   setYtLoadInProgress(false);
@@ -987,6 +1046,7 @@ export function initYouTube(): void {
     queueItemId: QueueItemId;
     videoId: string;
     subIndex: number | null;
+    mediaAction?: 'replace-media' | 'resident-reposition';
     desiredMuted?: boolean | null;
     desiredVolume?: number | null;
     targetLoadIssued?: boolean;
@@ -1034,7 +1094,10 @@ export function initYouTube(): void {
     // hands host recovery here. Do not silently add another full prepare
     // window; this fallback is only a short bridge back to the legacy path.
     const deadline = Date.now() + 3_000;
-    const handedOffPlayer = target.targetLoadIssued ? (target.handedOffPlayer ?? null) : null;
+    const handedOffPlayer =
+      target.targetLoadIssued || target.mediaAction === 'resident-reposition'
+        ? (target.handedOffPlayer ?? null)
+        : null;
     const appVolume = Math.max(
       0,
       Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
@@ -1128,7 +1191,11 @@ export function initYouTube(): void {
             }
           }
           recoveryPlayer = player;
-          loadIssued = target.targetLoadIssued === true && player === handedOffPlayer;
+          loadIssued =
+            player === handedOffPlayer &&
+            (target.targetLoadIssued === true ||
+              (target.mediaAction === 'resident-reposition' &&
+                (player.getVideoData().video_id ?? '') === target.videoId));
           settleIssued = false;
         }
         youtubeZeroStartExternalFallbackOwnsPlayerState = true;
@@ -1142,11 +1209,17 @@ export function initYouTube(): void {
         const currentVideoId = player.getVideoData().video_id ?? '';
         const playerState = player.getPlayerState();
         const currentTime = player.getCurrentTime();
+        const canRepositionResident =
+          player === handedOffPlayer &&
+          target.mediaAction === 'resident-reposition' &&
+          currentVideoId === target.videoId &&
+          (playerState === 0 || playerState === 2 || playerState === 5);
         const targetReady =
           currentVideoId === target.videoId &&
           (playerState === 1 ||
             playerState === 3 ||
-            ((playerState === 2 || playerState === 5) && Math.abs(currentTime) <= 0.35));
+            ((playerState === 2 || playerState === 5) && Math.abs(currentTime) <= 0.35) ||
+            canRepositionResident);
         if (!targetReady) {
           setManagedTimer('yt-zero-start-host-fallback', attemptRecovery, 50);
           return;
@@ -1161,6 +1234,7 @@ export function initYouTube(): void {
         }
 
         const settled =
+          (player.getVideoData().video_id ?? '') === target.videoId &&
           (player.getPlayerState() === 2 || player.getPlayerState() === 5) &&
           Math.abs(player.getCurrentTime()) <= 0.35;
         if (!settled) {
@@ -1277,7 +1351,7 @@ export function initYouTube(): void {
       }
       return clampZeroStartTarget(localPositionSec, duration);
     },
-    onPrepareSelection: ({ queueItemId, subIndex }) => {
+    onPrepareSelection: ({ queueItemId, videoId, subIndex }) => {
       const transferredFallback = clearZeroStartExternalFallback(true);
       if (transferredFallback) {
         const volume = Math.max(
@@ -1310,6 +1384,26 @@ export function initYouTube(): void {
           if (title) updatePlaybackTrackTitle(title, item);
         }
       }
+
+      // A zero-start run is a timeline boundary, not necessarily a media
+      // replacement. Keep an exact resident video attached to the persistent
+      // iframe and let the controller warm/reposition it under hard mute. Each
+      // participant decides independently because a late/cold guest may still
+      // need the established load path while the host reuses its buffer.
+      try {
+        const player = getZeroStartPlayer();
+        if (
+          player &&
+          isYtPlayerReady() &&
+          !isYtLoadInProgress() &&
+          (player.getVideoData().video_id ?? '') === videoId
+        ) {
+          return 'resident-reposition' as const;
+        }
+      } catch {
+        // A transient iframe replacement falls through to the safe load path.
+      }
+      return 'replace-media' as const;
     },
     onBusyChange: (busy) => {
       if (busy && pendingTransferredPrepareAudioIntent) {
@@ -1324,7 +1418,10 @@ export function initYouTube(): void {
     onFallbackRequired: (event) => {
       if (getYouTubeZeroStartRole() !== 'guest') return;
       clearZeroStartExternalFallback();
-      const handedOffPlayer = event.targetLoadIssued ? event.handedOffPlayer : null;
+      const handedOffPlayer =
+        event.targetLoadIssued || event.mediaAction === 'resident-reposition'
+          ? event.handedOffPlayer
+          : null;
       const generation = zeroStartExternalFallbackGeneration;
       const hostConn = getState('network.hostConn');
       const youtubeSessionId = getCurrentSessionId();
@@ -1332,7 +1429,8 @@ export function initYouTube(): void {
       // original 10s prepare window. Adopt that load for the remainder of the
       // same bounded window instead of restarting its deadline and media load.
       const canAdoptRemainingPrepareWindow =
-        event.reason === 'cohort-excluded' && event.targetLoadIssued === true;
+        event.reason === 'cohort-excluded' &&
+        (event.targetLoadIssued === true || event.mediaAction === 'resident-reposition');
       const deadline = Date.now() + (canAdoptRemainingPrepareWindow ? 7_700 : 3_000);
       const context: YouTubeZeroStartTargetContext = {
         role: 'guest',
@@ -1450,7 +1548,11 @@ export function initYouTube(): void {
             fallbackPlayer = player;
             // targetLoadIssued belongs to the exact player handed off by the
             // controller. A rebuilt iframe has no such load to adopt.
-            loadIssued = event.targetLoadIssued === true && player === handedOffPlayer;
+            loadIssued =
+              player === handedOffPlayer &&
+              (event.targetLoadIssued === true ||
+                (event.mediaAction === 'resident-reposition' &&
+                  (player.getVideoData().video_id ?? '') === event.videoId));
             settleIssued = false;
             releasePlayIssued = false;
             releaseAckDeadline = 0;
@@ -1511,12 +1613,18 @@ export function initYouTube(): void {
           const playerState = player.getPlayerState();
           const currentTime = player.getCurrentTime();
           const zeroTarget = resolveZeroStartLocalTarget(0, context);
+          const canRepositionResident =
+            player === handedOffPlayer &&
+            event.mediaAction === 'resident-reposition' &&
+            currentVideoId === event.videoId &&
+            (playerState === 0 || playerState === 2 || playerState === 5);
           const targetIdentityReady =
             currentVideoId === event.videoId &&
             (playerState === 1 ||
               playerState === 3 ||
               ((playerState === 2 || playerState === 5) &&
-                Math.abs(currentTime - zeroTarget) <= 0.35));
+                Math.abs(currentTime - zeroTarget) <= 0.35) ||
+              canRepositionResident);
 
           if (!targetIdentityReady && Date.now() < deadline) {
             setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
@@ -1538,7 +1646,7 @@ export function initYouTube(): void {
           const settledState = player.getPlayerState();
           const settledTime = player.getCurrentTime();
           const playerReady =
-            currentVideoId === event.videoId &&
+            (player.getVideoData().video_id ?? '') === event.videoId &&
             (settledState === 2 || settledState === 5) &&
             Math.abs(settledTime - zeroTarget) <= 0.35;
           if (!playerReady && Date.now() < deadline) {
@@ -1634,6 +1742,7 @@ export function initYouTube(): void {
     onHostFallbackRequired: ({
       queueItemId,
       videoId,
+      mediaAction,
       subIndex,
       reason,
       desiredMuted,
@@ -1645,6 +1754,7 @@ export function initYouTube(): void {
         {
           queueItemId: queueItemId as QueueItemId,
           videoId,
+          mediaAction,
           subIndex,
           desiredMuted,
           desiredVolume,

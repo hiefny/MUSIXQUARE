@@ -75,8 +75,10 @@ function makeHarness(options?: {
   guestVideoId?: string;
   hostMediaAction?: YouTubeZeroStartMediaAction;
   guestMediaAction?: YouTubeZeroStartMediaAction;
+  advanceClock?: boolean;
   failHostCommitSend?: boolean;
   onHostFallbackRequired?: YouTubeZeroStartDependencies['onHostFallbackRequired'];
+  onGuestLearnedTimelineLeadMs?: YouTubeZeroStartDependencies['onLearnedTimelineLeadMs'];
 }): Harness {
   const hostOutbound: YouTubeZeroStartWireMessage[] = [];
   const guestOutbound: YouTubeZeroStartWireMessage[] = [];
@@ -85,12 +87,14 @@ function makeHarness(options?: {
 
   const hostPlayer = makeFakeYtPlayer({
     __autoPlayOnLoad: true,
+    __advanceClock: options?.advanceClock,
     __videoId: options?.hostVideoId,
     __volume: options?.hostVolume ?? 37,
     __muted: false,
   });
   const guestPlayer = makeFakeYtPlayer({
     __autoPlayOnLoad: true,
+    __advanceClock: options?.advanceClock,
     __videoId: options?.guestVideoId,
     __volume: options?.guestVolume ?? 0,
     __muted: options?.guestMuted ?? true,
@@ -144,6 +148,7 @@ function makeHarness(options?: {
       return true;
     },
     onPrepareSelection: () => options?.guestMediaAction,
+    onLearnedTimelineLeadMs: options?.onGuestLearnedTimelineLeadMs,
     resolveLocalTargetSec: (canonical) => canonical + guestOffset,
     toCanonicalPositionSec: (local) => local - guestOffset,
   } as YouTubeZeroStartDependencies);
@@ -1460,18 +1465,104 @@ describe('YouTubeZeroStartController', () => {
     });
     expect(getYouTubeZeroStartRelativeLead('ios', 'other')).toEqual({
       audibleBaseLeadMs: 0,
-      timelineLeadMs: 270,
-      totalLeadMs: 270,
+      timelineLeadMs: 0,
+      totalLeadMs: 0,
+    });
+    expect(getYouTubeZeroStartRelativeLead('other', 'ios')).toEqual({
+      audibleBaseLeadMs: 0,
+      timelineLeadMs: 0,
+      totalLeadMs: 0,
     });
     expect(getYouTubeZeroStartRelativeLead('ios', 'android')).toEqual({
       audibleBaseLeadMs: -250,
-      timelineLeadMs: 270,
-      totalLeadMs: 20,
+      timelineLeadMs: 0,
+      totalLeadMs: -250,
+    });
+    expect(getYouTubeZeroStartRelativeLead('ios', 'other', 85)).toEqual({
+      audibleBaseLeadMs: 0,
+      timelineLeadMs: 85,
+      totalLeadMs: 85,
+    });
+    expect(getYouTubeZeroStartRelativeLead('other', 'ios', -85)).toEqual({
+      audibleBaseLeadMs: 0,
+      timelineLeadMs: -85,
+      totalLeadMs: -85,
     });
     expect(getYouTubeZeroStartRelativeLead('ios', 'android', 10_000)).toEqual({
       audibleBaseLeadMs: -250,
       timelineLeadMs: 600,
       totalLeadMs: 350,
+    });
+  });
+
+  it('learns a stable iOS timeline residual and applies it to the next run', () => {
+    const onLearnedTimelineLeadMs = vi.fn();
+    const harness = makeHarness({
+      hostPlatform: 'other',
+      guestPlatform: 'ios',
+      advanceClock: true,
+      onGuestLearnedTimelineLeadMs: onLearnedTimelineLeadMs,
+    });
+    const readGuestTime = harness.guestPlayer.getCurrentTime;
+    harness.guestPlayer.getCurrentTime = () => readGuestTime() + 0.085;
+
+    expect(harness.guest.advertiseCapability()).toBe(true);
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620 + 700 + 2_250);
+
+    expect(onLearnedTimelineLeadMs).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        guestPlatform: 'ios',
+        hostPlatform: 'other',
+        previousTimelineLeadMs: 0,
+        timelineLeadMs: -85,
+        totalLeadMs: -85,
+      }),
+    );
+
+    harness.guestOutbound.length = 0;
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620);
+
+    expect(
+      harness.guestOutbound.findLast((message) => message.type === 'youtube-zero-start-armed'),
+    ).toMatchObject({
+      startLeadMs: -85,
+      audibleBaseLeadMs: 0,
+      timelineLeadMs: -85,
+    });
+
+    harness.host.reset();
+    harness.guest.reset();
+    harness.guestOutbound.length = 0;
+    expect(harness.guest.advertiseCapability()).toBe(true);
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620);
+
+    expect(
+      harness.guestOutbound.findLast((message) => message.type === 'youtube-zero-start-armed'),
+    ).toMatchObject({
+      startLeadMs: 0,
+      audibleBaseLeadMs: 0,
+      timelineLeadMs: 0,
     });
   });
 });

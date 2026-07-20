@@ -31,7 +31,10 @@ const YOUTUBE_ZERO_START_TIMING = Object.freeze({
   lateFallbackLeadMs: 800,
   timelinePollMs: 250,
   timelineStopAfterMs: 2_500,
-  iosRelativeTimelineLeadMs: 270,
+  // Start iOS from the neutral server/host timeline. The former 270ms seed
+  // now over-advances the first cross-platform run; stable 0.8s/2.0s samples
+  // still learn any real residual for subsequent runs.
+  iosRelativeTimelineLeadMs: 0,
   androidRelativeTimelineLeadMs: 0,
   androidAudibleOutputDelayMs: 250,
   androidTimelineCalibrationRate: 0.35,

@@ -187,9 +187,11 @@ function sameIdentity(
   );
 }
 
-/** Initial absolute lead against the server timeline's neutral browser baseline. */
+/** Fixed audible-output lead against the server timeline. */
 function getYouTubeAuthorityPlatformLeadMs(platform: YouTubeZeroStartPlatform): number {
-  if (platform === 'ios') return 270;
+  // PRO's fully armed iOS iframe already follows the canonical release. The
+  // old 270ms ordinary-room timeline seed made every iOS zero-start early.
+  if (platform === 'ios') return 0;
   if (platform === 'android') return 250;
   return 0;
 }

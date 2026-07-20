@@ -14,24 +14,22 @@ entry, playback, and anonymous chat do not depend on this service. The identity,
 grouping, and capability contract is defined in the
 [account authority ADR](design/account-identity-and-room-authority.md).
 
-## Checked-in compatibility checkpoint
+## Production activation state
 
-Account activation is deliberately split from compatible code delivery. The
-checked-in production configuration is the Stage-1 baseline:
+Account activation was deliberately split from compatible code delivery. The
+checked-in production configuration now enables Stage 2 accounts:
 
 ```text
-service-worker cache: v203 (at release time)
-MUSIXQUARE_AUTH_DB: unbound
-PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION: 0
-PRO_ROOM_MEMBER_AUTHORITY_PROJECTION: 0
+service-worker cache: v204
+MUSIXQUARE_AUTH_DB: musixquare-auth
+PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION: 1
+PRO_ROOM_MEMBER_AUTHORITY_PROJECTION: 1
 ```
 
-The App, signaling, and PRO Workers at this checkpoint understand optional
-account fields, account deletion fences, and account identity leases, but do not
-expose production login or change existing PRO authority. Record the exact three
-Worker version IDs when deploying this checkpoint. Those versions plus the
-`v203` client form the rollback floor; do not activate OAuth or either projection
-flag until cached clients have converged on it.
+The historical Stage-1 App, signaling, and PRO Worker checkpoint plus its `v203`
+client remain the minimum rollback floor. After account data has been written,
+never roll below that matched account-aware checkpoint; use the Stage-2 rollback
+procedure in Section 5 instead.
 
 ## 1. Create the dedicated D1 database
 
@@ -240,7 +238,7 @@ are present. Even then it performs only these read-only operations:
   `MUSIXQUARE_AUTH_DB` binding;
 - run a `SELECT` against remote D1 `sqlite_master` and compare the exact account
   table/index set and normalized definitions with `cloudflare/auth.schema.sql`;
-- run `wrangler secret list --json` for App, signaling, and PRO and check only
+- run `wrangler secret list --format json` for App, signaling, and PRO and check only
   required secret **names**; secret values are never requested or printed;
 - exercise the PRO, Standard attach, and Standard deletion assertion codecs
   locally with a one-use in-memory key; and

@@ -16,10 +16,12 @@ const UI_TOUCH_COOLDOWN_MS = 35;
 const SELF_JOIN_DEDUP_MS = 5_000;
 const ANNOUNCEMENT_LOW_FREQUENCY_HZ = 523.25;
 const ANNOUNCEMENT_HIGH_FREQUENCY_HZ = 659.25;
+const ATTENTION_OUTPUT_GAIN = 2.5;
 
 type OutputGraph = {
   context: AudioContext;
-  input: GainNode;
+  touchInput: GainNode;
+  attentionInput: GainNode;
 };
 
 type ToneOptions = {
@@ -77,19 +79,36 @@ export function setUiSoundsEnabled(enabled: boolean): void {
 function ensureOutputGraph(context: AudioContext): OutputGraph {
   if (outputGraph?.context === context) return outputGraph;
 
-  const input = context.createGain();
-  input.gain.value = 1;
+  const createCompressor = () => {
+    const compressor = context.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 24;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.18;
+    return compressor;
+  };
 
-  const compressor = context.createDynamicsCompressor();
-  compressor.threshold.value = -24;
-  compressor.knee.value = 24;
-  compressor.ratio.value = 4;
-  compressor.attack.value = 0.003;
-  compressor.release.value = 0.18;
+  // Keep frequent touch feedback at its existing level. Session events and
+  // announcements share one post-compressor makeup stage so their synthesis,
+  // envelope and relative echo balance stay unchanged while cutting through
+  // active media playback more clearly.
+  const touchInput = context.createGain();
+  const touchCompressor = createCompressor();
+  touchInput.gain.value = 1;
+  touchInput.connect(touchCompressor);
+  touchCompressor.connect(context.destination);
 
-  input.connect(compressor);
-  compressor.connect(context.destination);
-  outputGraph = { context, input };
+  const attentionInput = context.createGain();
+  const attentionCompressor = createCompressor();
+  const attentionOutput = context.createGain();
+  attentionInput.gain.value = 1;
+  attentionOutput.gain.value = ATTENTION_OUTPUT_GAIN;
+  attentionInput.connect(attentionCompressor);
+  attentionCompressor.connect(attentionOutput);
+  attentionOutput.connect(context.destination);
+
+  outputGraph = { context, touchInput, attentionInput };
   return outputGraph;
 }
 
@@ -235,7 +254,7 @@ function scheduleMicroEcho(
 async function playTouch(force = false): Promise<void> {
   const output = await readyOutput(force);
   if (!output) return;
-  schedulePitchlessTouch(output.context, output.input, output.context.currentTime + 0.006);
+  schedulePitchlessTouch(output.context, output.touchInput, output.context.currentTime + 0.006);
 }
 
 export function playUiTouchSound(options: { force?: boolean } = {}): void {
@@ -251,7 +270,12 @@ function playSessionSound(frequency: number): void {
   lastSessionSoundAt = now;
   void readyOutput().then((output) => {
     if (!output) return;
-    scheduleMicroEcho(output.context, output.input, output.context.currentTime + 0.008, frequency);
+    scheduleMicroEcho(
+      output.context,
+      output.attentionInput,
+      output.context.currentTime + 0.008,
+      frequency,
+    );
   });
 }
 
@@ -270,7 +294,7 @@ export function playAnnouncementSound(): void {
     if (!output) return;
     const time = output.context.currentTime + 0.008;
     // Sound Lab #10: Two Step.
-    scheduleTone(output.context, output.input, time, {
+    scheduleTone(output.context, output.attentionInput, time, {
       from: ANNOUNCEMENT_LOW_FREQUENCY_HZ,
       duration: 0.16,
       gain: 0.055,
@@ -278,7 +302,7 @@ export function playAnnouncementSound(): void {
       release: 0.12,
       pan: -0.04,
     });
-    scheduleTone(output.context, output.input, time, {
+    scheduleTone(output.context, output.attentionInput, time, {
       from: ANNOUNCEMENT_HIGH_FREQUENCY_HZ,
       delay: 0.095,
       duration: 0.23,

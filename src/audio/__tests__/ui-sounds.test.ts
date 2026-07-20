@@ -23,8 +23,10 @@ import {
 
 type FakeAudioContext = AudioContext & {
   createBufferSource: ReturnType<typeof vi.fn>;
+  createDynamicsCompressor: ReturnType<typeof vi.fn>;
   createGain: ReturnType<typeof vi.fn>;
   createOscillator: ReturnType<typeof vi.fn>;
+  createStereoPanner: ReturnType<typeof vi.fn>;
 };
 
 function audioParam(value = 0): AudioParam {
@@ -125,12 +127,46 @@ describe('UI sounds', () => {
     expect(context.createBufferSource).toHaveBeenCalledTimes(1);
   });
 
-  it('plays through a unity-gain output bus', async () => {
+  it('keeps touch feedback at unity and gives attention sounds one shared makeup gain', async () => {
     playUiTouchSound({ force: true });
     await flushSounds();
 
-    const output = context.createGain.mock.results[0]?.value as GainNode | undefined;
-    expect(output?.gain.value).toBe(1);
+    const touchInput = context.createGain.mock.results[0]?.value as GainNode | undefined;
+    const attentionInput = context.createGain.mock.results[1]?.value as GainNode | undefined;
+    const attentionOutput = context.createGain.mock.results[2]?.value as GainNode | undefined;
+    const touchCompressor = context.createDynamicsCompressor.mock.results[0]?.value as
+      | DynamicsCompressorNode
+      | undefined;
+    const attentionCompressor = context.createDynamicsCompressor.mock.results[1]?.value as
+      | DynamicsCompressorNode
+      | undefined;
+    const touchSource = context.createBufferSource.mock.results[0]?.value as
+      | AudioBufferSourceNode
+      | undefined;
+
+    expect(touchInput?.gain.value).toBe(1);
+    expect(attentionInput?.gain.value).toBe(1);
+    expect(attentionOutput?.gain.value).toBe(2.5);
+    expect(touchInput?.connect).toHaveBeenCalledWith(touchCompressor);
+    expect(touchCompressor?.connect).toHaveBeenCalledWith(context.destination);
+    expect(attentionInput?.connect).toHaveBeenCalledWith(attentionCompressor);
+    expect(attentionCompressor?.connect).toHaveBeenCalledWith(attentionOutput);
+    expect(attentionOutput?.connect).toHaveBeenCalledWith(context.destination);
+    expect(touchSource?.connect).toHaveBeenCalledWith(touchInput);
+  });
+
+  it('routes announcements through the amplified attention bus', async () => {
+    setUiSoundsEnabled(true);
+    playAnnouncementSound();
+    await flushSounds();
+
+    const attentionInput = context.createGain.mock.results[1]?.value as GainNode | undefined;
+    const panners = context.createStereoPanner.mock.results.map(
+      (result) => result.value as StereoPannerNode,
+    );
+
+    expect(panners).toHaveLength(2);
+    for (const panner of panners) expect(panner.connect).toHaveBeenCalledWith(attentionInput);
   });
 
   it('plays the self-entry micro echo only when a session actually starts', async () => {

@@ -3979,6 +3979,13 @@
     gap: 10px;
   }
 
+  /* Authenticated accounts no longer render the redundant content block.
+     Preserve the visual breathing room that block used to provide between the
+     nickname heading and the first action row. */
+  .account-dialog-content[hidden] + .account-dialog-actions:not([hidden]) {
+    padding-top: 18px;
+  }
+
   .account-dialog-actions .dialog-primary,
   .account-dialog-actions .dialog-secondary {
     min-width: 0;

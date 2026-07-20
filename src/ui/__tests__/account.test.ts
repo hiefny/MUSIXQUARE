@@ -567,10 +567,15 @@ describe('optional account UI', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const dialogRules = stylesheet.match(/\.dialog\.account-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
     const contentRules = stylesheet.match(/\.account-dialog-content\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticatedActionsRules =
+      stylesheet.match(
+        /\.account-dialog-content\[hidden\]\s*\+\s*\.account-dialog-actions:not\(\[hidden\]\)\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
 
     expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
     expect(contentRules).toContain('min-height: 0');
     expect(contentRules).toContain('overflow-y: auto');
     expect(contentRules).toContain('overflow-anchor: none');
+    expect(authenticatedActionsRules).toContain('padding-top: 18px');
   });
 });

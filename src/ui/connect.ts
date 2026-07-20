@@ -8,7 +8,11 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { DEVICE_LABEL_SANITIZE_RE, RESERVED_NAMES } from '../core/constants.ts';
+import {
+  DEVICE_LABEL_SANITIZE_RE,
+  PRO_GENERATED_PEER_NAME_RE,
+  RESERVED_NAMES,
+} from '../core/constants.ts';
 import { getOtherDeviceLabels } from '../network/guards.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
@@ -575,6 +579,9 @@ export function initConnect(): void {
             }
           }
           if (/^#\d+$/.test(name)) {
+            return t('connect.rename_reserved');
+          }
+          if (getRoomContext().kind === 'pro' && PRO_GENERATED_PEER_NAME_RE.test(name)) {
             return t('connect.rename_reserved');
           }
           // Reserved default host labels bypass the profanity dictionary.

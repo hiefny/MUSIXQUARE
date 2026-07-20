@@ -337,7 +337,7 @@ describe('server-only PRO BOT app boundary', () => {
         intent: 'add_youtube',
         trackQueries: ['Artist Test Song official audio'],
         playAddedIndex: -1,
-        answer: 'Added one song.',
+        answer: 'Tracks added.',
       },
       tracks: [
         {
@@ -359,7 +359,7 @@ describe('server-only PRO BOT app boundary', () => {
         const body = (await request.json()) as { plan: Record<string, unknown> };
         expect(body.plan).toEqual({
           intent: 'clear_queue',
-          answer: '재생목록을 비울게요.',
+          answer: '재생목록을 비웠어요.',
           basePlaylistRevision: 3,
         });
         return Response.json({
@@ -399,6 +399,68 @@ describe('server-only PRO BOT app boundary', () => {
       playbackChanged: true,
     });
   });
+
+  it('turns an out-of-scope model plan into a fixed refusal without grounding or leaking model text', async () => {
+    const refusal =
+      '\uBBA4\uC9C1\uC2A4\uD018\uC5B4\uC640 \uC7AC\uC0DD \uC81C\uC5B4\uC5D0 \uAD00\uD55C \uC694\uCCAD\uB9CC \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uC5B4\uC694.';
+    const namespace = roomNamespace(async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === '/internal/bot/context') return roomContextResponse();
+      if (path === '/internal/bot/execute') {
+        await expect(request.json()).resolves.toEqual({
+          roomCode: ROOM_CODE,
+          requestId: REQUEST_ID,
+          leaseToken: LEASE_TOKEN,
+          plan: { intent: 'answer', answer: refusal },
+          tracks: [],
+        });
+        return Response.json({
+          ok: true,
+          summary: refusal,
+          addedCount: 0,
+          playbackChanged: false,
+        });
+      }
+      return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+    });
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        tools?: Array<{ googleSearch?: unknown; functionDeclarations?: unknown }>;
+      };
+      expect(body.tools?.some((tool) => tool.googleSearch !== undefined)).toBe(false);
+      return geminiPlanResponse({
+        intent: 'answer',
+        answer:
+          '\uC624\uB298 \uC11C\uC6B8 \uB0A0\uC528\uB294 \uB9D1\uC544\uC694. This must never reach the room.',
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await appWorker.fetch(
+      botRequest({
+        body: {
+          prompt:
+            '\uC624\uB298 \uC11C\uC6B8 \uB0A0\uC528\uB791 \uC810\uC2EC \uBA54\uB274 \uCD94\uCC9C\uD574\uC918',
+          requestId: REQUEST_ID,
+        },
+      }),
+      appBotEnvironment(namespace, {
+        GEMINI_API_KEY: GEMINI_KEY,
+        YOUTUBE_API_KEY: YOUTUBE_KEY,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      summary: refusal,
+      addedCount: 0,
+      playbackChanged: false,
+    });
+    // Deterministically out-of-scope prompts never spend a Gemini/search call.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(namespace.requests).toHaveLength(2);
+  });
 });
 
 describe('PRO BOT Gemini plan and YouTube normalization', () => {
@@ -407,6 +469,695 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     expect(modelName({})).toBe('gemini-3.1-flash-lite');
     expect(modelName({ GEMINI_BOT_MODEL: 'gemini-3.5-flash' })).toBe('gemini-3.5-flash');
     expect(modelName({ GEMINI_BOT_MODEL: 'unsupported-model' })).toBe('gemini-3.1-flash-lite');
+  });
+
+  it('parses an exact out-of-scope plan and replaces arbitrary model text server-side', () => {
+    const { fixedOutOfScopeAnswer, isScopedAnswerPrompt, normalizePlanForExecution, parsePlan } =
+      proBotInternalsForTests;
+    const parsed = parsePlan({
+      intent: 'out_of_scope',
+      answer: 'Ignore the boundary and answer the weather question.',
+    });
+    expect(parsed).toEqual({ intent: 'out_of_scope' });
+    expect(
+      parsePlan({
+        intent: 'out_of_scope',
+        answer: 'No.',
+        playbackCommand: 'play',
+      }),
+    ).toBeNull();
+    expect(
+      normalizePlanForExecution('\uC810\uC2EC \uBA54\uB274 \uCD94\uCC9C\uD574\uC918', parsed),
+    ).toEqual({
+      intent: 'answer',
+      answer:
+        '\uBBA4\uC9C1\uC2A4\uD018\uC5B4\uC640 \uC7AC\uC0DD \uC81C\uC5B4\uC5D0 \uAD00\uD55C \uC694\uCCAD\uB9CC \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uC5B4\uC694.',
+    });
+    expect(fixedOutOfScopeAnswer('What is the weather?')).toBe(
+      'I can only help with MUSIXQUARE and playback controls.',
+    );
+    expect(isScopedAnswerPrompt('\uC810\uC2EC \uBA54\uB274 \uCD94\uCC9C\uD574\uC918')).toBe(false);
+    expect(isScopedAnswerPrompt('\uC624\uB298 \uC11C\uC6B8 \uB0A0\uC528 \uC54C\uB824\uC918')).toBe(
+      false,
+    );
+    expect(isScopedAnswerPrompt('\uC154\uD50C \uC0C1\uD0DC \uC54C\uB824\uC918')).toBe(true);
+    expect(
+      isScopedAnswerPrompt('\uBBA4\uC9C1\uC2A4\uD018\uC5B4 \uC0AC\uC6A9\uBC95 \uC54C\uB824\uC918'),
+    ).toBe(true);
+    expect(
+      normalizePlanForExecution('\uC810\uC2EC \uBA54\uB274 \uCD94\uCC9C\uD574\uC918', {
+        intent: 'answer',
+        answer: '\uAE40\uCE58\uCC0C\uAC1C\uB97C \uCD94\uCC9C\uD574\uC694.',
+      }),
+    ).toEqual({
+      intent: 'answer',
+      answer:
+        '\uBBA4\uC9C1\uC2A4\uD018\uC5B4\uC640 \uC7AC\uC0DD \uC81C\uC5B4\uC5D0 \uAD00\uD55C \uC694\uCCAD\uB9CC \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uC5B4\uC694.',
+    });
+    expect(
+      normalizePlanForExecution('\uC624\uB298 \uB0A0\uC528 \uC54C\uB824\uC918', {
+        intent: 'playback',
+        playbackCommand: 'pause',
+        answer: '\uC77C\uC2DC\uC815\uC9C0\uD588\uC5B4\uC694.',
+      }),
+    ).toEqual({
+      intent: 'answer',
+      answer:
+        '\uBBA4\uC9C1\uC2A4\uD018\uC5B4\uC640 \uC7AC\uC0DD \uC81C\uC5B4\uC5D0 \uAD00\uD55C \uC694\uCCAD\uB9CC \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uC5B4\uC694.',
+    });
+    expect(
+      normalizePlanForExecution('\uC810\uC2EC \uBA54\uB274 \uCD94\uCC9C\uD574\uC918', {
+        intent: 'add_youtube',
+        trackQueries: ['lunch menu official audio'],
+        playAddedIndex: 0,
+      }),
+    ).toEqual({
+      intent: 'answer',
+      answer:
+        '\uBBA4\uC9C1\uC2A4\uD018\uC5B4\uC640 \uC7AC\uC0DD \uC81C\uC5B4\uC5D0 \uAD00\uD55C \uC694\uCCAD\uB9CC \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uC5B4\uC694.',
+    });
+    expect(
+      normalizePlanForExecution('\uC154\uD50C \uC0C1\uD0DC \uC54C\uB824\uC918', {
+        intent: 'answer',
+        answer: '\uC154\uD50C\uC740 \uAEBC\uC838 \uC788\uC5B4\uC694.',
+      }),
+    ).toEqual({
+      intent: 'answer',
+      answer: '\uC154\uD50C\uC740 \uAEBC\uC838 \uC788\uC5B4\uC694.',
+    });
+    expect(
+      normalizePlanForExecution(
+        '\uBBA4\uC9C1\uC2A4\uD018\uC5B4 \uC0AC\uC6A9\uBC95 \uC54C\uB824\uC918',
+        {
+          intent: 'answer',
+          answer:
+            '\uD604\uC7AC \uBC29\uC5D0\uC11C \uC7AC\uC0DD\uBAA9\uB85D\uC744 \uC81C\uC5B4\uD560 \uC218 \uC788\uC5B4\uC694.',
+        },
+      ),
+    ).toEqual({
+      intent: 'answer',
+      answer:
+        '\uD604\uC7AC \uBC29\uC5D0\uC11C \uC7AC\uC0DD\uBAA9\uB85D\uC744 \uC81C\uC5B4\uD560 \uC218 \uC788\uC5B4\uC694.',
+    });
+    expect(
+      normalizePlanForExecution('\uAC15\uB0A8\uC2A4\uD0C0\uC77C \uD2C0\uC5B4\uC918', {
+        intent: 'add_youtube',
+        trackQueries: ['PSY Gangnam Style official audio'],
+        playAddedIndex: 0,
+      }),
+    ).toEqual({
+      intent: 'add_youtube',
+      trackQueries: ['PSY Gangnam Style official audio'],
+      playAddedIndex: 0,
+    });
+  });
+
+  it('grounds only fresh music requests while preserving Spotify and Apple Music conversion', async () => {
+    const {
+      buildGroundedContext,
+      isPotentiallyInScopePrompt,
+      isScopedAnswerPrompt,
+      isTrackRequestPrompt,
+      planMatchesPromptScope,
+      requiresGrounding,
+    } = proBotInternalsForTests;
+    expect(requiresGrounding('\uC624\uB298 \uC11C\uC6B8 \uB0A0\uC528 \uC54C\uB824\uC918')).toBe(
+      false,
+    );
+    expect(requiresGrounding('today lunch recommendation')).toBe(false);
+    expect(requiresGrounding('music industry politics today')).toBe(false);
+    expect(requiresGrounding('what music is currently playing?')).toBe(false);
+    expect(isPotentiallyInScopePrompt('\uACE1\uC120\uC758 \uBBF8\uBD84 \uC54C\uB824\uC918')).toBe(
+      false,
+    );
+    expect(
+      isPotentiallyInScopePrompt(
+        '\uB178\uB798 \uB9D0\uACE0 \uC624\uB298 \uB0A0\uC528 \uC54C\uB824\uC918',
+      ),
+    ).toBe(false);
+    expect(isPotentiallyInScopePrompt('device security coding help')).toBe(false);
+    expect(isPotentiallyInScopePrompt('next question')).toBe(false);
+    expect(isPotentiallyInScopePrompt('play a joke')).toBe(false);
+    expect(
+      planMatchesPromptScope('next question', {
+        intent: 'playback',
+        playbackCommand: 'next',
+        answer: 'Skipped.',
+      }),
+    ).toBe(false);
+    expect(
+      planMatchesPromptScope('play a joke', {
+        intent: 'playback',
+        playbackCommand: 'play',
+        answer: 'Playing.',
+      }),
+    ).toBe(false);
+    expect(isPotentiallyInScopePrompt('\uAC15\uB0A8\uC2A4\uD0C0\uC77C \uD2C0\uC5B4\uC918')).toBe(
+      true,
+    );
+    for (const prompt of [
+      '점심에 들을 노래 3곡 추천해줘',
+      '게임 OST 틀어줘',
+      '코딩할 때 들을 플레이리스트 추천해줘',
+    ]) {
+      expect(isTrackRequestPrompt(prompt), prompt).toBe(true);
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(true);
+    }
+    for (const prompt of ['로컬 파일 추가는 어떻게 해?', '연결이 왜 안 돼?', '넌 뭘 할 수 있어?']) {
+      expect(isScopedAnswerPrompt(prompt), prompt).toBe(true);
+    }
+    expect(isScopedAnswerPrompt('MUSIXQUARE라는 단어와 프랑스 수도를 알려줘')).toBe(false);
+    expect(isScopedAnswerPrompt('MUSIXQUARE BOT으로 오늘 날씨를 알려줘')).toBe(false);
+    expect(isScopedAnswerPrompt('뮤직스퀘어에서 게임 OST를 추가하는 방법 알려줘')).toBe(true);
+    expect(
+      requiresGrounding(
+        '\uD604\uC7AC \uC7AC\uC0DD\uBAA9\uB85D \uC154\uD50C \uC0C1\uD0DC \uC54C\uB824\uC918',
+      ),
+    ).toBe(false);
+    expect(
+      requiresGrounding(
+        '\uC624\uB298 \uD55C\uAD6D \uC778\uAE30\uACE1 3\uACE1 \uCD94\uCC9C\uD574\uC918',
+      ),
+    ).toBe(true);
+    expect(
+      requiresGrounding(
+        'https://open.spotify.com/track/4VYv4gIbr6XPWKTddnGBlh \uC7AC\uC0DD\uD574\uC918',
+      ),
+    ).toBe(true);
+    expect(
+      requiresGrounding('https://music.apple.com/kr/album/example/123?i=456 add this song'),
+    ).toBe(true);
+    expect(requiresGrounding('find the latest artist interviews')).toBe(false);
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(
+      buildGroundedContext(
+        '\uC624\uB298 \uC11C\uC6B8 \uB0A0\uC528 \uC54C\uB824\uC918',
+        { GEMINI_API_KEY: GEMINI_KEY },
+        new AbortController().signal,
+      ),
+    ).resolves.toBe('');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects raw YouTube, mixed-scope requests, and generic product lookalikes', () => {
+    const {
+      fixedOutOfScopeAnswer,
+      isPotentiallyInScopePrompt,
+      isScopedAnswerPrompt,
+      isTrackRequestPrompt,
+      normalizePlanForExecution,
+      planMatchesPromptScope,
+    } = proBotInternalsForTests;
+    const trackCases = [
+      'Find a YouTube recipe video for carbonara and add it',
+      '유튜브에서 요리 영상 찾아서 추가해줘',
+      'Add a news podcast from YouTube',
+      "Play the song Gangnam Style, then tell me today's weather",
+      '노래 하나 틀어주고 오늘 날씨도 알려줘',
+    ];
+    for (const prompt of trackCases) {
+      const plan = {
+        intent: 'add_youtube',
+        trackQueries: ['untrusted query'],
+        playAddedIndex: 0,
+      };
+      expect(isTrackRequestPrompt(prompt), prompt).toBe(false);
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(false);
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual({
+        intent: 'answer',
+        answer: fixedOutOfScopeAnswer(prompt),
+      });
+    }
+
+    for (const prompt of [
+      'How do I use MUSIXQUARE API to solve my coding homework?',
+      '뮤직스퀘어 사용법 알려주고 점심 메뉴 추천해줘',
+      'What is the latest YouTube policy?',
+      'How does the YouTube recommendation algorithm work?',
+    ]) {
+      expect(isScopedAnswerPrompt(prompt), prompt).toBe(false);
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(false);
+    }
+
+    for (const prompt of [
+      '게임 OST 틀어줘',
+      '코딩할 때 들을 플레이리스트 추천해줘',
+      'Recommend a coding playlist',
+      'Play a game OST',
+    ]) {
+      expect(isTrackRequestPrompt(prompt), prompt).toBe(true);
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(true);
+    }
+    expect(isScopedAnswerPrompt('뮤직스퀘어에서 게임 OST를 추가하는 방법 알려줘')).toBe(true);
+  });
+
+  it('routes generic play wording only to existing playback controls', () => {
+    const { isTrackRequestPrompt, normalizePlanForExecution, planMatchesPromptScope } =
+      proBotInternalsForTests;
+    const prompts = [
+      '음악 재생해줘',
+      '현재 곡 재생해줘',
+      '이 곡 재생해줘',
+      '재생목록 재생해줘',
+      'play the music',
+      'play the current track',
+    ];
+
+    for (const prompt of prompts) {
+      const playbackPlan = { intent: 'playback', playbackCommand: 'play' };
+      const addPlan = {
+        intent: 'add_youtube',
+        trackQueries: ['generic music'],
+        playAddedIndex: 0,
+      };
+      expect(isTrackRequestPrompt(prompt), prompt).toBe(false);
+      expect(planMatchesPromptScope(prompt, playbackPlan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, playbackPlan), prompt).toEqual(playbackPlan);
+      expect(planMatchesPromptScope(prompt, addPlan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, addPlan).intent, prompt).toBe('answer');
+    }
+  });
+
+  it('replaces free-form action answers with deterministic scoped acknowledgements', () => {
+    const { normalizePlanForExecution } = proBotInternalsForTests;
+    expect(
+      normalizePlanForExecution('play Gangnam Style', {
+        intent: 'add_youtube',
+        trackQueries: ['PSY Gangnam Style official audio'],
+        playAddedIndex: 0,
+        answer: "Added it. Today's weather is sunny.",
+      }),
+    ).toEqual({
+      intent: 'add_youtube',
+      trackQueries: ['PSY Gangnam Style official audio'],
+      playAddedIndex: 0,
+      answer: 'Tracks added.',
+    });
+    expect(
+      normalizePlanForExecution('셔플 켜줘', {
+        intent: 'queue_mode',
+        shuffleEnabled: true,
+        answer: '점심 메뉴는 김치찌개예요.',
+      }),
+    ).toEqual({
+      intent: 'queue_mode',
+      shuffleEnabled: true,
+      answer: '재생 설정을 업데이트했어요.',
+    });
+  });
+
+  it('fails closed for negated controls and unrelated action-shaped prompts', () => {
+    const {
+      fixedOutOfScopeAnswer,
+      isPotentiallyInScopePrompt,
+      normalizePlanForExecution,
+      planMatchesPromptScope,
+    } = proBotInternalsForTests;
+    const rejected = [
+      {
+        prompt: '강남스타일 재생하지 마',
+        plan: { intent: 'playback', playbackCommand: 'play' },
+      },
+      {
+        prompt: '강남스타일 추가하지 마',
+        plan: { intent: 'add_youtube', trackQueries: ['PSY Gangnam Style'], playAddedIndex: -1 },
+      },
+      {
+        prompt: 'do not skip this track',
+        plan: { intent: 'playback', playbackCommand: 'next' },
+      },
+      {
+        prompt: '셔플하지 마',
+        plan: { intent: 'queue_mode', shuffleEnabled: true },
+      },
+      {
+        prompt: '셔플 켜지 마',
+        plan: { intent: 'queue_mode', shuffleEnabled: true },
+      },
+    ];
+    for (const { prompt, plan } of rejected) {
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual({
+        intent: 'answer',
+        answer: fixedOutOfScopeAnswer(prompt),
+      });
+    }
+
+    const unrelated = [
+      {
+        prompt: 'start a timer',
+        plan: { intent: 'playback', playbackCommand: 'play' },
+      },
+      {
+        prompt: 'listen to my problem',
+        plan: { intent: 'playback', playbackCommand: 'play' },
+      },
+      {
+        prompt: 'add 2 and 2',
+        plan: { intent: 'add_youtube', trackQueries: ['2 + 2'], playAddedIndex: -1 },
+      },
+    ];
+    for (const { prompt, plan } of unrelated) {
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(false);
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual({
+        intent: 'answer',
+        answer: fixedOutOfScopeAnswer(prompt),
+      });
+    }
+  });
+
+  it('rejects out-of-scope false friends that resemble room-control terms', () => {
+    const {
+      fixedOutOfScopeAnswer,
+      isPotentiallyInScopePrompt,
+      isScopedAnswerPrompt,
+      normalizePlanForExecution,
+      planMatchesPromptScope,
+    } = proBotInternalsForTests;
+    const prompts = [
+      'What is the volume of a sphere?',
+      '싱크대 청소 방법 알려줘',
+      '반복문 설명해줘',
+      '효과적인 공부법 알려줘',
+    ];
+
+    for (const prompt of prompts) {
+      const answerPlan = { intent: 'answer', answer: 'Unrelated answer.' };
+      expect(isScopedAnswerPrompt(prompt), prompt).toBe(false);
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(false);
+      expect(planMatchesPromptScope(prompt, answerPlan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, answerPlan), prompt).toEqual({
+        intent: 'answer',
+        answer: fixedOutOfScopeAnswer(prompt),
+      });
+    }
+  });
+
+  it('fails closed for expanded English negation and coordinated forbidden actions', () => {
+    const {
+      fixedOutOfScopeAnswer,
+      isTrackRequestPrompt,
+      normalizePlanForExecution,
+      planMatchesPromptScope,
+    } = proBotInternalsForTests;
+    const cases = [
+      {
+        prompt: "don't ever play music",
+        plan: { intent: 'add_youtube', trackQueries: ['music'], playAddedIndex: 0 },
+      },
+      {
+        prompt: 'never ever play this song',
+        plan: { intent: 'play_existing', queueItemId: 'queue-item-1' },
+      },
+      {
+        prompt: "don't play or add this song",
+        plan: { intent: 'add_youtube', trackQueries: ['this song'], playAddedIndex: -1 },
+      },
+      {
+        prompt: "don't add or play this song",
+        plan: { intent: 'play_existing', queueItemId: 'queue-item-1' },
+      },
+    ];
+
+    for (const { prompt, plan } of cases) {
+      expect(isTrackRequestPrompt(prompt), prompt).toBe(false);
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual({
+        intent: 'answer',
+        answer: fixedOutOfScopeAnswer(prompt),
+      });
+    }
+  });
+
+  it('accepts English title commands and polite track-add requests', () => {
+    const { isTrackRequestPrompt, normalizePlanForExecution, planMatchesPromptScope } =
+      proBotInternalsForTests;
+    const cases = [
+      {
+        prompt: 'play Gangnam Style',
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['PSY Gangnam Style official audio'],
+          playAddedIndex: 0,
+        },
+      },
+      {
+        prompt: 'add Gangnam Style',
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['PSY Gangnam Style official audio'],
+          playAddedIndex: -1,
+        },
+      },
+      {
+        prompt: 'Please play Gangnam Style',
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['PSY Gangnam Style official audio'],
+          playAddedIndex: 0,
+        },
+      },
+      {
+        prompt: 'Could you add the song Gangnam Style?',
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['PSY Gangnam Style official audio'],
+          playAddedIndex: -1,
+        },
+      },
+      {
+        prompt: 'Can you add Bohemian Rhapsody to the playlist?',
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['Queen Bohemian Rhapsody official audio'],
+          playAddedIndex: -1,
+        },
+      },
+      {
+        prompt: '이 노래 추가해줄 수 있어?',
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['current requested song official audio'],
+          playAddedIndex: -1,
+        },
+      },
+    ];
+
+    for (const { prompt, plan } of cases) {
+      expect(isTrackRequestPrompt(prompt), prompt).toBe(true);
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual(plan);
+    }
+  });
+
+  it('rejects queue-mode plans whose values contradict the request', () => {
+    const { fixedOutOfScopeAnswer, normalizePlanForExecution, planMatchesPromptScope } =
+      proBotInternalsForTests;
+    const mismatches = [
+      { prompt: 'turn shuffle off', plan: { intent: 'queue_mode', shuffleEnabled: true } },
+      { prompt: 'turn shuffle on', plan: { intent: 'queue_mode', shuffleEnabled: false } },
+      { prompt: 'set repeat to one', plan: { intent: 'queue_mode', repeatMode: 'all' } },
+      { prompt: 'disable repeat', plan: { intent: 'queue_mode', repeatMode: 'all' } },
+    ];
+
+    for (const { prompt, plan } of mismatches) {
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual({
+        intent: 'answer',
+        answer: fixedOutOfScopeAnswer(prompt),
+      });
+    }
+
+    const valid = [
+      { prompt: 'turn shuffle off', plan: { intent: 'queue_mode', shuffleEnabled: false } },
+      { prompt: 'turn shuffle on', plan: { intent: 'queue_mode', shuffleEnabled: true } },
+      { prompt: 'set repeat to one', plan: { intent: 'queue_mode', repeatMode: 'one' } },
+      { prompt: 'disable repeat', plan: { intent: 'queue_mode', repeatMode: 'off' } },
+    ];
+    for (const { prompt, plan } of valid) {
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual(plan);
+    }
+  });
+
+  it('never normalizes an executable action prompt to a model answer', () => {
+    const { fixedOutOfScopeAnswer, normalizePlanForExecution, planMatchesPromptScope } =
+      proBotInternalsForTests;
+    const prompts = [
+      'play Gangnam Style',
+      'Could you add the song Gangnam Style?',
+      'pause please',
+      'next please',
+      'turn shuffle off',
+    ];
+
+    for (const prompt of prompts) {
+      const answerPlan = { intent: 'answer', answer: 'Done.' };
+      expect(planMatchesPromptScope(prompt, answerPlan), prompt).toBe(false);
+      expect(normalizePlanForExecution(prompt, answerPlan), prompt).toEqual({
+        intent: 'answer',
+        answer: fixedOutOfScopeAnswer(prompt),
+      });
+    }
+  });
+
+  it('accepts trailing politeness controls and English device and BOT help', () => {
+    const {
+      isPotentiallyInScopePrompt,
+      isScopedAnswerPrompt,
+      normalizePlanForExecution,
+      planMatchesPromptScope,
+    } = proBotInternalsForTests;
+    const controls = [
+      { prompt: 'pause please', plan: { intent: 'playback', playbackCommand: 'pause' } },
+      { prompt: 'next please', plan: { intent: 'playback', playbackCommand: 'next' } },
+    ];
+    for (const { prompt, plan } of controls) {
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(true);
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual(plan);
+    }
+
+    for (const prompt of ['How do I connect a device?', 'How do I use the bot?']) {
+      const answerPlan = { intent: 'answer', answer: 'Scoped product help.' };
+      expect(isScopedAnswerPrompt(prompt), prompt).toBe(true);
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(true);
+      expect(planMatchesPromptScope(prompt, answerPlan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, answerPlan), prompt).toEqual(answerPlan);
+    }
+  });
+
+  it('does not ground or execute a negated Spotify conversion', async () => {
+    const {
+      buildGroundedContext,
+      isTrackRequestPrompt,
+      normalizePlanForExecution,
+      planMatchesPromptScope,
+      requiresGrounding,
+    } = proBotInternalsForTests;
+    const prompt = 'https://open.spotify.com/track/4VYv4gIbr6XPWKTddnGBlh 이 링크는 추가하지 마';
+    const plan = {
+      intent: 'add_youtube',
+      trackQueries: ['test track'],
+      playAddedIndex: -1,
+    };
+
+    expect(isTrackRequestPrompt(prompt)).toBe(false);
+    expect(planMatchesPromptScope(prompt, plan)).toBe(false);
+    expect(normalizePlanForExecution(prompt, plan).intent).toBe('answer');
+    expect(requiresGrounding(prompt)).toBe(false);
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(
+      buildGroundedContext(prompt, { GEMINI_API_KEY: GEMINI_KEY }, new AbortController().signal),
+    ).resolves.toBe('');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts natural Korean playback controls without broadening unrelated scope', () => {
+    const { isPotentiallyInScopePrompt, normalizePlanForExecution, planMatchesPromptScope } =
+      proBotInternalsForTests;
+    const controls = [
+      {
+        prompt: '다음으로 넘어가줘',
+        plan: { intent: 'playback', playbackCommand: 'next' },
+      },
+      {
+        prompt: '셔플해줘',
+        plan: { intent: 'queue_mode', shuffleEnabled: true },
+      },
+      {
+        prompt: '반복재생해줘',
+        plan: { intent: 'queue_mode', repeatMode: 'all' },
+      },
+      {
+        prompt: '랜덤으로 틀어줘',
+        plan: { intent: 'queue_mode', shuffleEnabled: true },
+      },
+    ];
+
+    for (const { prompt, plan } of controls) {
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(true);
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual(plan);
+    }
+  });
+
+  it('allows replacement recommendations and scoped YouTube, device, and BOT help', () => {
+    const {
+      isPotentiallyInScopePrompt,
+      isScopedAnswerPrompt,
+      isTrackRequestPrompt,
+      normalizePlanForExecution,
+      planMatchesPromptScope,
+    } = proBotInternalsForTests;
+    const replacementPrompt = '이 곡 말고 다른 노래 추천해줘';
+    const replacementPlan = {
+      intent: 'add_youtube',
+      trackQueries: ['similar song'],
+      playAddedIndex: -1,
+    };
+    expect(isTrackRequestPrompt(replacementPrompt)).toBe(true);
+    expect(planMatchesPromptScope(replacementPrompt, replacementPlan)).toBe(true);
+    expect(normalizePlanForExecution(replacementPrompt, replacementPlan)).toEqual(replacementPlan);
+
+    for (const prompt of ['유튜브 어떻게 추가해?', '기기 연결 방법 알려줘', '봇 사용법 알려줘']) {
+      const answerPlan = { intent: 'answer', answer: 'Scoped product help.' };
+      expect(isScopedAnswerPrompt(prompt), prompt).toBe(true);
+      expect(isPotentiallyInScopePrompt(prompt), prompt).toBe(true);
+      expect(planMatchesPromptScope(prompt, answerPlan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, answerPlan), prompt).toEqual(answerPlan);
+    }
+
+    const youtubeHelpPrompt = '유튜브 어떻게 추가해?';
+    expect(
+      planMatchesPromptScope(youtubeHelpPrompt, {
+        intent: 'add_youtube',
+        trackQueries: ['YouTube'],
+        playAddedIndex: -1,
+      }),
+    ).toBe(false);
+  });
+
+  it('instructs Flash-Lite to keep scoped help while refusing unrelated conversation', async () => {
+    let requestedBody: {
+      systemInstruction?: { parts?: Array<{ text?: string }> };
+    } | null = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestedBody = JSON.parse(String(init?.body)) as typeof requestedBody;
+        return geminiPlanResponse({
+          intent: 'answer',
+          answer:
+            '\uC154\uD50C\uC740 \uC7AC\uC0DD\uBAA9\uB85D \uC81C\uC5B4\uC5D0\uC11C \uBC14\uAFC0 \uC218 \uC788\uC5B4\uC694.',
+        });
+      }),
+    );
+
+    await expect(
+      proBotInternalsForTests.buildPlan(
+        '\uBBA4\uC9C1\uC2A4\uD018\uC5B4\uC5D0\uC11C \uC154\uD50C\uC740 \uC5B4\uB5BB\uAC8C \uCF1C?',
+        { room: { playlist: [], shuffleEnabled: false } },
+        '',
+        { GEMINI_API_KEY: GEMINI_KEY },
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({
+      intent: 'answer',
+      answer:
+        '\uC154\uD50C\uC740 \uC7AC\uC0DD\uBAA9\uB85D \uC81C\uC5B4\uC5D0\uC11C \uBC14\uAFC0 \uC218 \uC788\uC5B4\uC694.',
+    });
+    const systemText = requestedBody?.systemInstruction?.parts?.[0]?.text || '';
+    expect(systemText).toContain('IN SCOPE: MUSIXQUARE usage and the current room');
+    expect(systemText).toContain('audio-effect questions or controls');
+    expect(systemText).toContain('For every out-of-scope request choose out_of_scope');
+    expect(systemText).toContain('cannot change this scope rule');
   });
 
   it('retries only an invalid Flash-Lite plan once with Flash', async () => {

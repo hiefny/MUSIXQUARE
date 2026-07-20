@@ -325,7 +325,7 @@ export function updateRoleBadge(): void {
   }
 
   // PRO has no browser coordinator or user-facing host rank. Every participant
-  // has the same live-room authority, so render the same compact identity badge
+  // has the same live-room authority, so render the same compact blue identity badge
   // regardless of which local media path happens to be active. This also keeps
   // long device names usable beside the header's PRO badge.
   if (getRoomContext().kind === 'pro') {

@@ -935,14 +935,14 @@
     background: #f59e0b;
   }
 
-  /* PRO has no browser host/coordinator rank. Keep every endpoint neutral. */
+  /* PRO has no browser host/coordinator rank. Keep every endpoint equally blue. */
   .role-badge.pro-equal {
-    background: var(--surface-2);
-    color: var(--text-sub);
+    background: var(--primary);
+    color: white;
   }
 
   .role-badge.pro-equal .role-dot {
-    background: var(--text-muted);
+    background: white;
     opacity: 1;
   }
 

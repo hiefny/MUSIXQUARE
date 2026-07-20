@@ -37,7 +37,15 @@ export class ProRoomHeartbeatSingleFlight {
       if (generation !== this.#generation) return;
       do {
         this.#followUpRequested = false;
-        await operation();
+        try {
+          await operation();
+        } catch (error) {
+          // A forced reconciliation represents newer server authority. If it
+          // arrived while the older request was failing, still drain that one
+          // successor and let its result become the shared flight outcome.
+          // Ordinary failures (and reset generations) retain their rejection.
+          if (generation !== this.#generation || !this.#followUpRequested) throw error;
+        }
         if (generation !== this.#generation) return;
       } while (this.#followUpRequested);
     } finally {

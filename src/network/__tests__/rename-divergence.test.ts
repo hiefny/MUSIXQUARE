@@ -288,4 +288,27 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_reserved');
     expect(renameSpy).not.toHaveBeenCalled();
   });
+
+  it('keeps the server-owned Peer N namespace unavailable to PRO /nick', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    setState('network.hostConn', null);
+    setState('network.myId', 'member-1');
+    setState('network.myDeviceLabel', 'Peer 1');
+    setState('network.lastKnownDeviceList', [makeDevice('member-1', 'Peer 1')]);
+    const renameSpy = vi.fn();
+    bus.on('network:rename-device', renameSpy);
+
+    runNick('pEeR 99');
+
+    expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_reserved');
+    expect(renameSpy).not.toHaveBeenCalled();
+  });
 });

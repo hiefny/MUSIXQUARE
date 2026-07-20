@@ -233,7 +233,7 @@ describe('updateRoleBadge', () => {
     expect(document.getElementById('role-text')?.innerText).toBe('Living Room');
   });
 
-  it('renders every PRO member as the same compact identity without ping or route color', () => {
+  it('renders every PRO member as the same compact blue identity without ping or route color', () => {
     const badge = renderBadge();
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
@@ -259,10 +259,10 @@ describe('updateRoleBadge', () => {
     expect(document.querySelector('.badge-ping')).toBeNull();
   });
 
-  it('uses the same neutral PRO identity contract for another equal member', () => {
+  it('uses the same blue PRO identity contract for another equal member', () => {
     const badge = renderBadge();
     setState('network.appRole', 'host');
-    setState('network.myDeviceLabel', 'Peer 0');
+    setState('network.myDeviceLabel', 'Peer 2');
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
@@ -278,7 +278,7 @@ describe('updateRoleBadge', () => {
     expect(badge.classList.contains('connected')).toBe(false);
     expect(badge.classList.contains('remote')).toBe(false);
     expect(badge.classList.contains('pro-equal')).toBe(true);
-    expect(document.getElementById('role-text')?.textContent).toBe('Peer 0');
+    expect(document.getElementById('role-text')?.textContent).toBe('Peer 2');
     expect(document.querySelector('.badge-ping')).toBeNull();
   });
 

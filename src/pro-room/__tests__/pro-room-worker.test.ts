@@ -6858,6 +6858,288 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
+  it('assigns stable one-based Peer names without consuming slots for custom names', async () => {
+    const { worker } = await activatedRoom();
+    const firstResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+    );
+    const firstCookie = cookieFrom(firstResponse);
+    const first = await responseJson(firstResponse);
+    bindCookiePresence(firstCookie, first);
+    expect(first.snapshot.viewer.displayName).toBe('Peer 1');
+
+    const customResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Studio Tablet' }),
+    );
+    const customCookie = cookieFrom(customResponse);
+    const custom = await responseJson(customResponse);
+    bindCookiePresence(customCookie, custom);
+    expect(custom.snapshot.viewer.displayName).toBe('Studio Tablet');
+
+    const secondResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+    );
+    const secondCookie = cookieFrom(secondResponse);
+    const second = await responseJson(secondResponse);
+    bindCookiePresence(secondCookie, second);
+    expect(second.snapshot.viewer.displayName).toBe('Peer 2');
+
+    const claimedNumberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer 99' }),
+    );
+    const claimedNumber = await responseJson(claimedNumberResponse);
+    expect(claimedNumber.snapshot.viewer.displayName).toBe('Peer 3');
+
+    const reservedRenameResponse = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: first.snapshot.revision,
+          playlistRevision: first.snapshot.playlistRevision,
+          presenceRevision: first.snapshot.presence.revision,
+          playbackRevision: first.snapshot.playback.revision,
+          coordinatorEpoch: first.snapshot.presence.coordinatorEpoch,
+          displayName: 'Peer 3',
+        },
+        firstCookie,
+      ),
+    );
+    const reservedRename = await responseJson(reservedRenameResponse);
+    expect(reservedRename.snapshot.viewer.displayName).toBe('Peer 1');
+
+    const leave = await worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, firstCookie),
+    );
+    expect(leave.status).toBe(200);
+    const reentryResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, firstCookie),
+    );
+    const reentry = await responseJson(reentryResponse);
+    bindCookiePresence(firstCookie, reentry);
+    expect(reentry.snapshot.viewer).toMatchObject({
+      participantId: first.snapshot.viewer.participantId,
+      displayName: 'Peer 1',
+    });
+
+    const takeoverResponse = await worker.fetch(
+      jsonRequest('/presence/enter', 'POST', { takeover: true }, firstCookie),
+    );
+    const takeover = await responseJson(takeoverResponse);
+    bindCookiePresence(firstCookie, takeover);
+    expect(takeover.snapshot.viewer).toMatchObject({
+      participantId: first.snapshot.viewer.participantId,
+      displayName: 'Peer 1',
+    });
+    expect(takeover.snapshot.viewer.presenceIncarnationId).not.toBe(
+      reentry.snapshot.viewer.presenceIncarnationId,
+    );
+
+    const customKnown = custom.snapshot;
+    const staleCustomHeartbeat = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: customKnown.revision,
+          playlistRevision: customKnown.playlistRevision,
+          presenceRevision: customKnown.presence.revision,
+          playbackRevision: customKnown.playback.revision,
+          coordinatorEpoch: customKnown.presence.coordinatorEpoch,
+          displayName: 'Peer',
+        },
+        customCookie,
+      ),
+    );
+    expect(staleCustomHeartbeat.status).toBe(200);
+    const customAfterStale = await responseJson(
+      await worker.fetch(request('/snapshot', {}, customCookie)),
+    );
+    expect(customAfterStale.snapshot.viewer.displayName).toBe('Studio Tablet');
+
+    const staleNumberedHeartbeat = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: customAfterStale.snapshot.revision,
+          playlistRevision: customAfterStale.snapshot.playlistRevision,
+          presenceRevision: customAfterStale.snapshot.presence.revision,
+          playbackRevision: customAfterStale.snapshot.playback.revision,
+          coordinatorEpoch: customAfterStale.snapshot.presence.coordinatorEpoch,
+          displayName: 'Peer 1',
+        },
+        customCookie,
+      ),
+    );
+    expect(staleNumberedHeartbeat.status).toBe(200);
+    const customAfterNumberedStale = await responseJson(
+      await worker.fetch(request('/snapshot', {}, customCookie)),
+    );
+    expect(customAfterNumberedStale.snapshot.viewer.displayName).toBe('Studio Tablet');
+  });
+
+  it('treats case variants of the generated Peer namespace as allocation requests', async () => {
+    const { worker } = await activatedRoom();
+    const firstResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+    );
+    const first = await responseJson(firstResponse);
+    expect(first.snapshot.viewer.displayName).toBe('Peer 1');
+
+    const claimedNumberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'pEeR 99' }),
+    );
+    const claimedNumber = await responseJson(claimedNumberResponse);
+    expect(claimedNumber.snapshot.viewer.displayName).toBe('Peer 2');
+  });
+
+  it('promotes a legacy Peer 0 session on heartbeat and rejects stale generic rollback', async () => {
+    const { worker } = await activatedRoom();
+    const memberResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Legacy Tablet' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    const member = await responseJson(memberResponse);
+    bindCookiePresence(memberCookie, member);
+    const participantId = member.snapshot.viewer.participantId as string;
+    const internal = worker as unknown as {
+      room: {
+        sessions: Record<
+          string,
+          { participantId: string; displayName: string; peerOrdinal?: number }
+        >;
+        presence: { participants: Record<string, { displayName: string }> };
+      };
+    };
+    const legacySession = Object.values(internal.room.sessions).find(
+      (session) => session.participantId === participantId,
+    );
+    expect(legacySession).toBeDefined();
+    legacySession!.displayName = 'Peer 0';
+    delete legacySession!.peerOrdinal;
+    internal.room.presence.participants[participantId]!.displayName = 'Peer 0';
+
+    const known = member.snapshot;
+    const migratedResponse = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: known.revision,
+          playlistRevision: known.playlistRevision,
+          presenceRevision: known.presence.revision,
+          playbackRevision: known.playback.revision,
+          coordinatorEpoch: known.presence.coordinatorEpoch,
+          displayName: 'Peer 0',
+        },
+        memberCookie,
+      ),
+    );
+    const migrated = await responseJson(migratedResponse);
+    expect(migrated.snapshot.viewer.displayName).toBe('Peer 1');
+    expect(migrated.snapshot.presence.participants).toContainEqual(
+      expect.objectContaining({ participantId, displayName: 'Peer 1' }),
+    );
+    expect(legacySession).toMatchObject({ displayName: 'Peer 1', peerOrdinal: 1 });
+
+    const renamedResponse = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: migrated.snapshot.revision,
+          playlistRevision: migrated.snapshot.playlistRevision,
+          presenceRevision: migrated.snapshot.presence.revision,
+          playbackRevision: migrated.snapshot.playback.revision,
+          coordinatorEpoch: migrated.snapshot.presence.coordinatorEpoch,
+          displayName: 'Mix Desk',
+        },
+        memberCookie,
+      ),
+    );
+    const renamed = await responseJson(renamedResponse);
+    expect(renamed.snapshot.viewer.displayName).toBe('Mix Desk');
+
+    const staleResponse = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: renamed.snapshot.revision,
+          playlistRevision: renamed.snapshot.playlistRevision,
+          presenceRevision: renamed.snapshot.presence.revision,
+          playbackRevision: renamed.snapshot.playback.revision,
+          coordinatorEpoch: renamed.snapshot.presence.coordinatorEpoch,
+          displayName: 'Peer',
+        },
+        memberCookie,
+      ),
+    );
+    expect(staleResponse.status).toBe(200);
+    const afterStale = await responseJson(
+      await worker.fetch(request('/snapshot', {}, memberCookie)),
+    );
+    expect(afterStale.snapshot.viewer.displayName).toBe('Mix Desk');
+    expect(afterStale.snapshot.presence.participants).toContainEqual(
+      expect.objectContaining({ participantId, displayName: 'Mix Desk' }),
+    );
+  });
+
+  it('repairs a duplicated stored Peer ordinal and its visible name on heartbeat', async () => {
+    const { worker } = await activatedRoom();
+    const firstResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+    );
+    const firstCookie = cookieFrom(firstResponse);
+    bindCookiePresence(firstCookie, await responseJson(firstResponse));
+    const secondResponse = await worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+    );
+    const secondCookie = cookieFrom(secondResponse);
+    const second = await responseJson(secondResponse);
+    bindCookiePresence(secondCookie, second);
+    const secondParticipantId = second.snapshot.viewer.participantId as string;
+    const internal = worker as unknown as {
+      room: {
+        sessions: Record<
+          string,
+          { participantId: string; displayName: string; peerOrdinal?: number }
+        >;
+        presence: { participants: Record<string, { displayName: string }> };
+      };
+    };
+    const secondSession = Object.values(internal.room.sessions).find(
+      (session) => session.participantId === secondParticipantId,
+    );
+    expect(secondSession).toBeDefined();
+    secondSession!.peerOrdinal = 1;
+    secondSession!.displayName = 'Peer 1';
+    internal.room.presence.participants[secondParticipantId]!.displayName = 'Peer 1';
+
+    const repairedResponse = await worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: second.snapshot.revision,
+          playlistRevision: second.snapshot.playlistRevision,
+          presenceRevision: second.snapshot.presence.revision,
+          playbackRevision: second.snapshot.playback.revision,
+          coordinatorEpoch: second.snapshot.presence.coordinatorEpoch,
+          displayName: 'Peer 1',
+        },
+        secondCookie,
+      ),
+    );
+    const repaired = await responseJson(repairedResponse);
+    expect(repaired.snapshot.viewer.displayName).toBe('Peer 2');
+    expect(secondSession).toMatchObject({ displayName: 'Peer 2', peerOrdinal: 2 });
+    expect(repaired.snapshot.presence.participants).toContainEqual(
+      expect.objectContaining({ participantId: secondParticipantId, displayName: 'Peer 2' }),
+    );
+  });
+
   it('redeems a short-lived owner recovery claim once and revokes prior owner credentials', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controllerResponse = await worker.fetch(
@@ -7162,18 +7444,18 @@ describe('persistent PRO room authentication, presence, and state', () => {
           presenceRevision: known.presence.revision,
           playbackRevision: known.playback.revision,
           coordinatorEpoch: known.presence.coordinatorEpoch,
-          displayName: 'Peer 0',
+          displayName: 'Mix Room',
         },
         ownerCookie,
       ),
     );
     expect(renamed.status).toBe(200);
     const renamedSnapshot = (await responseJson(renamed)).snapshot;
-    expect(renamedSnapshot.viewer.displayName).toBe('Peer 0');
+    expect(renamedSnapshot.viewer.displayName).toBe('Mix Room');
     expect(renamedSnapshot.presence.participants).toContainEqual(
       expect.objectContaining({
         participantId: renamedSnapshot.viewer.participantId,
-        displayName: 'Peer 0',
+        displayName: 'Mix Room',
       }),
     );
     expect(renamedSnapshot.revision).toBe(known.revision + 1);

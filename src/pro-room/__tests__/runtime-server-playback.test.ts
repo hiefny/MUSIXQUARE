@@ -40,6 +40,8 @@ const ROOM_EPOCH = 7;
 const PARTICIPANT_ID = 'participant_00001';
 const QUEUE_ITEM_ID = '40000000-0000-4000-8000-000000000001' as QueueItemId;
 const VIDEO_ID = 'dQw4w9WgXcQ';
+const ADDED_QUEUE_ITEM_ID = '40000000-0000-4000-8000-000000000002' as QueueItemId;
+const ADDED_VIDEO_ID = 'M7lc1UVf-VE';
 const TRANSITION_READY = `transition_${'a'.repeat(22)}`;
 const TRANSITION_FAILED = `transition_${'b'.repeat(22)}`;
 const TRANSITION_COMMIT = `transition_${'c'.repeat(22)}`;
@@ -532,6 +534,509 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         status: 'failed',
       }),
     );
+  });
+
+  it('hydrates a newly-added BOT target before reporting PREPARE readiness', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const systemAudio = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(systemAudio).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    heartbeat.mockClear();
+    systemAudio.mockClear();
+    const hydrated: ProRoomSnapshot = {
+      ...snapshot(),
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [
+        ...snapshot().playlist,
+        {
+          queueItemId: ADDED_QUEUE_ITEM_ID,
+          name: 'BOT-added track',
+          source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
+        },
+      ],
+    };
+    heartbeat.mockResolvedValue(hydrated);
+    systemAudio.mockImplementationOnce(() => new Promise(() => {}));
+    prepareMedia.mockImplementationOnce(async (request): Promise<ProPlaybackPrepareResult> => {
+      expect(
+        getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),
+      ).toBe(true);
+      return {
+        status: 'ready',
+        authority: request.authority,
+        queueItemId: request.queueItemId,
+        mediaKind: 'youtube',
+        durationSeconds: 180,
+        youtubeSubIndex: request.youtubeSubIndex ?? null,
+        youtubeVideoId: request.youtubeVideoId ?? null,
+      };
+    });
+    const event = {
+      ...prepareEvent(TRANSITION_READY),
+      target: playback(1, {
+        queueItemId: ADDED_QUEUE_ITEM_ID,
+        youtubeVideoId: ADDED_VIDEO_ID,
+      }),
+    };
+
+    acceptProRoomRealtimeFrameForTests(serverFrame(event as unknown as Record<string, unknown>));
+
+    await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+    expect(heartbeat).toHaveBeenCalled();
+    expect(systemAudio).toHaveBeenCalled();
+    expect(prepareMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueItemId: ADDED_QUEUE_ITEM_ID,
+        youtubeVideoId: ADDED_VIDEO_ID,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(reportReady).toHaveBeenCalledWith(
+        expect.objectContaining({ transitionId: TRANSITION_READY, status: 'ready' }),
+      ),
+    );
+  });
+
+  it('hydrates a BOT target even when an older heartbeat adjunct refresh never settles', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const systemAudio = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(systemAudio).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    heartbeat.mockClear();
+    systemAudio.mockClear();
+
+    const hydrated: ProRoomSnapshot = {
+      ...snapshot(),
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [
+        ...snapshot().playlist,
+        {
+          queueItemId: ADDED_QUEUE_ITEM_ID,
+          name: 'BOT-added track',
+          source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
+        },
+      ],
+    };
+    heartbeat.mockResolvedValueOnce(snapshot()).mockResolvedValue(hydrated);
+    systemAudio.mockImplementationOnce(() => new Promise(() => {}));
+
+    // Start one routine heartbeat first. Its system-audio adjunct remains
+    // pending forever, but must no longer occupy the heartbeat single-flight.
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(systemAudio).toHaveBeenCalledOnce());
+
+    const event = {
+      ...prepareEvent(TRANSITION_READY),
+      target: playback(1, {
+        queueItemId: ADDED_QUEUE_ITEM_ID,
+        youtubeVideoId: ADDED_VIDEO_ID,
+      }),
+    };
+    acceptProRoomRealtimeFrameForTests(serverFrame(event as unknown as Record<string, unknown>));
+
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+    expect(prepareMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueItemId: ADDED_QUEUE_ITEM_ID,
+        youtubeVideoId: ADDED_VIDEO_ID,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(reportReady).toHaveBeenCalledWith(
+        expect.objectContaining({ transitionId: TRANSITION_READY, status: 'ready' }),
+      ),
+    );
+  });
+
+  it('hydrates a BOT target after the older joined heartbeat rejects', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    heartbeat.mockClear();
+
+    let rejectOlderHeartbeat!: (error: unknown) => void;
+    const hydrated: ProRoomSnapshot = {
+      ...snapshot(),
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [
+        ...snapshot().playlist,
+        {
+          queueItemId: ADDED_QUEUE_ITEM_ID,
+          name: 'BOT-added track',
+          source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
+        },
+      ],
+    };
+    heartbeat
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectOlderHeartbeat = reject;
+          }),
+      )
+      .mockResolvedValue(hydrated);
+    prepareMedia.mockImplementationOnce(async (request): Promise<ProPlaybackPrepareResult> => {
+      expect(
+        getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),
+      ).toBe(true);
+      return {
+        status: 'ready',
+        authority: request.authority,
+        queueItemId: request.queueItemId,
+        mediaKind: 'youtube',
+        durationSeconds: 180,
+        youtubeSubIndex: request.youtubeSubIndex ?? null,
+        youtubeVideoId: request.youtubeVideoId ?? null,
+      };
+    });
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({
+        ...prepareEvent(TRANSITION_READY),
+        target: playback(1, {
+          queueItemId: ADDED_QUEUE_ITEM_ID,
+          youtubeVideoId: ADDED_VIDEO_ID,
+        }),
+      } as unknown as Record<string, unknown>),
+    );
+
+    rejectOlderHeartbeat(new ProRoomApiError('NETWORK_ERROR'));
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(reportReady).toHaveBeenCalledWith(
+        expect.objectContaining({ transitionId: TRANSITION_READY, status: 'ready' }),
+      ),
+    );
+  });
+
+  it('coalesces pending effects and queue-mode GETs then follows the newest revision once', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const getEffects = vi.mocked(ProRoomApiClient.prototype.getEffects);
+    const getQueueMode = vi.mocked(ProRoomApiClient.prototype.getQueueMode);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    heartbeat.mockClear();
+    getEffects.mockClear();
+    getQueueMode.mockClear();
+
+    let resolveEffects!: (value: Awaited<ReturnType<ProRoomApiClient['getEffects']>>) => void;
+    let resolveQueueMode!: (value: Awaited<ReturnType<ProRoomApiClient['getQueueMode']>>) => void;
+    getEffects.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveEffects = resolve;
+        }),
+    );
+    getQueueMode.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveQueueMode = resolve;
+        }),
+    );
+    getEffects.mockResolvedValue({
+      schemaVersion: 1,
+      view: 'effects',
+      roomCode: ROOM_CODE,
+      revision: 2,
+      updatedAtMs: 3,
+      effects: createDefaultRoomEffectsState(),
+    });
+    getQueueMode.mockResolvedValue({
+      schemaVersion: 1,
+      view: 'queue-mode',
+      roomCode: ROOM_CODE,
+      revision: 2,
+      playlistRevision: 1,
+      updatedAtMs: 3,
+      repeatMode: 0,
+      shuffleEnabled: false,
+      shuffleOrder: [],
+    });
+
+    const invalidatedSnapshot = (revision: number, dedicatedRevision: number): ProRoomSnapshot => ({
+      ...snapshot(),
+      revision,
+      effectsRevision: dedicatedRevision,
+      queueModeRevision: dedicatedRevision,
+      presence: {
+        ...snapshot().presence,
+        revision,
+      },
+    });
+    heartbeat
+      .mockResolvedValueOnce(invalidatedSnapshot(2, 1))
+      .mockResolvedValueOnce(invalidatedSnapshot(3, 2))
+      .mockResolvedValue(invalidatedSnapshot(4, 2));
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledOnce());
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
+    );
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getEffects).toHaveBeenCalledOnce();
+    expect(getQueueMode).toHaveBeenCalledOnce();
+
+    resolveEffects({
+      schemaVersion: 1,
+      view: 'effects',
+      roomCode: ROOM_CODE,
+      revision: 1,
+      updatedAtMs: 2,
+      effects: createDefaultRoomEffectsState(),
+    });
+    resolveQueueMode({
+      schemaVersion: 1,
+      view: 'queue-mode',
+      roomCode: ROOM_CODE,
+      revision: 1,
+      playlistRevision: 1,
+      updatedAtMs: 2,
+      repeatMode: 0,
+      shuffleEnabled: false,
+      shuffleOrder: [],
+    });
+    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledTimes(2));
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
+    );
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(3));
+    expect(getEffects).toHaveBeenCalledTimes(2);
+    expect(getQueueMode).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries one pending effects and queue-mode refresh after the first GET rejects', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const getEffects = vi.mocked(ProRoomApiClient.prototype.getEffects);
+    const getQueueMode = vi.mocked(ProRoomApiClient.prototype.getQueueMode);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    heartbeat.mockClear();
+    getEffects.mockClear();
+    getQueueMode.mockClear();
+
+    let rejectEffects!: (error: unknown) => void;
+    let rejectQueueMode!: (error: unknown) => void;
+    getEffects
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectEffects = reject;
+          }),
+      )
+      .mockResolvedValue({
+        schemaVersion: 1,
+        view: 'effects',
+        roomCode: ROOM_CODE,
+        revision: 1,
+        updatedAtMs: 2,
+        effects: createDefaultRoomEffectsState(),
+      });
+    getQueueMode
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectQueueMode = reject;
+          }),
+      )
+      .mockResolvedValue({
+        schemaVersion: 1,
+        view: 'queue-mode',
+        roomCode: ROOM_CODE,
+        revision: 1,
+        playlistRevision: 1,
+        updatedAtMs: 2,
+        repeatMode: 0,
+        shuffleEnabled: false,
+        shuffleOrder: [],
+      });
+
+    const invalidatedSnapshot = (revision: number): ProRoomSnapshot => ({
+      ...snapshot(),
+      revision,
+      effectsRevision: 1,
+      queueModeRevision: 1,
+      presence: { ...snapshot().presence, revision },
+    });
+    heartbeat
+      .mockResolvedValueOnce(invalidatedSnapshot(2))
+      .mockResolvedValueOnce(invalidatedSnapshot(3))
+      .mockResolvedValue(invalidatedSnapshot(4));
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledOnce());
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
+    );
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(2));
+
+    rejectEffects(new Error('effects unavailable'));
+    rejectQueueMode(new Error('queue mode unavailable'));
+    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledTimes(2));
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
+    );
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(3));
+    expect(getEffects).toHaveBeenCalledTimes(2);
+    expect(getQueueMode).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not start a late BOT target preparation after the transition is cancelled', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    heartbeat.mockClear();
+    let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
+    heartbeat.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHeartbeat = resolve;
+        }),
+    );
+    const event = {
+      ...prepareEvent(TRANSITION_READY),
+      target: playback(1, {
+        queueItemId: ADDED_QUEUE_ITEM_ID,
+        youtubeVideoId: ADDED_VIDEO_ID,
+      }),
+    };
+
+    acceptProRoomRealtimeFrameForTests(serverFrame(event as unknown as Record<string, unknown>));
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({
+        type: 'pro-playback-cancel',
+        transitionId: TRANSITION_READY,
+        serverTimeMs: 10_050,
+        reason: 'superseded',
+      }),
+    );
+    resolveHeartbeat({
+      ...snapshot(),
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [
+        ...snapshot().playlist,
+        {
+          queueItemId: ADDED_QUEUE_ITEM_ID,
+          name: 'BOT-added track',
+          source: { kind: 'youtube', videoId: ADDED_VIDEO_ID },
+        },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(
+        getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),
+      ).toBe(true),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(prepareMedia).not.toHaveBeenCalled();
+    expect(reportReady).not.toHaveBeenCalled();
+  });
+
+  it('announces authoritative PRO joins and leaves once without treating rename as churn', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    heartbeat.mockClear();
+    const messages: string[] = [];
+    const off = bus.on('chat:system-message', (text) => messages.push(text));
+    const peerTwo = {
+      participantId: 'participant_00002',
+      displayName: 'Peer 2',
+      role: 'controller' as const,
+      joinedAtMs: 2,
+    };
+    try {
+      const joined: ProRoomSnapshot = {
+        ...snapshot(),
+        revision: 2,
+        presence: {
+          ...snapshot().presence,
+          revision: 2,
+          participants: [...snapshot().presence.participants, peerTwo],
+        },
+      };
+      heartbeat.mockResolvedValue(joined);
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+      );
+      await vi.waitFor(() => expect(messages).toHaveLength(1));
+      expect(messages[0]).toContain('Peer 2');
+
+      // Replayed invalidations and a name change keep the same participant ID,
+      // so neither may create a second join/leave row.
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(messages).toHaveLength(1);
+
+      const renamed: ProRoomSnapshot = {
+        ...joined,
+        revision: 3,
+        presence: {
+          ...joined.presence,
+          revision: 3,
+          participants: [
+            joined.presence.participants[0],
+            { ...peerTwo, displayName: 'Listening room' },
+          ],
+        },
+      };
+      heartbeat.mockResolvedValue(renamed);
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
+      );
+      await vi.waitFor(() =>
+        expect(getState('network.peerLabels').participant_00002).toBe('Listening room'),
+      );
+      expect(messages).toHaveLength(1);
+
+      const departed: ProRoomSnapshot = {
+        ...renamed,
+        revision: 4,
+        presence: {
+          ...renamed.presence,
+          revision: 4,
+          participants: [renamed.presence.participants[0]],
+        },
+      };
+      heartbeat.mockResolvedValue(departed);
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
+      );
+      await vi.waitFor(() => expect(messages).toHaveLength(2));
+      expect(messages[1]).toContain('Listening room');
+    } finally {
+      off();
+    }
   });
 
   it('does not report media READY until a fresh server clock sample is available', async () => {

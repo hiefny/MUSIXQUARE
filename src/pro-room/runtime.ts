@@ -5,7 +5,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
 import { announceTracksAddedLocally } from '../chat/queue-events.ts';
-import { receiveProRoomRealtimeChat } from '../chat/protocol.ts';
+import { announceSystemMessageLocally, receiveProRoomRealtimeChat } from '../chat/protocol.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { applyRoomEffectsState, captureRoomEffectsState } from '../audio/effects.ts';
 import {
@@ -88,6 +88,7 @@ import {
   resetProPlaybackAuthorityHooks,
   settleProPlaybackUiControl,
   type ProPlaybackAuthorityToken,
+  type ProPlaybackPrepareResult,
   type ProPlaybackTimingMode,
   type ProPlaybackUserIntent,
 } from './playback-authority-hooks.ts';
@@ -129,6 +130,8 @@ const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
 const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
+const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
+const PLAYLIST_HYDRATION_PREPARE_RESERVE_MS = 500;
 // Keep well below the manifest endpoint's per-IP minute budget so a room with
 // legacy rows cannot starve an explicit user add. Remaining rows continue on
 // a later room session.
@@ -150,12 +153,20 @@ interface PlaylistRuntimeLease {
   generation: number;
   roomCode: string;
 }
+interface PersistedStateRefreshFlight {
+  generation: number;
+  roomCode: string;
+  pendingSnapshot: ProRoomSnapshot | null;
+  promise: Promise<boolean>;
+}
 let playlistRuntimeGeneration = 0;
 let playlistRuntimeLease: PlaylistRuntimeLease | null = null;
 let effectsMutationTail: Promise<void> = Promise.resolve();
+let effectsRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedEffects: ProRoomEffectsSnapshot | null = null;
 let suppressEffectsCheckpoint = false;
 let queueModeMutationTail: Promise<void> = Promise.resolve();
+let queueModeRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
 let suppressQueueModeCheckpoint = false;
 let queueModeCheckpointDirty = false;
@@ -163,6 +174,17 @@ let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
 let controlChannelRecoveryAttempt = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
+const playlistProjectionListeners = new Set<() => void>();
+interface AcceptedProPresenceParticipant {
+  participantId: string;
+  displayName: string;
+  joinedAtMs: number;
+}
+let acceptedProPresence: {
+  roomCode: string;
+  revision: number;
+  participants: Map<string, AcceptedProPresenceParticipant>;
+} | null = null;
 const seenQueueAdditionEventIds = new Set<string>();
 const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
 let lastAnnouncedQueueAdditionOrder = 0;
@@ -198,14 +220,15 @@ let playbackCommandTail: Promise<void> = Promise.resolve();
 let playbackCommandRequestSequence = 0;
 let highestKnownPlaybackRevision = -1;
 let lastAppliedPlaybackRevision = -1;
-let activeServerPlaybackTransition: {
+interface ActiveServerPlaybackTransition {
   event: ProRoomPlaybackPrepareEvent;
   authority: ProPlaybackAuthorityToken;
   preparation: ReturnType<typeof prepareProPlaybackAuthority>;
   readyReportStarted: boolean;
   receivedAtMs: number;
   clockAbort: AbortController;
-} | null = null;
+}
+let activeServerPlaybackTransition: ActiveServerPlaybackTransition | null = null;
 const playbackCommitInFlight = new Map<number, Promise<void>>();
 let playbackCommitTail: Promise<void> = Promise.resolve();
 let playbackCommitGeneration = 0;
@@ -1091,12 +1114,67 @@ function cancelDeferredProRoomPreload(queueItemId?: QueueItemId): void {
   deferredPreloadRequest = null;
 }
 
+function reconcileAuthoritativePresenceMessages(
+  snapshot: ProRoomSnapshot,
+  participants: AcceptedProPresenceParticipant[],
+): void {
+  const current = new Map(
+    participants.map((participant) => [participant.participantId, participant] as const),
+  );
+  const previous = acceptedProPresence;
+
+  // The first authenticated snapshot is a baseline, not a burst of historical
+  // "joined" messages. A new room also starts from a clean baseline.
+  if (!previous || previous.roomCode !== snapshot.roomCode) {
+    acceptedProPresence = {
+      roomCode: snapshot.roomCode,
+      revision: snapshot.presence.revision,
+      participants: current,
+    };
+    return;
+  }
+
+  // SessionController already rejects stale snapshots. Keep a local fence too
+  // because presence messages are user-visible and must never be duplicated by
+  // repeated invalidations carrying the same authoritative revision.
+  if (snapshot.presence.revision <= previous.revision) return;
+
+  if (active) {
+    for (const participant of participants) {
+      if (!previous.participants.has(participant.participantId)) {
+        announceSystemMessageLocally('chat.peer_connected', {
+          name: participant.displayName,
+        });
+      }
+    }
+    const departed = [...previous.participants.values()]
+      .filter((participant) => !current.has(participant.participantId))
+      .sort(
+        (left, right) =>
+          left.joinedAtMs - right.joinedAtMs ||
+          left.participantId.localeCompare(right.participantId),
+      );
+    for (const participant of departed) {
+      announceSystemMessageLocally('chat.peer_disconnected', {
+        name: participant.displayName,
+      });
+    }
+  }
+
+  acceptedProPresence = {
+    roomCode: snapshot.roomCode,
+    revision: snapshot.presence.revision,
+    participants: current,
+  };
+}
+
 function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
   const viewerId = snapshot.viewer?.participantId ?? '';
   const participants = [...snapshot.presence.participants].sort(
     (left, right) =>
       left.joinedAtMs - right.joinedAtMs || left.participantId.localeCompare(right.participantId),
   );
+  reconcileAuthoritativePresenceMessages(snapshot, participants);
   const list = participants.map((participant, index) => ({
     id: participant.participantId,
     label: participant.displayName,
@@ -1363,10 +1441,13 @@ function resetPlaylistRuntime(): void {
   pendingQueueAdditions.clear();
   lastAnnouncedQueueAdditionOrder = 0;
   clearManagedTimer(QUEUE_ADDITION_FLUSH_TIMER);
+  effectsMutationTail = Promise.resolve();
+  effectsRefreshInFlight = null;
   acceptedEffects = null;
   suppressEffectsCheckpoint = false;
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   queueModeMutationTail = Promise.resolve();
+  queueModeRefreshInFlight = null;
   acceptedQueueMode = null;
   suppressQueueModeCheckpoint = false;
   queueModeCheckpointDirty = false;
@@ -1438,6 +1519,7 @@ async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> 
   // Coalesce signaling requests that completed out of order before rendering
   // their rows. The accepted snapshot remains the authority fence.
   scheduleAcceptedQueueAdditionFlush();
+  for (const listener of [...playlistProjectionListeners]) listener();
 }
 
 function queueAdditionOrder(frame: ProQueueAdditionFrame): number {
@@ -1661,8 +1743,78 @@ async function refreshPersistedEffectsUnlocked(snapshot: ProRoomSnapshot): Promi
   return true;
 }
 
+function effectsRefreshStillRequired(snapshot: ProRoomSnapshot): boolean {
+  return (
+    !acceptedEffects ||
+    acceptedEffects.roomCode !== snapshot.roomCode ||
+    snapshot.effectsRevision > acceptedEffects.revision
+  );
+}
+
+function newerEffectsRefreshSnapshot(
+  current: ProRoomSnapshot,
+  candidate: ProRoomSnapshot,
+): ProRoomSnapshot {
+  if (candidate.roomCode !== current.roomCode) return candidate;
+  if (candidate.effectsRevision !== current.effectsRevision) {
+    return candidate.effectsRevision > current.effectsRevision ? candidate : current;
+  }
+  return candidate.revision > current.revision ? candidate : current;
+}
+
 async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boolean> {
-  return enqueueEffectsMutation(() => refreshPersistedEffectsUnlocked(snapshot));
+  const generation = playlistRuntimeGeneration;
+  const existing = effectsRefreshInFlight;
+  if (existing && existing.generation === generation && existing.roomCode === snapshot.roomCode) {
+    existing.pendingSnapshot = existing.pendingSnapshot
+      ? newerEffectsRefreshSnapshot(existing.pendingSnapshot, snapshot)
+      : snapshot;
+    return existing.promise;
+  }
+
+  const flight: PersistedStateRefreshFlight = {
+    generation,
+    roomCode: snapshot.roomCode,
+    pendingSnapshot: null,
+    promise: Promise.resolve(false),
+  };
+  flight.promise = (async () => {
+    let target = snapshot;
+    let applied = false;
+    try {
+      for (;;) {
+        let failure: unknown = null;
+        try {
+          applied =
+            (await enqueueEffectsMutation(() => refreshPersistedEffectsUnlocked(target))) ||
+            applied;
+        } catch (error) {
+          failure = error;
+        }
+
+        if (flight.generation !== playlistRuntimeGeneration) {
+          if (failure) throw failure;
+          return applied;
+        }
+        const pending = flight.pendingSnapshot;
+        flight.pendingSnapshot = null;
+        if (
+          pending &&
+          pending.roomCode === flight.roomCode &&
+          effectsRefreshStillRequired(pending)
+        ) {
+          target = newerEffectsRefreshSnapshot(target, pending);
+          continue;
+        }
+        if (failure) throw failure;
+        return applied;
+      }
+    } finally {
+      if (effectsRefreshInFlight === flight) effectsRefreshInFlight = null;
+    }
+  })();
+  effectsRefreshInFlight = flight;
+  return flight.promise;
 }
 
 function queueModeMatchesPlaylist(
@@ -1858,11 +2010,86 @@ async function refreshPersistedQueueModeUnlocked(
   }
 }
 
+function queueModeRefreshStillRequired(snapshot: ProRoomSnapshot): boolean {
+  return (
+    !acceptedQueueMode ||
+    acceptedQueueMode.roomCode !== snapshot.roomCode ||
+    snapshot.queueModeRevision > acceptedQueueMode.revision ||
+    !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
+  );
+}
+
+function newerQueueModeRefreshSnapshot(
+  current: ProRoomSnapshot,
+  candidate: ProRoomSnapshot,
+): ProRoomSnapshot {
+  if (candidate.roomCode !== current.roomCode) return candidate;
+  if (candidate.queueModeRevision !== current.queueModeRevision) {
+    return candidate.queueModeRevision > current.queueModeRevision ? candidate : current;
+  }
+  if (candidate.playlistRevision !== current.playlistRevision) {
+    return candidate.playlistRevision > current.playlistRevision ? candidate : current;
+  }
+  return candidate.revision > current.revision ? candidate : current;
+}
+
 async function refreshPersistedQueueMode(
   snapshot: ProRoomSnapshot,
   options: { broadcast?: boolean } = {},
 ): Promise<boolean> {
-  return enqueueQueueModeMutation(() => refreshPersistedQueueModeUnlocked(snapshot, options));
+  const generation = playlistRuntimeGeneration;
+  const existing = queueModeRefreshInFlight;
+  if (existing && existing.generation === generation && existing.roomCode === snapshot.roomCode) {
+    existing.pendingSnapshot = existing.pendingSnapshot
+      ? newerQueueModeRefreshSnapshot(existing.pendingSnapshot, snapshot)
+      : snapshot;
+    return existing.promise;
+  }
+
+  const flight: PersistedStateRefreshFlight = {
+    generation,
+    roomCode: snapshot.roomCode,
+    pendingSnapshot: null,
+    promise: Promise.resolve(false),
+  };
+  flight.promise = (async () => {
+    let target = snapshot;
+    let applied = false;
+    try {
+      for (;;) {
+        let failure: unknown = null;
+        try {
+          applied =
+            (await enqueueQueueModeMutation(() =>
+              refreshPersistedQueueModeUnlocked(target, options),
+            )) || applied;
+        } catch (error) {
+          failure = error;
+        }
+
+        if (flight.generation !== playlistRuntimeGeneration) {
+          if (failure) throw failure;
+          return applied;
+        }
+        const pending = flight.pendingSnapshot;
+        flight.pendingSnapshot = null;
+        if (
+          pending &&
+          pending.roomCode === flight.roomCode &&
+          queueModeRefreshStillRequired(pending)
+        ) {
+          target = newerQueueModeRefreshSnapshot(target, pending);
+          continue;
+        }
+        if (failure) throw failure;
+        return applied;
+      }
+    } finally {
+      if (queueModeRefreshInFlight === flight) queueModeRefreshInFlight = null;
+    }
+  })();
+  queueModeRefreshInFlight = flight;
+  return flight.promise;
 }
 
 function serverNowForFrame(serverTimeMs: number, receivedAtMs: number): number {
@@ -1959,6 +2186,88 @@ function reportPlaybackPreparation(
     });
 }
 
+function hasProjectedQueueItem(queueItemId: QueueItemId): boolean {
+  return getState('playlist.items').some((item) => item.queueItemId === queueItemId);
+}
+
+function supersededPlaybackPreparation(
+  request: NonNullable<ReturnType<typeof playbackPrepareRequest>>,
+): ProPlaybackPrepareResult {
+  return {
+    status: 'superseded',
+    authority: request.authority,
+    queueItemId: request.queueItemId,
+    reason: 'superseded',
+  };
+}
+
+async function preparePlaybackAfterPlaylistHydration(
+  request: NonNullable<ReturnType<typeof playbackPrepareRequest>>,
+  event: ProRoomPlaybackPrepareEvent,
+  receivedAtMs: number,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
+): Promise<ProPlaybackPrepareResult> {
+  if (hasProjectedQueueItem(request.queueItemId)) {
+    return prepareProPlaybackAuthority(request);
+  }
+
+  // BOT/developer add+play can legitimately deliver PREPARE before the
+  // invalidation heartbeat has projected the newly-created queue row. Request
+  // one authoritative follow-up and resume as soon as playlist projection is
+  // complete; effects, queue-mode, and system-audio refreshes deliberately stay
+  // outside this media-critical wait.
+  const remainingWindowMs = Math.max(
+    0,
+    event.deadlineAtMs - serverNowForFrame(event.serverTimeMs, receivedAtMs),
+  );
+  const hydrationWaitMs = Math.max(
+    0,
+    Math.min(
+      PLAYLIST_HYDRATION_MAX_WAIT_MS,
+      remainingWindowMs - PLAYLIST_HYDRATION_PREPARE_RESERVE_MS,
+    ),
+  );
+
+  if (hydrationWaitMs > 0 && !signal.aborted) {
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        playlistProjectionListeners.delete(onProjection);
+        signal.removeEventListener('abort', settle);
+        if (timer !== null) clearTimeout(timer);
+        resolve();
+      };
+      const onProjection = () => {
+        if (hasProjectedQueueItem(request.queueItemId)) settle();
+      };
+      playlistProjectionListeners.add(onProjection);
+      signal.addEventListener('abort', settle, { once: true });
+      timer = globalThis.setTimeout(settle, hydrationWaitMs);
+
+      // Close the registration race before starting/joining the heartbeat. A
+      // forced follow-up guarantees that an older in-flight snapshot cannot be
+      // the final reconciliation attempt.
+      onProjection();
+      if (!settled) {
+        void runHeartbeat(true, true).then(settle, (error) => {
+          log.warn('[PRO Playback] Playlist hydration failed', error);
+          settle();
+        });
+      }
+    });
+  }
+  if (!isCurrent()) return supersededPlaybackPreparation(request);
+
+  // If the canonical row is still absent, use the ordinary media endpoint so
+  // it reports one bounded missing-track failure through the existing READY
+  // protocol. Never spin or extend the server's three-second rendezvous gate.
+  return prepareProPlaybackAuthority(request);
+}
+
 function acceptPlaybackPrepare(
   event: ProRoomPlaybackPrepareEvent,
   receivedAtMs = Date.now(),
@@ -1998,13 +2307,21 @@ function acceptPlaybackPrepare(
   });
   const request = playbackPrepareRequest(authority, event.target);
   if (!request) return;
-  const transition = {
+  const clockAbort = new AbortController();
+  const preparation = preparePlaybackAfterPlaylistHydration(
+    request,
+    event,
+    receivedAtMs,
+    clockAbort.signal,
+    () => activeServerPlaybackTransition?.authority === authority && !clockAbort.signal.aborted,
+  );
+  const transition: ActiveServerPlaybackTransition = {
     event,
     authority,
-    preparation: prepareProPlaybackAuthority(request),
+    preparation,
     readyReportStarted: false,
     receivedAtMs,
-    clockAbort: new AbortController(),
+    clockAbort,
   };
   activeServerPlaybackTransition = transition;
   reportPlaybackPreparation(transition);
@@ -2138,12 +2455,24 @@ async function applyPlaybackCommit(
   let authority: ProPlaybackAuthorityToken;
   let preparation: ReturnType<typeof prepareProPlaybackAuthority> | null = null;
   let preparedFromMatchingTransition = false;
-  const activeTransition = activeServerPlaybackTransition;
-  if (
+  let activeTransition = activeServerPlaybackTransition;
+  const matchesActiveTransition = !!(
     event.transitionId !== null &&
     activeTransition?.event.transitionId === event.transitionId &&
     activeTransition.event.target.revision === playback.revision
+  );
+  // A canonical direct/snapshot COMMIT can overtake a still-hydrating PREPARE.
+  // Once that checkpoint is at least as new, the old transition must not keep
+  // reporting READY or occupy the active slot after its authority is obsolete.
+  if (
+    activeTransition &&
+    !matchesActiveTransition &&
+    activeTransition.event.target.revision <= playback.revision
   ) {
+    clearServerPlaybackTransition(activeTransition);
+    activeTransition = null;
+  }
+  if (matchesActiveTransition && activeTransition) {
     authority = activeTransition.authority;
     preparation = activeTransition.preparation;
     preparedFromMatchingTransition = true;
@@ -2606,6 +2935,7 @@ const observer: ProRoomSessionObserver = {
     applyAuthority(context);
   },
   cleared() {
+    acceptedProPresence = null;
     stopLifecycle();
     resetProSystemAudioService();
     resetPlaylistRuntime();
@@ -2656,6 +2986,39 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   }
 }
 
+function refreshHeartbeatAdjunctState(snapshot: ProRoomSnapshot): void {
+  if (
+    !acceptedEffects ||
+    acceptedEffects.roomCode !== snapshot.roomCode ||
+    snapshot.effectsRevision > acceptedEffects.revision
+  ) {
+    void refreshPersistedEffects(snapshot).catch((error) => {
+      // Effects are a dedicated rolling-deploy resource. A transient read
+      // failure must not tear down presence or media playback.
+      log.warn('[PRO] Room effects refresh failed', error);
+    });
+  }
+  if (
+    !acceptedQueueMode ||
+    acceptedQueueMode.roomCode !== snapshot.roomCode ||
+    snapshot.queueModeRevision > acceptedQueueMode.revision ||
+    !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
+  ) {
+    void refreshPersistedQueueMode(snapshot).catch((error) => {
+      log.warn('[PRO] Queue mode refresh failed', error);
+    });
+  }
+  void refreshProSystemAudioState().catch((error) => {
+    // The media lease is intentionally independent from presence. A transient
+    // state refresh must not tear down a healthy room.
+    log.warn('[PRO] System-audio state refresh failed', error);
+  });
+  void restorePersistedPlayback(snapshot).catch((error) => {
+    log.warn('[PRO] Server playback reconciliation failed', error);
+    bus.emit('ui:show-toast', t('pro.resume_tap'));
+  });
+}
+
 async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Promise<void> {
   const lease = playlistRuntimeLease;
   if (!active || !lease) return;
@@ -2668,36 +3031,11 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
           localDisplayName || controller.snapshot?.viewer?.displayName,
         );
         await acceptPlaylistSnapshot(snapshot);
-        if (
-          !acceptedEffects ||
-          acceptedEffects.roomCode !== snapshot.roomCode ||
-          snapshot.effectsRevision > acceptedEffects.revision
-        ) {
-          await refreshPersistedEffects(snapshot).catch((error) => {
-            // Effects are a dedicated rolling-deploy resource. A transient
-            // read failure must not tear down presence or media playback.
-            log.warn('[PRO] Room effects refresh failed', error);
-          });
-        }
-        if (
-          !acceptedQueueMode ||
-          acceptedQueueMode.roomCode !== snapshot.roomCode ||
-          snapshot.queueModeRevision > acceptedQueueMode.revision ||
-          !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
-        ) {
-          await refreshPersistedQueueMode(snapshot).catch((error) => {
-            log.warn('[PRO] Queue mode refresh failed', error);
-          });
-        }
-        await refreshProSystemAudioState().catch((error) => {
-          // The media lease is intentionally independent from presence.
-          // A transient state refresh must not tear down a healthy room.
-          log.warn('[PRO] System-audio state refresh failed', error);
-        });
-        void restorePersistedPlayback(snapshot).catch((error) => {
-          log.warn('[PRO] Server playback reconciliation failed', error);
-          bus.emit('ui:show-toast', t('pro.resume_tap'));
-        });
+        // Keep the heartbeat single-flight critical section limited to the
+        // authoritative playlist/presence projection. Effects, queue mode,
+        // system audio, and playback reconciliation have their own fences and
+        // must not prevent a forced follow-up from hydrating a just-added row.
+        refreshHeartbeatAdjunctState(snapshot);
       },
       { forceFollowUp },
     );

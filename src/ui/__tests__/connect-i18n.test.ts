@@ -322,6 +322,41 @@ describe('connect permission toasts', () => {
 });
 
 describe('connect rename authority', () => {
+  it('keeps the server-owned Peer N namespace unavailable in the PRO rename dialog', async () => {
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('network.myId', 'member-1');
+    setState('network.myDeviceLabel', 'Peer 1');
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'member-1',
+        label: 'Peer 1',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+      },
+    ]);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    mockedShowDialog.mockResolvedValue({ action: 'cancel' });
+    initConnect();
+
+    document.getElementById('btn-rename-device')?.click();
+
+    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
+    const validator = mockedShowDialog.mock.calls.at(-1)?.[0].inputField?.validator;
+    expect(validator?.('pEeR 99')).toBe(validator?.('HOST'));
+    expect(validator?.('Studio Tablet')).toBeNull();
+  });
+
   it('does not treat a server-authority PRO owner as the reserved HOST identity', async () => {
     setState('network.appRole', 'host');
     setState('network.hostConn', null);

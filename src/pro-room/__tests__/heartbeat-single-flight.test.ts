@@ -1,12 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ProRoomHeartbeatSingleFlight } from '../heartbeat-single-flight.ts';
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
+function deferred(): {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+} {
   let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<void>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe('ProRoomHeartbeatSingleFlight', () => {
@@ -49,6 +55,36 @@ describe('ProRoomHeartbeatSingleFlight', () => {
     pending.resolve();
     await Promise.all([first, overlap]);
     expect(heartbeat).toHaveBeenCalledTimes(1);
+  });
+
+  it('drains one forced follow-up after the active heartbeat rejects', async () => {
+    const flight = new ProRoomHeartbeatSingleFlight();
+    const rejectedHeartbeat = deferred();
+    const recoveredHeartbeat = deferred();
+    const heartbeat = vi
+      .fn<() => Promise<void>>()
+      .mockReturnValueOnce(rejectedHeartbeat.promise)
+      .mockReturnValueOnce(recoveredHeartbeat.promise);
+
+    const first = flight.run(heartbeat);
+    await Promise.resolve();
+    const forced = flight.run(heartbeat, { forceFollowUp: true });
+    const settled = Promise.all([first, forced]);
+
+    rejectedHeartbeat.reject(new Error('transient heartbeat failure'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(heartbeat).toHaveBeenCalledTimes(2);
+
+    recoveredHeartbeat.resolve();
+    await expect(settled).resolves.toEqual([undefined, undefined]);
+  });
+
+  it('preserves the final heartbeat rejection when no forced follow-up remains', async () => {
+    const flight = new ProRoomHeartbeatSingleFlight();
+    const failure = new Error('heartbeat unavailable');
+
+    await expect(flight.run(() => Promise.reject(failure))).rejects.toBe(failure);
   });
 
   it('does not let a reset flight enqueue work into the next room lifecycle', async () => {

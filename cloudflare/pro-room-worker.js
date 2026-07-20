@@ -75,6 +75,7 @@ const BOT_REQUEST_LEASE_MS = 45 * 1000;
 // same 100-device ceiling to the corresponding authenticated control sockets.
 const PRESENCE_MAX_ITEMS = 100;
 const SESSION_MAX_ITEMS = 128;
+const DEFAULT_PEER_DISPLAY_NAME = 'Peer';
 const ASSET_MAX_ITEMS = 1024;
 const RESERVED_ASSET_MAX_ITEMS = 32;
 const RESERVED_ASSET_MAX_ITEMS_PER_PARTICIPANT = 8;
@@ -375,6 +376,32 @@ function boundedString(value, maxLength, allowEmpty = false) {
   const result = value.trim();
   if ((!allowEmpty && result.length === 0) || result.length > maxLength) return null;
   return result;
+}
+
+function isGenericPeerDisplayName(value) {
+  const normalized = boundedString(value, MAX_DISPLAY_NAME_LENGTH);
+  return (
+    normalized !== null && normalized.toLowerCase() === DEFAULT_PEER_DISPLAY_NAME.toLowerCase()
+  );
+}
+
+function generatedPeerOrdinal(value) {
+  if (typeof value !== 'string') return null;
+  const match = /^Peer ([1-9]\d*)$/i.exec(value.trim());
+  if (!match) return null;
+  const ordinal = Number(match[1]);
+  return Number.isSafeInteger(ordinal) && ordinal >= 1 && ordinal <= SESSION_MAX_ITEMS
+    ? ordinal
+    : null;
+}
+
+function isGeneratedPeerNamespaceDisplayName(value) {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  return (
+    normalized.toLowerCase() === DEFAULT_PEER_DISPLAY_NAME.toLowerCase() ||
+    /^Peer \d+$/i.test(normalized)
+  );
 }
 
 function validDeveloperActorName(value) {
@@ -5131,6 +5158,15 @@ export class MusixquareProRoom {
       if (!evictable) return null;
       delete this.room.sessions[evictable[0]];
     }
+    const usesGeneratedPeerName = isGeneratedPeerNamespaceDisplayName(displayName);
+    // `Peer N` is a server-owned namespace. Treat a client-supplied number as
+    // a request for a generated identity, never as a preferred slot.
+    const peerOrdinal = usesGeneratedPeerName ? this.nextGeneratedPeerOrdinal() : null;
+    if (usesGeneratedPeerName && peerOrdinal === null) return null;
+    const resolvedDisplayName =
+      peerOrdinal !== null && usesGeneratedPeerName
+        ? `${DEFAULT_PEER_DISPLAY_NAME} ${peerOrdinal}`
+        : displayName;
     const token = await createOpaqueCredential(secret);
     const tokenHash = await sha256Base64Url(token);
     const session = {
@@ -5139,7 +5175,8 @@ export class MusixquareProRoom {
       participantId: `participant_${randomToken(18)}`,
       presenceIncarnationId: null,
       signalingTicketSequence: 0,
-      displayName,
+      displayName: resolvedDisplayName,
+      ...(peerOrdinal === null ? {} : { peerOrdinal }),
       role,
       authEpoch: this.room.authEpoch,
       createdAtMs: nowMs,
@@ -5147,6 +5184,85 @@ export class MusixquareProRoom {
     };
     this.room.sessions[tokenHash] = session;
     return { token, tokenHash, session };
+  }
+
+  peerOrdinalAssignments() {
+    const candidates = Object.entries(this.room.sessions)
+      .filter(([, session]) => {
+        return (
+          isGeneratedPeerNamespaceDisplayName(session.displayName) ||
+          (Number.isSafeInteger(session.peerOrdinal) &&
+            session.peerOrdinal >= 1 &&
+            session.peerOrdinal <= SESSION_MAX_ITEMS)
+        );
+      })
+      .sort(
+        ([leftHash, left], [rightHash, right]) =>
+          left.createdAtMs - right.createdAtMs ||
+          left.participantId.localeCompare(right.participantId) ||
+          leftHash.localeCompare(rightHash),
+      );
+    const assigned = new Map();
+    const used = new Set();
+
+    // Preserve every valid durable assignment first. Exact legacy `Peer N`
+    // labels are also treated as reservations so a rolling deploy cannot hand
+    // the same visible identity to a new session.
+    for (const [, session] of candidates) {
+      const preferred =
+        Number.isSafeInteger(session.peerOrdinal) &&
+        session.peerOrdinal >= 1 &&
+        session.peerOrdinal <= SESSION_MAX_ITEMS
+          ? session.peerOrdinal
+          : generatedPeerOrdinal(session.displayName);
+      if (preferred === null || used.has(preferred)) continue;
+      assigned.set(session, preferred);
+      used.add(preferred);
+    }
+
+    // Old sessions only stored the generic `Peer` placeholder. Give those
+    // sessions deterministic slots without making a browser the allocator.
+    for (const [, session] of candidates) {
+      if (assigned.has(session)) continue;
+      let ordinal = 1;
+      while (ordinal <= SESSION_MAX_ITEMS && used.has(ordinal)) ordinal += 1;
+      if (ordinal > SESSION_MAX_ITEMS) continue;
+      assigned.set(session, ordinal);
+      used.add(ordinal);
+    }
+    return assigned;
+  }
+
+  nextGeneratedPeerOrdinal() {
+    const used = new Set(this.peerOrdinalAssignments().values());
+    for (let ordinal = 1; ordinal <= SESSION_MAX_ITEMS; ordinal += 1) {
+      if (!used.has(ordinal)) return ordinal;
+    }
+    return null;
+  }
+
+  ensureSessionPeerIdentity(session, forceGeneratedIdentity = false) {
+    const assignments = this.peerOrdinalAssignments();
+    if (!assignments.has(session) && !forceGeneratedIdentity) {
+      return { ordinal: null, stateChanged: false, publicChanged: false };
+    }
+    const ordinal = assignments.get(session) ?? this.nextGeneratedPeerOrdinal() ?? null;
+    if (ordinal === null) {
+      return { ordinal: null, stateChanged: false, publicChanged: false };
+    }
+
+    let stateChanged = session.peerOrdinal !== ordinal;
+    session.peerOrdinal = ordinal;
+    const canonicalDisplayName = `${DEFAULT_PEER_DISPLAY_NAME} ${ordinal}`;
+    if (isGeneratedPeerNamespaceDisplayName(session.displayName)) {
+      if (session.displayName !== canonicalDisplayName) stateChanged = true;
+      session.displayName = canonicalDisplayName;
+    }
+
+    const participant = this.room.presence.participants[session.participantId];
+    const publicChanged = !!participant && participant.displayName !== session.displayName;
+    if (publicChanged) participant.displayName = session.displayName;
+    return { ordinal, stateChanged, publicChanged };
   }
 
   async createOwnerCredential() {
@@ -5541,6 +5657,7 @@ export class MusixquareProRoom {
   }
 
   joinPresence(session, tokenHash, nowMs) {
+    this.ensureSessionPeerIdentity(session);
     const existing = this.room.presence.participants[session.participantId];
     if (existing) {
       existing.lastSeenAtMs = nowMs;
@@ -7344,19 +7461,52 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const nowMs = Date.now();
+    const hadPeerOrdinal = Object.prototype.hasOwnProperty.call(auth.session, 'peerOrdinal');
+    const previousPeerOrdinal = auth.session.peerOrdinal;
+    const previousSessionDisplayName = auth.session.displayName;
+    const previousParticipantDisplayName = auth.participant.displayName;
+    let legacyPeerIdentity = this.ensureSessionPeerIdentity(auth.session);
+    // `Peer` is the pre-auth bootstrap placeholder. Once the server has
+    // resolved a session identity (or the user has a custom name), a delayed
+    // heartbeat from that bootstrap state must never rename it backwards.
+    const requestedDisplayName =
+      known?.displayName === undefined
+        ? null
+        : boundedString(known.displayName, MAX_DISPLAY_NAME_LENGTH);
+    const requestedBarePeerName = isGenericPeerDisplayName(requestedDisplayName);
+    const requestedGeneratedPeerName = isGeneratedPeerNamespaceDisplayName(requestedDisplayName);
+    const staleGeneratedPeerRollback =
+      (requestedBarePeerName || requestedGeneratedPeerName) &&
+      !isGeneratedPeerNamespaceDisplayName(auth.session.displayName);
+    if (
+      requestedGeneratedPeerName &&
+      !staleGeneratedPeerRollback &&
+      legacyPeerIdentity.ordinal === null
+    ) {
+      legacyPeerIdentity = this.ensureSessionPeerIdentity(auth.session, true);
+    }
     const nextDisplayName =
       known?.displayName === undefined
         ? auth.session.displayName
-        : boundedString(known.displayName, MAX_DISPLAY_NAME_LENGTH);
+        : staleGeneratedPeerRollback
+          ? auth.session.displayName
+          : requestedGeneratedPeerName && legacyPeerIdentity.ordinal !== null
+            ? `${DEFAULT_PEER_DISPLAY_NAME} ${legacyPeerIdentity.ordinal}`
+            : requestedDisplayName;
     const displayNameChanged =
-      nextDisplayName !== null &&
-      (auth.session.displayName !== nextDisplayName ||
-        auth.participant.displayName !== nextDisplayName);
+      legacyPeerIdentity.publicChanged ||
+      (nextDisplayName !== null &&
+        (auth.session.displayName !== nextDisplayName ||
+          auth.participant.displayName !== nextDisplayName));
     if (
       displayNameChanged &&
       (this.room.revision >= Number.MAX_SAFE_INTEGER ||
         this.room.presence.revision >= Number.MAX_SAFE_INTEGER)
     ) {
+      if (hadPeerOrdinal) auth.session.peerOrdinal = previousPeerOrdinal;
+      else delete auth.session.peerOrdinal;
+      auth.session.displayName = previousSessionDisplayName;
+      auth.participant.displayName = previousParticipantDisplayName;
       return errorResponse('REVISION_EXHAUSTED', 409);
     }
     if (displayNameChanged) {
@@ -7379,6 +7529,7 @@ export class MusixquareProRoom {
     const developerCommandsChanged = await this.processDeveloperCommands(nowMs);
     const refreshLegacyShadow =
       displayNameChanged ||
+      legacyPeerIdentity.stateChanged ||
       developerCommandsChanged ||
       nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS;
     if (

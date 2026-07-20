@@ -250,6 +250,11 @@ export const RESERVED_NAMES = [
   '운영자',
 ] as const;
 
+// PRO room default identities are allocated by the server. Reserving the
+// whole visible namespace prevents a rename from appearing successful before
+// the next authoritative heartbeat restores its canonical Peer N label.
+export const PRO_GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
+
 // Control / zero-width / bidi-override characters stripped from device labels
 // BEFORE the reserved/duplicate checks ("HOST"+zero-width-space must not slip
 // past as a visually identical impersonation; U+202E must not reorder the

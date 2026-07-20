@@ -12,6 +12,7 @@ import {
   DEVICE_LABEL_SANITIZE_RE,
   MSG,
   PEER_NAME_PREFIX,
+  PRO_GENERATED_PEER_NAME_RE,
   RESERVED_NAMES,
   HOST_SELF_NAMES,
   BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
@@ -401,6 +402,10 @@ function cmdNick(_: string[], rawArgs: string): void {
     }
   }
   if (/^#\d+$/.test(newName)) {
+    addSystemChatMessage(t('connect.rename_reserved'));
+    return;
+  }
+  if (getRoomContext().kind === 'pro' && PRO_GENERATED_PEER_NAME_RE.test(newName)) {
     addSystemChatMessage(t('connect.rename_reserved'));
     return;
   }

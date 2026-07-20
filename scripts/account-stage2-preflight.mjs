@@ -369,11 +369,9 @@ function npmInvocation() {
       };
 }
 
-function runWranglerReadOnly(request) {
-  const npm = npmInvocation();
-  let command;
+export function buildWranglerReadOnlyCommand(request) {
   if (request.kind === 'd1-schema') {
-    command = [
+    return [
       'd1',
       'execute',
       request.databaseName,
@@ -384,11 +382,16 @@ function runWranglerReadOnly(request) {
       ACCOUNT_SCHEMA_QUERY,
       '--json',
     ];
-  } else if (request.kind === 'secret-list') {
-    command = ['secret', 'list', '--config', request.configPath, '--json'];
-  } else {
-    throw new Error('Unsupported Wrangler preflight operation.');
   }
+  if (request.kind === 'secret-list') {
+    return ['secret', 'list', '--config', request.configPath, '--format', 'json'];
+  }
+  throw new Error('Unsupported Wrangler preflight operation.');
+}
+
+function runWranglerReadOnly(request) {
+  const npm = npmInvocation();
+  const command = buildWranglerReadOnlyCommand(request);
 
   try {
     return execFileSync(

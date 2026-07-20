@@ -5,6 +5,7 @@ import {
   ACCOUNT_STAGE2_DEPLOYMENT_ORDER,
   EXPECTED_ACCOUNT_SCHEMA_OBJECTS,
   PRODUCTION_ACCOUNT_CALLBACK,
+  buildWranglerReadOnlyCommand,
   extractAccountSchemaObjects,
   parseD1Rows,
   parsePreflightArguments,
@@ -41,6 +42,22 @@ function secretList(names: string[]): string {
 }
 
 describe('account Stage 2 activation preflight', () => {
+  it('uses the Wrangler 4 secret-list JSON format without deprecated flags', () => {
+    expect(
+      buildWranglerReadOnlyCommand({
+        kind: 'secret-list',
+        configPath: 'cloudflare/wrangler.app.toml',
+      }),
+    ).toEqual([
+      'secret',
+      'list',
+      '--config',
+      'cloudflare/wrangler.app.toml',
+      '--format',
+      'json',
+    ]);
+  });
+
   it('requires the exact production callback in both the operator acknowledgement and code', () => {
     expect(
       validateProductionCallback(PRODUCTION_ACCOUNT_CALLBACK, accountAuthSource, validAppConfig),

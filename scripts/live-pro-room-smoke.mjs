@@ -3,8 +3,14 @@
 import { pathToFileURL } from 'node:url';
 
 const PRO_ROOM_HEALTH_URL = 'https://musixquare.com/api/pro-room/health';
-const RETRY_DELAYS_MS = Object.freeze([0, 1_000, 2_000, 4_000, 8_000, 8_000]);
-const REQUEST_TIMEOUT_MS = 30_000;
+// A newly promoted Worker can become visible through the App Worker service
+// binding later than Cloudflare's control plane reports the 100% deployment.
+// Keep the exact version check, but allow enough time for that private
+// data-plane route to converge before the release workflow rolls back.
+export const PRO_ROOM_READINESS_RETRY_DELAYS_MS = Object.freeze([
+  0, 1_000, 2_000, 4_000, 8_000, 15_000, 20_000, 20_000, 20_000, 20_000, 20_000, 20_000,
+]);
+export const PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS = 10_000;
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -13,7 +19,7 @@ function delay(milliseconds) {
 function fetchWithTimeout(input, init = {}) {
   return fetch(input, {
     ...init,
-    signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: init.signal ?? AbortSignal.timeout(PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS),
   });
 }
 
@@ -47,7 +53,12 @@ export async function main() {
 
 export async function waitForProRoomReady(
   expectedVersion,
-  { read = readHealth, retryDelaysMs = RETRY_DELAYS_MS, wait = delay } = {},
+  {
+    read = readHealth,
+    retryDelaysMs = PRO_ROOM_READINESS_RETRY_DELAYS_MS,
+    wait = delay,
+    log = console.log,
+  } = {},
 ) {
   let lastActualVersion = '';
   let lastReadError = null;
@@ -62,11 +73,16 @@ export async function waitForProRoomReady(
       lastReadError = null;
     } catch (error) {
       lastReadError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      log(`[pro-room-smoke] attempt ${attempt + 1}/${retryDelaysMs.length}: ${message}`);
       continue;
     }
     const actualVersion =
       typeof health.workerVersionId === 'string' ? health.workerVersionId.trim() : '';
     lastActualVersion = actualVersion;
+    log(
+      `[pro-room-smoke] attempt ${attempt + 1}/${retryDelaysMs.length}: expected=${expectedVersion || '<any>'} actual=${actualVersion || '<missing>'}`,
+    );
     if (!expectedVersion || actualVersion === expectedVersion) {
       return {
         service: health.service,

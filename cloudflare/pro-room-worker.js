@@ -5752,6 +5752,25 @@ export class MusixquareProRoom {
         reservations.set(displayNumber, groupKey);
       }
     };
+    const liveSessionHashes = new Set(
+      Object.values(this.room.presence.participants || {}).map(
+        (participant) => participant.sessionHash,
+      ),
+    );
+    const sessions = Object.entries(this.room.sessions || {}).sort(
+      ([leftHash, left], [rightHash, right]) =>
+        Number(liveSessionHashes.has(rightHash)) - Number(liveSessionHashes.has(leftHash)) ||
+        (left.createdAtMs || 0) - (right.createdAtMs || 0) ||
+        String(left.participantId || '').localeCompare(String(right.participantId || '')) ||
+        leftHash.localeCompare(rightHash),
+    );
+    // A live presence epoch owns the visible numbering. Persistent authority
+    // records and dormant resume cookies may retain older numbers, but they
+    // cannot displace a participant that is currently shown as #1.
+    for (const [tokenHash, session] of sessions) {
+      if (session.role === 'owner' || !liveSessionHashes.has(tokenHash)) continue;
+      reserve(session.memberDisplayNumber, this.physicalSlotGroupKey(session));
+    }
     for (const [accountId, member] of Object.entries(this.room.accountMembers || {})) {
       reserve(member.displayNumber, `account:${accountId}`);
     }
@@ -5760,12 +5779,6 @@ export class MusixquareProRoom {
     )) {
       reserve(administrator.displayNumber, `member:${memberId}`);
     }
-    const sessions = Object.entries(this.room.sessions || {}).sort(
-      ([leftHash, left], [rightHash, right]) =>
-        (left.createdAtMs || 0) - (right.createdAtMs || 0) ||
-        String(left.participantId || '').localeCompare(String(right.participantId || '')) ||
-        leftHash.localeCompare(rightHash),
-    );
     for (const [, session] of sessions) {
       if (session.role === 'owner') continue;
       reserve(session.memberDisplayNumber, this.physicalSlotGroupKey(session));
@@ -5774,10 +5787,16 @@ export class MusixquareProRoom {
   }
 
   normalizeLoadedPhysicalSlotAssignments() {
+    const liveSessionHashes = new Set(
+      Object.values(this.room.presence.participants || {}).map(
+        (participant) => participant.sessionHash,
+      ),
+    );
     const sessions = Object.entries(this.room.sessions || {})
       .filter(([, session]) => session.role !== 'owner')
       .sort(
         ([leftHash, left], [rightHash, right]) =>
+          Number(liveSessionHashes.has(rightHash)) - Number(liveSessionHashes.has(leftHash)) ||
           (left.createdAtMs || 0) - (right.createdAtMs || 0) ||
           String(left.participantId || '').localeCompare(String(right.participantId || '')) ||
           leftHash.localeCompare(rightHash),
@@ -5857,14 +5876,121 @@ export class MusixquareProRoom {
   }
 
   nextAccountMemberDisplayNumber() {
-    const used = this.usedMemberDisplayNumbers();
-    let candidate = Math.max(1, this.room.nextMemberDisplayNumber || 1);
-    while (candidate <= SESSION_MAX_ITEMS && used.has(candidate)) candidate += 1;
-    if (candidate > SESSION_MAX_ITEMS) {
-      candidate = 1;
-      while (candidate <= SESSION_MAX_ITEMS && used.has(candidate)) candidate += 1;
+    // Display numbers describe the current presence epoch, not the lifetime
+    // of a resumable room cookie. A sleeping room can retain old sessions and
+    // persistent account authority for hours; those dormant records must not
+    // make the first returning listener appear as #12.
+    return this.nextLivePhysicalDeviceOrdinal();
+  }
+
+  livePhysicalDeviceOrdinals(excludedSession = null) {
+    const used = new Set();
+    for (const participant of Object.values(this.room.presence.participants || {})) {
+      const session = this.room.sessions?.[participant.sessionHash];
+      if (!session || session === excludedSession || session.role === 'owner') continue;
+      if (
+        Number.isSafeInteger(session.peerOrdinal) &&
+        session.peerOrdinal >= 1 &&
+        session.peerOrdinal <= SESSION_MAX_ITEMS
+      ) {
+        used.add(session.peerOrdinal);
+      }
     }
-    return candidate <= SESSION_MAX_ITEMS ? candidate : null;
+    return used;
+  }
+
+  nextLivePhysicalDeviceOrdinal(excludedSession = null) {
+    const used = this.livePhysicalDeviceOrdinals(excludedSession);
+    for (let ordinal = 1; ordinal <= SESSION_MAX_ITEMS; ordinal += 1) {
+      if (!used.has(ordinal)) return ordinal;
+    }
+    return null;
+  }
+
+  reclaimLiveAccountRepresentativeOrdinal(departed) {
+    const representativeOrdinal = departed.memberDisplayNumber;
+    if (
+      !departed.accountId ||
+      !Number.isSafeInteger(representativeOrdinal) ||
+      representativeOrdinal < 1 ||
+      representativeOrdinal > SESSION_MAX_ITEMS
+    ) {
+      return false;
+    }
+
+    const remaining = Object.values(this.room.presence.participants || {})
+      .filter((participant) => participant.memberId === departed.memberId)
+      .map((participant) => ({
+        participant,
+        session: this.room.sessions?.[participant.sessionHash],
+      }))
+      .filter(({ session }) => session && session.role !== 'owner')
+      .sort(
+        (left, right) =>
+          (left.session.peerOrdinal || SESSION_MAX_ITEMS + 1) -
+            (right.session.peerOrdinal || SESSION_MAX_ITEMS + 1) ||
+          left.participant.joinedAtMs - right.participant.joinedAtMs ||
+          left.participant.participantId.localeCompare(right.participant.participantId),
+      );
+    if (remaining.length === 0) return false;
+    if (remaining.some(({ session }) => session.peerOrdinal === representativeOrdinal)) {
+      return false;
+    }
+
+    // Keep the account row's visible number stable without reserving an extra
+    // physical slot. When its representative device leaves, one remaining
+    // device atomically inherits that ordinal before another member can join.
+    // This avoids duplicate visible rows and still preserves the full 100
+    // physical-device capacity.
+    if (this.livePhysicalDeviceOrdinals().has(representativeOrdinal)) return false;
+    remaining[0].session.peerOrdinal = representativeOrdinal;
+    return true;
+  }
+
+  assignSessionPresenceIdentity(session) {
+    if (session.role === 'owner') {
+      session.memberDisplayNumber = 0;
+      delete session.peerOrdinal;
+      return true;
+    }
+
+    // A physical slot is scoped to live presence. Re-entering after a room
+    // sleeps (or after another device leaves) is a new ordering event even if
+    // the long-lived session cookie is reused.
+    const peerOrdinal = this.nextLivePhysicalDeviceOrdinal(session);
+    if (peerOrdinal === null) return false;
+    session.peerOrdinal = peerOrdinal;
+
+    const sameMember = Object.values(this.room.presence.participants || {}).find(
+      (participant) => participant.memberId === session.memberId,
+    );
+    const groupDisplayNumber =
+      sameMember &&
+      Number.isSafeInteger(sameMember.memberDisplayNumber) &&
+      sameMember.memberDisplayNumber > 0
+        ? sameMember.memberDisplayNumber
+        : peerOrdinal;
+    session.memberDisplayNumber = groupDisplayNumber;
+
+    if (session.accountId) {
+      const member = this.room.accountMembers?.[session.accountId];
+      if (member && member.memberId === session.memberId) {
+        member.displayNumber = groupDisplayNumber;
+        this.syncAccountMemberSessions(session.accountId, member);
+      }
+    } else {
+      const administrator = this.room.anonymousAdministrators?.[session.memberId];
+      if (administrator) administrator.displayNumber = groupDisplayNumber;
+    }
+
+    if (!session.accountId && isGeneratedPeerNamespaceDisplayName(session.displayName)) {
+      session.displayName = `${DEFAULT_PEER_DISPLAY_NAME} ${peerOrdinal}`;
+    }
+    this.room.nextMemberDisplayNumber = Math.min(
+      SESSION_MAX_ITEMS + 1,
+      Math.max(this.room.nextMemberDisplayNumber || 1, peerOrdinal + 1),
+    );
+    return true;
   }
 
   syncAccountMemberSessions(accountId, member) {
@@ -6399,29 +6525,63 @@ export class MusixquareProRoom {
   }
 
   ensureSessionPeerIdentity(session, forceGeneratedIdentity = false) {
-    const assignments = this.peerOrdinalAssignments();
-    if (!assignments.has(session) && !forceGeneratedIdentity) {
+    const participant = this.room.presence.participants[session.participantId];
+    if (!participant && !forceGeneratedIdentity) {
       return { ordinal: null, stateChanged: false, publicChanged: false };
     }
+    if (session.role === 'owner') {
+      return { ordinal: null, stateChanged: false, publicChanged: false };
+    }
+
+    const liveUsed = this.livePhysicalDeviceOrdinals(session);
+    const preferred = session.peerOrdinal;
     const ordinal =
-      assignments.get(session) ??
-      this.nextPhysicalDeviceOrdinal(session.memberDisplayNumber) ??
-      null;
+      Number.isSafeInteger(preferred) &&
+      preferred >= 1 &&
+      preferred <= SESSION_MAX_ITEMS &&
+      !liveUsed.has(preferred)
+        ? preferred
+        : this.nextLivePhysicalDeviceOrdinal(session);
     if (ordinal === null) {
       return { ordinal: null, stateChanged: false, publicChanged: false };
     }
 
     let stateChanged = session.peerOrdinal !== ordinal;
     session.peerOrdinal = ordinal;
+    const sameMember = Object.values(this.room.presence.participants || {}).find(
+      (candidate) =>
+        candidate.participantId !== session.participantId &&
+        candidate.memberId === session.memberId,
+    );
+    const groupDisplayNumber =
+      sameMember &&
+      Number.isSafeInteger(sameMember.memberDisplayNumber) &&
+      sameMember.memberDisplayNumber > 0
+        ? sameMember.memberDisplayNumber
+        : ordinal;
+    if (session.memberDisplayNumber !== groupDisplayNumber) stateChanged = true;
+    session.memberDisplayNumber = groupDisplayNumber;
+    if (session.accountId) {
+      const member = this.room.accountMembers?.[session.accountId];
+      if (member && member.memberId === session.memberId) member.displayNumber = groupDisplayNumber;
+    } else {
+      const administrator = this.room.anonymousAdministrators?.[session.memberId];
+      if (administrator) administrator.displayNumber = groupDisplayNumber;
+    }
     const canonicalDisplayName = `${DEFAULT_PEER_DISPLAY_NAME} ${ordinal}`;
     if (!session.accountId && isGeneratedPeerNamespaceDisplayName(session.displayName)) {
       if (session.displayName !== canonicalDisplayName) stateChanged = true;
       session.displayName = canonicalDisplayName;
     }
 
-    const participant = this.room.presence.participants[session.participantId];
-    const publicChanged = !!participant && participant.displayName !== session.displayName;
-    if (publicChanged) participant.displayName = session.displayName;
+    const publicChanged =
+      !!participant &&
+      (participant.displayName !== session.displayName ||
+        participant.memberDisplayNumber !== groupDisplayNumber);
+    if (publicChanged) {
+      participant.displayName = session.displayName;
+      participant.memberDisplayNumber = groupDisplayNumber;
+    }
     return { ordinal, stateChanged, publicChanged };
   }
 
@@ -6874,7 +7034,6 @@ export class MusixquareProRoom {
   }
 
   joinPresence(session, tokenHash, nowMs) {
-    this.ensureSessionPeerIdentity(session);
     const existing = this.room.presence.participants[session.participantId];
     if (existing) {
       existing.lastSeenAtMs = nowMs;
@@ -6882,6 +7041,7 @@ export class MusixquareProRoom {
       return false;
     }
     if (Object.keys(this.room.presence.participants).length >= PRESENCE_MAX_ITEMS) return null;
+    if (!this.assignSessionPresenceIdentity(session)) return null;
     const wasSleeping = this.room.runtime === 'sleeping';
     const presenceIncarnationId = `presence_${randomToken(18)}`;
     session.presenceIncarnationId = presenceIncarnationId;
@@ -8323,6 +8483,7 @@ export class MusixquareProRoom {
     if (!departed) return false;
     const departedIncarnationId = departed.presenceIncarnationId;
     delete this.room.presence.participants[participantId];
+    this.reclaimLiveAccountRepresentativeOrdinal(departed);
     if (
       this.authorityProjectionEnabled() &&
       !departed.accountId &&
@@ -8493,10 +8654,7 @@ export class MusixquareProRoom {
     // to another account. A valid claim still cannot transfer a linked room,
     // and every account-capacity check remains non-mutating so the same claim
     // can be retried after the operator resolves the account condition.
-    if (
-      this.room.ownerAccountId &&
-      this.room.ownerAccountId !== asserted.account.accountId
-    ) {
+    if (this.room.ownerAccountId && this.room.ownerAccountId !== asserted.account.accountId) {
       return errorResponse('OWNER_ACCOUNT_LINK_CONFLICT', 409);
     }
     const accountMember = this.prepareOwnerAccountMember(asserted.account, nowMs);

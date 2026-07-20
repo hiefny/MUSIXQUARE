@@ -455,6 +455,8 @@ export async function prepareProPlaybackAuthority(
     return activePreparation.promise;
   }
 
+  if (activePreparation) endpoint.cancel?.(activePreparation.authority);
+
   const generation = ++prepareGeneration;
   const endpointRequest: Readonly<ProPlaybackPrepareRequest> = {
     ...request,
@@ -476,6 +478,68 @@ export async function prepareProPlaybackAuthority(
     return failedPrepare(request, 'superseded', 'superseded');
   }
   if (isOlderAuthority(request.authority, highestSeen)) {
+    return failedPrepare(request, 'stale-authority', 'superseded');
+  }
+  return result;
+}
+
+/**
+ * Arm the media endpoint for a participant-local rendezvous of the exact
+ * already-committed revision. Unlike prepareProPlaybackAuthority(), this does
+ * not claim that a newer server revision is being prepared.
+ */
+export async function prepareCurrentProPlaybackRendezvousAuthority(
+  request: Readonly<ProPlaybackPrepareRequest>,
+): Promise<ProPlaybackPrepareResult> {
+  if (!isProPlaybackAuthorityToken(request.authority)) {
+    throw new TypeError('A server authority token is required');
+  }
+  if (
+    request.authority.transitionId === null ||
+    request.authority.basePlaybackRevision + 1 !== highestCommittedPlaybackRevision
+  ) {
+    return failedPrepare(request, 'stale-authority', 'superseded');
+  }
+  if (!activeAuthorityRoomMatches(request.authority)) {
+    return failedPrepare(request, 'inactive-room');
+  }
+  const endpoint = mediaEndpoint;
+  if (!endpoint) return failedPrepare(request, 'missing-endpoint');
+
+  if (activePreparation) {
+    if (sameAuthority(activePreparation.authority, request.authority)) {
+      return activePreparation.promise;
+    }
+    // A participant-local sync never preempts canonical server work. A
+    // cancelled PREPARE may remain in highestSeen as historical fencing, but
+    // an actually active PREPARE still owns the endpoint until it settles.
+    return failedPrepare(request, 'stale-authority', 'superseded');
+  }
+
+  const generation = ++prepareGeneration;
+  const endpointRequest: Readonly<ProPlaybackPrepareRequest> = {
+    ...request,
+    isCurrent: () =>
+      generation === prepareGeneration &&
+      activeAuthorityRoomMatches(request.authority) &&
+      request.authority.basePlaybackRevision + 1 === highestCommittedPlaybackRevision &&
+      request.isCurrent?.() !== false,
+  };
+  const promise = endpoint.prepare(endpointRequest);
+  activePreparation = { generation, authority: request.authority, promise };
+  const result = await promise;
+  if (
+    generation !== prepareGeneration ||
+    !activePreparation ||
+    activePreparation.generation !== generation ||
+    !sameAuthority(activePreparation.authority, request.authority)
+  ) {
+    return failedPrepare(request, 'superseded', 'superseded');
+  }
+  if (
+    request.authority.basePlaybackRevision + 1 !== highestCommittedPlaybackRevision ||
+    request.isCurrent?.() === false
+  ) {
     return failedPrepare(request, 'stale-authority', 'superseded');
   }
   return result;
@@ -623,6 +687,81 @@ export async function reconcileCurrentProPlaybackAuthority(
   const result = await endpoint.commit(request);
   if (request.isCurrent?.() === false) {
     return { status: 'superseded', authority: request.authority, reason: 'superseded' };
+  }
+  return result;
+}
+
+/**
+ * Re-arm and release the exact currently committed checkpoint on one
+ * participant without creating a new room command or advancing the canonical
+ * revision. This is the participant-local counterpart of the server's
+ * PREPARE/COMMIT rendezvous and is used by the PRO manual-sync button.
+ *
+ * The caller must first prepare this exact non-null authority through
+ * prepareCurrentProPlaybackRendezvousAuthority(). A concurrent server
+ * transition supersedes that preparation through the ordinary
+ * generation/authority fences.
+ */
+export async function rendezvousCurrentProPlaybackAuthority(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<ProPlaybackCommitResult> {
+  if (!isProPlaybackAuthorityToken(request.authority)) {
+    throw new TypeError('A server authority token is required');
+  }
+  requireSafeCounter(request.committedPlaybackRevision, 'committedPlaybackRevision');
+  if (
+    request.authority.transitionId === null ||
+    request.committedPlaybackRevision !== request.authority.basePlaybackRevision + 1 ||
+    request.committedPlaybackRevision !== highestCommittedPlaybackRevision
+  ) {
+    return { status: 'superseded', authority: request.authority, reason: 'stale-authority' };
+  }
+  if (!activeAuthorityRoomMatches(request.authority)) {
+    return { status: 'failed', authority: request.authority, reason: 'inactive-room' };
+  }
+  if (request.isCurrent?.() === false) {
+    return { status: 'superseded', authority: request.authority, reason: 'superseded' };
+  }
+
+  const pending = activePreparation;
+  if (!pending || !sameAuthority(pending.authority, request.authority)) {
+    return { status: 'superseded', authority: request.authority, reason: 'stale-authority' };
+  }
+  const prepared = await pending.promise;
+  if (request.isCurrent?.() === false) {
+    return { status: 'superseded', authority: request.authority, reason: 'superseded' };
+  }
+  if (prepared.status !== 'ready') {
+    return {
+      status: prepared.status === 'superseded' ? 'superseded' : 'failed',
+      authority: request.authority,
+      reason: prepared.reason,
+    };
+  }
+  if (
+    pending.generation !== prepareGeneration ||
+    !activePreparation ||
+    activePreparation.generation !== pending.generation ||
+    !sameAuthority(activePreparation.authority, request.authority)
+  ) {
+    return { status: 'superseded', authority: request.authority, reason: 'superseded' };
+  }
+
+  const endpoint = mediaEndpoint;
+  if (!endpoint) {
+    return { status: 'failed', authority: request.authority, reason: 'missing-endpoint' };
+  }
+  const result = await endpoint.commit(request);
+  if (request.isCurrent?.() === false) {
+    return { status: 'superseded', authority: request.authority, reason: 'superseded' };
+  }
+  if (result.status === 'applied') {
+    // This was a local re-application of an existing revision. Clear the arm,
+    // but deliberately leave latestApplied/highestCommittedPlaybackRevision
+    // owned by the real server COMMIT.
+    if (activePreparation && sameAuthority(activePreparation.authority, request.authority)) {
+      activePreparation = null;
+    }
   }
   return result;
 }

@@ -7,8 +7,10 @@ import {
   cancelProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
+  prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
   reconcileCurrentProPlaybackAuthority,
+  rendezvousCurrentProPlaybackAuthority,
   refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
   registerProPlaybackMediaEndpoint,
@@ -422,6 +424,206 @@ describe('coordinator-free PRO playback authority seam', () => {
     expect(commit.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({ committedPlaybackRevision: 9, positionSeconds: 18 }),
     );
+  });
+
+  it('arms and rendezvous-releases only the exact current revision without advancing it', async () => {
+    const prepare = vi.fn(async (request) => ready(request.authority));
+    const commit = vi.fn(async (request) => ({
+      status: 'applied' as const,
+      authority: request.authority,
+    }));
+    registerProPlaybackMediaEndpoint({ prepare, commit });
+
+    await expect(
+      commitProPlaybackAuthority({
+        authority: authority(8, null),
+        committedPlaybackRevision: 9,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 12,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+
+    const localRendezvous = authority(8, 'local-sync');
+    await expect(
+      prepareCurrentProPlaybackRendezvousAuthority({
+        authority: localRendezvous,
+        queueItemId: Q1,
+        positionSeconds: 18,
+      }),
+    ).resolves.toMatchObject({ status: 'ready' });
+    await expect(
+      rendezvousCurrentProPlaybackAuthority({
+        authority: localRendezvous,
+        committedPlaybackRevision: 9,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 18.7,
+        scheduleDelayMs: 700,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+
+    // A participant-local rendezvous must not consume the next canonical
+    // server revision.
+    await expect(
+      commitProPlaybackAuthority({
+        authority: authority(9, null),
+        committedPlaybackRevision: 10,
+        queueItemId: Q1,
+        state: 'paused',
+        positionSeconds: 19,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledTimes(3);
+    expect(commit.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ committedPlaybackRevision: 9, scheduleDelayMs: 700 }),
+    );
+  });
+
+  it('lets a newer canonical PREPARE cancel and supersede a local rendezvous arm', async () => {
+    let resolveLocal!: (result: ProPlaybackPrepareResult) => void;
+    const localToken = authority(8, 'local-sync-pending');
+    const serverToken = authority(9, 'server-transition-next');
+    const prepare = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProPlaybackPrepareResult>((resolve) => {
+            resolveLocal = resolve;
+          }),
+      )
+      .mockImplementationOnce(async () => ready(serverToken));
+    const commit = vi.fn(async (request) => ({
+      status: 'applied' as const,
+      authority: request.authority,
+    }));
+    const cancel = vi.fn();
+    registerProPlaybackMediaEndpoint({ prepare, commit, cancel });
+
+    await commitProPlaybackAuthority({
+      authority: authority(8, null),
+      committedPlaybackRevision: 9,
+      queueItemId: Q1,
+      state: 'playing',
+      positionSeconds: 12,
+      scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
+    });
+    const localPreparation = prepareCurrentProPlaybackRendezvousAuthority({
+      authority: localToken,
+      queueItemId: Q1,
+      positionSeconds: 18,
+    });
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+
+    const serverPreparation = prepareProPlaybackAuthority({
+      authority: serverToken,
+      queueItemId: Q1,
+      positionSeconds: 20,
+    });
+    await expect(serverPreparation).resolves.toMatchObject({ status: 'ready' });
+    expect(cancel).toHaveBeenCalledWith(localToken);
+
+    resolveLocal(ready(localToken));
+    await expect(localPreparation).resolves.toMatchObject({
+      status: 'superseded',
+      reason: 'superseded',
+    });
+    await expect(
+      rendezvousCurrentProPlaybackAuthority({
+        authority: localToken,
+        committedPlaybackRevision: 9,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 18.7,
+        scheduleDelayMs: 700,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'superseded' });
+
+    await expect(
+      commitProPlaybackAuthority({
+        authority: serverToken,
+        committedPlaybackRevision: 10,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 20,
+        scheduleDelayMs: 700,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+  });
+
+  it('allows current-revision rendezvous after a newer canonical PREPARE is cancelled', async () => {
+    const prepare = vi.fn(async (request) => ready(request.authority));
+    const commit = vi.fn(async (request) => ({
+      status: 'applied' as const,
+      authority: request.authority,
+    }));
+    const cancel = vi.fn();
+    registerProPlaybackMediaEndpoint({ prepare, commit, cancel });
+
+    await commitProPlaybackAuthority({
+      authority: authority(8, null),
+      committedPlaybackRevision: 9,
+      queueItemId: Q1,
+      state: 'playing',
+      positionSeconds: 12,
+      scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
+    });
+
+    const serverToken = authority(9, 'server-transition-cancelled');
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: serverToken,
+        queueItemId: Q1,
+        positionSeconds: 20,
+      }),
+    ).resolves.toMatchObject({ status: 'ready' });
+
+    const localToken = authority(8, 'local-sync-after-cancel');
+    // Historical high-water state must not let local work preempt a server
+    // PREPARE that is still active.
+    await expect(
+      prepareCurrentProPlaybackRendezvousAuthority({
+        authority: localToken,
+        queueItemId: Q1,
+        positionSeconds: 18,
+      }),
+    ).resolves.toMatchObject({ status: 'superseded', reason: 'stale-authority' });
+    expect(prepare).toHaveBeenCalledOnce();
+
+    expect(cancelProPlaybackPreparation(serverToken)).toBe(true);
+    expect(cancel).toHaveBeenCalledWith(serverToken);
+    await expect(
+      prepareCurrentProPlaybackRendezvousAuthority({
+        authority: localToken,
+        queueItemId: Q1,
+        positionSeconds: 18,
+      }),
+    ).resolves.toMatchObject({ status: 'ready' });
+    await expect(
+      rendezvousCurrentProPlaybackAuthority({
+        authority: localToken,
+        committedPlaybackRevision: 9,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 18.7,
+        scheduleDelayMs: 700,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenCalledTimes(2);
   });
 
   it('does not publish a commit result that lost its participant-local fence while awaiting media', async () => {

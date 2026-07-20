@@ -2,7 +2,7 @@ import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
 } from './standard-room-account-assertion.js';
-import { normalizeAccountNickname } from './account-nickname.js';
+import { normalizeAccountNickname, normalizeNewAccountNickname } from './account-nickname.js';
 
 const AUTH_ROUTE_PREFIX = '/api/auth/';
 const AUTH_SESSION_COOKIE = '__Host-mxqr_account';
@@ -1068,7 +1068,7 @@ async function handleProfile(request, config) {
   if (!body || Object.keys(body).length !== 1 || !Object.hasOwn(body, 'nickname')) {
     return authJson({ error: 'INVALID_REQUEST' }, 400);
   }
-  const nickname = normalizeAccountNickname(body.nickname);
+  const nickname = normalizeNewAccountNickname(body.nickname);
   if (!nickname) return authJson({ error: 'NICKNAME_INVALID' }, 400);
   try {
     const resolved = await requireSession(request, config);
@@ -1170,8 +1170,7 @@ async function handleAccountDelete(request, config, integrations = {}) {
         throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
       }
     }
-    const tombstoneExpiresAt =
-      deletionStartedAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000;
+    const tombstoneExpiresAt = deletionStartedAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000;
     await d1Batch(config.db, [
       {
         sql: `DELETE FROM ${DELETED_SESSION_TABLE} WHERE expires_at <= ?1`,

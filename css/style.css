@@ -2922,12 +2922,39 @@
   .device-row .d-name {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: flex;
+    align-items: center;
     font-size: 16px;
     font-weight: 500;
     color: var(--text-main);
+  }
+
+  .device-row .d-name-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .d-device-count {
+    flex: 0 0 auto;
+    min-width: 15px;
+    height: 15px;
+    margin-left: 3px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    transform: translateY(-4px);
   }
 
   .sr-only {
@@ -3032,7 +3059,18 @@
 
   .administrator-action-button.revoke:hover,
   .administrator-action-button.revoke:focus-visible {
+    background: transparent;
     color: #ff4d4f;
+  }
+
+  .administrator-action-button.revoke {
+    width: 28px;
+    height: 28px;
+  }
+
+  .administrator-action-button.revoke svg {
+    width: 16px;
+    height: 16px;
   }
 
   .administrator-action-button:active {
@@ -3708,6 +3746,7 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 16px;
+    padding-bottom: 18px;
   }
 
   .administrator-permissions-member {
@@ -3722,21 +3761,22 @@
 
   .administrator-permissions-list {
     min-height: 0;
-    padding: 0 24px 8px;
+    padding: 0 32px 24px;
     display: grid;
-    gap: 4px;
+    gap: 10px;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
 
   .administrator-permissions-dialog .dialog-actions {
     flex: 0 0 auto;
+    padding-top: 6px;
   }
 
   .administrator-permission-row {
     width: 100%;
     min-height: 54px;
-    padding: 0 10px 0 14px;
+    padding: 0;
     border: 0;
     display: flex;
     align-items: center;
@@ -3749,13 +3789,16 @@
     font-weight: 650;
     text-align: left;
     cursor: pointer;
-    transition: background 0.16s ease;
   }
 
   .administrator-permission-row:hover,
   .administrator-permission-row:focus-visible {
-    background: var(--surface-2);
-    outline: none;
+    background: transparent;
+  }
+
+  .administrator-permission-row:focus-visible {
+    outline: 2px solid rgba(var(--primary-rgb), 0.4);
+    outline-offset: 5px;
   }
 
   .administrator-permission-row:disabled {
@@ -3869,6 +3912,11 @@
     padding: 6px 32px 22px;
     overflow-y: auto;
     overscroll-behavior: contain;
+    overflow-anchor: none;
+  }
+
+  .account-dialog-content[hidden] {
+    display: none;
   }
 
   .account-dialog-message {

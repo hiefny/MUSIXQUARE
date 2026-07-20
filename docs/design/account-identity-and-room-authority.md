@@ -49,8 +49,11 @@ The room assigns the member the physical admission number of that account's
 first device. Every later device still consumes its own physical slot, while the
 UI groups them under the first number. Thus three devices for Minsu followed by
 two for Jisu and one anonymous device render as `#1 Minsu (3)`, `#4 Jisu (2)`,
-and `#6 Peer 6`. The number remains stable when one grouped device leaves, and
-the physical room limit remains a device limit rather than an account limit.
+and `#6 Peer 6`. The number remains stable while that presence epoch is active.
+After a PRO room becomes completely empty, the next presence epoch starts its
+physical ordering at `#1` again; persistent account authority does not reserve a
+visible number. The physical room limit remains a device limit rather than an
+account limit.
 
 ### 2. Optional Google login
 
@@ -75,6 +78,20 @@ return only to allowlisted local routes.
 The first successful login requires a MUSIXQUARE nickname. The nickname is
 stored on the account and projected into every room. A signed-in client cannot
 override it through a heartbeat or legacy device-rename frame.
+
+New and changed account nicknames are limited to 12 Unicode code points. The
+database and assertion readers retain a 20-code-point compatibility ceiling so
+nicknames saved before this policy change continue to sign in, join rooms, and
+render without a forced rename. A grandfathered nickname is checked against the
+12-code-point limit only when its owner actively submits a nickname update; an
+unchanged session read is never treated as a new write.
+
+Length alone is not a moderation violation. The service therefore does not
+force a warning modal on grandfathered accounts and does not expose an account
+nickname directory in the admin dashboard. If operator-requested renames are
+introduced later, they require a purpose-built moderation state, a narrowly
+scoped account lookup/audit trail, and a corresponding privacy-policy update;
+the current schema has no such flag.
 
 ### 3. Account data boundary
 
@@ -198,9 +215,10 @@ another administrator unless an explicit future policy says otherwise.
 The UI renders two projections from server/host-owned room member data:
 
 1. `관리자 N명` above the device list. The owner/host is always first with a
-   yellow crown and is excluded from `N`. Delegated administrators use gray
-   crowns. Authenticated PRO administrators remain visible while offline;
-   anonymous administrators do not.
+   yellow crown and is included in `N`, so an owner-only room displays one
+   administrator rather than zero. Delegated administrators use gray crowns.
+   Authenticated PRO administrators remain visible while offline; anonymous
+   administrators do not.
 2. `연결된 기기 N대`, grouped by room member. The row contains the stable member
    number, nickname, optional device count, current-identity highlight, grant
    action for eligible non-admins, and account-wide kick. Revoke and capability

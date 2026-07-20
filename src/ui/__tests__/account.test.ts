@@ -17,6 +17,7 @@ import {
   requestAccountNicknameChange,
 } from '../account.ts';
 import { updateCurrentAccountNickname } from '../../account/nickname.ts';
+import { clearIntentionalNav } from '../../core/page-lifecycle.ts';
 
 vi.mock('../dialog.ts', () => ({ showDialog: vi.fn() }));
 vi.mock('../toast.ts', () => ({ showToast: vi.fn() }));
@@ -35,10 +36,12 @@ function renderAccountDialog(): void {
       <div id="account-dialog" aria-busy="false">
         <button id="btn-account-close"></button>
         <span id="account-dialog-title"></span>
-        <p id="account-dialog-message"></p>
-        <strong id="account-dialog-nickname" hidden></strong>
-        <a id="btn-account-google" hidden></a>
-        <nav id="account-legal-links" hidden></nav>
+        <div id="account-dialog-content">
+          <p id="account-dialog-message"></p>
+          <strong id="account-dialog-nickname" hidden></strong>
+          <a id="btn-account-google" hidden></a>
+          <nav id="account-legal-links" hidden></nav>
+        </div>
         <div id="account-dialog-actions" hidden>
           <button id="btn-account-rename"></button>
           <button id="btn-account-logout"></button>
@@ -56,6 +59,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   renderAccountDialog();
   vi.stubGlobal('fetch', vi.fn());
+  sessionStorage.clear();
+  clearIntentionalNav();
   window.history.replaceState({}, '', '/');
 });
 
@@ -165,6 +170,28 @@ describe('optional account UI', () => {
     expect(google.getAttribute('href')).not.toContain('account-complete');
   });
 
+  it('preserves the PRO route in a PWA even before room context projection is ready', async () => {
+    window.history.replaceState({}, '', '/000001?panel=connect#account');
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+
+    const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
+    let hrefAtActivation = '';
+    google.addEventListener('click', (event) => {
+      hrefAtActivation = google.getAttribute('href') || '';
+      event.preventDefault();
+    });
+    google.dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
+
+    const returnTo = new URL(hrefAtActivation, window.location.origin).searchParams.get('returnTo');
+    expect(returnTo).toBe('/000001?panel=connect#account');
+  });
+
   it('focuses one live login popup instead of overwriting its OAuth state', async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
@@ -245,14 +272,12 @@ describe('optional account UI', () => {
     );
     const focus = vi.fn();
     const replace = vi.fn();
-    const open = vi
-      .spyOn(window, 'open')
-      .mockReturnValue({
-        closed: false,
-        focus,
-        location: { replace },
-        opener: window,
-      } as unknown as Window);
+    const open = vi.spyOn(window, 'open').mockReturnValue({
+      closed: false,
+      focus,
+      location: { replace },
+      opener: window,
+    } as unknown as Window);
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     openAccountDialog();
@@ -314,7 +339,9 @@ describe('optional account UI', () => {
     opener.focus();
 
     openAccountDialog();
-    expect(document.getElementById('account-dialog-nickname')?.textContent).toBe('Minsu');
+    expect(document.getElementById('account-dialog-title')?.textContent).toBe('Minsu');
+    expect(document.getElementById('account-dialog-content')?.hidden).toBe(true);
+    expect(document.getElementById('account-dialog-nickname')?.hidden).toBe(true);
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
 
     document.getElementById('btn-account-close')?.click();
@@ -544,5 +571,6 @@ describe('optional account UI', () => {
     expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
     expect(contentRules).toContain('min-height: 0');
     expect(contentRules).toContain('overflow-y: auto');
+    expect(contentRules).toContain('overflow-anchor: none');
   });
 });

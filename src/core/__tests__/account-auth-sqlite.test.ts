@@ -217,6 +217,50 @@ afterEach(() => {
     }
   });
 
+  it('grandfathers an existing nickname above 12 characters without allowing it as a new write', async () => {
+    const db = new SqliteD1();
+    const token = 'g'.repeat(43);
+    const legacyNickname = 'x'.repeat(13);
+    try {
+      await seedAccount(db, [token]);
+      db.database
+        .prepare(
+          `UPDATE mxqr_accounts
+              SET nickname = ?, profile_complete = 1, updated_at = updated_at + 1
+            WHERE account_id = ?`,
+        )
+        .run(legacyNickname, ACCOUNT_ID);
+
+      const session = await handleAccountAuthRequest(
+        request('/api/auth/session', { token }),
+        authEnv(db),
+      );
+      expect(session.status).toBe(200);
+      expect(await session.json()).toMatchObject({
+        authenticated: true,
+        account: { nickname: legacyNickname, profileComplete: true },
+      });
+
+      const unchangedWrite = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token,
+          body: { nickname: legacyNickname },
+        }),
+        authEnv(db),
+      );
+      expect(unchangedWrite.status).toBe(400);
+      expect(await unchangedWrite.json()).toEqual({ error: 'NICKNAME_INVALID' });
+
+      const stored = db.database
+        .prepare('SELECT nickname, profile_complete FROM mxqr_accounts WHERE account_id = ?')
+        .get(ACCOUNT_ID);
+      expect(stored).toMatchObject({ nickname: legacyNickname, profile_complete: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
   it('executes the real deletion SQL atomically and lets foreign keys remove all sessions', async () => {
     const db = new SqliteD1();
     const firstToken = 'c'.repeat(43);

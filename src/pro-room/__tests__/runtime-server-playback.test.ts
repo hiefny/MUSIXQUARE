@@ -1461,7 +1461,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     });
   });
 
-  it('re-applies the current server checkpoint locally after a fresh heartbeat', async () => {
+  it('rendezvous-releases the current running checkpoint locally after a fresh heartbeat', async () => {
     acceptProRoomRealtimeFrameForTests(
       serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
     );
@@ -1482,6 +1482,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     }
 
     expect(heartbeat).toHaveBeenCalledOnce();
+    expect(prepareMedia).toHaveBeenCalledOnce();
     expect(commitMedia).toHaveBeenCalledTimes(2);
     expect(commitMedia.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({
@@ -1489,9 +1490,11 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         queueItemId: QUEUE_ITEM_ID,
         state: 'playing',
         timingMode: 'scheduled-control',
-        positionSeconds: expect.closeTo(23, 1),
+        scheduleDelayMs: 700,
+        positionSeconds: expect.closeTo(23.7, 1),
       }),
     );
+    expect(commitMedia.mock.calls[1]?.[0].authority.transitionId).toMatch(/^local_sync_1_/);
     expect(loading).toEqual([true, false]);
   });
 
@@ -1523,9 +1526,53 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     expect(commitMedia.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({
         committedPlaybackRevision: 1,
-        positionSeconds: expect.closeTo(25, 3),
+        scheduleDelayMs: 700,
+        positionSeconds: expect.closeTo(25.7, 3),
       }),
     );
+  });
+
+  it('lets a newer server PREPARE supersede an in-flight local manual rendezvous', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
+      ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
+      revision: 2,
+    });
+    let resolveLocal!: (result: ProPlaybackPrepareResult) => void;
+    prepareMedia.mockImplementationOnce(
+      (request) =>
+        new Promise<ProPlaybackPrepareResult>((resolve) => {
+          resolveLocal = resolve;
+        }),
+    );
+
+    const syncing = requestActiveProRoomPlaybackReconciliation();
+    await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+    const localAuthority = prepareMedia.mock.calls[0]?.[0].authority;
+
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(prepareEvent(TRANSITION_READY, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(cancelMedia).toHaveBeenCalledWith(localAuthority));
+
+    resolveLocal({
+      status: 'ready',
+      authority: localAuthority,
+      queueItemId: QUEUE_ITEM_ID,
+      mediaKind: 'youtube',
+      durationSeconds: 180,
+      youtubeSubIndex: 0,
+      youtubeVideoId: VIDEO_ID,
+    });
+
+    await expect(syncing).resolves.toBe(false);
+    await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+    expect(commitMedia).toHaveBeenCalledOnce();
   });
 
   it('does not wait for clock calibration when reconciling an exact paused checkpoint', async () => {

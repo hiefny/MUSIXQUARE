@@ -23,8 +23,8 @@ describe('account nickname validation', () => {
   });
 
   it('counts Unicode code points consistently with the account service', () => {
-    expect(validateAccountNickname('🎵'.repeat(20))).toBeNull();
-    expect(validateAccountNickname('🎵'.repeat(21))).not.toBeNull();
+    expect(validateAccountNickname('🎵'.repeat(12))).toBeNull();
+    expect(validateAccountNickname('🎵'.repeat(13))).not.toBeNull();
   });
 
   it('strips C1 controls before reserved-name validation', () => {

@@ -1294,7 +1294,7 @@ describe('account session mutations', () => {
       'name\u0085',
       '\u0301',
       'fuck',
-      'x'.repeat(21),
+      'x'.repeat(13),
     ]) {
       const response = await handleAccountAuthRequest(
         new Request('https://musixquare.com/api/auth/profile', {

@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProRoomApiError } from '../api.ts';
+import { rememberAccountLoginReturn } from '../../account/login-return.ts';
 
 const mocks = vi.hoisted(() => ({
   activate: vi.fn(),
@@ -49,6 +50,7 @@ beforeEach(() => {
   mocks.join.mockResolvedValue({});
   mocks.activate.mockResolvedValue({});
   mocks.recoverOwner.mockResolvedValue({});
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -144,6 +146,26 @@ describe('PRO room setup flow', () => {
       takeover: true,
       signal: expect.any(AbortSignal),
     });
+    expect(mocks.announceTakeover).toHaveBeenCalledWith(ROOM_CODE);
+  });
+
+  it('silently reclaims this tab after a same-tab PWA login return', async () => {
+    rememberAccountLoginReturn('/000001', ROOM_CODE);
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume
+      .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409))
+      .mockResolvedValueOnce({});
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.resume).toHaveBeenNthCalledWith(1, ROOM_CODE, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(mocks.resume).toHaveBeenNthCalledWith(2, ROOM_CODE, {
+      takeover: true,
+      signal: expect.any(AbortSignal),
+    });
+    expect(mocks.showDialog).not.toHaveBeenCalled();
     expect(mocks.announceTakeover).toHaveBeenCalledWith(ROOM_CODE);
   });
 

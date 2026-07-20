@@ -379,7 +379,8 @@ describe('member-level connection and administrator UI', () => {
       '#connect-device-list .device-row.is-current-member',
     );
     expect(mine?.textContent).toContain('#1');
-    expect(mine?.textContent).toContain('Minsu (3)');
+    expect(mine?.querySelector('.d-name-label')?.textContent).toBe('Minsu');
+    expect(mine?.querySelector('.d-device-count')?.textContent).toBe('3');
     expect(mine?.getAttribute('aria-current')).toBe('true');
     expect(mine?.querySelector('.d-device-count')?.getAttribute('aria-hidden')).toBe('true');
     expect(mine?.querySelector('.sr-only')?.textContent).toContain('연결된 기기 3대');
@@ -508,7 +509,7 @@ describe('member-level connection and administrator UI', () => {
     expect(owner?.dataset.memberId).toBe('member-minsu');
   });
 
-  it('counts delegated administrators separately from the host and keeps offline accounts visible', () => {
+  it('includes the owner in the administrator count and keeps offline accounts visible', () => {
     setState('network.appRole', 'host');
     setState(
       'network.standardRoomAdministrators',
@@ -569,7 +570,7 @@ describe('member-level connection and administrator UI', () => {
       },
     ]);
 
-    expect(document.getElementById('connect-administrator-title')?.textContent).toBe('관리자 2명');
+    expect(document.getElementById('connect-administrator-title')?.textContent).toBe('관리자 3명');
     const rows = document.querySelectorAll<HTMLElement>(
       '#connect-administrator-list .administrator-row',
     );
@@ -579,6 +580,60 @@ describe('member-level connection and administrator UI', () => {
     expect(rows[2]?.textContent).toContain('Offline admin');
     expect(rows[0]?.querySelector('.administrator-action-button')).toBeNull();
     expect(rows[1]?.querySelectorAll('.administrator-action-button')).toHaveLength(2);
+    expect(
+      rows[1]?.querySelector('.administrator-action-button.revoke path')?.getAttribute('d'),
+    ).toBe(
+      'M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z',
+    );
+  });
+
+  it('shows one administrator for an owner-only PRO room', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    initConnect();
+
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ]);
+
+    expect(document.getElementById('connect-administrator-title')?.textContent).toBe('관리자 1명');
+    expect(
+      document.querySelectorAll('#connect-administrator-list .administrator-row'),
+    ).toHaveLength(1);
+  });
+
+  it('keeps administrator layout aligned and permission rows free of pill hover fills', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const desktopStylesheet = await readFile('css/desktop.css', 'utf8');
+    expect(desktopStylesheet).toMatch(
+      /#desktop-connect-content \.qr-container,\s*#desktop-connect-content \.administrator-list,\s*#desktop-connect-content \.device-list,/,
+    );
+    expect(stylesheet).toMatch(
+      /\.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
+    );
   });
 
   it('migrates legacy inherited PRO playback control to an editable explicit permission', async () => {
@@ -953,7 +1008,7 @@ describe('connect rename authority', () => {
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
     const validator = mockedShowDialog.mock.calls.at(-1)?.[0].inputField?.validator;
     expect(validator?.('pEeR 99')).toBe(validator?.('HOST'));
-    expect(validator?.('Studio Tablet')).toBeNull();
+    expect(validator?.('Studio Tab')).toBeNull();
   });
 
   it('does not treat a server-authority PRO owner as the reserved HOST identity', async () => {

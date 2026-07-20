@@ -50,6 +50,14 @@ HMAC-pseudonymized Google subjects, account nicknames, and digests of random
 session tokens. Google email, OAuth tokens, and raw browser session tokens are
 not stored.
 
+New nickname writes accept at most 12 Unicode code points. Keep the tracked
+schema's 20-character constraint and the read/assertion compatibility boundary
+unchanged: they grandfather pre-policy nicknames without making 13-to-20
+characters writable again. Do not bulk-rewrite those rows or prompt merely
+because of length. There is currently no account-moderation flag or admin
+nickname directory; adding either is a separate privacy and audit design, not a
+nickname-limit migration step.
+
 ## 2. Configure Google OpenID Connect
 
 Create a Google OAuth 2.0 **Web application** client and register this exact

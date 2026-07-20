@@ -96,8 +96,10 @@ import {
   cancelProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
+  prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
   reconcileCurrentProPlaybackAuthority,
+  rendezvousCurrentProPlaybackAuthority,
   refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
   resetProPlaybackAuthorityHooks,
@@ -137,6 +139,8 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 const VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS = [1_000, 3_000, 10_000, 15_000] as const;
 const VISIBILITY_PLAYBACK_RECOVERY_TIMER = 'pro-room-visibility-playback-recovery';
 const PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS = 1_000;
+/** Future server instant used by one-participant manual PRO rendezvous. */
+const PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS = 700;
 const CONTROL_CHANNEL_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
 const HEARTBEAT_TIMER = 'pro-room-heartbeat';
 const ACCOUNT_IDENTITY_LEASE_TIMER = 'pro-room-account-identity-lease';
@@ -2947,6 +2951,7 @@ async function submitPlaybackIntent(
           intent.roomId,
           intent.roomEpoch,
           result.serverTimeMs,
+          false,
         );
         settleLocalPlaybackUiControl(
           localUiControl,
@@ -3128,6 +3133,7 @@ async function reapplyCurrentPlaybackCheckpoint(
   roomCode: string,
   roomEpoch: number,
   observedServerTimeMs: number,
+  rendezvous: boolean,
 ): Promise<boolean> {
   if (
     playback.revision <= 0 ||
@@ -3142,31 +3148,73 @@ async function reapplyCurrentPlaybackCheckpoint(
   }
 
   const generation = playbackCommitGeneration;
+  const runningRendezvous = rendezvous && playback.state === 'playing';
   const authority = createProPlaybackAuthorityToken({
     roomId: roomCode,
     roomEpoch,
     basePlaybackRevision: playback.revision - 1,
-    // A null transition proves this is a direct re-application, not a second
-    // participant PREPARE for the already-committed server revision.
-    transitionId: null,
+    // A running manual sync uses a participant-local arm/release cycle. The
+    // opaque ID never leaves this browser and cannot create a room revision.
+    // Paused checkpoints remain exact direct re-applications.
+    transitionId: runningRendezvous
+      ? `local_sync_${playback.revision}_${++playbackReconciliationSequence}`
+      : null,
   });
   // `observedServerTimeMs` is either a timestamp carried by the command
   // response or a clock value read only after fresh calibration. Never mix an
   // uncalibrated local wall clock into this server-timeline calculation: a
   // manually skewed device clock could otherwise seek hours away.
   const serverNow = isProRoomServerClockCalibrated() ? getProRoomServerNow() : observedServerTimeMs;
-  const canonicalPosition =
+  const canonicalPositionNow =
     playback.state === 'playing'
       ? playback.positionSeconds + Math.max(0, serverNow - playback.updatedAtMs) / 1_000
       : playback.positionSeconds;
   const isCurrent = () =>
     playbackReconciliationStillCurrent(playback, roomCode, roomEpoch, generation);
+
+  if (runningRendezvous) {
+    const prepared = await prepareCurrentProPlaybackRendezvousAuthority({
+      authority,
+      queueItemId: playback.queueItemId,
+      positionSeconds: canonicalPositionNow,
+      youtubeSubIndex: playback.youtubeSubIndex,
+      youtubeVideoId: playback.youtubeVideoId,
+      isCurrent,
+    });
+    if (prepared.status !== 'ready' || !isCurrent()) {
+      cancelProPlaybackPreparation(authority);
+      return false;
+    }
+
+    // Preparation can take hundreds of milliseconds on an iframe. Rebase the
+    // target after it is ready, then release at one future server instant so
+    // this endpoint rejoins the running timeline rather than hard-seeking at
+    // an arbitrary response-arrival time.
+    const executeAtMs = getProRoomServerNow() + PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS;
+    const rendezvousPosition =
+      playback.positionSeconds + Math.max(0, executeAtMs - playback.updatedAtMs) / 1_000;
+    const result = await rendezvousCurrentProPlaybackAuthority({
+      authority,
+      committedPlaybackRevision: playback.revision,
+      queueItemId: playback.queueItemId,
+      state: playback.state,
+      positionSeconds: rendezvousPosition,
+      scheduleDelayMs: PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS,
+      timingMode: 'scheduled-control',
+      youtubeSubIndex: playback.youtubeSubIndex,
+      youtubeVideoId: playback.youtubeVideoId,
+      isCurrent,
+    });
+    if (result.status !== 'applied') cancelProPlaybackPreparation(authority);
+    return result.status === 'applied' && isCurrent();
+  }
+
   const result = await reconcileCurrentProPlaybackAuthority({
     authority,
     committedPlaybackRevision: playback.revision,
     queueItemId: playback.queueItemId,
     state: playback.state,
-    positionSeconds: canonicalPosition,
+    positionSeconds: canonicalPositionNow,
     scheduleDelayMs: 0,
     timingMode: 'scheduled-control',
     youtubeSubIndex: playback.youtubeSubIndex,
@@ -3179,6 +3227,7 @@ async function reapplyCurrentPlaybackCheckpoint(
 interface PlaybackReconciliationOptions {
   showLoading: boolean;
   youtubeOnly: boolean;
+  rendezvous: boolean;
 }
 
 async function reconcileActiveProRoomPlayback(
@@ -3235,6 +3284,7 @@ async function reconcileActiveProRoomPlayback(
       snapshot.roomCode,
       snapshot.presence.coordinatorEpoch,
       getProRoomServerNow(),
+      options.rendezvous,
     );
   })().finally(() => {
     if (options.showLoading) settlePlaybackTransitionUi(transitionUiId);
@@ -3250,7 +3300,11 @@ async function reconcileActiveProRoomPlayback(
  * boolean to decide whether the local endpoint was actually realigned.
  */
 export function requestActiveProRoomPlaybackReconciliation(): Promise<boolean> {
-  return reconcileActiveProRoomPlayback({ showLoading: true, youtubeOnly: false });
+  return reconcileActiveProRoomPlayback({
+    showLoading: true,
+    youtubeOnly: false,
+    rendezvous: true,
+  });
 }
 
 function applyAuthority(context: RoomContext): void {
@@ -3702,6 +3756,7 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
     const reconciled = await reconcileActiveProRoomPlayback({
       showLoading: false,
       youtubeOnly: true,
+      rendezvous: false,
     });
     if (!active || document.visibilityState !== 'visible') return;
     if (reconciled || !activeSnapshotNeedsYouTubeVisibilityRecovery()) {

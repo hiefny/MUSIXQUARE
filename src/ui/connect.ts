@@ -365,7 +365,7 @@ const CROWN_ICON =
 const SETTINGS_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.1 7.1 0 0 0-1.62-.94L14.38 2.8A.49.49 0 0 0 13.89 2h-3.84a.49.49 0 0 0-.49.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.61.22L2.66 8.47a.5.5 0 0 0 .12.64l2.03 1.58c-.05.31-.09.65-.09.98s.03.66.08.97l-2.02 1.58a.49.49 0 0 0-.12.64l1.92 3.32c.13.23.4.31.63.22l2.37-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.49.41h3.84c.25 0 .46-.17.49-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.37.96c.23.09.5.01.63-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.02-1.58zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>';
 const REVOKE_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8c0-1.66-1.34-3-3-3S9 6.34 9 8s1.34 3 3 3 3-1.34 3-3zm-8 8c0-2 3.33-3 5-3 .54 0 1.23.11 1.91.32l1.63-1.63A10.3 10.3 0 0 0 12 11c-2 0-6 1-6 5v2h7.17l-2-2H7zm12.59-3L17 15.59 14.41 13 13 14.41 15.59 17 13 19.59 14.41 21 17 18.41 19.59 21 21 19.59 18.41 17 21 14.41 19.59 13z"/></svg>';
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z"/></svg>';
 
 interface AdministratorView {
   memberId: string;
@@ -526,7 +526,6 @@ function _administratorActionButton(
 
 function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void {
   const administrators = _administratorsForMembers(members);
-  const delegatedCount = administrators.filter((administrator) => !administrator.isOwner).length;
   const canManage = _canManageAdministrators();
   const sectionIds = ['connect-administrator-section', 'desktop-administrator-section'];
   const titleIds = ['connect-administrator-title', 'desktop-administrator-title'];
@@ -538,7 +537,10 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
   });
   titleIds.forEach((id) => {
     const title = document.getElementById(id);
-    if (title) title.textContent = _administratorListTitle(delegatedCount);
+    // The owner is visibly the first yellow-crown row, so include that person
+    // in the section count instead of presenting the confusing "0 admins"
+    // state beside a non-empty list.
+    if (title) title.textContent = _administratorListTitle(administrators.length);
   });
 
   containerIds.forEach((id) => {
@@ -565,7 +567,10 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
 
       const name = document.createElement('span');
       name.className = 'd-name';
-      name.textContent = administrator.displayName || t('common.peer');
+      const nameLabel = document.createElement('span');
+      nameLabel.className = 'd-name-label';
+      nameLabel.textContent = administrator.displayName || t('common.peer');
+      name.appendChild(nameLabel);
       row.appendChild(name);
 
       if (canManage && !administrator.isOwner) {
@@ -901,11 +906,14 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       // nicknames from different memberIds still remain separate rows.
       const name = document.createElement('span');
       name.className = 'd-name';
-      name.append(document.createTextNode(member.label || t('common.peer')));
+      const nameLabel = document.createElement('span');
+      nameLabel.className = 'd-name-label';
+      nameLabel.textContent = member.label || t('common.peer');
+      name.appendChild(nameLabel);
       if (member.deviceCount > 1) {
         const deviceCount = document.createElement('span');
         deviceCount.className = 'd-device-count';
-        deviceCount.textContent = ` (${member.deviceCount})`;
+        deviceCount.textContent = String(member.deviceCount);
         deviceCount.setAttribute('aria-hidden', 'true');
         name.appendChild(deviceCount);
         const accessibleDeviceCount = document.createElement('span');

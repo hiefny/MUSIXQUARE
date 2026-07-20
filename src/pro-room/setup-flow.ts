@@ -5,6 +5,7 @@ import { ProRoomApiError } from './api.ts';
 import { takeProRoomClaimsFromFragment } from './claim-fragment.ts';
 import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 import { announceProRoomTabTakeover } from './tab-handoff.ts';
+import { clearAccountLoginReturn, hasAccountLoginReturnForRoom } from '../account/login-return.ts';
 
 const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
 
@@ -98,6 +99,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   // the runtime bridges back into peer.ts and would otherwise form an eager
   // guest -> runtime -> peer -> guest evaluation cycle at app startup.
   const runtime = await import('./runtime.ts');
+  const returningFromSameTabLogin = hasAccountLoginReturnForRoom(code);
   const bootstrap = await runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal));
 
   if (bootstrap.status === 'suspended') {
@@ -165,9 +167,18 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   // the 8-digit PIN again; only an authentication miss falls through.
   try {
     await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+    if (returningFromSameTabLogin) clearAccountLoginReturn();
     return true;
   } catch (error) {
     if (isActiveInAnotherTab(error)) {
+      if (returningFromSameTabLogin) {
+        await runEntryOperation((signal) =>
+          runtime.resumeProRoom(code, { takeover: true, signal }),
+        );
+        clearAccountLoginReturn();
+        announceProRoomTabTakeover(code);
+        return true;
+      }
       const result = await showDialog({
         title: t('pro.active_tab_title'),
         message: t('pro.active_tab_message'),
@@ -185,6 +196,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
       return true;
     }
     if (!isMissingCookieSession(error)) throw error;
+    if (returningFromSameTabLogin) clearAccountLoginReturn();
   }
 
   let retry = false;
@@ -206,6 +218,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
           signal,
         ),
       );
+      if (returningFromSameTabLogin) clearAccountLoginReturn();
       return true;
     } catch (error) {
       if (error instanceof ProRoomApiError && error.code === 'PIN_INVALID') {

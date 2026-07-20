@@ -1,6 +1,10 @@
 import profanityPatterns from '../src/chat/profanity-patterns.generated.json' with { type: 'json' };
 
-const NICKNAME_MAX_CODE_POINTS = 20;
+// New profile writes use the shorter product limit. Keep the stored/read
+// boundary at 20 so accounts created before the limit changed remain valid in
+// sessions and signed room assertions until their owner chooses a new name.
+const NICKNAME_WRITE_MAX_CODE_POINTS = 12;
+const NICKNAME_STORED_MAX_CODE_POINTS = 20;
 // Reject rather than silently strip at the HTTP boundary. The browser UI
 // strips these characters before submit, while scripted callers receive a
 // clear NICKNAME_INVALID response instead of storing a visually ambiguous ID.
@@ -35,17 +39,13 @@ function containsProfanity(value) {
   return Boolean(PROFANITY_RE.korean?.test(value) || PROFANITY_RE.english?.test(value));
 }
 
-/**
- * Authoritative nickname normalization shared by account persistence and both
- * room-assertion codecs. Anything saved by the account service must remain
- * representable in Standard and PRO rooms.
- */
-export function normalizeAccountNickname(value) {
+/** Common character, reserved-name, and profanity policy for both limits. */
+function normalizeAccountNicknameWithLimit(value, maxCodePoints) {
   if (typeof value !== 'string') return null;
   const normalized = value.normalize('NFC').trim();
   if (
     !normalized ||
-    Array.from(normalized).length > NICKNAME_MAX_CODE_POINTS ||
+    Array.from(normalized).length > maxCodePoints ||
     NICKNAME_FORBIDDEN_RE.test(normalized) ||
     MARKS_ONLY_RE.test(normalized)
   ) {
@@ -61,4 +61,18 @@ export function normalizeAccountNickname(value) {
     return null;
   }
   return normalized;
+}
+
+/**
+ * Normalize an already-persisted nickname for sessions and room assertions.
+ * The 20-code-point compatibility ceiling deliberately matches the tracked D1
+ * schema and must not be used to admit a new profile write.
+ */
+export function normalizeAccountNickname(value) {
+  return normalizeAccountNicknameWithLimit(value, NICKNAME_STORED_MAX_CODE_POINTS);
+}
+
+/** Authoritative boundary for every new or changed account nickname. */
+export function normalizeNewAccountNickname(value) {
+  return normalizeAccountNicknameWithLimit(value, NICKNAME_WRITE_MAX_CODE_POINTS);
 }

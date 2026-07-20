@@ -9,8 +9,18 @@ import {
   type AccountSnapshot,
 } from '../account/state.ts';
 import { removeAccount, signOutAccount, startAccountSessionRefresh } from '../account/session.ts';
-import { updateCurrentAccountNickname, validateAccountNickname } from '../account/nickname.ts';
+import {
+  ACCOUNT_NICKNAME_MAX_CODE_POINTS,
+  updateCurrentAccountNickname,
+  validateAccountNickname,
+} from '../account/nickname.ts';
+import {
+  rememberAccountLoginReturn,
+  restoreAccountLoginReturnPath,
+} from '../account/login-return.ts';
+import { clearIntentionalNav, markIntentionalNav } from '../core/page-lifecycle.ts';
 import { t } from '../i18n/index.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 import { showDialog } from './dialog.ts';
 import { syncOverlayState } from './dom.ts';
 import { showToast } from './toast.ts';
@@ -49,6 +59,14 @@ const _handledAccountResultIds = new Set<string>();
 
 function byId<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
+}
+
+function focusWithoutScroll(element: HTMLElement | null): void {
+  try {
+    element?.focus({ preventScroll: true });
+  } catch {
+    element?.focus();
+  }
 }
 
 function setPending(pending: boolean): void {
@@ -208,24 +226,30 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   const title = byId<HTMLElement>('account-dialog-title');
   const message = byId<HTMLElement>('account-dialog-message');
   const nickname = byId<HTMLElement>('account-dialog-nickname');
+  const content = byId<HTMLElement>('account-dialog-content');
   const google = byId<HTMLAnchorElement>('btn-account-google');
   const legal = byId<HTMLElement>('account-legal-links');
   const actions = byId<HTMLElement>('account-dialog-actions');
   const rename = byId<HTMLButtonElement>('btn-account-rename');
   const logout = byId<HTMLButtonElement>('btn-account-logout');
   const remove = byId<HTMLButtonElement>('btn-account-delete');
-  if (!title || !message || !nickname || !google || !legal || !actions) return;
+  if (!title || !message || !nickname || !content || !google || !legal || !actions) return;
 
+  content.hidden = false;
+  message.hidden = false;
   nickname.hidden = true;
   google.hidden = true;
   legal.hidden = true;
   actions.hidden = true;
 
   if (snapshot.status === 'authenticated' && snapshot.account) {
-    title.textContent = t('account.account_title');
+    title.textContent = snapshot.account.profileComplete
+      ? snapshot.account.nickname
+      : t('account.nickname_title');
     message.textContent = snapshot.account.profileComplete ? '' : t('account.nickname_message');
-    nickname.textContent = snapshot.account.nickname;
-    nickname.hidden = !snapshot.account.profileComplete;
+    message.hidden = snapshot.account.profileComplete;
+    content.hidden = snapshot.account.profileComplete;
+    nickname.textContent = '';
     actions.hidden = false;
     if (rename) {
       rename.textContent = snapshot.account.profileComplete
@@ -282,6 +306,8 @@ export function openAccountDialog(): void {
   if (!overlay) return;
   _previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   renderAccountDialog(snapshot);
+  const content = byId<HTMLElement>('account-dialog-content');
+  if (content) content.scrollTop = 0;
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('account-dialog-overlay');
@@ -290,7 +316,7 @@ export function openAccountDialog(): void {
       snapshot.status === 'anonymous' && snapshot.configured
         ? byId<HTMLElement>('btn-account-google')
         : byId<HTMLElement>('btn-account-close');
-    preferred?.focus();
+    focusWithoutScroll(preferred);
   });
 }
 
@@ -310,10 +336,10 @@ export async function requestAccountNicknameChange(): Promise<void> {
       inputField: {
         placeholder: t('account.nickname_placeholder'),
         defaultValue: account?.profileComplete ? account.nickname : account?.nickname || '',
-        // HTML maxLength counts UTF-16 code units. Leave room for 20 astral
+        // HTML maxLength counts UTF-16 code units. Leave room for 12 astral
         // code points (for example emoji); the validator enforces the exact
-        // server-side 20-code-point contract.
-        maxLength: 40,
+        // server-side code-point contract.
+        maxLength: ACCOUNT_NICKNAME_MAX_CODE_POINTS * 2,
         hint: t('account.nickname_hint'),
         validator: validateAccountNickname,
       },
@@ -347,7 +373,28 @@ function bindAccountDialog(): void {
     const standalone =
       window.matchMedia?.('(display-mode: standalone)').matches === true ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    if (standalone) return;
+    if (standalone) {
+      const context = getRoomContext();
+      const pathnameRoomCode = window.location.pathname.match(/^\/(\d{6})$/)?.[1] ?? null;
+      const roomCode =
+        context.kind === 'pro' && context.roomId && /^\d{6}$/.test(context.roomId)
+          ? context.roomId
+          : pathnameRoomCode;
+      const returnTo = roomCode
+        ? `/${roomCode}${window.location.search}${window.location.hash}`
+        : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      rememberAccountLoginReturn(returnTo, roomCode);
+      // The href was initially rendered before the room context necessarily
+      // existed. Refresh it at the activation gesture so a PWA always returns
+      // to the live room rather than the install start URL.
+      (event.currentTarget as HTMLAnchorElement).href = buildGoogleLoginUrl(location, returnTo);
+      markIntentionalNav();
+      // If a browser/extension cancels the anchor navigation after this
+      // handler, do not leave the active room without its ordinary unload
+      // protection for the rest of the document lifetime.
+      globalThis.setTimeout(clearIntentionalNav, 2_000);
+      return;
+    }
     try {
       if (_accountLoginPopup && !_accountLoginPopup.closed) {
         event.preventDefault();
@@ -478,7 +525,7 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
       snapshot.status === 'authenticated' &&
       snapshot.account?.profileComplete
     ) {
-      queueMicrotask(() => byId<HTMLButtonElement>('btn-account-rename')?.focus());
+      queueMicrotask(() => focusWithoutScroll(byId<HTMLButtonElement>('btn-account-rename')));
     }
     return;
   }
@@ -500,6 +547,9 @@ function handleProfilePromptVisibility(): void {
 }
 
 export function initAccount(): void {
+  // initAccount runs before setup.ts. Recover a standalone-PWA room route now
+  // so invite parsing and the automatic PRO resume see the intended room.
+  restoreAccountLoginReturnPath();
   bindAccountAuthResultLifecycle();
   const returnedAuthOutcome = consumeAccountAuthOutcomeFromUrl();
   bindAccountDialog();

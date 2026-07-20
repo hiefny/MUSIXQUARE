@@ -9060,6 +9060,178 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(customAfterNumberedStale.snapshot.viewer.displayName).toBe('Studio Tablet');
   });
 
+  it('restarts physical display ordering at one after an empty presence epoch', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const devices: Array<{ cookie: string; participantId: string }> = [];
+    for (let index = 0; index < 3; index += 1) {
+      const response = await worker.fetch(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+      );
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      devices.push({ cookie, participantId: envelope.snapshot.viewer.participantId });
+    }
+    for (const cookie of [ownerCookie, ...devices.map((device) => device.cookie)]) {
+      const leave = await worker.fetch(request('/presence/current', { method: 'DELETE' }, cookie));
+      expect(leave.status).toBe(200);
+    }
+
+    // The newest durable cookie used to retain Peer 3 (and production rooms
+    // could reach #12+). Empty presence is a new visible ordering epoch.
+    const firstReturnResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, devices[2]!.cookie),
+    );
+    const firstReturn = await responseJson(firstReturnResponse);
+    bindCookiePresence(devices[2]!.cookie, firstReturn);
+    expect(firstReturn.snapshot.viewer).toMatchObject({
+      participantId: devices[2]!.participantId,
+      displayName: 'Peer 1',
+    });
+
+    const secondReturnResponse = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, devices[0]!.cookie),
+    );
+    const secondReturn = await responseJson(secondReturnResponse);
+    bindCookiePresence(devices[0]!.cookie, secondReturn);
+    expect(secondReturn.snapshot.viewer).toMatchObject({
+      participantId: devices[0]!.participantId,
+      displayName: 'Peer 2',
+    });
+  });
+
+  it('preserves same-account grouping while restarting an empty presence epoch at one', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { env: Record<string, string> };
+    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const accountId = 'acct_epochgroup0123456789AB';
+    const accountDevices: Array<{ cookie: string; participantId: string }> = [];
+    for (let index = 0; index < 2; index += 1) {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          'Minsu',
+        ),
+      );
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      accountDevices.push({ cookie, participantId: envelope.snapshot.viewer.participantId });
+    }
+    const anonymousResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+    );
+    const anonymous = await responseJson(anonymousResponse);
+    const anonymousCookie = cookieFrom(anonymousResponse);
+    bindCookiePresence(anonymousCookie, anonymous);
+
+    for (const cookie of [
+      context.ownerCookie,
+      ...accountDevices.map((device) => device.cookie),
+      anonymousCookie,
+    ]) {
+      expect(
+        (await context.worker.fetch(request('/presence/current', { method: 'DELETE' }, cookie)))
+          .status,
+      ).toBe(200);
+    }
+
+    for (const device of [accountDevices[1]!, accountDevices[0]!]) {
+      const response = await context.worker.fetch(
+        request('/presence/enter', { method: 'POST' }, device.cookie),
+      );
+      const envelope = await responseJson(response);
+      bindCookiePresence(device.cookie, envelope);
+    }
+    const grouped = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, accountDevices[0]!.cookie)),
+    );
+    expect(grouped.snapshot.viewer).toMatchObject({
+      memberDisplayNumber: 1,
+      displayName: 'Minsu',
+    });
+    const accountParticipants = grouped.snapshot.presence.participants.filter(
+      (participant: Record<string, unknown>) =>
+        participant.memberId === grouped.snapshot.viewer.memberId,
+    );
+    expect(accountParticipants).toHaveLength(2);
+    expect(
+      new Set(accountParticipants.map((participant: any) => participant.memberDisplayNumber)),
+    ).toEqual(new Set([1]));
+
+    const anonymousReturnResponse = await context.worker.fetch(
+      request('/presence/enter', { method: 'POST' }, anonymousCookie),
+    );
+    const anonymousReturn = await responseJson(anonymousReturnResponse);
+    bindCookiePresence(anonymousCookie, anonymousReturn);
+    expect(anonymousReturn.snapshot.viewer).toMatchObject({
+      displayName: 'Peer 3',
+      memberDisplayNumber: 3,
+    });
+  });
+
+  it('keeps account rows unique when the representative device leaves before another account joins', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, string>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const firstAccountId = 'acct_0123456789abcdefghijkl';
+    const secondAccountId = 'acct_abcdefghijkl0123456789';
+
+    const createAccountDevice = async (accountId: string, nickname: string) => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          nickname,
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { cookie, envelope };
+    };
+
+    const firstDevice = await createAccountDevice(firstAccountId, 'Minsu');
+    const remainingDevice = await createAccountDevice(firstAccountId, 'Minsu');
+    expect(firstDevice.envelope.snapshot.viewer.memberDisplayNumber).toBe(1);
+    expect(remainingDevice.envelope.snapshot.viewer.memberDisplayNumber).toBe(1);
+
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, firstDevice.cookie),
+        )
+      ).status,
+    ).toBe(200);
+
+    const nextAccount = await createAccountDevice(secondAccountId, 'Jisu');
+    expect(nextAccount.envelope.snapshot.viewer.memberDisplayNumber).toBe(2);
+
+    const snapshot = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, remainingDevice.cookie)),
+    );
+    const memberRows = snapshot.snapshot.presence.participants
+      .filter((participant: Record<string, unknown>) => participant.role !== 'owner')
+      .map((participant: Record<string, unknown>) => participant.memberDisplayNumber);
+    expect(memberRows).toEqual([1, 2]);
+
+    const remainingSession = Object.values(internal.room.sessions).find(
+      (session: any) =>
+        session.participantId === remainingDevice.envelope.snapshot.viewer.participantId,
+    ) as any;
+    const nextAccountSession = Object.values(internal.room.sessions).find(
+      (session: any) =>
+        session.participantId === nextAccount.envelope.snapshot.viewer.participantId,
+    ) as any;
+    expect(remainingSession.peerOrdinal).toBe(1);
+    expect(nextAccountSession.peerOrdinal).toBe(2);
+  });
+
   it('treats case variants of the generated Peer namespace as allocation requests', async () => {
     const { worker } = await activatedRoom();
     const firstResponse = await worker.fetch(

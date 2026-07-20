@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS mxqr_accounts (
   updated_at INTEGER NOT NULL,
   CHECK (length(account_id) = 27 AND substr(account_id, 1, 5) = 'acct_'),
   CHECK (length(google_subject_hash) = 43),
+  -- New writes are capped at 12 by account-auth.js. Keep 20 here so accounts
+  -- created before the policy change remain readable until their next rename.
   CHECK (nickname IS NULL OR (length(nickname) BETWEEN 1 AND 20)),
   CHECK (
     (profile_complete = 0 AND nickname IS NULL) OR

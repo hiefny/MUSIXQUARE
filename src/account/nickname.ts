@@ -8,6 +8,8 @@ import { t } from '../i18n/index.ts';
 import { saveAccountNickname } from './session.ts';
 import { isAccountAuthenticated } from './state.ts';
 
+export const ACCOUNT_NICKNAME_MAX_CODE_POINTS = 12;
+
 export function normalizeAccountNickname(value: string): string {
   return value.replace(DEVICE_LABEL_SANITIZE_RE, '').trim().normalize('NFC');
 }
@@ -16,7 +18,9 @@ export function validateAccountNickname(value: string): string | null {
   const nickname = normalizeAccountNickname(value);
   if (!nickname) return t('account.nickname_required');
   if (/^\p{M}+$/u.test(nickname)) return t('account.nickname_required');
-  if (Array.from(nickname).length > 20) return t('chat.cmd_nick_too_long');
+  if (Array.from(nickname).length > ACCOUNT_NICKNAME_MAX_CODE_POINTS) {
+    return t('account.nickname_hint');
+  }
   if (
     RESERVED_NAMES.some((name) => nickname.toLowerCase() === name.toLowerCase()) ||
     /^#\d+$/.test(nickname) ||

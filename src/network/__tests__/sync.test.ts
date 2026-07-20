@@ -763,6 +763,44 @@ function memberManagementPeer(
   };
 }
 
+describe('standard owner-sibling chat control routing', () => {
+  function openConnection(peer: string): DataConnection & { send: ReturnType<typeof vi.fn> } {
+    return {
+      peer,
+      open: true,
+      send: vi.fn(),
+    } as unknown as DataConnection & { send: ReturnType<typeof vi.fn> };
+  }
+
+  it('applies a verified room.configure request on the physical host', async () => {
+    const sender = openConnection('owner-sibling');
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', [
+      memberManagementPeer(sender.peer, sender, ['room.configure']),
+    ]);
+    setState('network.activeHostConnByPeerId', new Map([[sender.peer, sender]]));
+    initSync();
+
+    await handleData({ type: MSG.REQUEST_CHAT_COMMAND, command: 'freeze', args: ['on'] }, sender);
+
+    expect(getState('network.chatFrozen')).toBe(true);
+    expect(sender.send).toHaveBeenCalledWith({ type: MSG.CHAT_FREEZE });
+  });
+
+  it('rejects the same request without the projected owner capability', async () => {
+    const sender = openConnection('ordinary-guest');
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', [memberManagementPeer(sender.peer, sender, [])]);
+    setState('network.activeHostConnByPeerId', new Map([[sender.peer, sender]]));
+    initSync();
+
+    await handleData({ type: MSG.REQUEST_CHAT_COMMAND, command: 'freeze', args: ['on'] }, sender);
+
+    expect(getState('network.chatFrozen')).toBe(false);
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+});
+
 function configureProKickTopology(
   senderConn: DataConnection,
   targetConn: DataConnection,
@@ -877,7 +915,7 @@ describe('PRO controller member kick requests', () => {
     expect(kick).not.toHaveBeenCalled();
   });
 
-  it('rejects the new request in an ordinary room even from a legacy operator', async () => {
+  it('lets a delegated standard-room administrator request an ordinary member kick', async () => {
     const senderConn = openConnection('controller-member');
     const targetConn = openConnection('target-member');
     configureProKickTopology(senderConn, targetConn);
@@ -890,6 +928,40 @@ describe('PRO controller member kick requests', () => {
       snapshotRevision: 0,
       capabilities: [],
     });
+    setState('network.connectedPeers', [
+      memberManagementPeer('controller-member', senderConn, ['members.manage']),
+      {
+        ...memberManagementPeer('target-member', targetConn, []),
+        isOp: false,
+      },
+    ]);
+    initSync();
+    const kick = vi.fn();
+    bus.on('network:kick-device', kick);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'target-member' }, senderConn);
+
+    expect(kick).toHaveBeenCalledTimes(1);
+    expect(kick).toHaveBeenCalledWith('target-member');
+  });
+
+  it('does not let a delegated standard-room administrator kick another administrator', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureProKickTopology(senderConn, targetConn);
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '123456',
+      role: 'coordinator',
+      coordinatorId: '123456',
+      epoch: 0,
+      snapshotRevision: 0,
+      capabilities: [],
+    });
+    setState('network.connectedPeers', [
+      memberManagementPeer('controller-member', senderConn, ['members.manage']),
+      memberManagementPeer('target-member', targetConn, ['playback.control']),
+    ]);
     initSync();
     const kick = vi.fn();
     bus.on('network:kick-device', kick);

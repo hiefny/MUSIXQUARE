@@ -893,6 +893,8 @@
   }
 
   .role-badge {
+    border: 0;
+    font-family: inherit;
     font-size: 11px;
     font-weight: 700;
     background: var(--surface-2);
@@ -907,6 +909,14 @@
     transition: all 0.3s;
     cursor: pointer;
     touch-action: manipulation;
+    max-width: min(220px, 34vw);
+  }
+
+  #role-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .role-dot {
@@ -942,6 +952,16 @@
   }
 
   .role-badge.pro-equal .role-dot {
+    background: white;
+    opacity: 1;
+  }
+
+  .role-badge.account-authenticated {
+    background: var(--primary);
+    color: white;
+  }
+
+  .role-badge.account-authenticated .role-dot {
     background: white;
     opacity: 1;
   }
@@ -2889,6 +2909,16 @@
     background: var(--surface-2);
   }
 
+  .device-row.is-current-member {
+    background: var(--surface-2);
+  }
+
+  .device-row.is-current-member .d-order,
+  .device-row.is-current-member .d-name {
+    color: var(--primary);
+    font-weight: 700;
+  }
+
   .device-row .d-name {
     flex: 1;
     min-width: 0;
@@ -2898,6 +2928,19 @@
     font-size: 16px;
     font-weight: 500;
     color: var(--text-main);
+  }
+
+  .sr-only {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
   }
 
   .d-order {
@@ -2921,6 +2964,79 @@
     gap: 4px;
     align-items: center;
     flex-shrink: 0;
+  }
+
+  .administrator-section[hidden] {
+    display: none;
+  }
+
+  .administrator-list {
+    display: grid;
+  }
+
+  .administrator-row {
+    cursor: default;
+  }
+
+  .administrator-crown {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    display: grid;
+    place-items: center;
+    color: var(--text-muted);
+  }
+
+  .administrator-crown.owner {
+    color: #f5b51b;
+  }
+
+  .administrator-crown svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+  }
+
+  .administrator-row.is-offline .d-name {
+    color: var(--text-sub);
+  }
+
+  .administrator-action-button {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    display: grid;
+    place-items: center;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      transform 0.15s ease;
+  }
+
+  .administrator-action-button svg {
+    width: 17px;
+    height: 17px;
+    fill: currentColor;
+  }
+
+  .administrator-action-button:hover,
+  .administrator-action-button:focus-visible {
+    background: var(--surface-2);
+    color: var(--text-main);
+    outline: none;
+  }
+
+  .administrator-action-button.revoke:hover,
+  .administrator-action-button.revoke:focus-visible {
+    color: #ff4d4f;
+  }
+
+  .administrator-action-button:active {
+    transform: scale(0.94);
   }
 
   .d-op-btn {
@@ -3498,6 +3614,373 @@
 
   .dialog-overlay.show {
     display: flex;
+  }
+
+  /* Optional-account dialog keeps the established squircle panel while using
+     explicit enter/exit transitions so the backdrop never grows as a shape. */
+  .account-dialog-overlay {
+    display: flex;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    animation: none;
+    transition:
+      opacity 0.2s ease-in,
+      visibility 0s linear 0.2s;
+  }
+
+  .account-dialog-overlay.show {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      opacity 0.28s ease-out,
+      visibility 0s linear 0s;
+  }
+
+  .dialog.account-dialog {
+    position: relative;
+    max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px);
+    display: flex;
+    flex-direction: column;
+    animation: none;
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+    transition:
+      opacity 0.2s ease-in,
+      transform 0.2s ease-in;
+  }
+
+  .account-dialog-overlay.show .account-dialog {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transition:
+      opacity 0.28s ease-out,
+      transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .administrator-permissions-overlay {
+    display: flex;
+    overflow-y: auto;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    animation: none;
+    transition:
+      opacity 0.2s ease-in,
+      visibility 0s linear 0.2s;
+  }
+
+  .administrator-permissions-overlay.show {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      opacity 0.28s ease-out,
+      visibility 0s linear 0s;
+  }
+
+  .dialog.administrator-permissions-dialog {
+    max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px);
+    display: flex;
+    flex-direction: column;
+    animation: none;
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+    transition:
+      opacity 0.2s ease-in,
+      transform 0.2s ease-in;
+  }
+
+  .administrator-permissions-overlay.show .administrator-permissions-dialog {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transition:
+      opacity 0.28s ease-out,
+      transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .administrator-permissions-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .administrator-permissions-member {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-sub);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .administrator-permissions-list {
+    min-height: 0;
+    padding: 0 24px 8px;
+    display: grid;
+    gap: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .administrator-permissions-dialog .dialog-actions {
+    flex: 0 0 auto;
+  }
+
+  .administrator-permission-row {
+    width: 100%;
+    min-height: 54px;
+    padding: 0 10px 0 14px;
+    border: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: transparent;
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 650;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.16s ease;
+  }
+
+  .administrator-permission-row:hover,
+  .administrator-permission-row:focus-visible {
+    background: var(--surface-2);
+    outline: none;
+  }
+
+  .administrator-permission-row:disabled {
+    cursor: default;
+  }
+
+  .administrator-permission-row:disabled:hover,
+  .administrator-permission-row:disabled:focus-visible {
+    background: transparent;
+  }
+
+  .administrator-permission-label {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .administrator-permission-inherited {
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .administrator-permission-inherited[hidden] {
+    display: none;
+  }
+
+  .administrator-permission-toggle {
+    position: relative;
+    width: 42px;
+    height: 24px;
+    flex: 0 0 42px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    transition: background 0.18s ease;
+  }
+
+  .administrator-permission-toggle-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition:
+      transform 0.18s ease,
+      background 0.18s ease;
+  }
+
+  .administrator-permission-row[aria-checked='true'] .administrator-permission-toggle {
+    background: rgba(var(--primary-rgb), 0.18);
+  }
+
+  .administrator-permission-row[aria-checked='true'] .administrator-permission-toggle-knob {
+    transform: translateX(18px);
+    background: var(--primary);
+  }
+
+  .administrator-permission-row:disabled .administrator-permission-toggle {
+    opacity: 0.72;
+  }
+
+  .administrator-permissions-dialog[aria-busy='true'] {
+    cursor: progress;
+  }
+
+  .administrator-permissions-dialog[aria-busy='true'] button {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  .account-dialog-nickname[hidden],
+  .account-google-button[hidden],
+  .account-legal-links[hidden],
+  .account-dialog-actions[hidden] {
+    display: none;
+  }
+
+  .account-dialog-close {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 1;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    display: grid;
+    place-items: center;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    cursor: pointer;
+  }
+
+  .account-dialog-close svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+  }
+
+  .account-dialog-header {
+    flex: 0 0 auto;
+    padding-right: 72px;
+  }
+
+  .account-dialog-content {
+    min-height: 0;
+    padding: 6px 32px 22px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .account-dialog-message {
+    min-height: 24px;
+    margin: 0;
+    color: var(--text-sub);
+    font-size: 15px;
+    line-height: 1.58;
+    white-space: pre-wrap;
+    word-break: keep-all;
+  }
+
+  .account-dialog-nickname {
+    display: block;
+    margin: 10px 0 2px;
+    color: var(--text-main);
+    font-size: 22px;
+    font-weight: var(--font-weight-display);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-google-button {
+    min-height: 54px;
+    margin-top: 18px;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+  }
+
+  .account-legal-links {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .account-legal-links a {
+    color: inherit;
+    text-underline-offset: 3px;
+  }
+
+  .account-dialog-actions {
+    flex: 0 0 auto;
+    padding: 0 32px 30px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .account-dialog-actions .dialog-primary,
+  .account-dialog-actions .dialog-secondary {
+    min-width: 0;
+    padding-inline: 18px;
+  }
+
+  .account-delete-button {
+    grid-column: 1 / -1;
+    min-height: 40px;
+    padding: 0 16px;
+    border: 0;
+    background: transparent;
+    color: #ef4444;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .account-dialog[aria-busy='true'] {
+    cursor: progress;
+  }
+
+  .account-dialog[aria-busy='true'] button,
+  .account-dialog[aria-busy='true'] a {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .account-dialog-overlay,
+    .dialog.account-dialog,
+    .administrator-permissions-overlay,
+    .dialog.administrator-permissions-dialog {
+      transition: none;
+    }
+  }
+
+  @media (max-height: 480px) {
+    .account-dialog-overlay,
+    .administrator-permissions-overlay {
+      align-items: flex-start;
+      padding-block: 12px;
+    }
+
+    .dialog.account-dialog,
+    .dialog.administrator-permissions-dialog {
+      max-height: calc(100vh - 24px);
+      max-height: calc(100dvh - 24px);
+    }
   }
 
   .dialog {

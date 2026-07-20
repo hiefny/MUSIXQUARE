@@ -80,6 +80,7 @@ import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { isProRoomPersistentPlaylistFile } from '../pro-room/legacy-media-hooks.ts';
 import { transition } from './lifecycle.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
   assertDecodedAudioBufferWithinBudget,
@@ -361,8 +362,7 @@ export async function loadAndBroadcastFile(
 
     // Enable play button
     const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
-    bus.emit('ui:play-btn-state', !(hostConn && !isOperator));
+    bus.emit('ui:play-btn-state', !hostConn || hasRoomCapability('playback.control'));
 
     // Broadcast file to peers (FILE_PREPARE coalesced into the same debounce
     // so guests don't see metadata flicker for tracks the user already left).
@@ -440,8 +440,7 @@ export async function loadAndBroadcastFile(
     // Only the current load owns the play-button state.
     if (isCurrentOwner()) {
       const hostConn = getState('network.hostConn');
-      const isOperator = getState('network.isOperator');
-      bus.emit('ui:play-btn-state', !hostConn || isOperator);
+      bus.emit('ui:play-btn-state', !hostConn || hasRoomCapability('playback.control'));
     }
   }
 }
@@ -1356,7 +1355,7 @@ export async function finalizeGuestFile(
     }
 
     if (ownsTarget()) {
-      bus.emit('ui:play-btn-state', !hostConn || getState('network.isOperator'));
+      bus.emit('ui:play-btn-state', !hostConn || hasRoomCapability('playback.control'));
     }
   } catch (error: unknown) {
     if (!ownsTarget()) {

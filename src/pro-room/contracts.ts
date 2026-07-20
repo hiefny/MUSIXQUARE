@@ -10,7 +10,11 @@ export const PRO_ROOM_MAX_PRESENCE_ITEMS = 100;
 
 export type ProRoomStatus = 'unactivated' | 'active' | 'suspended';
 export type ProRoomRuntimeStatus = 'awake' | 'sleeping';
-export type ProRoomRole = 'owner' | 'controller';
+export type ProRoomRole = 'owner' | 'controller' | 'member';
+
+export type ProRoomPermission = 'media.add' | 'playback.control' | 'members.kick' | 'chat.notice';
+
+export type ProRoomPermissionSet = Record<ProRoomPermission, boolean>;
 
 export type ProRoomCapability =
   | 'queue.mutate'
@@ -20,6 +24,8 @@ export type ProRoomCapability =
   | 'members.manage'
   | 'room.configure'
   | 'coordinator.eligible';
+
+const MEMBER_CAPABILITIES = ['playback.control'] as const satisfies readonly ProRoomCapability[];
 
 const CONTROLLER_CAPABILITIES = [
   'queue.mutate',
@@ -35,7 +41,11 @@ const OWNER_CAPABILITIES = [
 ] as const satisfies readonly ProRoomCapability[];
 
 export function capabilitiesForProRoomRole(role: ProRoomRole): readonly ProRoomCapability[] {
-  return role === 'owner' ? OWNER_CAPABILITIES : CONTROLLER_CAPABILITIES;
+  return role === 'owner'
+    ? OWNER_CAPABILITIES
+    : role === 'controller'
+      ? CONTROLLER_CAPABILITIES
+      : MEMBER_CAPABILITIES;
 }
 
 function proRoomRoleCan(role: ProRoomRole, capability: ProRoomCapability): boolean {
@@ -101,9 +111,28 @@ export interface ProRoomPlaybackCheckpoint {
 
 export interface ProRoomPresenceParticipant {
   participantId: string;
+  /** Room-scoped person identity. Absent on the legacy participant projection. */
+  memberId?: string;
+  /** Stable room-member number; several devices may share it. */
+  memberDisplayNumber?: number;
+  isAuthenticated?: boolean;
   displayName: string;
   role: ProRoomRole;
+  /** Effective server authority. Present only with authority projection v1. */
+  capabilities?: ProRoomCapability[];
   joinedAtMs: number;
+}
+
+export interface ProRoomAdministrator {
+  memberId: string;
+  memberDisplayNumber: number;
+  isAuthenticated: boolean;
+  displayName: string;
+  role: 'owner' | 'controller';
+  permissions: ProRoomPermissionSet;
+  /** Baseline permissions that cannot be disabled by delegation. */
+  inheritedPermissions: ProRoomPermission[];
+  onlineDeviceCount: number;
 }
 
 export interface ProRoomPresenceSnapshot {
@@ -122,6 +151,8 @@ export interface ProRoomQuotaSnapshot {
 
 export interface ProRoomViewerSnapshot {
   memberId: string;
+  memberDisplayNumber?: number;
+  isAuthenticated?: boolean;
   participantId: string;
   /** Server-issued nonce identifying this tab/resume presence incarnation. */
   presenceIncarnationId: string;
@@ -206,6 +237,11 @@ interface ProRoomSnapshotV1 {
   presence: ProRoomPresenceSnapshot;
   quota: ProRoomQuotaSnapshot;
   viewer: ProRoomViewerSnapshot | null;
+  /** Additive v1 projection understood by account-aware clients. */
+  memberIdentityVersion?: 1;
+  /** Additive delegated-authority projection; absent for legacy clients. */
+  authorityVersion?: 1;
+  administrators?: ProRoomAdministrator[];
 }
 
 export type ProRoomSnapshot = ProRoomSnapshotV1;

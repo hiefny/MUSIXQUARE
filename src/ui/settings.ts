@@ -34,7 +34,7 @@ import { showToast } from './toast.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { syncOverlayState } from './dom.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
@@ -50,13 +50,13 @@ const HOST_CTRL_LOCK_IDS = [
 ] as const;
 
 function _isGuestLocked(): boolean {
+  if (getRoomContext().kind === 'pro') return !hasRoomCapability('room.configure');
   const hostConn = getState('network.hostConn');
-  if (!hostConn) return false;
-  return !getState('network.isOperator');
+  return !!hostConn && !hasRoomCapability('effects.control');
 }
 
 function _showHostCtrlLockedToast(): void {
-  showToast(t('toast.operator_required'));
+  showToast(t('toast.host_only'));
 }
 
 function _guardHostCtrl(): boolean {
@@ -565,7 +565,6 @@ function isDeviceListRow(value: unknown): value is DeviceListRow {
 function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
   const container = document.getElementById('device-list');
   if (!container) return;
-  const isProRoom = getRoomContext().kind === 'pro';
 
   container.replaceChildren();
 
@@ -583,14 +582,6 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
     name.appendChild(document.createTextNode(' '));
     name.appendChild(shortId);
 
-    if (p.isOp && !isProRoom) {
-      const op = document.createElement('span');
-      op.style.cssText = 'color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;';
-      op.textContent = 'ADMIN';
-      name.appendChild(document.createTextNode(' '));
-      name.appendChild(op);
-    }
-
     const statusClass = p.status === 'connected' ? 'active' : 'inactive';
     const statusText = p.status === 'connected' ? t('common.connected') : t('common.disconnected');
 
@@ -600,32 +591,7 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
 
     row.appendChild(name);
 
-    const hostConn = getState('network.hostConn');
-    if (hostConn) {
-      row.appendChild(status);
-    } else {
-      const right = document.createElement('div');
-      right.style.cssText = 'display:flex; gap:4px; align-items:center;';
-
-      if (!isProRoom && !p.isHost && p.status === 'connected') {
-        const opBtn = document.createElement('button');
-        opBtn.className = `btn-action ${p.isOp ? 'active' : ''}`;
-        opBtn.dataset.opPeer = String(p.id || '');
-        opBtn.style.cssText = `font-size:10px; padding:4px 8px; margin-right:8px; ${p.isOp ? 'background:var(--primary); color:white; border:none;' : ''}`;
-        opBtn.textContent = p.isOp ? t('common.revoke') : t('common.grant');
-
-        opBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          const peerId = opBtn.dataset.opPeer;
-          if (peerId) bus.emit('network:toggle-operator', peerId);
-        });
-
-        right.appendChild(opBtn);
-      }
-
-      right.appendChild(status);
-      row.appendChild(right);
-    }
+    row.appendChild(status);
 
     container.appendChild(row);
   });
@@ -1054,6 +1020,9 @@ export function initSettings(): void {
 
   // Update lock state when connection/role changes (fires on connect, OP grant/revoke, session start)
   _busScope.on('network:role-badge-update', () => _updateHostCtrlLockUI());
+  _busScope.on('state:network.hostConn', () => _updateHostCtrlLockUI());
+  _busScope.on('state:network.appRole', () => _updateHostCtrlLockUI());
+  _busScope.on('state:network.standardRoomCapabilities', () => _updateHostCtrlLockUI());
   _updateHostCtrlLockUI();
 
   // Device list events
@@ -1064,6 +1033,7 @@ export function initSettings(): void {
   _busScope.on('state:room.context', () => {
     const list = getState('network.lastKnownDeviceList') || [];
     renderDeviceList(list.filter(isDeviceListRow));
+    _updateHostCtrlLockUI();
   });
 
   // Language switch → re-render device list so status/grant-revoke button

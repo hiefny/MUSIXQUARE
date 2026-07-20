@@ -14,7 +14,7 @@ import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../rooms/authority.ts';
-import type { DataConnection, ProtocolMsg } from '../types/index.ts';
+import type { DataConnection, ProtocolMsg, RoomCapability } from '../types/index.ts';
 import { safeSend } from './peer-state.ts';
 import { registerHandler } from './protocol.ts';
 
@@ -29,6 +29,13 @@ type StandardQueueMutationRequest =
   | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_ADD_YOUTUBE>
   | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REMOVE>
   | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REORDER>;
+
+function requiredQueueMutationCapability(
+  messageOrName: StandardQueueMutationRequest | StandardQueueMutationRequest['type'],
+): RoomCapability {
+  const type = typeof messageOrName === 'string' ? messageOrName : messageOrName.type;
+  return type === MSG.REQUEST_PLAYLIST_ADD_YOUTUBE ? 'media.add' : 'queue.mutate';
+}
 
 type QueueMutationClaim = 'accepted' | 'duplicate' | 'conflict';
 type StandardQueueMutationRequestOutcome = QueueMutationClaim | 'unauthorized' | 'overloaded';
@@ -173,7 +180,10 @@ export function acceptStandardQueueMutationRequest(input: {
   fingerprint: string;
 }): StandardQueueMutationRequestOutcome {
   const { conn, requestId, requestName, fingerprint } = input;
-  if (!isExactLiveStandardGuestConnection(conn) || !verifyPeerCapability(conn, 'queue.mutate')) {
+  const capability = requiredQueueMutationCapability(
+    requestName as StandardQueueMutationRequest['type'],
+  );
+  if (!isExactLiveStandardGuestConnection(conn) || !verifyPeerCapability(conn, capability)) {
     log.warn(`[Playlist] Rejected ${requestName} from unauthorized connection: ${conn.peer}`);
     if (isExactLiveStandardGuestConnection(conn)) {
       sendMutationResult(
@@ -254,7 +264,7 @@ export function sendStandardQueueMutationRequest(message: StandardQueueMutationR
     getRoomContext().kind !== 'standard' ||
     getState('network.appRole') !== 'guest' ||
     conn?.open !== true ||
-    !hasRoomCapability('queue.mutate')
+    !hasRoomCapability(requiredQueueMutationCapability(message))
   ) {
     bus.emit('playlist:refresh-requested');
     bus.emit('standard-room:queue-mutation-failed', 'rejected', 'unauthorized');
@@ -313,6 +323,11 @@ export function initStandardQueueMutationAuthority(): void {
   });
   guestLifecycleScope.on('state:network.isOperator', (isOperator) => {
     if (isOperator !== true) cancelAllGuestMutations();
+  });
+  guestLifecycleScope.on('state:network.standardRoomCapabilities', () => {
+    // A fine-grained permission edit can revoke the request capability while
+    // the compatibility ADMIN projection remains true.
+    cancelAllGuestMutations();
   });
   guestLifecycleScope.on('state:network.appRole', (role) => {
     if (role !== 'guest') cancelAllGuestMutations();

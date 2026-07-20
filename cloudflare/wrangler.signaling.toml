@@ -17,6 +17,7 @@ head_sampling_rate = 0.01
 
 # Required at deploy time and intentionally never committed:
 #   npx wrangler secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.signaling.toml
+#   npx wrangler secret put MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
 
 [[routes]]
 pattern = "signal.musixquare.com"
@@ -25,6 +26,14 @@ custom_domain = true
 [[durable_objects.bindings]]
 name = "MUSIXQUARE_ROOMS"
 class_name = "MusixquareRoom"
+
+# Private cross-script authority boundary for privileged PRO realtime frames.
+# Signaling derives the room/participant/incarnation from its admitted socket;
+# browsers cannot address this Durable Object binding directly.
+[[durable_objects.bindings]]
+name = "PRO_ROOM_AUTHORITY_ROOMS"
+class_name = "MusixquareProRoom"
+script_name = "musixquare-pro-room"
 
 # Admin dashboard metrics shared with the app Worker.
 [[d1_databases]]

@@ -20,7 +20,7 @@ async function readDocument(path: string, url: string): Promise<JSDOM> {
 describe('policy-page accordions', () => {
   it.each([
     [DEVELOPER_DOC_PATH, 'https://musixquare.com/developers', 11],
-    [FAQ_PATH, 'https://musixquare.com/faq', 8],
+    [FAQ_PATH, 'https://musixquare.com/faq', 9],
   ])('uses accessible section-level disclosures in %s', async (path, url, expectedCount) => {
     const dom = await readDocument(path, url);
     const { document } = dom.window;
@@ -77,6 +77,82 @@ describe('policy-page accordions', () => {
       expect(disclosure).toContain(phrase);
     }
     expect(disclosure).not.toContain('000001');
+  });
+
+  it('documents optional accounts without overstating account deletion', async () => {
+    const [faq, privacy, terms] = await Promise.all([
+      readDocument(FAQ_PATH, 'https://musixquare.com/faq'),
+      readDocument(PRIVACY_PATH, 'https://musixquare.com/privacy'),
+      readDocument(TERMS_PATH, 'https://musixquare.com/terms'),
+    ]);
+    const faqAccount = faq.window.document.querySelector<HTMLDetailsElement>(
+      'details#accounts-and-permissions.policy-accordion',
+    );
+    expect(faqAccount).not.toBeNull();
+    expect(faqAccount?.open).toBe(false);
+
+    const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+    const privacyText = normalizeText(privacy.window.document.body.textContent ?? '');
+    const termsText = normalizeText(terms.window.document.body.textContent ?? '');
+    const faqText = normalizeText(faqAccount?.textContent ?? '');
+
+    for (const phrase of [
+      'Google sign-in is optional',
+      'OpenID identifier',
+      'does not store the email address',
+      'HMAC-pseudonymized',
+      'Secure, HttpOnly',
+      '30 days',
+      '10 minutes',
+      'room-scoped member identifier',
+      'without creating an account',
+      'does not decommission a PRO room',
+      'separate room-recovery credential',
+      'does not automatically delete media',
+      'point-in-time recovery',
+    ]) {
+      expect(privacyText).toContain(phrase);
+    }
+
+    for (const phrase of [
+      'Google sign-in is optional',
+      'without an account',
+      'Where account-linked permissions are enabled',
+      'ordinary-room grant lasts only while that room exists',
+      'signed-in PRO-room grant may remain',
+      'anonymous grant ends',
+      'account is deleted',
+      'does not decommission a PRO room',
+      'separate room-recovery credential',
+      'accounts, rooms, connections, requests, or technical identifiers',
+    ]) {
+      expect(termsText).toContain(phrase);
+    }
+
+    for (const phrase of [
+      'without signing in',
+      'does not store the email address or Google tokens',
+      'same account on several devices',
+      'ordinary-room permission lasts only while the room exists',
+      'account or room is deleted',
+      'does not decommission a PRO room',
+      'separate room-recovery credential',
+      'delete media already shared there',
+    ]) {
+      expect(faqText).toContain(phrase);
+    }
+
+    const allPublicCopy = normalizeText(
+      `${privacyText} ${termsText} ${faq.window.document.body.textContent ?? ''}`,
+    );
+    for (const obsolete of [
+      'MUSIXQUARE has no account profile',
+      'MUSIXQUARE has no user accounts',
+      'without paid subscriptions or user accounts',
+      'has no paid plan, subscription, or user account',
+    ]) {
+      expect(allPublicCopy).not.toContain(obsolete);
+    }
   });
 
   it('preserves the public errors deep link without changing privacy or terms', async () => {

@@ -133,7 +133,10 @@ describe('standard operator file uplink feedback', () => {
   });
 
   it('maps terminal errors and does not replay a duplicate terminal toast', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true });
     setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['asset.upload']);
     const revoked = uplinkProgress();
     bus.emit('standard-room:operator-file-uplink-progress', {
       ...revoked,

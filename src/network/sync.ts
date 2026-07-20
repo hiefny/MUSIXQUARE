@@ -534,19 +534,18 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 // (host.ts → protocol.ts → peer.ts → host.ts).
 
 function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnection): void {
-  // Member-to-coordinator only. Normal rooms retain their existing host-local
-  // kick flow, and a PRO member must never execute a removal locally.
   const room = getRoomContext();
-  if (
-    getState('network.hostConn') ||
-    room.kind !== 'pro' ||
-    room.role !== 'coordinator' ||
-    !room.coordinatorId ||
-    room.epoch < 1 ||
-    !room.capabilities.includes('members.manage') ||
-    room.roomId !== getState('network.sessionCode')
-  ) {
-    return;
+  if (getState('network.hostConn') || getState('network.appRole') !== 'host') return;
+  if (room.kind === 'pro') {
+    if (
+      room.role !== 'coordinator' ||
+      !room.coordinatorId ||
+      room.epoch < 1 ||
+      !room.capabilities.includes('members.manage') ||
+      room.roomId !== getState('network.sessionCode')
+    ) {
+      return;
+    }
   }
 
   const senderId = conn?.peer;
@@ -584,6 +583,13 @@ function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnec
     return;
   }
 
+  if (room.kind === 'standard') {
+    // A delegated member-kick grant removes ordinary members only. Authority
+    // management remains host-owned, and one account cannot evict another
+    // physical device representing itself.
+    if (target.isOp || (sender.memberId && sender.memberId === target.memberId)) return;
+  }
+
   // Reuse the established host kick path (notification, kick frame and delayed
   // connection close). This is a current-session removal; the room PIN still
   // permits the participant to authenticate and join again.
@@ -596,6 +602,11 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
 
   const peerId = conn?.peer;
   if (!peerId) return;
+  const peers = getState('network.connectedPeers');
+  const requestingPeer = peers.find((peer) => peer.id === peerId && peer.conn === conn);
+  // Verified names are server-owned and update only through a fresh signed
+  // account assertion. The legacy rename message remains anonymous-only.
+  if (requestingPeer?.isAuthenticated) return;
 
   // Strip control / zero-width / bidi-override characters BEFORE the
   // reserved/duplicate checks: a "HOST"+zero-width-space must not slip past the
@@ -615,7 +626,6 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
   // Duplicate name check (including host's own label)
   const hostLabel = getState('network.myDeviceLabel') || '';
   if (hostLabel && newLabel.toLowerCase() === hostLabel.toLowerCase()) return;
-  const peers = getState('network.connectedPeers');
   if (peers.some((p) => p.id !== peerId && p.label.toLowerCase() === newLabel.toLowerCase()))
     return;
 
@@ -638,15 +648,29 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
   const peerId = conn?.peer;
   if (!peerId) return;
 
-  // Verify OP status
   const peers = getState('network.connectedPeers');
-  const peer = peers.find((p) => p.id === peerId);
-  if (!peer?.isOp) return;
+  const peer = peers.find((candidate) => candidate.id === peerId && candidate.conn === conn);
+  if (!peer) return;
 
   const command = data.command as string;
   const args = (data.args as string[]) || [];
+  if (getRoomContext().kind === 'standard') {
+    const capability = command === 'notice' ? 'chat.notice' : 'room.configure';
+    if (!verifyPeerCapability(conn, capability)) return;
+  } else if (!peer.isOp) {
+    return;
+  }
 
   switch (command) {
+    case 'freeze': {
+      const flag = args[0]?.toLowerCase();
+      if (flag !== 'on' && flag !== 'off') return;
+      const on = flag === 'on';
+      setState('network.chatFrozen', on);
+      broadcast({ type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
+      bus.emit('chat:system-message', on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
+      break;
+    }
     case 'mute': {
       const targetArg = args[0];
       if (!targetArg) return;

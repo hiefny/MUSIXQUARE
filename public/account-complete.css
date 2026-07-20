@@ -1,0 +1,48 @@
+@font-face {
+  font-family: 'Pretendard';
+  src: url('/designsystem/fonts/PretendardVariable.woff2') format('woff2');
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+  font-family: Pretendard, system-ui, sans-serif;
+  background: #101113;
+  color: #f7f8fa;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+}
+
+main {
+  width: min(360px, calc(100vw - 48px));
+  text-align: center;
+}
+
+.brand {
+  display: block;
+  margin-bottom: 28px;
+  letter-spacing: -0.04em;
+}
+
+p {
+  margin: 0 0 24px;
+  color: #b6bac2;
+  line-height: 1.6;
+}
+
+button {
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-radius: 18px;
+  background: #4385f5;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}

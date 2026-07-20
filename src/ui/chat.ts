@@ -25,7 +25,7 @@ import {
 } from '../chat/commands.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
 import { sendProRoomRealtime } from '../pro-room/network-bridge.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import { clearLatestPinnedNotice, registerChatProtocolHandlers } from '../chat/protocol.ts';
 import {
@@ -400,8 +400,14 @@ export function sendChatMessage(): void {
   const chatFrozen = getState('network.chatFrozen');
   const hostConn = getState('network.hostConn');
   const isProRoom = getRoomContext().kind === 'pro';
-  const isHost = !hostConn && !isProRoom;
-  const isOp = isProRoom || getState('network.isOperator') || false;
+  const isHost = !isProRoom && (!hostConn || hasRoomCapability('room.configure'));
+  const myId = getState('network.myId') || '';
+  const ownProParticipant = isProRoom
+    ? (getState('network.lastKnownDeviceList') || []).find((participant) => participant.id === myId)
+    : undefined;
+  const isOp = isProRoom
+    ? ownProParticipant?.role === 'owner' || ownProParticipant?.role === 'controller'
+    : getState('network.isOperator') || false;
   if (chatFrozen && !isHost && !isOp) {
     addSystemChatMessage(t('chat.cmd_frozen_blocked'));
     return;
@@ -438,13 +444,30 @@ export function sendChatMessage(): void {
 
   const senderLabel = _getChatLabelBase();
   const displayName = formatChatDisplayName(senderLabel);
-  const myJoinOrder = getState('network.myJoinOrder') ?? 0;
-  addChatMessage(displayName, text, true, isHost ? 'host' : isOp ? 'op' : undefined, myJoinOrder);
+  const myJoinOrder =
+    ownProParticipant?.memberDisplayNumber ??
+    getState('network.myMemberDisplayNumber') ??
+    getState('network.myJoinOrder') ??
+    0;
+  const localBadge = isProRoom
+    ? ownProParticipant?.role === 'owner'
+      ? 'host'
+      : ownProParticipant?.role === 'controller'
+        ? 'op'
+        : undefined
+    : isHost
+      ? 'host'
+      : isOp
+        ? 'op'
+        : undefined;
+  const senderMemberId = ownProParticipant?.memberId || getState('network.myMemberId') || '';
+  const senderKey = senderMemberId || myId;
+  addChatMessage(displayName, text, true, localBadge, myJoinOrder, senderKey);
 
-  const myId = getState('network.myId') || '';
   const chatMsg = {
     type: MSG.CHAT,
     senderId: myId,
+    ...(senderMemberId ? { senderMemberId } : {}),
     sender: senderLabel,
     senderLabel: senderLabel,
     isHost,

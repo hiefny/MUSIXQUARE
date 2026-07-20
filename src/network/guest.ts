@@ -17,12 +17,12 @@ import { MSG } from '../core/constants.ts';
 import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
-import type { DataConnection, DeviceInfo } from '../types/index.ts';
+import type { DataConnection, DeviceInfo, RoomCapability } from '../types/index.ts';
 
-import { getPeer, detectConnectionType } from './peer-state.ts';
+import { getPeer, detectConnectionType, safeSend } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import {
   markProRoomTransportRecovered,
   requestProRoomTransportRecovery,
@@ -516,7 +516,31 @@ function handleForceCloseDuplicate(_data: Record<string, unknown>, conn?: DataCo
   setState('network.isIntentionalDisconnect', true);
 }
 
-function handleOperatorGrant(_data: Record<string, unknown>, conn?: DataConnection): void {
+const STANDARD_GRANT_CAPABILITIES = new Set<RoomCapability>([
+  'media.add',
+  'queue.mutate',
+  'playback.control',
+  'effects.control',
+  'asset.upload',
+  'members.manage',
+  'chat.notice',
+  'room.configure',
+]);
+
+function normalizeStandardGrantCapabilities(value: unknown): RoomCapability[] | null {
+  if (!Array.isArray(value)) return null;
+  return [
+    ...new Set(
+      value.filter(
+        (capability): capability is RoomCapability =>
+          typeof capability === 'string' &&
+          STANDARD_GRANT_CAPABILITIES.has(capability as RoomCapability),
+      ),
+    ),
+  ];
+}
+
+function handleOperatorGrant(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop frames not arriving via hostConn. Without this, a peer can inject
   // {type:'operator-grant'} to flip the target's
   // network.isOperator=true client-side. Host-side verifyOperator in sync.ts
@@ -538,8 +562,13 @@ function handleOperatorGrant(_data: Record<string, unknown>, conn?: DataConnecti
     return;
   }
 
+  const capabilities = normalizeStandardGrantCapabilities(data.capabilities);
+  setState('network.standardRoomCapabilities', capabilities);
   setState('network.isOperator', true);
-  showToast(t('network.op_granted'));
+  // A verified second device of the room owner is reconnecting with its
+  // existing person-level authority, not being promoted to ADMIN. Avoid a
+  // contradictory role toast; the account identity/crown already reflects it.
+  if (!capabilities?.includes('room.configure')) showToast(t('network.op_granted'));
   bus.emit('ui:play-btn-state', true);
   bus.emit('network:role-badge-update');
 }
@@ -561,8 +590,11 @@ function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnect
     return;
   }
 
+  const wasOwnerProjection =
+    getState('network.standardRoomCapabilities')?.includes('room.configure') === true;
+  setState('network.standardRoomCapabilities', null);
   setState('network.isOperator', false);
-  showToast(t('network.op_revoked'));
+  if (!wasOwnerProjection) showToast(t('network.op_revoked'));
   bus.emit('ui:play-btn-state', false);
   bus.emit('network:role-badge-update');
 }
@@ -613,21 +645,28 @@ export function initGuestProtocolHandlers(): void {
     [MSG.KICK_DEVICE]: handleKickDeviceMsg,
   });
 
-  // Guest: rename device → send request to host
-  bus.on('network:rename-device', (newName: string) => {
+  bus.on('network:request-kick-standard-room-member', ({ memberId }) => {
     const hostConn = getState('network.hostConn') as DataConnection | null;
-    if (!hostConn) return; // Only guests (who have a hostConn) use this path
-    try {
-      hostConn.send({ type: MSG.REQUEST_RENAME, newLabel: newName });
-    } catch {
-      /* ignore */
+    if (
+      getRoomContext().kind !== 'standard' ||
+      !hostConn?.open ||
+      !hasRoomCapability('members.manage') ||
+      !memberId
+    ) {
+      return;
     }
-    // Do not apply optimistically: handleRequestRename rejects
-    // silently (reserved/profanity/duplicate/empty-after-strip) with no NACK
-    // and no corrective broadcast, so an optimistic write would leave this
-    // guest's label diverged from the room until the next device-list churn.
-    // On success the host's broadcastDeviceList() round-trips the accepted
-    // label into handleDeviceListUpdateMsg (~RTT), the single writer for it.
+
+    const target = getState('network.lastKnownDeviceList')?.find((device) => {
+      const authorityKey =
+        device.isAuthenticated === true && device.memberId ? device.memberId : `peer:${device.id}`;
+      return authorityKey === memberId && !device.isHost && device.status === 'connected';
+    });
+    if (!target?.id) return;
+
+    safeSend(hostConn, {
+      type: MSG.REQUEST_KICK_DEVICE,
+      targetPeerId: target.id,
+    });
   });
 
   log.info('[Guest] Protocol handlers registered');

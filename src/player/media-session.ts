@@ -19,6 +19,7 @@ import {
 } from './ownership.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
 import type { PlaylistItem } from '../types/index.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 
 function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSessionPlaybackState {
   if (activity === 'playing') return 'playing';
@@ -85,8 +86,7 @@ export function initMediaSession(): void {
    *  Users must always be able to pause from lock screen / hardware buttons. */
   const isPlaybackBlocked = (): boolean => {
     const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
-    return !!(hostConn && !isOperator);
+    return !!(hostConn && !hasRoomCapability('playback.control'));
   };
   const isNonOperatorGuest = isPlaybackBlocked;
 

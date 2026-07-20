@@ -320,6 +320,7 @@ describe('guest decode failure reports', () => {
 
   it('still lets an operator report advance immediately', async () => {
     const op = makeConnectedPeer('guest-op', true);
+    setState('network.appRole', 'host');
     setState('network.connectedPeers', [op]);
     setState('network.activeHostConnByPeerId', new Map([[op.id, op.conn!]]));
 
@@ -407,6 +408,7 @@ describe('guest file finalization sync', () => {
   ])(
     'keeps the play-button affordance aligned for $label after decode',
     async ({ isOperator, expectedEnabled }) => {
+      setState('network.appRole', 'guest');
       setState('network.hostConn', makeConnection('host'));
       setState('network.isOperator', isOperator);
       const item = makeTrack('song.mp3');

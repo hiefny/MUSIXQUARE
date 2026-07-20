@@ -16,6 +16,7 @@ import {
   beginLocalBotChatRequest,
   broadcastSystemMessage,
   publishBotChatResult,
+  receiveProRoomRealtimeChat,
   registerChatProtocolHandlers,
   rememberPinnedNotice,
   sendLatestPinnedNotice,
@@ -23,6 +24,7 @@ import {
 } from '../protocol.ts';
 import { addChatMessage, upsertBotChatMessage } from '../../ui/chat-render.ts';
 import type { DataConnection } from '../../types/index.ts';
+import type { ProRealtimeRelayEnvelope } from '../../pro-room/network-bridge.ts';
 
 const realtimeMocks = vi.hoisted(() => ({
   send: vi.fn(() => true),
@@ -47,6 +49,169 @@ vi.mock('../../core/log.ts', () => ({
 vi.mock('../../pro-room/network-bridge.ts', () => ({
   sendProRoomRealtime: realtimeMocks.send,
 }));
+
+describe('PRO member-level chat projection', () => {
+  function enterProRoom(): void {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 7,
+      snapshotRevision: 11,
+      capabilities: ['playback.control'],
+    });
+  }
+
+  function messageFrame(
+    senderId: string,
+    text = 'hello',
+    memberId?: string,
+  ): ProRealtimeRelayEnvelope {
+    return {
+      type: 'pro-realtime',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      eventId: `event-${senderId}`,
+      channel: 'chat',
+      payload: { kind: 'message', text },
+      sender: {
+        participantId: senderId,
+        presenceIncarnationId: `presence-${senderId}`,
+        ...(memberId ? { memberId } : {}),
+        displayName: 'relay fallback',
+      },
+    };
+  }
+
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    enterProRoom();
+    setState('network.myId', 'device-local');
+    setState('network.myMemberId', 'member-minsu');
+  });
+
+  it('renders another device of the local account as mine without suppressing it', () => {
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'device-local',
+        label: 'Minsu',
+        isOp: true,
+        isHost: false,
+        status: 'connected',
+        memberId: 'member-minsu',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        role: 'controller',
+      },
+      {
+        id: 'device-tablet',
+        label: 'Minsu',
+        isOp: true,
+        isHost: false,
+        status: 'connected',
+        memberId: 'member-minsu',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        role: 'controller',
+      },
+    ]);
+
+    receiveProRoomRealtimeChat(messageFrame('device-tablet'));
+
+    expect(addChatMessage).toHaveBeenCalledWith('Minsu', 'hello', true, 'op', 1, 'member-minsu');
+  });
+
+  it('groups the first account message even when its presence row has not arrived yet', () => {
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'device-local',
+        label: 'Minsu',
+        isOp: true,
+        isHost: false,
+        status: 'connected',
+        memberId: 'member-minsu',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        role: 'controller',
+      },
+    ]);
+
+    receiveProRoomRealtimeChat(messageFrame('device-tablet', 'first', 'member-minsu'));
+
+    expect(addChatMessage).toHaveBeenCalledWith(
+      'relay fallback',
+      'first',
+      true,
+      undefined,
+      undefined,
+      'member-minsu',
+    );
+  });
+
+  it('keeps the physical self echo suppressed while deriving crowns from the room role', () => {
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'device-local',
+        label: 'Minsu',
+        isOp: false,
+        isHost: false,
+        status: 'connected',
+        memberId: 'member-minsu',
+        memberDisplayNumber: 1,
+        role: 'member',
+      },
+      {
+        id: 'device-owner',
+        label: 'Owner',
+        isOp: true,
+        isHost: true,
+        status: 'connected',
+        memberId: 'member-owner',
+        memberDisplayNumber: 0,
+        role: 'owner',
+      },
+      {
+        id: 'device-member',
+        label: 'Guest',
+        isOp: false,
+        isHost: false,
+        status: 'connected',
+        memberId: 'member-guest',
+        memberDisplayNumber: 2,
+        role: 'member',
+      },
+    ]);
+
+    receiveProRoomRealtimeChat(messageFrame('device-local', 'echo'));
+    expect(addChatMessage).not.toHaveBeenCalled();
+
+    receiveProRoomRealtimeChat(messageFrame('device-owner', 'owner'));
+    receiveProRoomRealtimeChat(messageFrame('device-member', 'member'));
+
+    expect(addChatMessage).toHaveBeenNthCalledWith(
+      1,
+      'Owner',
+      'owner',
+      false,
+      'host',
+      0,
+      'member-owner',
+    );
+    expect(addChatMessage).toHaveBeenNthCalledWith(
+      2,
+      'Guest',
+      'member',
+      false,
+      undefined,
+      2,
+      'member-guest',
+    );
+  });
+});
 
 describe('host chat fan-out truncation (CHAT-1)', () => {
   const guestConn = { peer: 'guest-chat-1', open: true } as DataConnection;
@@ -96,6 +261,7 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
       false,
       undefined,
       undefined,
+      guestConn.peer,
     );
     expect(relayed).toHaveLength(1);
     expect(relayed[0]).toMatchObject({
@@ -148,6 +314,157 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
       isOp: false,
       text: 'bounded',
       ts: _ts,
+    });
+  });
+
+  it('rewrites a claimed member identity from the host directory and groups another own device', async () => {
+    const memberId = 'member_abcdefghijklmnopqrstuv';
+    setState('network.myMemberId', memberId);
+    setState('network.connectedPeers', [
+      {
+        id: guestConn.peer,
+        label: 'Minsu',
+        joinOrder: 3,
+        memberId,
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        status: 'connected',
+        conn: guestConn,
+      },
+    ]);
+    const relayed: Array<Record<string, unknown>> = [];
+    bus.on('network:broadcast-except', (_peerId, data) => {
+      relayed.push(data as Record<string, unknown>);
+    });
+
+    await handleData(
+      {
+        type: MSG.CHAT,
+        text: 'from my other device',
+        ts: ++_ts,
+        senderId: 'spoofed',
+        senderMemberId: 'member_zyxwvutsrqponmlkjihgfe',
+        senderLabel: 'SPOOFED',
+      },
+      guestConn,
+    );
+
+    expect(addChatMessage).toHaveBeenCalledWith(
+      'Minsu',
+      'from my other device',
+      true,
+      undefined,
+      1,
+      memberId,
+    );
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0]).toMatchObject({
+      senderId: guestConn.peer,
+      senderMemberId: memberId,
+      senderLabel: 'Minsu',
+      joinOrder: 1,
+    });
+  });
+
+  it('renders a verified owner sibling with the owner crown from host-projected capability', async () => {
+    const memberId = 'member_abcdefghijklmnopqrstuv';
+    setState('network.myMemberId', memberId);
+    setState('network.connectedPeers', [
+      {
+        id: guestConn.peer,
+        label: 'Minsu',
+        joinOrder: 3,
+        memberId,
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        isOp: true,
+        roomCapabilities: ['room.configure'],
+        status: 'connected',
+        conn: guestConn,
+      },
+    ]);
+    const relayed: Array<Record<string, unknown>> = [];
+    bus.on('network:broadcast-except', (_peerId, data) => {
+      relayed.push(data as Record<string, unknown>);
+    });
+
+    await handleData(
+      {
+        type: MSG.CHAT,
+        text: 'owner sibling',
+        ts: ++_ts,
+        isHost: false,
+        isOp: false,
+      },
+      guestConn,
+    );
+
+    expect(addChatMessage).toHaveBeenCalledWith(
+      'Minsu',
+      'owner sibling',
+      true,
+      'host',
+      1,
+      memberId,
+    );
+    expect(relayed[0]).toMatchObject({
+      senderId: guestConn.peer,
+      senderMemberId: memberId,
+      senderLabel: 'Minsu',
+      isHost: true,
+      isOp: false,
+    });
+  });
+
+  it('never derives an owner crown from nickname or sender claims', async () => {
+    const ownerMemberId = 'member_abcdefghijklmnopqrstuv';
+    const otherMemberId = 'member_vutsrqponmlkjihgfedcba';
+    setState('network.myMemberId', ownerMemberId);
+    setState('network.connectedPeers', [
+      {
+        id: guestConn.peer,
+        label: 'Minsu',
+        joinOrder: 4,
+        memberId: otherMemberId,
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        isOp: false,
+        roomCapabilities: [],
+        status: 'connected',
+        conn: guestConn,
+      },
+    ]);
+    const relayed: Array<Record<string, unknown>> = [];
+    bus.on('network:broadcast-except', (_peerId, data) => {
+      relayed.push(data as Record<string, unknown>);
+    });
+
+    await handleData(
+      {
+        type: MSG.CHAT,
+        text: 'spoof attempt',
+        ts: ++_ts,
+        senderMemberId: ownerMemberId,
+        senderLabel: 'Minsu',
+        isHost: true,
+        isOp: true,
+      },
+      guestConn,
+    );
+
+    expect(addChatMessage).toHaveBeenCalledWith(
+      'Minsu',
+      'spoof attempt',
+      false,
+      undefined,
+      2,
+      otherMemberId,
+    );
+    expect(relayed[0]).toMatchObject({
+      senderId: guestConn.peer,
+      senderMemberId: otherMemberId,
+      isHost: false,
+      isOp: false,
     });
   });
 });
@@ -352,7 +669,14 @@ describe('PRO BOT chat correlation', () => {
     );
 
     expect(upsertBotChatMessage).toHaveBeenCalledWith(id, 'typing');
-    expect(addChatMessage).toHaveBeenCalledWith('GUEST 1', expect.any(String), false, 'op', 1);
+    expect(addChatMessage).toHaveBeenCalledWith(
+      'GUEST 1',
+      expect.any(String),
+      false,
+      'op',
+      1,
+      conn.peer,
+    );
     expect(relayed).toHaveLength(1);
     expect(relayed[0]).toMatchObject({
       type: MSG.CHAT,

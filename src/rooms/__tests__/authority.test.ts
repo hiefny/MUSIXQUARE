@@ -55,16 +55,18 @@ describe('room authority compatibility layer', () => {
     expect(isCoordinator()).toBe(true);
     expect(hasRoomCapability('queue.mutate')).toBe(true);
     expect(hasRoomCapability('room.configure')).toBe(true);
+    expect(hasRoomCapability('chat.notice')).toBe(true);
 
     const host = connection('host');
     setState('network.appRole', 'guest');
     setState('network.hostConn', host);
     setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['playback.control', 'asset.upload']);
     expect(isCoordinator()).toBe(false);
     expect(getAuthorityConnection()).toBe(host);
     expect(isAuthoritativeConnection(host)).toBe(true);
     expect(hasRoomCapability('playback.control')).toBe(true);
-    expect(hasRoomCapability('queue.mutate')).toBe(true);
+    expect(hasRoomCapability('queue.mutate')).toBe(false);
     expect(hasRoomCapability('asset.upload')).toBe(true);
   });
 
@@ -73,7 +75,9 @@ describe('room authority compatibility layer', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', host);
     setState('network.isOperator', true);
-    expect(hasRoomCapability('queue.mutate')).toBe(true);
+    setState('network.standardRoomCapabilities', ['asset.upload']);
+    expect(hasRoomCapability('asset.upload')).toBe(true);
+    expect(hasRoomCapability('queue.mutate')).toBe(false);
 
     host.open = false;
     expect(hasRoomCapability('queue.mutate')).toBe(false);
@@ -84,14 +88,44 @@ describe('room authority compatibility layer', () => {
     expect(hasRoomCapability('asset.upload')).toBe(false);
   });
 
+  it('separates a standard owner sibling product authority from physical coordination', () => {
+    const host = connection('physical-host');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'queue.mutate',
+      'playback.control',
+      'effects.control',
+      'asset.upload',
+      'members.manage',
+      'chat.notice',
+      'room.configure',
+    ]);
+
+    expect(hasRoomCapability('queue.mutate')).toBe(true);
+    expect(hasRoomCapability('effects.control')).toBe(true);
+    expect(hasRoomCapability('room.configure')).toBe(true);
+    expect(hasRoomCapability('system-audio.publish')).toBe(false);
+    expect(hasRoomCapability('coordinator.eligible')).toBe(false);
+    expect(isCoordinator()).toBe(false);
+    expect(getAuthorityConnection()).toBe(host);
+  });
+
   it('authorizes queue mutation only for the exact live standard operator connection', () => {
     const live = connection('operator-1');
     const stale = connection('operator-1');
     setState('network.appRole', 'host');
     setState('network.activeHostConnByPeerId', new Map([[live.peer, live]]));
-    setState('network.connectedPeers', [connectedPeer(live, { isOp: true })]);
+    setState('network.connectedPeers', [
+      connectedPeer(live, {
+        isOp: true,
+        roomCapabilities: ['playback.control', 'asset.upload'],
+      }),
+    ]);
 
-    expect(verifyPeerCapability(live, 'queue.mutate')).toBe(true);
+    expect(verifyPeerCapability(live, 'queue.mutate')).toBe(false);
     expect(verifyPeerCapability(live, 'asset.upload')).toBe(true);
     expect(verifyPeerCapability(stale, 'queue.mutate')).toBe(false);
   });

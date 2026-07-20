@@ -1826,7 +1826,7 @@ export function initYouTube(): void {
     if (!hostConn || getRoomContext().kind !== 'standard') return false;
     // A standard guest must never fall through to the local commit path, even
     // if its operator capability is revoked between opening and submitting.
-    if (!hasRoomCapability('queue.mutate')) {
+    if (!hasRoomCapability('media.add')) {
       showToast(t('toast.host_only_youtube'));
       return true;
     }
@@ -1853,7 +1853,7 @@ export function initYouTube(): void {
       getState('network.sessionCode') === roomCode &&
       conn.open === true &&
       getState('network.activeHostConnByPeerId').get(conn.peer) === conn &&
-      verifyPeerCapability(conn, 'queue.mutate')
+      verifyPeerCapability(conn, 'media.add')
     );
   }
 
@@ -2269,9 +2269,9 @@ export function initYouTube(): void {
     }
 
     const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
+    const canControlPlayback = hasRoomCapability('playback.control');
 
-    if (hostConn && isOperator) {
+    if (hostConn && canControlPlayback) {
       // OP sends toggle request — let host decide based on ITS player state
       // (Guest's local player may be desynchronized from host due to ads/buffering)
       const queueItemId = getCurrentQueueItemId();
@@ -2813,7 +2813,7 @@ export function initYouTube(): void {
       }
     }
 
-    if (getState('room.context').kind === 'pro' && hasRoomCapability('queue.mutate')) {
+    if (getState('room.context').kind === 'pro' && hasRoomCapability('media.add')) {
       if (handleProRoomYouTube(newTrack, url, completeManifestVideoIds)) {
         _refreshYouTubeTitle(queueItemId, url, videoId, playlistId);
         return queueItemId;
@@ -2906,7 +2906,7 @@ export function initYouTube(): void {
     requestedVideoId?: string | null,
   ): boolean {
     const context = getState('room.context');
-    if (context.kind !== 'pro' || !hasRoomCapability('queue.mutate')) return false;
+    if (context.kind !== 'pro' || !hasRoomCapability('media.add')) return false;
 
     const requestKey = `${context.roomId}:${playlistId}`;
     if (resolvingProPlaylists.has(requestKey)) return true;
@@ -2920,7 +2920,7 @@ export function initYouTube(): void {
         if (
           currentContext.kind !== 'pro' ||
           currentContext.roomId !== context.roomId ||
-          !hasRoomCapability('queue.mutate')
+          !hasRoomCapability('media.add')
         ) {
           return;
         }
@@ -2963,7 +2963,7 @@ export function initYouTube(): void {
 
   // YouTube load from input field
   bus.on('youtube:load-from-input', () => {
-    if (getState('network.hostConn') && !hasRoomCapability('queue.mutate')) {
+    if (getState('network.hostConn') && !hasRoomCapability('media.add')) {
       showToast(t('toast.host_only_youtube'));
       return;
     }
@@ -3257,7 +3257,7 @@ export function initYouTube(): void {
 
     // Standard guests cannot mutate the queue. Authenticated PRO members can.
     const hostConn = getState('network.hostConn');
-    if (hostConn && !hasRoomCapability('queue.mutate')) {
+    if (hostConn && !hasRoomCapability('media.add')) {
       showToast(t('toast.host_only_youtube'));
       return;
     }

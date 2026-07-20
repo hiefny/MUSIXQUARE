@@ -39,6 +39,7 @@ import {
 } from '../ownership.ts';
 import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 import {
   registerProRoomLegacyMediaHooks,
@@ -332,13 +333,17 @@ describe('pause', () => {
 
   it('reuses an idle late-join PAUSE position when an operator requests play', async () => {
     const conn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.appRole', 'guest');
     setState('network.hostConn', conn);
     setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['playback.control']);
     setState('playlist.currentQueueItemId', QID_OLD);
     setState('playlist.items', [playlistItem(QID_OLD, 'song.mp3', 'Song')]);
 
     initPlayback();
+    markQueueAuthorityReady(conn);
     await handleData({ type: MSG.PAUSE, time: 42, queueItemId: QID_OLD, reason: 'pause' }, conn);
+    expect(getState('player.pausedAt')).toBe(42);
     togglePlay();
 
     expect(sendToHost).toHaveBeenCalledWith({
@@ -353,6 +358,7 @@ describe('pause', () => {
 
 describe('togglePlay end-of-track race', () => {
   it('advances a pending natural-end transition instead of broadcasting stale play', async () => {
+    setState('network.appRole', 'host');
     setState('playlist.items', [
       playlistItem(QID_OLD, 'third.mp3', 'Third'),
       playlistItem(QID_NEW, 'fourth.mp3', 'Fourth'),

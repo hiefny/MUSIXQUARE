@@ -1,4 +1,15 @@
 import { handleProBotRequest } from './pro-bot.js';
+import {
+  cleanupExpiredAccountSessions,
+  handleAccountAuthRequest,
+  recordAccountProRoomLink,
+  resolveAccountSession,
+} from './account-auth.js';
+import {
+  ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+  ACCOUNT_ASSERTION_HEADER,
+  createAccountAssertion,
+} from './account-assertion.js';
 
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
@@ -214,6 +225,8 @@ function facadeProRoomSetCookie(value, roomCode) {
 
 function withFacadeProRoomCookies(response, roomCode) {
   const headers = new Headers(response.headers);
+  // This is an App↔PRO Worker bookkeeping signal, never public API surface.
+  headers.delete('x-mxqr-account-linked');
   const setCookies = splitSetCookieHeader(response.headers);
   headers.delete('Set-Cookie');
   for (const value of setCookies) {
@@ -245,6 +258,26 @@ async function preflightRegisteredProBotRoom(env, roomCode) {
   } catch {
     return 'BOT_UNAVAILABLE';
   }
+}
+
+async function preflightRegisteredProRoomAccountLink(env, roomCode) {
+  const db = getAdminDb(env);
+  if (!db?.prepare) return false;
+  const statement = db
+    .prepare(
+      `SELECT status FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       WHERE room_code = ?1 LIMIT 1`,
+    )
+    .bind(roomCode);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  // `registered` includes an unactivated room: activation is precisely where
+  // its first owner/account cleanup edge can be created. Provisioning,
+  // suspended and permanently decommissioned rooms must never grow the
+  // account reverse index.
+  return row?.status === 'registered';
 }
 
 async function handleProRoomFacade(request, env, url) {
@@ -319,6 +352,58 @@ async function handleProRoomFacade(request, env, url) {
   }
   headers.delete('X-MXQR-Pro-Room-Code');
   headers.delete('X-MXQR-Pro-IP-Hash');
+  // A browser can name this header but can never supply its value. Account
+  // identity is resolved from the App Worker's host-only session cookie and
+  // replaced with a short-lived room/audience-bound service assertion.
+  headers.delete(ACCOUNT_ASSERTION_HEADER);
+  const accountLinkAssertionPaths = new Set([
+    `/v1/rooms/${roomCode}/activation`,
+    `/v1/rooms/${roomCode}/owner-recovery`,
+    `/v1/rooms/${roomCode}/sessions`,
+    `/v1/rooms/${roomCode}/sessions/current/account`,
+  ]);
+  const accountLeaseAssertionPath = `/v1/rooms/${roomCode}/sessions/current/account/lease`;
+  if (accountLinkAssertionPaths.has(upstreamPath) || upstreamPath === accountLeaseAssertionPath) {
+    try {
+      const account = await resolveAccountSession(request, env);
+      const assertionSecret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+      if (account?.profileComplete && account.nickname && assertionSecret.length >= 32) {
+        // A lease renewal is accepted downstream only when this exact physical
+        // room session is already linked to the same asserted account. It can
+        // therefore skip the registry/reverse-index writes that protect an
+        // initial attachment. At a 40-second client cadence those writes would
+        // otherwise turn one bounded identity lease into persistent D1 churn.
+        const mayAssert =
+          upstreamPath === accountLeaseAssertionPath ||
+          (await preflightRegisteredProRoomAccountLink(env, roomCode));
+        if (mayAssert) {
+          const assertion = await createAccountAssertion(
+            {
+              accountId: account.accountId,
+              nickname: account.nickname,
+              roomCode,
+              audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+            },
+            assertionSecret,
+          );
+          if (assertion && upstreamPath !== accountLeaseAssertionPath) {
+            // Record the conservative cleanup edge before the downstream
+            // Worker can persist this account as an owner/administrator. The
+            // registry preflight bounds rejected-join edges to real rooms;
+            // a missing edge would be unsafe for account deletion.
+            const linked = await recordAccountProRoomLink(env, account.accountId, roomCode);
+            if (!linked) throw new Error('PRO_ACCOUNT_LINK_UNAVAILABLE');
+          }
+          if (assertion) headers.set(ACCOUNT_ASSERTION_HEADER, assertion);
+        }
+      }
+    } catch (error) {
+      // Login is optional. An identity-store outage must not turn a valid room
+      // PIN into a playback outage; the PRO service will treat this request as
+      // anonymous and never trusts a client-claimed account.
+      console.warn('[AccountAuth] PRO assertion unavailable', error);
+    }
+  }
   const cookies = forwardedProRoomCookies(headers.get('Cookie'), roomCode);
   if (cookies) headers.set('Cookie', cookies);
   else headers.delete('Cookie');
@@ -1329,6 +1414,17 @@ async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST', 
     .json()
     .catch(() => null);
   return { response, payload };
+}
+
+async function purgeProRoomAccountAuthority({ accountId, roomCode }, env) {
+  const result = await callProRoomAdminObject(
+    env,
+    roomCode,
+    '/internal/admin/account-authority/purge',
+    'POST',
+    { accountId },
+  );
+  return result.response?.ok === true && result.payload?.ok === true;
 }
 
 function proRoomObjectError(result) {
@@ -5443,13 +5539,56 @@ export default {
     ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
     ctx.waitUntil(cleanupExpiredAdminMetrics(env));
     ctx.waitUntil(cleanupExpiredProRoomAdminAudit(env));
+    if (env.MUSIXQUARE_AUTH_DB) ctx.waitUntil(cleanupExpiredAccountSessions(env));
   },
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.protocol === 'http:' && !isLocalHttpRequest(request, url)) {
-      url.protocol = 'https:';
+    const mustUpgradeProtocol = url.protocol === 'http:' && !isLocalHttpRequest(request, url);
+    const mustUseCanonicalHost = url.hostname === 'www.musixquare.com';
+    if (mustUpgradeProtocol || mustUseCanonicalHost) {
+      if (mustUpgradeProtocol) url.protocol = 'https:';
+      if (mustUseCanonicalHost) url.hostname = 'musixquare.com';
       return withSecurityHeaders(Response.redirect(url, 308));
+    }
+
+    if (url.pathname.startsWith('/api/auth/')) {
+      let rateKey = 'account-auth-mutation';
+      let rateLimit = 120;
+      let rateWindowSeconds = 60;
+      if (url.pathname === '/api/auth/google/start') {
+        rateKey = 'account-auth-start';
+        // Match the advertised 100-device venue ceiling while retaining a
+        // bounded per-IP OAuth initiation budget.
+        rateLimit = 120;
+        rateWindowSeconds = 10 * 60;
+      } else if (url.pathname === '/api/auth/google/callback') {
+        rateKey = 'account-auth-callback';
+        rateLimit = 120;
+        rateWindowSeconds = 10 * 60;
+      } else if (url.pathname === '/api/auth/session') {
+        // A 100-device venue can legitimately restore many tabs together.
+        // This generous ceiling only bounds obviously automated D1 probing.
+        rateKey = 'account-auth-session';
+        rateLimit = 600;
+      } else if (url.pathname === '/api/auth/room-assertion') {
+        // A full 100-device room refreshes 60-second assertions every 40s:
+        // roughly 150 requests/minute behind one venue NAT. Keep this separate
+        // from low-frequency profile/logout mutations so a healthy room cannot
+        // rate-limit its own identity leases and enter a retry storm.
+        rateKey = 'account-auth-room-assertion';
+        rateLimit = 600;
+      }
+      if (!(await checkRateLimit(request, rateKey, rateLimit, rateWindowSeconds))) {
+        return json({ error: 'AUTH_RATE_LIMITED' }, 429, {
+          'Retry-After': String(rateWindowSeconds),
+        });
+      }
+      return withSecurityHeaders(
+        await handleAccountAuthRequest(request, env, url, {
+          purgeProRoomAccountAuthority: (input) => purgeProRoomAccountAuthority(input, env),
+        }),
+      );
     }
 
     if (url.pathname.startsWith(`${PRO_ROOM_FACADE_PREFIX}/`)) {

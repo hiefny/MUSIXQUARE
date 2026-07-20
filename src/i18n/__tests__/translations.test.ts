@@ -300,4 +300,102 @@ describe('Translation key integrity', () => {
       '<span data-legal-pro-storage>PRO 방에서는 세션 연결을 위한 IP 주소와 연결 정보가 시그널링 서버를 경유해요. 재생목록에 추가한 원본 파일은 서비스 제공을 위해 비공개 Cloudflare R2에 보관되며, 방에 입장한 사용자만 내려받을 수 있어요. 파일은 더 이상 사용되지 않거나 운영자가 세션 데이터를 삭제하면 정리돼요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람하거나 분석하지 않아요.</span>',
     );
   });
+
+  it('keeps optional-account and deletion copy present in every locale', () => {
+    const deletionContract: Record<keyof typeof locales, { authority: RegExp; retention: RegExp }> =
+      {
+        ko: { authority: /권한/, retention: /보관/ },
+        en: { authority: /permissions/, retention: /retention/ },
+        de: { authority: /Raumrechte/, retention: /Aufbewahrung/ },
+        es: { authority: /permisos/, retention: /conservación/ },
+        fr: { authority: /droits/, retention: /conservation/ },
+        id: { authority: /izin/, retention: /penyimpanan/ },
+        italian: { authority: /permessi/, retention: /conservazione/ },
+        ja: { authority: /権限/, retention: /保存方針/ },
+        nl: { authority: /kamerrechten/, retention: /bewaarbeleid/ },
+        pl: { authority: /uprawnienia/, retention: /przechowywania/ },
+        ptBr: { authority: /permissões/, retention: /retenção/ },
+        ru: { authority: /права/, retention: /хранения/ },
+        th: { authority: /สิทธิ์/, retention: /เก็บรักษา/ },
+        tr: { authority: /izinlerin/, retention: /saklama/ },
+        vi: { authority: /quyền/, retention: /lưu giữ/ },
+        zhHans: { authority: /权限/, retention: /保留政策/ },
+        zhHant: { authority: /權限/, retention: /保留政策/ },
+      };
+    const incomplete: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      const login = dict['account.login_message' as keyof typeof dict] || '';
+      const deletion = dict['account.delete_confirm_message' as keyof typeof dict] || '';
+      const terms = dict['account.terms' as keyof typeof dict] || '';
+      const privacy = dict['account.privacy' as keyof typeof dict] || '';
+      if (
+        login.trim().length < 20 ||
+        !login.includes('Google') ||
+        deletion.trim().length < 20 ||
+        Array.from(deletion).length > 200 ||
+        !deletionContract[locale as keyof typeof locales].authority.test(deletion) ||
+        !deletionContract[locale as keyof typeof locales].retention.test(deletion) ||
+        terms.trim().length === 0 ||
+        privacy.trim().length === 0
+      ) {
+        incomplete.push(locale);
+      }
+    }
+
+    expect(incomplete).toEqual([]);
+    expect(en['account.login_message']).toBe(
+      'Sign in with Google to keep your nickname across rooms. You can continue without signing in.',
+    );
+    expect(ko['account.login_message']).toBe(
+      'Google로 로그인하면 방이 바뀌어도 닉네임을 유지할 수 있어요. 로그인 없이도 계속 이용할 수 있어요.',
+    );
+    expect(en['account.delete_confirm_message']).toBe(
+      "Your nickname, sign-in sessions, and account-linked room permissions will be deleted. Content shared in a room follows that room's retention policy.",
+    );
+    expect(ko['account.delete_confirm_message']).toBe(
+      '닉네임, 로그인 세션, 계정에 연결된 방 권한이 삭제돼요. 방에 공유한 콘텐츠는 해당 방의 보관 정책을 따라요.',
+    );
+  });
+
+  it('keeps the account locale key and placeholder contract explicit', () => {
+    const accountKeys = koKeys.filter((key) => key.startsWith('account.'));
+    expect(accountKeys).toEqual([
+      'account.login_title',
+      'account.login_cancelled',
+      'account.login_failed',
+      'account.login_message',
+      'account.google_continue',
+      'account.terms',
+      'account.privacy',
+      'account.unavailable',
+      'account.account_title',
+      'account.change_nickname',
+      'account.logout',
+      'account.delete_account',
+      'account.nickname_title',
+      'account.nickname_message',
+      'account.nickname_placeholder',
+      'account.nickname_hint',
+      'account.nickname_required',
+      'account.nickname_saved',
+      'account.action_failed',
+      'account.delete_confirm_title',
+      'account.delete_confirm_message',
+    ]);
+
+    const placeholders = (value: string): string[] =>
+      [...value.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1]).sort();
+    for (const [locale, dict] of Object.entries(locales)) {
+      expect(
+        accountKeys.filter((key) => !(key in dict)),
+        `${locale} account keys`,
+      ).toEqual([]);
+      for (const key of accountKeys) {
+        expect(placeholders(dict[key as keyof typeof dict] || ''), `${locale}.${key}`).toEqual(
+          placeholders(ko[key as keyof typeof ko] || ''),
+        );
+      }
+    }
+  });
 });

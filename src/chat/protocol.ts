@@ -30,7 +30,7 @@ import {
   formatChatDisplayName,
   upsertBotChatMessage,
 } from '../ui/chat-render.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, DeviceInfo } from '../types/index.ts';
 import { formatBotRetryDuration } from './bot-rate-limit.ts';
 import { extractBotPrompt } from './bot-syntax.ts';
 import { playAnnouncementSound, playChatSystemEventSound } from '../audio/ui-sounds.ts';
@@ -97,6 +97,7 @@ export function sendLatestPinnedNotice(conn: DataConnection | null | undefined):
 // ─── Dedup ───────────────────────────────────────────────────────
 
 const _recentMsgIds = new Set<string>();
+const STANDARD_ROOM_MEMBER_ID_RE = /^member_[A-Za-z0-9_-]{22}$/;
 
 export type BotChatResult =
   | { kind: 'answer'; text: string }
@@ -271,20 +272,32 @@ export function receiveProRoomRealtimeChat(frame: ProRealtimeRelayEnvelope): voi
       frame.sender.displayName.trim().slice(0, MAX_SENDER_LABEL_LENGTH)) ||
     PEER_NAME_PREFIX;
   const myId = getState('network.myId') || '';
+  // The server relay authenticates the physical sender. Resolve its current
+  // room-member projection separately: participantId remains the dedup/rate
+  // identity while memberId controls presentation across a user's devices.
+  const devices = getState('network.lastKnownDeviceList') || [];
+  const participant = devices.find((candidate) => candidate.id === senderId);
+  const localParticipant = devices.find((candidate) => candidate.id === myId);
+  const localMemberId = getState('network.myMemberId') || localParticipant?.memberId || '';
+  // Prefer the room-service-signed member identity carried by the signaling
+  // relay. Presence remains a rolling-deploy fallback, but can no longer race
+  // the first chat message and split one account's opening bubble by device.
+  const senderMemberId = frame.sender.memberId || participant?.memberId || '';
+  const senderKey = senderMemberId || senderId;
   if (senderId === myId) return;
 
   if (kind === 'message') {
     const text = typeof payload.text === 'string' ? payload.text.slice(0, MAX_MSG_LENGTH) : '';
     if (!text) return;
-    const participant = (getState('network.lastKnownDeviceList') || []).find(
-      (candidate) => candidate.id === senderId,
-    );
+    const displayName = formatChatDisplayName(participant?.label || senderLabel);
+    const isSameLocalMember = !!senderMemberId && senderMemberId === localMemberId;
     addChatMessage(
-      formatChatDisplayName(senderLabel),
+      displayName,
       getState('network.filterEnabled') ? filterProfanity(text) : text,
-      false,
-      'op',
-      participant?.joinOrder,
+      isSameLocalMember,
+      proRoomChatBadge(participant),
+      participant?.memberDisplayNumber ?? participant?.joinOrder,
+      senderKey,
     );
     const botRequestId =
       typeof payload.botRequestId === 'string' && BOT_REQUEST_ID_RE.test(payload.botRequestId)
@@ -367,6 +380,14 @@ export function receiveProRoomRealtimeChat(frame: ProRealtimeRelayEnvelope): voi
   ) {
     setState('network.slowmodeSeconds', payload.seconds as number);
   }
+}
+
+function proRoomChatBadge(participant: DeviceInfo | undefined): 'host' | 'op' | undefined {
+  return participant?.role === 'owner'
+    ? 'host'
+    : participant?.role === 'controller'
+      ? 'op'
+      : undefined;
 }
 
 // ─── Server-side Rate Limit (host only) ─────────────────────────
@@ -459,13 +480,13 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   // guest frame claim the coordinator's own senderId and trigger the local
   // echo shortcut before authoritative identity rewriting.
   const senderId = !hostConn ? conn?.peer || '' : (data.senderId as string) || '';
-  const isMine = senderId === myId;
+  const isPhysicalEcho = senderId === myId;
 
   // Already displayed locally in sendChatMessage() — drop echo-back
-  if (isMine) return;
+  if (isPhysicalEcho) return;
 
   // ── Host-side enforcement: rate limit, mute, freeze ──
-  if (!hostConn && !isMine) {
+  if (!hostConn && !isPhysicalEcho) {
     const senderPeerId = conn?.peer || '';
     // Rate limit: silently drop frames over the burst+refill threshold.
     if (!allowChatFromPeer(senderPeerId)) return;
@@ -505,39 +526,65 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   // and overwrite data.isHost/isOp BEFORE broadcasting, so guests receive the
   // correct badge regardless of what the original sender claimed.
   let badge: 'host' | 'op' | undefined;
+  let senderMemberId = '';
   if (!hostConn) {
     // Host: derive from authoritative peer list
     const senderPeerId = conn?.peer || '';
     const peers = getState('network.connectedPeers');
     const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
     const isOp = peerEntry?.isOp ?? false;
-    badge = isOp ? 'op' : undefined; // only host gets 'host' badge (set below)
+    const isAccountOwner =
+      peerEntry?.isAuthenticated === true &&
+      peerEntry.roomCapabilities?.includes('room.configure') === true;
+    badge = isAccountOwner ? 'host' : isOp ? 'op' : undefined;
     // Overwrite untrusted identity + badge fields before broadcast. Without
     // overwriting senderId/senderLabel/joinOrder, a malicious peer that pushed
     // a raw CHAT frame with someone else's senderId would have the spoofed
     // identity reach every downstream guest verbatim. Mirror the WHISPER handler.
-    data.isHost = false;
+    data.isHost = isAccountOwner;
     data.isOp = isOp;
     data.senderId = senderPeerId;
     if (peerEntry) {
       senderLabel = peerEntry.label.substring(0, MAX_SENDER_LABEL_LENGTH);
-      data.joinOrder = peerEntry.joinOrder;
+      data.joinOrder = peerEntry.memberDisplayNumber ?? peerEntry.joinOrder;
+      senderMemberId =
+        typeof peerEntry.memberId === 'string' &&
+        STANDARD_ROOM_MEMBER_ID_RE.test(peerEntry.memberId)
+          ? peerEntry.memberId
+          : '';
+      if (senderMemberId) data.senderMemberId = senderMemberId;
+      else delete data.senderMemberId;
     } else {
       // An authenticated connection can race the first device-list commit,
       // but its untrusted frame still must not choose the coordinator's local
       // display name. Keep a neutral fallback until authoritative state lands.
       senderLabel = PEER_NAME_PREFIX;
       delete data.joinOrder;
+      delete data.senderMemberId;
     }
     data.senderLabel = senderLabel;
   } else {
     // Guest: trust broadcast data (host already sanitized it)
     badge = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
+    senderMemberId =
+      typeof data.senderMemberId === 'string' &&
+      STANDARD_ROOM_MEMBER_ID_RE.test(data.senderMemberId)
+        ? data.senderMemberId
+        : '';
   }
 
   const displayName = formatChatDisplayName(senderLabel);
   const joinOrder = typeof data.joinOrder === 'number' ? data.joinOrder : undefined;
-  addChatMessage(displayName, text, isMine, badge, joinOrder);
+  const localMemberId = getState('network.myMemberId') || '';
+  const isSameLocalMember = !!senderMemberId && senderMemberId === localMemberId;
+  addChatMessage(
+    displayName,
+    text,
+    isSameLocalMember,
+    badge,
+    joinOrder,
+    senderMemberId || senderId,
+  );
 
   // A valid BOT command remains an ordinary user chat row. Its opaque request
   // id only adds a separate, update-in-place BOT response bubble. On the host,
@@ -565,9 +612,10 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     const relayPayload: Record<string, unknown> = {
       type: MSG.CHAT,
       senderId: senderPeerId,
+      ...(senderMemberId ? { senderMemberId } : {}),
       sender: senderLabel,
       senderLabel,
-      isHost: false,
+      isHost: badge === 'host',
       isOp: badge === 'op',
       text,
       ts: typeof data.ts === 'number' && Number.isFinite(data.ts) ? data.ts : Date.now(),

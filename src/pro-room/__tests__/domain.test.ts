@@ -157,10 +157,13 @@ describe('PRO room roles and credentials', () => {
       'members.manage',
     ]);
     expect(capabilitiesForProRoomRole('owner')).toEqual(OWNER_CAPABILITIES);
+    expect(capabilitiesForProRoomRole('member')).toEqual(['playback.control']);
     expect(proRoomRoleCan('controller', 'playback.control')).toBe(true);
     expect(proRoomRoleCan('controller', 'members.manage')).toBe(true);
     expect(proRoomRoleCan('controller', 'room.configure')).toBe(false);
     expect(proRoomRoleCan('owner', 'members.manage')).toBe(true);
+    expect(proRoomRoleCan('member', 'playback.control')).toBe(true);
+    expect(proRoomRoleCan('member', 'queue.mutate')).toBe(false);
   });
 
   it('validates an eight-digit PIN as a string without silently normalizing it', () => {

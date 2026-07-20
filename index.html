@@ -153,11 +153,16 @@
       </div>
 
       <div class="header-right header-default-content flex-row-center">
-        <div class="role-badge" id="role-badge">
+        <button
+          type="button"
+          class="role-badge"
+          id="role-badge"
+          aria-haspopup="dialog"
+          aria-controls="account-dialog"
+        >
           <div class="role-dot"></div>
-          <!-- Role badges intentionally use compact protocol-style English labels. -->
-          <span id="role-text">OFFLINE</span>
-        </div>
+          <span id="role-text">LOGIN</span>
+        </button>
         <button
           class="header-help-btn"
           id="btn-help-compact"
@@ -193,7 +198,7 @@
           ></canvas>
         </div>
 
-          <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
+        <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
         <div class="video-wrapper">
           <button
             class="fullscreen-btn"
@@ -477,6 +482,13 @@
           </div>
         </div>
 
+        <div class="section-group administrator-section" id="connect-administrator-section" hidden>
+          <div class="section-header-row">
+            <span class="section-title" id="connect-administrator-title"></span>
+          </div>
+          <div id="connect-administrator-list" class="administrator-list"></div>
+        </div>
+
         <div class="section-group">
           <div class="section-header-row">
             <span class="section-title" id="connect-device-title">연결된 기기 0대</span>
@@ -488,7 +500,7 @@
                 d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
               />
             </svg>
-            <span data-i18n="connect.rename_device">이 기기 이름 변경하기</span>
+            <span data-i18n="account.change_nickname">닉네임 변경</span>
           </button>
           <button class="leave-session-btn" id="btn-leave-session">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1311,6 +1323,17 @@
               </div>
             </div>
 
+            <div
+              class="section-group administrator-section"
+              id="desktop-administrator-section"
+              hidden
+            >
+              <div class="section-header-row">
+                <span class="section-title" id="desktop-administrator-title"></span>
+              </div>
+              <div id="desktop-administrator-list" class="administrator-list"></div>
+            </div>
+
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" id="desktop-device-title">연결된 기기 0대</span>
@@ -1322,7 +1345,7 @@
                     d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
                   />
                 </svg>
-                <span data-i18n="connect.rename_device">이 기기 이름 변경하기</span>
+                <span data-i18n="account.change_nickname">닉네임 변경</span>
               </button>
               <button class="leave-session-btn" id="desktop-btn-leave-session">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2366,7 +2389,6 @@
 
                 <rect class="graphic-tv" x="115" y="38" width="110" height="62" rx="2" />
 
-
                 <!-- FL (Front Left) -->
                 <g id="svg-spk-l" class="graphic-speaker" data-role-mode="-1">
                   <rect x="50" y="60" width="20" height="68" rx="2" />
@@ -2484,6 +2506,162 @@
             class="dialog-primary"
             id="btn-dialog-ok"
             data-i18n="common.ok"
+          ></button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay account-dialog-overlay"
+      id="account-dialog-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog account-dialog"
+        id="account-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-dialog-title"
+        aria-describedby="account-dialog-message"
+        aria-busy="false"
+      >
+        <button
+          type="button"
+          class="account-dialog-close"
+          id="btn-account-close"
+          data-i18n-aria-label="common.close"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z"
+            />
+          </svg>
+        </button>
+        <div class="dialog-header account-dialog-header">
+          <span class="dialog-title" id="account-dialog-title"></span>
+        </div>
+        <div class="account-dialog-content">
+          <p class="account-dialog-message" id="account-dialog-message"></p>
+          <strong class="account-dialog-nickname" id="account-dialog-nickname" hidden></strong>
+          <a class="account-google-button" id="btn-account-google" href="#" hidden></a>
+          <nav class="account-legal-links" id="account-legal-links" hidden>
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-i18n="account.terms"
+            ></a>
+            <span aria-hidden="true">·</span>
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-i18n="account.privacy"
+            ></a>
+          </nav>
+        </div>
+        <div class="account-dialog-actions" id="account-dialog-actions" hidden>
+          <button type="button" class="dialog-primary" id="btn-account-rename"></button>
+          <button type="button" class="dialog-secondary" id="btn-account-logout"></button>
+          <button type="button" class="account-delete-button" id="btn-account-delete"></button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay administrator-permissions-overlay"
+      id="administrator-permissions-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog administrator-permissions-dialog"
+        id="administrator-permissions-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="administrator-permissions-title"
+        aria-describedby="administrator-permissions-member"
+        aria-busy="false"
+      >
+        <div class="dialog-header administrator-permissions-header">
+          <span
+            class="dialog-title"
+            id="administrator-permissions-title"
+            data-i18n="connect.permissions_title"
+          ></span>
+          <span
+            class="administrator-permissions-member"
+            id="administrator-permissions-member"
+          ></span>
+        </div>
+        <div class="administrator-permissions-list">
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="media.add"
+            role="switch"
+            aria-checked="false"
+          >
+            <span data-i18n="connect.permission_media_add"></span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="playback.control"
+            role="switch"
+            aria-checked="false"
+          >
+            <span class="administrator-permission-label">
+              <span data-i18n="connect.permission_playback_control"></span>
+              <small
+                class="administrator-permission-inherited"
+                hidden
+                data-i18n="connect.permission_inherited"
+              ></small>
+            </span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="members.kick"
+            role="switch"
+            aria-checked="false"
+          >
+            <span data-i18n="connect.permission_members_kick"></span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="chat.notice"
+            role="switch"
+            aria-checked="false"
+          >
+            <span data-i18n="connect.permission_chat_notice"></span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+        </div>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            class="dialog-secondary"
+            id="btn-administrator-permissions-cancel"
+            data-i18n="common.cancel"
+          ></button>
+          <button
+            type="button"
+            class="dialog-primary"
+            id="btn-administrator-permissions-save"
+            data-i18n="common.done"
           ></button>
         </div>
       </div>

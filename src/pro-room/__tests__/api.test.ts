@@ -10,6 +10,7 @@ import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomCapability,
+  type ProRoomPermissionSet,
   type ProRoomSnapshot,
   type ProRoomSystemAudioPublication,
 } from '../contracts.ts';
@@ -28,6 +29,47 @@ const OWNER_CAPABILITIES: ProRoomCapability[] = [
   'members.manage',
   'room.configure',
 ];
+const OWNER_PERMISSIONS: ProRoomPermissionSet = {
+  'media.add': true,
+  'playback.control': true,
+  'members.kick': true,
+  'chat.notice': true,
+};
+const DELEGATED_PERMISSIONS: ProRoomPermissionSet = {
+  'media.add': true,
+  'playback.control': true,
+  'members.kick': false,
+  'chat.notice': true,
+};
+const DELEGATED_MEMBER_ID = 'member_0000000002';
+
+function administratorDirectory() {
+  return {
+    authorityVersion: 1 as const,
+    administrators: [
+      {
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner' as const,
+        permissions: OWNER_PERMISSIONS,
+        inheritedPermissions: ['playback.control'] as const,
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: DELEGATED_MEMBER_ID,
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        displayName: 'Friend',
+        role: 'controller' as const,
+        permissions: DELEGATED_PERMISSIONS,
+        inheritedPermissions: ['playback.control'] as const,
+        onlineDeviceCount: 2,
+      },
+    ],
+  };
+}
 
 function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
   return {
@@ -359,6 +401,128 @@ describe('PRO room cookie session API', () => {
       expectedParticipantId: activeSnapshot().viewer!.participantId,
       expectedPresenceIncarnationId: activeSnapshot().viewer!.presenceIncarnationId,
     });
+  });
+
+  it('attaches the current App account through the cookie facade without a browser identity body', async () => {
+    const linked = activeSnapshot();
+    linked.revision = 4;
+    linked.memberIdentityVersion = 1;
+    linked.viewer = {
+      ...linked.viewer!,
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
+      displayName: 'Minsu',
+    };
+    linked.presence = {
+      ...linked.presence,
+      revision: 2,
+      participants: [
+        {
+          ...linked.presence.participants[0]!,
+          memberId: linked.viewer.memberId,
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
+          displayName: 'Minsu',
+        },
+      ],
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ snapshot: linked }));
+
+    await expect(client.attachCurrentAccount(ROOM_CODE)).resolves.toEqual(linked);
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/sessions/current/account`,
+    );
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(new Headers(init.headers).get('x-mxqr-account-id')).toBeNull();
+    expect(new Headers(init.headers).get('x-mxqr-pro-participant-id')).toBe(
+      activeSnapshot().viewer!.participantId,
+    );
+  });
+
+  it('renews the current physical account lease with a bounded bodyless request', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ ok: true, leaseExpiresAtMs: 1_900_000_120_000 }));
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.renewCurrentAccountLease(ROOM_CODE)).resolves.toEqual({
+      leaseExpiresAtMs: 1_900_000_120_000,
+    });
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/sessions/current/account/lease`,
+    );
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    const headers = new Headers(init.headers);
+    expect(headers.get('x-mxqr-pro-participant-id')).toBeNull();
+    expect(headers.get('x-mxqr-account-id')).toBeNull();
+  });
+
+  it('detaches the current account by room session cookie without requiring live presence headers', async () => {
+    const detached = activeSnapshot();
+    detached.revision = 5;
+    detached.memberIdentityVersion = 1;
+    detached.authorityVersion = 1;
+    detached.administrators = [
+      {
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: OWNER_PERMISSIONS,
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 0,
+      },
+    ];
+    detached.viewer = {
+      ...detached.viewer!,
+      memberId: 'member_anonymous000000001',
+      memberDisplayNumber: 2,
+      isAuthenticated: false,
+      displayName: 'Peer 2',
+      role: 'member',
+      capabilities: ['playback.control'],
+    };
+    detached.presence = {
+      ...detached.presence,
+      revision: 2,
+      participants: [
+        {
+          ...detached.presence.participants[0]!,
+          memberId: detached.viewer.memberId,
+          memberDisplayNumber: 2,
+          isAuthenticated: false,
+          displayName: 'Peer 2',
+          role: 'member',
+          capabilities: ['playback.control'],
+        },
+      ],
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ snapshot: detached }));
+
+    await expect(client.detachCurrentAccount(ROOM_CODE)).resolves.toEqual(detached);
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/sessions/current/account`,
+    );
+    expect(init.method).toBe('DELETE');
+    expect(init.body).toBeUndefined();
+    const headers = new Headers(init.headers);
+    expect(headers.get('x-mxqr-pro-participant-id')).toBeNull();
+    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBeNull();
   });
 
   it('sends known heartbeat revisions and reuses the validated local snapshot on a compact reply', async () => {
@@ -1024,6 +1188,88 @@ describe('PRO room cookie session API', () => {
         idempotencyKey: IDEMPOTENCY_KEY,
       }),
     ).toThrow('PRO_ROOM_API_INVALID_YOUTUBE_IDENTITY');
+  });
+});
+
+describe('PRO room administrator API', () => {
+  it('reads and mutates the room-scoped administrator directory with the active presence lease', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
+    await expect(client.getAdministrators(ROOM_CODE)).resolves.toEqual(administratorDirectory());
+    let { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators`);
+    expect(init.method).toBe('GET');
+    let headers = new Headers(init.headers);
+    expect(headers.get('x-mxqr-pro-participant-id')).toBe('participant_00001');
+    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe('presence_0000000001');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
+    await expect(
+      client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS),
+    ).resolves.toEqual(administratorDirectory());
+    ({ url, init } = requestParts(fetchMock));
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators/${DELEGATED_MEMBER_ID}`,
+    );
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(String(init.body))).toEqual({ permissions: DELEGATED_PERMISSIONS });
+    headers = new Headers(init.headers);
+    expect(headers.get('x-mxqr-pro-participant-id')).toBe('participant_00001');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(jsonResponse(administratorDirectory()));
+    await expect(client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID)).resolves.toEqual(
+      administratorDirectory(),
+    );
+    ({ url, init } = requestParts(fetchMock));
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators/${DELEGATED_MEMBER_ID}`,
+    );
+    expect(init.method).toBe('DELETE');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ snapshot: { ...activeSnapshot(), revision: 4 } }),
+    );
+    await expect(client.kickMember(ROOM_CODE, DELEGATED_MEMBER_ID)).resolves.toMatchObject({
+      roomCode: ROOM_CODE,
+      revision: 4,
+    });
+    ({ url, init } = requestParts(fetchMock));
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/kick`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ targetMemberId: DELEGATED_MEMBER_ID });
+  });
+
+  it('rejects removing inherited playback authority before making a request', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+
+    expect(() =>
+      client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, {
+        ...DELEGATED_PERMISSIONS,
+        'playback.control': false,
+      }),
+    ).toThrow('PRO_ROOM_API_INVALID_ADMINISTRATOR_PERMISSIONS');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed administrator directory instead of trusting partial authority', async () => {
+    const malformed = administratorDirectory();
+    malformed.administrators.splice(0, 1);
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse(malformed));
+
+    await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
   });
 });
 

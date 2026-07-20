@@ -3632,6 +3632,29 @@ describe('Cloudflare app worker invite route', () => {
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
+  it('canonicalizes every www route to the apex so host-only auth cookies and tabs share one origin', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://www.musixquare.com/000001?panel=connect#account'),
+      env,
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe(
+      'https://musixquare.com/000001?panel=connect#account',
+    );
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('combines HTTP upgrade and www canonicalization into one redirect', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('http://www.musixquare.com/123456'), env);
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://musixquare.com/123456');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
   it('keeps localhost HTTP available for worker development', async () => {
     const env = createAssetEnv();
     const response = await appWorker.fetch(new Request('http://localhost:8787/123456'), env);

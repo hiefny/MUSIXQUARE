@@ -59,6 +59,8 @@ import {
   getProSystemAudioViewState,
   isLocalProSystemAudioOwner,
 } from '../pro-room/system-audio-bridge.ts';
+import { getAccountSnapshot } from '../account/state.ts';
+import { openAccountDialog } from './account.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -320,68 +322,19 @@ export function updateRoleBadge(): void {
   const text = document.getElementById('role-text');
   if (!badge || !text) return;
 
-  badge.classList.remove('connected', 'remote', 'pro-equal');
+  const snapshot = getAccountSnapshot();
+  const nickname =
+    snapshot.status === 'authenticated' && snapshot.account?.profileComplete
+      ? snapshot.account.nickname.trim()
+      : '';
 
-  const isConnecting = getState('network.isConnecting');
-  if (isConnecting) {
-    text.innerText = 'CONNECTING';
-    scheduleRoleClockPulse();
-    return;
-  }
-
-  // PRO has no browser coordinator or user-facing host rank. Every participant
-  // has the same live-room authority, so render the same compact blue identity badge
-  // regardless of which local media path happens to be active. This also keeps
-  // long device names usable beside the header's PRO badge.
-  if (getRoomContext().kind === 'pro') {
-    const myDeviceLabel = getState('network.myDeviceLabel') || '';
-    text.replaceChildren(document.createTextNode(myDeviceLabel.trim() || 'PEER'));
-    badge.classList.add('pro-equal');
-    scheduleRoleClockPulse();
-    return;
-  }
-
-  const hostConn = getState('network.hostConn');
-  if (hostConn) {
-    const myDeviceLabel = getState('network.myDeviceLabel') || '';
-    const label = myDeviceLabel.trim() || 'PEER';
-    const latency = getState('sync.lastLatencyMs') || 0;
-    // Escape required: myDeviceLabel comes from rename dialog (connect.ts) whose
-    // validator only checks reserved/duplicate/profanity (no HTML strip), AND
-    // from a host broadcast in network/guest.ts. Without escape, a label like
-    // "<svg onload=...>" (≤20 chars passes maxLength) would execute on the
-    // labeled device's own role badge. Stored-XSS surface for guests too.
-    const ping = document.createElement('span');
-    ping.className = 'badge-ping';
-    ping.textContent = `(${latency}ms)`;
-    text.replaceChildren(document.createTextNode(`${label} `), ping);
-    badge.classList.add('connected');
-    if (getState('network.connectionType') === 'remote') {
-      badge.classList.add('remote');
-    }
-    scheduleRoleClockPulse();
-    return;
-  }
-
-  // Default role labels remain English-only, but an active host's badge is
-  // also its device identity. Keep a renamed host aligned with the device
-  // list instead of replacing that identity with a permanent "HOST" label.
-  const appRole = getState('network.appRole');
-  if (appRole === 'host') {
-    const myDeviceLabel = getState('network.myDeviceLabel') || '';
-    text.innerText = myDeviceLabel.trim() || 'HOST';
-    badge.classList.add('connected');
-    scheduleRoleClockPulse();
-    return;
-  }
-
-  if (appRole === 'guest') {
-    text.innerText = 'GUEST';
-    scheduleRoleClockPulse();
-    return;
-  }
-
-  text.innerText = 'SETUP';
+  badge.classList.remove('connected', 'remote', 'pro-equal', 'account-authenticated');
+  badge.classList.toggle('account-authenticated', nickname.length > 0);
+  text.textContent = nickname || 'LOGIN';
+  badge.setAttribute(
+    'aria-label',
+    nickname ? `${t('account.account_title')}: ${nickname}` : t('account.login_title'),
+  );
   scheduleRoleClockPulse();
 }
 
@@ -451,13 +404,15 @@ async function copyInviteCode(): Promise<void> {
 // ─── Media Source Popup ──────────────────────────────────────────
 
 function openMediaSourcePopup(): void {
-  if (!hasRoomCapability('asset.upload') && !hasRoomCapability('queue.mutate')) {
+  if (!hasRoomCapability('media.add') && !hasRoomCapability('asset.upload')) {
     showToast(t('toast.host_only_media'));
     return;
   }
   const systemAudioButton = document.getElementById('btn-system-audio');
   if (systemAudioButton) {
-    systemAudioButton.hidden = !(isCoordinator() || getRoomContext().kind === 'pro');
+    systemAudioButton.hidden =
+      !hasRoomCapability('system-audio.publish') ||
+      !(isCoordinator() || getRoomContext().kind === 'pro');
   }
   syncSystemAudioSourceButton();
   animateTransition(() => {
@@ -501,8 +456,23 @@ function syncSystemAudioSourceButton(): void {
 function syncMediaSourceButtonAuthority(): void {
   const mediaBtn = document.getElementById('btn-media-source');
   if (!mediaBtn) return;
-  const canSelectMedia = hasRoomCapability('asset.upload') || hasRoomCapability('queue.mutate');
+  const canSelectMedia = hasRoomCapability('media.add') || hasRoomCapability('asset.upload');
   mediaBtn.style.opacity = canSelectMedia ? '' : '0.15';
+}
+
+function canConfigureQueueMode(): boolean {
+  if (getRoomContext().kind === 'pro') return hasRoomCapability('room.configure');
+  return hasRoomCapability('room.configure');
+}
+
+function syncQueueModeButtonAuthority(): void {
+  const enabled = canConfigureQueueMode();
+  for (const id of ['btn-repeat', 'btn-shuffle']) {
+    const button = document.getElementById(id);
+    if (!button) continue;
+    button.setAttribute('aria-disabled', String(!enabled));
+    button.style.opacity = enabled ? '' : '0.15';
+  }
 }
 
 function closeMediaSourcePopup(): void {
@@ -516,7 +486,7 @@ function closeMediaSourcePopup(): void {
 }
 
 function openYouTubePopup(): void {
-  if (!hasRoomCapability('queue.mutate')) {
+  if (!hasRoomCapability('media.add')) {
     showToast(t('toast.host_only_youtube'));
     return;
   }
@@ -924,33 +894,10 @@ export function initPlayerControls(): void {
   // Role badge
   const roleBadge = document.getElementById('role-badge');
   if (roleBadge) {
-    roleBadge.setAttribute('role', 'button');
-    roleBadge.setAttribute('tabindex', '0');
-    const onShowCode = async (e?: Event) => {
-      try {
-        e?.preventDefault?.();
-        e?.stopPropagation?.();
-      } catch {
-        /* ignore */
-      }
-      const code = getInviteCode();
-      if (!code || code === '------') {
-        showToast(t('toast.no_invite_code'));
-        return;
-      }
-      const ok = await copyTextToClipboard(code);
-      if (ok) {
-        const cnt = getConnectedDeviceCount();
-        showToast(t('toast.invite_code_info', { count: cnt, code }));
-      } else {
-        showToast(t('toast.invite_code', { code }));
-      }
-    };
-    roleBadge.addEventListener('click', onShowCode);
-    roleBadge.addEventListener('keydown', (e) => {
-      if ((e as KeyboardEvent).key !== 'Enter' && (e as KeyboardEvent).key !== ' ') return;
-      e.preventDefault(); // Prevent page scroll on Space key
-      onShowCode(e);
+    roleBadge.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openAccountDialog();
     });
   }
 
@@ -995,8 +942,20 @@ export function initPlayerControls(): void {
   });
 
   // Playlist tab
-  $on('btn-repeat', 'click', () => bus.emit('playlist:toggle-repeat'));
-  $on('btn-shuffle', 'click', () => bus.emit('playlist:toggle-shuffle'));
+  $on('btn-repeat', 'click', () => {
+    if (!canConfigureQueueMode()) {
+      showToast(t('toast.host_only_control'));
+      return;
+    }
+    bus.emit('playlist:toggle-repeat');
+  });
+  $on('btn-shuffle', 'click', () => {
+    if (!canConfigureQueueMode()) {
+      showToast(t('toast.host_only_control'));
+      return;
+    }
+    bus.emit('playlist:toggle-shuffle');
+  });
   $on('btn-add-media', 'click', () => openMediaSourcePopup());
 
   // Media source popup
@@ -1007,6 +966,10 @@ export function initPlayerControls(): void {
   });
   $on('btn-system-audio', 'click', () => {
     const isProRoom = getRoomContext().kind === 'pro';
+    if (!hasRoomCapability('system-audio.publish')) {
+      showToast(t('toast.host_only_media'));
+      return;
+    }
     if (!isProRoom && !isCoordinator()) {
       showToast(t('toast.host_only_media'));
       return;
@@ -1129,12 +1092,20 @@ export function initPlayerControls(): void {
   _busScope.on('state:network.appRole', () => {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
+  });
+  _busScope.on('state:network.standardRoomCapabilities', () => {
+    syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
   });
   _busScope.on('state:room.context', () => {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
   });
+  updateRoleBadge();
   syncMediaSourceButtonAuthority();
+  syncQueueModeButtonAuthority();
 
   // Language switch → refresh translated track title + tab title
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
@@ -1351,6 +1322,7 @@ export function initPlayerControls(): void {
     // A standard-room ADMIN grant/revoke changes media-source capabilities
     // without changing hostConn or room.context.
     syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
   });
   _busScope.on('state:room.context', () => {
     const context = getState('room.context');
@@ -1361,6 +1333,8 @@ export function initPlayerControls(): void {
       clearProRoomTrackChangeIntent();
     }
     syncSystemAudioSourceButton();
+    syncMediaSourceButtonAuthority();
+    syncQueueModeButtonAuthority();
   });
   _busScope.on('pro-system-audio:state-changed', () => {
     syncSystemAudioSourceButton();

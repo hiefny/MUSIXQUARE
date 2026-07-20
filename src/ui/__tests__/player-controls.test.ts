@@ -12,6 +12,7 @@ import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/own
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import { showToast } from '../toast.ts';
+import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
@@ -66,6 +67,7 @@ vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
 }));
 
 beforeEach(() => {
+  __resetAccountStateForTests();
   resetState();
   bus.clear();
   clearAllManagedTimers();
@@ -191,7 +193,7 @@ describe('updateRoleBadge', () => {
     return document.getElementById('role-badge') as HTMLElement;
   }
 
-  it('marks a connected remote guest with the remote class', () => {
+  it('shows LOGIN for an anonymous user regardless of the network route', () => {
     const badge = renderBadge();
     setState('network.hostConn', makeConnection('host-1'));
     setState('network.myDeviceLabel', 'GUEST 1');
@@ -200,41 +202,48 @@ describe('updateRoleBadge', () => {
 
     updateRoleBadge();
 
-    expect(badge.classList.contains('connected')).toBe(true);
-    expect(badge.classList.contains('remote')).toBe(true);
-    expect(document.getElementById('role-text')?.textContent).toBe('GUEST 1 (42ms)');
-    expect(document.querySelector('.badge-ping')?.textContent).toBe('(42ms)');
+    expect(badge.classList.contains('connected')).toBe(false);
+    expect(badge.classList.contains('remote')).toBe(false);
+    expect(document.getElementById('role-text')?.textContent).toBe('LOGIN');
+    expect(document.querySelector('.badge-ping')).toBeNull();
   });
 
-  it('keeps a connected local guest blue by clearing the remote class', () => {
+  it('shows the authenticated nickname with the account style', () => {
     const badge = renderBadge();
-    badge.classList.add('remote');
-    setState('network.hostConn', makeConnection('host-1'));
-    setState('network.myDeviceLabel', 'GUEST 1');
-    setState('network.connectionType', 'local');
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Minsu', profileComplete: true },
+    });
 
     updateRoleBadge();
 
-    expect(badge.classList.contains('connected')).toBe(true);
+    expect(badge.classList.contains('account-authenticated')).toBe(true);
     expect(badge.classList.contains('remote')).toBe(false);
+    expect(document.getElementById('role-text')?.textContent).toBe('Minsu');
   });
 
-  it('shows a host device name and reacts when the host is renamed', () => {
+  it('reacts to the account role-badge refresh event', () => {
     renderBadge();
     initPlayerControls();
 
-    setState('network.appRole', 'host');
-    setState('network.myDeviceLabel', 'Studio Host');
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Living Room', profileComplete: true },
+    });
+    bus.emit('network:role-badge-update');
 
-    expect(document.getElementById('role-text')?.innerText).toBe('Studio Host');
-
-    setState('network.myDeviceLabel', 'Living Room');
-
-    expect(document.getElementById('role-text')?.innerText).toBe('Living Room');
+    expect(document.getElementById('role-text')?.textContent).toBe('Living Room');
   });
 
-  it('renders every PRO member as the same compact blue identity without ping or route color', () => {
+  it('does not let PRO transport identity replace the account identity', () => {
     const badge = renderBadge();
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Account Name', profileComplete: true },
+    });
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
     setState('network.myDeviceLabel', 'Listening Room');
@@ -254,31 +263,9 @@ describe('updateRoleBadge', () => {
 
     expect(badge.classList.contains('connected')).toBe(false);
     expect(badge.classList.contains('remote')).toBe(false);
-    expect(badge.classList.contains('pro-equal')).toBe(true);
-    expect(document.getElementById('role-text')?.textContent).toBe('Listening Room');
-    expect(document.querySelector('.badge-ping')).toBeNull();
-  });
-
-  it('uses the same blue PRO identity contract for another equal member', () => {
-    const badge = renderBadge();
-    setState('network.appRole', 'host');
-    setState('network.myDeviceLabel', 'Peer 2');
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'member',
-      coordinatorId: null,
-      epoch: 1,
-      snapshotRevision: 1,
-      capabilities: ['playback.control'],
-    });
-
-    updateRoleBadge();
-
-    expect(badge.classList.contains('connected')).toBe(false);
-    expect(badge.classList.contains('remote')).toBe(false);
-    expect(badge.classList.contains('pro-equal')).toBe(true);
-    expect(document.getElementById('role-text')?.textContent).toBe('Peer 2');
+    expect(badge.classList.contains('pro-equal')).toBe(false);
+    expect(badge.classList.contains('account-authenticated')).toBe(true);
+    expect(document.getElementById('role-text')?.textContent).toBe('Account Name');
     expect(document.querySelector('.badge-ping')).toBeNull();
   });
 
@@ -357,7 +344,53 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-media-source')?.style.opacity).toBe('0.15');
   });
 
-  it('lets a PRO member add files, YouTube entries, and role-independent live capture', () => {
+  it('uses the explicit media.add capability instead of the legacy operator role', () => {
+    document.body.innerHTML = `
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+    `;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['playback.control']);
+
+    initPlayerControls();
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('0.15');
+
+    setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
+    expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
+  });
+
+  it('keeps repeat and shuffle owner-only even for a delegated administrator', () => {
+    document.body.innerHTML = `
+      <button id="btn-repeat"></button>
+      <button id="btn-shuffle"></button>
+    `;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'playback.control',
+      'asset.upload',
+      'members.manage',
+    ]);
+    const repeat = vi.fn();
+    const shuffle = vi.fn();
+    bus.on('playlist:toggle-repeat', repeat);
+    bus.on('playlist:toggle-shuffle', shuffle);
+
+    initPlayerControls();
+    document.getElementById('btn-repeat')?.click();
+    document.getElementById('btn-shuffle')?.click();
+
+    expect(document.getElementById('btn-repeat')?.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById('btn-shuffle')?.getAttribute('aria-disabled')).toBe('true');
+    expect(repeat).not.toHaveBeenCalled();
+    expect(shuffle).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(t('toast.host_only_control'));
+  });
+
+  it('lets a PRO administrator add files and YouTube entries but keeps live capture owner-only', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>
       <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
@@ -378,7 +411,7 @@ describe('PRO room media-source capabilities', () => {
       coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['queue.mutate', 'asset.upload'],
+      capabilities: ['media.add', 'asset.upload'],
     });
     const input = document.getElementById('file-input') as HTMLInputElement;
     const inputClick = vi.spyOn(input, 'click');
@@ -396,7 +429,7 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-youtube-source')?.click();
     expect(document.getElementById('youtube-url-overlay')?.classList.contains('active')).toBe(true);
 
-    expect(document.getElementById('btn-system-audio')?.hidden).toBe(false);
+    expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
   });
 
   it('shows the current owner and never starts a second PRO picker', () => {
@@ -414,7 +447,7 @@ describe('PRO room media-source capabilities', () => {
       coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['queue.mutate', 'asset.upload'],
+      capabilities: ['media.add', 'asset.upload', 'system-audio.publish'],
     });
     Object.assign(proSystemAudio.view, {
       initialized: true,
@@ -450,7 +483,7 @@ describe('PRO room media-source capabilities', () => {
       coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['queue.mutate', 'asset.upload'],
+      capabilities: ['media.add', 'asset.upload', 'system-audio.publish'],
     });
     proSystemAudio.coordinatorCompatible = false;
     const startSpy = vi.fn();

@@ -168,8 +168,9 @@ describe('request-eq-reset authorization', () => {
     expect(getState('audio.eqValues')).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('allows operators', async () => {
+  it('keeps room effects host-only for standard administrators', async () => {
     const conn = makeConnection('guest-op');
+    setState('network.appRole', 'host');
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
     setState('network.connectedPeers', [{ ...makeConnectedPeer(conn.peer, true), conn }]);
     setState('audio.eqValues', [1, 2, 3, 4, 5]);
@@ -177,7 +178,7 @@ describe('request-eq-reset authorization', () => {
 
     await handleData({ type: MSG.REQUEST_EQ_RESET }, conn);
 
-    expect(getState('audio.eqValues')).not.toEqual([1, 2, 3, 4, 5]);
-    expect(getState('audio.userPreampGain')).toBe(1);
+    expect(getState('audio.eqValues')).toEqual([1, 2, 3, 4, 5]);
+    expect(getState('audio.userPreampGain')).toBe(2);
   });
 });

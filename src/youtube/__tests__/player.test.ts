@@ -1038,7 +1038,7 @@ describe('YouTube Player', () => {
         coordinatorId: 'coordinator-1',
         epoch: 1,
         snapshotRevision: 1,
-        capabilities: ['queue.mutate'],
+        capabilities: ['media.add'],
       });
       setState('network.hostConn', { peer: 'coordinator-1' } as DataConnection);
       const { initYouTube } = await import('../player.ts');
@@ -1076,7 +1076,7 @@ describe('YouTube Player', () => {
         coordinatorId: 'coordinator-1',
         epoch: 1,
         snapshotRevision: 1,
-        capabilities: ['queue.mutate'],
+        capabilities: ['media.add'],
       });
       setState('network.hostConn', { peer: 'coordinator-1' } as DataConnection);
       setPlaybackYouTubePlaying();
@@ -1140,7 +1140,7 @@ describe('YouTube Player', () => {
         coordinatorId: null,
         epoch: 1,
         snapshotRevision: 1,
-        capabilities: ['queue.mutate'],
+        capabilities: ['media.add'],
       });
       const sourceUrl = 'https://www.youtube.com/watch?v=SELECTED001&list=PL_PERSISTENT_SELECTED';
       const input = document.createElement('div');
@@ -1194,7 +1194,7 @@ describe('YouTube Player', () => {
         coordinatorId: null,
         epoch: 1,
         snapshotRevision: 1,
-        capabilities: ['queue.mutate'],
+        capabilities: ['media.add'],
       });
       const sourceUrl = 'https://www.youtube.com/playlist?list=PL_STALE_PRO';
       const input = document.createElement('div');
@@ -1231,7 +1231,7 @@ describe('YouTube Player', () => {
         coordinatorId: null,
         epoch: 2,
         snapshotRevision: 1,
-        capabilities: ['queue.mutate'],
+        capabilities: ['media.add'],
       });
       resolveManifest({
         playlistId: 'PL_STALE_PRO',
@@ -1256,7 +1256,7 @@ describe('YouTube Player', () => {
         coordinatorId: 'coordinator-1',
         epoch: 1,
         snapshotRevision: 1,
-        capabilities: ['queue.mutate'],
+        capabilities: ['media.add'],
       });
       setState('network.hostConn', { peer: 'coordinator-1' } as DataConnection);
       const existing = {

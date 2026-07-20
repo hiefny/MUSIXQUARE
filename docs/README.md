@@ -7,6 +7,10 @@ or a substitute for the current source and tests.
 
 ## Current References
 
+- [Optional account identity and room authority](design/account-identity-and-room-authority.md)
+  and [account authentication provisioning](account-auth-operations.md) define
+  the additive account model, OAuth/D1 security boundary, and production setup.
+
 - [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — current
   cross-domain audit method, confirmed corrections, and residual boundaries.
 - [PRO room architecture and operations](design/pro-room-architecture-and-operations.md) —

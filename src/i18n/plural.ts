@@ -6,6 +6,7 @@ export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
 export const PLURAL_PARAM_BY_KEY = {
   'playlist.delete_selected': 'count',
   'connect.device_list': 'count',
+  'connect.administrator_list': 'count',
   'demo.session_body_connected': 'count',
   'chat.cmd_slowmode_on': 'sec',
   'chat.cmd_slowmode_wait': 'sec',
@@ -28,6 +29,7 @@ export type LocalePluralMessages = Partial<Record<PluralI18nKey, PluralForms>>;
  */
 export const PLURAL_MESSAGES = {
   en: {
+    'connect.administrator_list': { one: '{{count}} Administrator' },
     'playlist.delete_selected': { one: 'Delete {{count}} selected track' },
     'connect.device_list': { one: '{{count}} Connected Device' },
     'demo.session_body_connected': {
@@ -47,6 +49,7 @@ export const PLURAL_MESSAGES = {
     },
   },
   de: {
+    'connect.administrator_list': { one: '{{count}} Administrator' },
     'playlist.delete_selected': { one: '{{count}} ausgewählten Titel löschen' },
     'connect.device_list': { one: '{{count}} verbundenes Gerät' },
     'demo.session_body_connected': {
@@ -68,6 +71,7 @@ export const PLURAL_MESSAGES = {
     },
   },
   es: {
+    'connect.administrator_list': { one: '{{count}} administrador' },
     'playlist.delete_selected': { one: 'Eliminar {{count}} pista seleccionada' },
     'connect.device_list': { one: '{{count}} dispositivo conectado' },
     'demo.session_body_connected': {
@@ -89,6 +93,7 @@ export const PLURAL_MESSAGES = {
     },
   },
   fr: {
+    'connect.administrator_list': { one: '{{count}} administrateur' },
     'playlist.delete_selected': { one: 'Supprimer {{count}} titre sélectionné' },
     'connect.device_list': { one: '{{count}} appareil connecté' },
     'demo.session_body_connected': {
@@ -110,6 +115,7 @@ export const PLURAL_MESSAGES = {
     },
   },
   it: {
+    'connect.administrator_list': { one: '{{count}} amministratore' },
     'playlist.delete_selected': { one: 'Elimina {{count}} brano selezionato' },
     'connect.device_list': { one: '{{count}} dispositivo connesso' },
     'demo.session_body_connected': {
@@ -133,6 +139,7 @@ export const PLURAL_MESSAGES = {
     },
   },
   nl: {
+    'connect.administrator_list': { one: '{{count}} beheerder' },
     'playlist.delete_selected': { one: '{{count}} geselecteerd nummer verwijderen' },
     'connect.device_list': { one: '{{count}} verbonden apparaat' },
     'demo.session_body_connected': {
@@ -154,6 +161,7 @@ export const PLURAL_MESSAGES = {
     },
   },
   'pt-br': {
+    'connect.administrator_list': { one: '{{count}} administrador' },
     'playlist.delete_selected': { one: 'Excluir {{count}} faixa selecionada' },
     'connect.device_list': { one: '{{count}} dispositivo conectado' },
     'demo.session_body_connected': {
@@ -175,6 +183,11 @@ export const PLURAL_MESSAGES = {
     },
   },
   pl: {
+    'connect.administrator_list': {
+      one: 'Administrator: {{count}}',
+      few: 'Administratorzy: {{count}}',
+      many: 'Administratorzy: {{count}}',
+    },
     'playlist.delete_selected': {
       one: 'Usuń {{count}} zaznaczony utwór',
       few: 'Usuń {{count}} zaznaczone utwory',
@@ -232,6 +245,11 @@ export const PLURAL_MESSAGES = {
     },
   },
   ru: {
+    'connect.administrator_list': {
+      one: 'Администратор: {{count}}',
+      few: 'Администраторы: {{count}}',
+      many: 'Администраторы: {{count}}',
+    },
     'playlist.delete_selected': {
       one: 'Удалить {{count}} выбранный трек',
       few: 'Удалить {{count}} выбранных трека',

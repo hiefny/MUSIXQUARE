@@ -18,6 +18,8 @@ interface ProRoomSessionApi {
   recoverOwner(input: RecoverProRoomOwnerInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   enterPresence(code: string, options?: EnterProRoomPresenceOptions): Promise<ProRoomSnapshot>;
+  attachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  detachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   heartbeat(
     code: string,
@@ -178,6 +180,34 @@ export class ProRoomSessionController {
         displayName === undefined
           ? await this.api.heartbeat(roomCode, signal, this.#snapshot ?? undefined)
           : await this.api.heartbeat(roomCode, signal, this.#snapshot ?? undefined, displayName);
+    } catch (error) {
+      this.#assertOperationCurrent(operationEpoch);
+      throw error;
+    }
+    this.#assertOperationCurrent(operationEpoch);
+    return this.#accept(incoming, true, signal, operationEpoch);
+  }
+
+  async attachCurrentAccount(signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const operationEpoch = this.#operationEpoch;
+    const roomCode = this.#requireRoomCode();
+    let incoming: ProRoomSnapshot;
+    try {
+      incoming = await this.api.attachCurrentAccount(roomCode, signal);
+    } catch (error) {
+      this.#assertOperationCurrent(operationEpoch);
+      throw error;
+    }
+    this.#assertOperationCurrent(operationEpoch);
+    return this.#accept(incoming, true, signal, operationEpoch);
+  }
+
+  async detachCurrentAccount(signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const operationEpoch = this.#operationEpoch;
+    const roomCode = this.#requireRoomCode();
+    let incoming: ProRoomSnapshot;
+    try {
+      incoming = await this.api.detachCurrentAccount(roomCode, signal);
     } catch (error) {
       this.#assertOperationCurrent(operationEpoch);
       throw error;

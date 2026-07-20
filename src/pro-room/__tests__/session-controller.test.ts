@@ -99,6 +99,8 @@ function fixtures() {
     recoverOwner: vi.fn(async () => initial),
     createSession: vi.fn(async () => initial),
     enterPresence: vi.fn(async () => initial),
+    attachCurrentAccount: vi.fn(async () => initial),
+    detachCurrentAccount: vi.fn(async () => initial),
     getSnapshot: vi.fn(async () => initial),
     heartbeat: vi.fn(async () => initial),
     leavePresence: vi.fn(async () => initial),
@@ -192,6 +194,121 @@ describe('PRO room session controller', () => {
       [ROOM_CODE, { signal: expect.any(AbortSignal) }],
       [ROOM_CODE, { signal: expect.any(AbortSignal), takeover: true }],
     ]);
+  });
+
+  it('accepts a linked account snapshot and rebuilds the display-name-bound control channel', async () => {
+    const { api, transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    transport.reconfigure.mockClear();
+    const linked = snapshot({
+      revision: 2,
+      memberIdentityVersion: 1,
+      viewer: {
+        ...snapshot().viewer!,
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Minsu',
+      },
+      presence: {
+        ...snapshot().presence,
+        revision: 2,
+        participants: [
+          {
+            ...snapshot().presence.participants[0]!,
+            memberId: snapshot().viewer!.memberId,
+            memberDisplayNumber: 0,
+            isAuthenticated: true,
+            displayName: 'Minsu',
+          },
+        ],
+      },
+    });
+    api.attachCurrentAccount.mockResolvedValueOnce(linked);
+
+    await expect(controller.attachCurrentAccount()).resolves.toEqual(linked);
+
+    expect(api.attachCurrentAccount).toHaveBeenCalledWith(ROOM_CODE, undefined);
+    expect(transport.reconfigure).toHaveBeenCalledOnce();
+  });
+
+  it('accepts a detached anonymous snapshot and rebuilds the display-name-bound control channel', async () => {
+    const { api, transport, controller } = fixtures();
+    const linked = snapshot({
+      memberIdentityVersion: 1,
+      viewer: {
+        ...snapshot().viewer!,
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Minsu',
+      },
+      presence: {
+        ...snapshot().presence,
+        participants: [
+          {
+            ...snapshot().presence.participants[0]!,
+            memberId: snapshot().viewer!.memberId,
+            memberDisplayNumber: 0,
+            isAuthenticated: true,
+            displayName: 'Minsu',
+          },
+        ],
+      },
+    });
+    api.createSession.mockResolvedValueOnce(linked);
+    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Ignored' });
+    transport.reconfigure.mockClear();
+    const detached = snapshot({
+      revision: 2,
+      memberIdentityVersion: 1,
+      authorityVersion: 1,
+      administrators: [
+        {
+          memberId: 'member_0000000001',
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
+          displayName: 'Minsu',
+          role: 'owner',
+          permissions: {
+            'media.add': true,
+            'playback.control': true,
+            'members.kick': true,
+            'chat.notice': true,
+          },
+          inheritedPermissions: ['playback.control'],
+          onlineDeviceCount: 0,
+        },
+      ],
+      viewer: {
+        ...snapshot().viewer!,
+        memberId: 'member_anonymous000000001',
+        memberDisplayNumber: 2,
+        isAuthenticated: false,
+        displayName: 'Peer 2',
+        role: 'member',
+        capabilities: ['playback.control'],
+      },
+      presence: {
+        ...snapshot().presence,
+        revision: 2,
+        participants: [
+          {
+            ...snapshot().presence.participants[0]!,
+            memberId: 'member_anonymous000000001',
+            memberDisplayNumber: 2,
+            isAuthenticated: false,
+            displayName: 'Peer 2',
+            role: 'member',
+            capabilities: ['playback.control'],
+          },
+        ],
+      },
+    });
+    api.detachCurrentAccount.mockResolvedValueOnce(detached);
+
+    await expect(controller.detachCurrentAccount()).resolves.toEqual(detached);
+
+    expect(api.detachCurrentAccount).toHaveBeenCalledWith(ROOM_CODE, undefined);
+    expect(transport.reconfigure).toHaveBeenCalledOnce();
   });
 
   it('fails locally instead of rotating the cookie incarnation while already active', async () => {

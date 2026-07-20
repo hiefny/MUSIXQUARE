@@ -2,19 +2,21 @@ import { getState, setState } from '../core/state.ts';
 import type { DataConnection, RoomCapability, RoomContext } from '../types/index.ts';
 
 const STANDARD_HOST_CAPABILITIES = new Set<RoomCapability>([
+  'media.add',
   'queue.mutate',
   'playback.control',
   'effects.control',
   'asset.upload',
+  'system-audio.publish',
   'members.manage',
+  'chat.notice',
   'room.configure',
   'coordinator.eligible',
 ]);
 
 const STANDARD_OPERATOR_CAPABILITIES = new Set<RoomCapability>([
-  'queue.mutate',
+  'media.add',
   'playback.control',
-  'effects.control',
   'asset.upload',
 ]);
 
@@ -71,6 +73,8 @@ export function hasRoomCapability(capability: RoomCapability): boolean {
     hostConn?.open === true &&
     getState('network.isOperator')
   ) {
+    const explicitCapabilities = getState('network.standardRoomCapabilities');
+    if (explicitCapabilities !== null) return explicitCapabilities.includes(capability);
     return STANDARD_OPERATOR_CAPABILITIES.has(capability);
   }
   return false;
@@ -99,5 +103,7 @@ export function verifyPeerCapability(
   if (getRoomContext().kind === 'pro') {
     return peer.roomCapabilities?.includes(capability) === true;
   }
-  return peer.isOp && STANDARD_OPERATOR_CAPABILITIES.has(capability);
+  if (!peer.isOp) return false;
+  if (peer.roomCapabilities) return peer.roomCapabilities.includes(capability);
+  return STANDARD_OPERATOR_CAPABILITIES.has(capability);
 }

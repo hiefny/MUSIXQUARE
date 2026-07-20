@@ -126,6 +126,29 @@ describe('Chat Module', () => {
       }
     });
 
+    it('groups by an explicit room-member key instead of a mutable or duplicated nickname', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
+
+      try {
+        renderMessageShell();
+        const { addChatMessage } = await import('../chat-render.ts');
+
+        addChatMessage('Minsu', 'phone', false, undefined, 1, 'member-minsu');
+        addChatMessage('Minsu renamed', 'laptop', false, undefined, 1, 'member-minsu');
+        addChatMessage('Minsu', 'different account', false, undefined, 2, 'member-other');
+
+        const groups = document.querySelectorAll<HTMLElement>('.chat-group');
+        expect(groups).toHaveLength(2);
+        expect(groups[0].dataset.senderId).toBe('member-minsu');
+        expect(groups[0].querySelectorAll('.chat-row')).toHaveLength(2);
+        expect(groups[1].dataset.senderId).toBe('member-other');
+        expect(groups[1].querySelectorAll('.chat-row')).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('gives every standalone regular, system, and whisper group an entry motion hook', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
@@ -359,6 +382,84 @@ describe('Chat Module', () => {
       );
     });
 
+    it('uses the canonical owner identity and crown on a standard-room sibling device', async () => {
+      renderSendShell('owner sibling payload');
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', { open: true, peer: 'physical-host' } as DataConnection);
+      setState('network.isOperator', true);
+      setState('network.standardRoomCapabilities', [
+        'media.add',
+        'queue.mutate',
+        'playback.control',
+        'effects.control',
+        'asset.upload',
+        'members.manage',
+        'chat.notice',
+        'room.configure',
+      ]);
+      setState('network.myId', 'owner-phone');
+      setState('network.myDeviceLabel', 'Minsu');
+      setState('network.myMemberId', 'member_abcdefghijklmnopqrstuv');
+      setState('network.myMemberDisplayNumber', 0);
+      setState('network.myJoinOrder', 7);
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+
+      const group = document.querySelector<HTMLElement>('#chat-messages .chat-group');
+      expect(group?.dataset.senderId).toBe('member_abcdefghijklmnopqrstuv');
+      expect(group?.querySelector('.chat-crown')).not.toBeNull();
+      expect(group?.querySelector('.chat-join-order')?.textContent).toBe(' #0');
+      expect(sendToHost).toHaveBeenCalledWith(
+        expect.objectContaining({
+          senderId: 'owner-phone',
+          senderMemberId: 'member_abcdefghijklmnopqrstuv',
+          senderLabel: 'Minsu',
+          joinOrder: 0,
+          isHost: true,
+          isOp: true,
+        }),
+      );
+    });
+
+    it('uses the PRO member identity for a local bubble without granting every member a crown', async () => {
+      renderSendShell('from my phone');
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      setState('network.myId', 'device-phone');
+      setState('network.myDeviceLabel', 'Minsu');
+      setState('network.myMemberId', 'member-minsu');
+      setState('network.lastKnownDeviceList', [
+        {
+          id: 'device-phone',
+          label: 'Minsu',
+          isOp: false,
+          isHost: false,
+          status: 'connected',
+          memberId: 'member-minsu',
+          memberDisplayNumber: 4,
+          isAuthenticated: true,
+          role: 'member',
+        },
+      ]);
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+
+      const group = document.querySelector<HTMLElement>('#chat-messages .chat-group');
+      expect(group?.dataset.senderId).toBe('member-minsu');
+      expect(group?.classList.contains('mine')).toBe(true);
+      expect(group?.querySelector('.chat-crown')).toBeNull();
+      expect(group?.querySelector('.chat-join-order')?.textContent).toBe(' #4');
+    });
+
     it('shows and sends /bot as ordinary chat while executing it only once locally', async () => {
       renderSendShell('/bot 인기곡 3개 추가해줘');
       setState('room.context', {
@@ -372,6 +473,16 @@ describe('Chat Module', () => {
       });
       setState('network.hostConn', null);
       setState('network.myId', 'guest-1');
+      setState('network.lastKnownDeviceList', [
+        {
+          id: 'guest-1',
+          label: 'Administrator',
+          isOp: true,
+          isHost: false,
+          status: 'connected',
+          role: 'controller',
+        },
+      ]);
       requestActiveProRoomBotCommand.mockResolvedValueOnce({
         ok: true,
         summary: '3곡을 추가했어요.',
@@ -440,6 +551,16 @@ describe('Chat Module', () => {
       });
       setState('network.hostConn', null);
       setState('network.myId', 'guest-1');
+      setState('network.lastKnownDeviceList', [
+        {
+          id: 'guest-1',
+          label: 'Administrator',
+          isOp: true,
+          isHost: false,
+          status: 'connected',
+          role: 'controller',
+        },
+      ]);
       requestActiveProRoomBotCommand.mockResolvedValueOnce({
         ok: true,
         summary: '재생할게요',
@@ -468,6 +589,42 @@ describe('Chat Module', () => {
           (element) => element.textContent,
         ),
       ).toContain('//강남스타일 틀어줘');
+    });
+
+    it('blocks an ordinary PRO member BOT request before publishing chat or calling the API', async () => {
+      renderSendShell('/bot 다음 곡');
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      setState('network.hostConn', null);
+      setState('network.myId', 'member-1');
+      setState('network.lastKnownDeviceList', [
+        {
+          id: 'member-1',
+          label: 'Listener',
+          isOp: false,
+          isHost: false,
+          status: 'connected',
+          role: 'member',
+        },
+      ]);
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+
+      expect(proRealtimeMocks.send).not.toHaveBeenCalled();
+      expect(requestActiveProRoomBotCommand).not.toHaveBeenCalled();
+      expect(botProtocolMocks.beginLocalBotChatRequest).not.toHaveBeenCalled();
+      expect(
+        document.querySelector<HTMLElement>('#chat-messages .chat-group.system .chat-text')
+          ?.textContent,
+      ).toBe('chat.cmd_no_permission');
     });
   });
 });

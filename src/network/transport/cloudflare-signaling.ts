@@ -11,6 +11,9 @@ import type {
   TransportMediaConnection,
   TransportPeer,
   TransportPeerOptions,
+  StandardRoomIdentityAssertions,
+  StandardRoomIdentityClearReason,
+  StandardRoomMemberIdentity,
 } from './types.ts';
 import {
   parseDeveloperCommandFrame,
@@ -19,13 +22,20 @@ import {
 } from './types.ts';
 
 type SignalingMessage =
-  | { type: 'peer-open'; peerId: string; roomId: string; workerVersionId?: string }
+  | {
+      type: 'peer-open';
+      peerId: string;
+      roomId: string;
+      workerVersionId?: string;
+      memberIdentity?: StandardRoomMemberIdentity;
+    }
   | { type: 'error'; errorType?: string; message?: string }
   | {
       type: 'signal-offer';
       from: string;
       sdp: RTCSessionDescriptionInit;
       metadata?: unknown;
+      memberIdentity?: StandardRoomMemberIdentity;
     }
   | { type: 'signal-answer'; from: string; sdp: RTCSessionDescriptionInit }
   | { type: 'signal-candidate'; from: string; candidate: RTCIceCandidateInit }
@@ -40,6 +50,18 @@ type SignalingMessage =
   | { type: 'media-answer'; from: string; callId: string; sdp: RTCSessionDescriptionInit }
   | { type: 'media-close'; from: string; callId: string }
   | { type: 'peer-left'; peerId: string }
+  | {
+      type: 'account-identity';
+      memberIdentity: StandardRoomMemberIdentity | null;
+      clearReason?: StandardRoomIdentityClearReason;
+    }
+  | {
+      type: 'account-member-updated';
+      peerId: string;
+      memberIdentity: StandardRoomMemberIdentity | null;
+      clearReason?: StandardRoomIdentityClearReason;
+    }
+  | { type: 'account-member-deleted'; memberId: string }
   | DeveloperCommandFrame
   | DeveloperInvalidationFrame
   | ProQueueAdditionFrame;
@@ -59,6 +81,58 @@ type OutgoingSignal =
     }
   | { type: 'media-answer'; to: 'host'; callId: string; sdp: RTCSessionDescriptionInit }
   | { type: 'media-close'; to: string | 'host'; callId: string };
+
+function normalizeStandardRoomMemberIdentity(value: unknown): StandardRoomMemberIdentity | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    Object.keys(candidate).sort().join(',') !==
+      'isAuthenticated,memberDisplayNumber,memberId,nickname' ||
+    typeof candidate.memberId !== 'string' ||
+    !/^member_[A-Za-z0-9_-]{22}$/.test(candidate.memberId) ||
+    !Number.isSafeInteger(candidate.memberDisplayNumber) ||
+    (candidate.memberDisplayNumber as number) < 0 ||
+    (candidate.memberDisplayNumber as number) > 99 ||
+    typeof candidate.nickname !== 'string' ||
+    !candidate.nickname.trim() ||
+    [...candidate.nickname].length > 20 ||
+    candidate.isAuthenticated !== true
+  ) {
+    return null;
+  }
+  return {
+    memberId: candidate.memberId,
+    memberDisplayNumber: candidate.memberDisplayNumber as number,
+    nickname: candidate.nickname.normalize('NFC').trim(),
+    isAuthenticated: true,
+  };
+}
+
+function normalizeStandardRoomIdentityAssertions(
+  value: unknown,
+): StandardRoomIdentityAssertions | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const accountAssertion = candidate.accountAssertion;
+  const deletionAssertion = candidate.deletionAssertion;
+  if (
+    (accountAssertion !== null &&
+      (typeof accountAssertion !== 'string' ||
+        accountAssertion.length < 3 ||
+        accountAssertion.length > 2048)) ||
+    (deletionAssertion !== null &&
+      (typeof deletionAssertion !== 'string' ||
+        deletionAssertion.length < 3 ||
+        deletionAssertion.length > 2048)) ||
+    (accountAssertion && deletionAssertion)
+  ) {
+    return null;
+  }
+  return {
+    accountAssertion: accountAssertion as string | null,
+    deletionAssertion: deletionAssertion as string | null,
+  };
+}
 
 /**
  * Durable "this session wants a signaling socket" record for a guest room.
@@ -209,8 +283,17 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   constructor(
     readonly peer: string,
     readonly metadata?: unknown,
+    public roomIdentity: StandardRoomMemberIdentity | null = null,
   ) {
     super();
+  }
+
+  updateRoomIdentity(
+    identity: StandardRoomMemberIdentity | null,
+    clearReason?: StandardRoomIdentityClearReason,
+  ): void {
+    this.roomIdentity = identity;
+    this.emit('identity', identity, clearReason);
   }
 
   attach(pc: RTCPeerConnection, channel: RTCDataChannel): boolean {
@@ -473,6 +556,117 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly proParticipantId: string | null;
   private proSignalingAccess: ProSignalingOptions | null;
   private roomPassword: string | null = null;
+  private readonly standardRoomIdentityRefreshTimerKey = 'standard-room-identity-refresh';
+  private readonly standardRoomIdentityDeletionProofs = new Map<string, string>();
+
+  private standardRoomIdentityProofKey(roomCode: string, role: 'host' | 'guest'): string {
+    return `${role}:${roomCode}`;
+  }
+
+  private applyStandardRoomIdentity(
+    value: unknown,
+    clearReason?: StandardRoomIdentityClearReason,
+  ): void {
+    const identity = value === null ? null : normalizeStandardRoomMemberIdentity(value);
+    if (value !== null && !identity) return;
+    this.emit('room-identity', identity, clearReason);
+    this.scheduleStandardRoomIdentityRefresh(
+      identity ? 40_000 : clearReason === 'expired' ? 10_000 : null,
+    );
+  }
+
+  private scheduleStandardRoomIdentityRefresh(delayMs: number | null): void {
+    clearManagedTimer(this.standardRoomIdentityRefreshTimerKey);
+    if (delayMs === null || this.destroyed || this.proSignalingAccess) return;
+    setManagedTimer(
+      this.standardRoomIdentityRefreshTimerKey,
+      () => {
+        void this.refreshStandardRoomIdentity();
+      },
+      delayMs,
+    );
+  }
+
+  private async getStandardRoomAssertions(
+    roomCode: string,
+    peerId: string,
+    role: 'host' | 'guest',
+  ): Promise<StandardRoomIdentityAssertions | undefined> {
+    const provider = this.options.standardRoomAssertionProvider;
+    if (!provider || this.proSignalingAccess) {
+      return { accountAssertion: null, deletionAssertion: null };
+    }
+    try {
+      const value = await Promise.race([
+        provider({ roomCode, peerId, role }),
+        delay(2000).then(() => undefined),
+      ]);
+      if (value === undefined) return undefined;
+      return normalizeStandardRoomIdentityAssertions(value) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private rememberStandardRoomDeletionProof(
+    roomCode: string,
+    role: 'host' | 'guest',
+    deletionAssertion: string | null,
+  ): void {
+    const key = this.standardRoomIdentityProofKey(roomCode, role);
+    if (deletionAssertion) this.standardRoomIdentityDeletionProofs.set(key, deletionAssertion);
+    else this.standardRoomIdentityDeletionProofs.delete(key);
+  }
+
+  private sendPendingStandardRoomDeletion(
+    roomCode: string,
+    role: 'host' | 'guest',
+    socket: WebSocket,
+  ): boolean {
+    const key = this.standardRoomIdentityProofKey(roomCode, role);
+    const deletionAssertion = this.standardRoomIdentityDeletionProofs.get(key);
+    if (!deletionAssertion || socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify({ type: 'account-identity-delete', deletionAssertion }));
+    this.standardRoomIdentityDeletionProofs.delete(key);
+    return true;
+  }
+
+  private async sendHostAuth(socket: WebSocket): Promise<void> {
+    if (!this.hostRoomId || !this.id || socket.readyState !== WebSocket.OPEN) return;
+    const assertions = await this.getStandardRoomAssertions(this.hostRoomId, this.id, 'host');
+    if (socket !== this.hostSocket || socket.readyState !== WebSocket.OPEN) return;
+    if (assertions === undefined) this.scheduleStandardRoomIdentityRefresh(10_000);
+    if (assertions) {
+      this.rememberStandardRoomDeletionProof(this.hostRoomId, 'host', assertions.deletionAssertion);
+    }
+    socket.send(
+      JSON.stringify({
+        type: 'host-auth',
+        secret: this.hostSecret,
+        ...(assertions?.accountAssertion ? { accountAssertion: assertions.accountAssertion } : {}),
+      }),
+    );
+  }
+
+  private async sendGuestAuth(roomId: string, socket: WebSocket): Promise<void> {
+    if (!this.id || socket.readyState !== WebSocket.OPEN) return;
+    const assertions = await this.getStandardRoomAssertions(roomId, this.id, 'guest');
+    if (socket !== this.roomSockets.get(roomId) || socket.readyState !== WebSocket.OPEN) return;
+    if (assertions === undefined) this.scheduleStandardRoomIdentityRefresh(10_000);
+    if (assertions) {
+      this.rememberStandardRoomDeletionProof(roomId, 'guest', assertions.deletionAssertion);
+    }
+    const record = this.guestRooms.get(roomId);
+    if (!record) return;
+    socket.send(
+      JSON.stringify({
+        type: 'guest-auth',
+        password: record.password || '',
+        reconnectSecret: this.guestReconnectSecrets.get(roomId) || '',
+        ...(assertions?.accountAssertion ? { accountAssertion: assertions.accountAssertion } : {}),
+      }),
+    );
+  }
 
   private handleProEpochAdvanced(): void {
     if (!this.proSignalingAccess || this.destroyed) return;
@@ -658,6 +852,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.destroyed = true;
     this.open = false;
     this.disconnected = false;
+    this.scheduleStandardRoomIdentityRefresh(null);
+    this.standardRoomIdentityDeletionProofs.clear();
     for (const socket of this.roomSockets.values()) {
       try {
         socket.close();
@@ -783,11 +979,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.hostSocket = socket;
     socket.addEventListener('open', () => {
       if (this.proSignalingAccess) return;
-      try {
-        socket.send(JSON.stringify({ type: 'host-auth', secret: this.hostSecret }));
-      } catch (error) {
-        this.emit('error', error);
-      }
+      void this.sendHostAuth(socket).catch((error) => this.emit('error', error));
     });
     socket.addEventListener('message', (event) => {
       this.handleHostMessage(event.data).catch((error) => this.emit('error', error));
@@ -843,7 +1035,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private openGuestSocket(roomId: string): void {
     const record = this.guestRooms.get(roomId);
     if (!record || !this.id) return;
-    const { conn, metadata, password } = record;
+    const { conn, metadata } = record;
     let socket: WebSocket;
     try {
       socket = new WebSocket(this.buildSocketUrl(roomId, 'guest', this.id));
@@ -855,17 +1047,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.roomSockets.set(roomId, socket);
     socket.addEventListener('open', () => {
       if (this.proSignalingAccess) return;
-      try {
-        socket.send(
-          JSON.stringify({
-            type: 'guest-auth',
-            password: password || '',
-            reconnectSecret: this.guestReconnectSecrets.get(roomId) || '',
-          }),
-        );
-      } catch (error) {
-        conn.emit('error', error);
-      }
+      void this.sendGuestAuth(roomId, socket).catch((error) => conn.emit('error', error));
     });
     socket.addEventListener('message', (event) => {
       this.handleGuestMessage(roomId, socket, conn, metadata, event.data).catch((error) =>
@@ -980,6 +1162,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-open') {
+      if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
+      if (this.hostRoomId && this.hostSocket) {
+        this.sendPendingStandardRoomDeletion(this.hostRoomId, 'host', this.hostSocket);
+      }
       this.open = true;
       this.disconnected = false;
       this.emit('open', message.peerId);
@@ -997,7 +1183,31 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'signal-offer') {
-      await this.handleHostOffer(message.from, message.sdp, message.metadata);
+      await this.handleHostOffer(
+        message.from,
+        message.sdp,
+        message.metadata,
+        normalizeStandardRoomMemberIdentity(message.memberIdentity),
+      );
+      return;
+    }
+    if (message.type === 'account-identity') {
+      this.applyStandardRoomIdentity(message.memberIdentity, message.clearReason);
+      return;
+    }
+    if (message.type === 'account-member-updated') {
+      const identity =
+        message.memberIdentity === null
+          ? null
+          : normalizeStandardRoomMemberIdentity(message.memberIdentity);
+      if (message.memberIdentity !== null && !identity) return;
+      this.connections.get(message.peerId)?.updateRoomIdentity(identity, message.clearReason);
+      return;
+    }
+    if (message.type === 'account-member-deleted') {
+      if (/^member_[A-Za-z0-9_-]{22}$/.test(message.memberId)) {
+        this.emit('room-member-deleted', message.memberId);
+      }
       return;
     }
     if (message.type === 'signal-candidate') {
@@ -1049,10 +1259,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
     }
     if (message.type === 'peer-open') {
+      if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
+      this.sendPendingStandardRoomDeletion(roomId, 'guest', socket);
       this.disconnected = false;
       await this.startGuestOffer(roomId, socket, conn, metadata);
       return;
     }
+    if (message.type === 'account-identity') {
+      this.applyStandardRoomIdentity(message.memberIdentity, message.clearReason);
+      return;
+    }
+    if (message.type === 'account-member-updated') return;
     if (message.type === 'error') {
       const error = createTransportError(
         message.errorType ?? 'server-error',
@@ -1134,12 +1351,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     peerId: string,
     sdp: RTCSessionDescriptionInit,
     metadata: unknown,
+    roomIdentity: StandardRoomMemberIdentity | null,
   ): Promise<void> {
     const socket = this.hostSocket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
     this.connections.get(peerId)?.close();
-    const conn = new CloudflareDataConnection(peerId, metadata);
+    const conn = new CloudflareDataConnection(peerId, metadata, roomIdentity);
     const pc = this.createPeerConnection(peerId);
     conn.peerConnection = pc;
     this.connections.set(peerId, conn);
@@ -1200,6 +1418,58 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (!pc) return;
     await pc.setRemoteDescription(sdp);
     await this.flushRemoteCandidates(roomId);
+  }
+
+  async refreshStandardRoomIdentity(): Promise<void> {
+    if (this.destroyed || this.proSignalingAccess || !this.id) return;
+    const targets: Array<{
+      roomCode: string;
+      role: 'host' | 'guest';
+      socket: WebSocket;
+    }> = [];
+    if (this.hostRoomId && this.hostSocket && this.hostSocket.readyState === WebSocket.OPEN) {
+      targets.push({ roomCode: this.hostRoomId, role: 'host', socket: this.hostSocket });
+    }
+    for (const [roomCode, socket] of this.roomSockets) {
+      if (socket.readyState === WebSocket.OPEN) targets.push({ roomCode, role: 'guest', socket });
+    }
+    await Promise.all(
+      targets.map(async ({ roomCode, role, socket }) => {
+        const assertions = await this.getStandardRoomAssertions(roomCode, this.id!, role);
+        const currentSocket = role === 'host' ? this.hostSocket : this.roomSockets.get(roomCode);
+        if (socket !== currentSocket || socket.readyState !== WebSocket.OPEN) return;
+        if (assertions === undefined) {
+          this.scheduleStandardRoomIdentityRefresh(10_000);
+          return;
+        }
+        if (assertions.deletionAssertion) {
+          socket.send(
+            JSON.stringify({
+              type: 'account-identity-delete',
+              deletionAssertion: assertions.deletionAssertion,
+            }),
+          );
+          return;
+        }
+        socket.send(
+          JSON.stringify(
+            assertions.accountAssertion
+              ? {
+                  type: 'account-identity-refresh',
+                  accountAssertion: assertions.accountAssertion,
+                }
+              : { type: 'account-identity-clear' },
+          ),
+        );
+      }),
+    );
+  }
+
+  deleteStandardRoomIdentity(): void {
+    // The App Worker mints a deletion-audience assertion only after the D1
+    // account deletion transaction commits. A normal attach assertion is
+    // intentionally never cached or repurposed as deletion authority.
+    void this.refreshStandardRoomIdentity();
   }
 
   private async startMediaOffer(

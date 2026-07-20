@@ -40,6 +40,7 @@ import {
   clampFilterFrequency,
 } from './helpers.ts';
 import { showToast } from '../ui/toast.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 import {
   RAMP_TIME,
   SUB_FREQ_MIN,
@@ -438,12 +439,24 @@ function updateSubFreq(val: number): void {
 
 // ─── Network Broadcast Helpers ───────────────────────────────────
 
+function canControlRoomEffects(): boolean {
+  return (
+    getState('demo.active') ||
+    !getState('setup.sessionStarted') ||
+    hasRoomCapability('effects.control')
+  );
+}
+
+function rejectRoomEffectsControl(): void {
+  showToast(t('toast.operator_required'));
+}
+
 function _broadcastOrRequestSetting(msgType: string, value: number | string): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     broadcast({ type: msgType, value } as AnyProtocolMsg);
   } else {
-    const canRequest = getState('network.isOperator') || getState('demo.active');
+    const canRequest = canControlRoomEffects();
     if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
     } else if (!canRequest) {
@@ -459,7 +472,7 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
   if (!hostConn) {
     broadcast({ type: MSG.EQ_UPDATE, band, value });
   } else {
-    const canRequest = getState('network.isOperator') || getState('demo.active');
+    const canRequest = canControlRoomEffects();
     if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
     } else if (!canRequest) {
@@ -474,6 +487,10 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
 
 bus.on('audio:update-effect', (type, param, value, isPreview) => {
   if (!Number.isFinite(value)) return;
+  if (!canControlRoomEffects()) {
+    if (!isPreview) rejectRoomEffectsControl();
+    return;
+  }
 
   switch (type) {
     case 'reverb': {
@@ -522,6 +539,10 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
 
 bus.on('audio:set-eq', (band, value, isPreview) => {
   if (!Number.isFinite(band) || !Number.isFinite(value)) return;
+  if (!canControlRoomEffects()) {
+    if (!isPreview) rejectRoomEffectsControl();
+    return;
+  }
   setEQ(band, value);
   if (!isPreview) {
     _broadcastOrRequestSettingEQ(band, value);
@@ -529,6 +550,10 @@ bus.on('audio:set-eq', (band, value, isPreview) => {
 });
 
 bus.on('audio:reverb-type-change', (type: string) => {
+  if (!canControlRoomEffects()) {
+    rejectRoomEffectsControl();
+    return;
+  }
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: apply locally + broadcast
@@ -541,12 +566,16 @@ bus.on('audio:reverb-type-change', (type: string) => {
 });
 
 bus.on('audio:reset-eq', () => {
+  if (!canControlRoomEffects()) {
+    rejectRoomEffectsControl();
+    return;
+  }
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     resetEQ();
     broadcast({ type: MSG.EQ_RESET });
   } else {
-    const canRequest = getState('network.isOperator') || getState('demo.active');
+    const canRequest = canControlRoomEffects();
     if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_EQ_RESET });
     }

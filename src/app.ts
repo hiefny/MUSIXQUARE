@@ -83,6 +83,8 @@ import { initDialog, showDialog } from './ui/dialog.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
 import { t } from './i18n/index.ts';
+import { initAccount } from './ui/account.ts';
+import { initAccountRoomIdentity } from './account/room-identity.ts';
 import { initVisualizer } from './ui/visualizer.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
@@ -409,6 +411,8 @@ async function bootstrap(): Promise<void> {
   safeInit('Dialog', initDialog);
   safeInit('Tabs', initTabs);
   await safeInitAsync('I18n', initI18n);
+  safeInit('Account', initAccount);
+  safeInit('Account room identity', initAccountRoomIdentity);
 
   // 3. Player & Media
   safeInit('Playback', initPlayback);

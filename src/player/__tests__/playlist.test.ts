@@ -682,6 +682,7 @@ describe('PRO playlist mutation bridge', () => {
     const unloaded = fileItem('offline.flac');
     const downloaded = new File(['audio'], unloaded.name, { type: 'audio/flac' });
     setState('playlist.items', [unloaded]);
+    setState('network.appRole', 'host');
     const resolveFile = vi
       .fn<() => Promise<File | null>>()
       .mockRejectedValueOnce(new Error('R2 unavailable'))
@@ -885,6 +886,7 @@ describe('playNext/playPrev mode-branch parity', () => {
   function setupModeBranch(owner: 'file' | 'youtube', currentIndex: number): void {
     resetState();
     bus.clear();
+    setState('network.appRole', 'host');
     setPendingAutoSyncOnReady(false);
     setState('player.isFirstTrackLoad', false);
     const items =
@@ -1893,6 +1895,7 @@ describe('decode-fail advance respects end-of-playlist (mode parity)', () => {
   function setupOpReporter(): ReturnType<typeof vi.fn> {
     const send = vi.fn();
     const conn = { peer: 'guest-op', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'host');
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
     setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-op', true), conn }]);
     initDecodeHandlers();
@@ -2263,7 +2266,7 @@ describe('standard operator queue mutation requests', () => {
     return { conn, send };
   }
 
-  it('rebases stable-ID removal over an unrelated revision and deduplicates replay', async () => {
+  it('rejects legacy administrator removal requests even when the row IDs are valid', async () => {
     const { conn, send } = setupOperator();
     const a = fileItem('a.mp3');
     const b = fileItem('b.mp3');
@@ -2281,19 +2284,24 @@ describe('standard operator queue mutation requests', () => {
     await handleData(request, conn);
     expect(getState('playlist.items').map((item) => item.queueItemId)).toEqual([
       a.queueItemId,
+      b.queueItemId,
       c.queueItemId,
     ]);
-    expect(getState('playlist.revision')).toBe(10);
+    expect(getState('playlist.revision')).toBe(9);
 
     send.mockClear();
     await handleData(request, conn);
-    expect(getState('playlist.revision')).toBe(10);
+    expect(getState('playlist.revision')).toBe(9);
     expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.PLAYLIST_UPDATE, revision: 10 }),
+      expect.objectContaining({
+        type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+        outcome: 'rejected',
+        code: 'unauthorized',
+      }),
     );
   });
 
-  it('rebases reorder while both anchors live and rejects a removed anchor', async () => {
+  it('rejects legacy administrator reorder requests with an explicit result', async () => {
     const { conn, send } = setupOperator();
     const a = fileItem('a.mp3');
     const b = fileItem('b.mp3');
@@ -2312,30 +2320,16 @@ describe('standard operator queue mutation requests', () => {
       conn,
     );
     expect(getState('playlist.items').map((item) => item.queueItemId)).toEqual([
-      c.queueItemId,
       a.queueItemId,
       b.queueItemId,
+      c.queueItemId,
     ]);
-    expect(getState('playlist.revision')).toBe(5);
-
-    send.mockClear();
-    await handleData(
-      {
-        type: MSG.REQUEST_PLAYLIST_REORDER,
-        requestId: nextQueueItemId(),
-        baseRevision: 5,
-        queueItemId: c.queueItemId,
-        beforeQueueItemId: a.queueItemId,
-      },
-      conn,
-    );
-    expect(getState('playlist.revision')).toBe(5);
+    expect(getState('playlist.revision')).toBe(4);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
-        phase: 'settled',
-        outcome: 'applied',
-        revision: 5,
+        outcome: 'rejected',
+        code: 'unauthorized',
       }),
     );
 
@@ -2344,22 +2338,38 @@ describe('standard operator queue mutation requests', () => {
       {
         type: MSG.REQUEST_PLAYLIST_REORDER,
         requestId: nextQueueItemId(),
-        baseRevision: 5,
+        baseRevision: 4,
+        queueItemId: c.queueItemId,
+        beforeQueueItemId: a.queueItemId,
+      },
+      conn,
+    );
+    expect(getState('playlist.revision')).toBe(4);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+        outcome: 'rejected',
+        code: 'unauthorized',
+      }),
+    );
+
+    send.mockClear();
+    await handleData(
+      {
+        type: MSG.REQUEST_PLAYLIST_REORDER,
+        requestId: nextQueueItemId(),
+        baseRevision: 4,
         queueItemId: b.queueItemId,
         beforeQueueItemId: nextQueueItemId(),
       },
       conn,
     );
-    expect(getState('playlist.revision')).toBe(5);
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.PLAYLIST_UPDATE, revision: 5 }),
-    );
+    expect(getState('playlist.revision')).toBe(4);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
-        phase: 'settled',
         outcome: 'rejected',
-        code: 'invalid-target',
+        code: 'unauthorized',
       }),
     );
   });
@@ -2386,12 +2396,13 @@ describe('standard operator queue mutation requests', () => {
     expect(getState('playlist.revision')).toBe(3);
   });
 
-  it('sends requests from a standard operator guest without committing locally', () => {
+  it('keeps queue removal and reorder host-only on a standard administrator guest', () => {
     const send = vi.fn();
     const hostConn = { peer: 'host', open: true, send } as unknown as DataConnection;
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['media.add', 'playback.control']);
     const a = fileItem('a.mp3');
     const b = fileItem('b.mp3');
     setState('playlist.items', [a, b]);
@@ -2403,21 +2414,7 @@ describe('standard operator queue mutation requests', () => {
 
     expect(getState('playlist.items')).toEqual([a, b]);
     expect(getState('playlist.revision')).toBe(6);
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MSG.REQUEST_PLAYLIST_REMOVE,
-        baseRevision: 6,
-        queueItemIds: [b.queueItemId],
-      }),
-    );
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MSG.REQUEST_PLAYLIST_REORDER,
-        baseRevision: 6,
-        queueItemId: b.queueItemId,
-        beforeQueueItemId: a.queueItemId,
-      }),
-    );
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('appends only a fully received supported operator file on the host', () => {
@@ -2461,13 +2458,14 @@ describe('request-setting authorization', () => {
     expect(getState('audio.reverbDecay')).toBe(beforeDecay);
   });
 
-  it('still allows operators to apply full request-setting effects', async () => {
+  it('keeps full room effects host-only for standard administrators', async () => {
     const conn = makeConnection('guest-op');
+    setState('network.appRole', 'host');
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
     setState('network.connectedPeers', [{ ...makeConnectedPeer(conn.peer, true), conn }]);
 
     await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
 
-    expect(getState('audio.reverbDecay')).toBe(8);
+    expect(getState('audio.reverbDecay')).not.toBe(8);
   });
 });

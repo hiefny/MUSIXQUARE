@@ -81,6 +81,9 @@ describe('PRO room authority projection', () => {
         'asset.upload',
         'members.manage',
         'room.configure',
+        'media.add',
+        'chat.notice',
+        'system-audio.publish',
       ],
     });
   });
@@ -111,8 +114,75 @@ describe('PRO room authority projection', () => {
         'effects.control',
         'asset.upload',
         'members.manage',
+        'media.add',
+        'chat.notice',
+        'system-audio.publish',
       ],
     });
+  });
+
+  it('projects fine-grained client permissions without changing the PRO wire vocabulary', () => {
+    const value = snapshot();
+    value.authorityVersion = 1;
+    value.administrators = [
+      {
+        memberId: value.viewer!.memberId,
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 1,
+      },
+    ];
+
+    expect(projectProRoomContext(value)?.capabilities).toEqual([
+      'queue.mutate',
+      'playback.control',
+      'effects.control',
+      'asset.upload',
+      'members.manage',
+      'room.configure',
+      'media.add',
+      'chat.notice',
+      'system-audio.publish',
+    ]);
+  });
+
+  it('does not infer delegated client permissions when the authority directory denies them', () => {
+    const value = snapshot();
+    value.viewer = {
+      ...value.viewer!,
+      role: 'controller',
+      capabilities: ['playback.control'],
+      coordinatorEligible: false,
+    };
+    value.authorityVersion = 1;
+    value.administrators = [
+      {
+        memberId: value.viewer.memberId,
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Minsu',
+        role: 'controller',
+        permissions: {
+          'media.add': false,
+          'playback.control': true,
+          'members.kick': false,
+          'chat.notice': false,
+        },
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 2,
+      },
+    ];
+
+    expect(projectProRoomContext(value)?.capabilities).toEqual(['playback.control']);
   });
 
   it('refuses unauthenticated or suspended snapshots', () => {

@@ -156,6 +156,7 @@ export function addChatMessage(
   isMine: boolean,
   badge?: 'host' | 'op',
   joinOrder?: number,
+  senderKey?: string,
 ): void {
   const container = document.getElementById('chat-messages');
 
@@ -171,14 +172,20 @@ export function addChatMessage(
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-    // Check if we can append to the previous group (same sender + same minute)
+    // A display label is presentation, never identity. Account-aware rooms
+    // pass a stable room-member key so several devices owned by one person
+    // share a bubble group, while two people choosing the same nickname stay
+    // separate. Legacy callers retain their existing sender-label grouping.
+    const groupingKey = senderKey?.trim() || sender;
+
+    // Check if we can append to the previous group (same member + same minute)
     const lastGroup = container.lastElementChild as HTMLElement | null;
     const lastSenderId = lastGroup?.dataset.senderId;
     const lastTimeStr = lastGroup?.dataset.timeStr;
     const canGroup =
       lastGroup &&
       !lastGroup.classList.contains('system') &&
-      lastSenderId === sender &&
+      lastSenderId === groupingKey &&
       lastTimeStr === timeStr &&
       ((isMine && lastGroup.classList.contains('mine')) ||
         (!isMine && lastGroup.classList.contains('others')));
@@ -226,7 +233,7 @@ export function addChatMessage(
     } else {
       const group = document.createElement('div');
       group.className = `chat-group chat-enter ${isMine ? 'mine' : 'others'}`;
-      group.dataset.senderId = sender;
+      group.dataset.senderId = groupingKey;
       group.dataset.timeStr = timeStr;
 
       const senderNode = document.createElement('div');

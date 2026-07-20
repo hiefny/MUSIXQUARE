@@ -215,7 +215,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelectorAll('.track-leading-static .track-idx')).toHaveLength(2);
   });
 
-  it('shows queue editing controls to a PRO member with queue.mutate capability', () => {
+  it('shows queue editing controls only to the PRO lifecycle owner', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
     setState('room.context', {
@@ -225,7 +225,7 @@ describe('playlist queue identity rendering and actions', () => {
       coordinatorId: 'coordinator',
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['queue.mutate'],
+      capabilities: ['room.configure'],
     });
     setState('playlist.items', sampleItems());
 
@@ -235,7 +235,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(2);
   });
 
-  it('updates standard ADMIN editing controls immediately on grant and revoke', async () => {
+  it('keeps destructive queue controls host-only for a standard-room administrator', async () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
     setState('playlist.items', sampleItems());
@@ -245,12 +245,15 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
 
     setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'playback.control',
+      'asset.upload',
+      'members.manage',
+    ]);
     await nextAnimationFrame();
-    expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(2);
-    expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(2);
-
-    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
-    expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
+    expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
+    expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
 
     setState('network.isOperator', false);
     await nextAnimationFrame();

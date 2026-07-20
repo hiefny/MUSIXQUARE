@@ -1,28 +1,22 @@
 /**
  * @vitest-environment jsdom
  *
- * Regression tests for guest-rename convergence.
+ * Regression tests for account-nickname validation parity.
  *
- * A guest must not apply `network.myDeviceLabel` optimistically because the
- * host's handleRequestRename can reject silently (reserved /
- * profanity / duplicate / empty-after-strip) with no NACK and no corrective
- * broadcast — the guest's identity UI diverged from the room until the next
- * device-list churn. Worse, the client-side duplicate pre-check read
- * `network.connectedPeers`, which is host-only state and ALWAYS empty on a
- * guest, so renaming to another guest's name passed locally 100% of the time
- * and was rejected by the host 100% of the time.
- *
- * DEVICE_LIST_UPDATE round-trips the accepted label as the single writer.
- * Role-aware client validation mirrors
- * the host's char-strip and duplicate criteria so rejections happen locally
- * with feedback.
+ * Browser-authored rename frames are no longer produced; `/nick` updates the
+ * authenticated account profile. The remaining client validation keeps the
+ * reserved namespaces aligned with room identity projection.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getState, resetState, setState } from '../../core/state.ts';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
 import { addSystemChatMessage } from '../../ui/chat-render.ts';
-import type { ConnectedPeer, DataConnection, DeviceInfo } from '../../types/index.ts';
+import type { DataConnection, DeviceInfo } from '../../types/index.ts';
+import {
+  __resetAccountStateForTests,
+  applyAccountSession,
+  setAccountAnonymous,
+} from '../../account/state.ts';
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -110,15 +104,9 @@ vi.mock('../system-audio-debug.ts', () => ({
   collectSystemAudioDebugText: vi.fn(() => ''),
 }));
 
-import { getOtherDeviceLabels } from '../guards.ts';
-import { initGuestProtocolHandlers } from '../guest.ts';
 import { parseCommand, executeCommand } from '../../chat/commands.ts';
 
 const addSystemChatMessageMock = vi.mocked(addSystemChatMessage);
-
-function makePeer(label: string): ConnectedPeer {
-  return { id: `id-${label}`, label, status: 'connected' } as unknown as ConnectedPeer;
-}
 
 function makeDevice(id: string, label: string): DeviceInfo {
   return { id, label } as unknown as DeviceInfo;
@@ -144,63 +132,33 @@ function setupGuestRoom(otherLabels: string[] = ['Alice']): ReturnType<typeof ma
 }
 
 beforeEach(() => {
+  __resetAccountStateForTests();
+  applyAccountSession({
+    configured: true,
+    authenticated: true,
+    account: { nickname: 'Current', profileComplete: true },
+  });
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const nickname = JSON.parse(String(init?.body || '{}')).nickname || 'Current';
+      return new Response(
+        JSON.stringify({
+          configured: true,
+          authenticated: true,
+          account: { nickname, profileComplete: true },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }),
+  );
 });
 
-// ─── getOtherDeviceLabels ──────────────────────────────────────────────────
-
-describe('getOtherDeviceLabels (role-aware rename validation source)', () => {
-  it('host reads connectedPeers', () => {
-    setState('network.connectedPeers', [makePeer('Alice'), makePeer('Bob')]);
-    expect(getOtherDeviceLabels()).toEqual(['Alice', 'Bob']);
-  });
-
-  it('guest reads the device-list broadcast, excluding itself and including the host', () => {
-    setupGuestRoom(['Alice']);
-    // connectedPeers is host-only state — stays empty on a guest, which is
-    // exactly why the old validator passed every duplicate.
-    expect(getState('network.connectedPeers')).toEqual([]);
-    expect(getOtherDeviceLabels()).toEqual(['HOST', 'Alice']);
-  });
-
-  it('PRO member reads the authoritative device list even without a browser host connection', () => {
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'member',
-      coordinatorId: null,
-      epoch: 1,
-      snapshotRevision: 1,
-      capabilities: ['room.configure'],
-    });
-    setState('network.hostConn', null);
-    setState('network.myId', 'owner-member');
-    setState('network.connectedPeers', [makePeer('Stale Browser Peer')]);
-    setState('network.lastKnownDeviceList', [
-      makeDevice('owner-member', 'Owner'),
-      makeDevice('member-2', 'Alice'),
-    ]);
-
-    expect(getOtherDeviceLabels()).toEqual(['Alice']);
-  });
-});
-
-// ─── Guest rename listener ─────────────────────────────────────────────────
-
-describe('guest rename request (no optimistic apply)', () => {
-  it('sends REQUEST_RENAME but leaves myDeviceLabel to the device-list round-trip', () => {
-    initGuestProtocolHandlers();
-    const hostConn = setupGuestRoom();
-
-    bus.emit('network:rename-device', 'NewName');
-
-    expect(hostConn.send).toHaveBeenCalledWith({ type: MSG.REQUEST_RENAME, newLabel: 'NewName' });
-    // Core assertion: this must not be optimistically flipped to 'NewName',
-    // diverging from the room whenever the host silently rejected.
-    expect(getState('network.myDeviceLabel')).toBe('Peer 1');
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 // ─── /nick client validation parity ────────────────────────────────────────
@@ -212,18 +170,28 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     executeCommand(cmd!);
   }
 
-  it("rejects another device's name locally (was: always passed, host silently dropped)", () => {
+  it('opens optional login instead of renaming an anonymous device', () => {
+    setAccountAnonymous(true);
+    const accountOpenSpy = vi.fn();
+    const stopAccountOpen = bus.on('account:open', accountOpenSpy);
+
+    runNick('Carol');
+
+    expect(accountOpenSpy).toHaveBeenCalledOnce();
+    stopAccountOpen();
+  });
+
+  it("allows another account's display name through the account profile", async () => {
     setupGuestRoom(['Alice']);
-    const renameSpy = vi.fn();
-    bus.on('network:rename-device', renameSpy);
 
     runNick('Alice');
 
-    expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_duplicate');
-    expect(renameSpy).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(addSystemChatMessageMock).toHaveBeenCalledWith('chat.cmd_nick_changed'),
+    );
   });
 
-  it("rejects the host's CUSTOM label via the device list (not reachable through RESERVED_NAMES)", () => {
+  it("allows the host account's display name without trusting the local device list", async () => {
     const hostConn = makeHostConn();
     setState('network.hostConn', hostConn);
     setState('network.myId', 'me');
@@ -232,19 +200,15 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
       makeDevice('host-id', 'DJ Booth'),
       makeDevice('me', 'Peer 1'),
     ]);
-    const renameSpy = vi.fn();
-    bus.on('network:rename-device', renameSpy);
-
     runNick('dj booth');
 
-    expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_duplicate');
-    expect(renameSpy).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(addSystemChatMessageMock).toHaveBeenCalledWith('chat.cmd_nick_changed'),
+    );
   });
 
   it('strips zero-width characters before validating, like the host does', () => {
     setupGuestRoom([]);
-    const renameSpy = vi.fn();
-    bus.on('network:rename-device', renameSpy);
 
     // 'HO' + U+200B + 'ST' — trim() alone leaves the zero-width space, so the
     // The client validator must reject this before the host silently does.
@@ -252,18 +216,16 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     runNick(spoofed);
 
     expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_reserved');
-    expect(renameSpy).not.toHaveBeenCalled();
   });
 
-  it('a unique valid name still goes through (positive control)', () => {
+  it('a unique valid name goes through the account profile', async () => {
     setupGuestRoom(['Alice']);
-    const renameSpy = vi.fn();
-    bus.on('network:rename-device', renameSpy);
 
     runNick('Carol');
 
-    expect(renameSpy).toHaveBeenCalledWith('Carol');
-    expect(addSystemChatMessageMock).toHaveBeenCalledWith('chat.cmd_nick_changed');
+    await vi.waitFor(() =>
+      expect(addSystemChatMessageMock).toHaveBeenCalledWith('chat.cmd_nick_changed'),
+    );
   });
 
   it('does not let a coordinator-free PRO owner restore the reserved HOST identity', () => {
@@ -280,13 +242,9 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     setState('network.myId', 'owner-member');
     setState('network.myDeviceLabel', 'Owner');
     setState('network.lastKnownDeviceList', [makeDevice('owner-member', 'Owner')]);
-    const renameSpy = vi.fn();
-    bus.on('network:rename-device', renameSpy);
-
     runNick('HOST');
 
     expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_reserved');
-    expect(renameSpy).not.toHaveBeenCalled();
   });
 
   it('keeps the server-owned Peer N namespace unavailable to PRO /nick', () => {
@@ -303,12 +261,8 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     setState('network.myId', 'member-1');
     setState('network.myDeviceLabel', 'Peer 1');
     setState('network.lastKnownDeviceList', [makeDevice('member-1', 'Peer 1')]);
-    const renameSpy = vi.fn();
-    bus.on('network:rename-device', renameSpy);
-
     runNick('pEeR 99');
 
     expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_reserved');
-    expect(renameSpy).not.toHaveBeenCalled();
   });
 });

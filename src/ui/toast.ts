@@ -2,9 +2,9 @@
 
 import { log } from '../core/log.ts';
 import { createBusScope } from '../core/events.ts';
-import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 import type { StandardOperatorFileUplinkProgress } from '../types/index.ts';
 import { suppressViewTransitions } from './dom.ts';
 
@@ -340,7 +340,7 @@ function handleOperatorFileUplinkProgress(progress: StandardOperatorFileUplinkPr
   // transport failures remain actionable and get one terminal toast.
   if (
     progress.code === 'cancelled' ||
-    (progress.code === 'operator-revoked' && !getState('network.isOperator'))
+    (progress.code === 'operator-revoked' && !hasRoomCapability('asset.upload'))
   ) {
     return;
   }

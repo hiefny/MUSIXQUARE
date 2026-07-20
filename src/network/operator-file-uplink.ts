@@ -285,7 +285,6 @@ function isCurrentOutgoingAuthority(conn: DataConnection): boolean {
     getState('network.appRole') === 'guest' &&
     getState('network.hostConn') === conn &&
     conn.open === true &&
-    getState('network.isOperator') &&
     hasRoomCapability('asset.upload')
   );
 }
@@ -1260,11 +1259,13 @@ export function initStandardOperatorFileUplink(): void {
       }
     }
   });
-  bus.on('state:network.isOperator', () => {
-    if (outgoingUpload && !getState('network.isOperator')) {
+  const cancelIfOutgoingAuthorityWasRevoked = (): void => {
+    if (outgoingUpload && !hasRoomCapability('asset.upload')) {
       cancelOutgoing('operator-revoked', true);
     }
-  });
+  };
+  bus.on('state:network.isOperator', cancelIfOutgoingAuthorityWasRevoked);
+  bus.on('state:network.standardRoomCapabilities', cancelIfOutgoingAuthorityWasRevoked);
   bus.on('state:network.hostConn', () => {
     if (outgoingUpload && getState('network.hostConn') !== outgoingUpload.conn) {
       cancelOutgoing('connection-lost', false);

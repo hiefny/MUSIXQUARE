@@ -40,6 +40,7 @@ import {
   type ProPlaybackCommitRequest,
 } from '../pro-room/playback-authority-hooks.ts';
 import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
@@ -352,7 +353,7 @@ export function stopAllMedia(opts?: {
 export function seekTo(time: number): void {
   if (isGuestBlocked()) return;
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
+  const canControlPlayback = hasRoomCapability('playback.control');
   const queueItemId = getCurrentQueueItemId();
 
   if (
@@ -372,7 +373,7 @@ export function seekTo(time: number): void {
   }
 
   // OP guest: request host to seek
-  if (hostConn && isOperator) {
+  if (hostConn && canControlPlayback) {
     if (queueItemId) sendToHost({ type: MSG.REQUEST_SEEK, time, queueItemId });
     return;
   }
@@ -859,7 +860,7 @@ export function togglePlay(): void {
   }
 
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
+  const canControlPlayback = hasRoomCapability('playback.control');
 
   // YouTube mode
   if (isYouTubeOwner()) {
@@ -891,7 +892,7 @@ export function togglePlay(): void {
     if (!firstQueueItemId) return;
     if (!hostConn) {
       void import('./playlist.ts').then((mod) => mod.playTrack(firstQueueItemId));
-    } else if (isOperator) {
+    } else if (canControlPlayback) {
       sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, queueItemId: firstQueueItemId });
     }
     return;
@@ -939,7 +940,7 @@ export function togglePlay(): void {
         queueItemId: currentQueueItemId,
         reason: 'pause',
       });
-    } else if (isOperator) {
+    } else if (canControlPlayback) {
       if (currentQueueItemId) {
         sendToHost({ type: MSG.REQUEST_PAUSE, queueItemId: currentQueueItemId });
       }
@@ -954,7 +955,7 @@ export function togglePlay(): void {
         queueItemId: currentQueueItemId,
         hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
       });
-    } else if (isOperator) {
+    } else if (canControlPlayback) {
       if (currentQueueItemId) {
         sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt, queueItemId: currentQueueItemId });
       }
@@ -968,8 +969,8 @@ export function stopPlayback(): void {
   if (isGuestBlocked()) return;
 
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-  if (hostConn && isOperator) {
+  const canControlPlayback = hasRoomCapability('playback.control');
+  if (hostConn && canControlPlayback) {
     const queueItemId = getCurrentQueueItemId();
     if (!queueItemId) return;
     try {
@@ -1037,9 +1038,9 @@ export function skipTime(sec: number): void {
   if (isGuestBlocked()) return;
 
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
+  const canControlPlayback = hasRoomCapability('playback.control');
   const queueItemId = getCurrentQueueItemId();
-  if (hostConn && isOperator) {
+  if (hostConn && canControlPlayback) {
     if (queueItemId) sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec, queueItemId });
     return;
   }

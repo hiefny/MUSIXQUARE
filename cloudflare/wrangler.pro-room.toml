@@ -23,6 +23,11 @@ PRESENCE_TTL_SECONDS = "45"
 RESERVATION_TTL_SECONDS = "900"
 ASSET_GC_GRACE_SECONDS = "900"
 PRESIGN_TTL_SECONDS = "600"
+# Account identity is optional for participants, but when present the room
+# projects stable members and the owner-managed least-privilege permissions.
+# Anonymous users remain supported and receive session-scoped membership.
+PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = "0"
+PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = "0"
 
 [[durable_objects.bindings]]
 name = "PRO_ROOMS"
@@ -64,6 +69,7 @@ new_sqlite_classes = ["MusixquareProRoom"]
 # npm run wrangler -- secret put PRO_ROOM_SESSION_SECRET --config cloudflare/wrangler.pro-room.toml
 # npm run wrangler -- secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.pro-room.toml
 # npm run wrangler -- secret put PRO_ROOM_RATE_LIMIT_SECRET --config cloudflare/wrangler.pro-room.toml
+# npm run wrangler -- secret put MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.pro-room.toml
 # npm run wrangler -- secret put R2_ACCOUNT_ID --config cloudflare/wrangler.pro-room.toml
 # npm run wrangler -- secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.pro-room.toml
 # npm run wrangler -- secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.pro-room.toml

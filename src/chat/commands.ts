@@ -8,18 +8,9 @@
 
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import {
-  DEVICE_LABEL_SANITIZE_RE,
-  MSG,
-  PEER_NAME_PREFIX,
-  PRO_GENERATED_PEER_NAME_RE,
-  RESERVED_NAMES,
-  HOST_SELF_NAMES,
-  BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
-} from '../core/constants.ts';
-import { getOtherDeviceLabels } from '../network/guards.ts';
+import { MSG, PEER_NAME_PREFIX, BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
 import { sendToHost } from '../network/peer.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
 import { sendProRoomRealtime } from '../pro-room/network-bridge.ts';
 import { t } from '../i18n/index.ts';
@@ -28,8 +19,8 @@ import {
   addWhisperMessage,
   addNoticeChatMessage,
 } from '../ui/chat-render.ts';
-import { containsProfanity } from './profanity.ts';
-import type { ConnectedPeer } from '../types/index.ts';
+import type { ConnectedPeer, DeviceInfo } from '../types/index.ts';
+import { groupConnectedRoomMembers } from '../rooms/member-directory.ts';
 import {
   beginLocalBotChatRequest,
   publishBotChatResult,
@@ -39,6 +30,12 @@ import {
 import { playAnnouncementSound } from '../audio/ui-sounds.ts';
 import { cmdDebug } from './debug-console.ts';
 import { extractBotPrompt } from './bot-syntax.ts';
+import { isAccountAuthenticated } from '../account/state.ts';
+import {
+  normalizeAccountNickname,
+  updateCurrentAccountNickname,
+  validateAccountNickname,
+} from '../account/nickname.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -53,7 +50,7 @@ interface CommandExecutionContext {
   botRequestId?: string;
 }
 
-type Permission = 'host' | 'host+op' | 'all';
+type Permission = 'host' | 'physical-host' | 'members' | 'notice' | 'bot' | 'all';
 
 interface CommandDef {
   permission: Permission;
@@ -67,12 +64,31 @@ interface CommandDef {
 
 // ─── Target Resolution ──────────────────────────────────────────
 
-function resolveTarget(arg: string): { peerId: string; label: string } | null {
+interface ResolvedCommandTarget {
+  peerId: string;
+  label: string;
+  /** Server-issued person identity when the room exposes one. */
+  memberId: string | null;
+}
+
+function resolvedTarget(device: Readonly<DeviceInfo>): ResolvedCommandTarget {
+  return {
+    peerId: device.id,
+    label: device.label,
+    memberId: typeof device.memberId === 'string' && device.memberId ? device.memberId : null,
+  };
+}
+
+function firstConnected(devices: readonly Readonly<DeviceInfo>[]): Readonly<DeviceInfo> | null {
+  return devices.find((device) => device.status === 'connected') || devices[0] || null;
+}
+
+function resolveTarget(arg: string): ResolvedCommandTarget | null {
   if (!arg) return null;
 
   const myId = getState('network.myId');
   const hostConn = getState('network.hostConn');
-  const deviceList = getState('network.lastKnownDeviceList') || [];
+  const deviceList = (getState('network.lastKnownDeviceList') || []) as DeviceInfo[];
 
   // 1. By join-order number (#N)
   if (arg.startsWith('#')) {
@@ -80,21 +96,41 @@ function resolveTarget(arg: string): { peerId: string; label: string } | null {
     if (isNaN(order)) return null;
 
     // Is it me?
+    const myMemberDisplayNumber = getState('network.myMemberDisplayNumber');
     const myOrder = getState('network.myJoinOrder');
-    if (order === myOrder && myId) {
+    if (
+      order === (typeof myMemberDisplayNumber === 'number' ? myMemberDisplayNumber : myOrder) &&
+      myId
+    ) {
       return {
         peerId: myId,
         label: getState('network.myDeviceLabel') || (hostConn ? 'ME' : 'HOST'),
+        memberId: getState('network.myMemberId') || null,
       };
     }
 
-    // Is it someone in the session?
-    const target = deviceList.find((d) => d.joinOrder === order);
-    if (target && target.id) return { peerId: target.id, label: target.label };
+    // The connection UI displays the person-level memberDisplayNumber. Resolve
+    // that visible number first and choose one connected transport as the
+    // delivery representative. Account-wide commands carry memberId below, so
+    // they still affect every device owned by that member.
+    const memberTarget = firstConnected(
+      deviceList.filter((device) => device.memberDisplayNumber === order),
+    );
+    if (memberTarget) return resolvedTarget(memberTarget);
+
+    // Cached/legacy room projections expose only the physical joinOrder. Keep
+    // that historical syntax as a fallback without letting it override a
+    // currently visible person-level number.
+    const legacyTarget = firstConnected(
+      deviceList.filter(
+        (device) => device.memberDisplayNumber === undefined && device.joinOrder === order,
+      ),
+    );
+    if (legacyTarget) return resolvedTarget(legacyTarget);
 
     // Fallback: if we are a guest and targeting #0, and it's not in the list for some reason
     if (order === 0 && hostConn) {
-      return { peerId: hostConn.peer, label: 'HOST' };
+      return { peerId: hostConn.peer, label: 'HOST', memberId: null };
     }
 
     return null;
@@ -106,12 +142,16 @@ function resolveTarget(arg: string): { peerId: string; label: string } | null {
   // Is it me?
   const myLabel = (getState('network.myDeviceLabel') || '').toLowerCase();
   if (myLabel === lower && myId) {
-    return { peerId: myId, label: getState('network.myDeviceLabel') || 'ME' };
+    return {
+      peerId: myId,
+      label: getState('network.myDeviceLabel') || 'ME',
+      memberId: getState('network.myMemberId') || null,
+    };
   }
 
   // Is it someone in the session?
   const target = deviceList.find((d) => d.label.toLowerCase() === lower);
-  if (target && target.id) return { peerId: target.id, label: target.label };
+  if (target && target.id) return resolvedTarget(target);
 
   return null;
 }
@@ -119,7 +159,13 @@ function resolveTarget(arg: string): { peerId: string; label: string } | null {
 // ─── Permission Check ───────────────────────────────────────────
 
 function isHost(): boolean {
-  return !getState('network.hostConn');
+  return hasRoomCapability('room.configure');
+}
+
+function isPhysicalStandardHost(): boolean {
+  return (
+    isStandardRoom() && getState('network.appRole') === 'host' && !getState('network.hostConn')
+  );
 }
 
 function isStandardRoom(): boolean {
@@ -129,7 +175,10 @@ function isStandardRoom(): boolean {
 function hasPermission(perm: Permission): boolean {
   if (perm === 'all') return true;
   if (perm === 'host') return isHost();
-  if (perm === 'host+op') return isHost() || getState('network.isOperator');
+  if (perm === 'physical-host') return isPhysicalStandardHost();
+  if (perm === 'members') return hasRoomCapability('members.manage');
+  if (perm === 'notice') return hasRoomCapability('chat.notice');
+  if (perm === 'bot') return canUseBot();
   return false;
 }
 
@@ -145,10 +194,12 @@ function cmdKick(args: string[]): void {
     addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] }));
     return;
   }
-  bus.emit(
-    getRoomContext().kind === 'pro' ? 'pro-room:kick-member' : 'network:kick-device',
-    target.peerId,
-  );
+  if (getRoomContext().kind === 'pro') {
+    bus.emit('pro-room:kick-member', target.memberId || target.peerId);
+    return;
+  }
+  const memberId = target.memberId || `peer:${target.peerId}`;
+  bus.emit('network:request-kick-standard-room-member', { memberId });
 }
 
 function cmdOp(args: string[]): void {
@@ -218,11 +269,15 @@ function cmdFreeze(args: string[]): void {
     return;
   }
   const on = flag === 'on';
-  setState('network.chatFrozen', on);
   if (getRoomContext().kind === 'pro') {
+    setState('network.chatFrozen', on);
     sendProRoomRealtime('chat', { kind: 'freeze', on });
-  } else {
+  } else if (isPhysicalStandardHost()) {
+    setState('network.chatFrozen', on);
     bus.emit('network:broadcast', { type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
+  } else {
+    sendToHost({ type: MSG.REQUEST_CHAT_COMMAND, command: 'freeze', args: [flag] });
+    return;
   }
   addSystemChatMessage(on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
 }
@@ -245,7 +300,7 @@ function cmdMute(args: string[]): void {
       on: true,
     });
     addSystemChatMessage(t('chat.cmd_muted', { name: target.label }));
-  } else if (isHost()) {
+  } else if (isPhysicalStandardHost()) {
     // Host executes directly
     const current = getState('network.mutedPeers');
     setState('network.mutedPeers', new Set([...current, target.peerId]));
@@ -279,7 +334,7 @@ function cmdUnmute(args: string[]): void {
       on: false,
     });
     addSystemChatMessage(t('chat.cmd_unmuted', { name: target.label }));
-  } else if (isHost()) {
+  } else if (isPhysicalStandardHost()) {
     const current = getState('network.mutedPeers');
     const next = new Set([...current]);
     next.delete(target.peerId);
@@ -299,7 +354,7 @@ function cmdClear(): void {
   if (getRoomContext().kind === 'pro') {
     sendProRoomRealtime('chat', { kind: 'clear' });
     bus.emit('chat:clear-all');
-  } else if (isHost()) {
+  } else if (isPhysicalStandardHost()) {
     bus.emit('network:broadcast', { type: MSG.CHAT_CLEAR });
     bus.emit('chat:clear-all');
   } else {
@@ -319,7 +374,7 @@ function cmdFilter(args: string[]): void {
     setState('network.filterEnabled', on);
     sendProRoomRealtime('chat', { kind: 'filter', on });
     addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
-  } else if (isHost()) {
+  } else if (isPhysicalStandardHost()) {
     setState('network.filterEnabled', on);
     bus.emit('network:broadcast', { type: MSG.CHAT_FILTER, on });
     addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
@@ -339,7 +394,7 @@ function cmdSlowmode(args: string[]): void {
     setState('network.slowmodeSeconds', sec);
     sendProRoomRealtime('chat', { kind: 'slowmode', seconds: sec });
     addSystemChatMessage(sec > 0 ? t('chat.cmd_slowmode_on', { sec }) : t('chat.cmd_slowmode_off'));
-  } else if (isHost()) {
+  } else if (isPhysicalStandardHost()) {
     setState('network.slowmodeSeconds', sec);
     bus.emit('network:broadcast', { type: MSG.CHAT_SLOWMODE, seconds: sec });
     addSystemChatMessage(sec > 0 ? t('chat.cmd_slowmode_on', { sec }) : t('chat.cmd_slowmode_off'));
@@ -367,7 +422,7 @@ function cmdNotice(_: string[], rawArgs: string): void {
     sendProRoomRealtime('chat', { kind: 'notice', text: rawArgs.trim() });
     addNoticeChatMessage(senderLabel, rawArgs.trim(), payload.ts);
     playAnnouncementSound();
-  } else if (isHost()) {
+  } else if (isPhysicalStandardHost()) {
     rememberPinnedNotice(payload);
     bus.emit('network:broadcast', payload);
     addNoticeChatMessage(senderLabel, rawArgs.trim(), payload.ts);
@@ -378,51 +433,30 @@ function cmdNotice(_: string[], rawArgs: string): void {
 }
 
 function cmdNick(_: string[], rawArgs: string): void {
-  // Mirror the host's sanitize (handleRequestRename) so a name that strips
-  // into a reserved/duplicate/empty string fails HERE with feedback instead
-  // of being silently rejected by the host.
-  const newName = rawArgs.replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
+  const newName = normalizeAccountNickname(rawArgs);
   if (!newName) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_nick') }));
     return;
   }
-  if (newName.length > 20) {
-    addSystemChatMessage(t('chat.cmd_nick_too_long'));
+
+  if (!isAccountAuthenticated()) {
+    bus.emit('account:open');
     return;
   }
-  // A coordinator-free PRO endpoint also has no hostConn, but that is an
-  // internal compatibility shape rather than the reserved HOST identity.
-  const isHostSelf = isStandardRoom() && !getState('network.hostConn');
-  const nameLower = newName.toLowerCase();
-  const isHostRestore = isHostSelf && (HOST_SELF_NAMES as readonly string[]).includes(nameLower);
-  if (RESERVED_NAMES.some((r) => nameLower === r.toLowerCase())) {
-    if (!isHostRestore) {
-      addSystemChatMessage(t('connect.rename_reserved'));
-      return;
-    }
-  }
-  if (/^#\d+$/.test(newName)) {
-    addSystemChatMessage(t('connect.rename_reserved'));
+
+  const validationError = validateAccountNickname(newName);
+  if (validationError) {
+    addSystemChatMessage(validationError);
     return;
   }
-  if (getRoomContext().kind === 'pro' && PRO_GENERATED_PEER_NAME_RE.test(newName)) {
-    addSystemChatMessage(t('connect.rename_reserved'));
-    return;
-  }
-  if (!isHostRestore && containsProfanity(newName)) {
-    addSystemChatMessage(t('connect.rename_profanity'));
-    return;
-  }
-  // Role-aware duplicate check: connectedPeers is host-only state (ALWAYS
-  // empty on a guest) — getOtherDeviceLabels reads the device-list broadcast
-  // on guests, matching what the host's handleRequestRename will silently
-  // reject.
-  if (getOtherDeviceLabels().some((label) => label.toLowerCase() === newName.toLowerCase())) {
-    addSystemChatMessage(t('connect.rename_duplicate'));
-    return;
-  }
-  bus.emit('network:rename-device', newName);
-  addSystemChatMessage(t('chat.cmd_nick_changed', { name: newName }));
+
+  void updateCurrentAccountNickname(newName)
+    .then((nickname) => {
+      addSystemChatMessage(t('chat.cmd_nick_changed', { name: nickname }));
+    })
+    .catch(() => {
+      addSystemChatMessage(t('account.action_failed'));
+    });
 }
 
 function cmdWhisper(args: string[], rawArgs: string): void {
@@ -463,7 +497,7 @@ function cmdWhisper(args: string[], rawArgs: string): void {
       targetParticipantId: target.peerId,
       text: msg,
     });
-  } else if (isHost()) {
+  } else if (isPhysicalStandardHost()) {
     // Host sends directly to target
     const connMap = getState('network.activeHostConnByPeerId');
     const conn = connMap.get(target.peerId);
@@ -479,16 +513,11 @@ function cmdWhisper(args: string[], rawArgs: string): void {
 
 function cmdHelp(): void {
   const lines: string[] = [t('chat.cmd_help_title')];
-  const role = isHost() ? 'host' : getState('network.isOperator') ? 'op' : 'user';
 
   for (const [, def] of _allCommandEntries()) {
     if (def.hidden) continue;
     if (def.suggestWhen && !def.suggestWhen()) continue;
-    if (
-      def.permission === 'all' ||
-      (def.permission === 'host' && role === 'host') ||
-      (def.permission === 'host+op' && (role === 'host' || role === 'op'))
-    ) {
+    if (hasPermission(def.permission)) {
       lines.push(`${def.usage} - ${def.description}`);
     }
   }
@@ -498,7 +527,7 @@ function cmdHelp(): void {
 
 function cmdUsers(): void {
   const isProRoom = getRoomContext().kind === 'pro';
-  const deviceList = getState('network.lastKnownDeviceList') || [];
+  const deviceList = (getState('network.lastKnownDeviceList') || []) as DeviceInfo[];
   const myId = getState('network.myId');
   const myOrder = getState('network.myJoinOrder') ?? 0;
   const myLabel =
@@ -508,7 +537,7 @@ function cmdUsers(): void {
   const lines: string[] = [t('chat.cmd_users_title')];
 
   // If we don't have a device list yet (early join or host-only), build a fallback list
-  let displayList = deviceList;
+  let displayList: DeviceInfo[] = deviceList;
   if (!displayList || displayList.length === 0) {
     displayList = [
       {
@@ -522,21 +551,26 @@ function cmdUsers(): void {
     ];
   }
 
-  // Sort and format each user
-  const sorted = [...displayList].sort((a, b) => (a.joinOrder ?? 0) - (b.joinOrder ?? 0));
+  // Match the connection tab's person-level projection. This keeps the number
+  // shown by /users usable by /kick, /w, and the other target commands even
+  // when several physical devices belong to one signed-in account.
+  const members = groupConnectedRoomMembers(displayList, myId || '');
 
-  for (const d of sorted) {
-    const isMe = d.id === myId;
+  for (const member of members) {
     const flags: string[] = [];
     // PRO exposes no host/admin rank: all live participants share the same
     // controls and the server is the only manager. Keep only the local-self
     // marker even though the compatibility device list marks every member op.
-    if (!isProRoom && d.isHost) flags.push('HOST');
-    if (!isProRoom && d.isOp && !d.isHost) flags.push('ADMIN');
-    if (isMe) flags.push(t('chat.cmd_users_me'));
+    const isStandardOwnerDevice =
+      !isProRoom &&
+      (member.isHost || (member.isAuthenticated && member.capabilities.includes('room.configure')));
+    if (isStandardOwnerDevice) flags.push('HOST');
+    if (!isProRoom && member.isAdministrator && !isStandardOwnerDevice) flags.push('ADMIN');
+    if (member.isCurrent) flags.push(t('chat.cmd_users_me'));
 
     const suffix = flags.length ? ` [${flags.join(', ')}]` : '';
-    lines.push(`#${d.joinOrder}. ${d.label}${suffix}`);
+    const deviceCount = member.deviceCount > 1 ? ` (${member.deviceCount})` : '';
+    lines.push(`#${member.memberDisplayNumber}. ${member.label}${deviceCount}${suffix}`);
   }
 
   addSystemChatMessage(lines.join('\n'));
@@ -549,6 +583,16 @@ function getBotRoomId(): string | null {
 
 function isBotRoom(): boolean {
   return getBotRoomId() !== null;
+}
+
+function canUseBot(): boolean {
+  if (!isBotRoom()) return false;
+  const myId = getState('network.myId');
+  if (!myId) return false;
+  const viewer = (getState('network.lastKnownDeviceList') || []).find(
+    (device) => device.id === myId,
+  );
+  return viewer?.role === 'owner' || viewer?.role === 'controller';
 }
 
 const _botRequestsInFlight = new Map<string, { requestId: string }>();
@@ -651,20 +695,20 @@ const COMMANDS_DEF: Record<
     descKey: 'chat.cmd_d_users',
   },
   bot: {
-    permission: 'all',
+    permission: 'bot',
     execute: cmdBot,
     usageKey: 'chat.cmd_u_bot',
     descKey: 'chat.cmd_d_bot',
     suggestWhen: isBotRoom,
   },
   clear: {
-    permission: 'host+op',
+    permission: 'host',
     execute: cmdClear,
     usageKey: 'chat.cmd_u_clear',
     descKey: 'chat.cmd_d_clear',
   },
   filter: {
-    permission: 'host+op',
+    permission: 'host',
     execute: cmdFilter,
     usageKey: 'chat.cmd_u_filter',
     descKey: 'chat.cmd_d_filter',
@@ -676,14 +720,14 @@ const COMMANDS_DEF: Record<
     descKey: 'chat.cmd_d_freeze',
   },
   slowmode: {
-    permission: 'host+op',
+    permission: 'host',
     execute: cmdSlowmode,
     usageKey: 'chat.cmd_u_slowmode',
     descKey: 'chat.cmd_d_slowmode',
   },
   w: { permission: 'all', execute: cmdWhisper, usageKey: 'chat.cmd_u_w', descKey: 'chat.cmd_d_w' },
   notice: {
-    permission: 'host+op',
+    permission: 'notice',
     execute: cmdNotice,
     usageKey: 'chat.cmd_u_notice',
     descKey: 'chat.cmd_d_notice',
@@ -695,33 +739,33 @@ const COMMANDS_DEF: Record<
     descKey: 'chat.cmd_d_nick',
   },
   kick: {
-    permission: 'host',
+    permission: 'members',
     execute: cmdKick,
     usageKey: 'chat.cmd_u_kick',
     descKey: 'chat.cmd_d_kick',
   },
   op: {
-    permission: 'host',
+    permission: 'physical-host',
     execute: cmdOp,
     usageKey: 'chat.cmd_u_op',
     descKey: 'chat.cmd_d_op',
     suggestWhen: isStandardRoom,
   },
   deop: {
-    permission: 'host',
+    permission: 'physical-host',
     execute: cmdDeop,
     usageKey: 'chat.cmd_u_deop',
     descKey: 'chat.cmd_d_deop',
     suggestWhen: isStandardRoom,
   },
   mute: {
-    permission: 'host+op',
+    permission: 'host',
     execute: cmdMute,
     usageKey: 'chat.cmd_u_mute',
     descKey: 'chat.cmd_d_mute',
   },
   unmute: {
-    permission: 'host+op',
+    permission: 'host',
     execute: cmdUnmute,
     usageKey: 'chat.cmd_u_unmute',
     descKey: 'chat.cmd_d_unmute',
@@ -813,6 +857,7 @@ export function shouldBroadcastCommand(cmd: ParsedCommand): boolean {
   return (
     cmd.name === 'bot' &&
     roomId !== null &&
+    canUseBot() &&
     cmd.rawArgs.trim().length > 0 &&
     !_botRequestsInFlight.has(roomId)
   );

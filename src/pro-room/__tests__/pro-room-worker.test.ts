@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+  ACCOUNT_ASSERTION_HEADER,
+  createAccountAssertion,
+} from '../../../cloudflare/account-assertion.js';
+import {
   MusixquareProRoom,
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
@@ -66,6 +71,7 @@ describe('PRO room server-authoritative playback', () => {
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName }),
     );
     expect(response.status).toBe(200);
+    expect(response.headers.get('x-mxqr-account-linked')).toBeNull();
     const cookie = cookieFrom(response);
     const envelope = await responseJson(response);
     bindCookiePresence(cookie, envelope);
@@ -1881,6 +1887,7 @@ const ACTIVATION_SECRET = 'activation-secret-'.padEnd(48, 'a');
 const PIN_PEPPER = 'pin-pepper-'.padEnd(48, 'p');
 const SESSION_SECRET = 'session-secret-'.padEnd(48, 's');
 const SIGNALING_SECRET = 'signaling-secret-'.padEnd(48, 'g');
+const ACCOUNT_ASSERTION_SECRET = 'account-assertion-secret-'.padEnd(48, 'a');
 const R2_ACCOUNT_ID = '01353882e4eea3a5acaa0c45e8336af4';
 const IDEMPOTENCY_KEY = '018f977e-5df5-7c8f-bb80-55d847ddec0f';
 const DEVELOPER_KEY_ID = 'D'.repeat(16);
@@ -2026,6 +2033,7 @@ function environment(bucket = new FakeR2Bucket()) {
     PRO_ROOM_ACTIVATION_SECRET: ACTIVATION_SECRET,
     PRO_ROOM_PIN_PEPPER: PIN_PEPPER,
     PRO_ROOM_SESSION_SECRET: SESSION_SECRET,
+    MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: ACCOUNT_ASSERTION_SECRET,
     PRO_SIGNALING_SECRET: SIGNALING_SECRET,
     R2_ACCOUNT_ID,
     R2_ACCESS_KEY_ID: 'test-access-key',
@@ -2098,6 +2106,26 @@ function jsonRequest(
   const headers = new Headers({ 'content-type': 'application/json' });
   if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
   return request(path, { method, headers, body: JSON.stringify(body) }, cookie);
+}
+
+async function withAccountAssertion(
+  input: Request,
+  accountId: string,
+  nickname: string,
+  roomCode = ROOM_CODE,
+): Promise<Request> {
+  const assertion = await createAccountAssertion(
+    {
+      accountId,
+      nickname,
+      roomCode,
+      audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+    },
+    ACCOUNT_ASSERTION_SECRET,
+  );
+  if (!assertion) throw new Error('failed to create account assertion');
+  input.headers.set(ACCOUNT_ASSERTION_HEADER, assertion);
+  return input;
 }
 
 function unloadCloseRequest(
@@ -6836,6 +6864,1716 @@ describe('persistent PRO room bootstrap and activation', () => {
 });
 
 describe('persistent PRO room authentication, presence, and state', () => {
+  const fullDelegatedPermissions = {
+    'media.add': true,
+    'playback.control': true,
+    'members.kick': true,
+    'chat.notice': true,
+  };
+
+  function enableMemberAuthority(context: Awaited<ReturnType<typeof activatedRoom>>): void {
+    const internal = context.worker as unknown as { env: Record<string, string> };
+    internal.env.PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = '1';
+  }
+
+  async function addAuthorityMember(
+    context: Awaited<ReturnType<typeof activatedRoom>>,
+    displayName: string,
+  ) {
+    const response = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName }),
+    );
+    expect(response.status).toBe(200);
+    const envelope = await responseJson(response);
+    const cookie = cookieFrom(response);
+    bindCookiePresence(cookie, envelope);
+    return { response, envelope, cookie };
+  }
+
+  it('keeps one room member identity across several devices of the same account', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, string>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const accountId = 'acct_0123456789abcdefghijkl';
+
+    const firstResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Client supplied' }),
+        accountId,
+        '민수',
+      ),
+    );
+    expect(firstResponse.status).toBe(200);
+    expect(firstResponse.headers.get('x-mxqr-account-linked')).toBe('1');
+    const first = await responseJson(firstResponse);
+    const firstCookie = cookieFrom(firstResponse);
+    bindCookiePresence(firstCookie, first);
+
+    const secondResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Another device' }),
+        accountId,
+        '민수',
+      ),
+    );
+    expect(secondResponse.status).toBe(200);
+    expect(secondResponse.headers.get('x-mxqr-account-linked')).toBe('1');
+    const second = await responseJson(secondResponse);
+    const secondCookie = cookieFrom(secondResponse);
+    bindCookiePresence(secondCookie, second);
+
+    expect(second.snapshot.memberIdentityVersion).toBe(1);
+    expect(second.snapshot.viewer).toMatchObject({
+      memberId: first.snapshot.viewer.memberId,
+      memberDisplayNumber: first.snapshot.viewer.memberDisplayNumber,
+      isAuthenticated: true,
+      displayName: '민수',
+    });
+    expect(second.snapshot.viewer.participantId).not.toBe(first.snapshot.viewer.participantId);
+    const minsuDevices = second.snapshot.presence.participants.filter(
+      (participant: Record<string, unknown>) =>
+        participant.memberId === second.snapshot.viewer.memberId,
+    );
+    expect(minsuDevices).toHaveLength(2);
+    expect(
+      new Set(minsuDevices.map((participant: any) => participant.memberDisplayNumber)),
+    ).toEqual(new Set([second.snapshot.viewer.memberDisplayNumber]));
+    expect(parseProRoomSnapshot(second.snapshot)).not.toBeNull();
+    expect(
+      Object.values(internal.room.sessions).filter(
+        (session: any) => session.accountId === accountId,
+      ),
+    ).toHaveLength(2);
+    expect(Object.keys(internal.room.accountMembers)).toEqual([accountId]);
+
+    const heartbeat = await context.worker.fetch(
+      jsonRequest(
+        '/presence/heartbeat',
+        'POST',
+        {
+          revision: second.snapshot.revision,
+          playlistRevision: second.snapshot.playlistRevision,
+          presenceRevision: second.snapshot.presence.revision,
+          playbackRevision: second.snapshot.playback.revision,
+          coordinatorEpoch: second.snapshot.presence.coordinatorEpoch,
+          displayName: 'Spoofed device rename',
+        },
+        secondCookie,
+      ),
+    );
+    expect(heartbeat.status).toBe(200);
+    const afterHeartbeat = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, secondCookie)),
+    );
+    expect(afterHeartbeat.snapshot.viewer.displayName).toBe('민수');
+
+    const revisionBeforeReproof = internal.room.revision as number;
+    const reproved = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, firstCookie),
+        accountId,
+        '민수',
+      ),
+    );
+    expect(reproved.status).toBe(200);
+    expect(internal.room.revision).toBe(revisionBeforeReproof);
+  });
+
+  it('renews a proven physical account lease and downgrades only expired devices', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-07-20T08:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_leaseaccount0123456789';
+    const otherAccountId = 'acct_otheraccount0123456789';
+    const createDevice = async () => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          'Lease admin',
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { cookie, envelope };
+    };
+    const first = await createDevice();
+    const second = await createDevice();
+    const memberId = first.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const initialPlayback = structuredClone(internal.room.playback);
+    const accountSessions = () =>
+      Object.values(internal.room.sessions).filter(
+        (session: any) => session.accountId === accountId,
+      ) as any[];
+    expect(accountSessions()).toHaveLength(2);
+    expect(accountSessions().map((session) => session.accountLeaseExpiresAtMs)).toEqual([
+      startedAtMs + 120_000,
+      startedAtMs + 120_000,
+    ]);
+
+    vi.setSystemTime(startedAtMs + 70_000);
+    for (const participant of Object.values(internal.room.presence.participants) as any[]) {
+      participant.lastSeenAtMs = startedAtMs + 70_000;
+    }
+    const renewed = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account/lease', { method: 'POST' }, first.cookie),
+        accountId,
+        'Lease admin',
+      ),
+    );
+    expect(renewed.status).toBe(200);
+    await expect(renewed.json()).resolves.toEqual({
+      ok: true,
+      leaseExpiresAtMs: startedAtMs + 190_000,
+    });
+
+    const missingAppAccount = await context.worker.fetch(
+      request('/sessions/current/account/lease', { method: 'POST' }, second.cookie),
+    );
+    expect(missingAppAccount.status).toBe(401);
+    await expect(missingAppAccount.json()).resolves.toEqual({ error: 'ACCOUNT_SESSION_REQUIRED' });
+    const mismatchedAccount = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account/lease', { method: 'POST' }, first.cookie),
+        otherAccountId,
+        'Other account',
+      ),
+    );
+    expect(mismatchedAccount.status).toBe(409);
+    await expect(mismatchedAccount.json()).resolves.toEqual({
+      error: 'SESSION_ACCOUNT_CONFLICT',
+    });
+
+    vi.setSystemTime(startedAtMs + 121_000);
+    // Model the ordinary 15-second presence heartbeats independently from the
+    // 40-second account lease proof. Lease expiry must change identity only,
+    // not remove otherwise-live participants.
+    for (const participant of Object.values(internal.room.presence.participants) as any[]) {
+      participant.lastSeenAtMs = startedAtMs + 121_000;
+    }
+    const firstViewResponse = await context.worker.fetch(request('/snapshot', {}, first.cookie));
+    expect(firstViewResponse.status, JSON.stringify(await firstViewResponse.clone().json())).toBe(
+      200,
+    );
+    const firstView = await responseJson(firstViewResponse);
+    expect(firstView.snapshot.viewer).toMatchObject({
+      memberId,
+      isAuthenticated: true,
+      role: 'controller',
+    });
+    const expiredView = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, second.cookie)),
+    );
+    expect(expiredView.snapshot.viewer).toMatchObject({
+      isAuthenticated: false,
+      role: 'member',
+      capabilities: ['playback.control'],
+    });
+    expect(expiredView.snapshot.viewer.memberId).not.toBe(memberId);
+    expect(expiredView.snapshot.presence.participants).toHaveLength(3);
+    expect(internal.room.accountMembers[accountId]).toMatchObject({ memberId, role: 'controller' });
+    expect(accountSessions()).toHaveLength(1);
+    expect(internal.room.playback).toEqual(initialPlayback);
+
+    const expiredRenewal = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account/lease', { method: 'POST' }, second.cookie),
+        accountId,
+        'Lease admin',
+      ),
+    );
+    expect(expiredRenewal.status).toBe(409);
+    await expect(expiredRenewal.json()).resolves.toEqual({ error: 'ACCOUNT_REATTACH_REQUIRED' });
+
+    const reattached = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, second.cookie),
+        accountId,
+        'Lease admin',
+      ),
+    );
+    expect(reattached.status).toBe(200);
+    await expect(reattached.json()).resolves.toMatchObject({
+      snapshot: { viewer: { memberId, isAuthenticated: true, role: 'controller' } },
+    });
+    expect(accountSessions()).toHaveLength(2);
+  });
+
+  it('reserves physical admission slots while grouping every account device under its first number', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, string>;
+      room: Record<string, any>;
+      persist(): Promise<void>;
+    };
+    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const minsuAccountId = 'acct_0123456789abcdefghijkl';
+    const jisuAccountId = 'acct_abcdefghijkl0123456789';
+
+    const createAccountDevice = async (accountId: string, nickname: string) => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          nickname,
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { envelope, cookie };
+    };
+    const minsu = await Promise.all([
+      createAccountDevice(minsuAccountId, '민수'),
+      createAccountDevice(minsuAccountId, '민수'),
+      createAccountDevice(minsuAccountId, '민수'),
+    ]);
+    const jisu = await Promise.all([
+      createAccountDevice(jisuAccountId, '지수'),
+      createAccountDevice(jisuAccountId, '지수'),
+    ]);
+    const anonymousResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
+    );
+    expect(anonymousResponse.status).toBe(200);
+    const anonymous = await responseJson(anonymousResponse);
+    const anonymousCookie = cookieFrom(anonymousResponse);
+    bindCookiePresence(anonymousCookie, anonymous);
+
+    const sessionsFor = (accountId: string) =>
+      Object.values(internal.room.sessions)
+        .filter((session: any) => session.accountId === accountId)
+        .sort((left: any, right: any) => left.peerOrdinal - right.peerOrdinal);
+    expect(sessionsFor(minsuAccountId).map((session: any) => session.peerOrdinal)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(sessionsFor(jisuAccountId).map((session: any) => session.peerOrdinal)).toEqual([4, 5]);
+    expect(minsu.map(({ envelope }) => envelope.snapshot.viewer.memberDisplayNumber)).toEqual([
+      1, 1, 1,
+    ]);
+    expect(jisu.map(({ envelope }) => envelope.snapshot.viewer.memberDisplayNumber)).toEqual([
+      4, 4,
+    ]);
+    expect(anonymous.snapshot.viewer).toMatchObject({
+      memberDisplayNumber: 6,
+      displayName: 'Peer 6',
+    });
+    expect(
+      Object.values(internal.room.sessions).find(
+        (session: any) => session.participantId === anonymous.snapshot.viewer.participantId,
+      ),
+    ).toMatchObject({ peerOrdinal: 6, memberDisplayNumber: 6 });
+
+    // Exercise restart migration too: missing and duplicate durable physical
+    // reservations must reconstruct to the same admission layout.
+    const minsuSessions = sessionsFor(minsuAccountId);
+    const jisuSessions = sessionsFor(jisuAccountId);
+    delete minsuSessions[1].peerOrdinal;
+    minsuSessions[2].peerOrdinal = 1;
+    delete jisuSessions[1].peerOrdinal;
+    await internal.persist();
+
+    const restartedEnv = environment(context.bucket) as ReturnType<typeof environment> & {
+      PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION: string;
+    };
+    restartedEnv.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const restarted = new MusixquareProRoom(context.state as never, restartedEnv as never);
+    const restored = await restarted.fetch(request('/snapshot', {}, anonymousCookie));
+    expect(restored.status).toBe(200);
+    const restoredEnvelope = await responseJson(restored);
+    expect(restoredEnvelope.snapshot.viewer).toMatchObject({
+      memberDisplayNumber: 6,
+      displayName: 'Peer 6',
+    });
+    const restartedRoom = (restarted as unknown as { room: Record<string, any> }).room;
+    const restartedSlots = (accountId: string) =>
+      Object.values(restartedRoom.sessions)
+        .filter((session: any) => session.accountId === accountId)
+        .map((session: any) => session.peerOrdinal)
+        .sort((left: number, right: number) => left - right);
+    expect(restartedSlots(minsuAccountId)).toEqual([1, 2, 3]);
+    expect(restartedSlots(jisuAccountId)).toEqual([4, 5]);
+    expect(restartedRoom.nextMemberDisplayNumber).toBe(7);
+  });
+
+  it('links the proven owner credential once and restores owner role on another account device', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, string>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const accountId = 'acct_abcdefghijkl0123456789';
+
+    const attachResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, context.ownerCookie),
+        accountId,
+        '방 주인',
+      ),
+    );
+    expect(attachResponse.status).toBe(200);
+    expect(attachResponse.headers.get('x-mxqr-account-linked')).toBe('1');
+    const attached = await responseJson(attachResponse);
+    expect(attached.snapshot.viewer).toMatchObject({
+      role: 'owner',
+      displayName: '방 주인',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
+    });
+    expect(internal.room.ownerAccountId).toBe(accountId);
+
+    const otherDeviceResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        '방 주인',
+      ),
+    );
+    expect(otherDeviceResponse.status).toBe(200);
+    expect(otherDeviceResponse.headers.get('x-mxqr-account-linked')).toBe('1');
+    const otherDevice = await responseJson(otherDeviceResponse);
+    expect(otherDevice.snapshot.viewer).toMatchObject({
+      memberId: attached.snapshot.viewer.memberId,
+      role: 'owner',
+      displayName: '방 주인',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
+    });
+    expect(otherDevice.snapshot.viewer.participantId).not.toBe(
+      attached.snapshot.viewer.participantId,
+    );
+  });
+
+  it('detaches only the current account device and preserves persistent member authority', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_groupeddevices01234567';
+    const createDevice = async () => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          '민수',
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { envelope, cookie };
+    };
+    const first = await createDevice();
+    const second = await createDevice();
+    const accountMemberId = first.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${accountMemberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const beforeRevision = internal.room.revision as number;
+    const detachedResponse = await context.worker.fetch(
+      request('/sessions/current/account', { method: 'DELETE' }, first.cookie),
+    );
+    expect(detachedResponse.status).toBe(200);
+    const detached = await responseJson(detachedResponse);
+    expect(detached.snapshot.viewer).toMatchObject({
+      role: 'member',
+      isAuthenticated: false,
+      capabilities: ['playback.control'],
+    });
+    expect(detached.snapshot.viewer.memberId).not.toBe(accountMemberId);
+    expect(detached.snapshot.viewer.displayName).toBe(
+      `Peer ${detached.snapshot.viewer.memberDisplayNumber}`,
+    );
+    expect(internal.room.accountMembers[accountId]).toMatchObject({
+      memberId: accountMemberId,
+      role: 'controller',
+    });
+    const accountSessions = Object.values(internal.room.sessions).filter(
+      (session: any) => session.accountId === accountId,
+    ) as any[];
+    expect(accountSessions).toHaveLength(1);
+    expect(accountSessions[0]).toMatchObject({
+      memberId: accountMemberId,
+      displayName: '민수',
+      role: 'controller',
+    });
+    expect(
+      detached.snapshot.administrators.find(
+        (administrator: Record<string, unknown>) => administrator.memberId === accountMemberId,
+      ),
+    ).toMatchObject({ onlineDeviceCount: 1, role: 'controller' });
+    expect(internal.room.revision).toBe(beforeRevision + 1);
+
+    const idempotent = await context.worker.fetch(
+      request('/sessions/current/account', { method: 'DELETE' }, first.cookie),
+    );
+    expect(idempotent.status).toBe(200);
+    const idempotentEnvelope = await responseJson(idempotent);
+    expect(idempotentEnvelope.snapshot.viewer).toMatchObject({
+      memberId: detached.snapshot.viewer.memberId,
+      memberDisplayNumber: detached.snapshot.viewer.memberDisplayNumber,
+      displayName: detached.snapshot.viewer.displayName,
+      isAuthenticated: false,
+    });
+    expect(internal.room.revision).toBe(beforeRevision + 1);
+
+    const secondSnapshot = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, second.cookie)),
+    );
+    expect(secondSnapshot.snapshot.viewer).toMatchObject({
+      memberId: accountMemberId,
+      isAuthenticated: true,
+      displayName: '민수',
+      role: 'controller',
+    });
+  });
+
+  it('detaches an account from an offline resumable session without deleting its grant', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_persistent0123456789ab';
+    const response = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        'Offline admin',
+      ),
+    );
+    const envelope = await responseJson(response);
+    const cookie = cookieFrom(response);
+    bindCookiePresence(cookie, envelope);
+    const memberId = envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await context.worker.fetch(request('/presence/current', { method: 'DELETE' }, cookie)))
+        .status,
+    ).toBe(200);
+
+    const detached = await context.worker.fetch(
+      request('/sessions/current/account', { method: 'DELETE' }, cookie),
+    );
+    expect(detached.status).toBe(200);
+    await expect(detached.json()).resolves.toMatchObject({ snapshot: { viewer: null } });
+    expect(internal.room.accountMembers[accountId]).toMatchObject({
+      memberId,
+      role: 'controller',
+    });
+    expect(
+      Object.values(internal.room.sessions).some((session: any) => session.accountId === accountId),
+    ).toBe(false);
+    const ownerView = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(ownerView.snapshot.administrators).toContainEqual(
+      expect.objectContaining({ memberId, onlineDeviceCount: 0, role: 'controller' }),
+    );
+  });
+
+  it('keeps the linked owner durable while logout demotes one device and disables legacy-cookie elevation', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_abcdefghijkl0123456789';
+    const attachedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, context.ownerCookie),
+        accountId,
+        '방 주인',
+      ),
+    );
+    const attached = await responseJson(attachedResponse);
+
+    const otherDeviceResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        '방 주인',
+      ),
+    );
+    const otherDevice = await responseJson(otherDeviceResponse);
+    const otherCookie = cookieFrom(otherDeviceResponse);
+    bindCookiePresence(otherCookie, otherDevice);
+
+    const detachedResponse = await context.worker.fetch(
+      request('/sessions/current/account', { method: 'DELETE' }, context.ownerCookie),
+    );
+    expect(detachedResponse.status).toBe(200);
+    const detached = await responseJson(detachedResponse);
+    expect(detached.snapshot.viewer).toMatchObject({
+      role: 'member',
+      isAuthenticated: false,
+      capabilities: ['playback.control'],
+    });
+    expect(internal.room.ownerAccountId).toBe(accountId);
+    expect(internal.room.accountMembers[accountId]).toMatchObject({
+      memberId: attached.snapshot.viewer.memberId,
+      role: 'owner',
+    });
+    const stillOwner = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, otherCookie)),
+    );
+    expect(stillOwner.snapshot.viewer).toMatchObject({
+      memberId: attached.snapshot.viewer.memberId,
+      role: 'owner',
+      isAuthenticated: true,
+    });
+
+    const legacyCookieOnly = await context.worker.fetch(
+      jsonRequest(
+        '/sessions',
+        'POST',
+        { pin: '12345678', displayName: 'Peer' },
+        context.ownerRecoveryCookie,
+      ),
+    );
+    expect(legacyCookieOnly.status).toBe(200);
+    const legacyEnvelope = await responseJson(legacyCookieOnly);
+    expect(legacyEnvelope.snapshot.viewer).toMatchObject({
+      role: 'member',
+      isAuthenticated: false,
+      capabilities: ['playback.control'],
+    });
+  });
+
+  it('gives an ordinary PRO member only the shared playback baseline', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const friend = await addAuthorityMember(context, 'Listener');
+
+    expect(friend.envelope.snapshot).toMatchObject({
+      memberIdentityVersion: 1,
+      authorityVersion: 1,
+      viewer: {
+        role: 'member',
+        capabilities: ['playback.control'],
+      },
+    });
+    expect(friend.envelope.snapshot.administrators).toMatchObject([
+      {
+        role: 'owner',
+        permissions: { 'playback.control': true },
+        inheritedPermissions: ['playback.control'],
+      },
+    ]);
+    expect(parseProRoomSnapshot(friend.envelope.snapshot)).not.toBeNull();
+
+    const initialQueueMode = await responseJson(
+      await context.worker.fetch(request('/queue-mode', {}, friend.cookie)),
+    );
+    const deniedQueueConfiguration = await context.worker.fetch(
+      jsonRequest(
+        '/queue-mode',
+        'PUT',
+        {
+          coordinatorEpoch: friend.envelope.snapshot.presence.coordinatorEpoch,
+          baseRevision: initialQueueMode.revision,
+          playlistRevision: friend.envelope.snapshot.playlistRevision,
+          repeatMode: 1,
+          shuffleEnabled: false,
+          shuffleOrder: [],
+        },
+        friend.cookie,
+      ),
+    );
+    expect(deniedQueueConfiguration.status).toBe(403);
+    await expect(deniedQueueConfiguration.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const deniedNotice = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/authority/check', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({
+          participantId: friend.envelope.snapshot.viewer.participantId,
+          presenceIncarnationId: friend.envelope.snapshot.viewer.presenceIncarnationId,
+          permission: 'chat.notice',
+        }),
+      }),
+    );
+    expect(deniedNotice.status).toBe(403);
+    await expect(deniedNotice.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+
+    const deniedBot = await internalBotRequest(
+      context.worker,
+      'context',
+      {
+        roomCode: ROOM_CODE,
+        requestId: 'bot-member-authority-denied-0001',
+        prompt: 'add a song',
+      },
+      friend.cookie,
+    );
+    expect(deniedBot.status).toBe(403);
+    await expect(deniedBot.json()).resolves.toEqual({ error: 'ADMINISTRATOR_REQUIRED' });
+
+    const deniedUpload = await context.worker.fetch(
+      jsonRequest(
+        '/media/reservations',
+        'POST',
+        { byteLength: 1024, name: 'denied.wav', mime: 'audio/wav' },
+        friend.cookie,
+        `${IDEMPOTENCY_KEY}-member-upload-denied`,
+      ),
+    );
+    expect(deniedUpload.status).toBe(403);
+    await expect(deniedUpload.json()).resolves.toEqual({ error: 'CAPABILITY_REQUIRED' });
+
+    const deniedSystemAudio = await context.worker.fetch(
+      jsonRequest('/system-audio/acquire', 'POST', {}, friend.cookie),
+    );
+    expect(deniedSystemAudio.status).toBe(403);
+    await expect(deniedSystemAudio.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const deniedKick = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick',
+        'POST',
+        { targetParticipantId: context.activationEnvelope.snapshot.viewer.participantId },
+        friend.cookie,
+      ),
+    );
+    expect(deniedKick.status).toBe(403);
+  });
+
+  it('lets only the owner delegate canonical permissions and exposes a chat-notice check seam', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const friend = await addAuthorityMember(context, 'Anonymous admin');
+    const memberId = friend.envelope.snapshot.viewer.memberId as string;
+
+    const cannotRemoveBaseline = await context.worker.fetch(
+      jsonRequest(
+        `/administrators/${memberId}`,
+        'PUT',
+        {
+          permissions: { ...fullDelegatedPermissions, 'playback.control': false },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(cannotRemoveBaseline.status).toBe(409);
+    await expect(cannotRemoveBaseline.json()).resolves.toEqual({
+      error: 'PLAYBACK_PERMISSION_INHERITED',
+    });
+
+    const delegated = await context.worker.fetch(
+      jsonRequest(
+        `/administrators/${memberId}`,
+        'PUT',
+        { permissions: fullDelegatedPermissions },
+        context.ownerCookie,
+      ),
+    );
+    expect(delegated.status).toBe(200);
+    const directory = await responseJson(delegated);
+    expect(directory.administrators).toMatchObject([
+      { role: 'owner' },
+      {
+        memberId,
+        role: 'controller',
+        isAuthenticated: false,
+        permissions: fullDelegatedPermissions,
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 1,
+      },
+    ]);
+
+    const current = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, friend.cookie)),
+    );
+    expect(current.snapshot.viewer).toMatchObject({
+      role: 'controller',
+      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+    });
+    expect(parseProRoomSnapshot(current.snapshot)).not.toBeNull();
+
+    const deniedEffects = await context.worker.fetch(
+      jsonRequest('/effects', 'PUT', {}, friend.cookie),
+    );
+    expect(deniedEffects.status).toBe(403);
+    await expect(deniedEffects.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const destructiveRequestId = 'bot-admin-destructive-denied-0001';
+    const destructiveContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: destructiveRequestId, prompt: 'clear the queue' },
+      friend.cookie,
+    );
+    expect(destructiveContext.status).toBe(200);
+    const destructiveContextBody = await responseJson(destructiveContext);
+    const destructiveBot = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: destructiveRequestId,
+        leaseToken: destructiveContextBody.leaseToken,
+        plan: {
+          intent: 'clear_queue',
+          basePlaylistRevision: destructiveContextBody.room.playlistRevision,
+        },
+        tracks: [],
+      },
+      friend.cookie,
+    );
+    expect(destructiveBot.status).toBe(403);
+    await expect(destructiveBot.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const delegatedModeRequestId = 'bot-admin-queue-mode-denied-0001';
+    const delegatedModeContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: delegatedModeRequestId, prompt: 'enable shuffle' },
+      friend.cookie,
+    );
+    expect(delegatedModeContext.status).toBe(200);
+    const delegatedModeContextBody = await responseJson(delegatedModeContext);
+    const delegatedModeBot = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: delegatedModeRequestId,
+        leaseToken: delegatedModeContextBody.leaseToken,
+        plan: { intent: 'queue_mode', shuffleEnabled: true },
+        tracks: [],
+      },
+      friend.cookie,
+    );
+    expect(delegatedModeBot.status).toBe(403);
+    await expect(delegatedModeBot.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const ownerModeRequestId = 'bot-owner-queue-mode-allowed-0001';
+    const ownerModeContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: ownerModeRequestId, prompt: 'enable shuffle' },
+      context.ownerCookie,
+    );
+    expect(ownerModeContext.status).toBe(200);
+    const ownerModeContextBody = await responseJson(ownerModeContext);
+    const ownerModeBot = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: ownerModeRequestId,
+        leaseToken: ownerModeContextBody.leaseToken,
+        plan: { intent: 'queue_mode', shuffleEnabled: true },
+        tracks: [],
+      },
+      context.ownerCookie,
+    );
+    expect(ownerModeBot.status).toBe(200);
+    expect(
+      (context.worker as unknown as { room: Record<string, any> }).room.queueMode,
+    ).toMatchObject({
+      shuffleEnabled: true,
+    });
+
+    const authorityCheck = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/authority/check', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({
+          participantId: current.snapshot.viewer.participantId,
+          presenceIncarnationId: current.snapshot.viewer.presenceIncarnationId,
+          permission: 'chat.notice',
+        }),
+      }),
+    );
+    expect(authorityCheck.status).toBe(200);
+    await expect(authorityCheck.json()).resolves.toMatchObject({
+      allowed: true,
+      memberId,
+      permission: 'chat.notice',
+    });
+
+    const forbiddenDelegation = await context.worker.fetch(
+      jsonRequest(
+        `/administrators/${context.activationEnvelope.snapshot.viewer.memberId}`,
+        'PUT',
+        { permissions: fullDelegatedPermissions },
+        friend.cookie,
+      ),
+    );
+    expect(forbiddenDelegation.status).toBe(403);
+    await expect(forbiddenDelegation.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const immutableOwner = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick',
+        'POST',
+        { targetParticipantId: context.activationEnvelope.snapshot.viewer.participantId },
+        friend.cookie,
+      ),
+    );
+    expect(immutableOwner.status).toBe(409);
+    await expect(immutableOwner.json()).resolves.toEqual({ error: 'OWNER_AUTHORITY_IMMUTABLE' });
+  });
+
+  it('keeps system-audio publishing owner-only even when media addition is delegated', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const friend = await addAuthorityMember(context, 'System audio publisher');
+    const memberId = friend.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const delegatedAcquire = await context.worker.fetch(
+      jsonRequest('/system-audio/acquire', 'POST', {}, friend.cookie),
+    );
+    expect(delegatedAcquire.status).toBe(403);
+    await expect(delegatedAcquire.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const ownerAcquire = await context.worker.fetch(
+      jsonRequest('/system-audio/acquire', 'POST', {}, context.ownerCookie),
+    );
+    expect(ownerAcquire.status).toBe(200);
+  });
+
+  it('separates delegated media addition from owner-only queue organization', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const firstAuthorityQueueItemId = '61111111-1111-4111-8111-111111111111';
+    const secondAuthorityQueueItemId = '62222222-2222-4222-8222-222222222222';
+    const authorityPlaylist = [
+      {
+        queueItemId: firstAuthorityQueueItemId,
+        name: 'First authority item',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+      {
+        queueItemId: secondAuthorityQueueItemId,
+        name: 'Second authority item',
+        source: { kind: 'youtube', videoId: '9bZkp7q19f0' },
+      },
+    ];
+    const friend = await addAuthorityMember(context, 'Queue curator');
+    const memberId = friend.envelope.snapshot.viewer.memberId as string;
+    const noMediaAdd = { ...fullDelegatedPermissions, 'media.add': false };
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: noMediaAdd },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await replacePlaylist(context, authorityPlaylist, 'authority-queue-seed')).status).toBe(
+      200,
+    );
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, friend.cookie)),
+    );
+    expect(before.snapshot.viewer.capabilities).not.toContain('queue.mutate');
+    expect(before.snapshot.viewer.capabilities).not.toContain('asset.upload');
+
+    const addRequestId = 'bot-admin-media-add-denied-0001';
+    const addContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: addRequestId, prompt: 'add a song' },
+      friend.cookie,
+    );
+    expect(addContext.status).toBe(200);
+    const addContextBody = await responseJson(addContext);
+    const deniedBotAddition = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: addRequestId,
+        leaseToken: addContextBody.leaseToken,
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['Test Artist Test Song official audio'],
+          playAddedIndex: -1,
+        },
+        tracks: [{ videoId: 'M7lc1UVf-VE', name: 'Denied BOT addition' }],
+      },
+      friend.cookie,
+    );
+    expect(deniedBotAddition.status).toBe(403);
+    await expect(deniedBotAddition.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+
+    const reordered = await context.worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: before.snapshot.revision,
+          playlistOrder: [secondAuthorityQueueItemId, firstAuthorityQueueItemId],
+          upserts: [],
+          currentQueueItemId: null,
+          playback: null,
+        },
+        friend.cookie,
+        `${IDEMPOTENCY_KEY}-authority-reorder`,
+      ),
+    );
+    expect(reordered.status).toBe(403);
+    await expect(reordered.json()).resolves.toEqual({ error: 'CAPABILITY_REQUIRED' });
+
+    const deniedAddition = await context.worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: before.snapshot.revision,
+          playlistOrder: [
+            firstAuthorityQueueItemId,
+            secondAuthorityQueueItemId,
+            '63333333-3333-4333-8333-333333333333',
+          ],
+          upserts: [
+            {
+              queueItemId: '63333333-3333-4333-8333-333333333333',
+              name: 'Denied addition',
+              source: { kind: 'youtube', videoId: '9bZkp7q19f0' },
+            },
+          ],
+          currentQueueItemId: null,
+          playback: null,
+        },
+        friend.cookie,
+        `${IDEMPOTENCY_KEY}-authority-add-denied`,
+      ),
+    );
+    expect(deniedAddition.status).toBe(403);
+    await expect(deniedAddition.json()).resolves.toEqual({ error: 'CAPABILITY_REQUIRED' });
+
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const afterGrant = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, friend.cookie)),
+    );
+    expect(afterGrant.snapshot.viewer.capabilities).toContain('queue.mutate');
+    expect(afterGrant.snapshot.viewer.capabilities).not.toContain('effects.control');
+    const deniedReorderWithAddAlias = await context.worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: afterGrant.snapshot.revision,
+          playlistOrder: [secondAuthorityQueueItemId, firstAuthorityQueueItemId],
+          upserts: [],
+          currentQueueItemId: null,
+          playback: null,
+        },
+        friend.cookie,
+        `${IDEMPOTENCY_KEY}-authority-reorder-with-add-alias`,
+      ),
+    );
+    expect(deniedReorderWithAddAlias.status).toBe(403);
+    await expect(deniedReorderWithAddAlias.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+
+    const added = await context.worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: afterGrant.snapshot.revision,
+          playlistOrder: [
+            firstAuthorityQueueItemId,
+            secondAuthorityQueueItemId,
+            '63333333-3333-4333-8333-333333333333',
+          ],
+          upserts: [
+            {
+              queueItemId: '63333333-3333-4333-8333-333333333333',
+              name: 'Allowed addition',
+              source: { kind: 'youtube', videoId: 'M7lc1UVf-VE' },
+            },
+          ],
+          currentQueueItemId: null,
+          playback: null,
+        },
+        friend.cookie,
+        `${IDEMPOTENCY_KEY}-authority-add-allowed`,
+      ),
+    );
+    expect(added.status).toBe(200);
+
+    const afterAddition = await responseJson(added);
+    const deniedRemoval = await context.worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: afterAddition.snapshot.revision,
+          playlistOrder: [firstAuthorityQueueItemId, secondAuthorityQueueItemId],
+          upserts: [],
+          currentQueueItemId: null,
+          playback: null,
+        },
+        friend.cookie,
+        `${IDEMPOTENCY_KEY}-authority-remove-denied`,
+      ),
+    );
+    expect(deniedRemoval.status).toBe(403);
+    await expect(deniedRemoval.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+  });
+
+  it('persists account delegation offline while anonymous delegation dies with its session', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const accountId = 'acct_persistent0123456789ab';
+    const accountResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        'Persistent admin',
+      ),
+    );
+    const accountEnvelope = await responseJson(accountResponse);
+    const accountCookie = cookieFrom(accountResponse);
+    bindCookiePresence(accountCookie, accountEnvelope);
+    const accountMemberId = accountEnvelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${accountMemberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await context.worker.fetch(
+          request('/sessions/current', { method: 'DELETE' }, accountCookie),
+        )
+      ).status,
+    ).toBe(200);
+    const offline = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(offline.snapshot.administrators).toContainEqual(
+      expect.objectContaining({ memberId: accountMemberId, onlineDeviceCount: 0 }),
+    );
+
+    const rejoinedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored again' }),
+        accountId,
+        'Persistent admin',
+      ),
+    );
+    const rejoined = await responseJson(rejoinedResponse);
+    const rejoinedCookie = cookieFrom(rejoinedResponse);
+    bindCookiePresence(rejoinedCookie, rejoined);
+    expect(rejoined.snapshot.viewer).toMatchObject({
+      memberId: accountMemberId,
+      role: 'controller',
+    });
+    const revoked = await context.worker.fetch(
+      request(`/administrators/${accountMemberId}`, { method: 'DELETE' }, context.ownerCookie),
+    );
+    expect(revoked.status).toBe(200);
+    const afterRevoke = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, rejoinedCookie)),
+    );
+    expect(afterRevoke.snapshot.viewer).toMatchObject({
+      memberId: accountMemberId,
+      role: 'member',
+      capabilities: ['playback.control'],
+    });
+
+    const anonymous = await addAuthorityMember(context, 'One-shot admin');
+    const anonymousMemberId = anonymous.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${anonymousMemberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await context.worker.fetch(
+          request('/sessions/current', { method: 'DELETE' }, anonymous.cookie),
+        )
+      ).status,
+    ).toBe(200);
+    const afterAnonymousLeave = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(
+      afterAnonymousLeave.snapshot.administrators.some(
+        (administrator: Record<string, unknown>) => administrator.memberId === anonymousMemberId,
+      ),
+    ).toBe(false);
+  });
+
+  it('restores an authenticated administrator grant after a Durable Object restart', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const accountId = 'acct_restartadmin0123456789';
+    const joinedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        'Restart admin',
+      ),
+    );
+    expect(joinedResponse.status).toBe(200);
+    const joined = await responseJson(joinedResponse);
+    const joinedCookie = cookieFrom(joinedResponse);
+    bindCookiePresence(joinedCookie, joined);
+    const memberId = joined.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await context.worker.fetch(request('/sessions/current', { method: 'DELETE' }, joinedCookie)))
+        .status,
+    ).toBe(200);
+
+    const restartedEnv = environment(context.bucket) as ReturnType<typeof environment> & {
+      PRO_ROOM_MEMBER_AUTHORITY_PROJECTION: string;
+    };
+    restartedEnv.PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = '1';
+    const restarted = new MusixquareProRoom(context.state as never, restartedEnv as never);
+    const rejoinedResponse = await restarted.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored again' }),
+        accountId,
+        'Restart admin',
+      ),
+    );
+    expect(rejoinedResponse.status).toBe(200);
+    const rejoined = await responseJson(rejoinedResponse);
+    expect(rejoined.snapshot.viewer).toMatchObject({
+      memberId,
+      role: 'controller',
+      isAuthenticated: true,
+      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+    });
+    expect(rejoined.snapshot.administrators).toContainEqual(
+      expect.objectContaining({ memberId, role: 'controller', isAuthenticated: true }),
+    );
+  });
+
+  it('revokes an anonymous administrator when its final presence expires but keeps the session resumable', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T08:00:00.000Z'));
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const anonymous = await addAuthorityMember(context, 'Expiring moderator');
+    const memberId = anonymous.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    vi.advanceTimersByTime(46_000);
+    await context.worker.alarm();
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(internal.room.anonymousAdministrators[memberId]).toBeUndefined();
+    const resumableSession = Object.values(internal.room.sessions).find(
+      (session: any) => session.participantId === anonymous.envelope.snapshot.viewer.participantId,
+    ) as any;
+    expect(resumableSession).toMatchObject({ memberId, role: 'member' });
+
+    const reenteredResponse = await context.worker.fetch(
+      request('/presence/enter', { method: 'POST' }, anonymous.cookie),
+    );
+    expect(reenteredResponse.status).toBe(200);
+    const reentered = await responseJson(reenteredResponse);
+    expect(reentered.snapshot.viewer).toMatchObject({ memberId, role: 'member' });
+    expect(
+      reentered.snapshot.administrators.some(
+        (administrator: Record<string, unknown>) => administrator.memberId === memberId,
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps anonymous delegation until the same member final live device leaves', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const first = await addAuthorityMember(context, 'Shared anonymous member');
+    const second = await addAuthorityMember(context, 'Temporary second device');
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const memberId = first.envelope.snapshot.viewer.memberId as string;
+    const memberDisplayNumber = first.envelope.snapshot.viewer.memberDisplayNumber as number;
+    const secondParticipantId = second.envelope.snapshot.viewer.participantId as string;
+    const secondParticipant = internal.room.presence.participants[secondParticipantId];
+    const secondSession = internal.room.sessions[secondParticipant.sessionHash];
+    secondSession.memberId = memberId;
+    secondSession.memberDisplayNumber = memberDisplayNumber;
+    secondSession.displayName = 'Shared anonymous member';
+    secondParticipant.memberId = memberId;
+    secondParticipant.memberDisplayNumber = memberDisplayNumber;
+    secondParticipant.displayName = 'Shared anonymous member';
+
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await context.worker.fetch(request('/presence/current', { method: 'DELETE' }, first.cookie)))
+        .status,
+    ).toBe(200);
+    expect(internal.room.anonymousAdministrators[memberId]).toBeDefined();
+    const afterFirstLeave = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, second.cookie)),
+    );
+    expect(afterFirstLeave.snapshot.viewer).toMatchObject({ role: 'controller' });
+    expect(afterFirstLeave.snapshot.administrators).toContainEqual(
+      expect.objectContaining({ memberId, onlineDeviceCount: 1 }),
+    );
+
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, second.cookie),
+        )
+      ).status,
+    ).toBe(200);
+    expect(internal.room.anonymousAdministrators[memberId]).toBeUndefined();
+    expect(secondSession.role).toBe('member');
+  });
+
+  it('does not promote an ephemeral anonymous grant into a persistent account grant on sign-in', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const anonymous = await addAuthorityMember(context, 'One-shot before login');
+    const anonymousMemberId = anonymous.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${anonymousMemberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const attachedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, anonymous.cookie),
+        'acct_attachdemotion01234567',
+        'Signed-in member',
+      ),
+    );
+    expect(attachedResponse.status).toBe(200);
+    expect(attachedResponse.headers.get('x-mxqr-account-linked')).toBe('1');
+    const attached = await responseJson(attachedResponse);
+    expect(attached.snapshot.viewer).toMatchObject({
+      displayName: 'Signed-in member',
+      role: 'member',
+      isAuthenticated: true,
+      capabilities: ['playback.control'],
+    });
+    expect(attached.snapshot.viewer.memberId).not.toBe(anonymousMemberId);
+    expect(
+      attached.snapshot.administrators.some(
+        (administrator: Record<string, unknown>) =>
+          administrator.memberId === anonymousMemberId ||
+          administrator.memberId === attached.snapshot.viewer.memberId,
+      ),
+    ).toBe(false);
+  });
+
+  it('kicks every device in one account and prevents delegated admins from kicking peers', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const accountId = 'acct_groupeddevices01234567';
+    const createAccountDevice = async () => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          'Grouped listener',
+        ),
+      );
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { response, envelope, cookie };
+    };
+    const first = await createAccountDevice();
+    const second = await createAccountDevice();
+    expect(second.envelope.snapshot.viewer.memberId).toBe(first.envelope.snapshot.viewer.memberId);
+
+    const delegated = await addAuthorityMember(context, 'Limited moderator');
+    const delegatedMemberId = delegated.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${delegatedMemberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const otherAdministrator = await addAuthorityMember(context, 'Other moderator');
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${otherAdministrator.envelope.snapshot.viewer.memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const forbidden = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick',
+        'POST',
+        { targetParticipantId: otherAdministrator.envelope.snapshot.viewer.participantId },
+        delegated.cookie,
+      ),
+    );
+    expect(forbidden.status).toBe(403);
+    await expect(forbidden.json()).resolves.toEqual({ error: 'ADMINISTRATOR_TARGET_FORBIDDEN' });
+
+    const kicked = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick',
+        'POST',
+        { targetMemberId: first.envelope.snapshot.viewer.memberId },
+        delegated.cookie,
+      ),
+    );
+    expect(kicked.status).toBe(200);
+    expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
+    expect((await context.worker.fetch(request('/snapshot', {}, second.cookie))).status).toBe(401);
+  });
+
+  it('revokes an authenticated administrator account when the owner kicks that member', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_kickadmin0123456789abc';
+    const createAccountDevice = async () => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+          accountId,
+          'Kicked administrator',
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { envelope, cookie };
+    };
+    const first = await createAccountDevice();
+    const second = await createAccountDevice();
+    const memberId = first.envelope.snapshot.viewer.memberId as string;
+    expect(second.envelope.snapshot.viewer.memberId).toBe(memberId);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const kicked = await context.worker.fetch(
+      jsonRequest('/presence/kick', 'POST', { targetMemberId: memberId }, context.ownerCookie),
+    );
+    expect(kicked.status).toBe(200);
+    expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
+    expect((await context.worker.fetch(request('/snapshot', {}, second.cookie))).status).toBe(401);
+    expect(internal.room.accountMembers[accountId]).toBeUndefined();
+    expect(
+      (await responseJson(kicked)).snapshot.administrators.some(
+        (administrator: Record<string, unknown>) => administrator.memberId === memberId,
+      ),
+    ).toBe(false);
+
+    const rejoinedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        'Kicked administrator',
+      ),
+    );
+    expect(rejoinedResponse.status).toBe(200);
+    const rejoined = await responseJson(rejoinedResponse);
+    expect(rejoined.snapshot.viewer).toMatchObject({
+      role: 'member',
+      isAuthenticated: true,
+      capabilities: ['playback.control'],
+    });
+    expect(rejoined.snapshot.viewer.memberId).not.toBe(memberId);
+  });
+
+  it('purges account-bound authority through the internal account-deletion seam', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const accountId = 'acct_purgeauthority01234567';
+    const response = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        'Soon deleted',
+      ),
+    );
+    const envelope = await responseJson(response);
+    const cookie = cookieFrom(response);
+    bindCookiePresence(cookie, envelope);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${envelope.snapshot.viewer.memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const purged = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/account-authority/purge', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({ accountId }),
+      }),
+    );
+    expect(purged.status).toBe(200);
+    await expect(purged.json()).resolves.toEqual({ ok: true, removedSessions: 1 });
+    expect((await context.worker.fetch(request('/snapshot', {}, cookie))).status).toBe(401);
+    const ownerSnapshot = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(
+      ownerSnapshot.snapshot.administrators.some(
+        (administrator: Record<string, unknown>) =>
+          administrator.memberId === envelope.snapshot.viewer.memberId,
+      ),
+    ).toBe(false);
+  });
+
+  it('purges every owner-account device and removes the durable owner association', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_abcdefghijkl0123456789';
+    const attachedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, context.ownerCookie),
+        accountId,
+        'Deleted owner',
+      ),
+    );
+    expect(attachedResponse.status).toBe(200);
+    const attached = await responseJson(attachedResponse);
+    const ownerMemberId = attached.snapshot.viewer.memberId as string;
+
+    const secondResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+        accountId,
+        'Deleted owner',
+      ),
+    );
+    expect(secondResponse.status).toBe(200);
+    const second = await responseJson(secondResponse);
+    const secondCookie = cookieFrom(secondResponse);
+    bindCookiePresence(secondCookie, second);
+    expect(second.snapshot.viewer).toMatchObject({ memberId: ownerMemberId, role: 'owner' });
+
+    const purged = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/account-authority/purge', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({ accountId }),
+      }),
+    );
+    expect(purged.status).toBe(200);
+    await expect(purged.json()).resolves.toEqual({ ok: true, removedSessions: 2 });
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      401,
+    );
+    expect((await context.worker.fetch(request('/snapshot', {}, secondCookie))).status).toBe(401);
+    expect(internal.room.ownerAccountId).toBeNull();
+    expect(internal.room.accountMembers[accountId]).toBeUndefined();
+    expect(
+      Object.values(internal.room.sessions).some((session: any) => session.accountId === accountId),
+    ).toBe(false);
+  });
+
+  it('rejects a pre-issued account assertion that arrives after account deletion', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-07-20T06:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const accountId = 'acct_0123456789ABCDEFGHIJKL';
+    const delayedJoin = await withAccountAssertion(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Ignored' }),
+      accountId,
+      'Deleted arrival',
+    );
+
+    const purged = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/account-authority/purge', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({ accountId }),
+      }),
+    );
+    expect(purged.status).toBe(200);
+    await expect(purged.json()).resolves.toEqual({ ok: true, removedSessions: 0 });
+
+    // Recreate the Durable Object isolate to prove the deletion fence was
+    // committed even though the account had not yet created a room member.
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const rejected = await restarted.fetch(delayedJoin);
+    expect(rejected.status).toBe(401);
+    await expect(rejected.json()).resolves.toEqual({ error: 'ACCOUNT_ASSERTION_INVALID' });
+    const internal = restarted as unknown as { room: Record<string, any> };
+    expect(internal.room.accountDeletionTombstones[accountId]).toBe(startedAtMs + 5 * 60 * 1000);
+    expect(internal.room.accountMembers[accountId]).toBeUndefined();
+    expect(
+      Object.values(internal.room.sessions).some((session: any) => session.accountId === accountId),
+    ).toBe(false);
+
+    vi.setSystemTime(startedAtMs + 5 * 60 * 1000 + 1);
+    await restarted.alarm();
+    expect(internal.room.accountDeletionTombstones[accountId]).toBeUndefined();
+  });
+
   it('restores the owner role from the separate host-only owner credential', async () => {
     const { worker, ownerCookie, ownerRecoveryCookie, activationEnvelope } = await activatedRoom();
     const closed = await worker.fetch(
@@ -6858,7 +8596,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
-  it('assigns stable one-based Peer names without consuming slots for custom names', async () => {
+  it('assigns stable physical slots to generated and custom anonymous devices', async () => {
     const { worker } = await activatedRoom();
     const firstResponse = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer' }),
@@ -6882,13 +8620,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const secondCookie = cookieFrom(secondResponse);
     const second = await responseJson(secondResponse);
     bindCookiePresence(secondCookie, second);
-    expect(second.snapshot.viewer.displayName).toBe('Peer 2');
+    expect(second.snapshot.viewer.displayName).toBe('Peer 3');
 
     const claimedNumberResponse = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678', displayName: 'Peer 99' }),
     );
     const claimedNumber = await responseJson(claimedNumberResponse);
-    expect(claimedNumber.snapshot.viewer.displayName).toBe('Peer 3');
+    expect(claimedNumber.snapshot.viewer.displayName).toBe('Peer 4');
 
     const reservedRenameResponse = await worker.fetch(
       jsonRequest(
@@ -6900,7 +8638,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
           presenceRevision: first.snapshot.presence.revision,
           playbackRevision: first.snapshot.playback.revision,
           coordinatorEpoch: first.snapshot.presence.coordinatorEpoch,
-          displayName: 'Peer 3',
+          displayName: 'Peer 4',
         },
         firstCookie,
       ),
@@ -7195,6 +8933,45 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(await responseJson(replay)).toEqual({ error: 'RECOVERY_CLAIM_USED' });
   });
 
+  it('does not recover an account-bound owner as a different signed-in account', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const ownerAccountId = 'acct_abcdefghijkl0123456789';
+    const foreignAccountId = 'acct_ZYXWVUTSRQPO9876543210';
+    const attached = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, context.ownerCookie),
+        ownerAccountId,
+        'Original owner',
+      ),
+    );
+    expect(attached.status).toBe(200);
+    const nowMs = Date.now();
+    const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: nowMs - 1_000,
+      expiresAtMs: nowMs + 60_000,
+      nonce: 'foreign-account-recovery-nonce',
+    });
+
+    const rejected = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken, displayName: 'Foreign owner' }),
+        foreignAccountId,
+        'Foreign owner',
+      ),
+    );
+
+    expect(rejected.status).toBe(409);
+    expect(await responseJson(rejected)).toEqual({ error: 'OWNER_ACCOUNT_LINK_CONFLICT' });
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(internal.room.ownerAccountId).toBe(ownerAccountId);
+    expect(internal.room.accountMembers[foreignAccountId]).toBeUndefined();
+    expect(internal.room.consumedRecoveryNonces).toEqual({});
+  });
+
   it('revokes controller sessions on owner PIN rotation while retaining the owner session', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controller = await worker.fetch(
@@ -7381,6 +9158,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       'kind',
       'roomCode',
       'participantId',
+      'memberId',
       'displayName',
       'role',
       'coordinatorEpoch',
@@ -7402,6 +9180,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       presenceRevision: awakeSnapshot.presence.revision,
       ticketSequence: 1,
     });
+    expect(decoded.memberId).toMatch(/^(?:member|owner)_[A-Za-z0-9_-]{16,128}$/);
     expect((decoded.exp as number) - (decoded.iat as number)).toBe(90);
   });
 

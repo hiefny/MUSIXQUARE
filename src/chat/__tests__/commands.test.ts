@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { MSG } from '../../core/constants.ts';
 
 const mocks = vi.hoisted(() => ({
   addSystemChatMessage: vi.fn(),
@@ -114,8 +115,10 @@ describe('getAvailableCommands permission filtering', () => {
     expect(guestCmds).toContain('users');
 
     setState('network.hostConn', null);
+    setState('network.appRole', 'host');
     const hostCmds = getAvailableCommands().map((c) => c.name);
     expect(hostCmds).toContain('kick');
+    expect(hostCmds).toContain('notice');
     expect(hostCmds).toContain('op');
     expect(hostCmds).toContain('deop');
   });
@@ -142,7 +145,172 @@ describe('getAvailableCommands permission filtering', () => {
     executeCommand({ name: 'deop', args: ['#1'], rawArgs: '#1' });
 
     expect(toggleOperator).not.toHaveBeenCalled();
-    expect(mocks.addSystemChatMessage).not.toHaveBeenCalled();
+    expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('exposes only the explicitly granted standard-room administrator commands', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['members.manage', 'chat.notice']);
+
+    const commands = getAvailableCommands().map((command) => command.name);
+    expect(commands).toContain('kick');
+    expect(commands).toContain('notice');
+    expect(commands).not.toContain('clear');
+    expect(commands).not.toContain('mute');
+    expect(commands).not.toContain('op');
+  });
+
+  it('routes owner-sibling room controls through the physical host and hides admin-directory commands', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'physical-host', open: true });
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'queue.mutate',
+      'playback.control',
+      'effects.control',
+      'asset.upload',
+      'members.manage',
+      'chat.notice',
+      'room.configure',
+    ]);
+    const broadcast = vi.fn();
+    bus.on('network:broadcast', broadcast);
+
+    const commands = getAvailableCommands().map((command) => command.name);
+    expect(commands).toEqual(
+      expect.arrayContaining(['clear', 'filter', 'freeze', 'slowmode', 'mute', 'notice']),
+    );
+    expect(commands).not.toContain('op');
+    expect(commands).not.toContain('deop');
+
+    executeCommand({ name: 'freeze', args: ['on'], rawArgs: 'on' });
+    expect(mocks.sendToHost).toHaveBeenCalledWith({
+      type: MSG.REQUEST_CHAT_COMMAND,
+      command: 'freeze',
+      args: ['on'],
+    });
+    expect(getState('network.chatFrozen')).toBe(false);
+    expect(broadcast).not.toHaveBeenCalled();
+
+    executeCommand({ name: 'op', args: ['#2'], rawArgs: '#2' });
+    expect(mocks.addSystemChatMessage).toHaveBeenCalled();
+  });
+
+  it('routes an account target kick through the account-wide standard member event', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['members.manage']);
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'minsu-phone',
+        label: 'Minsu',
+        isOp: false,
+        isHost: false,
+        status: 'connected',
+        joinOrder: 1,
+        memberId: 'member_abcdefghijklmnopqrstuv',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+    ]);
+    const requested = vi.fn();
+    bus.on('network:request-kick-standard-room-member', requested);
+
+    executeCommand({ name: 'kick', args: ['Minsu'], rawArgs: 'Minsu' });
+
+    expect(requested).toHaveBeenCalledWith({
+      memberId: 'member_abcdefghijklmnopqrstuv',
+    });
+  });
+
+  it("resolves the grouped member number after that account's first physical device leaves", () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['members.manage']);
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'minsu-laptop',
+        label: 'Minsu',
+        isOp: false,
+        isHost: false,
+        status: 'connected',
+        joinOrder: 2,
+        memberId: 'member_abcdefghijklmnopqrstuv',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+    ]);
+    const requested = vi.fn();
+    bus.on('network:request-kick-standard-room-member', requested);
+
+    executeCommand({ name: 'kick', args: ['#1'], rawArgs: '#1' });
+
+    expect(requested).toHaveBeenCalledWith({
+      memberId: 'member_abcdefghijklmnopqrstuv',
+    });
+
+    requested.mockClear();
+    executeCommand({ name: 'kick', args: ['#2'], rawArgs: '#2' });
+    expect(requested).not.toHaveBeenCalled();
+  });
+
+  it('keeps physical joinOrder targeting for a legacy anonymous device projection', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['members.manage']);
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'legacy-peer-7',
+        label: 'Peer 7',
+        isOp: false,
+        isHost: false,
+        status: 'connected',
+        joinOrder: 7,
+      },
+    ]);
+    const requested = vi.fn();
+    bus.on('network:request-kick-standard-room-member', requested);
+
+    executeCommand({ name: 'kick', args: ['#7'], rawArgs: '#7' });
+
+    expect(requested).toHaveBeenCalledWith({ memberId: 'peer:legacy-peer-7' });
+  });
+
+  it('passes a grouped PRO target as its member identity for account-wide removal', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'owner',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'jisu-tablet',
+        label: 'Jisu',
+        isOp: false,
+        isHost: false,
+        status: 'connected',
+        joinOrder: 5,
+        memberId: 'member_zyxwvutsrqponmlkjihgfe',
+        memberDisplayNumber: 4,
+        isAuthenticated: true,
+      },
+    ]);
+    const requested = vi.fn();
+    bus.on('pro-room:kick-member', requested);
+
+    executeCommand({ name: 'kick', args: ['#4'], rawArgs: '#4' });
+
+    expect(requested).toHaveBeenCalledWith('member_zyxwvutsrqponmlkjihgfe');
   });
 });
 
@@ -191,10 +359,72 @@ describe('/users PRO hierarchy', () => {
   });
 });
 
+describe('/users member grouping', () => {
+  it('lists one visible member number and a device count for one account on several devices', () => {
+    setState('network.myId', 'minsu-laptop');
+    setState('network.myJoinOrder', 2);
+    setState('network.myMemberDisplayNumber', 1);
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'minsu-phone',
+        label: 'Minsu',
+        isHost: false,
+        isOp: false,
+        status: 'connected',
+        joinOrder: 1,
+        memberId: 'member_abcdefghijklmnopqrstuv',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+      {
+        id: 'minsu-laptop',
+        label: 'Minsu',
+        isHost: false,
+        isOp: false,
+        status: 'connected',
+        joinOrder: 2,
+        memberId: 'member_abcdefghijklmnopqrstuv',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+      {
+        id: 'peer-3',
+        label: 'Peer 3',
+        isHost: false,
+        isOp: false,
+        status: 'connected',
+        joinOrder: 3,
+      },
+    ]);
+
+    executeCommand({ name: 'users', args: [], rawArgs: '' });
+
+    const rendered = String(mocks.addSystemChatMessage.mock.calls[0]?.[0] ?? '');
+    expect(rendered).toContain('#1. Minsu (2)');
+    expect(rendered).toMatch(/#1\. Minsu \(2\) \[[^\]]+\]/);
+    expect(rendered).toContain('#3. Peer 3');
+    expect(rendered).not.toContain('#2. Minsu');
+  });
+});
+
 describe('/bot PRO-room command', () => {
   const requestId = `mxqr-pro-${'a'.repeat(48)}`;
 
-  function enterBotRoom(roomId = '000002'): void {
+  function enterBotRoom(
+    roomId = '000002',
+    role: 'owner' | 'controller' | 'member' = 'controller',
+  ): void {
+    setState('network.myId', 'participant-bot-viewer');
+    setState('network.lastKnownDeviceList', [
+      {
+        id: 'participant-bot-viewer',
+        label: 'BOT viewer',
+        isOp: role !== 'member',
+        isHost: role === 'owner',
+        status: 'connected',
+        role,
+      },
+    ]);
     setState('room.context', {
       kind: 'pro',
       roomId,
@@ -221,6 +451,19 @@ describe('/bot PRO-room command', () => {
     expect(getAvailableCommands().map((command) => command.name)).toContain('bot');
     expect(shouldBroadcastCommand(parseCommand('/bot next')!)).toBe(true);
     expect(shouldBroadcastCommand(parseCommand('/bot')!)).toBe(false);
+  });
+
+  it('does not expose or broadcast BOT requests from an ordinary PRO member', () => {
+    enterBotRoom('000002', 'member');
+
+    expect(getAvailableCommands().map((command) => command.name)).not.toContain('bot');
+    expect(shouldBroadcastCommand(parseCommand('/bot next')!)).toBe(false);
+
+    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' });
+
+    expect(mocks.beginLocalBotChatRequest).not.toHaveBeenCalled();
+    expect(mocks.requestActiveProRoomBotCommand).not.toHaveBeenCalled();
+    expect(mocks.addSystemChatMessage).toHaveBeenCalledOnce();
   });
 
   it('uses the authoritative added count instead of the model summary', async () => {

@@ -1,3 +1,9 @@
+import {
+  deriveStandardRoomMemberId,
+  verifyStandardRoomAccountAssertion,
+  verifyStandardRoomAccountDeletionAssertion,
+} from './standard-room-account-assertion.js';
+
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_CODE_PATTERN = /^0\d{5}$/;
@@ -27,6 +33,8 @@ const MAX_PENDING_GUEST_SOCKETS = MAX_ROOM_GUESTS;
 const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
+const STANDARD_ROOM_MEMBERS_KEY = 'standardRoomAccountMembers';
+const MAX_STANDARD_ROOM_ACCOUNT_MEMBERS = 100;
 const PRO_ROOM_META_KEY = 'proRoomMeta';
 const PRO_TICKET_USES_KEY = 'proSignalingTicketUses';
 const PRO_PARTICIPANT_HIGH_WATER_KEY = 'proSignalingParticipantHighWater';
@@ -39,6 +47,7 @@ const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
 const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
 const PRO_SERVER_EVENT_MAX_BYTES = 3 * 1024;
 const PRO_REALTIME_TEXT_MAX_LENGTH = 500;
+const PRO_AUTHORITY_CHECK_TIMEOUT_MS = 1_000;
 const PRO_DISPLAY_NAME_MAX_LENGTH = 64;
 const PRO_REALTIME_EVENT_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const PRO_REALTIME_COMMAND_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
@@ -155,6 +164,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     'kind',
     'roomCode',
     'participantId',
+    'memberId',
     'displayName',
     'role',
     'coordinatorEpoch',
@@ -178,6 +188,12 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
   }
   if (value.roomCode !== expectedRoomId || !/^\d{6}$/.test(value.roomCode)) return null;
   if (!isValidPeerId(value.participantId)) return null;
+  if (
+    value.memberId !== undefined &&
+    !/^(?:member|owner)_[A-Za-z0-9_-]{16,128}$/.test(value.memberId)
+  ) {
+    return null;
+  }
   if (
     typeof value.displayName !== 'string' ||
     value.displayName.length < 1 ||
@@ -208,6 +224,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     kind: PRO_SIGNALING_TICKET_KIND,
     roomCode: value.roomCode,
     participantId: value.participantId,
+    ...(value.memberId ? { memberId: value.memberId } : {}),
     displayName: value.displayName,
     coordinatorEpoch: value.coordinatorEpoch,
     presenceRevision: value.presenceRevision,
@@ -751,9 +768,11 @@ function validateIncomingMessage(message, role) {
   }
 
   if (role === 'host-pending') {
-    return hasExactKeys(message, ['type', 'secret']) &&
+    return hasExactKeys(message, ['type', 'secret'], ['accountAssertion']) &&
       message.type === 'host-auth' &&
-      isValidPeerId(message.secret)
+      isValidPeerId(message.secret) &&
+      (message.accountAssertion === undefined ||
+        (typeof message.accountAssertion === 'string' && message.accountAssertion.length <= 2048))
       ? 'valid'
       : 'ignore';
   }
@@ -761,6 +780,12 @@ function validateIncomingMessage(message, role) {
   if (role === 'pending') {
     if (message.type !== 'guest-auth') return 'ignore';
     if (typeof message.password !== 'string') return 'ignore';
+    if (
+      message.accountAssertion !== undefined &&
+      (typeof message.accountAssertion !== 'string' || message.accountAssertion.length > 2048)
+    ) {
+      return 'ignore';
+    }
     if (
       message.reconnectSecret !== undefined &&
       !isValidGuestReconnectSecret(message.reconnectSecret)
@@ -775,6 +800,23 @@ function validateIncomingMessage(message, role) {
     // without a password. Once the guest is admitted it is intentionally a
     // harmless no-op, preserving the existing wire contract.
     if (message.type === 'guest-auth') return 'ignore';
+    if (message.type === 'account-identity-refresh') {
+      return hasExactKeys(message, ['type', 'accountAssertion']) &&
+        typeof message.accountAssertion === 'string' &&
+        message.accountAssertion.length <= 2048
+        ? 'valid'
+        : 'ignore';
+    }
+    if (message.type === 'account-identity-clear') {
+      return hasExactKeys(message, ['type']) ? 'valid' : 'ignore';
+    }
+    if (message.type === 'account-identity-delete') {
+      return hasExactKeys(message, ['type', 'deletionAssertion']) &&
+        typeof message.deletionAssertion === 'string' &&
+        message.deletionAssertion.length <= 2048
+        ? 'valid'
+        : 'ignore';
+    }
     if (message.to !== 'host') return 'ignore';
     if (message.type === 'signal-offer') {
       if (isOversizedSdp(message.sdp)) return 'oversized';
@@ -797,6 +839,23 @@ function validateIncomingMessage(message, role) {
   }
 
   if (role !== 'host') return 'ignore';
+  if (message.type === 'account-identity-refresh') {
+    return hasExactKeys(message, ['type', 'accountAssertion']) &&
+      typeof message.accountAssertion === 'string' &&
+      message.accountAssertion.length <= 2048
+      ? 'valid'
+      : 'ignore';
+  }
+  if (message.type === 'account-identity-clear') {
+    return hasExactKeys(message, ['type']) ? 'valid' : 'ignore';
+  }
+  if (message.type === 'account-identity-delete') {
+    return hasExactKeys(message, ['type', 'deletionAssertion']) &&
+      typeof message.deletionAssertion === 'string' &&
+      message.deletionAssertion.length <= 2048
+      ? 'valid'
+      : 'ignore';
+  }
   if (message.type === 'room-password-set') {
     return typeof message.password === 'string' ? 'valid' : 'ignore';
   }
@@ -911,6 +970,85 @@ function defaultRoomMeta() {
   };
 }
 
+function defaultStandardRoomMembers() {
+  return { v: 1, entries: [] };
+}
+
+function normalizeStandardRoomMembers(value) {
+  if (!isRecord(value) || value.v !== 1 || !Array.isArray(value.entries)) {
+    return defaultStandardRoomMembers();
+  }
+  const entries = [];
+  const accountSubjects = new Set();
+  const memberIds = new Set();
+  for (const entry of value.entries) {
+    if (
+      !isRecord(entry) ||
+      typeof entry.accountSubject !== 'string' ||
+      !/^sub_[A-Za-z0-9_-]{22}$/.test(entry.accountSubject) ||
+      typeof entry.memberId !== 'string' ||
+      !/^member_[A-Za-z0-9_-]{22}$/.test(entry.memberId) ||
+      !Number.isSafeInteger(entry.memberDisplayNumber) ||
+      entry.memberDisplayNumber < 0 ||
+      entry.memberDisplayNumber > 99 ||
+      accountSubjects.has(entry.accountSubject) ||
+      memberIds.has(entry.memberId)
+    ) {
+      continue;
+    }
+    accountSubjects.add(entry.accountSubject);
+    memberIds.add(entry.memberId);
+    entries.push({
+      accountSubject: entry.accountSubject,
+      memberId: entry.memberId,
+      memberDisplayNumber: entry.memberDisplayNumber,
+    });
+    if (entries.length >= MAX_STANDARD_ROOM_ACCOUNT_MEMBERS) break;
+  }
+  return { v: 1, entries };
+}
+
+function standardRoomMemberIdentityFromAttachment(attachment) {
+  if (
+    typeof attachment?.memberId !== 'string' ||
+    !/^member_[A-Za-z0-9_-]{22}$/.test(attachment.memberId) ||
+    !Number.isSafeInteger(attachment.memberDisplayNumber) ||
+    typeof attachment.memberNickname !== 'string' ||
+    !attachment.memberNickname
+  ) {
+    return null;
+  }
+  return {
+    memberId: attachment.memberId,
+    memberDisplayNumber: attachment.memberDisplayNumber,
+    nickname: attachment.memberNickname,
+    isAuthenticated: true,
+  };
+}
+
+function standardRoomIdentityAttachmentFields(identity) {
+  if (!identity) return {};
+  return {
+    accountSubject: identity.accountSubject,
+    memberId: identity.memberId,
+    memberDisplayNumber: identity.memberDisplayNumber,
+    memberNickname: identity.nickname,
+    identityExpiresAt: identity.expiresAt * 1000,
+  };
+}
+
+function withoutStandardRoomIdentity(attachment) {
+  const {
+    accountSubject: _accountSubject,
+    memberId: _memberId,
+    memberDisplayNumber: _memberDisplayNumber,
+    memberNickname: _memberNickname,
+    identityExpiresAt: _identityExpiresAt,
+    ...rest
+  } = attachment;
+  return rest;
+}
+
 function normalizeRoomMeta(value) {
   if (!value || typeof value !== 'object') return defaultRoomMeta();
   return {
@@ -940,6 +1078,42 @@ function normalizeProRoomMeta(value) {
   };
 }
 
+function normalizeStandardRoomIdentityAttachment(value) {
+  const identityKeys = [
+    'accountSubject',
+    'memberId',
+    'memberDisplayNumber',
+    'memberNickname',
+    'identityExpiresAt',
+  ];
+  const present = identityKeys.filter((key) => value[key] !== undefined);
+  if (present.length === 0) return {};
+  if (
+    present.length !== identityKeys.length ||
+    typeof value.accountSubject !== 'string' ||
+    !/^sub_[A-Za-z0-9_-]{22}$/.test(value.accountSubject) ||
+    typeof value.memberId !== 'string' ||
+    !/^member_[A-Za-z0-9_-]{22}$/.test(value.memberId) ||
+    !Number.isSafeInteger(value.memberDisplayNumber) ||
+    value.memberDisplayNumber < 0 ||
+    value.memberDisplayNumber > 99 ||
+    typeof value.memberNickname !== 'string' ||
+    !value.memberNickname.trim() ||
+    [...value.memberNickname].length > 20 ||
+    !Number.isSafeInteger(value.identityExpiresAt) ||
+    value.identityExpiresAt <= 0
+  ) {
+    return {};
+  }
+  return {
+    accountSubject: value.accountSubject,
+    memberId: value.memberId,
+    memberDisplayNumber: value.memberDisplayNumber,
+    memberNickname: value.memberNickname.normalize('NFC').trim(),
+    identityExpiresAt: value.identityExpiresAt,
+  };
+}
+
 function normalizeAttachment(value) {
   if (!value || typeof value !== 'object' || value.v !== ATTACHMENT_VERSION) return null;
   if (typeof value.roomId !== 'string' || !value.roomId) return null;
@@ -950,6 +1124,12 @@ function normalizeAttachment(value) {
     if (!isProNamespaceRoomCode(value.roomId) || value.peerId !== value.participantId) return null;
     if (!isValidProEpoch(value.coordinatorEpoch)) return null;
     if (!isValidPeerId(value.participantId)) return null;
+    if (
+      value.memberId !== undefined &&
+      !/^(?:member|owner)_[A-Za-z0-9_-]{16,128}$/.test(value.memberId)
+    ) {
+      return null;
+    }
     if (
       typeof value.displayName !== 'string' ||
       value.displayName.length < 1 ||
@@ -980,6 +1160,7 @@ function normalizeAttachment(value) {
       roomId: value.roomId,
       peerId: value.peerId,
       participantId: value.participantId,
+      ...(typeof value.memberId === 'string' ? { memberId: value.memberId } : {}),
       displayName: value.displayName,
       coordinatorEpoch: value.coordinatorEpoch,
       // Older live attachments can survive a rolling Worker deployment. Their
@@ -1016,6 +1197,7 @@ function normalizeAttachment(value) {
         peerId: value.peerId,
         secret: value.secret,
         auth: 'ok',
+        ...normalizeStandardRoomIdentityAttachment(value),
       };
     }
     if (value.auth === 'pending') {
@@ -1049,6 +1231,7 @@ function normalizeAttachment(value) {
       roomId: value.roomId,
       peerId: value.peerId,
       auth: 'ok',
+      ...normalizeStandardRoomIdentityAttachment(value),
       ...guestMessageBucket,
     };
   }
@@ -1102,6 +1285,7 @@ export class MusixquareRoom {
     this.pendingGuests = new Set();
     this.proMembers = new Map();
     this.guestBindings = null;
+    this.standardRoomMembers = null;
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
     this.proPresenceAuthority = undefined;
@@ -1191,6 +1375,74 @@ export class MusixquareRoom {
       realtimeMessageUpdatedAt: now,
     });
     return tokens >= 1;
+  }
+
+  async hasProRealtimePermission(attachment, permission) {
+    const namespace = this.env?.PRO_ROOM_AUTHORITY_ROOMS;
+    if (
+      !namespace ||
+      typeof namespace.idFromName !== 'function' ||
+      typeof namespace.get !== 'function'
+    ) {
+      this.recordMetric('pro_realtime_authority_unavailable');
+      return false;
+    }
+
+    let authorityRequest;
+    try {
+      const room = namespace.get(namespace.idFromName(attachment.roomId));
+      if (!room || typeof room.fetch !== 'function') {
+        this.recordMetric('pro_realtime_authority_unavailable');
+        return false;
+      }
+      if (typeof AbortSignal === 'undefined' || typeof AbortSignal.timeout !== 'function') {
+        this.recordMetric('pro_realtime_authority_unavailable');
+        return false;
+      }
+      authorityRequest = new Request(
+        'https://pro-room.internal/internal/authority/check',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': attachment.roomId,
+          },
+          body: JSON.stringify({
+            participantId: attachment.participantId,
+            presenceIncarnationId: attachment.presenceIncarnationId,
+            permission,
+          }),
+          signal: AbortSignal.timeout(PRO_AUTHORITY_CHECK_TIMEOUT_MS),
+        },
+      );
+      const response = await room.fetch(authorityRequest);
+      if (response.status !== 200) {
+        this.recordMetric('pro_realtime_authority_denied');
+        return false;
+      }
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        this.recordMetric('pro_realtime_authority_invalid_response');
+        return false;
+      }
+      const allowed =
+        isRecord(payload) &&
+        payload.allowed === true &&
+        payload.permission === permission &&
+        typeof payload.memberId === 'string' &&
+        typeof payload.role === 'string';
+      if (!allowed) this.recordMetric('pro_realtime_authority_invalid_response');
+      return allowed;
+    } catch {
+      this.recordMetric(
+        authorityRequest?.signal?.aborted
+          ? 'pro_realtime_authority_timeout'
+          : 'pro_realtime_authority_failed',
+      );
+      return false;
+    }
   }
 
   rehydrateSockets() {
@@ -1596,7 +1848,109 @@ export class MusixquareRoom {
   }
 
   async clearRoomMeta() {
-    return this.saveRoomMeta(defaultRoomMeta());
+    const roomMeta = defaultRoomMeta();
+    const members = defaultStandardRoomMembers();
+    const bindings = defaultGuestBindings();
+    if (typeof this.state.storage.transaction === 'function') {
+      await this.state.storage.transaction(async (transaction) => {
+        await transaction.put(ROOM_META_KEY, roomMeta);
+        await transaction.put(STANDARD_ROOM_MEMBERS_KEY, members);
+        await transaction.put(GUEST_BINDINGS_KEY, bindings);
+      });
+    } else {
+      // Test/runtime compatibility fallback. Production Durable Object storage
+      // provides transactions, making the room epoch reset atomic.
+      await this.state.storage.put(ROOM_META_KEY, roomMeta);
+      await this.state.storage.put(STANDARD_ROOM_MEMBERS_KEY, members);
+      await this.state.storage.put(GUEST_BINDINGS_KEY, bindings);
+    }
+    this.roomMeta = roomMeta;
+    this.standardRoomMembers = members;
+    this.guestBindings = bindings;
+    return roomMeta;
+  }
+
+  async loadStandardRoomMembers() {
+    if (!this.standardRoomMembers) {
+      const stored = await this.state.storage.get(STANDARD_ROOM_MEMBERS_KEY);
+      this.standardRoomMembers = normalizeStandardRoomMembers(stored);
+    }
+    return this.standardRoomMembers;
+  }
+
+  async saveStandardRoomMembers(directory) {
+    const normalized = normalizeStandardRoomMembers(directory);
+    await this.state.storage.put(STANDARD_ROOM_MEMBERS_KEY, normalized);
+    this.standardRoomMembers = normalized;
+    return normalized;
+  }
+
+  async clearStandardRoomMembers() {
+    return this.saveStandardRoomMembers(defaultStandardRoomMembers());
+  }
+
+  async resolveStandardRoomIdentity(assertion, roomId, peerId, role, roomSecret) {
+    if (!assertion) return null;
+    const secret = String(this.env?.MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+    const verified = await verifyStandardRoomAccountAssertion(assertion, secret, {
+      roomCode: roomId,
+      peerId,
+      role,
+    });
+    if (!verified) return null;
+    const memberId = await deriveStandardRoomMemberId(roomSecret, verified.accountSubject);
+    if (!memberId) return null;
+    const directory = await this.loadStandardRoomMembers();
+    const existing = directory.entries.find(
+      (entry) => entry.accountSubject === verified.accountSubject,
+    );
+    let memberDisplayNumber = role === 'host' ? 0 : existing?.memberDisplayNumber;
+    if (memberDisplayNumber === undefined) {
+      const occupied = new Set(directory.entries.map((entry) => entry.memberDisplayNumber));
+      const preferred = Math.max(1, Math.min(99, this.guests.size + 1));
+      for (let offset = 0; offset < 99; offset += 1) {
+        const candidate = ((preferred - 1 + offset) % 99) + 1;
+        if (occupied.has(candidate)) continue;
+        memberDisplayNumber = candidate;
+        break;
+      }
+      if (memberDisplayNumber === undefined) return null;
+    }
+    const entry = {
+      accountSubject: verified.accountSubject,
+      memberId,
+      memberDisplayNumber,
+    };
+    if (
+      !existing ||
+      existing.memberId !== entry.memberId ||
+      existing.memberDisplayNumber !== entry.memberDisplayNumber
+    ) {
+      const remaining = directory.entries.filter(
+        (candidate) => candidate.accountSubject !== verified.accountSubject,
+      );
+      if (!existing && remaining.length >= MAX_STANDARD_ROOM_ACCOUNT_MEMBERS) return null;
+      await this.saveStandardRoomMembers({ v: 1, entries: [...remaining, entry] });
+    }
+    return {
+      ...entry,
+      nickname: verified.nickname,
+      expiresAt: verified.expiresAt,
+    };
+  }
+
+  async resolveStandardRoomIdentityDeletion(assertion, roomId, peerId, role, roomSecret) {
+    if (!assertion) return null;
+    const secret = String(this.env?.MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+    const verified = await verifyStandardRoomAccountDeletionAssertion(assertion, secret, {
+      roomCode: roomId,
+      peerId,
+      role,
+    });
+    if (!verified) return null;
+    const memberId = await deriveStandardRoomMemberId(roomSecret, verified.accountSubject);
+    if (!memberId) return null;
+    return { accountSubject: verified.accountSubject, memberId };
   }
 
   async loadGuestBindings() {
@@ -1653,7 +2007,6 @@ export class MusixquareRoom {
     }
     this.guests.clear();
     this.pendingGuests.clear();
-    await this.clearGuestBindings();
     return this.clearRoomMeta();
   }
 
@@ -1671,6 +2024,12 @@ export class MusixquareRoom {
     const hostReleaseAt = !this.host ? this.roomMeta?.hostReleaseAt : 0;
     if (hostReleaseAt && (earliest === null || hostReleaseAt < earliest)) {
       earliest = hostReleaseAt;
+    }
+    for (const socket of [this.host, ...this.guests.values()].filter(Boolean)) {
+      const attachment = readAttachment(socket);
+      if (!Number.isSafeInteger(attachment?.identityExpiresAt)) continue;
+      const identityExpiryAt = attachment.identityExpiresAt + 1000;
+      if (earliest === null || identityExpiryAt < earliest) earliest = identityExpiryAt;
     }
     return earliest;
   }
@@ -2031,6 +2390,7 @@ export class MusixquareRoom {
       roomId: ticket.roomCode,
       peerId: ticket.participantId,
       participantId: ticket.participantId,
+      ...(ticket.memberId ? { memberId: ticket.memberId } : {}),
       displayName: ticket.displayName,
       coordinatorEpoch: ticket.coordinatorEpoch,
       presenceRevision: ticket.presenceRevision,
@@ -2100,7 +2460,7 @@ export class MusixquareRoom {
     if (accepted) this.recordMetric('host_legacy_url_auth');
   }
 
-  async completeHostAccept(ws, roomId, peerId, secret, alreadyAccepted) {
+  async completeHostAccept(ws, roomId, peerId, secret, alreadyAccepted, accountAssertion = '') {
     // The caller owns standardAdmissionSync. Expire the previous epoch in the
     // same queue before reading the ownership snapshot used by this claim.
     const meta = await this.clearExpiredHostRelease();
@@ -2120,7 +2480,17 @@ export class MusixquareRoom {
     }
 
     const isNewRoom = !meta.roomSecret;
-    if (isNewRoom) await this.clearGuestBindings();
+    if (isNewRoom) {
+      await this.clearGuestBindings();
+      await this.clearStandardRoomMembers();
+    }
+    const identity = await this.resolveStandardRoomIdentity(
+      accountAssertion,
+      roomId,
+      peerId,
+      'host',
+      secret,
+    );
     const attachment = {
       v: ATTACHMENT_VERSION,
       role: 'host',
@@ -2128,6 +2498,7 @@ export class MusixquareRoom {
       peerId,
       secret,
       auth: 'ok',
+      ...standardRoomIdentityAttachmentFields(identity),
     };
     // Persist the authenticated owner before replacing the live host. A failed
     // storage write must leave the already-authenticated host untouched.
@@ -2149,6 +2520,7 @@ export class MusixquareRoom {
         type: 'peer-open',
         peerId: roomId,
         roomId,
+        ...(identity ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) } : {}),
         ...workerVersionFields(this.env),
       })
     ) {
@@ -2265,13 +2637,23 @@ export class MusixquareRoom {
           }
         }
       }
+      for (const sock of [this.host, ...this.guests.values()].filter(Boolean)) {
+        const attachment = readAttachment(sock);
+        if (
+          attachment?.auth === 'ok' &&
+          Number.isSafeInteger(attachment.identityExpiresAt) &&
+          now > attachment.identityExpiresAt
+        ) {
+          await this.applyStandardRoomIdentity(sock, attachment, null, 'expired');
+        }
+      }
       // The same alarm also expires host metadata after reconnect grace.
       await this.clearExpiredHostRelease();
     });
     await this.scheduleMaintenanceAlarm();
   }
 
-  async completeGuestAccept(ws, roomId, peerId) {
+  async completeGuestAccept(ws, roomId, peerId, identity = null) {
     const previous = this.guests.get(peerId);
     const currentAttachment = readAttachment(ws);
     const previousAttachment = readAttachment(previous);
@@ -2295,6 +2677,7 @@ export class MusixquareRoom {
       roomId,
       peerId,
       auth: 'ok',
+      ...standardRoomIdentityAttachmentFields(identity),
       ...(Number.isFinite(bucketAttachment?.guestMessageTokens) &&
       Number.isFinite(bucketAttachment?.guestMessageUpdatedAt)
         ? {
@@ -2313,8 +2696,133 @@ export class MusixquareRoom {
       type: 'peer-open',
       peerId,
       roomId,
+      ...(identity ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) } : {}),
       ...workerVersionFields(this.env),
     });
+    if (identity) await this.scheduleMaintenanceAlarm();
+  }
+
+  notifyStandardRoomIdentity(ws, attachment, clearReason) {
+    const memberIdentity = standardRoomMemberIdentityFromAttachment(attachment);
+    sendChecked(ws, {
+      type: 'account-identity',
+      memberIdentity,
+      ...(memberIdentity === null && clearReason ? { clearReason } : {}),
+    });
+    if (attachment.role === 'guest' && this.host) {
+      sendChecked(this.host, {
+        type: 'account-member-updated',
+        peerId: attachment.peerId,
+        memberIdentity,
+        ...(memberIdentity === null && clearReason ? { clearReason } : {}),
+      });
+    }
+  }
+
+  async applyStandardRoomIdentity(ws, attachment, identity, clearReason) {
+    const next = {
+      ...withoutStandardRoomIdentity(attachment),
+      ...standardRoomIdentityAttachmentFields(identity),
+    };
+    ws.serializeAttachment(next);
+    this.notifyStandardRoomIdentity(ws, next, clearReason);
+
+    // Nickname and member number belong to the account member, not one tab.
+    // Update every other live device with the same room-scoped subject while
+    // preserving each device's independently expiring assertion lease.
+    if (identity) {
+      const peers = [this.host, ...this.guests.values()].filter(Boolean);
+      for (const peerSocket of peers) {
+        if (peerSocket === ws) continue;
+        const peerAttachment = readAttachment(peerSocket);
+        if (
+          peerAttachment?.auth !== 'ok' ||
+          peerAttachment.accountSubject !== identity.accountSubject
+        ) {
+          continue;
+        }
+        const updated = {
+          ...peerAttachment,
+          memberId: identity.memberId,
+          memberDisplayNumber: identity.memberDisplayNumber,
+          memberNickname: identity.nickname,
+        };
+        peerSocket.serializeAttachment(updated);
+        this.notifyStandardRoomIdentity(peerSocket, updated);
+      }
+    }
+    await this.scheduleMaintenanceAlarm();
+  }
+
+  async handleStandardRoomIdentityMutation(ws, message, attachment) {
+    if (message.type === 'account-identity-delete') {
+      const meta = await this.loadRoomMeta();
+      if (!meta.roomSecret) return;
+      const deletion = await this.resolveStandardRoomIdentityDeletion(
+        message.deletionAssertion,
+        attachment.roomId,
+        attachment.peerId,
+        attachment.role === 'host' ? 'host' : 'guest',
+        meta.roomSecret,
+      );
+      // Deletion authority is never inferred from a live attachment and a
+      // normal attach assertion can never pass this verifier.
+      if (!deletion) return;
+      const accountSubject = deletion.accountSubject;
+      let deletedMemberId = deletion.memberId;
+      const directory = await this.loadStandardRoomMembers();
+      const directoryEntry = directory.entries.find(
+        (entry) => entry.accountSubject === accountSubject,
+      );
+      if (!/^member_[A-Za-z0-9_-]{22}$/.test(String(deletedMemberId || ''))) {
+        deletedMemberId = directoryEntry?.memberId;
+      }
+      await this.saveStandardRoomMembers({
+        v: 1,
+        entries: directory.entries.filter((entry) => entry.accountSubject !== accountSubject),
+      });
+      const peers = [this.host, ...this.guests.values()].filter(Boolean);
+      for (const peerSocket of peers) {
+        const peerAttachment = readAttachment(peerSocket);
+        if (peerAttachment?.auth !== 'ok' || peerAttachment.accountSubject !== accountSubject) {
+          continue;
+        }
+        const cleared = withoutStandardRoomIdentity(peerAttachment);
+        peerSocket.serializeAttachment(cleared);
+        this.notifyStandardRoomIdentity(peerSocket, cleared, 'deleted');
+      }
+      if (
+        this.host &&
+        typeof deletedMemberId === 'string' &&
+        /^member_[A-Za-z0-9_-]{22}$/.test(deletedMemberId)
+      ) {
+        // The room host owns Standard-room grants in RAM. This server-issued
+        // pseudonymous event revokes the durable grant even when every
+        // physical account lease expired before account deletion completed.
+        sendChecked(this.host, {
+          type: 'account-member-deleted',
+          memberId: deletedMemberId,
+        });
+      }
+      await this.scheduleMaintenanceAlarm();
+      return;
+    }
+    if (message.type === 'account-identity-clear') {
+      await this.applyStandardRoomIdentity(ws, attachment, null, 'explicit');
+      return;
+    }
+    const meta = await this.loadRoomMeta();
+    if (!meta.roomSecret) return;
+    const role = attachment.role === 'host' ? 'host' : 'guest';
+    const identity = await this.resolveStandardRoomIdentity(
+      message.accountAssertion,
+      attachment.roomId,
+      attachment.peerId,
+      role,
+      meta.roomSecret,
+    );
+    if (!identity) return;
+    await this.applyStandardRoomIdentity(ws, attachment, identity);
   }
 
   async webSocketMessage(ws, raw) {
@@ -2394,6 +2902,14 @@ export class MusixquareRoom {
       }
       if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
       if (this.host !== ws) return;
+      if (
+        message.type === 'account-identity-refresh' ||
+        message.type === 'account-identity-clear' ||
+        message.type === 'account-identity-delete'
+      ) {
+        await this.handleStandardRoomIdentityMutation(ws, message, attachment);
+        return;
+      }
       await this.handleHostMessage(ws, message, attachment);
       return;
     }
@@ -2407,7 +2923,15 @@ export class MusixquareRoom {
     if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
 
     if (this.guests.get(attachment.peerId) !== ws) return;
-    this.handleGuestMessage(attachment.peerId, message);
+    if (
+      message.type === 'account-identity-refresh' ||
+      message.type === 'account-identity-clear' ||
+      message.type === 'account-identity-delete'
+    ) {
+      await this.handleStandardRoomIdentityMutation(ws, message, attachment);
+      return;
+    }
+    this.handleGuestMessage(attachment.peerId, message, attachment);
   }
 
   async handleProRealtimeMessage(ws, raw, attachment) {
@@ -2466,6 +2990,19 @@ export class MusixquareRoom {
       return;
     }
 
+    // Notice messages are privileged room-wide announcements. The browser's
+    // payload contains no authority claim: authorize the server-admitted
+    // participant and its exact live presence incarnation against the PRO room
+    // Durable Object immediately before relay. An unavailable authority service
+    // drops only this notice; the WebSocket and ordinary chat remain usable.
+    if (
+      normalized.channel === 'chat' &&
+      normalized.payload.kind === 'notice' &&
+      !(await this.hasProRealtimePermission(attachment, 'chat.notice'))
+    ) {
+      return;
+    }
+
     const targetParticipantId =
       normalized.channel === 'chat' &&
       (normalized.payload.kind === 'whisper' || normalized.payload.kind === 'mute')
@@ -2494,6 +3031,7 @@ export class MusixquareRoom {
       sender: {
         participantId: attachment.participantId,
         presenceIncarnationId: attachment.presenceIncarnationId,
+        ...(attachment.memberId ? { memberId: attachment.memberId } : {}),
         displayName: attachment.displayName,
       },
     };
@@ -2545,7 +3083,14 @@ export class MusixquareRoom {
       closeWithError(ws, 'host-auth-timeout', 'HOST_AUTH_TIMEOUT', 1008);
       return;
     }
-    await this.completeHostAccept(ws, attachment.roomId, attachment.peerId, message.secret, true);
+    await this.completeHostAccept(
+      ws,
+      attachment.roomId,
+      attachment.peerId,
+      message.secret,
+      true,
+      message.accountAssertion,
+    );
   }
 
   async handleGuestAuth(ws, message, attachment) {
@@ -2660,13 +3205,30 @@ export class MusixquareRoom {
       await this.saveGuestBindings(bindings);
     }
 
-    await this.completeGuestAccept(ws, attachment.roomId, attachment.peerId);
+    const identity = await this.resolveStandardRoomIdentity(
+      message.accountAssertion,
+      attachment.roomId,
+      attachment.peerId,
+      'guest',
+      meta.roomSecret,
+    );
+    await this.completeGuestAccept(ws, attachment.roomId, attachment.peerId, identity);
   }
 
-  handleGuestMessage(peerId, message) {
+  handleGuestMessage(peerId, message, attachment) {
     if (!this.host) return;
-    const { to: _to, ...rest } = message;
-    send(this.host, { ...rest, from: peerId });
+    const {
+      to: _to,
+      memberIdentity: _untrustedMemberIdentity,
+      accountSubject: _untrustedAccountSubject,
+      ...rest
+    } = message;
+    const memberIdentity = standardRoomMemberIdentityFromAttachment(attachment);
+    send(this.host, {
+      ...rest,
+      from: peerId,
+      ...(memberIdentity ? { memberIdentity } : {}),
+    });
   }
 
   async handleHostMessage(ws, message, attachment) {

@@ -16,9 +16,14 @@ import {
 } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import { isQueueItemId, parsePlaylistSnapshot } from '../player/queue-model.ts';
-import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index.ts';
+import type {
+  AnyProtocolMsg,
+  DataConnection,
+  ProtocolMsg,
+  RoomCapability,
+} from '../types/index.ts';
 import { hasQueueAuthority } from './queue-authority.ts';
-import { getRoomContext, verifyPeerCapability } from '../rooms/authority.ts';
+import { verifyPeerCapability } from '../rooms/authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
@@ -60,6 +65,7 @@ const REMOTE_OBJECT_ID_RE =
 // Keep member-management requests to one small opaque identifier so callers
 // cannot smuggle a connection object or other coordinator-owned state.
 const PRO_PEER_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+const STANDARD_ROOM_MEMBER_ID_RE = /^member_[A-Za-z0-9_-]{22}$/;
 // Shared with the authenticated PRO API idempotency-key contract. BOT chat
 // correlation ids are opaque, bounded tokens; they never contain a room or
 // participant identity.
@@ -843,6 +849,9 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.CHAT]: (d) =>
     typeof d.text === 'string' &&
     d.text.length <= 4000 &&
+    (d.senderMemberId === undefined ||
+      (typeof d.senderMemberId === 'string' &&
+        STANDARD_ROOM_MEMBER_ID_RE.test(d.senderMemberId))) &&
     (d.botRequestId === undefined ||
       (typeof d.botRequestId === 'string' && BOT_REQUEST_ID_RE.test(d.botRequestId))),
   [MSG.CHAT_WHISPER]: (d) =>
@@ -1121,18 +1130,9 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 export function verifyOperator(
   conn: DataConnection,
   _data?: Record<string, unknown>,
-  capability: 'playback.control' | 'effects.control' = 'playback.control',
+  capability: RoomCapability = 'playback.control',
 ): boolean {
-  if (getRoomContext().kind === 'pro') {
-    return verifyPeerCapability(conn, capability);
-  }
-
-  const peerId = conn?.peer;
-  if (!peerId) return false;
-  if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return false;
-  const connectedPeers = getState('network.connectedPeers');
-  const peer = connectedPeers.find((p) => p.id === peerId && p.conn === conn);
-  return !!(peer && peer.isOp);
+  return verifyPeerCapability(conn, capability);
 }
 
 // ─── Initialize Protocol ────────────────────────────────────────────

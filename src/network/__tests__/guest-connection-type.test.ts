@@ -152,6 +152,55 @@ describe('guest connection type authority', () => {
       expect(getState('network.myDeviceLabel')).toBe('Guest 2');
       expect(getState('network.isOperator')).toBe(false);
     });
+
+    it('accepts every owner product capability from the host but strips physical transport roles', async () => {
+      const { handleData } = await import('../protocol.ts');
+      const { hasRoomCapability, isCoordinator } = await import('../../rooms/authority.ts');
+      setState('network.appRole', 'guest');
+
+      await handleData(
+        {
+          type: MSG.OPERATOR_GRANT,
+          capabilities: [
+            'media.add',
+            'queue.mutate',
+            'playback.control',
+            'effects.control',
+            'asset.upload',
+            'members.manage',
+            'chat.notice',
+            'room.configure',
+            'system-audio.publish',
+            'coordinator.eligible',
+          ],
+        },
+        gatedHostConn,
+      );
+
+      expect(getState('network.standardRoomCapabilities')).toEqual([
+        'media.add',
+        'queue.mutate',
+        'playback.control',
+        'effects.control',
+        'asset.upload',
+        'members.manage',
+        'chat.notice',
+        'room.configure',
+      ]);
+      expect(hasRoomCapability('queue.mutate')).toBe(true);
+      expect(hasRoomCapability('effects.control')).toBe(true);
+      expect(hasRoomCapability('room.configure')).toBe(true);
+      expect(hasRoomCapability('system-audio.publish')).toBe(false);
+      expect(hasRoomCapability('coordinator.eligible')).toBe(false);
+      expect(isCoordinator()).toBe(false);
+      expect(getState('network.hostConn')).toBe(gatedHostConn);
+      expect(mocks.showToast).not.toHaveBeenCalled();
+
+      await handleData({ type: MSG.OPERATOR_REVOKE }, gatedHostConn);
+      expect(getState('network.isOperator')).toBe(false);
+      expect(getState('network.standardRoomCapabilities')).toBeNull();
+      expect(mocks.showToast).not.toHaveBeenCalled();
+    });
   });
 
   it('keeps PRO members promoted when legacy operator frames arrive', async () => {

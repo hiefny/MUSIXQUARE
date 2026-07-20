@@ -389,6 +389,18 @@ if (selfOnly.length) {
       'own file. Post-sweep survivors are test-imported or types/index.ts barrel ' +
       'members; check test importers before dropping an export keyword.',
   );
+  if (process.env.MXQR_DEAD_EXPORT_DEBUG === '1') {
+    const byFile = new Map();
+    for (const { name, files } of selfOnly) {
+      for (const f of files) {
+        if (!byFile.has(f)) byFile.set(f, []);
+        byFile.get(f).push(name);
+      }
+    }
+    for (const f of [...byFile.keys()].sort()) {
+      console.log(pad(`${f}: ${byFile.get(f).sort().join(', ')}`));
+    }
+  }
   console.log('');
 }
 

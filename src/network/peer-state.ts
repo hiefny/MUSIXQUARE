@@ -289,6 +289,9 @@ export function broadcastDeviceList(): void {
       isHost: true,
       isOp: true,
       joinOrder: 0,
+      memberId: getState('network.myMemberId') ?? undefined,
+      memberDisplayNumber: getState('network.myMemberDisplayNumber') ?? undefined,
+      isAuthenticated: getState('network.myMemberAuthenticated'),
     },
     ...[...connectedPeers]
       .sort((a, b) => a.joinOrder - b.joinOrder)
@@ -300,6 +303,10 @@ export function broadcastDeviceList(): void {
         isOp: p.isOp,
         connectionType: (p.connectionType as string) || 'unknown',
         joinOrder: p.joinOrder,
+        memberId: p.memberId,
+        memberDisplayNumber: p.memberDisplayNumber,
+        isAuthenticated: p.isAuthenticated,
+        capabilities: p.roomCapabilities ? [...p.roomCapabilities] : undefined,
       })),
   ];
 

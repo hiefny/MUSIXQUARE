@@ -17,10 +17,12 @@ import type {
 
 import type {
   ProQueueAdditionFrame,
+  StandardRoomMemberIdentity,
   TransportDataConnection,
   TransportMediaConnection,
   TransportPeer,
 } from '../network/transport/types.ts';
+import type { ProRoomAdministrator } from '../pro-room/contracts.ts';
 
 export type { DeveloperCommandResultCode } from '../network/transport/types.ts';
 
@@ -266,6 +268,25 @@ export interface DeviceInfo {
   status: string;
   joinOrder?: number;
   connectionType?: 'local' | 'remote' | 'unknown' | string;
+  memberId?: string;
+  memberDisplayNumber?: number;
+  isAuthenticated?: boolean;
+  /** Server-authoritative PRO membership role for this physical connection. */
+  role?: 'owner' | 'controller' | 'member';
+  /** Effective PRO authority for this physical connection. */
+  capabilities?: RoomCapability[];
+}
+
+type StandardRoomPermission = 'media.add' | 'playback.control' | 'members.kick' | 'chat.notice';
+
+export type StandardRoomPermissionSet = Record<StandardRoomPermission, boolean>;
+
+export interface StandardRoomAdministrator {
+  memberId: string;
+  memberDisplayNumber: number;
+  isAuthenticated: boolean;
+  displayName: string;
+  permissions: StandardRoomPermissionSet;
 }
 
 export interface ConnectedPeer {
@@ -280,7 +301,12 @@ export interface ConnectedPeer {
   joinOrder: number;
   connectionType: 'local' | 'remote' | 'unknown';
   lastHeartbeat: number;
-  /** Server-issued PRO capabilities. Undefined for standard-room peers. */
+  /** Server-verified standard-room person identity, independent of peerId. */
+  memberId?: StandardRoomMemberIdentity['memberId'];
+  memberDisplayNumber?: number;
+  isAuthenticated?: boolean;
+  standardRoomPermissions?: StandardRoomPermissionSet;
+  /** Effective server/host-issued capabilities for this physical connection. */
   roomCapabilities?: RoomCapability[];
 }
 
@@ -508,6 +534,10 @@ export interface ProtocolMap {
       isOp?: boolean;
       connectionType?: string;
       joinOrder?: number;
+      memberId?: string;
+      memberDisplayNumber?: number;
+      isAuthenticated?: boolean;
+      capabilities?: RoomCapability[];
     }>;
   };
   'kick-device': { reason?: string };
@@ -516,7 +546,7 @@ export interface ProtocolMap {
     i18nKey?: string;
     i18nParams?: Record<string, string | number>;
   };
-  'operator-grant': NoPayload;
+  'operator-grant': { capabilities?: RoomCapability[] };
   'operator-revoke': NoPayload;
 
   // ── Guest Requests ───────────────────────────────────────────────
@@ -710,6 +740,8 @@ export interface ProtocolMap {
   // ── Chat ─────────────────────────────────────────────────────────
   chat: {
     senderId: string;
+    /** Host-attested room member identity used only for person-level presentation. */
+    senderMemberId?: string;
     sender: string;
     senderLabel: string;
     text: string;
@@ -798,11 +830,15 @@ export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 type RoomKind = 'standard' | 'pro';
 type RoomParticipantRole = 'coordinator' | 'member' | 'idle';
 export type RoomCapability =
+  | 'media.add'
   | 'queue.mutate'
   | 'playback.control'
   | 'effects.control'
   | 'asset.upload'
+  /** Local-only authority: publish live system audio; never serialized in PRO snapshots. */
+  | 'system-audio.publish'
   | 'members.manage'
+  | 'chat.notice'
   | 'room.configure'
   | 'coordinator.eligible';
 
@@ -900,12 +936,17 @@ export interface StateTree {
     myId: string | null;
     myDeviceLabel: string;
     myJoinOrder: number;
+    myMemberId: string | null;
+    myMemberDisplayNumber: number | null;
+    myMemberAuthenticated: boolean;
     appRole: 'host' | 'guest' | 'idle';
     sessionCode: string;
     lastJoinCode: string;
     hostConn: DataConnection | null;
     connectedPeers: ConnectedPeer[];
     isOperator: boolean;
+    /** Explicit current standard-room grant. `null` means a legacy boolean-only host. */
+    standardRoomCapabilities: RoomCapability[] | null;
     /**
      * A PRO member's outbound row-selection request while the coordinator is
      * still fetching/preparing that occurrence. This is local UI intent only;
@@ -921,6 +962,8 @@ export interface StateTree {
     peerSlots: (string | null)[];
     peerSlotByPeerId: Map<string, number>;
     activeHostConnByPeerId: Map<string, DataConnection>;
+    /** Canonical standard-room grants; `isOp` is only its legacy projection. */
+    standardRoomAdministrators: Map<string, StandardRoomAdministrator>;
     connectionType: 'local' | 'remote' | 'unknown';
     mutedPeers: Set<string>;
     chatFrozen: boolean;
@@ -1096,6 +1139,8 @@ interface ProSystemAudioUiState {
 }
 
 interface BaseEventMap {
+  'account:open': [];
+  'account:deleted': [];
   // ── Audio ─────────────────────────────────────────────────────────
   'audio:ready': [];
   'audio:activate': [];
@@ -1285,14 +1330,29 @@ interface BaseEventMap {
   'network:toggle-operator': [peerId: string];
   'network:device-list': [list: unknown[]];
   'network:device-list-update': [list: unknown[]];
+  'network:grant-standard-room-administrator': [
+    detail: { memberId: string; permissions?: StandardRoomPermissionSet },
+  ];
+  'network:revoke-standard-room-administrator': [detail: { memberId: string }];
+  'network:update-standard-room-administrator': [
+    detail: { memberId: string; permissions: StandardRoomPermissionSet },
+  ];
+  /**
+   * UI-facing standard-room kick request. The host enforces it directly;
+   * delegated administrators relay one physical target to the host, which
+   * expands a verified memberId to every live device.
+   */
+  'network:request-kick-standard-room-member': [detail: { memberId: string }];
+  /** Verified signaling proof that an account was deleted from this room generation. */
+  'network:standard-room-account-deleted': [detail: { memberId: string }];
   'network:role-badge-update': [];
   'network:session-full': [msg: unknown];
   'network:kicked-from-session': [];
   'network:kick-device': [peerId: string];
-  /** PRO-room member removal is enforced by the room server, never by a browser peer. */
-  'pro-room:kick-member': [participantId: string];
+  /** PRO-room member removal is enforced by the room server across every account device. */
+  'pro-room:kick-member': [memberIdOrLegacyParticipantId: string];
+  'pro-room:administrators-updated': [administrators: ProRoomAdministrator[]];
   'network:kicked-explicitly': [];
-  'network:rename-device': [newName: string];
   'network:room-password-changed': [password: string | null];
   'chat:muted-state-changed': [isMuted: boolean];
   'chat:clear-all': [];

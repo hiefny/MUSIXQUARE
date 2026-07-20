@@ -1,7 +1,10 @@
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
+  PRO_ROOM_MAX_PRESENCE_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
+  type ProRoomAdministrator,
   type ProRoomPlaybackCheckpoint,
+  type ProRoomPermissionSet,
   type ProRoomPlaylistWireItem,
   type ProRoomQuotaSnapshot,
   type ProRoomR2Source,
@@ -19,6 +22,7 @@ import {
 import { isProRoomCode } from './room-code.ts';
 import {
   isProRoomQueueItemId,
+  parseProRoomAdministrator,
   parseProRoomPlaybackCheckpoint,
   parseProRoomSnapshot,
   parseProRoomSystemAudioPublication,
@@ -88,6 +92,10 @@ type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'suspende
 export interface ProRoomBootstrap {
   roomCode: string;
   status: ProRoomBootstrapStatus;
+}
+
+interface ProRoomAccountLease {
+  leaseExpiresAtMs: number;
 }
 
 export interface ProRoomMediaReservation {
@@ -191,6 +199,11 @@ export interface ReportProRoomPlaybackReadyInput {
 export interface ProRoomPresenceIdentity {
   participantId: string;
   presenceIncarnationId: string;
+}
+
+interface ProRoomAdministratorDirectory {
+  authorityVersion: 1;
+  administrators: ProRoomAdministrator[];
 }
 
 interface ProRoomBotCommandInput {
@@ -585,6 +598,48 @@ function parseSnapshotEnvelope(value: unknown, expectedCode: string): ProRoomSna
   return snapshot?.roomCode === expectedCode ? snapshot : null;
 }
 
+function parseAdministratorDirectory(value: unknown): ProRoomAdministratorDirectory | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['authorityVersion', 'administrators']) ||
+    value.authorityVersion !== 1 ||
+    !Array.isArray(value.administrators) ||
+    value.administrators.length > PRO_ROOM_MAX_PRESENCE_ITEMS
+  ) {
+    return null;
+  }
+  const administrators: ProRoomAdministrator[] = [];
+  const memberIds = new Set<string>();
+  for (const rawAdministrator of value.administrators) {
+    const administrator = parseProRoomAdministrator(rawAdministrator);
+    if (!administrator || memberIds.has(administrator.memberId)) return null;
+    memberIds.add(administrator.memberId);
+    administrators.push(administrator);
+  }
+  if (administrators.filter((administrator) => administrator.role === 'owner').length !== 1) {
+    return null;
+  }
+  return { authorityVersion: 1, administrators };
+}
+
+function validateAdministratorPermissions(value: ProRoomPermissionSet): ProRoomPermissionSet {
+  const keys = ['media.add', 'playback.control', 'members.kick', 'chat.notice'] as const;
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, keys) ||
+    keys.some((key) => typeof value[key] !== 'boolean') ||
+    value['playback.control'] !== true
+  ) {
+    throw new ProRoomApiError('INVALID_ADMINISTRATOR_PERMISSIONS');
+  }
+  return {
+    'media.add': value['media.add'],
+    'playback.control': true,
+    'members.kick': value['members.kick'],
+    'chat.notice': value['chat.notice'],
+  };
+}
+
 function parseHeartbeatEnvelope(
   value: unknown,
   expectedCode: string,
@@ -643,6 +698,16 @@ function parseSystemAudioLeaseGrant(value: unknown): ProRoomSystemAudioLeaseGran
 
 function parseOk(value: unknown): true | null {
   return isRecord(value) && hasExactKeys(value, ['ok']) && value.ok === true ? true : null;
+}
+
+function parseAccountLease(value: unknown): ProRoomAccountLease | null {
+  return isRecord(value) &&
+    hasExactKeys(value, ['ok', 'leaseExpiresAtMs']) &&
+    value.ok === true &&
+    Number.isSafeInteger(value.leaseExpiresAtMs) &&
+    (value.leaseExpiresAtMs as number) > 0
+    ? { leaseExpiresAtMs: value.leaseExpiresAtMs as number }
+    : null;
 }
 
 function parseBotCommandResult(value: unknown): ProRoomBotCommandResult | null {
@@ -1187,6 +1252,41 @@ export class ProRoomApiClient {
     return this.#bindPresenceIdentity(code, snapshot);
   }
 
+  async attachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const path = roomPath(code);
+    const snapshot = await this.#request(`${path}/sessions/current/account`, {
+      method: 'POST',
+      signal,
+      activeRoomCode: code,
+      parser: (value) => parseSnapshotEnvelope(value, code),
+      maxResponseBytes: MAX_RESPONSE_JSON_BYTES,
+    });
+    return this.#bindPresenceIdentity(code, snapshot);
+  }
+
+  renewCurrentAccountLease(code: string, signal?: AbortSignal): Promise<ProRoomAccountLease> {
+    const path = roomPath(code);
+    return this.#request(`${path}/sessions/current/account/lease`, {
+      method: 'POST',
+      signal,
+      parser: parseAccountLease,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+    });
+  }
+
+  async detachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const path = roomPath(code);
+    // Account detachment is session-cookie scoped rather than presence scoped.
+    // A backgrounded tab must be able to shed account authority even after its
+    // live presence has expired, so do not attach the active-presence headers.
+    return this.#request(`${path}/sessions/current/account`, {
+      method: 'DELETE',
+      signal,
+      parser: (value) => parseSnapshotEnvelope(value, code),
+      maxResponseBytes: MAX_RESPONSE_JSON_BYTES,
+    });
+  }
+
   kickPresence(
     code: string,
     targetParticipantId: string,
@@ -1201,6 +1301,63 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+  }
+
+  kickMember(code: string, targetMemberId: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const path = roomPath(code);
+    return this.#request(`${path}/presence/kick`, {
+      method: 'POST',
+      body: {
+        targetMemberId: validateOpaqueId(targetMemberId, 'INVALID_MEMBER_ID'),
+      },
+      signal,
+      activeRoomCode: code,
+      parser: (value) => parseSnapshotEnvelope(value, code),
+    });
+  }
+
+  getAdministrators(code: string, signal?: AbortSignal): Promise<ProRoomAdministratorDirectory> {
+    const path = roomPath(code);
+    return this.#request(`${path}/administrators`, {
+      signal,
+      activeRoomCode: code,
+      parser: parseAdministratorDirectory,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+    });
+  }
+
+  updateAdministrator(
+    code: string,
+    memberId: string,
+    permissions: ProRoomPermissionSet,
+    signal?: AbortSignal,
+  ): Promise<ProRoomAdministratorDirectory> {
+    const path = roomPath(code);
+    const targetMemberId = validateOpaqueId(memberId, 'INVALID_MEMBER_ID');
+    return this.#request(`${path}/administrators/${encodeURIComponent(targetMemberId)}`, {
+      method: 'PUT',
+      body: { permissions: validateAdministratorPermissions(permissions) },
+      signal,
+      activeRoomCode: code,
+      parser: parseAdministratorDirectory,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+    });
+  }
+
+  revokeAdministrator(
+    code: string,
+    memberId: string,
+    signal?: AbortSignal,
+  ): Promise<ProRoomAdministratorDirectory> {
+    const path = roomPath(code);
+    const targetMemberId = validateOpaqueId(memberId, 'INVALID_MEMBER_ID');
+    return this.#request(`${path}/administrators/${encodeURIComponent(targetMemberId)}`, {
+      method: 'DELETE',
+      signal,
+      activeRoomCode: code,
+      parser: parseAdministratorDirectory,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
     });
   }
 

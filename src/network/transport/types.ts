@@ -288,6 +288,27 @@ export interface TransportConnectOptions {
   roomPassword?: string;
 }
 
+/** Server-owned identity projected by the standard-room signaling Worker. */
+export interface StandardRoomMemberIdentity {
+  readonly memberId: string;
+  readonly memberDisplayNumber: number;
+  readonly nickname: string;
+  readonly isAuthenticated: true;
+}
+
+export type StandardRoomIdentityClearReason = 'explicit' | 'expired' | 'deleted';
+
+export interface StandardRoomAssertionRequest {
+  readonly roomCode: string;
+  readonly peerId: string;
+  readonly role: 'host' | 'guest';
+}
+
+export interface StandardRoomIdentityAssertions {
+  readonly accountAssertion: string | null;
+  readonly deletionAssertion: string | null;
+}
+
 interface TransportCallOptions {
   metadata?: Record<string, unknown>;
 }
@@ -296,6 +317,7 @@ export interface TransportDataConnection {
   peer: string;
   open: boolean;
   metadata?: unknown;
+  roomIdentity?: StandardRoomMemberIdentity | null;
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
@@ -306,10 +328,24 @@ export interface TransportDataConnection {
   on(event: 'data', callback: (data: unknown) => void): void;
   on(event: 'close', callback: () => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;
+  on(
+    event: 'identity',
+    callback: (
+      identity: StandardRoomMemberIdentity | null,
+      clearReason?: StandardRoomIdentityClearReason,
+    ) => void,
+  ): void;
   off?(event: 'open', callback: () => void): void;
   off?(event: 'data', callback: (data: unknown) => void): void;
   off?(event: 'close', callback: () => void): void;
   off?(event: 'error', callback: (error: unknown) => void): void;
+  off?(
+    event: 'identity',
+    callback: (
+      identity: StandardRoomMemberIdentity | null,
+      clearReason?: StandardRoomIdentityClearReason,
+    ) => void,
+  ): void;
 }
 
 export interface TransportMediaConnection {
@@ -342,6 +378,8 @@ export interface TransportPeer {
   reconnect?(): void;
   setRoomPassword?(password: string | null): void;
   setProSignalingAccess?(access: ProSignalingOptions): boolean;
+  refreshStandardRoomIdentity?(): Promise<void>;
+  deleteStandardRoomIdentity?(): void;
   destroy(): void;
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;
@@ -351,6 +389,14 @@ export interface TransportPeer {
   on(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
   on(event: 'pro-queue-addition', callback: (frame: ProQueueAdditionFrame) => void): void;
   on(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
+  on(
+    event: 'room-identity',
+    callback: (
+      identity: StandardRoomMemberIdentity | null,
+      clearReason?: StandardRoomIdentityClearReason,
+    ) => void,
+  ): void;
+  on(event: 'room-member-deleted', callback: (memberId: string) => void): void;
   on(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
   off(event: 'open', callback: (id: string) => void): void;
   off(event: 'error', callback: (error: unknown) => void): void;
@@ -360,6 +406,13 @@ export interface TransportPeer {
   off(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
   off(event: 'pro-queue-addition', callback: (frame: ProQueueAdditionFrame) => void): void;
   off(event: 'connection', callback: (conn: TransportDataConnection) => void): void;
+  off(
+    event: 'room-identity',
+    callback: (
+      identity: StandardRoomMemberIdentity | null,
+      clearReason?: StandardRoomIdentityClearReason,
+    ) => void,
+  ): void;
   off(event: 'call', callback: (mediaConn: TransportMediaConnection) => void): void;
 }
 
@@ -387,4 +440,7 @@ export interface TransportPeerOptions {
   signalingUrl?: string;
   peerJsServer?: PeerJsServerConfig;
   proSignaling?: ProSignalingOptions;
+  standardRoomAssertionProvider?: (
+    request: StandardRoomAssertionRequest,
+  ) => Promise<StandardRoomIdentityAssertions | undefined>;
 }

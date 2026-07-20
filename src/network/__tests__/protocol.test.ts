@@ -206,6 +206,10 @@ describe('BOT chat frame validation', () => {
 });
 
 describe('verifyOperator', () => {
+  beforeEach(() => {
+    setState('network.appRole', 'host');
+  });
+
   it('returns false when connection is null', () => {
     expect(verifyOperator(null as unknown as DataConnection)).toBe(false);
   });
@@ -1224,7 +1228,14 @@ describe('broadcast amplification caps', () => {
       { type: MSG.YOUTUBE_SUB_TITLE_UPDATE, playlistId: 'PL1', subIdx: 4999, title: 'ok' },
       conn,
     );
-    await handleData({ type: MSG.CHAT, text: 'a'.repeat(4000) }, conn);
+    await handleData(
+      {
+        type: MSG.CHAT,
+        text: 'a'.repeat(4000),
+        senderMemberId: 'member_abcdefghijklmnopqrstuv',
+      },
+      conn,
+    );
     expect(titleHandler).toHaveBeenCalledTimes(1);
     expect(chatHandler).toHaveBeenCalledTimes(1);
 
@@ -1240,6 +1251,7 @@ describe('broadcast amplification caps', () => {
     );
     await handleData({ type: MSG.CHAT, text: 'a'.repeat(4001) }, conn);
     await handleData({ type: MSG.CHAT, text: 42 }, conn);
+    await handleData({ type: MSG.CHAT, text: 'spoof', senderMemberId: 'acct_private' }, conn);
 
     expect(titleHandler).toHaveBeenCalledTimes(1);
     expect(chatHandler).toHaveBeenCalledTimes(1);

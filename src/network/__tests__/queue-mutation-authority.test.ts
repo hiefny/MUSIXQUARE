@@ -11,6 +11,7 @@ import {
   standardQueueMutationTimingForTests,
 } from '../queue-mutation-authority.ts';
 import { handleData } from '../protocol.ts';
+import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../standard-room-authority.ts';
 
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 const QUEUE_ITEM_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -49,12 +50,13 @@ function configureHost(conn: DataConnection): void {
   setState('network.connectedPeers', [connectedPeer(conn)]);
 }
 
-function removeRequest(): ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REMOVE> {
+function addYoutubeRequest(): ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_ADD_YOUTUBE> {
   return {
-    type: MSG.REQUEST_PLAYLIST_REMOVE,
+    type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
     requestId: REQUEST_ID,
     baseRevision: 0,
-    queueItemIds: [QUEUE_ITEM_ID],
+    sourceUrl: 'https://www.youtube.com/watch?v=a1B2c3D4e5F',
+    title: 'Test video',
   };
 }
 
@@ -77,7 +79,7 @@ describe('standard queue mutation result fence', () => {
       failures.push([reason, code]);
     });
 
-    expect(sendStandardQueueMutationRequest(removeRequest())).toBe(true);
+    expect(sendStandardQueueMutationRequest(addYoutubeRequest())).toBe(true);
     expect(conn.send).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(standardQueueMutationTimingForTests.acceptTimeoutMs);
@@ -93,7 +95,7 @@ describe('standard queue mutation result fence', () => {
     const failures = vi.fn();
     const unsubscribe = bus.on('standard-room:queue-mutation-failed', failures);
 
-    sendStandardQueueMutationRequest(removeRequest());
+    sendStandardQueueMutationRequest(addYoutubeRequest());
     await handleData(
       {
         type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
@@ -133,7 +135,7 @@ describe('standard queue mutation result fence', () => {
       failures.push([reason, code]);
     });
 
-    sendStandardQueueMutationRequest(removeRequest());
+    sendStandardQueueMutationRequest(addYoutubeRequest());
     await handleData(
       {
         type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
@@ -157,7 +159,7 @@ describe('standard queue mutation result fence', () => {
     const failures = vi.fn();
     const unsubscribe = bus.on('standard-room:queue-mutation-failed', failures);
 
-    sendStandardQueueMutationRequest(removeRequest());
+    sendStandardQueueMutationRequest(addYoutubeRequest());
     setState('network.hostConn', null);
     vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
 
@@ -171,7 +173,7 @@ describe('standard queue mutation result fence', () => {
     const failures = vi.fn();
     const unsubscribe = bus.on('standard-room:queue-mutation-failed', failures);
 
-    sendStandardQueueMutationRequest(removeRequest());
+    sendStandardQueueMutationRequest(addYoutubeRequest());
     setState('network.isOperator', false);
     vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
 
@@ -185,8 +187,8 @@ describe('standard queue mutation result fence', () => {
     const input = {
       conn,
       requestId: REQUEST_ID,
-      requestName: MSG.REQUEST_PLAYLIST_REMOVE,
-      fingerprint: 'remove:a',
+      requestName: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+      fingerprint: 'add-youtube:a1B2c3D4e5F',
     };
 
     expect(acceptStandardQueueMutationRequest(input)).toBe('accepted');
@@ -202,5 +204,57 @@ describe('standard queue mutation result fence', () => {
       expect.objectContaining({ phase: 'accepted', revision: 0 }),
       expect.objectContaining({ phase: 'settled', outcome: 'applied', revision: 1 }),
     ]);
+  });
+
+  it('keeps remove and reorder host-only even for a delegated administrator', () => {
+    const conn = connection('operator');
+    configureHost(conn);
+
+    expect(
+      acceptStandardQueueMutationRequest({
+        conn,
+        requestId: REQUEST_ID,
+        requestName: MSG.REQUEST_PLAYLIST_REMOVE,
+        fingerprint: `remove:${QUEUE_ITEM_ID}`,
+      }),
+    ).toBe('unauthorized');
+    expect(conn.send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        phase: 'settled',
+        outcome: 'rejected',
+        code: 'unauthorized',
+      }),
+    );
+  });
+
+  it('routes owner-sibling queue mutation through the physical host authority fence', () => {
+    const conn = connection('owner-sibling');
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    setState('network.connectedPeers', [connectedPeer(conn, true)]);
+    setState('network.connectedPeers', [
+      {
+        ...getState('network.connectedPeers')[0],
+        isAuthenticated: true,
+        memberId: 'member_abcdefghijklmnopqrstuv',
+        roomCapabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+      },
+    ]);
+
+    expect(
+      acceptStandardQueueMutationRequest({
+        conn,
+        requestId: REQUEST_ID,
+        requestName: MSG.REQUEST_PLAYLIST_REMOVE,
+        fingerprint: `remove:${QUEUE_ITEM_ID}`,
+      }),
+    ).toBe('accepted');
+    expect(conn.send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+        phase: 'accepted',
+        outcome: null,
+      }),
+    );
   });
 });

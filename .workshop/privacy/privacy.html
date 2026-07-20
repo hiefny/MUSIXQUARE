@@ -58,7 +58,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: July 19, 2026</p>
+        <p class="policy-date">Effective date: July 20, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -66,13 +66,13 @@
           <h2>1. About This Service</h2>
           <p>
             MUSIXQUARE is an independently operated, non-commercial browser service for real-time
-            audio synchronization and shared playback. It is provided free of charge and can be used
-            without creating an account.
+            audio synchronization and shared playback. It is provided free of charge. Google sign-in
+            is optional, and the service can still be used without creating an account.
           </p>
           <p>
-            MUSIXQUARE does not require legal names, postal addresses, phone numbers, account
-            passwords, or payment information. Limited technical and session data is processed only
-            when needed to provide, secure, and improve the service.
+            MUSIXQUARE does not require legal names, postal addresses, phone numbers, Google account
+            passwords, or payment information. Limited account, technical, and session data is
+            processed only when needed to provide, secure, and improve the service.
           </p>
         </section>
 
@@ -93,6 +93,28 @@
                 Device names, playback commands, chat messages, and local session data are normally
                 exchanged directly between participating devices and are not stored in a MUSIXQUARE
                 application database.
+              </dd>
+            </div>
+            <div>
+              <dt>Optional account data</dt>
+              <dd>
+                If you choose Google sign-in, Google provides an OpenID identifier and a
+                verified-email claim. MUSIXQUARE uses that claim only to require a Google-verified
+                account and does not store the email address. It stores a random account ID, an
+                HMAC-pseudonymized form of Google's subject identifier, your chosen nickname,
+                profile status, and account-session timestamps. Google tokens, your email address,
+                Google name, and profile photo are not stored. Sign-in uses a Secure, HttpOnly
+                cookie, and the database stores only a keyed digest of the random session token.
+              </dd>
+            </div>
+            <div>
+              <dt>Room identity</dt>
+              <dd>
+                In account-aware rooms, a signed-in user is represented by a room-scoped member
+                identifier and nickname rather than a Google identifier or email address. Multiple
+                devices signed in to the same account may be grouped as one room member. Other
+                participants may see the nickname, member number, connected-device count, and room
+                role, while each device's connection and audio output remain separate.
               </dd>
             </div>
             <div>
@@ -132,7 +154,7 @@
             <div>
               <dt>PRO-room media</dt>
               <dd>
-                In a PRO room, original media uploaded by an authenticated participant is stored
+                In a PRO room, original media uploaded by an authorized room participant is stored
                 persistently in a private Cloudflare R2 bucket for the room playlist. This storage
                 is not covered by the ordinary remote-share client-encryption or 24-hour-retention
                 statements. Downloads are issued only through short-lived authorized URLs.
@@ -161,7 +183,8 @@
         <section>
           <h2>3. Why We Process Data</h2>
           <p>
-            Data is processed to establish and protect rooms, synchronize playback, deliver
+            Data is processed to provide optional sign-in, keep a chosen nickname, represent a
+            person across their devices, establish and protect rooms, synchronize playback, deliver
             requested sharing features, interpret individual AI BOT requests, diagnose failures,
             prevent abuse, and understand aggregate service reliability.
           </p>
@@ -192,6 +215,26 @@
             delayed until a retry succeeds.
           </p>
           <p>
+            An account record remains until the account is deleted. Each account session expires no
+            later than 30 days after it is created and ends earlier after sign-out or account
+            deletion. Temporary sign-in-flow records expire after about 10 minutes. After account
+            deletion, one-way digests of the deleted browser sessions may remain for up to 10
+            minutes only to remove account-linked authority from active ordinary rooms; they cannot
+            sign in or restore the deleted account. Account-linked permissions in an ordinary room
+            last only while that room exists. Signed-in PRO-room membership and authority may remain
+            until the room owner revokes them, the room is deleted, or the account is deleted.
+          </p>
+          <p>
+            Deleting an account removes the active account profile, account sessions, and that
+            account's membership and account-linked authority, including a linked owner association,
+            from PRO rooms. If room cleanup is temporarily unavailable, the account is kept and
+            deletion can be retried. Account deletion does not decommission a PRO room or invalidate
+            its separate room-recovery credential, and it does not automatically delete media
+            already shared in that room. The media follows the room's retention rules.
+            Provider-managed point-in-time recovery data may remain for the applicable
+            backup-retention period.
+          </p>
+          <p>
             Short-lived rate-limit records used to prevent remote-share abuse identify an IP address
             with a keyed, one-way pseudonym rather than storing the raw address in the record key.
             These records normally expire after about one hour.
@@ -219,13 +262,20 @@
             and the
             <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer"
               >Google Privacy Policy</a
-            >. Google account permissions can be reviewed at
+            >.
+          </p>
+          <p>
+            Optional sign-in uses Google OpenID Connect and requests only the
+            <code>openid</code> and <code>email</code> scopes. The email claim is checked but not
+            retained, and the Google subject identifier is HMAC-pseudonymized before storage. Google
+            sign-in access can be reviewed at
             <a
               href="https://security.google.com/settings/security/permissions"
               target="_blank"
               rel="noopener noreferrer"
               >Google Security Settings</a
-            >.
+            >. Revoking Google access does not by itself delete the MUSIXQUARE account; use the
+            account menu in MUSIXQUARE to do that.
           </p>
           <p>
             The AI BOT beta in PRO rooms uses the
@@ -262,9 +312,10 @@
         <section>
           <h2>7. Your Choices and Requests</h2>
           <p>
-            MUSIXQUARE has no account profile to inspect or edit. You can stop processing live
-            session data by leaving or closing a room. Browser storage used for local preferences
-            can be cleared through your browser settings.
+            Sign-in is optional. From the account menu, a signed-in user can change their nickname,
+            sign out, or delete the active MUSIXQUARE account. You can stop processing live session
+            data by leaving or closing a room. Browser storage used for local preferences can be
+            cleared through your browser settings.
           </p>
           <p>
             For privacy questions, access or deletion requests, or concerns about the handling of

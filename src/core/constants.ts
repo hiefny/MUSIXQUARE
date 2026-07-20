@@ -233,7 +233,7 @@ export const REVERB_DEFAULT_PREDELAY = 0.1;
 
 // ─── Rename Validation ──────────────────────────────────────────────
 // Names the host may reclaim (own identity across locales).
-export const HOST_SELF_NAMES = ['host', '방장', '호스트'] as const;
+const HOST_SELF_NAMES = ['host', '방장', '호스트'] as const;
 
 export const RESERVED_NAMES = [
   ...HOST_SELF_NAMES,
@@ -265,6 +265,6 @@ export const PRO_GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 // with feedback instead of being silently rejected by the host.
 export const DEVICE_LABEL_SANITIZE_RE =
   // eslint-disable-next-line no-control-regex
-  /[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+  /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
 
 // ─── Misc ──────────────────────────────────────────────────────────

@@ -301,8 +301,8 @@ describe('initSettings PRO device authority', () => {
     setState('network.lastKnownDeviceList', deviceList);
     bus.emit('network:device-list-update', deviceList);
 
-    expect(document.querySelector('.d-name')?.textContent).toContain('ADMIN');
-    expect(document.querySelector('.btn-action')).not.toBeNull();
+    expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
+    expect(document.querySelector('.btn-action')).toBeNull();
 
     setState('room.context', {
       kind: 'pro',
@@ -475,7 +475,7 @@ describe('initSettings effect slider fill sync', () => {
 
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
-    expect(showToast).toHaveBeenCalledWith('Only admins can change global settings');
+    expect(showToast).toHaveBeenCalledWith('Only Host can run this.');
     expect(
       document
         .querySelector('#grid-reverb .ch-opt[data-rvb-type="arena"]')
@@ -486,6 +486,27 @@ describe('initSettings effect slider fill sync', () => {
     );
     expect(document.getElementById('grid-reverb')?.getAttribute('aria-disabled')).toBe('true');
     expect((document.getElementById('reverb-slider') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('keeps global effects owner-only for a delegated administrator', () => {
+    installEffectSettingsDom();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'playback.control',
+      'asset.upload',
+      'members.manage',
+    ]);
+    initSettings();
+
+    document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
+
+    expect(showToast).toHaveBeenCalledWith('Only Host can run this.');
+    expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
+      true,
+    );
   });
 
   it('detects host-synced reverb presets from the audio preset constants', () => {

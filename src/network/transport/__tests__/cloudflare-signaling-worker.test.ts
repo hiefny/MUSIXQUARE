@@ -1,6 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createStandardRoomAccountAssertion,
+  createStandardRoomAccountDeletionAssertion,
+} from '../../../../cloudflare/standard-room-account-assertion.js';
 
 type WorkerModule = {
   MusixquareRoom: new (
@@ -30,6 +34,7 @@ type ProTicketPayload = {
   kind: 'pro-signaling';
   roomCode: string;
   participantId: string;
+  memberId?: string;
   displayName: string;
   role?: 'coordinator' | 'member';
   coordinatorEpoch: number;
@@ -110,6 +115,7 @@ class FakeStorage {
   data = new Map<string, unknown>();
   alarmTime: number | null = null;
   deleteAllCalls = 0;
+  transactionCalls = 0;
 
   async get(key: string): Promise<unknown> {
     return structuredClone(this.data.get(key));
@@ -117,6 +123,19 @@ class FakeStorage {
 
   async put(key: string, value: unknown): Promise<void> {
     this.data.set(key, structuredClone(value));
+  }
+
+  async transaction(
+    callback: (transaction: { put(key: string, value: unknown): Promise<void> }) => Promise<void>,
+  ): Promise<void> {
+    this.transactionCalls += 1;
+    const staged = new Map(this.data);
+    await callback({
+      put: async (key: string, value: unknown): Promise<void> => {
+        staged.set(key, structuredClone(value));
+      },
+    });
+    this.data = staged;
   }
 
   async list(): Promise<Map<string, unknown>> {
@@ -221,6 +240,9 @@ function wsRequest(
 }
 
 const PRO_SIGNALING_SECRET = 'pro-signaling-test-secret-with-at-least-32-bytes';
+const STANDARD_ACCOUNT_ASSERTION_SECRET =
+  'standard-room-account-assertion-test-secret-at-least-32-bytes';
+const STANDARD_ACCOUNT_ID = 'acct_0123456789abcdefghijkl';
 
 function base64Url(bytes: Uint8Array): string {
   let raw = '';
@@ -317,6 +339,34 @@ function workerEnv(): {
   };
 }
 
+function proAuthorityNamespace(
+  handler: (request: Request) => Promise<Response> = async () =>
+    new originalResponse(
+      JSON.stringify({
+        allowed: true,
+        memberId: 'member_authorized000000001',
+        role: 'controller',
+        permission: 'chat.notice',
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ),
+): {
+  binding: {
+    idFromName: ReturnType<typeof vi.fn>;
+    get: ReturnType<typeof vi.fn>;
+  };
+  roomFetch: ReturnType<typeof vi.fn>;
+} {
+  const roomFetch = vi.fn(handler);
+  return {
+    binding: {
+      idFromName: vi.fn((roomCode: string) => `pro-room:${roomCode}`),
+      get: vi.fn(() => ({ fetch: roomFetch })),
+    },
+    roomFetch,
+  };
+}
+
 function lastServer(): FakeSocket {
   const pair = FakeWebSocketPair.pairs.at(-1);
   if (!pair) throw new Error('missing fake WebSocketPair');
@@ -376,7 +426,11 @@ async function createPasswordRoom(): Promise<{
 async function joinGuest(
   room: InstanceType<WorkerModule['MusixquareRoom']>,
   peerId: string,
-  options: { password?: string; reconnectSecret?: string | null } = {},
+  options: {
+    password?: string;
+    reconnectSecret?: string | null;
+    accountAssertion?: string;
+  } = {},
 ): Promise<FakeSocket> {
   await room.fetch(wsRequest('123456', 'guest', peerId));
   const guest = lastServer();
@@ -388,9 +442,50 @@ async function joinGuest(
       type: 'guest-auth',
       password: options.password ?? '',
       ...(reconnectSecret ? { reconnectSecret } : {}),
+      ...(options.accountAssertion ? { accountAssertion: options.accountAssertion } : {}),
     }),
   );
   return guest;
+}
+
+async function standardAccountAssertion(input: {
+  peerId: string;
+  role: 'host' | 'guest';
+  nickname?: string;
+  accountId?: string;
+  roomCode?: string;
+}): Promise<string> {
+  const assertion = await createStandardRoomAccountAssertion(
+    {
+      accountId: input.accountId ?? STANDARD_ACCOUNT_ID,
+      nickname: input.nickname ?? 'Minsu',
+      roomCode: input.roomCode ?? '123456',
+      peerId: input.peerId,
+      role: input.role,
+    },
+    STANDARD_ACCOUNT_ASSERTION_SECRET,
+  );
+  if (!assertion) throw new Error('failed to create standard-room assertion');
+  return assertion;
+}
+
+async function standardAccountDeletionAssertion(input: {
+  peerId: string;
+  role: 'host' | 'guest';
+  accountId?: string;
+  roomCode?: string;
+}): Promise<string> {
+  const assertion = await createStandardRoomAccountDeletionAssertion(
+    {
+      accountId: input.accountId ?? STANDARD_ACCOUNT_ID,
+      roomCode: input.roomCode ?? '123456',
+      peerId: input.peerId,
+      role: input.role,
+    },
+    STANDARD_ACCOUNT_ASSERTION_SECRET,
+  );
+  if (!assertion) throw new Error('failed to create standard-room deletion assertion');
+  return assertion;
 }
 
 beforeAll(async () => {
@@ -934,6 +1029,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     const alice = await joinProMember(room, {
       participantId: 'member-alice',
+      memberId: 'member_accountalice000000000001',
       displayName: 'Alice',
       presenceIncarnationId: 'presence-incarnation-alice',
       jti: 'ticket-identifier-alice',
@@ -1330,6 +1426,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     const alice = await joinProMember(room, {
       participantId: 'member-alice',
+      memberId: 'member_accountalice000000000001',
       displayName: 'Alice',
       presenceIncarnationId: 'presence-incarnation-alice',
       jti: 'realtime-ticket-alice01',
@@ -1385,12 +1482,223 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       sender: {
         participantId: 'member-alice',
         presenceIncarnationId: 'presence-incarnation-alice',
+        memberId: 'member_accountalice000000000001',
         displayName: 'Alice',
       },
     };
     expect(alice.sent).toHaveLength(counts[0]);
     expect(sent(bob).at(-1)).toEqual(relay);
     expect(sent(carol).at(-1)).toEqual(relay);
+  });
+
+  it('authorizes PRO notices with the admitted participant and exact presence incarnation', async () => {
+    const authority = proAuthorityNamespace(async (request) => {
+      expect(new URL(request.url).pathname).toBe('/internal/authority/check');
+      expect(request.method).toBe('POST');
+      expect(request.headers.get('x-mxqr-pro-room-code')).toBe('000001');
+      expect(await request.json()).toEqual({
+        participantId: 'notice-authorized',
+        presenceIncarnationId: 'notice-presence-authorized',
+        permission: 'chat.notice',
+      });
+      return new originalResponse(
+        JSON.stringify({
+          allowed: true,
+          memberId: 'member_noticeauthorized001',
+          role: 'controller',
+          permission: 'chat.notice',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const sender = await joinProMember(room, {
+      participantId: 'notice-authorized',
+      displayName: 'Authorized',
+      presenceIncarnationId: 'notice-presence-authorized',
+      jti: 'notice-authorized-ticket1',
+    });
+    const recipient = await joinProMember(room, {
+      participantId: 'notice-recipient',
+      displayName: 'Recipient',
+      presenceIncarnationId: 'notice-presence-recipient1',
+      jti: 'notice-recipient-ticket01',
+    });
+    const senderCount = sender.sent.length;
+
+    await room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'notice-authorized-event1',
+        channel: 'chat',
+        payload: { kind: 'notice', text: 'Room announcement' },
+      }),
+    );
+
+    expect(authority.binding.idFromName).toHaveBeenCalledWith('000001');
+    expect(authority.roomFetch).toHaveBeenCalledTimes(1);
+    expect(sender.sent).toHaveLength(senderCount);
+    expect(sent(recipient).at(-1)).toMatchObject({
+      channel: 'chat',
+      payload: { kind: 'notice', text: 'Room announcement' },
+      sender: {
+        participantId: 'notice-authorized',
+        presenceIncarnationId: 'notice-presence-authorized',
+      },
+    });
+  });
+
+  it('drops denied or superseded PRO notices but keeps ordinary chat and the socket alive', async () => {
+    const authority = proAuthorityNamespace(async (request) => {
+      expect(await request.json()).toEqual({
+        participantId: 'stale-notice-sender',
+        presenceIncarnationId: 'stale-notice-incarnation1',
+        permission: 'chat.notice',
+      });
+      return new originalResponse(JSON.stringify({ error: 'PERMISSION_REQUIRED' }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const sender = await joinProMember(room, {
+      participantId: 'stale-notice-sender',
+      presenceIncarnationId: 'stale-notice-incarnation1',
+      jti: 'stale-notice-ticket-0001',
+    });
+    const recipient = await joinProMember(room, {
+      participantId: 'stale-notice-target',
+      presenceIncarnationId: 'stale-notice-target-inc1',
+      jti: 'stale-notice-target-ticket',
+    });
+    const recipientCount = recipient.sent.length;
+
+    await room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'stale-notice-event-0001',
+        channel: 'chat',
+        payload: { kind: 'notice', text: 'must not relay' },
+      }),
+    );
+    expect(recipient.sent).toHaveLength(recipientCount);
+    expect(sender.closed).toBe(false);
+
+    await room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'ordinary-chat-after-denial',
+        channel: 'chat',
+        payload: { kind: 'message', text: 'ordinary chat survives', clientTs: 123 },
+      }),
+    );
+    expect(authority.roomFetch).toHaveBeenCalledTimes(1);
+    expect(sent(recipient).at(-1)).toMatchObject({
+      payload: { kind: 'message', text: 'ordinary chat survives' },
+    });
+    expect(sender.closed).toBe(false);
+  });
+
+  it('fails PRO notices closed without disrupting sockets when authority fails or times out', async () => {
+    const failedAuthority = proAuthorityNamespace(async () => {
+      throw new Error('authority unavailable');
+    });
+    const failedState = new FakeDurableObjectState();
+    const failedRoom = new workerModule.MusixquareRoom(failedState, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: failedAuthority.binding,
+    });
+    const failedSender = await joinProMember(failedRoom, {
+      participantId: 'failed-notice-sender',
+      presenceIncarnationId: 'failed-notice-incarnation',
+      jti: 'failed-notice-ticket-0001',
+    });
+    const failedRecipient = await joinProMember(failedRoom, {
+      participantId: 'failed-notice-target',
+      presenceIncarnationId: 'failed-notice-target-inc1',
+      jti: 'failed-notice-target-ticket',
+    });
+    const failedRecipientCount = failedRecipient.sent.length;
+    await failedRoom.webSocketMessage(
+      failedSender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'failed-notice-event-0001',
+        channel: 'chat',
+        payload: { kind: 'notice', text: 'must fail closed' },
+      }),
+    );
+    expect(failedRecipient.sent).toHaveLength(failedRecipientCount);
+    expect(failedSender.closed).toBe(false);
+
+    const timeoutController = new AbortController();
+    const timeoutSignal = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation((milliseconds: number) => {
+        expect(milliseconds).toBe(1_000);
+        return timeoutController.signal;
+      });
+    const timeoutAuthority = proAuthorityNamespace(
+      (request) =>
+        new Promise<Response>((_resolve, reject) => {
+          if (request.signal.aborted) {
+            reject(request.signal.reason || new Error('authority timeout'));
+            return;
+          }
+          request.signal.addEventListener(
+            'abort',
+            () => reject(request.signal.reason || new Error('authority timeout')),
+            { once: true },
+          );
+        }),
+    );
+    const timeoutState = new FakeDurableObjectState();
+    const timeoutRoom = new workerModule.MusixquareRoom(timeoutState, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: timeoutAuthority.binding,
+    });
+    const timeoutSender = await joinProMember(timeoutRoom, {
+      participantId: 'timeout-notice-sender',
+      presenceIncarnationId: 'timeout-notice-incarnation',
+      jti: 'timeout-notice-ticket-0001',
+    });
+    const timeoutRecipient = await joinProMember(timeoutRoom, {
+      participantId: 'timeout-notice-target',
+      presenceIncarnationId: 'timeout-notice-target-inc1',
+      jti: 'timeout-notice-target-ticket',
+    });
+    const timeoutRecipientCount = timeoutRecipient.sent.length;
+    const pending = timeoutRoom.webSocketMessage(
+      timeoutSender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'timeout-notice-event-0001',
+        channel: 'chat',
+        payload: { kind: 'notice', text: 'must time out closed' },
+      }),
+    );
+    await vi.waitFor(() => expect(timeoutAuthority.roomFetch).toHaveBeenCalledTimes(1));
+    timeoutController.abort(new DOMException('authority timeout', 'TimeoutError'));
+    await pending;
+    timeoutSignal.mockRestore();
+    expect(timeoutRecipient.sent).toHaveLength(timeoutRecipientCount);
+    expect(timeoutSender.closed).toBe(false);
   });
 
   it('keeps PRO clock replies point-to-point and whispers target-only', async () => {
@@ -1458,8 +1766,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
   });
 
   it('normalizes every allowed PRO chat moderation and bot-result payload variant', async () => {
+    const authority = proAuthorityNamespace();
     const state = new FakeDurableObjectState();
-    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const room = new workerModule.MusixquareRoom(state, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
     const sender = await joinProMember(room, {
       participantId: 'variant-sender',
       presenceIncarnationId: 'variant-presence-sender',
@@ -2864,6 +3176,471 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       ],
     });
     expect(JSON.stringify(bindings)).not.toContain(DEFAULT_RECONNECT_SECRET);
+  });
+
+  it('projects one verified member across account devices and strips spoofed identity metadata', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    const host = lastServer();
+    const first = await joinGuest(room, 'minsu-phone', {
+      reconnectSecret: 'a'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'minsu-phone',
+        role: 'guest',
+      }),
+    });
+    const second = await joinGuest(room, 'minsu-laptop', {
+      reconnectSecret: 'b'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'minsu-laptop',
+        role: 'guest',
+      }),
+    });
+
+    const firstIdentity = first.deserializeAttachment() as Record<string, unknown>;
+    const secondIdentity = second.deserializeAttachment() as Record<string, unknown>;
+    expect(firstIdentity.memberId).toMatch(/^member_[A-Za-z0-9_-]{22}$/);
+    expect(secondIdentity).toMatchObject({
+      memberId: firstIdentity.memberId,
+      memberDisplayNumber: firstIdentity.memberDisplayNumber,
+      memberNickname: 'Minsu',
+    });
+
+    await room.webSocketMessage(
+      first,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        sdp: { type: 'offer', sdp: 'offer-sdp' },
+        metadata: { label: 'data' },
+        memberIdentity: {
+          memberId: 'member_spoofedxxxxxxxxxxxxxx',
+          memberDisplayNumber: 99,
+          nickname: 'Spoofed',
+          isAuthenticated: true,
+        },
+        accountSubject: 'sub_spoofedxxxxxxxxxxxxxxxx',
+      }),
+    );
+    expect(sent(host).at(-1)).toEqual({
+      type: 'signal-offer',
+      from: 'minsu-phone',
+      sdp: { type: 'offer', sdp: 'offer-sdp' },
+      metadata: { label: 'data' },
+      memberIdentity: {
+        memberId: firstIdentity.memberId,
+        memberDisplayNumber: firstIdentity.memberDisplayNumber,
+        nickname: 'Minsu',
+        isAuthenticated: true,
+      },
+    });
+  });
+
+  it('deletes only the caller-bound account identity and clears every live device for it', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    const host = lastServer();
+    const first = await joinGuest(room, 'delete-phone', {
+      reconnectSecret: 'g'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'delete-phone',
+        role: 'guest',
+      }),
+    });
+    const second = await joinGuest(room, 'delete-laptop', {
+      reconnectSecret: 'h'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'delete-laptop',
+        role: 'guest',
+      }),
+    });
+
+    await room.webSocketMessage(
+      first,
+      JSON.stringify({
+        type: 'account-identity-delete',
+        memberId: 'member_zyxwvutsrqponmlkjihgfe',
+      }),
+    );
+    expect(first.deserializeAttachment()).toHaveProperty('memberId');
+
+    await room.webSocketMessage(
+      first,
+      JSON.stringify({
+        type: 'account-identity-delete',
+        deletionAssertion: await standardAccountAssertion({
+          peerId: 'delete-phone',
+          role: 'guest',
+        }),
+      }),
+    );
+    expect(first.deserializeAttachment()).toHaveProperty('memberId');
+
+    await room.webSocketMessage(
+      first,
+      JSON.stringify({
+        type: 'account-identity-delete',
+        deletionAssertion: await standardAccountDeletionAssertion({
+          peerId: 'delete-phone',
+          role: 'guest',
+        }),
+      }),
+    );
+
+    expect(first.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(second.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(await state.storage.get('standardRoomAccountMembers')).toEqual({ v: 1, entries: [] });
+    const deletionFrames = sent(host).filter(
+      (frame) => frame.type === 'account-member-updated' && frame.clearReason === 'deleted',
+    );
+    expect(deletionFrames).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ peerId: 'delete-phone', memberIdentity: null }),
+        expect.objectContaining({ peerId: 'delete-laptop', memberIdentity: null }),
+      ]),
+    );
+  });
+
+  it('deletes every account device after all signaling identity leases expire', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T12:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    const host = lastServer();
+    const first = await joinGuest(room, 'expired-delete-phone', {
+      reconnectSecret: 'i'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'expired-delete-phone',
+        role: 'guest',
+      }),
+    });
+    const second = await joinGuest(room, 'expired-delete-laptop', {
+      reconnectSecret: 'j'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'expired-delete-laptop',
+        role: 'guest',
+      }),
+    });
+    const memberId = (first.deserializeAttachment() as Record<string, unknown>).memberId;
+    expect(memberId).toMatch(/^member_[A-Za-z0-9_-]{22}$/);
+
+    vi.advanceTimersByTime(61_001);
+    await room.alarm();
+    expect(first.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(second.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(await state.storage.get('standardRoomAccountMembers')).toMatchObject({
+      entries: [expect.objectContaining({ memberId })],
+    });
+    host.sent.length = 0;
+
+    const deletionProof = await standardAccountDeletionAssertion({
+      peerId: 'expired-delete-phone',
+      role: 'guest',
+    });
+    await room.webSocketMessage(
+      first,
+      JSON.stringify({
+        type: 'account-identity-delete',
+        deletionAssertion: deletionProof,
+      }),
+    );
+
+    expect(await state.storage.get('standardRoomAccountMembers')).toEqual({ v: 1, entries: [] });
+    expect(sent(host)).toContainEqual({
+      type: 'account-member-deleted',
+      memberId,
+    });
+  });
+
+  it('cannot replay another account device proof to delete its room identity', async () => {
+    const otherAccountId = 'acct_zyxwvutsrqponmlkjihgfe';
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    const host = lastServer();
+    const first = await joinGuest(room, 'account-a-device', {
+      reconnectSecret: 'k'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'account-a-device',
+        role: 'guest',
+      }),
+    });
+    const second = await joinGuest(room, 'account-b-device', {
+      reconnectSecret: 'l'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'account-b-device',
+        role: 'guest',
+        accountId: otherAccountId,
+        nickname: 'Jisu',
+      }),
+    });
+    const firstMemberId = (first.deserializeAttachment() as Record<string, unknown>).memberId;
+    const secondMemberId = (second.deserializeAttachment() as Record<string, unknown>).memberId;
+    host.sent.length = 0;
+
+    const otherDeviceProof = await standardAccountDeletionAssertion({
+      peerId: 'account-b-device',
+      role: 'guest',
+      accountId: otherAccountId,
+    });
+    await room.webSocketMessage(
+      first,
+      JSON.stringify({
+        type: 'account-identity-delete',
+        deletionAssertion: otherDeviceProof,
+      }),
+    );
+
+    expect(first.deserializeAttachment()).toHaveProperty('memberId', firstMemberId);
+    expect(second.deserializeAttachment()).toHaveProperty('memberId', secondMemberId);
+    expect(await state.storage.get('standardRoomAccountMembers')).toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({ memberId: firstMemberId }),
+        expect.objectContaining({ memberId: secondMemberId }),
+      ]),
+    });
+    expect(sent(host)).not.toContainEqual(
+      expect.objectContaining({ type: 'account-member-deleted' }),
+    );
+  });
+
+  it('does not accept the legacy shared assertion secret for a standard-room identity', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_AUTH_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    const guest = await joinGuest(room, 'legacy-secret-guest', {
+      reconnectSecret: 'z'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'legacy-secret-guest',
+        role: 'guest',
+      }),
+    });
+
+    expect(guest.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(sent(guest)[0]).not.toHaveProperty('memberIdentity');
+  });
+
+  it('keeps equal nicknames separate and propagates only signed profile refreshes', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    const host = lastServer();
+    const minsu = await joinGuest(room, 'account-a-device', {
+      reconnectSecret: 'c'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'account-a-device',
+        role: 'guest',
+        nickname: 'Same Name',
+      }),
+    });
+    const other = await joinGuest(room, 'account-b-device', {
+      reconnectSecret: 'd'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'account-b-device',
+        role: 'guest',
+        nickname: 'Same Name',
+        accountId: 'acct_zyxwvutsrqponmlkjihgfe',
+      }),
+    });
+    expect((minsu.deserializeAttachment() as Record<string, unknown>).memberId).not.toBe(
+      (other.deserializeAttachment() as Record<string, unknown>).memberId,
+    );
+
+    const refreshed = await standardAccountAssertion({
+      peerId: 'account-a-device',
+      role: 'guest',
+      nickname: 'New Name',
+    });
+    await room.webSocketMessage(
+      minsu,
+      JSON.stringify({ type: 'account-identity-refresh', accountAssertion: refreshed }),
+    );
+    expect(sent(minsu).at(-1)).toMatchObject({
+      type: 'account-identity',
+      memberIdentity: { nickname: 'New Name' },
+    });
+    expect(sent(host).at(-1)).toMatchObject({
+      type: 'account-member-updated',
+      peerId: 'account-a-device',
+      memberIdentity: { nickname: 'New Name' },
+    });
+    expect((other.deserializeAttachment() as Record<string, unknown>).memberNickname).toBe(
+      'Same Name',
+    );
+  });
+
+  it('does not reuse a remembered member number for a different account after departure', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    const first = await joinGuest(room, 'departing-account', {
+      reconnectSecret: 'e'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'departing-account',
+        role: 'guest',
+      }),
+    });
+    const firstNumber = (first.deserializeAttachment() as Record<string, unknown>)
+      .memberDisplayNumber;
+    await room.webSocketClose(first);
+
+    const second = await joinGuest(room, 'new-account', {
+      reconnectSecret: 'f'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'new-account',
+        role: 'guest',
+        accountId: 'acct_zyxwvutsrqponmlkjihgfe',
+      }),
+    });
+    const secondNumber = (second.deserializeAttachment() as Record<string, unknown>)
+      .memberDisplayNumber;
+
+    expect(firstNumber).toBe(1);
+    expect(secondNumber).toBe(2);
+  });
+
+  it('anchors account display numbers to the first physical join slot while every device consumes a slot', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+
+    const minsuAccount = 'acct_abcdefghijklmnopqrstuv';
+    const jisuAccount = 'acct_zyxwvutsrqponmlkjihgfe';
+    const minsuSockets: FakeSocket[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const peerId = `minsu-device-${index}`;
+      minsuSockets.push(
+        await joinGuest(room, peerId, {
+          reconnectSecret: String(index + 1).repeat(43),
+          accountAssertion: await standardAccountAssertion({
+            peerId,
+            role: 'guest',
+            accountId: minsuAccount,
+            nickname: 'Minsu',
+          }),
+        }),
+      );
+    }
+    const jisuSockets: FakeSocket[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const peerId = `jisu-device-${index}`;
+      jisuSockets.push(
+        await joinGuest(room, peerId, {
+          reconnectSecret: String(index + 4).repeat(43),
+          accountAssertion: await standardAccountAssertion({
+            peerId,
+            role: 'guest',
+            accountId: jisuAccount,
+            nickname: 'Jisu',
+          }),
+        }),
+      );
+    }
+    const anonymous = await joinGuest(room, 'anonymous-peer', {
+      reconnectSecret: '6'.repeat(43),
+    });
+
+    expect(
+      minsuSockets.map(
+        (socket) => (socket.deserializeAttachment() as Record<string, unknown>).memberDisplayNumber,
+      ),
+    ).toEqual([1, 1, 1]);
+    expect(
+      jisuSockets.map(
+        (socket) => (socket.deserializeAttachment() as Record<string, unknown>).memberDisplayNumber,
+      ),
+    ).toEqual([4, 4]);
+    expect(anonymous.deserializeAttachment()).not.toHaveProperty('memberDisplayNumber');
+    expect(await state.storage.get('standardRoomAccountMembers')).toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({ memberDisplayNumber: 1 }),
+        expect.objectContaining({ memberDisplayNumber: 4 }),
+      ]),
+    });
+  });
+
+  it('expires signed identity leases and atomically rotates reused room-code generations', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T12:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+
+    await room.fetch(wsRequest('123456', 'host', 'host-first'));
+    const firstHost = lastServer();
+    await room.webSocketMessage(
+      firstHost,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'first-room-secret',
+        accountAssertion: await standardAccountAssertion({
+          peerId: 'host-first',
+          role: 'host',
+        }),
+      }),
+    );
+    const firstMemberId = (firstHost.deserializeAttachment() as Record<string, unknown>).memberId;
+    expect(firstMemberId).toMatch(/^member_[A-Za-z0-9_-]{22}$/);
+
+    vi.advanceTimersByTime(61_001);
+    await room.alarm();
+    expect(firstHost.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(sent(firstHost).at(-1)).toEqual({
+      type: 'account-identity',
+      memberIdentity: null,
+      clearReason: 'expired',
+    });
+
+    await room.webSocketClose(firstHost);
+    vi.advanceTimersByTime(61_001);
+    await room.alarm();
+    expect(await state.storage.get('roomMeta')).toEqual({
+      v: 1,
+      roomSecret: null,
+      roomPassword: '',
+      hostPeerId: null,
+      hostReleaseAt: 0,
+    });
+    expect(await state.storage.get('standardRoomAccountMembers')).toEqual({ v: 1, entries: [] });
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+    expect(state.storage.transactionCalls).toBeGreaterThan(0);
+
+    await room.fetch(wsRequest('123456', 'host', 'host-second'));
+    const secondHost = lastServer();
+    await room.webSocketMessage(
+      secondHost,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'second-room-secret',
+        accountAssertion: await standardAccountAssertion({
+          peerId: 'host-second',
+          role: 'host',
+        }),
+      }),
+    );
+    const secondMemberId = (secondHost.deserializeAttachment() as Record<string, unknown>).memberId;
+    expect(secondMemberId).toMatch(/^member_[A-Za-z0-9_-]{22}$/);
+    expect(secondMemberId).not.toBe(firstMemberId);
   });
 
   it('closes a pending guest whose first frame is not a valid guest-auth message', async () => {

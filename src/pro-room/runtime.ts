@@ -4,6 +4,13 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
+import { getAccountSnapshot, subscribeAccount } from '../account/state.ts';
+import { ProRoomAccountReconciler } from './account-reconciliation.ts';
+import {
+  classifyProAccountIdentityLeaseFailure,
+  planProAccountIdentityLease,
+  PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS,
+} from './account-lease-policy.ts';
 import { announceTracksAddedLocally } from '../chat/queue-events.ts';
 import { announceSystemMessageLocally, receiveProRoomRealtimeChat } from '../chat/protocol.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
@@ -52,7 +59,14 @@ import {
   type ProRoomPlaybackPrepareEvent,
   type RecoverProRoomOwnerInput,
 } from './api.ts';
-import type { ProRoomPlaybackCheckpoint, ProRoomR2Source, ProRoomSnapshot } from './contracts.ts';
+import type {
+  ProRoomAdministrator,
+  ProRoomPlaybackCheckpoint,
+  ProRoomPermissionSet,
+  ProRoomPresenceParticipant,
+  ProRoomR2Source,
+  ProRoomSnapshot,
+} from './contracts.ts';
 import type { ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import {
   registerProRoomLegacyMediaHooks,
@@ -121,6 +135,7 @@ import {
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const CONTROL_CHANNEL_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
 const HEARTBEAT_TIMER = 'pro-room-heartbeat';
+const ACCOUNT_IDENTITY_LEASE_TIMER = 'pro-room-account-identity-lease';
 const EFFECTS_CHECKPOINT_DEBOUNCE_MS = 350;
 const EFFECTS_CHECKPOINT_DEBOUNCE_TIMER = 'pro-room-effects-checkpoint-debounce';
 const QUEUE_MODE_CHECKPOINT_DEBOUNCE_MS = 350;
@@ -173,18 +188,23 @@ let queueModeCheckpointDirty = false;
 let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
 let controlChannelRecoveryAttempt = 0;
+let accountAuthorityFailClosed = false;
+let accountLeaseRenewalInFlight = false;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
 const playlistProjectionListeners = new Set<() => void>();
-interface AcceptedProPresenceParticipant {
-  participantId: string;
+interface AcceptedProPresenceMember {
+  key: string;
+  memberId: string | null;
   displayName: string;
   joinedAtMs: number;
 }
 let acceptedProPresence: {
   roomCode: string;
   revision: number;
-  participants: Map<string, AcceptedProPresenceParticipant>;
+  members: Map<string, AcceptedProPresenceMember>;
+  participantMemberKeys: Map<string, string>;
 } | null = null;
+let acceptedProAdministrators: ProRoomAdministrator[] = [];
 const seenQueueAdditionEventIds = new Set<string>();
 const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
 let lastAnnouncedQueueAdditionOrder = 0;
@@ -1133,13 +1153,98 @@ function cancelDeferredProRoomPreload(queueItemId?: QueueItemId): void {
   deferredPreloadRequest = null;
 }
 
+function proPresenceMemberKey(participant: ProRoomPresenceParticipant): string {
+  const memberId = participant.memberId?.trim();
+  return memberId ? `member:${memberId}` : `participant:${participant.participantId}`;
+}
+
+function projectProPresenceMembers(
+  participants: readonly ProRoomPresenceParticipant[],
+): Map<string, AcceptedProPresenceMember> {
+  const members = new Map<string, AcceptedProPresenceMember>();
+  for (const participant of participants) {
+    const key = proPresenceMemberKey(participant);
+    const existing = members.get(key);
+    if (!existing || participant.joinedAtMs < existing.joinedAtMs) {
+      members.set(key, {
+        key,
+        memberId: participant.memberId?.trim() || null,
+        displayName: participant.displayName,
+        joinedAtMs: participant.joinedAtMs,
+      });
+    }
+  }
+  return members;
+}
+
+function projectProPresenceParticipantMemberKeys(
+  participants: readonly ProRoomPresenceParticipant[],
+): Map<string, string> {
+  return new Map(
+    participants.map((participant) => [
+      participant.participantId,
+      proPresenceMemberKey(participant),
+    ]),
+  );
+}
+
+function diffProPresenceMembers(
+  previous: ReadonlyMap<string, AcceptedProPresenceMember>,
+  current: ReadonlyMap<string, AcceptedProPresenceMember>,
+  previousParticipantMemberKeys: ReadonlyMap<string, string>,
+  currentParticipantMemberKeys: ReadonlyMap<string, string>,
+): { joined: AcceptedProPresenceMember[]; departed: AcceptedProPresenceMember[] } {
+  // Identity attachment/detachment can move one still-connected participant
+  // from a device key to an account key (or between account keys). A new
+  // member row is a physical join only when at least one participantId in it
+  // is itself new; likewise a vanished row is a leave only when at least one
+  // participantId actually disappeared. This preserves member-level first/
+  // last notices without announcing login, logout, or lease expiry as motion.
+  const physicallyJoinedMemberKeys = new Set<string>();
+  for (const [participantId, key] of currentParticipantMemberKeys) {
+    if (!previousParticipantMemberKeys.has(participantId)) physicallyJoinedMemberKeys.add(key);
+  }
+  const physicallyDepartedMemberKeys = new Set<string>();
+  for (const [participantId, key] of previousParticipantMemberKeys) {
+    if (!currentParticipantMemberKeys.has(participantId)) physicallyDepartedMemberKeys.add(key);
+  }
+  return {
+    joined: [...current.values()]
+      .filter((member) => !previous.has(member.key) && physicallyJoinedMemberKeys.has(member.key))
+      .sort(
+        (left, right) => left.joinedAtMs - right.joinedAtMs || left.key.localeCompare(right.key),
+      ),
+    departed: [...previous.values()]
+      .filter((member) => !current.has(member.key) && physicallyDepartedMemberKeys.has(member.key))
+      .sort(
+        (left, right) => left.joinedAtMs - right.joinedAtMs || left.key.localeCompare(right.key),
+      ),
+  };
+}
+
+/** @internal Focused regression seam for account-level PRO presence notices. */
+export function diffProRoomPresenceMembersForTests(
+  previous: readonly ProRoomPresenceParticipant[],
+  current: readonly ProRoomPresenceParticipant[],
+): { joined: string[]; departed: string[] } {
+  const delta = diffProPresenceMembers(
+    projectProPresenceMembers(previous),
+    projectProPresenceMembers(current),
+    projectProPresenceParticipantMemberKeys(previous),
+    projectProPresenceParticipantMemberKeys(current),
+  );
+  return {
+    joined: delta.joined.map((member) => member.displayName),
+    departed: delta.departed.map((member) => member.displayName),
+  };
+}
+
 function reconcileAuthoritativePresenceMessages(
   snapshot: ProRoomSnapshot,
-  participants: AcceptedProPresenceParticipant[],
+  participants: readonly ProRoomPresenceParticipant[],
 ): void {
-  const current = new Map(
-    participants.map((participant) => [participant.participantId, participant] as const),
-  );
+  const current = projectProPresenceMembers(participants);
+  const currentParticipantMemberKeys = projectProPresenceParticipantMemberKeys(participants);
   const previous = acceptedProPresence;
 
   // The first authenticated snapshot is a baseline, not a burst of historical
@@ -1148,7 +1253,8 @@ function reconcileAuthoritativePresenceMessages(
     acceptedProPresence = {
       roomCode: snapshot.roomCode,
       revision: snapshot.presence.revision,
-      participants: current,
+      members: current,
+      participantMemberKeys: currentParticipantMemberKeys,
     };
     return;
   }
@@ -1159,23 +1265,20 @@ function reconcileAuthoritativePresenceMessages(
   if (snapshot.presence.revision <= previous.revision) return;
 
   if (active) {
-    for (const participant of participants) {
-      if (!previous.participants.has(participant.participantId)) {
-        announceSystemMessageLocally('chat.peer_connected', {
-          name: participant.displayName,
-        });
-      }
+    const delta = diffProPresenceMembers(
+      previous.members,
+      current,
+      previous.participantMemberKeys,
+      currentParticipantMemberKeys,
+    );
+    for (const member of delta.joined) {
+      announceSystemMessageLocally('chat.peer_connected', {
+        name: member.displayName,
+      });
     }
-    const departed = [...previous.participants.values()]
-      .filter((participant) => !current.has(participant.participantId))
-      .sort(
-        (left, right) =>
-          left.joinedAtMs - right.joinedAtMs ||
-          left.participantId.localeCompare(right.participantId),
-      );
-    for (const participant of departed) {
+    for (const member of delta.departed) {
       announceSystemMessageLocally('chat.peer_disconnected', {
-        name: participant.displayName,
+        name: member.displayName,
       });
     }
   }
@@ -1183,39 +1286,81 @@ function reconcileAuthoritativePresenceMessages(
   acceptedProPresence = {
     roomCode: snapshot.roomCode,
     revision: snapshot.presence.revision,
-    participants: current,
+    members: current,
+    participantMemberKeys: currentParticipantMemberKeys,
   };
 }
 
-function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
+function projectAuthoritativeProDevices(snapshot: ProRoomSnapshot) {
   const viewerId = snapshot.viewer?.participantId ?? '';
   const participants = [...snapshot.presence.participants].sort(
     (left, right) =>
       left.joinedAtMs - right.joinedAtMs || left.participantId.localeCompare(right.participantId),
   );
-  reconcileAuthoritativePresenceMessages(snapshot, participants);
   const list = participants.map((participant, index) => ({
     id: participant.participantId,
     label: participant.displayName,
-    // PRO lifecycle ownership is deliberately absent from the live device
-    // hierarchy. Every row is an equal controller and renders without a host
-    // or ADMIN distinction.
-    isOp: true,
-    isHost: false,
+    // Transport topology remains coordinator-free, but room ownership and
+    // delegated authority are still meaningful product roles.
+    isOp: participant.role === 'owner' || participant.role === 'controller',
+    isHost: participant.role === 'owner',
     status: 'connected',
     joinOrder: index,
     connectionType: 'remote' as const,
+    memberId: participant.memberId,
+    memberDisplayNumber: participant.memberDisplayNumber,
+    isAuthenticated: participant.isAuthenticated === true,
+    role: participant.role,
+    capabilities: participant.capabilities ? [...participant.capabilities] : undefined,
   }));
   const ownIndex = participants.findIndex((participant) => participant.participantId === viewerId);
+  const ownParticipant = ownIndex >= 0 ? participants[ownIndex] : null;
+  return { participants, list, ownIndex, ownParticipant };
+}
+
+/** @internal Focused regression seam for the physical-device projection. */
+export function projectAuthoritativeProDevicesForTests(snapshot: ProRoomSnapshot) {
+  return projectAuthoritativeProDevices(snapshot);
+}
+
+function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
+  const { participants, list, ownIndex, ownParticipant } = projectAuthoritativeProDevices(snapshot);
+  reconcileAuthoritativePresenceMessages(snapshot, participants);
   batchSetState({
     'network.connectedPeers': [],
     'network.lastKnownDeviceList': list,
     'network.peerLabels': Object.fromEntries(
       participants.map((participant) => [participant.participantId, participant.displayName]),
     ),
-    'network.myJoinOrder': ownIndex >= 0 ? ownIndex : 0,
+    'network.myJoinOrder': ownParticipant?.memberDisplayNumber ?? (ownIndex >= 0 ? ownIndex : 0),
+    'network.myMemberId': snapshot.viewer?.memberId ?? ownParticipant?.memberId ?? null,
+    'network.myMemberDisplayNumber':
+      snapshot.viewer?.memberDisplayNumber ?? ownParticipant?.memberDisplayNumber ?? null,
+    'network.myMemberAuthenticated':
+      snapshot.viewer?.isAuthenticated === true || ownParticipant?.isAuthenticated === true,
   });
   bus.emit('network:device-list-update', list);
+}
+
+function cloneProRoomAdministrators(
+  administrators: readonly ProRoomAdministrator[],
+): ProRoomAdministrator[] {
+  return administrators.map((administrator) => ({
+    ...administrator,
+    permissions: { ...administrator.permissions },
+    inheritedPermissions: [...administrator.inheritedPermissions],
+  }));
+}
+
+function publishProRoomAdministrators(snapshot: ProRoomSnapshot): void {
+  acceptedProAdministrators =
+    snapshot.authorityVersion === 1 && snapshot.administrators
+      ? cloneProRoomAdministrators(snapshot.administrators)
+      : [];
+  bus.emit(
+    'pro-room:administrators-updated',
+    cloneProRoomAdministrators(acceptedProAdministrators),
+  );
 }
 
 function installLegacyMediaHooks(
@@ -1536,6 +1681,7 @@ async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> 
   if (!lease) return;
   await manager.acceptSnapshot(snapshot);
   if (!isPlaylistLeaseCurrent(lease)) return;
+  publishProRoomAdministrators(snapshot);
   // Coalesce signaling requests that completed out of order before rendering
   // their rows. The accepted snapshot remains the authority fence.
   scheduleAcceptedQueueAdditionFlush();
@@ -2925,18 +3071,33 @@ function applyAuthority(context: RoomContext): void {
   if (preload && !shouldRetainPendingProDownload(preload.roomCode, context)) {
     preload.controller.abort();
   }
-  setRoomContext(context);
+  const acceptedContext =
+    accountAuthorityFailClosed && context.kind === 'pro'
+      ? {
+          ...context,
+          // Anonymous PRO members retain the room's universal playback
+          // baseline, but no account-bound administration may survive a
+          // definitive local logout while detachment is in flight.
+          capabilities: context.capabilities.filter(
+            (capability) => capability === 'playback.control',
+          ),
+        }
+      : context;
+  setRoomContext(acceptedContext);
   batchSetState({
-    'network.sessionCode': context.roomId ?? '',
-    'network.lastJoinCode': context.roomId ?? '',
+    'network.sessionCode': acceptedContext.roomId ?? '',
+    'network.lastJoinCode': acceptedContext.roomId ?? '',
     // Compatibility flag for legacy controls. Real authorization remains the
     // server-projected capability set in room.context.
-    'network.isOperator': context.role === 'member',
+    'network.isOperator': acceptedContext.role === 'member',
   });
 }
 
 function stopLifecycle(): void {
   active = false;
+  accountReconciler.stop();
+  accountAuthorityFailClosed = false;
+  accountLeaseRenewalInFlight = false;
   unregisterPlaybackCommandHandler?.();
   unregisterPlaybackCommandHandler = null;
   if (activeServerPlaybackTransition) {
@@ -2952,6 +3113,7 @@ function stopLifecycle(): void {
   refreshInFlight = false;
   controlChannelRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
+  clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
 }
 
@@ -2962,12 +3124,15 @@ const observer: ProRoomSessionObserver = {
     // playlist projection of the same snapshot racing that explicit accept.
     bindProSystemAudioSession(snapshot);
     reconcileAuthoritativePeers(snapshot);
+    publishProRoomAdministrators(snapshot);
   },
   authority(context) {
     applyAuthority(context);
   },
   cleared() {
     acceptedProPresence = null;
+    acceptedProAdministrators = [];
+    bus.emit('pro-room:administrators-updated', []);
     stopLifecycle();
     resetProSystemAudioService();
     resetPlaylistRuntime();
@@ -2978,6 +3143,66 @@ const observer: ProRoomSessionObserver = {
 
 const controller = new ProRoomSessionController(api, bridge, observer);
 
+async function acceptAccountReconciliationSnapshot(
+  operation: 'attach' | 'detach',
+  signal: AbortSignal,
+): Promise<void> {
+  const lease = controller.captureSessionLease();
+  let snapshot: ProRoomSnapshot;
+  if (operation === 'attach') {
+    try {
+      snapshot = await controller.attachCurrentAccount(signal);
+    } catch (error) {
+      if (!(error instanceof ProRoomApiError) || error.code !== 'SESSION_ACCOUNT_CONFLICT') {
+        throw error;
+      }
+      // A Google callback can replace the global HttpOnly account without an
+      // explicit logout in this tab. Public snapshots intentionally do not
+      // expose accountId, so atomically shed the old room identity before
+      // proving the new one. Persistent grants for both accounts stay server
+      // owned; this physical session carries neither across the switch.
+      accountAuthorityFailClosed = true;
+      const context = controller.context;
+      if (active && context) applyAuthority(context);
+      await controller.detachCurrentAccount(signal);
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      snapshot = await controller.attachCurrentAccount(signal);
+    }
+  } else {
+    snapshot = await controller.detachCurrentAccount(signal);
+  }
+  if (!controller.isSessionLeaseCurrent(lease, snapshot.roomCode)) return;
+  await acceptPlaylistSnapshot(snapshot);
+  refreshHeartbeatAdjunctState(snapshot);
+}
+
+const accountReconciler = new ProRoomAccountReconciler({
+  isActive: () => active && controller.snapshot !== null,
+  viewer: () => controller.snapshot?.viewer ?? null,
+  attach: (signal) => acceptAccountReconciliationSnapshot('attach', signal),
+  detach: (signal) => acceptAccountReconciliationSnapshot('detach', signal),
+  failClosed: () => {
+    accountAuthorityFailClosed = true;
+    const context = controller.context;
+    if (active && context) applyAuthority(context);
+  },
+  acceptAuthenticated: () => {
+    accountAuthorityFailClosed = false;
+    const context = controller.context;
+    if (active && context) applyAuthority(context);
+  },
+  failed: (operation, error) => {
+    if (isTerminalSessionError(error)) {
+      void recoverTerminalSession(error);
+      return;
+    }
+    log.warn(`[PRO] Account identity ${operation} deferred`, error);
+    // The server mutation may have committed while its response was lost.
+    // Reconcile from canonical room state without disturbing playback.
+    void runHeartbeat(true);
+  },
+});
+
 onProRoomTabTakeover((roomCode) => {
   if (!active || controller.snapshot?.roomCode !== roomCode) return;
   void recoverTerminalSession(new ProRoomApiError('PRESENCE_SUPERSEDED', 409));
@@ -2986,8 +3211,7 @@ onProRoomTabTakeover((roomCode) => {
 function isTerminalSessionError(error: unknown): error is ProRoomApiError {
   return (
     error instanceof ProRoomApiError &&
-    (error.status === 401 ||
-      error.code === 'SESSION_REQUIRED' ||
+    (error.code === 'SESSION_REQUIRED' ||
       error.code === 'PRESENCE_SUPERSEDED' ||
       error.status === 423 ||
       error.code === 'ROOM_SUSPENDED')
@@ -3135,6 +3359,79 @@ function beginControlChannelRecovery(): Promise<void> {
   return runControlChannelRecovery();
 }
 
+function scheduleAccountIdentityLeaseRenewal(): void {
+  if (!active) return;
+  clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
+  setManagedTimer(
+    ACCOUNT_IDENTITY_LEASE_TIMER,
+    () => void renewAccountIdentityLease(),
+    PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS,
+  );
+}
+
+async function renewAccountIdentityLease(): Promise<void> {
+  if (!active || accountLeaseRenewalInFlight) return;
+  const account = getAccountSnapshot();
+  const snapshot = controller.snapshot;
+  if (!snapshot) {
+    scheduleAccountIdentityLeaseRenewal();
+    return;
+  }
+  const action = planProAccountIdentityLease(account, snapshot.viewer);
+  if (action === 'none') {
+    scheduleAccountIdentityLeaseRenewal();
+    return;
+  }
+  if (action === 'reattach') {
+    // A backgrounded document can outlive the server lease. The persistent
+    // account member remains in the room, so a normal signed attachment
+    // restores this device without touching playback or other participants.
+    accountReconciler.update(account);
+    scheduleAccountIdentityLeaseRenewal();
+    return;
+  }
+
+  const roomCode = snapshot.roomCode;
+  const sessionLease = controller.captureSessionLease();
+  accountLeaseRenewalInFlight = true;
+  try {
+    await api.renewCurrentAccountLease(roomCode);
+  } catch (error) {
+    if (!controller.isSessionLeaseCurrent(sessionLease, roomCode)) return;
+    const failure = classifyProAccountIdentityLeaseFailure(error);
+    if (failure === 'terminal-room-session' && isTerminalSessionError(error)) {
+      await recoverTerminalSession(error);
+      return;
+    }
+    if (failure === 'reattach') {
+      accountAuthorityFailClosed = true;
+      const context = controller.context;
+      if (active && context) applyAuthority(context);
+      accountReconciler.update(account);
+      return;
+    }
+    if (failure === 'revoke-local') {
+      // The App account was revoked (possibly by logout-all on another device)
+      // or is no longer provable. Stop trusting account-only local controls now;
+      // the Worker lease independently removes server authority within its
+      // bounded window even if this tab never receives a cross-tab event.
+      accountAuthorityFailClosed = true;
+      const context = controller.context;
+      if (active && context) applyAuthority(context);
+      return;
+    }
+    // Preserve the remaining server lease as a short outage grace. Repeated
+    // failures cannot extend it and the next heartbeat will accept the
+    // server-side anonymous downgrade after expiry.
+    log.warn('[PRO] Account identity lease renewal deferred', error);
+  } finally {
+    accountLeaseRenewalInFlight = false;
+    if (controller.isSessionLeaseCurrent(sessionLease, roomCode)) {
+      scheduleAccountIdentityLeaseRenewal();
+    }
+  }
+}
+
 async function refreshSignalingCredential(): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!active || refreshInFlight || !lease) return false;
@@ -3171,6 +3468,8 @@ function bindVisibilityRefresh(): void {
     if (!active || document.visibilityState !== 'visible') return;
     clearManagedTimer(HEARTBEAT_TIMER);
     void runHeartbeat();
+    clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
+    void renewAccountIdentityLease();
   });
 }
 
@@ -3182,9 +3481,11 @@ function startLifecycle(): void {
   bindVisibilityRefresh();
   clearManagedTimer(HEARTBEAT_TIMER);
   setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  scheduleAccountIdentityLeaseRenewal();
   // Reconcile the authenticated display name immediately so queue notices
   // never stay pinned to the login-time generic "Peer" value.
   void runHeartbeat(true);
+  accountReconciler.update(getAccountSnapshot());
 }
 
 export function getProRoomBootstrap(code: string, signal?: AbortSignal): Promise<ProRoomBootstrap> {
@@ -3209,6 +3510,68 @@ export async function requestActiveProRoomBotCommand(
     throw new ProRoomApiError('BOT_SESSION_SUPERSEDED');
   }
   return result;
+}
+
+export function getActiveProRoomAdministrators(): ProRoomAdministrator[] {
+  return cloneProRoomAdministrators(acceptedProAdministrators);
+}
+
+function requireActiveProRoomAuthorityLease(): { code: string; lease: number } {
+  const code = controller.snapshot?.roomCode;
+  if (!active || !code) throw new ProRoomApiError('PRO_ROOM_SESSION_INACTIVE');
+  return { code, lease: controller.captureSessionLease() };
+}
+
+function acceptAdministratorDirectory(
+  code: string,
+  lease: number,
+  administrators: readonly ProRoomAdministrator[],
+): ProRoomAdministrator[] {
+  if (!controller.isSessionLeaseCurrent(lease, code)) {
+    throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
+  }
+  acceptedProAdministrators = cloneProRoomAdministrators(administrators);
+  const projection = cloneProRoomAdministrators(acceptedProAdministrators);
+  bus.emit('pro-room:administrators-updated', projection);
+  // The directory mutation also changes participant roles/capabilities. A
+  // forced heartbeat reconciles those rows without making the committed
+  // directory mutation look failed if the follow-up network read is delayed.
+  void runHeartbeat(true);
+  return projection;
+}
+
+export async function updateActiveProRoomAdministrator(
+  memberId: string,
+  permissions: ProRoomPermissionSet,
+  signal?: AbortSignal,
+): Promise<ProRoomAdministrator[]> {
+  const { code, lease } = requireActiveProRoomAuthorityLease();
+  const directory = await api.updateAdministrator(code, memberId, permissions, signal);
+  return acceptAdministratorDirectory(code, lease, directory.administrators);
+}
+
+export async function revokeActiveProRoomAdministrator(
+  memberId: string,
+  signal?: AbortSignal,
+): Promise<ProRoomAdministrator[]> {
+  const { code, lease } = requireActiveProRoomAuthorityLease();
+  const directory = await api.revokeAdministrator(code, memberId, signal);
+  return acceptAdministratorDirectory(code, lease, directory.administrators);
+}
+
+export async function kickActiveProRoomMember(
+  memberId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const { code, lease } = requireActiveProRoomAuthorityLease();
+  const snapshot = await api.kickMember(code, memberId, signal);
+  if (!controller.isSessionLeaseCurrent(lease, code)) {
+    throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
+  }
+  await acceptPlaylistSnapshot(snapshot);
+  if (!controller.isSessionLeaseCurrent(lease, code)) return;
+  reconcileAuthoritativePeers(snapshot);
+  publishProRoomAdministrators(snapshot);
 }
 
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
@@ -3397,6 +3760,10 @@ bus.on('state:network.myDeviceLabel', () => {
   if (active) void runHeartbeat(true);
 });
 
+subscribeAccount((snapshot) => {
+  accountReconciler.update(snapshot);
+});
+
 for (const event of [
   'state:audio.reverbMix',
   'state:audio.reverbDecay',
@@ -3498,22 +3865,23 @@ export function acceptProRoomRealtimeFrameForTests(
 
 onProRoomRealtimeEvent(acceptProRoomRealtimeFrame);
 
-bus.on('pro-room:kick-member', (participantId) => {
+bus.on('pro-room:kick-member', (memberIdOrLegacyParticipantId) => {
   const context = getState('room.context');
   if (!active || context.kind !== 'pro' || !context.roomId) return;
-  void api
-    .kickPresence(context.roomId, participantId)
-    .then(async (snapshot) => {
-      await acceptPlaylistSnapshot(snapshot);
-      reconcileAuthoritativePeers(snapshot);
-    })
-    .catch((error) => {
-      if (isTerminalSessionError(error)) {
-        void recoverTerminalSession(error);
-        return;
-      }
-      log.warn('[PRO] Could not remove participant', error);
-    });
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  const memberId = snapshot?.presence.participants.find(
+    (participant) =>
+      participant.memberId === memberIdOrLegacyParticipantId ||
+      participant.participantId === memberIdOrLegacyParticipantId,
+  )?.memberId;
+  if (!memberId) return;
+  void kickActiveProRoomMember(memberId).catch((error) => {
+    if (isTerminalSessionError(error)) {
+      void recoverTerminalSession(error);
+      return;
+    }
+    log.warn('[PRO] Could not remove participant', error);
+  });
 });
 
 registerProRoomHardCloseHandler(() => hardCloseActiveProRoom());

@@ -29,7 +29,7 @@ import {
   createPlaylistFollowController,
   type PlaylistFollowController,
 } from './playlist-follow.ts';
-import { hasRoomCapability } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
@@ -48,6 +48,17 @@ let _followScrollContainer: HTMLElement | null = null;
 // revision or clone a queue item while a drag owns that item's identity.
 const _expansionOverrides = new Map<QueueItemId, boolean>();
 const _busScope = createBusScope();
+
+/**
+ * Queue structure is deliberately stricter than playback control. A delegated
+ * administrator may start or seek a track, but deleting/reordering the shared
+ * library remains a lifecycle-owner action in PRO and a host action in a
+ * standard room.
+ */
+function canEditQueueStructure(): boolean {
+  if (getRoomContext().kind === 'pro') return hasRoomCapability('room.configure');
+  return hasRoomCapability('queue.mutate');
+}
 
 function resolveQueueIndex(queueItemId: QueueItemId): number {
   return findQueueItemIndex(queueItemId, getState('playlist.items'));
@@ -250,8 +261,8 @@ export function updatePlaylistUI(): void {
 
   if (playlist.length === 0) {
     followController.reset();
-    const canMutateQueue = hasRoomCapability('queue.mutate');
-    const key = canMutateQueue ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
+    const canAddMedia = hasRoomCapability('media.add');
+    const key = canAddMedia ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
     const empty = document.createElement('li');
     empty.className = 'list-empty-state';
     empty.setAttribute('data-i18n', key);
@@ -264,8 +275,7 @@ export function updatePlaylistUI(): void {
 
   const currentQueueItemId = getState('playlist.currentQueueItemId');
   const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
-  const canEditPlaylist =
-    hasRoomCapability('queue.mutate') && getState('playback.mode') !== 'system-audio';
+  const canEditPlaylist = canEditQueueStructure() && getState('playback.mode') !== 'system-audio';
   const canReorder = canEditPlaylist && playlist.length > 1;
 
   playlist.forEach((item, idx) => {
@@ -334,27 +344,28 @@ function queueItemIdFromElement(element: Element | null): QueueItemId | null {
 
 function playQueueItem(queueItemId: QueueItemId): void {
   if (!getQueueItemById(queueItemId)) return;
+  if (!hasRoomCapability('playback.control')) {
+    showToast(t('toast.host_only_control'));
+    return;
+  }
   const hostConn = getState('network.hostConn');
   if (!hostConn) bus.emit('playlist:play-track', queueItemId);
-  else if (getState('network.isOperator')) {
+  else {
     const sent = safeSend(hostConn, { type: MSG.REQUEST_TRACK_CHANGE, queueItemId });
     const roomContext = getState('room.context');
     if (sent && roomContext.kind === 'pro' && roomContext.role === 'member') {
       beginProRoomTrackChangeIntent(queueItemId);
     }
-  } else {
-    showToast(t('toast.host_only_control'));
   }
 }
 
 function seekSubItem(queueItemId: QueueItemId, subIndex: number): void {
   if (!Number.isSafeInteger(subIndex) || subIndex < 0 || !getQueueItemById(queueItemId)) return;
-  const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-  if (hostConn && !isOperator) {
+  if (!hasRoomCapability('playback.control')) {
     showToast(t('toast.host_only_control'));
     return;
   }
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const isCurrent = queueItemId === getState('playlist.currentQueueItemId');
     bus.emit('youtube:sub-seek', queueItemId, subIndex, isCurrent);
@@ -425,7 +436,7 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
   const controller = createPlaylistReorderController({
     list,
     canReorder: () =>
-      hasRoomCapability('queue.mutate') &&
+      canEditQueueStructure() &&
       getState('playback.mode') !== 'system-audio' &&
       !_removalController?.isActive &&
       getState('playlist.items').length > 1,
@@ -500,8 +511,7 @@ export function initPlaylistView(): void {
     createReorderController(list);
     _removalController = createPlaylistRemovalController({
       list,
-      canRemove: () =>
-        hasRoomCapability('queue.mutate') && getState('playback.mode') !== 'system-audio',
+      canRemove: () => canEditQueueStructure() && getState('playback.mode') !== 'system-audio',
       isPlaylistVisible: playlistIsVisible,
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
@@ -533,7 +543,21 @@ export function initPlaylistView(): void {
     // room.context. Re-render from the capability source itself so queue edit
     // controls appear immediately on grant and an in-flight edit is cancelled
     // immediately on revoke.
-    if (!isOperator) {
+    if (!isOperator || !canEditQueueStructure()) {
+      _reorderController?.cancel();
+      _removalController?.cancel();
+    }
+    schedulePlaylistUpdate();
+  });
+  _busScope.on('state:network.standardRoomCapabilities', () => {
+    if (!canEditQueueStructure()) {
+      _reorderController?.cancel();
+      _removalController?.cancel();
+    }
+    schedulePlaylistUpdate();
+  });
+  _busScope.on('state:room.context', () => {
+    if (!canEditQueueStructure()) {
       _reorderController?.cancel();
       _removalController?.cancel();
     }

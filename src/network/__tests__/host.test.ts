@@ -4,6 +4,9 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
+import type { StandardRoomMemberIdentity } from '../transport/types.ts';
+import { isCoordinator } from '../../rooms/authority.ts';
+import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../standard-room-authority.ts';
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
@@ -99,6 +102,36 @@ function makeIncomingConn(peerId: string): FiringConn {
   } as unknown as FiringConn;
 }
 
+function verifiedIdentity(
+  memberId = 'member_abcdefghijklmnopqrstuv',
+  nickname = 'Minsu',
+  memberDisplayNumber = 1,
+): StandardRoomMemberIdentity {
+  return {
+    memberId,
+    memberDisplayNumber,
+    nickname,
+    isAuthenticated: true,
+  };
+}
+
+function makeVerifiedIncomingConn(
+  peerId: string,
+  identity: StandardRoomMemberIdentity = verifiedIdentity(),
+): FiringConn {
+  const conn = makeIncomingConn(peerId);
+  conn.roomIdentity = identity;
+  return conn;
+}
+
+function setAuthenticatedPhysicalHost(identity: StandardRoomMemberIdentity): void {
+  setState('network.appRole', 'host');
+  setState('network.myDeviceLabel', identity.nickname);
+  setState('network.myMemberId', identity.memberId);
+  setState('network.myMemberDisplayNumber', identity.memberDisplayNumber);
+  setState('network.myMemberAuthenticated', true);
+}
+
 describe('duplicate guest connection handoff', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -170,6 +203,42 @@ describe('duplicate guest connection handoff', () => {
     expect(connected).toEqual([replacement]);
   });
 
+  it('does not announce a duplicate join when one live connection is replaced', () => {
+    setState('setup.sessionStarted', true);
+    const systemMessages: string[] = [];
+    const stop = bus.on('chat:system-message', (text) => systemMessages.push(text));
+    const first = makeIncomingConn('guest-rejoin');
+    const replacement = makeIncomingConn('guest-rejoin');
+
+    try {
+      handleHostIncomingConnection(first);
+      first.fire('open');
+      handleHostIncomingConnection(replacement);
+      replacement.fire('open');
+    } finally {
+      stop();
+    }
+
+    expect(systemMessages).toHaveLength(1);
+  });
+
+  it('still announces the first join when a stalled pre-open connection is replaced', () => {
+    const systemMessages: string[] = [];
+    const stop = bus.on('chat:system-message', (text) => systemMessages.push(text));
+    const stalled = makeIncomingConn('guest-stalled');
+    const replacement = makeIncomingConn('guest-stalled');
+
+    try {
+      handleHostIncomingConnection(stalled);
+      handleHostIncomingConnection(replacement);
+      replacement.fire('open');
+    } finally {
+      stop();
+    }
+
+    expect(systemMessages).toHaveLength(1);
+  });
+
   it('rejects a connection over capacity with SESSION_FULL and a deferred close, leaving no record', () => {
     const ids = Array.from({ length: MAX_GUEST_SLOTS }, (_, index) => `g${index + 1}`);
     setState('network.peerSlots', [null, ...ids]);
@@ -213,6 +282,89 @@ describe('duplicate guest connection handoff', () => {
 
     expect(getState('network.connectedPeers')).toHaveLength(MAX_SYSTEM_AUDIO_DEVICES);
     expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe('account-grouped presence announcements', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    setState('setup.sessionStarted', true);
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    vi.useRealTimers();
+  });
+
+  it('announces only the first join and last departure across the same account devices', () => {
+    const systemMessages: string[] = [];
+    const stop = bus.on('chat:system-message', (text) => systemMessages.push(text));
+    const first = makeVerifiedIncomingConn('minsu-phone');
+    const second = makeVerifiedIncomingConn('minsu-laptop');
+
+    try {
+      handleHostIncomingConnection(first);
+      first.fire('open');
+      handleHostIncomingConnection(second);
+      second.fire('open');
+
+      expect(systemMessages).toHaveLength(1);
+      first.fire('close');
+      expect(systemMessages).toHaveLength(1);
+      second.fire('close');
+      expect(systemMessages).toHaveLength(2);
+    } finally {
+      stop();
+    }
+  });
+
+  it('does not announce a guest device when the physical host already represents that account', () => {
+    const identity = verifiedIdentity();
+    setState('network.appRole', 'host');
+    setState('network.myDeviceLabel', identity.nickname);
+    setState('network.myMemberId', identity.memberId);
+    setState('network.myMemberDisplayNumber', identity.memberDisplayNumber);
+    setState('network.myMemberAuthenticated', true);
+    const systemMessages: string[] = [];
+    const stop = bus.on('chat:system-message', (text) => systemMessages.push(text));
+    const secondDevice = makeVerifiedIncomingConn('host-account-phone', identity);
+
+    try {
+      handleHostIncomingConnection(secondDevice);
+      secondDevice.fire('open');
+      secondDevice.fire('close');
+    } finally {
+      stop();
+    }
+
+    expect(systemMessages).toEqual([]);
+  });
+
+  it('keeps physical slots while account rows use the first device slot', () => {
+    const minsu = [0, 1, 2].map((index) =>
+      makeVerifiedIncomingConn(
+        `minsu-${index}`,
+        verifiedIdentity('member_abcdefghijklmnopqrstuv', 'Minsu', 1),
+      ),
+    );
+    const jisu = [0, 1].map((index) =>
+      makeVerifiedIncomingConn(
+        `jisu-${index}`,
+        verifiedIdentity('member_zyxwvutsrqponmlkjihgfe', 'Jisu', 4),
+      ),
+    );
+    const anonymous = makeIncomingConn('anonymous-6');
+
+    for (const conn of [...minsu, ...jisu, anonymous]) {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+    }
+
+    const peers = getState('network.connectedPeers');
+    expect(peers.map((peer) => peer.slot)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(
+      peers.map((peer) => (peer.isAuthenticated ? peer.memberDisplayNumber : peer.joinOrder)),
+    ).toEqual([1, 1, 1, 4, 4, 6]);
   });
 });
 
@@ -277,11 +429,20 @@ describe('host operator toggle', () => {
     bus.emit('network:toggle-operator', 'guest-1');
 
     expect(getState('network.connectedPeers')[0].isOp).toBe(true);
-    expect(send).toHaveBeenNthCalledWith(1, { type: MSG.OPERATOR_GRANT });
+    expect(send).toHaveBeenNthCalledWith(1, {
+      type: MSG.OPERATOR_GRANT,
+      capabilities: [
+        'media.add',
+        'asset.upload',
+        'playback.control',
+        'members.manage',
+        'chat.notice',
+      ],
+    });
     expect(mocks.showToast).toHaveBeenCalled();
   });
 
-  it('leaves host state unchanged when the operator message cannot be sent', () => {
+  it('keeps the canonical grant when its first projection cannot be sent', () => {
     const send = vi.fn(() => {
       throw new Error('send failed');
     });
@@ -290,9 +451,10 @@ describe('host operator toggle', () => {
 
     bus.emit('network:toggle-operator', 'guest-1');
 
-    expect(getState('network.connectedPeers')[0].isOp).toBe(false);
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(getState('network.connectedPeers')[0].isOp).toBe(true);
+    expect(getState('network.standardRoomAdministrators').has('peer:guest-1')).toBe(true);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.OPERATOR_GRANT }));
+    expect(mocks.showToast).toHaveBeenCalled();
   });
 
   // OPERATOR_REVOKE re-baselines a demoted guest: the effects snapshot reconciles
@@ -327,9 +489,413 @@ describe('host operator toggle', () => {
 
     bus.emit('network:toggle-operator', 'guest-1');
 
-    expect(send).toHaveBeenCalledWith({ type: MSG.OPERATOR_GRANT });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.OPERATOR_GRANT,
+        capabilities: expect.arrayContaining(['media.add', 'playback.control']),
+      }),
+    );
     expect(resyncSpy).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.REPEAT_MODE }));
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.SHUFFLE_MODE }));
+  });
+});
+
+describe('standard-room account authority', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    vi.useRealTimers();
+  });
+
+  it('projects one persistent grant to every live device and restores it after reconnect', () => {
+    const first = makeVerifiedIncomingConn('member-device-a');
+    const second = makeVerifiedIncomingConn('member-device-b');
+    handleHostIncomingConnection(first);
+    handleHostIncomingConnection(second);
+
+    bus.emit('network:grant-standard-room-administrator', {
+      memberId: verifiedIdentity().memberId,
+    });
+
+    expect(getState('network.connectedPeers').map((peer) => peer.isOp)).toEqual([true, true]);
+    expect(first.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.OPERATOR_GRANT }));
+    expect(second.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.OPERATOR_GRANT }));
+
+    first.fire('close');
+    second.fire('close');
+    expect(getState('network.standardRoomAdministrators').has(verifiedIdentity().memberId)).toBe(
+      true,
+    );
+
+    const reconnected = makeVerifiedIncomingConn('member-device-c');
+    handleHostIncomingConnection(reconnected);
+    expect(getState('network.connectedPeers')).toEqual([
+      expect.objectContaining({
+        id: 'member-device-c',
+        memberId: verifiedIdentity().memberId,
+        isOp: true,
+      }),
+    ]);
+  });
+
+  it('revokes one account grant from every live device at once', () => {
+    const identity = verifiedIdentity();
+    const first = makeVerifiedIncomingConn('revoke-device-a', identity);
+    const second = makeVerifiedIncomingConn('revoke-device-b', identity);
+    handleHostIncomingConnection(first);
+    handleHostIncomingConnection(second);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+    first.send.mockClear();
+    second.send.mockClear();
+
+    bus.emit('network:revoke-standard-room-administrator', { memberId: identity.memberId });
+
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(false);
+    expect(getState('network.connectedPeers')).toEqual([
+      expect.objectContaining({ id: 'revoke-device-a', isOp: false, roomCapabilities: [] }),
+      expect.objectContaining({ id: 'revoke-device-b', isOp: false, roomCapabilities: [] }),
+    ]);
+    expect(first.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE });
+    expect(second.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE });
+  });
+
+  it('projects full host-routed product authority to an exact verified sibling device', () => {
+    const identity = verifiedIdentity();
+    setAuthenticatedPhysicalHost(identity);
+    const sameAccountGuest = makeVerifiedIncomingConn('host-account-second-device', identity);
+    handleHostIncomingConnection(sameAccountGuest);
+    sameAccountGuest.fire('open');
+
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      memberId: identity.memberId,
+      isAuthenticated: true,
+      isOp: true,
+      roomCapabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+    });
+    expect(sameAccountGuest.send).toHaveBeenCalledWith({
+      type: MSG.OPERATOR_GRANT,
+      capabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+    });
+    expect(STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES).not.toContain('system-audio.publish');
+    expect(STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES).not.toContain('coordinator.eligible');
+    expect(isCoordinator()).toBe(true);
+    expect(getState('network.appRole')).toBe('host');
+    expect(getState('network.hostConn')).toBeNull();
+  });
+
+  it('does not project owner authority from a matching nickname or a different member id', () => {
+    const owner = verifiedIdentity('member_abcdefghijklmnopqrstuv', 'Shared name', 1);
+    const impostor = verifiedIdentity('member_vutsrqponmlkjihgfedcba', 'Shared name', 2);
+    setAuthenticatedPhysicalHost(owner);
+    const differentAccount = makeVerifiedIncomingConn('different-account-device', impostor);
+
+    handleHostIncomingConnection(differentAccount);
+
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      memberId: impostor.memberId,
+      label: owner.nickname,
+      isAuthenticated: true,
+      isOp: false,
+      roomCapabilities: [],
+    });
+  });
+
+  it('fails closed across host login, logout, and account deletion state changes', () => {
+    const identity = verifiedIdentity();
+    setState('network.appRole', 'host');
+    const sibling = makeVerifiedIncomingConn('account-lifecycle-sibling', identity);
+    handleHostIncomingConnection(sibling);
+    sibling.fire('open');
+    sibling.send.mockClear();
+
+    expect(getState('network.connectedPeers')[0].isOp).toBe(false);
+
+    setState('network.myMemberId', identity.memberId);
+    setState('network.myMemberAuthenticated', true);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isOp: true,
+      roomCapabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+    });
+    expect(sibling.send).toHaveBeenCalledWith({
+      type: MSG.OPERATOR_GRANT,
+      capabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+    });
+
+    setState('network.myMemberAuthenticated', false);
+    setState('network.myMemberId', null);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isOp: false,
+      roomCapabilities: [],
+    });
+    expect(sibling.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE });
+
+    setState('network.myMemberId', identity.memberId);
+    setState('network.myMemberAuthenticated', true);
+    expect(getState('network.connectedPeers')[0].isOp).toBe(true);
+
+    // Account deletion clears the signed local projection. Sibling product
+    // authority disappears immediately; the physical host transport remains.
+    setState('network.myMemberAuthenticated', false);
+    setState('network.myMemberId', null);
+    expect(getState('network.connectedPeers')[0].isOp).toBe(false);
+    expect(isCoordinator()).toBe(true);
+  });
+
+  it('removes owner projection when a sibling proof expires and restores it only after reassertion', () => {
+    const identity = verifiedIdentity();
+    setAuthenticatedPhysicalHost(identity);
+    const sibling = makeVerifiedIncomingConn('owner-proof-lifecycle', identity);
+    handleHostIncomingConnection(sibling);
+    sibling.fire('open');
+
+    expect(getState('network.connectedPeers')[0].isOp).toBe(true);
+
+    sibling.fire('identity', null, 'expired');
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isAuthenticated: false,
+      isOp: false,
+      roomCapabilities: [],
+    });
+
+    sibling.fire('identity', identity);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      memberId: identity.memberId,
+      isAuthenticated: true,
+      isOp: true,
+      roomCapabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+    });
+
+    sibling.fire('identity', null, 'deleted');
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isAuthenticated: false,
+      isOp: false,
+      roomCapabilities: [],
+    });
+    expect(isCoordinator()).toBe(true);
+  });
+
+  it('ignores legacy operator toggles for a verified owner sibling', () => {
+    const identity = verifiedIdentity();
+    setAuthenticatedPhysicalHost(identity);
+    const sibling = makeVerifiedIncomingConn('owner-legacy-toggle', identity);
+    handleHostIncomingConnection(sibling);
+    sibling.fire('open');
+    sibling.send.mockClear();
+    mocks.showToast.mockClear();
+
+    bus.emit('network:toggle-operator', sibling.peer);
+
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isOp: true,
+      roomCapabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+    });
+    expect(sibling.send).not.toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE });
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  it('re-baselines stateful controls when owner projection narrows to an explicit admin grant', () => {
+    const identity = verifiedIdentity();
+    setAuthenticatedPhysicalHost(identity);
+    const sibling = makeVerifiedIncomingConn('owner-to-admin', identity);
+    handleHostIncomingConnection(sibling);
+    sibling.fire('open');
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+    sibling.send.mockClear();
+    setState('playlist.repeatMode', 2);
+    setState('playlist.isShuffle', true);
+    const resync = vi.fn();
+    bus.on('effects:resync-peer', resync);
+
+    setState('network.myMemberAuthenticated', false);
+
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isOp: true,
+      roomCapabilities: [
+        'media.add',
+        'asset.upload',
+        'playback.control',
+        'members.manage',
+        'chat.notice',
+      ],
+    });
+    expect(resync).toHaveBeenCalledWith(sibling);
+    expect(sibling.send).toHaveBeenCalledWith({
+      type: MSG.REPEAT_MODE,
+      value: 2,
+      _bootstrap: true,
+    });
+    expect(sibling.send).toHaveBeenCalledWith({
+      type: MSG.SHUFFLE_MODE,
+      value: true,
+      _bootstrap: true,
+    });
+  });
+
+  it('removes an anonymous one-session grant when that physical connection leaves', () => {
+    const anonymous = makeIncomingConn('anonymous-admin');
+    handleHostIncomingConnection(anonymous);
+    bus.emit('network:grant-standard-room-administrator', {
+      memberId: 'peer:anonymous-admin',
+    });
+    expect(getState('network.standardRoomAdministrators').has('peer:anonymous-admin')).toBe(true);
+
+    anonymous.fire('close');
+
+    expect(getState('network.standardRoomAdministrators').has('peer:anonymous-admin')).toBe(false);
+  });
+
+  it('downgrades an expired identity but restores its remembered grant after reassertion', () => {
+    const identity = verifiedIdentity();
+    const conn = makeVerifiedIncomingConn('expiring-device', identity);
+    handleHostIncomingConnection(conn);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    conn.fire('identity', null, 'expired');
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      id: 'expiring-device',
+      isAuthenticated: false,
+      isOp: false,
+    });
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+
+    conn.fire('identity', identity);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      memberId: identity.memberId,
+      isAuthenticated: true,
+      isOp: true,
+    });
+  });
+
+  it('retains an account grant across explicit logout after its lease expired', () => {
+    const identity = verifiedIdentity();
+    const conn = makeVerifiedIncomingConn('logout-after-expiry', identity);
+    handleHostIncomingConnection(conn);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    conn.fire('identity', null, 'expired');
+    conn.fire('identity', null, 'explicit');
+
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isAuthenticated: false,
+      isOp: false,
+    });
+  });
+
+  it('revokes a remembered grant when the server confirms account deletion after lease expiry', () => {
+    const identity = verifiedIdentity();
+    const conn = makeVerifiedIncomingConn('deleted-after-expiry', identity);
+    handleHostIncomingConnection(conn);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    conn.fire('identity', null, 'expired');
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+
+    bus.emit('network:standard-room-account-deleted', { memberId: identity.memberId });
+
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(false);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isAuthenticated: false,
+      isOp: false,
+    });
+  });
+
+  it('keeps a remembered account grant after every live device logs out', () => {
+    const identity = verifiedIdentity();
+    const first = makeVerifiedIncomingConn('logout-device-a', identity);
+    const second = makeVerifiedIncomingConn('logout-device-b', identity);
+    handleHostIncomingConnection(first);
+    handleHostIncomingConnection(second);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    first.fire('identity', null, 'explicit');
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+    expect(
+      getState('network.connectedPeers').find((peer) => peer.id === 'logout-device-b'),
+    ).toMatchObject({
+      isOp: true,
+    });
+
+    second.fire('identity', null, 'explicit');
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+    expect(
+      getState('network.connectedPeers').filter((peer) => peer.isOp || peer.isAuthenticated),
+    ).toHaveLength(0);
+  });
+
+  it('revokes the account grant only for a trusted account-deleted identity event', () => {
+    const identity = verifiedIdentity();
+    const conn = makeVerifiedIncomingConn('deleted-account-device', identity);
+    handleHostIncomingConnection(conn);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    conn.fire('identity', null, 'deleted');
+
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(false);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      isAuthenticated: false,
+      isOp: false,
+    });
+  });
+
+  it('keeps delegated permissions narrow when updating an administrator', () => {
+    const identity = verifiedIdentity();
+    const conn = makeVerifiedIncomingConn('limited-admin', identity);
+    handleHostIncomingConnection(conn);
+    bus.emit('network:grant-standard-room-administrator', {
+      memberId: identity.memberId,
+      permissions: {
+        'media.add': true,
+        'playback.control': false,
+        'members.kick': false,
+        'chat.notice': false,
+      },
+    });
+
+    expect(getState('network.connectedPeers')[0].roomCapabilities).toEqual([
+      'media.add',
+      'asset.upload',
+    ]);
+
+    bus.emit('network:update-standard-room-administrator', {
+      memberId: identity.memberId,
+      permissions: {
+        'media.add': false,
+        'playback.control': true,
+        'members.kick': false,
+        'chat.notice': false,
+      },
+    });
+
+    expect(getState('network.connectedPeers')[0].roomCapabilities).toEqual(['playback.control']);
+  });
+
+  it('kicks all live devices for one verified member and revokes the grant', () => {
+    const identity = verifiedIdentity();
+    const first = makeVerifiedIncomingConn('kick-device-a', identity);
+    const second = makeVerifiedIncomingConn('kick-device-b', identity);
+    const other = makeVerifiedIncomingConn(
+      'other-account-device',
+      verifiedIdentity('member_zyxwvutsrqponmlkjihgfe', 'Jisu', 2),
+    );
+    handleHostIncomingConnection(first);
+    handleHostIncomingConnection(second);
+    handleHostIncomingConnection(other);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    bus.emit('network:request-kick-standard-room-member', { memberId: identity.memberId });
+
+    expect(first.send).toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
+    expect(second.send).toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
+    expect(other.send).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(false);
+    vi.advanceTimersByTime(300);
+    expect(first.close).toHaveBeenCalled();
+    expect(second.close).toHaveBeenCalled();
+    expect(other.close).not.toHaveBeenCalled();
   });
 });

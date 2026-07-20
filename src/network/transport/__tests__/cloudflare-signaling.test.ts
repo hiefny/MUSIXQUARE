@@ -390,6 +390,7 @@ async function establishGuest(roomPassword = ''): Promise<{
   const conn = peer.connect('123456', roomPassword ? { roomPassword } : undefined);
   const socket = FakeWebSocket.instances[0];
   socket.dispatch('open');
+  await flushAsync();
   socket.dispatch(
     'message',
     JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
@@ -400,6 +401,7 @@ async function establishGuest(roomPassword = ''): Promise<{
 
 afterEach(() => {
   clearAllManagedTimers();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   Object.defineProperty(globalThis, 'WebSocket', {
     configurable: true,
@@ -412,6 +414,222 @@ afterEach(() => {
   Object.defineProperty(globalThis, 'MediaStream', {
     configurable: true,
     value: originalMediaStream,
+  });
+});
+
+describe('standard-room account identity refresh', () => {
+  it('never sends account deletion without a deletion-audience proof', async () => {
+    installFakeWebSocket();
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await flushAsync();
+    socket.sent.length = 0;
+
+    peer.deleteStandardRoomIdentity();
+    await flushAsync();
+
+    expect(sentOfType(socket, 'account-identity-delete')).toEqual([]);
+    expect(sentOfType(socket, 'account-identity-clear')).toEqual([
+      { type: 'account-identity-clear' },
+    ]);
+    peer.destroy();
+  });
+
+  it('fetches a deletion-only proof after account deletion commits and sends it afterwards', async () => {
+    installFakeWebSocket();
+    const assertionProvider = vi
+      .fn()
+      .mockResolvedValueOnce({
+        accountAssertion: 'signed-attach-proof',
+        deletionAssertion: null,
+      })
+      .mockResolvedValueOnce({
+        accountAssertion: null,
+        deletionAssertion: 'signed-deletion-proof',
+      });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await flushAsync();
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    socket.sent.length = 0;
+
+    peer.deleteStandardRoomIdentity();
+    await flushAsync();
+
+    expect(assertionProvider).toHaveBeenLastCalledWith({
+      roomCode: '123456',
+      peerId: '123456',
+      role: 'host',
+    });
+    expect(sentOfType(socket, 'account-identity-delete')).toEqual([
+      {
+        type: 'account-identity-delete',
+        deletionAssertion: 'signed-deletion-proof',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('sends a tombstoned browser deletion proof only after anonymous reconnect is admitted', async () => {
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: null,
+      deletionAssertion: 'cross-device-deletion-proof',
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await flushAsync();
+
+    expect(sentOfType(socket, 'host-auth')[0]).not.toHaveProperty('accountAssertion');
+    expect(sentOfType(socket, 'account-identity-delete')).toEqual([]);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    expect(sentOfType(socket, 'account-identity-delete')).toEqual([
+      {
+        type: 'account-identity-delete',
+        deletionAssertion: 'cross-device-deletion-proof',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('emits only a validated server-issued member deletion identity', async () => {
+    installFakeWebSocket();
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await flushAsync();
+    const deleted = vi.fn();
+    peer.on('room-member-deleted', deleted);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'account-member-deleted', memberId: 'member_bad' }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-member-deleted',
+        memberId: 'member_abcdefghijklmnopqrstuv',
+      }),
+    );
+    await flushAsync();
+
+    expect(deleted).toHaveBeenCalledOnce();
+    expect(deleted).toHaveBeenCalledWith('member_abcdefghijklmnopqrstuv');
+    peer.destroy();
+  });
+
+  it('retries after a transient assertion failure during the initial host handshake', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({
+      accountAssertion: 'signed-assertion',
+      deletionAssertion: null,
+    });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+
+    socket.dispatch('open');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentOfType(socket, 'host-auth')[0]).not.toHaveProperty('accountAssertion');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({
+      type: 'account-identity-refresh',
+      accountAssertion: 'signed-assertion',
+    });
+    peer.destroy();
+  });
+
+  it('keeps retrying after the Worker expires a transiently unrefreshed identity lease', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'renewed-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await Promise.resolve();
+    await Promise.resolve();
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        memberIdentity: {
+          memberId: 'member_abcdefghijklmnopqrstuv',
+          memberDisplayNumber: 0,
+          nickname: 'Minsu',
+          isAuthenticated: true,
+        },
+      }),
+    );
+    socket.sent.length = 0;
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'expired',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({
+      type: 'account-identity-refresh',
+      accountAssertion: 'renewed-assertion',
+    });
+    peer.destroy();
   });
 });
 
@@ -874,6 +1092,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
       await Promise.resolve();
       const hostClientSocket = FakeWebSocket.instances[0];
       hostClientSocket.dispatch('open');
+      await flushAsync();
       const hostUrl = new URL(hostClientSocket.url);
       const hostServerSocket = new ContractWorkerSocket();
       expect([...hostUrl.searchParams.keys()]).toEqual(['role', 'peerId']);
@@ -910,6 +1129,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
       );
 
       guestClientSocket.dispatch('open');
+      await flushAsync();
       const authFrame = sentOfType(guestClientSocket, 'guest-auth')[0];
       expect(authFrame).toMatchObject({
         type: 'guest-auth',
@@ -970,6 +1190,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
     await Promise.resolve();
     const first = FakeWebSocket.instances[0];
     first.dispatch('open');
+    await flushAsync();
     const firstAuth = sentOfType(first, 'host-auth')[0];
 
     expect(new URL(first.url).searchParams.get('secret')).toBeNull();
@@ -979,6 +1200,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
     peer.reconnect();
     const reopened = FakeWebSocket.instances[1];
     reopened.dispatch('open');
+    await flushAsync();
 
     expect(new URL(reopened.url).searchParams.get('secret')).toBeNull();
     expect(sentOfType(reopened, 'host-auth')[0]).toEqual(firstAuth);
@@ -1166,6 +1388,7 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(reopened.url).toContain('role=guest');
     expect(new URL(reopened.url).searchParams.has('reconnectSecret')).toBe(false);
     reopened.dispatch('open');
+    await flushAsync();
     expect(sentOfType(reopened, 'guest-auth')[0]?.password).toBe('12345678');
     expect(sentOfType(reopened, 'guest-auth')[0]?.reconnectSecret).toBe(
       sentOfType(socket, 'guest-auth')[0]?.reconnectSecret,
@@ -1222,6 +1445,7 @@ describe('Cloudflare guest signaling reconnect', () => {
     const socket = FakeWebSocket.instances[0];
     expect(new URL(socket.url).searchParams.has('reconnectSecret')).toBe(false);
     socket.dispatch('open');
+    await flushAsync();
     const firstSecret = sentOfType(socket, 'guest-auth')[0]?.reconnectSecret;
     expect(firstSecret).toEqual(expect.stringMatching(/^[A-Za-z0-9_-]{43}$/));
     socket.dispatch(
@@ -1237,6 +1461,7 @@ describe('Cloudflare guest signaling reconnect', () => {
     const replacement = FakeWebSocket.instances[1];
     expect(new URL(replacement.url).searchParams.has('reconnectSecret')).toBe(false);
     replacement.dispatch('open');
+    await flushAsync();
 
     expect(sentOfType(replacement, 'guest-auth')[0]?.reconnectSecret).toBe(firstSecret);
   });
@@ -1397,6 +1622,7 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     const rejoined = FakeWebSocket.instances[1];
     rejoined.dispatch('open');
+    await flushAsync();
     expect(sentOfType(rejoined, 'guest-auth')[0]?.password).toBe('87654321');
   });
 

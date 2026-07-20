@@ -8,24 +8,26 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import {
-  DEVICE_LABEL_SANITIZE_RE,
-  PRO_GENERATED_PEER_NAME_RE,
-  RESERVED_NAMES,
-} from '../core/constants.ts';
-import { getOtherDeviceLabels } from '../network/guards.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
-import { containsProfanity } from '../chat/profanity.ts';
 import { showToast } from './toast.ts';
-import { copyTextToClipboard } from './dom.ts';
+import { copyTextToClipboard, syncOverlayState } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { normalizeProRoomPin } from '../pro-room/room-code.ts';
+import { requestAccountNicknameChange } from './account.ts';
+import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
+import type { DeviceInfo, StandardRoomPermissionSet } from '../types/index.ts';
+import type {
+  ProRoomAdministrator,
+  ProRoomPermission,
+  ProRoomPermissionSet,
+} from '../pro-room/contracts.ts';
 
 let _langObserver: MutationObserver | null = null;
 let _lastDeviceList: Array<Record<string, unknown>> = [];
+let _lastProAdministrators: ProRoomAdministrator[] = [];
 
 // ─── Host-Ctrl Lock (shared pattern) ────────────────────────────
 
@@ -346,6 +348,151 @@ function initRoomPasswordControls(): void {
 
 let _lastDeviceCount = 0;
 
+const ADMIN_PERMISSION_KEYS = [
+  'media.add',
+  'playback.control',
+  'members.kick',
+  'chat.notice',
+] as const satisfies readonly ProRoomPermission[];
+const FULL_ADMIN_PERMISSIONS: Readonly<ProRoomPermissionSet> = Object.freeze({
+  'media.add': true,
+  'playback.control': true,
+  'members.kick': true,
+  'chat.notice': true,
+});
+const CROWN_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z"/></svg>';
+const SETTINGS_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.1 7.1 0 0 0-1.62-.94L14.38 2.8A.49.49 0 0 0 13.89 2h-3.84a.49.49 0 0 0-.49.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.61.22L2.66 8.47a.5.5 0 0 0 .12.64l2.03 1.58c-.05.31-.09.65-.09.98s.03.66.08.97l-2.02 1.58a.49.49 0 0 0-.12.64l1.92 3.32c.13.23.4.31.63.22l2.37-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.49.41h3.84c.25 0 .46-.17.49-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.37.96c.23.09.5.01.63-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.02-1.58zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>';
+const REVOKE_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8c0-1.66-1.34-3-3-3S9 6.34 9 8s1.34 3 3 3 3-1.34 3-3zm-8 8c0-2 3.33-3 5-3 .54 0 1.23.11 1.91.32l1.63-1.63A10.3 10.3 0 0 0 12 11c-2 0-6 1-6 5v2h7.17l-2-2H7zm12.59-3L17 15.59 14.41 13 13 14.41 15.59 17 13 19.59 14.41 21 17 18.41 19.59 21 21 19.59 18.41 17 21 14.41 19.59 13z"/></svg>';
+
+interface AdministratorView {
+  memberId: string;
+  memberDisplayNumber: number;
+  displayName: string;
+  isOwner: boolean;
+  permissions: ProRoomPermissionSet;
+  inheritedPermissions: ProRoomPermission[];
+  onlineDeviceCount: number;
+}
+
+let _permissionDialogTarget: AdministratorView | null = null;
+let _permissionDialogPreviousFocus: HTMLElement | null = null;
+let _permissionDialogPreviousContainerId: string | null = null;
+let _permissionDialogBusy = false;
+let _permissionDialogInitializedFor: HTMLElement | null = null;
+
+function memberAuthorityKey(member: ConnectedRoomMember): string {
+  return member.memberId || `peer:${member.deviceIds[0] || member.key}`;
+}
+
+function clonePermissions(
+  permissions: Readonly<StandardRoomPermissionSet | ProRoomPermissionSet>,
+): ProRoomPermissionSet {
+  return {
+    'media.add': permissions['media.add'] === true,
+    'playback.control': permissions['playback.control'] === true,
+    'members.kick': permissions['members.kick'] === true,
+    'chat.notice': permissions['chat.notice'] === true,
+  };
+}
+
+function _canManageAdministrators(): boolean {
+  if (_isProRoom()) return hasRoomCapability('room.configure');
+  return _canEditHostOwnedSetting();
+}
+
+function _administratorsForMembers(members: readonly ConnectedRoomMember[]): AdministratorView[] {
+  if (_isProRoom()) {
+    return _lastProAdministrators.map((administrator) => ({
+      memberId: administrator.memberId,
+      memberDisplayNumber: administrator.memberDisplayNumber,
+      displayName: administrator.displayName,
+      isOwner: administrator.role === 'owner',
+      permissions: clonePermissions(administrator.permissions),
+      inheritedPermissions: [...administrator.inheritedPermissions],
+      onlineDeviceCount: administrator.onlineDeviceCount,
+    }));
+  }
+
+  const views: AdministratorView[] = [];
+  const host = members.find((member) => member.isHost);
+  if (host) {
+    views.push({
+      // The room-owner row follows the verified person-level identity so all
+      // of that owner's devices remain one row. Transport coordination and
+      // PIN/administrator editing are still anchored to hostDeviceId and the
+      // physical-host gates above; this grouping grants no transport role.
+      memberId: memberAuthorityKey(host),
+      memberDisplayNumber: host.memberDisplayNumber,
+      displayName: host.label || t('common.peer'),
+      isOwner: true,
+      permissions: clonePermissions(FULL_ADMIN_PERMISSIONS),
+      inheritedPermissions: [...ADMIN_PERMISSION_KEYS],
+      onlineDeviceCount: host.deviceCount,
+    });
+  }
+
+  if (_canEditHostOwnedSetting()) {
+    for (const administrator of getState('network.standardRoomAdministrators').values()) {
+      const connected = members.find(
+        (member) => memberAuthorityKey(member) === administrator.memberId,
+      );
+      views.push({
+        memberId: administrator.memberId,
+        memberDisplayNumber: administrator.memberDisplayNumber,
+        displayName: administrator.displayName,
+        isOwner: false,
+        permissions: clonePermissions(administrator.permissions),
+        inheritedPermissions: [],
+        onlineDeviceCount: connected?.deviceCount ?? 0,
+      });
+    }
+  }
+
+  // The persistent administrator directory is host-owned. Other participants
+  // still receive a sanitized live projection in DEVICE_LIST_UPDATE, so merge
+  // those connected administrators for an accurate read-only list without
+  // exposing offline grants or creating a second authority source.
+  const knownAdministratorIds = new Set(views.map((view) => view.memberId));
+  for (const member of members) {
+    if (member.isHost || !member.isAdministrator) continue;
+    const memberId = memberAuthorityKey(member);
+    if (knownAdministratorIds.has(memberId)) continue;
+    const capabilities = new Set(member.capabilities);
+    const hasExplicitCapabilities = capabilities.size > 0;
+    views.push({
+      memberId,
+      memberDisplayNumber: member.memberDisplayNumber,
+      displayName: member.label || t('common.peer'),
+      isOwner: false,
+      permissions: {
+        'media.add': hasExplicitCapabilities
+          ? capabilities.has('media.add') || capabilities.has('asset.upload')
+          : true,
+        'playback.control': hasExplicitCapabilities ? capabilities.has('playback.control') : true,
+        'members.kick': capabilities.has('members.manage'),
+        'chat.notice': capabilities.has('chat.notice'),
+      },
+      inheritedPermissions: [],
+      onlineDeviceCount: member.deviceCount,
+    });
+    knownAdministratorIds.add(memberId);
+  }
+
+  return views.sort(
+    (left, right) =>
+      Number(right.isOwner) - Number(left.isOwner) ||
+      left.memberDisplayNumber - right.memberDisplayNumber ||
+      left.memberId.localeCompare(right.memberId),
+  );
+}
+
+function _administratorListTitle(count: number): string {
+  return t('connect.administrator_list', { count });
+}
+
 function _updateDeviceTitles(): void {
   const titleText = _deviceListTitle(_lastDeviceCount);
   ['connect-device-title', 'desktop-device-title'].forEach((id) => {
@@ -358,11 +505,366 @@ function _deviceListTitle(count: number): string {
   return t('connect.device_list', { count });
 }
 
+function _administratorActionButton(
+  className: string,
+  ariaLabel: string,
+  icon: string,
+  handler: () => void,
+): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `administrator-action-button ${className}`;
+  button.setAttribute('aria-label', ariaLabel);
+  button.innerHTML = icon;
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handler();
+  });
+  return button;
+}
+
+function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void {
+  const administrators = _administratorsForMembers(members);
+  const delegatedCount = administrators.filter((administrator) => !administrator.isOwner).length;
+  const canManage = _canManageAdministrators();
+  const sectionIds = ['connect-administrator-section', 'desktop-administrator-section'];
+  const titleIds = ['connect-administrator-title', 'desktop-administrator-title'];
+  const containerIds = ['connect-administrator-list', 'desktop-administrator-list'];
+
+  sectionIds.forEach((id) => {
+    const section = document.getElementById(id) as HTMLElement | null;
+    if (section) section.hidden = administrators.length === 0;
+  });
+  titleIds.forEach((id) => {
+    const title = document.getElementById(id);
+    if (title) title.textContent = _administratorListTitle(delegatedCount);
+  });
+
+  containerIds.forEach((id) => {
+    const container = document.getElementById(id);
+    if (!container) return;
+    container.setAttribute('role', 'list');
+    container.replaceChildren();
+
+    for (const administrator of administrators) {
+      const row = document.createElement('div');
+      row.setAttribute('role', 'listitem');
+      row.className = `device-row administrator-row${administrator.onlineDeviceCount ? '' : ' is-offline'}`;
+      row.dataset.memberId = administrator.memberId;
+
+      const crown = document.createElement('span');
+      crown.className = `administrator-crown${administrator.isOwner ? ' owner' : ''}`;
+      crown.setAttribute('role', 'img');
+      crown.setAttribute(
+        'aria-label',
+        t(administrator.isOwner ? 'connect.room_owner_role' : 'connect.administrator_role'),
+      );
+      crown.innerHTML = CROWN_ICON;
+      row.appendChild(crown);
+
+      const name = document.createElement('span');
+      name.className = 'd-name';
+      name.textContent = administrator.displayName || t('common.peer');
+      row.appendChild(name);
+
+      if (canManage && !administrator.isOwner) {
+        const actions = document.createElement('div');
+        actions.className = 'd-actions';
+        actions.appendChild(
+          _administratorActionButton(
+            'settings',
+            t('connect.administrator_settings_aria', { name: administrator.displayName }),
+            SETTINGS_ICON,
+            () => openAdministratorPermissionsDialog(administrator),
+          ),
+        );
+        actions.appendChild(
+          _administratorActionButton(
+            'revoke',
+            t('connect.administrator_revoke_aria', { name: administrator.displayName }),
+            REVOKE_ICON,
+            () => void confirmRevokeAdministrator(administrator),
+          ),
+        );
+        row.appendChild(actions);
+      }
+
+      container.appendChild(row);
+    }
+  });
+}
+
+async function updateAdministrator(
+  memberId: string,
+  permissions: ProRoomPermissionSet,
+): Promise<void> {
+  if (_isProRoom()) {
+    const { updateActiveProRoomAdministrator } = await import('../pro-room/runtime.ts');
+    await updateActiveProRoomAdministrator(memberId, permissions);
+    return;
+  }
+  bus.emit('network:update-standard-room-administrator', { memberId, permissions });
+}
+
+async function grantAdministrator(member: ConnectedRoomMember): Promise<void> {
+  const memberId = memberAuthorityKey(member);
+  if (_isProRoom()) {
+    if (!member.memberId || !hasRoomCapability('room.configure')) return;
+    const { updateActiveProRoomAdministrator } = await import('../pro-room/runtime.ts');
+    await updateActiveProRoomAdministrator(
+      member.memberId,
+      clonePermissions(FULL_ADMIN_PERMISSIONS),
+    );
+    return;
+  }
+  if (!_canEditHostOwnedSetting()) return;
+  bus.emit('network:grant-standard-room-administrator', {
+    memberId,
+    permissions: clonePermissions(FULL_ADMIN_PERMISSIONS),
+  });
+}
+
+async function revokeAdministrator(memberId: string): Promise<void> {
+  if (_isProRoom()) {
+    const { revokeActiveProRoomAdministrator } = await import('../pro-room/runtime.ts');
+    await revokeActiveProRoomAdministrator(memberId);
+    return;
+  }
+  bus.emit('network:revoke-standard-room-administrator', { memberId });
+}
+
+async function confirmRevokeAdministrator(administrator: AdministratorView): Promise<void> {
+  if (!_canManageAdministrators()) return;
+  const result = await showDialog({
+    title: t('connect.administrator_revoke_title'),
+    message: t('connect.administrator_revoke_message', { name: administrator.displayName }),
+    buttonText: t('common.revoke'),
+    secondaryText: t('common.cancel'),
+  });
+  if (result.action !== 'ok' || !_canManageAdministrators()) return;
+  try {
+    await revokeAdministrator(administrator.memberId);
+  } catch (error) {
+    log.warn('[Connect] Could not revoke administrator', error);
+    showToast(t('error.network_generic'));
+  }
+}
+
+async function kickRoomMember(member: ConnectedRoomMember): Promise<void> {
+  if (_isProRoom()) {
+    if (!member.memberId) return;
+    const { kickActiveProRoomMember } = await import('../pro-room/runtime.ts');
+    await kickActiveProRoomMember(member.memberId);
+    return;
+  }
+  bus.emit('network:request-kick-standard-room-member', {
+    memberId: memberAuthorityKey(member),
+  });
+}
+
+function permissionRows(): HTMLButtonElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[data-administrator-permission]'),
+  );
+}
+
+function syncPermissionDialogRows(administrator: AdministratorView): void {
+  const inherited = new Set(administrator.inheritedPermissions);
+  for (const row of permissionRows()) {
+    const key = row.dataset.administratorPermission as ProRoomPermission | undefined;
+    if (!key) continue;
+    const isInherited = inherited.has(key);
+    row.disabled = isInherited;
+    row.setAttribute(
+      'aria-checked',
+      administrator.permissions[key] || isInherited ? 'true' : 'false',
+    );
+    if (key === 'playback.control') {
+      const label = row.querySelector<HTMLElement>('.administrator-permission-inherited');
+      if (label) label.hidden = !isInherited;
+    }
+  }
+}
+
+function closeAdministratorPermissionsDialog(): void {
+  if (_permissionDialogBusy) return;
+  const overlay = document.getElementById('administrator-permissions-overlay');
+  if (!overlay?.classList.contains('show')) return;
+  overlay.classList.remove('show');
+  overlay.setAttribute('aria-hidden', 'true');
+  syncOverlayState();
+  const targetMemberId = _permissionDialogTarget?.memberId || null;
+  const previousFocus = _permissionDialogPreviousFocus;
+  const previousContainerId = _permissionDialogPreviousContainerId;
+  _permissionDialogTarget = null;
+  _permissionDialogPreviousFocus = null;
+  _permissionDialogPreviousContainerId = null;
+  queueMicrotask(() => {
+    if (previousFocus?.isConnected) {
+      previousFocus.focus();
+      return;
+    }
+    const preferredContainer = previousContainerId
+      ? document.getElementById(previousContainerId)
+      : null;
+    const containers = [
+      preferredContainer,
+      document.getElementById('connect-administrator-list'),
+      document.getElementById('desktop-administrator-list'),
+    ].filter((container, index, all): container is HTMLElement =>
+      Boolean(container && all.indexOf(container) === index),
+    );
+    for (const container of containers) {
+      const replacementRow = Array.from(
+        container.querySelectorAll<HTMLElement>('.administrator-row'),
+      ).find((row) => row.dataset.memberId === targetMemberId);
+      const replacementButton = replacementRow?.querySelector<HTMLButtonElement>(
+        '.administrator-action-button.settings',
+      );
+      if (replacementButton) {
+        replacementButton.focus();
+        return;
+      }
+    }
+    const fallbackTitleId = previousContainerId?.replace(/-list$/, '-title');
+    const fallback = fallbackTitleId ? document.getElementById(fallbackTitleId) : null;
+    if (fallback && fallback.offsetParent !== null) {
+      fallback.tabIndex = -1;
+      fallback.focus();
+      return;
+    }
+    // The member can disappear while this dialog is open. In that case the
+    // administrator section is hidden together with its title, so focusing it
+    // silently falls back to <body>. Keep keyboard users anchored in the
+    // connection UI instead.
+    const connectionFallbacks = [
+      ...document.querySelectorAll<HTMLElement>('[data-subtab="connect"].active'),
+      document.getElementById('nav-connect'),
+    ];
+    const connectionControl = connectionFallbacks.find(
+      (candidate): candidate is HTMLElement => !!candidate && candidate.offsetParent !== null,
+    );
+    if (connectionControl) {
+      connectionControl.focus();
+    }
+  });
+}
+
+function openAdministratorPermissionsDialog(administrator: AdministratorView): void {
+  if (!_canManageAdministrators() || administrator.isOwner) return;
+  const overlay = document.getElementById('administrator-permissions-overlay');
+  const member = document.getElementById('administrator-permissions-member');
+  if (!overlay || !member) return;
+  _permissionDialogTarget = {
+    ...administrator,
+    permissions: clonePermissions(administrator.permissions),
+    inheritedPermissions: [...administrator.inheritedPermissions],
+  };
+  _permissionDialogPreviousFocus =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  _permissionDialogPreviousContainerId =
+    _permissionDialogPreviousFocus?.closest<HTMLElement>('.administrator-list')?.id || null;
+  member.textContent = administrator.displayName;
+  syncPermissionDialogRows(_permissionDialogTarget);
+  overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+  syncOverlayState('administrator-permissions-overlay');
+  queueMicrotask(() =>
+    permissionRows()
+      .find((row) => !row.disabled)
+      ?.focus(),
+  );
+}
+
+async function saveAdministratorPermissions(): Promise<void> {
+  const target = _permissionDialogTarget;
+  if (!target || _permissionDialogBusy || !_canManageAdministrators()) return;
+  const inherited = new Set(target.inheritedPermissions);
+  const permissions = clonePermissions(target.permissions);
+  for (const row of permissionRows()) {
+    const key = row.dataset.administratorPermission as ProRoomPermission | undefined;
+    if (!key) continue;
+    permissions[key] = inherited.has(key) || row.getAttribute('aria-checked') === 'true';
+  }
+
+  const dialog = document.getElementById('administrator-permissions-dialog');
+  _permissionDialogBusy = true;
+  dialog?.setAttribute('aria-busy', 'true');
+  try {
+    await updateAdministrator(target.memberId, permissions);
+    _permissionDialogBusy = false;
+    dialog?.setAttribute('aria-busy', 'false');
+    closeAdministratorPermissionsDialog();
+  } catch (error) {
+    _permissionDialogBusy = false;
+    dialog?.setAttribute('aria-busy', 'false');
+    log.warn('[Connect] Could not update administrator permissions', error);
+    showToast(t('error.network_generic'));
+  }
+}
+
+function initAdministratorPermissionsDialog(): void {
+  const overlay = document.getElementById('administrator-permissions-overlay');
+  if (!overlay || _permissionDialogInitializedFor === overlay) return;
+  _permissionDialogInitializedFor = overlay;
+
+  permissionRows().forEach((row) => {
+    row.addEventListener('click', () => {
+      if (row.disabled || _permissionDialogBusy) return;
+      row.setAttribute(
+        'aria-checked',
+        row.getAttribute('aria-checked') === 'true' ? 'false' : 'true',
+      );
+    });
+  });
+  document
+    .getElementById('btn-administrator-permissions-cancel')
+    ?.addEventListener('click', closeAdministratorPermissionsDialog);
+  document
+    .getElementById('btn-administrator-permissions-save')
+    ?.addEventListener('click', () => void saveAdministratorPermissions());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeAdministratorPermissionsDialog();
+  });
+  overlay.addEventListener('keydown', (event) => {
+    if (!overlay.classList.contains('show')) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeAdministratorPermissionsDialog();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(
+      overlay.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => !element.hidden);
+    if (focusable.length === 0) return;
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   _lastDeviceList = list;
   _lastDeviceCount = list.length;
   _updateDeviceTitles();
   const isProRoom = _isProRoom();
+  const members = groupConnectedRoomMembers(
+    list as unknown as DeviceInfo[],
+    getState('network.myId') || '',
+  );
+  const administrators = _administratorsForMembers(members);
+  const administratorIds = new Set(administrators.map((administrator) => administrator.memberId));
+  renderAdministratorLists(members);
 
   const containers = [
     document.getElementById('connect-device-list'),
@@ -370,94 +872,112 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   ].filter(Boolean) as HTMLElement[];
 
   containers.forEach((container) => {
+    container.setAttribute('role', 'list');
     container.replaceChildren();
 
-    list.forEach((p) => {
+    members.forEach((member) => {
       const row = document.createElement('div');
-      row.className = 'device-row';
-
-      // Join order number
-      const orderBadge = document.createElement('span');
-      orderBadge.className = 'd-order';
-      const idx = typeof p.joinOrder === 'number' ? p.joinOrder : '?';
-      orderBadge.textContent = `${idx}`;
-      row.appendChild(orderBadge);
-
-      // Device name + short ID + admin badge
-      const name = document.createElement('span');
-      name.className = 'd-name';
-      name.textContent = String(p.label || t('common.peer'));
-
-      if (p.isOp && !isProRoom) {
-        const op = document.createElement('span');
-        op.className = 'd-op-badge';
-        op.textContent = 'ADMIN';
-        name.appendChild(document.createTextNode(' '));
-        name.appendChild(op);
+      row.setAttribute('role', 'listitem');
+      row.className = `device-row${member.isCurrent ? ' is-current-member' : ''}`;
+      row.dataset.memberId = member.memberId || '';
+      if (member.isCurrent) {
+        row.setAttribute('aria-current', 'true');
+        row.dataset.currentDeviceRole = member.isCurrentDeviceHost
+          ? 'host'
+          : member.isCurrentDeviceAdministrator
+            ? 'administrator'
+            : 'member';
       }
 
+      const orderBadge = document.createElement('span');
+      orderBadge.className = 'd-order';
+      orderBadge.textContent = `#${member.memberDisplayNumber}`;
+      row.appendChild(orderBadge);
+
+      // Account-linked devices collapse into one person row. Identical
+      // nicknames from different memberIds still remain separate rows.
+      const name = document.createElement('span');
+      name.className = 'd-name';
+      name.append(document.createTextNode(member.label || t('common.peer')));
+      if (member.deviceCount > 1) {
+        const deviceCount = document.createElement('span');
+        deviceCount.className = 'd-device-count';
+        deviceCount.textContent = ` (${member.deviceCount})`;
+        deviceCount.setAttribute('aria-hidden', 'true');
+        name.appendChild(deviceCount);
+        const accessibleDeviceCount = document.createElement('span');
+        accessibleDeviceCount.className = 'sr-only';
+        accessibleDeviceCount.textContent = `, ${_deviceListTitle(member.deviceCount)}`;
+        name.appendChild(accessibleDeviceCount);
+      }
       row.appendChild(name);
 
-      // Standard-room host behavior stays unchanged. In a PRO room, any
-      // authenticated member with members.manage asks the room server to
-      // remove another connected participant.
-      const hostConn = getState('network.hostConn');
-      const peerId = typeof p.id === 'string' ? p.id : '';
-      const canRequestProKick = isProRoom && hasRoomCapability('members.manage');
-      const canKick = !hostConn || canRequestProKick;
-      if (
-        canKick &&
-        peerId &&
-        peerId !== getState('network.myId') &&
-        !p.isHost &&
-        p.status === 'connected'
-      ) {
+      const authorityKey = memberAuthorityKey(member);
+      const isAdministrator = administratorIds.has(authorityKey) || member.isAdministrator;
+      const canGrant =
+        _canManageAdministrators() &&
+        !member.isCurrent &&
+        !member.isHost &&
+        !isAdministrator &&
+        (!isProRoom || !!member.memberId);
+      const canKick =
+        hasRoomCapability('members.manage') &&
+        !member.isCurrent &&
+        !member.isHost &&
+        !isAdministrator &&
+        member.status === 'connected';
+
+      if (canGrant || canKick) {
         const actions = document.createElement('div');
         actions.className = 'd-actions';
 
-        // PRO participants derive their controller authority from the room
-        // capability snapshot. The legacy ADMIN toggle must not suggest that
-        // this authority can be granted or revoked peer-to-peer.
-        if (!isProRoom) {
+        if (canGrant) {
           const opBtn = document.createElement('button');
-          opBtn.className = `d-op-btn ${p.isOp ? 'active' : ''}`;
-          opBtn.dataset.opPeer = String(p.id || '');
-          opBtn.textContent = p.isOp ? t('common.revoke') : t('common.grant');
-          opBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const peerId = opBtn.dataset.opPeer;
-            if (peerId) bus.emit('network:toggle-operator', peerId);
+          opBtn.type = 'button';
+          opBtn.className = 'd-op-btn';
+          opBtn.textContent = t('common.grant');
+          opBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            opBtn.disabled = true;
+            void grantAdministrator(member)
+              .catch((error) => {
+                log.warn('[Connect] Could not grant administrator', error);
+                showToast(t('error.network_generic'));
+              })
+              .finally(() => {
+                opBtn.disabled = false;
+              });
           });
           actions.appendChild(opBtn);
         }
 
-        const kickBtn = document.createElement('button');
-        kickBtn.type = 'button';
-        kickBtn.className = 'btn-kick-device';
-        kickBtn.dataset.kickPeer = String(p.id || '');
-        kickBtn.setAttribute('aria-label', t('connect.kick_title'));
-        kickBtn.innerHTML =
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
-        kickBtn.addEventListener('click', async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const peerId = kickBtn.dataset.kickPeer;
-          if (!peerId) return;
-          const result = await showDialog({
-            title: t('connect.kick_title'),
-            message: t('connect.kick_message'),
-            buttonText: t('connect.kick_yes'),
-            secondaryText: t('connect.kick_no'),
+        if (canKick) {
+          const kickBtn = document.createElement('button');
+          kickBtn.type = 'button';
+          kickBtn.className = 'btn-kick-device';
+          kickBtn.setAttribute('aria-label', t('connect.kick_title'));
+          kickBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+          kickBtn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const result = await showDialog({
+              title: t('connect.kick_title'),
+              message: t('connect.kick_member_message', { name: member.label }),
+              buttonText: t('connect.kick_yes'),
+              secondaryText: t('common.cancel'),
+            });
+            if (result.action !== 'ok' || !hasRoomCapability('members.manage')) return;
+            try {
+              await kickRoomMember(member);
+            } catch (error) {
+              log.warn('[Connect] Could not remove member', error);
+              showToast(t('error.network_generic'));
+            }
           });
-          if (result.action !== 'ok') return;
-          if (_isProRoom()) {
-            if (!hasRoomCapability('members.manage')) return;
-            bus.emit('pro-room:kick-member', peerId);
-            return;
-          }
-          bus.emit('network:kick-device', peerId);
-        });
-        actions.appendChild(kickBtn);
+          actions.appendChild(kickBtn);
+        }
 
         row.appendChild(actions);
       }
@@ -475,6 +995,7 @@ export function initConnect(): void {
   _busScope.dispose();
 
   initRoomPasswordControls();
+  initAdministratorPermissionsDialog();
   syncHostOwnedConnectSections();
 
   // QR refresh when connect tab is opened
@@ -500,13 +1021,25 @@ export function initConnect(): void {
   _busScope.on('i18n:changed', () => {
     _updateDeviceTitles();
     syncRoomPasswordControls();
-    if (_lastDeviceList.length > 0) renderConnectDeviceList(_lastDeviceList);
+    renderConnectDeviceList(_lastDeviceList);
   });
 
   _busScope.on('network:device-list-update', (list: unknown[]) => {
     if (Array.isArray(list)) {
       renderConnectDeviceList(list as Array<Record<string, unknown>>);
     }
+  });
+  _busScope.on('state:network.standardRoomAdministrators', () => {
+    if (!_isProRoom()) renderConnectDeviceList(_lastDeviceList);
+  });
+  _busScope.on('state:network.myId', () => renderConnectDeviceList(_lastDeviceList));
+  _busScope.on('pro-room:administrators-updated', (administrators) => {
+    _lastProAdministrators = administrators.map((administrator) => ({
+      ...administrator,
+      permissions: clonePermissions(administrator.permissions),
+      inheritedPermissions: [...administrator.inheritedPermissions],
+    }));
+    if (_isProRoom()) renderConnectDeviceList(_lastDeviceList);
   });
 
   // sessionCode is set before sessionStarted — both trigger QR refresh
@@ -531,7 +1064,17 @@ export function initConnect(): void {
   _busScope.on('state:room.context', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
-    if (_lastDeviceList.length > 0) renderConnectDeviceList(_lastDeviceList);
+    closeAdministratorPermissionsDialog();
+    if (!_isProRoom()) {
+      _lastProAdministrators = [];
+      renderConnectDeviceList(_lastDeviceList);
+      return;
+    }
+    void import('../pro-room/runtime.ts').then(({ getActiveProRoomAdministrators }) => {
+      if (!_isProRoom()) return;
+      _lastProAdministrators = getActiveProRoomAdministrators();
+      renderConnectDeviceList(_lastDeviceList);
+    });
   });
 
   // Leave Session buttons (mobile + desktop)
@@ -551,78 +1094,13 @@ export function initConnect(): void {
   document.getElementById('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
 
   // Rename Device buttons (mobile + desktop)
-  const renameHandler = async () => {
-    const currentLabel = getState('network.myDeviceLabel') || '';
-    const isDefault = currentLabel === 'HOST' || currentLabel.startsWith('Peer');
-    const result = await showDialog({
-      title: t('connect.rename_title'),
-      message: t('connect.rename_message'),
-      inputField: {
-        placeholder: t('connect.rename_placeholder'),
-        defaultValue: isDefault ? '' : currentLabel,
-        maxLength: 20,
-        hint: `${t('connect.rename_current')}: ${currentLabel}`,
-        validator: (val) => {
-          // Mirror the host's sanitize (handleRequestRename) so a name that
-          // strips into a reserved/duplicate/empty string fails HERE with
-          // feedback instead of being silently rejected by the host.
-          const name = val.replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
-          if (!name) return t('connect.rename_empty');
-          // PRO members intentionally have no browser host connection. That
-          // must not grant any member (including the room owner) the ordinary
-          // room host's reserved-name restoration exception.
-          const isHostSelf = getRoomContext().kind !== 'pro' && !getState('network.hostConn');
-          if (RESERVED_NAMES.some((r) => name.toLowerCase() === r.toLowerCase())) {
-            // Let the host restore one of its reserved default labels.
-            if (!isHostSelf || !['host', '방장', '호스트'].includes(name.toLowerCase())) {
-              return t('connect.rename_reserved');
-            }
-          }
-          if (/^#\d+$/.test(name)) {
-            return t('connect.rename_reserved');
-          }
-          if (getRoomContext().kind === 'pro' && PRO_GENERATED_PEER_NAME_RE.test(name)) {
-            return t('connect.rename_reserved');
-          }
-          // Reserved default host labels bypass the profanity dictionary.
-          const isHostRestore =
-            isHostSelf && ['host', '방장', '호스트'].includes(name.toLowerCase());
-          if (!isHostRestore && containsProfanity(name)) {
-            return t('connect.rename_profanity');
-          }
-          const hostLabel = getState('network.myDeviceLabel') || '';
-          if (
-            hostLabel &&
-            name.toLowerCase() === hostLabel.toLowerCase() &&
-            name !== currentLabel
-          ) {
-            return t('connect.rename_duplicate');
-          }
-          // Role-aware duplicate check: connectedPeers is host-only state
-          // (ALWAYS empty on a guest) — getOtherDeviceLabels reads the
-          // device-list broadcast on guests, matching what the host's
-          // handleRequestRename will silently reject.
-          if (getOtherDeviceLabels().some((l) => l.toLowerCase() === name.toLowerCase())) {
-            return t('connect.rename_duplicate');
-          }
-          return null;
-        },
-      },
-      buttonText: t('common.ok'),
-      secondaryText: t('common.cancel'),
-    });
-    if (result.action !== 'ok') return;
-    // Send exactly what the validator validated (same strip as the host's).
-    const newName = (result.inputValue || '').replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
-    if (!newName || newName.length > 20) return;
-    bus.emit('network:rename-device', newName);
-    showToast(t('chat.cmd_nick_changed', { name: newName }));
-  };
+  const renameHandler = () => void requestAccountNicknameChange();
   document.getElementById('btn-rename-device')?.addEventListener('click', renameHandler);
   document.getElementById('desktop-btn-rename-device')?.addEventListener('click', renameHandler);
 
   // Initial render
   refreshAllQR();
+  renderConnectDeviceList(_lastDeviceList);
 
   log.info('[Connect] Initialized');
 }

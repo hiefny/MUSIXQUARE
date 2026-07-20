@@ -30,10 +30,19 @@ import {
   resetGuestSystemAudioShareRoute,
   resetLocalSystemAudioSfuCapabilities,
 } from './system-audio-delivery.ts';
+import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts';
+import { getRoomContext } from '../rooms/authority.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
-import { getPeer, setPeer, generateSessionCode, broadcast, broadcastExcept } from './peer-state.ts';
+import {
+  getPeer,
+  setPeer,
+  generateSessionCode,
+  broadcast,
+  broadcastExcept,
+  broadcastDeviceList,
+} from './peer-state.ts';
 
 import { handleHostIncomingConnection } from './host.ts';
 import { setInitNetwork, initGuestProtocolHandlers, invalidateGuestJoinAttempt } from './guest.ts';
@@ -396,6 +405,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
         iceServers,
         bundlePolicy: 'max-bundle',
       },
+      standardRoomAssertionProvider: requestStandardRoomAccountAssertion,
     };
 
     assertNetworkInitStillActive(owner);
@@ -562,6 +572,26 @@ function attemptPeerReconnect(): void {
 }
 
 function setupPeerEvents(peer: PeerInstance): void {
+  peer.on('room-identity', (identity) => {
+    if (getPeer() !== peer || getRoomContext().kind === 'pro') return;
+    batchSetState({
+      'network.myMemberId': identity?.memberId ?? null,
+      'network.myMemberDisplayNumber': identity?.memberDisplayNumber ?? null,
+      'network.myMemberAuthenticated': identity?.isAuthenticated === true,
+      ...(identity?.nickname
+        ? { 'network.myDeviceLabel': identity.nickname }
+        : getState('network.appRole') === 'host'
+          ? { 'network.myDeviceLabel': 'HOST' }
+          : {}),
+    });
+    if (getState('network.appRole') === 'host') broadcastDeviceList();
+  });
+
+  peer.on('room-member-deleted', (memberId) => {
+    if (getPeer() !== peer || getRoomContext().kind !== 'standard') return;
+    bus.emit('network:standard-room-account-deleted', { memberId });
+  });
+
   peer.on('pro-queue-addition', (frame) => {
     if (getPeer() !== peer) return;
     bus.emit('network:pro-queue-addition', frame);
@@ -796,6 +826,9 @@ export function cancelPendingSessionSetup(): void {
     },
     'network.myId': null,
     'network.myJoinOrder': 0,
+    'network.myMemberId': null,
+    'network.myMemberDisplayNumber': null,
+    'network.myMemberAuthenticated': false,
     'network.sessionCode': '',
     'network.lastJoinCode': '',
     'network.hostConn': null,
@@ -807,6 +840,8 @@ export function cancelPendingSessionSetup(): void {
     'network.peerSlots': Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.peerSlotByPeerId': new Map<string, number>(),
     'network.activeHostConnByPeerId': new Map<string, DataConnection>(),
+    'network.standardRoomAdministrators': new Map(),
+    'network.standardRoomCapabilities': null,
   });
 
   if (hadOpenResources) {
@@ -916,9 +951,14 @@ export function leaveSession(): void {
     'network.myId': null,
     'network.myDeviceLabel': 'HOST',
     'network.myJoinOrder': 0,
+    'network.myMemberId': null,
+    'network.myMemberDisplayNumber': null,
+    'network.myMemberAuthenticated': false,
     'network.hostConn': null,
     'network.connectedPeers': [],
+    'network.standardRoomAdministrators': new Map(),
     'network.isOperator': false,
+    'network.standardRoomCapabilities': null,
     'network.isConnecting': false,
     'network.connectionType': 'unknown',
     'network.lastKnownDeviceList': null,

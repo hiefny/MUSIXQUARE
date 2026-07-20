@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateAccountRolloutConfig } from './production-security-rollout.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -64,6 +65,7 @@ function readAssignment(line, flag) {
 }
 
 const hits = [];
+const rolloutErrors = [];
 
 for (const flag of dangerousFlags) {
   if (isTruthy(process.env[flag])) {
@@ -93,15 +95,32 @@ for (const file of configFiles) {
   }
 }
 
-if (hits.length > 0) {
-  console.error('[prod-security-guard] Dangerous production bypass flags are enabled:');
+// Account-aware PRO snapshots add fields that legacy strict clients reject.
+// Keep both projections atomic, and never let an enabled projection ship
+// without the App Worker's dedicated account database binding. Secrets are
+// verified at deploy/runbook time because Wrangler deliberately keeps them out
+// of the repository.
+const proConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.pro-room.toml');
+const appConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.app.toml');
+const [proConfig, appConfig] = await Promise.all([
+  readFile(proConfigPath, 'utf8'),
+  readFile(appConfigPath, 'utf8'),
+]);
+
+rolloutErrors.push(...validateAccountRolloutConfig(proConfig, appConfig));
+
+if (hits.length > 0 || rolloutErrors.length > 0) {
+  console.error('[prod-security-guard] Unsafe production configuration detected:');
   for (const hit of hits) {
     console.error(`  - ${hit.source}: ${hit.flag}`);
   }
+  for (const error of rolloutErrors) {
+    console.error(`  - account rollout: ${error}`);
+  }
   console.error(
-    '[prod-security-guard] Disable fallback/unguarded API flags before deploying production.',
+    '[prod-security-guard] Fix the production security/rollout configuration before deploying.',
   );
   process.exit(1);
 }
 
-console.log('[prod-security-guard] OK: no unapproved production fallback flags enabled.');
+console.log('[prod-security-guard] OK: no unapproved bypass flags or account rollout mismatches.');

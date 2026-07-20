@@ -35,6 +35,7 @@ export interface ProRealtimeRelayEnvelope {
   sender: {
     participantId: string;
     presenceIncarnationId: string;
+    memberId?: string;
     displayName?: string;
   };
 }
@@ -113,7 +114,10 @@ function parseServerFrame(
       !isRecord(value.payload) ||
       !isRecord(value.sender) ||
       typeof value.sender.participantId !== 'string' ||
-      typeof value.sender.presenceIncarnationId !== 'string'
+      typeof value.sender.presenceIncarnationId !== 'string' ||
+      (value.sender.memberId !== undefined &&
+        (typeof value.sender.memberId !== 'string' ||
+          !/^(?:member|owner)_[A-Za-z0-9_-]{16,128}$/.test(value.sender.memberId)))
     ) {
       return null;
     }

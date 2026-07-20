@@ -430,16 +430,19 @@ export function applyPlaylistQueueModeState(
 
 export function toggleRepeat(): void {
   if (isGuestBlocked()) return;
+  if (!hasRoomCapability('room.configure')) {
+    showToast(t('toast.host_only_control'));
+    return;
+  }
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
   const repeatMode = getState('playlist.repeatMode') || 0;
   const nextMode = (repeatMode + 1) % 3;
   setRepeatMode(nextMode);
 
-  if (!hostConn) {
+  if (hostConn) {
+    sendToHost({ type: MSG.REQUEST_SETTING, settingType: MSG.REPEAT_MODE, value: nextMode });
+  } else {
     broadcast({ type: MSG.REPEAT_MODE, value: nextMode });
-  } else if (isOperator) {
-    sendToHost({ type: MSG.REQUEST_SETTING, settingType: 'repeat-mode', value: nextMode });
   }
 }
 
@@ -475,16 +478,19 @@ export function setRepeatMode(mode: number, notify = true): void {
 
 export function toggleShuffle(): void {
   if (isGuestBlocked()) return;
+  if (!hasRoomCapability('room.configure')) {
+    showToast(t('toast.host_only_control'));
+    return;
+  }
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
   const isShuffle = getState('playlist.isShuffle');
   const nextShuffle = !isShuffle;
   setShuffle(nextShuffle);
 
-  if (!hostConn) {
+  if (hostConn) {
+    sendToHost({ type: MSG.REQUEST_SETTING, settingType: MSG.SHUFFLE_MODE, value: nextShuffle });
+  } else {
     broadcast({ type: MSG.SHUFFLE_MODE, value: nextShuffle });
-  } else if (isOperator) {
-    sendToHost({ type: MSG.REQUEST_SETTING, settingType: 'shuffle-mode', value: nextShuffle });
   }
 }
 
@@ -1355,8 +1361,8 @@ export function playNextTrack(): void {
   }
 
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-  if (hostConn && isOperator) {
+  const canControlPlayback = hasRoomCapability('playback.control');
+  if (hostConn && canControlPlayback) {
     sendToHost({ type: MSG.REQUEST_NEXT_TRACK, queueItemId: getCurrentQueueItemId() });
     return;
   }
@@ -1461,8 +1467,8 @@ export function playPrevTrack(): void {
   }
 
   const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-  if (hostConn && isOperator) {
+  const canControlPlayback = hasRoomCapability('playback.control');
+  if (hostConn && canControlPlayback) {
     sendToHost({ type: MSG.REQUEST_PREV_TRACK, queueItemId: getCurrentQueueItemId() });
     return;
   }
@@ -1742,7 +1748,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
   const isOp = verifyOperator(
     conn,
     data,
-    effectSettingTypes.has(st) ? 'effects.control' : 'playback.control',
+    effectSettingTypes.has(st) ? 'effects.control' : 'room.configure',
   );
   const isDemoAllowed = getState('demo.active') && DEMO_ALLOWED_SETTING_TYPES.has(st);
   if (!isOp && !isDemoAllowed) {

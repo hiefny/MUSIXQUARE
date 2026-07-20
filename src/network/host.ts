@@ -13,7 +13,17 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MAX_GUEST_SLOTS, MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import type { ConnectedPeer, DataConnection, DeviceInfo } from '../types/index.ts';
+import type {
+  ConnectedPeer,
+  DataConnection,
+  DeviceInfo,
+  RoomCapability,
+  StandardRoomPermissionSet,
+} from '../types/index.ts';
+import type {
+  StandardRoomIdentityClearReason,
+  StandardRoomMemberIdentity,
+} from './transport/types.ts';
 import { broadcastSystemMessage, sendLatestPinnedNotice } from '../chat/protocol.ts';
 
 import {
@@ -30,6 +40,326 @@ import { showToast } from '../ui/toast.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { capabilitiesForProRoomRole } from '../pro-room/contracts.ts';
 import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
+import {
+  STANDARD_ROOM_FULL_PERMISSIONS,
+  STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES,
+  getStandardRoomAdministratorByKey,
+  grantStandardRoomAdministrator,
+  removeDepartedAnonymousAdministrator,
+  revokeStandardRoomAdministratorByKey,
+  standardRoomAuthorityKey,
+  standardRoomCapabilities,
+  updateStandardRoomAdministratorPermissions,
+} from './standard-room-authority.ts';
+
+function isStandardRoom(): boolean {
+  return getRoomContext().kind === 'standard';
+}
+
+function permissionsForStandardPeer(peer: ConnectedPeer): StandardRoomPermissionSet | null {
+  if (!isStandardRoom()) return null;
+  return getStandardRoomAdministratorByKey(standardRoomAuthorityKey(peer))?.permissions ?? null;
+}
+
+function isVerifiedStandardRoomOwnerDevice(peer: ConnectedPeer): boolean {
+  const ownerMemberId = localStandardHostAuthorityKey();
+  return (
+    ownerMemberId !== null &&
+    peer.isAuthenticated === true &&
+    typeof peer.memberId === 'string' &&
+    peer.memberId === ownerMemberId
+  );
+}
+
+function sameCapabilities(a: RoomCapability[] | undefined, b: RoomCapability[]): boolean {
+  return !!a && a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function lostStatefulStandardControl(previous: ConnectedPeer, projected: ConnectedPeer): boolean {
+  const before = previous.roomCapabilities ?? [];
+  const after = projected.roomCapabilities ?? [];
+  return (
+    (before.includes('effects.control') && !after.includes('effects.control')) ||
+    (before.includes('room.configure') && !after.includes('room.configure'))
+  );
+}
+
+function sendStandardAuthorityProjection(peer: ConnectedPeer): void {
+  const conn = peer.conn as DataConnection | null;
+  if (!conn?.open || !isStandardRoom()) return;
+  if (peer.isOp) {
+    safeSend(conn, {
+      type: MSG.OPERATOR_GRANT,
+      capabilities: [...(peer.roomCapabilities ?? [])],
+    });
+    return;
+  }
+  safeSend(conn, { type: MSG.OPERATOR_REVOKE });
+}
+
+function projectStandardPeerAuthority(peer: ConnectedPeer): ConnectedPeer {
+  // The host browser remains the sole WebRTC coordinator. A second device is
+  // promoted only at the product request layer, and only when signaling has
+  // cryptographically projected the exact same room-scoped member ID as the
+  // currently authenticated physical host.
+  if (isVerifiedStandardRoomOwnerDevice(peer)) {
+    return {
+      ...peer,
+      isOp: true,
+      standardRoomPermissions: undefined,
+      roomCapabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+    };
+  }
+  const permissions = permissionsForStandardPeer(peer);
+  const roomCapabilities = permissions ? standardRoomCapabilities(permissions) : [];
+  return {
+    ...peer,
+    isOp: permissions !== null,
+    standardRoomPermissions: permissions ? { ...permissions } : undefined,
+    roomCapabilities,
+  };
+}
+
+function reprojectAllStandardPeerAuthority(): void {
+  if (!isStandardRoom() || getState('network.hostConn')) return;
+  const peers = getState('network.connectedPeers');
+  let changed = false;
+  const next = peers.map((peer) => {
+    const projected = projectStandardPeerAuthority(peer);
+    const capabilities = projected.roomCapabilities ?? [];
+    if (projected.isOp === peer.isOp && sameCapabilities(peer.roomCapabilities, capabilities)) {
+      return peer;
+    }
+    changed = true;
+    sendStandardAuthorityProjection(projected);
+    if ((peer.isOp && !projected.isOp) || lostStatefulStandardControl(peer, projected)) {
+      resyncDemotedStandardPeer(projected);
+    }
+    return projected;
+  });
+  if (!changed) return;
+  setState('network.connectedPeers', next);
+  broadcastDeviceList();
+  bus.emit('network:role-badge-update');
+}
+
+function resyncDemotedStandardPeer(peer: ConnectedPeer): void {
+  const conn = peer.conn as DataConnection | null;
+  if (!conn?.open) return;
+  bus.emit('effects:resync-peer', conn);
+  safeSend(conn, {
+    type: MSG.REPEAT_MODE,
+    value: getState('playlist.repeatMode') || 0,
+    _bootstrap: true,
+  });
+  safeSend(conn, {
+    type: MSG.SHUFFLE_MODE,
+    value: !!getState('playlist.isShuffle'),
+    _bootstrap: true,
+  });
+}
+
+function reprojectStandardAuthorityForKey(key: string): void {
+  if (!isStandardRoom()) return;
+  const peers = getState('network.connectedPeers');
+  let changed = false;
+  const next = peers.map((peer) => {
+    if (standardRoomAuthorityKey(peer) !== key) return peer;
+    const projected = projectStandardPeerAuthority(peer);
+    const capabilities = projected.roomCapabilities ?? [];
+    if (projected.isOp === peer.isOp && sameCapabilities(peer.roomCapabilities, capabilities)) {
+      return peer;
+    }
+    changed = true;
+    sendStandardAuthorityProjection(projected);
+    if ((peer.isOp && !projected.isOp) || lostStatefulStandardControl(peer, projected)) {
+      resyncDemotedStandardPeer(projected);
+    }
+    return projected;
+  });
+  if (changed) setState('network.connectedPeers', next);
+}
+
+function normalizeConnectionIdentity(
+  identity: StandardRoomMemberIdentity | null | undefined,
+): StandardRoomMemberIdentity | null {
+  if (
+    !identity ||
+    identity.isAuthenticated !== true ||
+    typeof identity.memberId !== 'string' ||
+    !identity.memberId ||
+    !Number.isSafeInteger(identity.memberDisplayNumber) ||
+    typeof identity.nickname !== 'string' ||
+    !identity.nickname.trim()
+  ) {
+    return null;
+  }
+  return identity;
+}
+
+function findStandardPeerByAuthorityKey(key: string): ConnectedPeer | null {
+  return (
+    getState('network.connectedPeers').find((peer) => standardRoomAuthorityKey(peer) === key) ??
+    null
+  );
+}
+
+function localStandardHostAuthorityKey(): string | null {
+  if (!isStandardRoom() || getState('network.appRole') !== 'host' || getState('network.hostConn')) {
+    return null;
+  }
+  const memberId = getState('network.myMemberId')?.trim();
+  if (getState('network.myMemberAuthenticated') && memberId) return memberId;
+  const peerId = getState('network.myId');
+  return peerId ? `peer:${peerId}` : null;
+}
+
+function isLocalStandardHostMember(key: string): boolean {
+  return localStandardHostAuthorityKey() === key;
+}
+
+function isOnlyLiveStandardMemberDevice(
+  peer: ConnectedPeer,
+  peers: readonly ConnectedPeer[],
+): boolean {
+  if (!isStandardRoom()) return true;
+  const key = standardRoomAuthorityKey(peer);
+  if (isLocalStandardHostMember(key)) return false;
+  return !peers.some(
+    (candidate) =>
+      candidate.conn !== peer.conn &&
+      candidate.status === 'connected' &&
+      standardRoomAuthorityKey(candidate) === key,
+  );
+}
+
+function hasRemainingStandardMemberDevice(
+  departedPeer: ConnectedPeer | undefined,
+  peers: readonly ConnectedPeer[],
+): boolean {
+  if (!departedPeer || !isStandardRoom()) return false;
+  const key = standardRoomAuthorityKey(departedPeer);
+  if (isLocalStandardHostMember(key)) return true;
+  return peers.some(
+    (candidate) => candidate.status === 'connected' && standardRoomAuthorityKey(candidate) === key,
+  );
+}
+
+function grantStandardRoomAuthority(key: string, permissions: StandardRoomPermissionSet): boolean {
+  if (!isStandardRoom() || getState('network.hostConn')) return false;
+  const target = findStandardPeerByAuthorityKey(key);
+  if (!target) return false;
+  grantStandardRoomAdministrator(target, permissions);
+  reprojectStandardAuthorityForKey(key);
+  broadcastDeviceList();
+  return true;
+}
+
+function revokeStandardRoomAuthority(key: string): boolean {
+  if (!isStandardRoom() || getState('network.hostConn')) return false;
+  const existed = getStandardRoomAdministratorByKey(key) !== null;
+  revokeStandardRoomAdministratorByKey(key);
+  reprojectStandardAuthorityForKey(key);
+  broadcastDeviceList();
+  return existed;
+}
+
+function updateStandardRoomAuthority(key: string, permissions: StandardRoomPermissionSet): boolean {
+  if (!isStandardRoom() || getState('network.hostConn')) return false;
+  if (!updateStandardRoomAdministratorPermissions(key, permissions)) return false;
+  reprojectStandardAuthorityForKey(key);
+  broadcastDeviceList();
+  return true;
+}
+
+function kickStandardRoomAuthorityKey(key: string): number {
+  if (!isStandardRoom() || getState('network.hostConn')) return 0;
+  revokeStandardRoomAuthority(key);
+  const targets = getState('network.connectedPeers').filter(
+    (peer) => standardRoomAuthorityKey(peer) === key,
+  );
+  for (const target of targets) {
+    const conn = target.conn as DataConnection | null;
+    if (!conn?.open) continue;
+    safeSend(conn, { type: MSG.KICK_DEVICE });
+    setManagedTimer(
+      'kick-close-' + target.id,
+      () => {
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+      },
+      300,
+    );
+  }
+  return targets.length;
+}
+
+function updateStandardConnectionIdentity(
+  conn: DataConnection,
+  fallbackLabel: string,
+  value: StandardRoomMemberIdentity | null,
+  clearReason?: StandardRoomIdentityClearReason,
+): void {
+  if (!isStandardRoom() || getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) {
+    return;
+  }
+  const peers = getState('network.connectedPeers');
+  const current = peers.find((peer) => peer.id === conn.peer && peer.conn === conn);
+  if (!current) return;
+
+  const identity = normalizeConnectionIdentity(value);
+  const previousKey = standardRoomAuthorityKey(current);
+  const nextBase: ConnectedPeer = identity
+    ? {
+        ...current,
+        label: identity.nickname,
+        memberId: identity.memberId,
+        memberDisplayNumber: identity.memberDisplayNumber,
+        isAuthenticated: true,
+      }
+    : {
+        ...current,
+        label: fallbackLabel,
+        memberId: undefined,
+        memberDisplayNumber: undefined,
+        isAuthenticated: false,
+      };
+  const nextKey = standardRoomAuthorityKey(nextBase);
+
+  if (clearReason === 'deleted' && current.isAuthenticated && current.memberId) {
+    revokeStandardRoomAdministratorByKey(current.memberId);
+  }
+
+  // One-off anonymous authority belongs to a physical connection. Logging in
+  // must not silently convert it into a persistent account grant.
+  if (previousKey !== nextKey && !current.isAuthenticated) {
+    revokeStandardRoomAdministratorByKey(previousKey);
+  }
+
+  const administrator = getStandardRoomAdministratorByKey(nextKey);
+  if (identity && administrator) {
+    grantStandardRoomAdministrator(nextBase, administrator.permissions);
+  }
+
+  const projected = projectStandardPeerAuthority(nextBase);
+  setState(
+    'network.connectedPeers',
+    peers.map((peer) => (peer.id === conn.peer && peer.conn === conn ? projected : peer)),
+  );
+  setState('network.peerLabels', {
+    ...getState('network.peerLabels'),
+    [conn.peer]: projected.label,
+  });
+  sendStandardAuthorityProjection(projected);
+  if ((current.isOp && !projected.isOp) || lostStatefulStandardControl(current, projected)) {
+    resyncDemotedStandardPeer(projected);
+  }
+  broadcastDeviceList();
+  bus.emit('network:role-badge-update');
+}
 
 // ─── Host: Incoming Connection ──────────────────────────────────────
 
@@ -42,6 +372,12 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   // Duplicate connection handling
   const existingActiveConn = activeHostConnByPeerId.get(peerId);
   const connectionReplaced = !!existingActiveConn && existingActiveConn !== conn;
+  const replacedConnectionWasVisible =
+    connectionReplaced &&
+    connectedPeers.some(
+      (peer) =>
+        peer.id === peerId && peer.conn === existingActiveConn && peer.status === 'connected',
+    );
   if (existingActiveConn && existingActiveConn !== conn) {
     const updatedConns = new Map(activeHostConnByPeerId);
     updatedConns.set(peerId, conn);
@@ -141,7 +477,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     return;
   }
   assignPeerSlot(peerId, slot);
-  const deviceName = getPeerLabelBySlot(slot);
+  const fallbackDeviceName = getPeerLabelBySlot(slot);
+  const connectionIdentity = isProRoom ? null : normalizeConnectionIdentity(conn.roomIdentity);
+  const deviceName = connectionIdentity?.nickname ?? fallbackDeviceName;
 
   // Publish a new map so state subscribers observe the label assignment.
   setState('network.peerLabels', { ...getState('network.peerLabels'), [peerId]: deviceName });
@@ -150,7 +488,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   activeConns.set(peerId, conn);
   setState('network.activeHostConnByPeerId', activeConns);
 
-  const peerObj: ConnectedPeer = {
+  const basePeerObj: ConnectedPeer = {
     id: peerId,
     slot,
     label: deviceName,
@@ -162,8 +500,16 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     lastHeartbeat: Date.now(),
     preloadedQueueItemIds: new Set(),
     connectionType: 'unknown',
+    ...(connectionIdentity
+      ? {
+          memberId: connectionIdentity.memberId,
+          memberDisplayNumber: connectionIdentity.memberDisplayNumber,
+          isAuthenticated: true,
+        }
+      : { isAuthenticated: false }),
     ...(isProRoom ? { roomCapabilities: [...capabilitiesForProRoomRole('controller')] } : {}),
   };
+  const peerObj = isProRoom ? basePeerObj : projectStandardPeerAuthority(basePeerObj);
 
   // Re-check max guests before adding (guards against TOCTOU race with concurrent connections)
   const currentPeers = getState('network.connectedPeers');
@@ -204,6 +550,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     return;
   }
   setState('network.connectedPeers', [...currentPeers, peerObj]);
+
+  conn.on('identity', (identity, clearReason) => {
+    updateStandardConnectionIdentity(conn, fallbackDeviceName, identity, clearReason);
+  });
 
   // Timeout: clean up peer if WebRTC open never fires (ICE stall)
   const openTimerName = 'conn-open-timeout-' + peerId;
@@ -274,17 +624,36 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       /* noop */
     }
 
+    if (!isProRoom) {
+      const connected = getState('network.connectedPeers').find(
+        (peer) => peer.id === peerId && peer.conn === conn,
+      );
+      if (connected?.isOp) {
+        sendStandardAuthorityProjection(connected);
+      }
+    }
+
     // Ordered authority phase: the queue baseline is the first application
     // frame after WELCOME. All qid/media frames on the guest remain gated
     // until this phase completes.
     bus.emit('network:peer-bootstrap', conn);
 
+    const openedPeer = getState('network.connectedPeers').find(
+      (peer) => peer.id === peerId && peer.conn === conn,
+    );
+    const openedLabel = openedPeer?.label ?? deviceName;
     const systemAudioDeviceLimitReached =
       getState('playback.mode') === 'system-audio' && !hasSystemAudioDeviceCapacity();
     if (!systemAudioDeviceLimitReached) {
-      showToast(t('toast.device_connected', { name: deviceName }));
+      showToast(t('toast.device_connected', { name: openedLabel }));
     }
-    broadcastSystemMessage('chat.peer_connected', { name: deviceName });
+    if (
+      !replacedConnectionWasVisible &&
+      (!openedPeer ||
+        isOnlyLiveStandardMemberDevice(openedPeer, getState('network.connectedPeers')))
+    ) {
+      broadcastSystemMessage('chat.peer_connected', { name: openedLabel });
+    }
 
     sendLatestPinnedNotice(conn);
 
@@ -382,10 +751,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
 
     const peers = getState('network.connectedPeers');
-    setState(
-      'network.connectedPeers',
-      peers.filter((p) => p.id !== peerId),
-    );
+    const departedPeer = peers.find((peer) => peer.id === peerId && peer.conn === conn);
+    if (departedPeer) removeDepartedAnonymousAdministrator(departedPeer);
+    const remainingPeers = peers.filter((p) => p.id !== peerId);
+    setState('network.connectedPeers', remainingPeers);
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
@@ -393,7 +762,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
       showToast(t('toast.device_disconnected', { name: currentLabel }));
-      broadcastSystemMessage('chat.peer_disconnected', { name: currentLabel });
+      if (!hasRemainingStandardMemberDevice(departedPeer, remainingPeers)) {
+        broadcastSystemMessage('chat.peer_disconnected', {
+          name: departedPeer?.label ?? currentLabel,
+        });
+      }
     }
     log.info(`[Host] ${currentLabel} disconnected`);
   });
@@ -427,10 +800,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
 
     const peers = getState('network.connectedPeers');
-    setState(
-      'network.connectedPeers',
-      peers.filter((p) => p.id !== peerId),
-    );
+    const departedPeer = peers.find((peer) => peer.id === peerId && peer.conn === conn);
+    if (departedPeer) removeDepartedAnonymousAdministrator(departedPeer);
+    const remainingPeers = peers.filter((p) => p.id !== peerId);
+    setState('network.connectedPeers', remainingPeers);
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
@@ -438,7 +811,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
       showToast(t('toast.device_conn_error', { name: errLabel }));
-      broadcastSystemMessage('chat.peer_disconnected', { name: errLabel });
+      if (!hasRemainingStandardMemberDevice(departedPeer, remainingPeers)) {
+        broadcastSystemMessage('chat.peer_disconnected', {
+          name: departedPeer?.label ?? errLabel,
+        });
+      }
     }
     try {
       conn.close();
@@ -449,6 +826,37 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 }
 
 // ─── Host Bus Event Handlers ────────────────────────────────────────
+
+bus.on('network:grant-standard-room-administrator', ({ memberId, permissions }) => {
+  if (!memberId) return;
+  grantStandardRoomAuthority(memberId, permissions ?? { ...STANDARD_ROOM_FULL_PERMISSIONS });
+});
+
+bus.on('network:revoke-standard-room-administrator', ({ memberId }) => {
+  if (!memberId) return;
+  revokeStandardRoomAuthority(memberId);
+});
+
+bus.on('network:update-standard-room-administrator', ({ memberId, permissions }) => {
+  if (!memberId) return;
+  updateStandardRoomAuthority(memberId, permissions);
+});
+
+bus.on('network:standard-room-account-deleted', ({ memberId }) => {
+  if (!memberId) return;
+  revokeStandardRoomAuthority(memberId);
+});
+
+bus.on('network:request-kick-standard-room-member', ({ memberId }) => {
+  if (!memberId || getState('network.hostConn')) return;
+  kickStandardRoomAuthorityKey(memberId);
+});
+
+// Signing the physical host in/out changes which verified account, if any,
+// owns person-level product authority. Reproject live siblings immediately;
+// transport ownership, the host connection, and room teardown stay untouched.
+bus.on('state:network.myMemberId', reprojectAllStandardPeerAuthority);
+bus.on('state:network.myMemberAuthenticated', reprojectAllStandardPeerAuthority);
 
 // Host: Toggle operator permission on a peer
 bus.on('network:toggle-operator', (peerId) => {
@@ -463,10 +871,13 @@ bus.on('network:toggle-operator', (peerId) => {
   if (hostConn) return;
 
   const connectedPeers = getState('network.connectedPeers');
-  const idx = connectedPeers.findIndex((x) => x.id === peerId);
-  if (idx !== -1) {
-    const p = connectedPeers[idx];
-    const conn = p.conn as DataConnection;
+  const target = connectedPeers.find((peer) => peer.id === peerId);
+  if (target) {
+    // Account-owner product authority is derived from the signed member
+    // projection, never from the legacy ADMIN directory. A stale hidden
+    // toggle must not claim to grant/revoke it or emit contradictory toasts.
+    if (isVerifiedStandardRoomOwnerDevice(target)) return;
+    const conn = target.conn as DataConnection;
     // Bail before mutating shared state if the channel is gone — otherwise the
     // target never receives OPERATOR_GRANT while every other peer's UI shows
     // them as OP, leaving badge state and command authorization out of sync.
@@ -474,21 +885,17 @@ bus.on('network:toggle-operator', (peerId) => {
       log.warn(`[OP] Cannot toggle operator for ${peerId} — connection not open`);
       return;
     }
-    const newOp = !p.isOp;
-    if (!safeSend(conn, { type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE })) {
-      log.warn(`[OP] Failed to send operator status to ${peerId}`);
-      return;
-    }
-    const updated = connectedPeers.map((peer, i) => (i === idx ? { ...peer, isOp: newOp } : peer));
-    setState('network.connectedPeers', updated);
-    broadcastDeviceList();
+    const key = standardRoomAuthorityKey(target);
+    const wasGranted = getStandardRoomAdministratorByKey(key) !== null || target.isOp;
+    if (wasGranted) revokeStandardRoomAuthority(key);
+    else grantStandardRoomAuthority(key, { ...STANDARD_ROOM_FULL_PERMISSIONS });
     // Revoke: re-baseline the demoted guest's effect state. Their optimistic
     // local applies (slider preview / apply-before-request) may have raced the
     // revoke and were silently dropped by verifyOperator with no NACK — the
     // snapshot resend converges them back to room state. Ordered channel
     // guarantees it lands after OPERATOR_REVOKE. (Bus event, not a direct
     // import: effects.ts → peer.ts → host.ts would cycle.)
-    if (!newOp) {
+    if (wasGranted) {
       bus.emit('effects:resync-peer', conn);
       // Same race class for the playlist toggles: an optimistic repeat/shuffle
       // REQUEST_SETTING dies silently in verifyOperator after the revoke, and
@@ -507,8 +914,8 @@ bus.on('network:toggle-operator', (peerId) => {
     }
     showToast(
       t('toast.op_status', {
-        label: p.label,
-        status: newOp ? t('common.granted') : t('common.revoked'),
+        label: target.label,
+        status: wasGranted ? t('common.revoked') : t('common.granted'),
       }),
     );
   }
@@ -526,16 +933,20 @@ bus.on('network:kick-device', (peerId) => {
   const target = connectedPeers.find((x) => x.id === peerId);
   if (!target) return;
 
-  const conn = target.conn as DataConnection;
-  if (conn && conn.open) {
-    try {
-      conn.send({ type: MSG.KICK_DEVICE });
-    } catch {
-      /* noop */
-    }
-    // Give message time to arrive before closing
+  const targets = isStandardRoom()
+    ? connectedPeers.filter(
+        (peer) => standardRoomAuthorityKey(peer) === standardRoomAuthorityKey(target),
+      )
+    : [target];
+  if (isStandardRoom()) {
+    revokeStandardRoomAdministratorByKey(standardRoomAuthorityKey(target));
+  }
+  for (const kickedPeer of targets) {
+    const conn = kickedPeer.conn as DataConnection | null;
+    if (!conn?.open) continue;
+    safeSend(conn, { type: MSG.KICK_DEVICE });
     setManagedTimer(
-      'kick-close-' + peerId,
+      'kick-close-' + kickedPeer.id,
       () => {
         try {
           conn.close();
@@ -547,7 +958,7 @@ bus.on('network:kick-device', (peerId) => {
     );
   }
 
-  log.info(`[Host] Kicked peer ${target.label || peerId}`);
+  log.info(`[Host] Kicked ${targets.length} device(s) for ${target.label || peerId}`);
   showToast(t('toast.device_kicked', { name: target.label || peerId }));
 });
 
@@ -568,14 +979,4 @@ bus.on('network:device-list', (list) => {
     setState('network.lastKnownDeviceList', list as DeviceInfo[]);
     bus.emit('network:device-list-update', list);
   }
-});
-
-// ─── Host: Rename Device ─────────────────────────────────────────
-
-// Host renames itself — no network message needed
-bus.on('network:rename-device', (newName: string) => {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only host handles this path
-  setState('network.myDeviceLabel', newName);
-  broadcastDeviceList();
 });

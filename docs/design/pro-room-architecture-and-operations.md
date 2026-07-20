@@ -32,16 +32,16 @@ Their natural invite URLs remain `https://musixquare.com/000000` and
 `https://musixquare.com/000001`. A room code is an identifier, not a secret or
 an authorization credential.
 
-| Component                                | Responsibility                                                                |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback |
+| Component                                | Responsibility                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------ |
+| App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback  |
 | PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2    |
 | One Durable Object per room              | Sole serialized manager for room state, transitions, presence, and byte ledger |
-| Signaling Worker PRO path                | Own hibernatable equal-member sockets, clock replies, chat, and event fan-out  |
-| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                        |
-| Browser                                  | RAM-only transfer, decode, preload, and playback working set                  |
-| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state      |
-| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint    |
+| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock replies, chat, and event fan-out  |
+| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                         |
+| Browser                                  | RAM-only transfer, decode, preload, and playback working set                   |
+| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state       |
+| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint     |
 | App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router        |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
@@ -174,13 +174,18 @@ dependencies are not ready.
   Cloudflare Analytics is loaded. Scrub or handoff failure is fail-closed.
 - The owner credential manages PIN/recovery security and owner-visible room
   configuration. Access-protected operators manage suspension and permanent
-  deletion. A separate member session controls playback, and neither owner nor
-  operator status creates a stronger live-room playback role.
-- Every authenticated participant has the same live-room capabilities. The
-  room Durable Object serializes commands and may remove another current
-  member through a strictly validated request; this is not a ban, and the
-  removed member may authenticate again with the room PIN. PIN rotation remains
-  owner-only; suspension and permanent deletion remain Access-admin-only.
+  deletion. A separate member session controls live-room actions. Linking the
+  verified owner account lets another physical session of that account recover
+  owner authority, but a room code, PIN, or first-arrival position never creates
+  ownership.
+- PIN-admitted PRO members inherit shared playback control. Persistent media
+  addition, member removal, and chat announcements are separate capabilities
+  delegated by the owner. Queue deletion/reordering/clear, effects, repeat,
+  shuffle, PIN/recovery, and other room configuration remain owner-only. BOT and
+  Developer API commands are checked as the initiating room member and cannot
+  bypass those capability boundaries. An anonymous delegation is session-lived;
+  a verified account delegation is persisted in the room until owner revocation
+  or room deletion.
 - Browser credentials are room-scoped, host-only, Secure, HttpOnly cookies, so
   multiple PRO rooms can stay signed in at the same time. Short-lived
   signaling tickets are bound to room, participant, presence incarnation,
@@ -198,6 +203,46 @@ dependencies are not ready.
   signaling socket. It does not elect a manager, rebuild a browser star, or
   force unrelated participants to reconnect. Hard room security/lifecycle
   boundaries advance the room-control incarnation.
+
+Optional Google account identity is additive to these room credentials. The
+App Worker validates its host-only account session and may issue a short-lived,
+room- and audience-bound assertion after stripping any browser-supplied
+identity header. A PRO room exposes only a room-scoped member identifier and
+nickname; the Google subject, email claim, global account ID, and account cookie
+must never appear in public snapshots, signaling tickets, or peer messages.
+Each physical device retains its own participant and presence incarnation. The
+full identity/capability model is defined in the
+[account authority ADR](account-identity-and-room-authority.md); production
+provisioning is defined in the
+[account authentication runbook](../account-auth-operations.md).
+
+Account identity on a physical PRO session is a renewable server-owned lease,
+not a property of the 30-day room cookie. A fresh App assertion grants 120
+seconds; an active client re-proves it every 40 seconds and also reconciles after
+foreground/resume. Explicit logout detaches immediately. Logout-all, account
+revocation on another device, or a tab that can no longer prove the App account
+cannot extend the lease, so account-only authority disappears from that physical
+session within 120 seconds even if it misses the cross-tab event. A transient
+App/D1 failure may use only the lease's remaining grace and never extends it.
+
+Lease expiry demotes only that physical session to an anonymous `Peer N` member;
+it does not disconnect playback, erase the account's persistent room member,
+delegated capabilities, owner association, or affect the account's other valid
+devices. A later valid assertion reattaches the device. The renewal endpoint can
+renew only the exact account already attached to that room session, changes no
+public revision, and does not create a new account-to-room reverse-index edge.
+
+Persistent account-linked authority has a complete deletion boundary. Before an
+account assertion can reach a provisioned PRO room, the App service records a
+bounded account-to-room reverse edge. Account deletion enumerates those edges
+and idempotently purges the account member, delegated authority, owner
+association, presence, and room sessions from awake or sleeping room objects.
+Every purge installs an expiring room tombstone longer than the assertion window
+so a late pre-deletion assertion cannot restore the record. The App account and
+reverse index are removed only after every room confirms cleanup; a partial
+failure returns a retryable error and preserves the account/index. Media still
+referenced by a collaborative playlist follows the room's normal R2 retention
+rules rather than being deleted merely because one account is removed.
 
 The two Durable Objects have deliberately different authority. The PRO room
 object owns authenticated presence, the canonical queue/timeline, reducers,
@@ -436,6 +481,7 @@ a deployment message.
 | `PRO_ROOM_SESSION_SECRET`    | PRO Worker only. Rotation signs out member and owner browser credentials.        |
 | `PRO_ROOM_RATE_LIMIT_SECRET` | PRO Worker only. Rotation resets pseudonymous rate-limit buckets.                |
 | `PRO_SIGNALING_SECRET`       | Same value in PRO and signaling Workers; rotate/deploy both together.            |
+| `MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET` | Same independent value in App and PRO Workers; signs short-lived PRO room/account assertions. |
 | `R2_ACCOUNT_ID`              | Public account identifier used by the presigner and exact client host allowlist. |
 | `R2_ACCESS_KEY_ID`           | R2 S3 credential restricted to the dedicated PRO media bucket.                   |
 | `R2_SECRET_ACCESS_KEY`       | Paired R2 S3 secret; rotation interrupts new presigned URLs until redeployed.    |
@@ -448,6 +494,7 @@ npm run wrangler -- secret put PRO_ROOM_PIN_PEPPER --config cloudflare/wrangler.
 npm run wrangler -- secret put PRO_ROOM_SESSION_SECRET --config cloudflare/wrangler.pro-room.toml
 npm run wrangler -- secret put PRO_ROOM_RATE_LIMIT_SECRET --config cloudflare/wrangler.pro-room.toml
 npm run wrangler -- secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.pro-room.toml
+npm run wrangler -- secret put MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.pro-room.toml
 npm run wrangler -- secret put R2_ACCOUNT_ID --config cloudflare/wrangler.pro-room.toml
 npm run wrangler -- secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.pro-room.toml
 npm run wrangler -- secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.pro-room.toml
@@ -478,11 +525,54 @@ Also verify:
   presigner configuration;
 - production CORS includes `https://musixquare.com` and
   `https://www.musixquare.com`; and
+- the account Privacy Policy, Terms, FAQ, Google consent-screen links, and
+  deletion-boundary copy match the deployed account behavior;
+- account deletion exercises the reverse-index purge, sleeping-room retry, and
+  stale-assertion tombstone described above before projection flags are enabled;
+- the checked-in compatibility checkpoint keeps
+  `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION=0` and
+  `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION=0`; changing both to `1` is a separate
+  reviewed activation step after the compatible client is live; and
 - no test/debug bypass or secret value appears in the production diff.
 
 ## Deployment Order
 
-Use this order so the public app never advertises a dependency that is absent:
+Account authority uses a two-stage rolling release. The repository intentionally
+ships the first stage with both PRO projection flags set to `0`.
+
+### Stage 1: compatibility baseline
+
+1. Deploy the account-aware App, signaling, and PRO code while leaving
+   `MUSIXQUARE_AUTH_DB` unbound and all account projection flags disabled.
+2. Publish the compatible static client as service-worker cache `v203`. The
+   client accepts both pre-account and account-aware snapshots, but the missing
+   auth binding keeps login unavailable and anonymous behavior unchanged.
+3. Verify `GET /api/auth/session` reports `configured:false`, ordinary rooms
+   still work anonymously, and PRO rooms retain the pre-account equal-member
+   compatibility behavior. Record the exact App, signaling, and PRO Worker
+   versions; together with `v203` they are the account rollout rollback floor.
+
+Do not provision OAuth or flip either projection flag during this stage. The
+point is to move every cached client and Worker onto schemas that understand the
+optional fields before any production room can emit or persist account-linked
+authority.
+
+### Stage 2: account activation
+
+1. Create and migrate the dedicated auth D1 database, bind it to the App Worker,
+   register the exact Google callback, and install the OAuth/session secrets.
+2. Install the independent standard-room assertion secret on App and signaling,
+   and the independent PRO assertion secret on App and PRO.
+3. Change both `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION` and
+   `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION` from `0` to `1` in the same reviewed
+   release. Do not operate indefinitely with only one flag enabled.
+4. Deploy signaling first, PRO second, and App/static last. Verify the account
+   session endpoint, one login/nickname flow, multi-device grouping, delegated
+   allow/deny boundaries, lease expiry/reattach, logout-all, and cross-room
+   deletion purge before inviting additional PRO users.
+
+Within either stage, use this Worker dependency order so the public app never
+advertises a dependency that is absent:
 
 1. Remote-share Worker (independent baseline service).
 2. Signaling Worker, reserving `0xxxxx` before any client can advertise PRO.
@@ -604,6 +694,23 @@ live room back to an elected-browser coordinator merely because a v1 storage
 shadow exists. If no compatible checkpoint is available, keep PRO entry in
 maintenance and forward-fix or restore the whole matched data/code checkpoint.
 
+For the account rollout, the minimum supported code rollback is the recorded
+Stage-1 compatibility baseline: service-worker `v203` plus the account-aware App,
+PRO, and signaling Workers with both projection flags at `0`. Once Stage 2 has
+written account members, authority records, deletion tombstones, or reverse
+edges, do not roll any Worker or cached client below that floor. Older code does
+not own those fields or their stale-write fences.
+
+If Stage 2 fails, first hide/disable login and set both PRO projection flags back
+to `0`, then redeploy the matched Stage-1 Worker versions if necessary. Keep the
+auth D1 binding, its schema, account-to-room reverse index, room tombstones, and
+all room/R2 data in place. Keeping D1 bound allows expiry and deletion cleanup to
+continue; removing an OAuth/session secret may make account routes report
+`configured:false` without deleting data. Do not rotate the subject pepper as a
+rollback. Projection `0` intentionally restores the former PIN-admitted
+equal-member behavior, so use PRO maintenance instead when that temporary
+authority expansion is unacceptable for the incident being handled.
+
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
 2. Roll the app back first so new clients stop entering the faulty flow.
@@ -651,9 +758,12 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 2. Activate with the fragment, confirm the fragment is immediately scrubbed,
    set a new PIN, then join from two additional physical devices through the
    same fixed link and QR code.
-3. From every device, add/reorder/remove items, seek, pause, resume, skip, and
-   adjust existing shared controls. Confirm each authenticated member has the
-   same live-room behavior and none is exposed as a browser host/coordinator.
+3. At the Stage-1 checkpoint, confirm each PIN-admitted device retains the
+   pre-account equal-member compatibility behavior and none is exposed as a
+   browser host/coordinator. At Stage 2, confirm every member can use shared
+   playback, but only the owner or an explicitly delegated capability can add
+   media, remove a member, or post an announcement; queue destruction,
+   reordering, effects, repeat, and shuffle remain owner-only.
 4. Add YouTube media, empty the room, reopen from another device, and verify the
    playlist and frozen server anchor resume correctly. While another
    item is playing, add a playlist-only YouTube URL and confirm the current
@@ -686,6 +796,16 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 11. Inspect browser storage and network behavior. PRO media bodies must not be
     written to OPFS or IndexedDB, internal R2 keys must not appear in snapshots,
     and signed URLs must target only the configured R2 account host.
+12. With Stage 2 enabled, sign one account into several physical devices and
+    confirm they group under one room member without transport takeover. Revoke
+    or logout-all from another device: the affected physical session must lose
+    account-only controls immediately when notified and in all cases within the
+    120-second server lease, while playback remains connected. Then verify a
+    valid reattach restores the persistent grant.
+13. Link the same account to awake and sleeping test rooms, then delete it.
+    Confirm every room purge completes before the App account row is removed,
+    partial failure remains retryable, and a previously minted assertion cannot
+    recreate authority across the deletion tombstone.
 
 ### Pass criteria
 

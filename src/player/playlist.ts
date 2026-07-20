@@ -64,6 +64,7 @@ import {
   handoffSameVideoOccurrenceRestart,
   prepareYouTubeAuthorityOccurrence,
   prepareSameVideoOccurrenceRestart,
+  waitForPendingYouTubePrimeBounce,
 } from '../youtube/iframe.ts';
 import { isYtLoadInProgress, isYtPlayerReady } from '../youtube/_state.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -2317,6 +2318,17 @@ function failedAuthorityPrepare(
   };
 }
 
+function supersededAuthorityPrepare(
+  request: Readonly<ProPlaybackPrepareRequest>,
+): ProPlaybackPrepareResult {
+  return {
+    status: 'superseded',
+    authority: request.authority,
+    queueItemId: request.queueItemId,
+    reason: 'superseded',
+  };
+}
+
 async function prepareAuthoritativePlayback(
   request: Readonly<ProPlaybackPrepareRequest>,
 ): Promise<ProPlaybackPrepareResult> {
@@ -2356,6 +2368,18 @@ async function prepareAuthoritativePlayback(
   }
 
   try {
+    if (item.type === 'youtube') {
+      // A PRO late-join snapshot can arrive while the join gesture's silent
+      // iOS prime bounce is still awaiting PLAYING. Let that exact gesture
+      // finish before loadYouTubeVideo replaces the resident occurrence and
+      // clears its bounce flag. The wait is bounded and a no-op elsewhere.
+      await waitForPendingYouTubePrimeBounce();
+      // The bounded wait deliberately happens before playTrack allocates a
+      // load epoch. A newer PREPARE or server CANCEL can therefore supersede
+      // this request without changing the epoch yet; consult the exact
+      // authority-generation fence before the old request touches the iframe.
+      if (request.isCurrent?.() === false) return supersededAuthorityPrepare(request);
+    }
     await playTrack(request.queueItemId, item.type === 'youtube' ? subIndex : undefined, {
       navigateToPlay: false,
       explicitPlaybackIntent: false,

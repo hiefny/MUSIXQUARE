@@ -97,6 +97,7 @@ import {
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
   prepareProPlaybackAuthority,
+  reconcileCurrentProPlaybackAuthority,
   refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
   resetProPlaybackAuthorityHooks,
@@ -133,6 +134,9 @@ import {
 } from './system-audio-service.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
+const VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS = [1_000, 3_000, 10_000, 15_000] as const;
+const VISIBILITY_PLAYBACK_RECOVERY_TIMER = 'pro-room-visibility-playback-recovery';
+const PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS = 1_000;
 const CONTROL_CHANNEL_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
 const HEARTBEAT_TIMER = 'pro-room-heartbeat';
 const ACCOUNT_IDENTITY_LEASE_TIMER = 'pro-room-account-identity-lease';
@@ -158,6 +162,8 @@ const bridge = proRoomServerBridge;
 let active = false;
 let refreshInFlight = false;
 let visibilityBound = false;
+let visibilityPlaybackRecoveryPending = false;
+let visibilityPlaybackRecoveryAttempt = 0;
 let playlistManager: ProRoomPlaylistStateManager | null = null;
 let playlistProjection: ProRoomPlaylistProjection | null = null;
 let mediaTransfer: ProRoomMediaTransfer | null = null;
@@ -249,10 +255,12 @@ interface ActiveServerPlaybackTransition {
   clockAbort: AbortController;
 }
 let activeServerPlaybackTransition: ActiveServerPlaybackTransition | null = null;
-let playbackTransitionUiId: string | null = null;
+const playbackTransitionUiIds = new Set<string>();
 const playbackCommitInFlight = new Map<number, Promise<void>>();
 let playbackCommitTail: Promise<void> = Promise.resolve();
 let playbackCommitGeneration = 0;
+let playbackReconciliationSequence = 0;
+let playbackReconciliationInFlight: Promise<boolean> | null = null;
 interface PendingLocalPlaybackUiControl {
   token: number;
   roomCode: string;
@@ -274,20 +282,26 @@ let youtubeManifestUpgradeTail: Promise<void> = Promise.resolve();
 const attemptedYouTubeManifestUpgrades = new Set<QueueItemId>();
 
 function beginPlaybackTransitionUi(transitionId: string): void {
-  const wasLoading = playbackTransitionUiId !== null;
-  playbackTransitionUiId = transitionId;
+  const wasLoading = playbackTransitionUiIds.size > 0;
+  playbackTransitionUiIds.add(transitionId);
+  if (!wasLoading) bus.emit('pro-playback:transition-loading', true);
+}
+
+function replacePlaybackTransitionUi(previousTransitionId: string, transitionId: string): void {
+  const wasLoading = playbackTransitionUiIds.size > 0;
+  playbackTransitionUiIds.delete(previousTransitionId);
+  playbackTransitionUiIds.add(transitionId);
   if (!wasLoading) bus.emit('pro-playback:transition-loading', true);
 }
 
 function settlePlaybackTransitionUi(transitionId: string): void {
-  if (playbackTransitionUiId !== transitionId) return;
-  playbackTransitionUiId = null;
-  bus.emit('pro-playback:transition-loading', false);
+  if (!playbackTransitionUiIds.delete(transitionId)) return;
+  if (playbackTransitionUiIds.size === 0) bus.emit('pro-playback:transition-loading', false);
 }
 
 function resetPlaybackTransitionUi(): void {
-  if (playbackTransitionUiId === null) return;
-  playbackTransitionUiId = null;
+  if (playbackTransitionUiIds.size === 0) return;
+  playbackTransitionUiIds.clear();
   bus.emit('pro-playback:transition-loading', false);
 }
 
@@ -2457,6 +2471,7 @@ function acceptPlaybackPrepare(
   }
   if (sameServerTransition(activeServerPlaybackTransition, event)) return;
 
+  const replacedTransitionId = activeServerPlaybackTransition?.event.transitionId ?? null;
   if (activeServerPlaybackTransition) {
     settleLocalPlaybackUiControlByTransition(
       activeServerPlaybackTransition.event.transitionId,
@@ -2490,7 +2505,14 @@ function acceptPlaybackPrepare(
     clockAbort,
   };
   activeServerPlaybackTransition = transition;
-  beginPlaybackTransitionUi(event.transitionId);
+  if (replacedTransitionId) {
+    // PREPARE B atomically owns the visible rendezvous state as soon as it
+    // supersedes PREPARE A. A lost CANCEL for A must not leave an unreachable
+    // transition ID keeping the shared spinner alive forever.
+    replacePlaybackTransitionUi(replacedTransitionId, event.transitionId);
+  } else {
+    beginPlaybackTransitionUi(event.transitionId);
+  }
   reportPlaybackPreparation(transition);
 }
 
@@ -2913,9 +2935,26 @@ async function submitPlaybackIntent(
         playback: result.playback,
       });
     } else if (result.status === 'unchanged') {
-      settleLocalPlaybackUiControl(localUiControl, 'applied', result.playback.positionSeconds);
       if (result.playback.revision > lastAppliedPlaybackRevision) {
         void restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
+        settleLocalPlaybackUiControl(localUiControl, 'applied', result.playback.positionSeconds);
+      } else if (intent.kind === 'play' && result.playback.state === 'playing') {
+        // The room can already be playing while a foregrounded WebKit iframe
+        // is locally frozen. `unchanged` is correct server semantics, but the
+        // initiating participant still needs the exact checkpoint re-applied.
+        const reconciled = await reapplyCurrentPlaybackCheckpoint(
+          result.playback,
+          intent.roomId,
+          intent.roomEpoch,
+          result.serverTimeMs,
+        );
+        settleLocalPlaybackUiControl(
+          localUiControl,
+          reconciled ? 'applied' : 'failed',
+          result.playback.positionSeconds,
+        );
+      } else {
+        settleLocalPlaybackUiControl(localUiControl, 'applied', result.playback.positionSeconds);
       }
     }
   } catch (error) {
@@ -3062,6 +3101,158 @@ async function restorePersistedPlayback(snapshot: ProRoomSnapshot): Promise<void
   );
 }
 
+function playbackReconciliationStillCurrent(
+  playback: ProRoomPlaybackCheckpoint,
+  roomCode: string,
+  roomEpoch: number,
+  generation: number,
+): boolean {
+  const context = getState('room.context');
+  return !!(
+    active &&
+    generation === playbackCommitGeneration &&
+    context.kind === 'pro' &&
+    context.roomId === roomCode &&
+    context.epoch === roomEpoch &&
+    playback.coordinatorEpoch === roomEpoch &&
+    playback.revision === lastAppliedPlaybackRevision &&
+    playback.revision === highestKnownPlaybackRevision &&
+    !activeServerPlaybackTransition &&
+    !playbackCommitInFlight.has(playback.revision)
+  );
+}
+
+/** Re-apply one exact server revision without manufacturing a new room event. */
+async function reapplyCurrentPlaybackCheckpoint(
+  playback: ProRoomPlaybackCheckpoint,
+  roomCode: string,
+  roomEpoch: number,
+  observedServerTimeMs: number,
+): Promise<boolean> {
+  if (
+    playback.revision <= 0 ||
+    playback.state === 'idle' ||
+    !playback.queueItemId ||
+    playback.revision !== lastAppliedPlaybackRevision ||
+    playback.revision !== highestKnownPlaybackRevision ||
+    activeServerPlaybackTransition ||
+    playbackCommitInFlight.has(playback.revision)
+  ) {
+    return false;
+  }
+
+  const generation = playbackCommitGeneration;
+  const authority = createProPlaybackAuthorityToken({
+    roomId: roomCode,
+    roomEpoch,
+    basePlaybackRevision: playback.revision - 1,
+    // A null transition proves this is a direct re-application, not a second
+    // participant PREPARE for the already-committed server revision.
+    transitionId: null,
+  });
+  // `observedServerTimeMs` is either a timestamp carried by the command
+  // response or a clock value read only after fresh calibration. Never mix an
+  // uncalibrated local wall clock into this server-timeline calculation: a
+  // manually skewed device clock could otherwise seek hours away.
+  const serverNow = isProRoomServerClockCalibrated() ? getProRoomServerNow() : observedServerTimeMs;
+  const canonicalPosition =
+    playback.state === 'playing'
+      ? playback.positionSeconds + Math.max(0, serverNow - playback.updatedAtMs) / 1_000
+      : playback.positionSeconds;
+  const isCurrent = () =>
+    playbackReconciliationStillCurrent(playback, roomCode, roomEpoch, generation);
+  const result = await reconcileCurrentProPlaybackAuthority({
+    authority,
+    committedPlaybackRevision: playback.revision,
+    queueItemId: playback.queueItemId,
+    state: playback.state,
+    positionSeconds: canonicalPosition,
+    scheduleDelayMs: 0,
+    timingMode: 'scheduled-control',
+    youtubeSubIndex: playback.youtubeSubIndex,
+    youtubeVideoId: playback.youtubeVideoId,
+    isCurrent,
+  });
+  return result.status === 'applied' && isCurrent();
+}
+
+interface PlaybackReconciliationOptions {
+  showLoading: boolean;
+  youtubeOnly: boolean;
+}
+
+async function reconcileActiveProRoomPlayback(
+  options: Readonly<PlaybackReconciliationOptions>,
+): Promise<boolean> {
+  if (playbackReconciliationInFlight) return playbackReconciliationInFlight;
+  const transitionUiId = `local_reconcile_${++playbackReconciliationSequence}`;
+  if (options.showLoading) beginPlaybackTransitionUi(transitionUiId);
+
+  const operation = (async () => {
+    await runHeartbeat(true, true);
+    const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+    const context = getState('room.context');
+    if (
+      !active ||
+      !snapshot ||
+      context.kind !== 'pro' ||
+      context.roomId !== snapshot.roomCode ||
+      context.epoch !== snapshot.presence.coordinatorEpoch
+    ) {
+      return false;
+    }
+    const playback = snapshot.playback;
+    const item = playback.queueItemId
+      ? snapshot.playlist.find((candidate) => candidate.queueItemId === playback.queueItemId)
+      : null;
+    if (options.youtubeOnly && item?.source.kind !== 'youtube') return false;
+
+    if (playback.state === 'playing') {
+      // Heartbeat snapshots intentionally omit a wall-clock field. Require a
+      // fresh control-channel sample before extrapolating a running checkpoint;
+      // paused/idle checkpoints carry an exact position and need no clock.
+      // The timeout is duration-based and therefore independent of a skewed
+      // client Date clock.
+      const clockCalibrated = await waitForFreshProRoomServerClockCalibration({
+        serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
+        fallbackTimeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
+      });
+      if (!clockCalibrated) return false;
+    }
+
+    if (playback.revision > lastAppliedPlaybackRevision) {
+      await restorePlaybackCheckpoint(
+        playback,
+        snapshot.roomCode,
+        snapshot.presence.coordinatorEpoch,
+      );
+      await playbackCommitInFlight.get(playback.revision);
+      return playback.revision === lastAppliedPlaybackRevision;
+    }
+    if (playback.revision < lastAppliedPlaybackRevision) return false;
+    return reapplyCurrentPlaybackCheckpoint(
+      playback,
+      snapshot.roomCode,
+      snapshot.presence.coordinatorEpoch,
+      getProRoomServerNow(),
+    );
+  })().finally(() => {
+    if (options.showLoading) settlePlaybackTransitionUi(transitionUiId);
+    if (playbackReconciliationInFlight === operation) playbackReconciliationInFlight = null;
+  });
+  playbackReconciliationInFlight = operation;
+  return operation;
+}
+
+/**
+ * Fetch a fresh canonical PRO checkpoint and align only this participant.
+ * No playback command or room revision is created. UI callers can await the
+ * boolean to decide whether the local endpoint was actually realigned.
+ */
+export function requestActiveProRoomPlaybackReconciliation(): Promise<boolean> {
+  return reconcileActiveProRoomPlayback({ showLoading: true, youtubeOnly: false });
+}
+
 function applyAuthority(context: RoomContext): void {
   const pending = pendingFileDownload;
   if (pending && !shouldRetainPendingProDownload(pending.roomCode, context)) {
@@ -3095,6 +3286,9 @@ function applyAuthority(context: RoomContext): void {
 
 function stopLifecycle(): void {
   active = false;
+  visibilityPlaybackRecoveryPending = false;
+  visibilityPlaybackRecoveryAttempt = 0;
+  playbackReconciliationInFlight = null;
   accountReconciler.stop();
   accountAuthorityFailClosed = false;
   accountLeaseRenewalInFlight = false;
@@ -3113,6 +3307,7 @@ function stopLifecycle(): void {
   refreshInFlight = false;
   controlChannelRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
+  clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
 }
@@ -3461,13 +3656,92 @@ async function refreshSignalingCredential(): Promise<boolean> {
   }
 }
 
+function activeSnapshotNeedsYouTubeVisibilityRecovery(): boolean {
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  if (!snapshot) return true;
+  const playback = snapshot.playback;
+  if (playback.state === 'idle' || !playback.queueItemId) return false;
+  const item = snapshot.playlist.find(
+    (candidate) => candidate.queueItemId === playback.queueItemId,
+  );
+  // A temporarily missing projection still needs another authoritative pass.
+  return !item || item.source.kind === 'youtube';
+}
+
+function scheduleVisibilityPlaybackRecoveryRetry(): void {
+  if (
+    !active ||
+    !visibilityPlaybackRecoveryPending ||
+    typeof document === 'undefined' ||
+    document.visibilityState !== 'visible'
+  ) {
+    return;
+  }
+  const delay =
+    VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS[
+      Math.min(visibilityPlaybackRecoveryAttempt, VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS.length - 1)
+    ] ?? HEARTBEAT_INTERVAL_MS;
+  visibilityPlaybackRecoveryAttempt += 1;
+  clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
+  setManagedTimer(
+    VISIBILITY_PLAYBACK_RECOVERY_TIMER,
+    () => void recoverVisibleProRoomPlayback(),
+    delay,
+  );
+}
+
+async function recoverVisibleProRoomPlayback(): Promise<void> {
+  if (
+    !active ||
+    !visibilityPlaybackRecoveryPending ||
+    typeof document === 'undefined' ||
+    document.visibilityState !== 'visible'
+  ) {
+    return;
+  }
+  clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
+  try {
+    const reconciled = await reconcileActiveProRoomPlayback({
+      showLoading: false,
+      youtubeOnly: true,
+    });
+    if (!active || document.visibilityState !== 'visible') return;
+    if (reconciled || !activeSnapshotNeedsYouTubeVisibilityRecovery()) {
+      visibilityPlaybackRecoveryPending = false;
+      visibilityPlaybackRecoveryAttempt = 0;
+      return;
+    }
+  } catch (error) {
+    log.warn('[PRO Playback] Foreground reconciliation failed', error);
+  }
+  // Keep the hidden-session repair intent until media actually converges.
+  // Retrying on its own timer avoids requiring a second hide/show cycle.
+  scheduleVisibilityPlaybackRecoveryRetry();
+}
+
 function bindVisibilityRefresh(): void {
   if (visibilityBound || typeof document === 'undefined') return;
   visibilityBound = true;
   document.addEventListener('visibilitychange', () => {
-    if (!active || document.visibilityState !== 'visible') return;
+    if (document.visibilityState !== 'visible') {
+      if (active) {
+        visibilityPlaybackRecoveryPending = true;
+        visibilityPlaybackRecoveryAttempt = 0;
+        clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
+      }
+      return;
+    }
+    if (!active) return;
+    const recoverPlayback = visibilityPlaybackRecoveryPending;
     clearManagedTimer(HEARTBEAT_TIMER);
-    void runHeartbeat();
+    // A hidden WebKit iframe may be locally paused while the exact same server
+    // revision keeps advancing. A normal heartbeat intentionally deduplicates
+    // that revision, so foreground recovery must explicitly re-apply it.
+    if (recoverPlayback) {
+      void recoverVisibleProRoomPlayback();
+    } else {
+      void runHeartbeat();
+    }
     clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
     void renewAccountIdentityLease();
   });
@@ -3475,6 +3749,10 @@ function bindVisibilityRefresh(): void {
 
 function startLifecycle(): void {
   active = true;
+  visibilityPlaybackRecoveryPending =
+    typeof document !== 'undefined' && document.visibilityState !== 'visible';
+  visibilityPlaybackRecoveryAttempt = 0;
+  clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   unregisterPlaybackCommandHandler?.();
   unregisterPlaybackCommandHandler = registerProPlaybackCommandHandler(enqueuePlaybackIntent);
   terminalRecoveryInFlight = false;

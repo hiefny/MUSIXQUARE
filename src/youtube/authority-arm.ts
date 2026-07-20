@@ -56,6 +56,9 @@ interface YouTubeAuthorityArmPrepareRequest extends YouTubeAuthorityArmIdentity 
   targetSeconds: number;
   strategy: YouTubeAuthorityArmStrategy;
   timeoutMs?: number;
+  /** App-level audio intent. IFrame mute can be a transient warm-up state. */
+  desiredMuted?: boolean;
+  desiredVolume?: number;
 }
 
 interface YouTubeAuthorityArmPreparedRecord extends YouTubeAuthorityArmIdentity {
@@ -230,6 +233,37 @@ export class YouTubeAuthorityArmController {
     return this.#preparedRecord(run);
   }
 
+  /**
+   * True while this controller deliberately owns the iframe's hard mute.
+   * Callers may still update volume, but must not unmute until warm-up and
+   * position settling have finished.
+   */
+  ownsHardMute(): boolean {
+    const phase = this.#run?.phase;
+    return phase === 'muting' || phase === 'warming' || phase === 'settling';
+  }
+
+  /** Keep restoration aligned with volume changes made during an active arm. */
+  updateDesiredAudioState(update: { muted?: boolean; volume?: number }): void {
+    const run = this.#run;
+    if (run) {
+      if (typeof update.muted === 'boolean') run.originalMuted = update.muted;
+      if (typeof update.volume === 'number' && Number.isFinite(update.volume)) {
+        run.originalVolume = clamp(Math.round(update.volume), 0, 100);
+      }
+    }
+
+    // A failed/cancelled WebKit arm may still be running bounded restoration
+    // retries. Keep those retries from overwriting a newer user adjustment.
+    const restore = this.#detachedRestore;
+    if (restore) {
+      if (typeof update.muted === 'boolean') restore.muted = update.muted;
+      if (typeof update.volume === 'number' && Number.isFinite(update.volume)) {
+        restore.volume = clamp(Math.round(update.volume), 0, 100);
+      }
+    }
+  }
+
   prepare(
     request: Readonly<YouTubeAuthorityArmPrepareRequest>,
   ): Promise<YouTubeAuthorityArmPrepareResult> {
@@ -247,8 +281,13 @@ export class YouTubeAuthorityArmController {
 
     const transferredAudioIntent =
       this.#detachedRestore?.player === player ? this.#detachedRestore : null;
-    let originalMuted = transferredAudioIntent?.muted;
-    let originalVolume = transferredAudioIntent?.volume;
+    let originalMuted =
+      typeof request.desiredMuted === 'boolean'
+        ? request.desiredMuted
+        : transferredAudioIntent?.muted;
+    let originalVolume = Number.isFinite(request.desiredVolume)
+      ? clamp(Math.round(request.desiredVolume as number), 0, 100)
+      : transferredAudioIntent?.volume;
     if (originalMuted === undefined || originalVolume === undefined) {
       try {
         originalMuted = player.isMuted();

@@ -457,6 +457,10 @@ function hideYouTubeContainerResident(container: HTMLElement): void {
  * instance can outlive several playback modes and even room sessions.
  */
 function startYouTubeHostHeartbeat(): void {
+  if (getState('room.context').kind === 'pro') {
+    clearManagedTimer('youtubeSyncLoop');
+    return;
+  }
   setManagedTimer(
     'youtubeSyncLoop',
     () => {
@@ -475,7 +479,12 @@ function ensureYouTubePlaybackRuntime(): void {
   }
 
   const hostConn = getState('network.hostConn');
-  if (!hostConn) {
+  if (getState('room.context').kind === 'pro') {
+    // PRO playback converges through the server authority runtime. Every PRO
+    // endpoint intentionally has hostConn=null, so treating it as a legacy
+    // host would create a periodic broadcast with no authoritative consumer.
+    clearManagedTimer('youtubeSyncLoop');
+  } else if (!hostConn) {
     if (!getManagedTimer('youtubeSyncLoop')) startYouTubeHostHeartbeat();
   } else {
     // A retained iframe can cross a leave/rejoin role change. Never let a
@@ -488,6 +497,10 @@ function ensureYouTubePlaybackRuntime(): void {
 
 /** Re-arm a missing host heartbeat from the independently-owned UI loop. */
 function healYouTubeHostHeartbeat(): void {
+  if (getState('room.context').kind === 'pro') {
+    clearManagedTimer('youtubeSyncLoop');
+    return;
+  }
   if (getState('network.hostConn') || getManagedTimer('youtubeSyncLoop')) return;
   startYouTubeHostHeartbeat();
   log.warn('[YouTube] Host heartbeat was missing; restarted from the UI runtime');
@@ -716,6 +729,24 @@ export function primeYouTubePlayer(): void {
     setYtPrimeBouncePending(false);
     log.warn('[YouTube Prime] gesture bounce failed; tap-to-play fallback remains available', e);
   }
+}
+
+/**
+ * Give an in-gesture iOS prime bounce a short chance to prove PLAYING before
+ * a real PRO-room video replaces the silent prime occurrence. Replacing it
+ * while the bounce callback is still pending clears the only observable proof
+ * that WebKit accepted the gesture and makes the late-join preparation retry
+ * as an audio-locked endpoint.
+ *
+ * Non-iOS clients never arm this state, so the helper is an immediate no-op.
+ */
+export async function waitForPendingYouTubePrimeBounce(timeoutMs = 600): Promise<boolean> {
+  if (!isYtPrimeBouncePending()) return isYtPrimed();
+  const deadline = Date.now() + Math.max(0, Math.min(timeoutMs, YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS));
+  while (isYtPrimeBouncePending() && !isYtPrimed() && Date.now() < deadline) {
+    await delay(Math.min(20, Math.max(1, deadline - Date.now())));
+  }
+  return isYtPrimed();
 }
 
 type LoadYouTubeVideoOptions = {
@@ -1050,6 +1081,19 @@ const proAuthorityArm = new YouTubeAuthorityArmController({
     (subIndex === null || (getState('youtube.currentSubIndex') ?? 0) === subIndex),
 });
 
+/** Whether coordinator-free PRO preparation currently owns iframe hard mute. */
+export function proYouTubeAuthorityOwnsHardMute(): boolean {
+  return proAuthorityArm.ownsHardMute();
+}
+
+/** Keep an in-flight PRO preparation aligned with the latest app volume. */
+export function updateProYouTubeAuthorityDesiredAudioState(update: {
+  muted?: boolean;
+  volume?: number;
+}): void {
+  proAuthorityArm.updateDesiredAudioState(update);
+}
+
 /** Invalidate only coordinator-free PRO iframe preparation work. */
 export function cancelYouTubeAuthorityPreparation(): void {
   proAuthorityPreparationGeneration += 1;
@@ -1147,6 +1191,14 @@ export async function prepareYouTubeAuthorityOccurrence(
             targetSeconds: target.localTime,
             strategy: 'resident',
             timeoutMs: remainingMs,
+            // The app volume is the user intent. During initial iOS entry the
+            // persistent iframe can still report the silent-prime hard mute;
+            // capturing that transient player bit would make it permanent.
+            desiredMuted: (getState('audio.masterVolume') ?? 1) <= 0,
+            desiredVolume: Math.max(
+              0,
+              Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
+            ),
           });
           if (generation !== proAuthorityPreparationGeneration) {
             return { ready: false, reason: 'superseded' };
@@ -2110,6 +2162,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     state === _ifr.lastBroadcastState && now - _ifr.lastStateBroadcast < STATE_BROADCAST_DEDUP_MS;
   if (
     !hostConn &&
+    getState('room.context').kind !== 'pro' &&
     player?.getCurrentTime &&
     !syncInFlight &&
     !coordinatorNudgeInFlight &&

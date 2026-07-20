@@ -915,6 +915,181 @@ describe('PRO room server-authoritative playback', () => {
     });
   });
 
+  it('commits immediately once every frozen cohort member has reported ready or failed', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const friend = await addMember(context, 'Failed endpoint');
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-terminal-reports')).status,
+    ).toBe(200);
+
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: before.snapshot.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'authority-terminal-reports-select-0001',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toHaveLength(2);
+
+    const ownerReady = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: selected.transition.basePlaybackRevision, status: 'ready' },
+        context.ownerCookie,
+      ),
+    );
+    await expect(ownerReady.json()).resolves.toMatchObject({ status: 'waiting' });
+
+    const friendFailed = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: selected.transition.basePlaybackRevision, status: 'failed' },
+        friend.cookie,
+      ),
+    );
+    expect(friendFailed.status).toBe(200);
+    await expect(friendFailed.json()).resolves.toMatchObject({
+      status: 'committed',
+      playbackRevision: before.snapshot.playback.revision + 1,
+    });
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+    expect(realtime.internal.room.playback).toMatchObject({
+      revision: before.snapshot.playback.revision + 1,
+      queueItemId: firstQueueItemId,
+      state: 'playing',
+    });
+  });
+
+  it('commits immediately when the last unreported cohort member leaves', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const failed = await addMember(context, 'Failed endpoint');
+    const departing = await addMember(context, 'Departing endpoint');
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-terminal-leave')).status,
+    ).toBe(200);
+
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: before.snapshot.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'authority-terminal-leave-select-0001',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toHaveLength(3);
+
+    await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: selected.transition.basePlaybackRevision, status: 'ready' },
+        context.ownerCookie,
+      ),
+    );
+    const failedResponse = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: selected.transition.basePlaybackRevision, status: 'failed' },
+        failed.cookie,
+      ),
+    );
+    await expect(failedResponse.json()).resolves.toMatchObject({ status: 'waiting' });
+    expect(realtime.internal.room.pendingPlaybackTransition).not.toBeNull();
+
+    const leave = await context.worker.fetch(
+      request('/presence/current', { method: 'DELETE' }, departing.cookie),
+    );
+    expect(leave.status).toBe(200);
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+    expect(realtime.internal.room.playback).toMatchObject({
+      revision: before.snapshot.playback.revision + 1,
+      queueItemId: firstQueueItemId,
+      state: 'playing',
+    });
+  });
+
+  it('keeps waiting when a frozen cohort member has not reported, then commits at the deadline', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    await addMember(context, 'Silent endpoint');
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-missing-report')).status,
+    ).toBe(200);
+
+    const before = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: before.snapshot.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'authority-missing-report-select-0001',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    expect(realtime.internal.room.pendingPlaybackTransition.cohort).toHaveLength(2);
+
+    const ownerFailed = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        { basePlaybackRevision: selected.transition.basePlaybackRevision, status: 'failed' },
+        context.ownerCookie,
+      ),
+    );
+    expect(ownerFailed.status).toBe(200);
+    await expect(ownerFailed.json()).resolves.toMatchObject({
+      status: 'waiting',
+      playbackRevision: before.snapshot.playback.revision,
+    });
+    expect(realtime.internal.room.pendingPlaybackTransition).not.toBeNull();
+    expect(realtime.internal.room.playback.revision).toBe(before.snapshot.playback.revision);
+
+    realtime.internal.room.pendingPlaybackTransition.deadlineAtMs = Date.now() - 1;
+    const committed = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(committed.snapshot.playback).toMatchObject({
+      revision: before.snapshot.playback.revision + 1,
+      queueItemId: firstQueueItemId,
+      state: 'playing',
+    });
+    expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+  });
+
   it('lets a late member arm PREPARE without extending its fixed cohort', async () => {
     const context = await activatedRoom();
     const realtime = installRealtimeRecorder(context);
@@ -11182,6 +11357,75 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(second.status).toBe(200);
     expect((await responseJson(second)).snapshot.playlist).toEqual([item]);
+  });
+
+  it('keeps stale playlist CAS errors below the browser error-body budget', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const before = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
+    const playlist = Array.from({ length: 64 }, (_, index) => ({
+      queueItemId: `${index.toString(16).padStart(8, '0')}-2222-4222-8222-${index
+        .toString(16)
+        .padStart(12, '0')}`,
+      name: `Track ${index} ${'N'.repeat(180)}`,
+      title: `Title ${index} ${'T'.repeat(180)}`,
+      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+    }));
+    const populated = await worker.fetch(
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: before.snapshot.revision,
+          playlist,
+          currentQueueItemId: null,
+          playback: before.snapshot.playback,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-populate-conflict-budget`,
+      ),
+    );
+    expect(populated.status).toBe(200);
+    const current = await responseJson(populated);
+    expect(
+      new TextEncoder().encode(
+        JSON.stringify({ error: 'REVISION_CONFLICT', snapshot: current.snapshot }),
+      ).byteLength,
+    ).toBeGreaterThan(16 * 1024);
+
+    const staleRequests = [
+      jsonRequest(
+        '/snapshot',
+        'PUT',
+        {
+          baseRevision: before.snapshot.revision,
+          playlist: current.snapshot.playlist,
+          currentQueueItemId: current.snapshot.currentQueueItemId,
+          playback: current.snapshot.playback,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-stale-legacy-budget`,
+      ),
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: before.snapshot.revision,
+          playlistOrder: null,
+          upserts: [],
+          currentQueueItemId: current.snapshot.currentQueueItemId,
+          playback: current.snapshot.playback,
+        },
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-stale-compact-budget`,
+      ),
+    ];
+    for (const staleRequest of staleRequests) {
+      const response = await worker.fetch(staleRequest);
+      expect(response.status).toBe(409);
+      const text = await response.text();
+      expect(new TextEncoder().encode(text).byteLength).toBeLessThan(16 * 1024);
+      expect(JSON.parse(text)).toEqual({ error: 'REVISION_CONFLICT' });
+    }
   });
 
   it('accepts a bounded compact upsert batch above the retired 512 KiB ceiling', async () => {

@@ -109,7 +109,7 @@ describe('YouTube Sync', () => {
       );
     });
 
-    it('keeps a PRO coordinator manual offset out of the canonical room time', async () => {
+    it('never emits a legacy host heartbeat from a server-authoritative PRO endpoint', async () => {
       const playerMod = await import('../_state.ts');
       vi.mocked(playerMod.getYouTubePlayer).mockReturnValue({
         getCurrentTime: () => 42.5,
@@ -134,7 +134,7 @@ describe('YouTube Sync', () => {
 
       broadcastYouTubeSync();
 
-      expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ time: 42.25, state: 1 }));
+      expect(broadcast).not.toHaveBeenCalled();
     });
   });
 
@@ -298,7 +298,7 @@ describe('YouTube Sync', () => {
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(-1);
     });
 
-    it('seeks only the PRO coordinator player for a local manual nudge', async () => {
+    it('seeks only the local PRO player for a manual nudge without legacy broadcasting', async () => {
       const playerMod = await import('../_state.ts');
       let currentTime = 42.5;
       const player = {
@@ -335,10 +335,10 @@ describe('YouTube Sync', () => {
       expect(broadcast).not.toHaveBeenCalled();
 
       broadcastYouTubeSync(true);
-      expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ time: 42.5 }));
+      expect(broadcast).not.toHaveBeenCalled();
     });
 
-    it('does not seek the PRO coordinator player while zero-start owns the iframe', async () => {
+    it('does not seek the local PRO player while zero-start owns the iframe', async () => {
       const playerMod = await import('../_state.ts');
       const player = {
         getCurrentTime: vi.fn(() => 42.5),
@@ -367,7 +367,7 @@ describe('YouTube Sync', () => {
       expect(getState('sync.youtubeLocalOffset')).toBe(0);
     });
 
-    it('keeps one canonical anchor across rapid coordinator nudges while seekTo is stale', async () => {
+    it('keeps one canonical anchor across rapid local PRO nudges while seekTo is stale', async () => {
       const playerMod = await import('../_state.ts');
       const player = {
         // Real iframes can keep returning the pre-seek value for a short time.
@@ -402,7 +402,7 @@ describe('YouTube Sync', () => {
 
       vi.mocked(broadcast).mockClear();
       broadcastYouTubeSync(true);
-      expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ time: 10 }));
+      expect(broadcast).not.toHaveBeenCalled();
 
       bus.emit('youtube:set-coordinator-manual-offset', 0);
       expect(player.seekTo).toHaveBeenLastCalledWith(10, true);

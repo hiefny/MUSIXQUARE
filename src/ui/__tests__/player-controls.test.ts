@@ -26,6 +26,10 @@ const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
 const zeroStartFacade = vi.hoisted(() => ({ active: false }));
 
+const proPlaybackRuntime = vi.hoisted(() => ({
+  reconcile: vi.fn<() => Promise<boolean>>(),
+}));
+
 const proSystemAudio = vi.hoisted(() => ({
   view: {
     roomCode: '000001',
@@ -52,6 +56,10 @@ vi.mock('../../youtube/sync.ts', () => ({
 
 vi.mock('../../youtube/zero-start.ts', () => ({
   isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
+}));
+
+vi.mock('../../pro-room/runtime.ts', () => ({
+  requestActiveProRoomPlaybackReconciliation: proPlaybackRuntime.reconcile,
 }));
 
 vi.mock('../toast.ts', () => ({
@@ -90,6 +98,7 @@ beforeEach(() => {
   proSystemAudio.ownerName = null;
   proSystemAudio.coordinatorCompatible = true;
   zeroStartFacade.active = false;
+  proPlaybackRuntime.reconcile.mockResolvedValue(true);
   document.body.innerHTML = '';
 });
 
@@ -966,7 +975,7 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('opens the same local YouTube nudge panel for an equal PRO participant', () => {
+  it('reconciles an equal PRO participant before opening the local YouTube nudge panel', async () => {
     renderSyncControls();
     setState('network.appRole', 'host');
     setState('room.context', {
@@ -984,9 +993,37 @@ describe('initPlayerControls sync button', () => {
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
-    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    await vi.waitFor(() => {
+      expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1);
+      expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    });
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
     expect(guestRendezvousSync).not.toHaveBeenCalled();
+  });
+
+  it('keeps the PRO nudge panel closed when server reconciliation cannot realign media', async () => {
+    renderSyncControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    proPlaybackRuntime.reconcile.mockResolvedValueOnce(false);
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    await vi.waitFor(() => {
+      expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    });
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
 
   it('keeps the PRO participant nudge panel closed during zero-start', () => {
@@ -1053,7 +1090,7 @@ describe('initPlayerControls sync button', () => {
     );
   });
 
-  it('opens the local-file nudge panel without peer broadcasting for a PRO participant', () => {
+  it('reconciles a PRO file endpoint before opening its local nudge panel', async () => {
     renderSyncControls();
     setState('network.appRole', 'host');
     setState('room.context', {
@@ -1075,7 +1112,11 @@ describe('initPlayerControls sync button', () => {
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
-    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    await vi.waitFor(() => {
+      expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1);
+      expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    });
     expect(broadcastSpy).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalled();
   });

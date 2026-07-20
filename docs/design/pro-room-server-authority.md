@@ -219,9 +219,12 @@ transition:
    server fences it to the authenticated presence incarnation, transition ID,
    and base playback revision; the local preparation token carries the target
    identity.
-4. When every candidate is ready, or the bounded decision deadline arrives,
-   the server fixes the canonical target and chooses a future `executeAtMs`
-   using the configured COMMIT lead.
+4. When every candidate is ready, every candidate has returned a terminal
+   `ready | failed` report, or the bounded decision deadline arrives, the
+   server fixes the canonical target and chooses a future `executeAtMs` using
+   the configured COMMIT lead. A reported failure cannot later become ready,
+   so waiting until the deadline after every candidate has already reported
+   adds latency without changing the accepted cohort.
 5. The server persists the playing anchor and broadcasts one
    `playback.commit`. Only that frame may make a prepared client audible.
 6. A candidate that did not become ready is excluded; the room starts without
@@ -263,6 +266,15 @@ PREPARE cohort.
   the same revision-and-target-exact catch-up path.
 - If the room revision changes during preparation, catch-up is cancelled and
   restarted from the newer snapshot.
+
+A browser can also diverge locally without a new server revision: mobile
+WebKit may pause its iframe while the document is hidden even though the
+canonical server timeline remains `playing`. Foreground recovery, an
+`unchanged` local Play result, and the PRO Sync control therefore use a narrow
+participant-local reconciliation path. It fetches a fresh snapshot and
+re-applies only the exact current room/epoch/revision/queue/media identity to
+that browser. It neither creates a room command nor relaxes the monotonic
+COMMIT fence, and it is rejected while a newer PREPARE or COMMIT is active.
 
 Late join never opens a new room-wide barrier and never rewinds participants
 that are already playing.

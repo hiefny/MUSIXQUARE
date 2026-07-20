@@ -58,6 +58,7 @@ import {
   type ProRoomLegacyMediaHooks,
 } from '../../pro-room/legacy-media-hooks.ts';
 import {
+  cancelProPlaybackPreparation,
   createProPlaybackAuthorityToken,
   prepareProPlaybackAuthority,
   registerProPlaybackCommandHandler,
@@ -331,6 +332,111 @@ describe('coordinator-free PRO playback routing', () => {
 
     expect(load).toHaveBeenCalledOnce();
     expect(load).toHaveBeenCalledWith('NEXT_VIDEO_01', null, next.queueItemId, false, 0);
+  });
+
+  it('does not let an older YouTube PREPARE resume after a newer authority wins the prime wait', async () => {
+    const first = youtubeItem('First video', 'FIRST_VIDEO_01');
+    const second = youtubeItem('Second video', 'SECOND_VIDEO_01');
+    setState('playlist.items', [first, second]);
+    enterProRoom(['playback.control']);
+    let releaseFirstPrime!: (primed: boolean) => void;
+    const firstPrime = new Promise<boolean>((resolve) => {
+      releaseFirstPrime = resolve;
+    });
+    vi.spyOn(youtubeIframe, 'waitForPendingYouTubePrimeBounce')
+      .mockReturnValueOnce(firstPrime)
+      .mockResolvedValueOnce(true);
+    vi.spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence').mockResolvedValue({
+      ready: true,
+      durationSeconds: 120,
+      videoId: 'SECOND_VIDEO_01',
+      subIndex: 0,
+    });
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    initPlaylist();
+    const firstAuthority = createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: 10,
+      transitionId: 'first-prime-wait',
+    });
+    const secondAuthority = createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: 11,
+      transitionId: 'second-prime-wait',
+    });
+
+    const stalePreparation = prepareProPlaybackAuthority({
+      authority: firstAuthority,
+      queueItemId: first.queueItemId,
+      positionSeconds: 0,
+      youtubeVideoId: 'FIRST_VIDEO_01',
+    });
+    await vi.waitFor(() =>
+      expect(youtubeIframe.waitForPendingYouTubePrimeBounce).toHaveBeenCalledTimes(1),
+    );
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: secondAuthority,
+        queueItemId: second.queueItemId,
+        positionSeconds: 0,
+        youtubeVideoId: 'SECOND_VIDEO_01',
+      }),
+    ).resolves.toMatchObject({ status: 'ready', queueItemId: second.queueItemId });
+
+    releaseFirstPrime(true);
+    await expect(stalePreparation).resolves.toMatchObject({
+      status: 'superseded',
+      queueItemId: first.queueItemId,
+      reason: 'superseded',
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith('SECOND_VIDEO_01', null, second.queueItemId, false, 0);
+    expect(getState('playlist.currentQueueItemId')).toBe(second.queueItemId);
+  });
+
+  it('does not let a cancelled YouTube PREPARE touch the iframe when its prime wait resolves', async () => {
+    const item = youtubeItem('Cancelled video', 'CANCELLED_VIDEO_01');
+    setState('playlist.items', [item]);
+    enterProRoom(['playback.control']);
+    let releasePrime!: (primed: boolean) => void;
+    const pendingPrime = new Promise<boolean>((resolve) => {
+      releasePrime = resolve;
+    });
+    vi.spyOn(youtubeIframe, 'waitForPendingYouTubePrimeBounce').mockReturnValue(pendingPrime);
+    const prepareOccurrence = vi.spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence');
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    initPlaylist();
+    const authority = createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: 12,
+      transitionId: 'cancelled-prime-wait',
+    });
+
+    const preparation = prepareProPlaybackAuthority({
+      authority,
+      queueItemId: item.queueItemId,
+      positionSeconds: 0,
+      youtubeVideoId: 'CANCELLED_VIDEO_01',
+    });
+    await vi.waitFor(() =>
+      expect(youtubeIframe.waitForPendingYouTubePrimeBounce).toHaveBeenCalledOnce(),
+    );
+    expect(cancelProPlaybackPreparation(authority)).toBe(true);
+
+    releasePrime(true);
+    await expect(preparation).resolves.toMatchObject({
+      status: 'superseded',
+      queueItemId: item.queueItemId,
+      reason: 'superseded',
+    });
+    expect(load).not.toHaveBeenCalled();
+    expect(prepareOccurrence).not.toHaveBeenCalled();
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
   });
 });
 

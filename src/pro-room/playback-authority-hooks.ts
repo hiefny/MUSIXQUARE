@@ -284,6 +284,8 @@ export interface ProPlaybackPrepareRequest {
   positionSeconds: number;
   youtubeSubIndex?: number | null;
   youtubeVideoId?: string | null;
+  /** Participant-local fence injected by the authority layer for async media waits. */
+  isCurrent?: () => boolean;
 }
 
 /**
@@ -443,7 +445,14 @@ export async function prepareProPlaybackAuthority(
   }
 
   const generation = ++prepareGeneration;
-  const promise = endpoint.prepare(request);
+  const endpointRequest: Readonly<ProPlaybackPrepareRequest> = {
+    ...request,
+    isCurrent: () =>
+      generation === prepareGeneration &&
+      activeAuthorityRoomMatches(request.authority) &&
+      !isOlderAuthority(request.authority, highestSeen),
+  };
+  const promise = endpoint.prepare(endpointRequest);
   activePreparation = { generation, authority: request.authority, promise };
   highestSeen = request.authority;
   const result = await promise;
@@ -557,6 +566,52 @@ export async function commitProPlaybackAuthority(
     if (activePreparation && sameAuthority(activePreparation.authority, request.authority)) {
       activePreparation = null;
     }
+  }
+  return result;
+}
+
+/**
+ * Re-apply the exact currently committed checkpoint to one participant.
+ *
+ * Mobile browsers may suspend an iframe while the server timeline continues.
+ * The canonical revision is therefore still current even though the local
+ * media endpoint is stale.  This seam deliberately accepts only that exact
+ * high-water revision and never advances any authority bookkeeping; it cannot
+ * resurrect an older checkpoint or manufacture a new room command.
+ */
+export async function reconcileCurrentProPlaybackAuthority(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<ProPlaybackCommitResult> {
+  if (!isProPlaybackAuthorityToken(request.authority)) {
+    throw new TypeError('A server authority token is required');
+  }
+  requireSafeCounter(request.committedPlaybackRevision, 'committedPlaybackRevision');
+  if (
+    request.authority.transitionId !== null ||
+    request.committedPlaybackRevision !== request.authority.basePlaybackRevision + 1 ||
+    request.committedPlaybackRevision !== highestCommittedPlaybackRevision
+  ) {
+    return { status: 'superseded', authority: request.authority, reason: 'stale-authority' };
+  }
+  if (!activeAuthorityRoomMatches(request.authority)) {
+    return { status: 'failed', authority: request.authority, reason: 'inactive-room' };
+  }
+  if (request.isCurrent?.() === false) {
+    return { status: 'superseded', authority: request.authority, reason: 'superseded' };
+  }
+  // A server PREPARE/COMMIT owns the endpoint until it settles. Foreground
+  // recovery must never cancel or overtake that newer canonical transition.
+  if (activePreparation) {
+    return { status: 'superseded', authority: request.authority, reason: 'superseded' };
+  }
+  const endpoint = mediaEndpoint;
+  if (!endpoint) {
+    return { status: 'failed', authority: request.authority, reason: 'missing-endpoint' };
+  }
+
+  const result = await endpoint.commit(request);
+  if (request.isCurrent?.() === false) {
+    return { status: 'superseded', authority: request.authority, reason: 'superseded' };
   }
   return result;
 }

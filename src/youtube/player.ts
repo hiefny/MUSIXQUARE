@@ -314,6 +314,8 @@ import {
   showLiveStreamSyncWarning,
   cancelYouTubeAuthorityPreparation,
   commitYouTubeAuthorityOccurrence,
+  proYouTubeAuthorityOwnsHardMute,
+  updateProYouTubeAuthorityDesiredAudioState,
 } from './iframe.ts';
 import { showLoader } from '../ui/toast.ts';
 
@@ -523,6 +525,13 @@ export function scheduleYtAutoSync(
     state?: number;
   },
 ): void {
+  if (getRoomContext().kind === 'pro') {
+    // Coordinator-free PRO playback is owned exclusively by the server
+    // PREPARE/COMMIT timeline. A delayed legacy autoplay event from the
+    // retained iframe must not seek locally or emit either rendezvous stage.
+    clearManagedTimer('yt-auto-sync');
+    return;
+  }
   invalidateYouTubeZeroStartPendingIntegration();
   // Any ordinary play/pause/seek supersedes a zero-start barrier or its short
   // post-release calibration window. The legacy rendezvous then remains the
@@ -3100,6 +3109,10 @@ export function initYouTube(): void {
         muted: shouldMute,
         volume: clampedVolume,
       });
+      updateProYouTubeAuthorityDesiredAudioState({
+        muted: shouldMute,
+        volume: clampedVolume,
+      });
       player.setVolume(clampedVolume);
 
       // iOS ignores the iframe's software volume in many playback states, but
@@ -3110,7 +3123,9 @@ export function initYouTube(): void {
       // state before arming. Once audio restoration begins, direct changes are
       // safe again and are included in the controller's verification poll.
       if (shouldMute || _proPlaybackPauseGateToken !== null) player.mute?.();
-      else if (!youtubeZeroStartOwnsHardMute()) player.unMute?.();
+      else if (!youtubeZeroStartOwnsHardMute() && !proYouTubeAuthorityOwnsHardMute()) {
+        player.unMute?.();
+      }
     }
   });
 
@@ -3134,7 +3149,9 @@ export function initYouTube(): void {
     );
     player.setVolume?.(volume);
     if (volume === 0) player.mute?.();
-    else if (!youtubeZeroStartOwnsHardMute()) player.unMute?.();
+    else if (!youtubeZeroStartOwnsHardMute() && !proYouTubeAuthorityOwnsHardMute()) {
+      player.unMute?.();
+    }
   });
 
   // YouTube sub-item seek (from playlist-view sub-item click)

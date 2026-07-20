@@ -1744,7 +1744,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(msg.hostPlayAt).toBe(0);
     });
 
-    it('keeps PRO coordinator local seek offset out of both rendezvous stages', async () => {
+    it('keeps retained legacy rendezvous events from mutating PRO playback', async () => {
       const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 120 });
       setState('sync.youtubeLocalOffset', 0.25);
       setState('room.context', {
@@ -1762,20 +1762,15 @@ describe('YouTube Sync — Regression Integration', () => {
 
       scheduleYtAutoSync(10);
 
-      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([10.25, true]);
-      expect(broadcastMock.mock.calls[0][0]).toEqual(
-        expect.objectContaining({ type: MSG.YOUTUBE_STATE, time: 10 }),
-      );
+      expect(player.__log.find((entry) => entry.op === 'seekTo')).toBeUndefined();
+      expect(broadcastMock).not.toHaveBeenCalled();
 
-      broadcastMock.mockClear();
       vi.advanceTimersByTime(2000);
 
-      expect(broadcastMock).toHaveBeenCalledWith(
-        expect.objectContaining({ type: MSG.YOUTUBE_SYNC, time: 10, isManual: true }),
-      );
+      expect(broadcastMock).not.toHaveBeenCalled();
     });
 
-    it('preserves a requested negative offset across a clamped new-video boundary', async () => {
+    it('preserves participant-local offset state when rejecting a stale PRO schedule', async () => {
       const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 120 });
       setState('sync.youtubeLocalOffset', -0.25);
       setState('sync.youtubeCoordinatorAppliedOffset', -0.25);
@@ -1793,14 +1788,11 @@ describe('YouTube Sync — Regression Integration', () => {
       scheduleYtAutoSync(0, { skipSeek: true, state: 2 });
 
       expect(getState('sync.youtubeLocalOffset')).toBe(-0.25);
-      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(-0.25);
 
       scheduleYtAutoSync(10, { state: 2 });
 
-      expect(player.__log.filter((entry) => entry.op === 'seekTo').at(-1)?.args).toEqual([
-        9.75,
-        true,
-      ]);
+      expect(player.__log.filter((entry) => entry.op === 'seekTo')).toHaveLength(0);
       expect(getState('sync.youtubeLocalOffset')).toBe(-0.25);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(-0.25);
     });

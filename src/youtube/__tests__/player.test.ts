@@ -315,6 +315,94 @@ describe('YouTube Player', () => {
       expect(player.unMute).toHaveBeenCalledOnce();
     });
 
+    it('keeps PRO authority warm-up muted while adopting an in-flight volume change', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { markYtPlayerReady, setYouTubePlayer, setYouTubeSubIndex, setYtLoadInProgress } =
+        await import('../_state.ts');
+      const { cancelYouTubeAuthorityPreparation, prepareYouTubeAuthorityOccurrence } =
+        await import('../iframe.ts');
+      let muted = false;
+      let volume = 31;
+      let playerState = 2;
+      let currentTime = 3;
+      const player = {
+        loadVideoById: vi.fn(),
+        playVideo: vi.fn(() => {
+          playerState = 1;
+        }),
+        pauseVideo: vi.fn(() => {
+          playerState = 2;
+        }),
+        seekTo: vi.fn((seconds: number) => {
+          currentTime = seconds;
+        }),
+        mute: vi.fn(() => {
+          muted = true;
+        }),
+        unMute: vi.fn(() => {
+          muted = false;
+        }),
+        isMuted: vi.fn(() => muted),
+        setVolume: vi.fn((next: number) => {
+          volume = next;
+        }),
+        getVolume: vi.fn(() => volume),
+        getCurrentTime: vi.fn(() => currentTime),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => playerState),
+        getVideoData: vi.fn(() => ({ video_id: 'video-1', title: 'Video' })),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(player);
+      markYtPlayerReady(player);
+      setYouTubeSubIndex(0);
+      setYtLoadInProgress(false);
+      setPlaybackYouTubePlaying();
+      setState('audio.masterVolume', 0.31);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'video-1',
+          playlistId: null,
+          name: 'Video',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      initYouTube();
+
+      const preparing = prepareYouTubeAuthorityOccurrence({
+        authorityKey: 'transition-volume-change',
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: 'video-1',
+        subIndex: 0,
+        positionSeconds: 3,
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(muted).toBe(true);
+
+      bus.emit('youtube:set-volume', 73);
+
+      expect(player.setVolume).toHaveBeenLastCalledWith(73);
+      expect(player.unMute).not.toHaveBeenCalled();
+      expect(muted).toBe(true);
+
+      await vi.runAllTimersAsync();
+      await expect(preparing).resolves.toMatchObject({ ready: true });
+      expect(player.unMute).toHaveBeenCalledOnce();
+      expect(muted).toBe(false);
+      expect(volume).toBe(73);
+      cancelYouTubeAuthorityPreparation();
+    });
+
     it('keeps a participant-local PRO pause gate closed across volume changes', async () => {
       const { initYouTube } = await import('../player.ts');
       const { setYouTubePlayer } = await import('../_state.ts');

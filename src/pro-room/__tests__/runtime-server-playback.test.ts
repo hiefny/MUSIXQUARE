@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState } from '../../core/state.ts';
+import { getManagedTimer } from '../../core/timers.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   ProRoomApiClient,
@@ -32,6 +33,7 @@ import { requestProRoomTransportRecovery } from '../transport-recovery.ts';
 import {
   acceptProRoomRealtimeFrameForTests,
   joinProRoom,
+  requestActiveProRoomPlaybackReconciliation,
   requestFirstAppendSelectionForTests,
 } from '../runtime.ts';
 
@@ -160,6 +162,14 @@ function serverFrame(event: Record<string, unknown>, coordinatorEpoch = ROOM_EPO
   };
 }
 
+function setDocumentVisibility(value: 'hidden' | 'visible', dispatch = true): void {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    value,
+  });
+  if (dispatch) document.dispatchEvent(new Event('visibilitychange'));
+}
+
 describe.sequential('coordinator-free PRO playback runtime', () => {
   const restoreSpies: Array<{ mockRestore(): void }> = [];
   let prepareResult: 'ready' | 'failed';
@@ -171,6 +181,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
   let waitForClock: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
+    setDocumentVisibility('visible', false);
     resetState();
     prepareResult = 'ready';
     const initial = snapshot();
@@ -591,6 +602,34 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       );
       expect(loadingStates).toEqual([true]);
 
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({
+          type: 'pro-playback-cancel',
+          transitionId: TRANSITION_FAILED,
+          serverTimeMs: 10_060,
+          reason: 'superseded',
+        }),
+      );
+      expect(loadingStates).toEqual([true, false]);
+    } finally {
+      off();
+    }
+  });
+
+  it('atomically transfers the spinner when a superseded PREPARE cancel is lost', async () => {
+    const loadingStates: boolean[] = [];
+    const off = bus.on('pro-playback:transition-loading', (loading) => loadingStates.push(loading));
+    try {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_READY) as unknown as Record<string, unknown>),
+      );
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_FAILED) as unknown as Record<string, unknown>),
+      );
+      expect(loadingStates).toEqual([true]);
+
+      // No CANCEL for TRANSITION_READY arrives. Settling the replacement must
+      // still release the one shared loading indicator.
       acceptProRoomRealtimeFrameForTests(
         serverFrame({
           type: 'pro-playback-cancel',
@@ -1420,6 +1459,185 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       baseRevision: 1,
       positionSeconds: 42,
     });
+  });
+
+  it('re-applies the current server checkpoint locally after a fresh heartbeat', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+    heartbeat.mockResolvedValueOnce({
+      ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
+      revision: 2,
+    });
+    const loading: boolean[] = [];
+    const off = bus.on('pro-playback:transition-loading', (value) => loading.push(value));
+    try {
+      await expect(requestActiveProRoomPlaybackReconciliation()).resolves.toBe(true);
+    } finally {
+      off();
+    }
+
+    expect(heartbeat).toHaveBeenCalledOnce();
+    expect(commitMedia).toHaveBeenCalledTimes(2);
+    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        committedPlaybackRevision: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 'playing',
+        timingMode: 'scheduled-control',
+        positionSeconds: expect.closeTo(23, 1),
+      }),
+    );
+    expect(loading).toEqual([true, false]);
+  });
+
+  it('uses a freshly calibrated server clock instead of a skewed local wall clock', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+    heartbeat.mockResolvedValueOnce({
+      ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: 10_000 })),
+      revision: 2,
+    });
+    waitForClock.mockClear();
+    const serverNow = vi
+      .spyOn(ServerProRoomNetworkBridge.prototype, 'serverNowMs', 'get')
+      .mockReturnValue(12_000);
+    const localNow = vi.spyOn(Date, 'now').mockReturnValue(9_000_000);
+    restoreSpies.push(serverNow, localNow);
+
+    await expect(requestActiveProRoomPlaybackReconciliation()).resolves.toBe(true);
+
+    expect(waitForClock).toHaveBeenCalledWith({
+      serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
+      fallbackTimeoutMs: 1_000,
+    });
+    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        committedPlaybackRevision: 1,
+        positionSeconds: expect.closeTo(25, 3),
+      }),
+    );
+  });
+
+  it('does not wait for clock calibration when reconciling an exact paused checkpoint', async () => {
+    const paused = playback(1, { state: 'paused', positionSeconds: 37 });
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({
+        ...commitEvent(null, 1),
+        playback: paused,
+      } as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
+      ...snapshot(paused),
+      revision: 2,
+    });
+    waitForClock.mockClear();
+
+    await expect(requestActiveProRoomPlaybackReconciliation()).resolves.toBe(true);
+
+    expect(waitForClock).not.toHaveBeenCalled();
+    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ state: 'paused', positionSeconds: 37 }),
+    );
+  });
+
+  it('remembers a lifecycle that starts hidden and reconciles when first shown', async () => {
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+
+    const resumed = snapshot(
+      playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' }),
+    );
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(resumed);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(resumed);
+    setDocumentVisibility('hidden', false);
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Equal member' });
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalled());
+    commitMedia.mockClear();
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockClear();
+
+    setDocumentVisibility('visible');
+
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalled();
+  });
+
+  it('retains foreground recovery after an async failure and schedules a retry', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+    heartbeat.mockRejectedValueOnce(new ProRoomApiError('NETWORK_ERROR')).mockResolvedValue({
+      ...snapshot(playback(1, { updatedAtMs: Date.now() })),
+      revision: 2,
+    });
+    setDocumentVisibility('hidden');
+    setDocumentVisibility('visible');
+
+    await vi.waitFor(() =>
+      expect(getManagedTimer('pro-room-visibility-playback-recovery')).not.toBeNull(),
+    );
+    expect(commitMedia).toHaveBeenCalledOnce();
+
+    // A duplicate visible notification is harmless and demonstrates that the
+    // failed attempt did not consume the pending recovery intent.
+    setDocumentVisibility('visible');
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledTimes(2));
+  });
+
+  it('re-applies unchanged playing state before settling a local play control', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    executeCommand.mockClear();
+    executeCommand.mockResolvedValueOnce({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      status: 'unchanged',
+      transition: null,
+      playback: playback(1, { positionSeconds: 31, updatedAtMs: Date.now() }),
+      serverTimeMs: Date.now(),
+    });
+    const settled: Array<{ kind: string; status: string }> = [];
+    const off = bus.on('pro-playback:ui-control-settled', (event) => settled.push(event));
+    try {
+      expect(
+        routeProPlaybackCommand(
+          { kind: 'play', queueItemId: QUEUE_ITEM_ID, positionSeconds: 0 },
+          { wasPlaying: false },
+        ),
+      ).toBe(true);
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() =>
+        expect(settled).toEqual([expect.objectContaining({ kind: 'play', status: 'applied' })]),
+      );
+    } finally {
+      off();
+    }
+
+    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        committedPlaybackRevision: 1,
+        positionSeconds: expect.closeTo(31, 1),
+      }),
+    );
   });
 
   it('maps a native YouTube sub-video boundary to one exact-revision server next', async () => {

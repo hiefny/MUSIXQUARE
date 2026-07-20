@@ -143,6 +143,52 @@ describe('YouTubeAuthorityArmController', () => {
     );
   });
 
+  it('restores app-level audio intent instead of preserving a transient iframe hard mute', async () => {
+    const { controller, player } = makeHarness({ muted: true, volume: 0 });
+
+    const pending = controller.prepare({
+      ...identity,
+      strategy: 'resident',
+      targetSeconds: 3,
+      desiredMuted: false,
+      desiredVolume: 64,
+    });
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toMatchObject({ status: 'ready' });
+    expect(player.__muted).toBe(false);
+    expect(player.__volume).toBe(64);
+  });
+
+  it('keeps hard mute owned while warming and restores the latest in-flight volume intent', async () => {
+    const { controller, player } = makeHarness({ muted: false, volume: 31 });
+    const pending = controller.prepare({
+      ...identity,
+      strategy: 'resident',
+      targetSeconds: 3,
+      desiredMuted: false,
+      desiredVolume: 31,
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(controller.phase).toBe('warming');
+    expect(controller.ownsHardMute()).toBe(true);
+    expect(player.__muted).toBe(true);
+
+    controller.updateDesiredAudioState({ muted: false, volume: 73 });
+    player.setVolume(73);
+    if (!controller.ownsHardMute()) player.unMute();
+
+    expect(player.__muted).toBe(true);
+    expect(player.__volume).toBe(73);
+
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toMatchObject({ status: 'ready' });
+    expect(controller.ownsHardMute()).toBe(false);
+    expect(player.__muted).toBe(false);
+    expect(player.__volume).toBe(73);
+  });
+
   it('commits an on-time prepared occurrence without a second seek', async () => {
     const { controller, player } = makeHarness();
     await prepareReady(controller, 'resident', 22);

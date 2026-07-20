@@ -8,6 +8,7 @@ import {
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
   prepareProPlaybackAuthority,
+  reconcileCurrentProPlaybackAuthority,
   refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
   registerProPlaybackMediaEndpoint,
@@ -320,6 +321,56 @@ describe('coordinator-free PRO playback authority seam', () => {
     expect(newer.status).toBe('applied');
     expect(stale).toMatchObject({ status: 'superseded', reason: 'stale-authority' });
     expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-applies only the exact current revision without advancing authority state', async () => {
+    const commit = vi.fn(async (request) => ({
+      status: 'applied' as const,
+      authority: request.authority,
+    }));
+    registerProPlaybackMediaEndpoint({ prepare: vi.fn(), commit });
+
+    await expect(
+      commitProPlaybackAuthority({
+        authority: authority(8, null),
+        committedPlaybackRevision: 9,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 12,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+
+    const current = authority(8, null);
+    await expect(
+      reconcileCurrentProPlaybackAuthority({
+        authority: current,
+        committedPlaybackRevision: 9,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 18,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+
+    await expect(
+      reconcileCurrentProPlaybackAuthority({
+        authority: authority(7, null),
+        committedPlaybackRevision: 8,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 18,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'superseded', reason: 'stale-authority' });
+
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(commit.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ committedPlaybackRevision: 9, positionSeconds: 18 }),
+    );
   });
 
   it('does not publish a commit result that lost its participant-local fence while awaiting media', async () => {

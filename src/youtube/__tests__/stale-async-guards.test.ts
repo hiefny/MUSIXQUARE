@@ -976,6 +976,30 @@ describe('zero-start iframe projection barrier', () => {
     ).toHaveLength(0);
   });
 
+  it('does not broadcast iframe state as legacy host authority in a PRO room', async () => {
+    const player = createMockYtPlayer();
+    const handle = await startPlainYouTubeVideo(player);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    zeroStartFacade.inFlight = false;
+    zeroStartFacade.active = false;
+    zeroStartFacade.handlePlayerState.mockReturnValue(false);
+    broadcastMock.mockClear();
+
+    handle.fireStateChange(1);
+
+    expect(
+      broadcastMock.mock.calls.filter(([message]) => message.type === MSG.YOUTUBE_STATE),
+    ).toHaveLength(0);
+  });
+
   it('keeps the legacy UI heartbeat and auto-advance loop inert while in-flight', async () => {
     const player = createMockYtPlayer();
     vi.mocked(player.getCurrentTime!).mockReturnValue(9.5);

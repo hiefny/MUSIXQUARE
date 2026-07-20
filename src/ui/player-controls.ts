@@ -651,9 +651,27 @@ function handleMainSyncBtn(): void {
   }
 
   // Every PRO participant is an equal playback endpoint. Sync is therefore a
-  // local speaker nudge, never a command sent to another browser.
+  // participant-local server reconciliation followed by a speaker nudge,
+  // never a command sent to another browser.
   if (isProRoom) {
-    openManualSyncOverlay();
+    const roomId = room.roomId;
+    void import('../pro-room/runtime.ts')
+      .then(({ requestActiveProRoomPlaybackReconciliation }) =>
+        requestActiveProRoomPlaybackReconciliation(),
+      )
+      .then((reconciled) => {
+        const currentRoom = getRoomContext();
+        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
+        if (!reconciled) {
+          showToast(t('toast.sync_not_ready'));
+          return;
+        }
+        openManualSyncOverlay();
+      })
+      .catch((error) => {
+        log.warn('[PRO Playback] Manual synchronization failed', error);
+        showToast(t('toast.sync_not_ready'));
+      });
     return;
   }
 

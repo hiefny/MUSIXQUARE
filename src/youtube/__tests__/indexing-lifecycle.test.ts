@@ -296,6 +296,36 @@ describe('YouTube indexing session lifecycle', () => {
     expect(clearManagedTimerMock).toHaveBeenCalledWith('youtubeSyncLoop');
   });
 
+  it('does not mistake a coordinator-free PRO endpoint for a legacy host', async () => {
+    const stateMod = await import('../_state.ts');
+    const { initYouTube, loadYouTubeVideo } = await import('../player.ts');
+    const player = createMockYtPlayer();
+
+    installYtNamespace(player);
+    stateMod.setYouTubePlayer(player);
+    stateMod.setYtPrimed(true);
+    setPlaybackFilePlaying();
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    initYouTube();
+    wireStopAllMediaChain();
+
+    loadYouTubeVideo('persistent-pro', null, true, 0);
+
+    expect(lastTimerCallback('youtubeUILoop')).toBeTypeOf('function');
+    expect(lastTimerCallback('youtubeSyncLoop')).toBeUndefined();
+    expect(clearManagedTimerMock).toHaveBeenCalledWith('youtubeSyncLoop');
+  });
+
   it('self-heals a missing host heartbeat while the retained UI runtime is alive', async () => {
     const stateMod = await import('../_state.ts');
     const { initYouTube, loadYouTubeVideo } = await import('../player.ts');

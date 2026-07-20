@@ -2423,6 +2423,13 @@ function normalizeStoredPlaybackTransition(value, room) {
   return structuredClone(value);
 }
 
+function playbackTransitionCohortIsTerminal(pending) {
+  return pending.cohort.every(
+    (incarnationId) =>
+      pending.ready[incarnationId] === 'ready' || pending.ready[incarnationId] === 'failed',
+  );
+}
+
 function normalizeStoredPlaybackBroadcastRecord(value, room) {
   if (
     !hasExactKeys(value, [
@@ -8291,7 +8298,7 @@ export class MusixquareProRoom {
       if (pending?.cohort.includes(departedIncarnationId)) {
         pending.cohort = pending.cohort.filter((value) => value !== departedIncarnationId);
         delete pending.ready[departedIncarnationId];
-        if (pending.cohort.every((value) => pending.ready[value] === 'ready')) {
+        if (playbackTransitionCohortIsTerminal(pending)) {
           const committed = this.commitPendingPlaybackTransition(nowMs);
           if (committed?.event) this.scheduleServerEvent(committed.event);
           if (committed?.cancelEvent) this.scheduleServerEvent(committed.cancelEvent);
@@ -9248,9 +9255,16 @@ export class MusixquareProRoom {
     }
     pending.ready[incarnationId] = parsed.value.status;
     auth.participant.lastSeenAtMs = Date.now();
-    const allReady = pending.cohort.every((candidate) => pending.ready[candidate] === 'ready');
+    // A readiness report is final for this immutable cohort: conflicting
+    // replacements are rejected above. Once every participant has answered,
+    // waiting out the remainder of the fixed deadline cannot make a failed
+    // endpoint ready; it only stalls the endpoints that did prepare. Commit
+    // immediately and let failed endpoints catch up from the canonical
+    // checkpoint. A participant that has not reported still keeps the bounded
+    // deadline behavior unchanged.
+    const allReported = playbackTransitionCohortIsTerminal(pending);
     let committed = null;
-    if (allReady) committed = this.commitPendingPlaybackTransition(Date.now());
+    if (allReported) committed = this.commitPendingPlaybackTransition(Date.now());
     this.enqueuePlaybackOutcome(committed);
     await this.persist();
     return jsonResponse({
@@ -9387,10 +9401,12 @@ export class MusixquareProRoom {
     if (replay) return replay;
     if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
     if (body.baseRevision !== this.room.revision) {
-      return jsonResponse(
-        { error: 'REVISION_CONFLICT', snapshot: publicSnapshot(this.room, auth.session) },
-        409,
-      );
+      // Playlist clients refresh the authoritative snapshot after this code.
+      // Returning that same (potentially multi-megabyte) snapshot inside the
+      // error envelope is both redundant and unsafe: the browser deliberately
+      // caps error bodies at 16 KiB, so a sufficiently populated playlist
+      // would be reduced to a generic HTTP_409 and never enter the CAS retry.
+      return errorResponse('REVISION_CONFLICT', 409);
     }
     const parsedPlaylist = parsePlaylist(body.playlist);
     if (!parsedPlaylist) return errorResponse('INVALID_PLAYLIST', 400);
@@ -9433,10 +9449,9 @@ export class MusixquareProRoom {
     if (replay) return replay;
     if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
     if (body.baseRevision !== this.room.revision) {
-      return jsonResponse(
-        { error: 'REVISION_CONFLICT', snapshot: publicSnapshot(this.room, auth.session) },
-        409,
-      );
+      // Keep the CAS error envelope bounded for the same reason as the legacy
+      // snapshot endpoint above. The following explicit GET is authoritative.
+      return errorResponse('REVISION_CONFLICT', 409);
     }
     if (
       body.playlistOrder !== null &&

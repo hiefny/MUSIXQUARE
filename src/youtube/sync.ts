@@ -167,7 +167,15 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
   const queueItemId = getCurrentQueueItemId();
-  if (!player || hostConn || !player.getCurrentTime || !queueItemId) return;
+  if (
+    !player ||
+    hostConn ||
+    getState('room.context').kind === 'pro' ||
+    !player.getCurrentTime ||
+    !queueItemId
+  ) {
+    return;
+  }
 
   // Zero-start has its own bounded prepare/commit/timeline protocol. Do not
   // let either the periodic legacy heartbeat or an incidental manual legacy

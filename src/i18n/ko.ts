@@ -614,7 +614,7 @@ const ko = {
   'help.local_recommended_html':
     '같은 네트워크에서 오디오 공유가 가장 안정적이에요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':
-    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력</li><li>방장 포함, 연결할 수 있는 기기 수는 <strong>최대 100대예요</strong>.</li></ul>',
+    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>최대 100대</strong>예요.</li></ul>',
   'player.play_speakers_html':
     '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':

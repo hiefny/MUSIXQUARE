@@ -5821,25 +5821,29 @@
   /* ── Nudge Sync Overlay ─────────────────────────────────────── */
   .manual-sync-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.55);
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     z-index: 3000;
-    display: none;
+    display: flex;
     align-items: center;
     justify-content: center;
     opacity: 0;
-    transition: opacity 0.2s ease-out;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.22s ease-in,
+      visibility 0s linear 0.22s;
   }
 
   .manual-sync-overlay.show {
-    display: flex;
     opacity: 1;
-    animation: fadeInScale 0.2s forwards;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      opacity 0.3s ease-out,
+      visibility 0s linear 0s;
   }
 
   .sync-glass-panel {
@@ -5851,7 +5855,26 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    animation: fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    transform: translateY(20px);
+    transition:
+      opacity 0.22s ease-in,
+      transform 0.22s ease-in;
+  }
+
+  .manual-sync-overlay.show .sync-glass-panel {
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      opacity 0.3s ease-out,
+      transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .manual-sync-overlay,
+    .sync-glass-panel {
+      transition: none;
+    }
   }
 
   .sync-dual-display {

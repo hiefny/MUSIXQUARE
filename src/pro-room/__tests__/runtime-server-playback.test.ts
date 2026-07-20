@@ -536,6 +536,92 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     );
   });
 
+  it('keeps all participants visibly busy from PREPARE through media COMMIT', async () => {
+    let resolveCommit!: (value: {
+      status: 'applied';
+      authority: ProPlaybackAuthorityToken;
+    }) => void;
+    commitMedia.mockImplementationOnce((request) =>
+      new Promise((resolve) => {
+        resolveCommit = resolve;
+      }).then(() => ({ status: 'applied' as const, authority: request.authority })),
+    );
+    const loadingStates: boolean[] = [];
+    const off = bus.on('pro-playback:transition-loading', (loading) => loadingStates.push(loading));
+    try {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_COMMIT) as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+      expect(loadingStates).toEqual([true]);
+
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(commitEvent(TRANSITION_COMMIT, 1, 699) as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      expect(loadingStates).toEqual([true]);
+
+      const authority = commitMedia.mock.calls[0]?.[0].authority as ProPlaybackAuthorityToken;
+      resolveCommit({ status: 'applied', authority });
+      await vi.waitFor(() => expect(loadingStates).toEqual([true, false]));
+    } finally {
+      off();
+    }
+  });
+
+  it('does not let a stale transition cancel clear the newer rendezvous spinner', async () => {
+    const loadingStates: boolean[] = [];
+    const off = bus.on('pro-playback:transition-loading', (loading) => loadingStates.push(loading));
+    try {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_READY) as unknown as Record<string, unknown>),
+      );
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_FAILED) as unknown as Record<string, unknown>),
+      );
+      expect(loadingStates).toEqual([true]);
+
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({
+          type: 'pro-playback-cancel',
+          transitionId: TRANSITION_READY,
+          serverTimeMs: 10_050,
+          reason: 'superseded',
+        }),
+      );
+      expect(loadingStates).toEqual([true]);
+
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({
+          type: 'pro-playback-cancel',
+          transitionId: TRANSITION_FAILED,
+          serverTimeMs: 10_060,
+          reason: 'superseded',
+        }),
+      );
+      expect(loadingStates).toEqual([true, false]);
+    } finally {
+      off();
+    }
+  });
+
+  it('clears the shared rendezvous spinner when the PRO lifecycle is torn down', async () => {
+    const loadingStates: boolean[] = [];
+    const off = bus.on('pro-playback:transition-loading', (loading) => loadingStates.push(loading));
+    try {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(prepareEvent(TRANSITION_READY) as unknown as Record<string, unknown>),
+      );
+      expect(loadingStates).toEqual([true]);
+
+      requestProRoomLeave();
+      await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+      expect(loadingStates).toEqual([true, false]);
+    } finally {
+      off();
+    }
+  });
+
   it('hydrates a newly-added BOT target before reporting PREPARE readiness', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const systemAudio = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);

@@ -1140,6 +1140,8 @@ interface BaseEventMap {
   'pro-playback:ui-control-pending': [event: Readonly<ProPlaybackUiControlPendingEvent>];
   /** Exact terminal result for the matching local PRO UI control token. */
   'pro-playback:ui-control-settled': [event: Readonly<ProPlaybackUiControlSettledEvent>];
+  /** All-participant feedback while the PRO server rendezvous is preparing media. */
+  'pro-playback:transition-loading': [loading: boolean];
 
   // ── Playlist ──────────────────────────────────────────────────────
   'playlist:prev-track': [];

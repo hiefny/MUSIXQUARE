@@ -80,6 +80,7 @@ const LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS = 200;
 let _ytPlayButtonLoading = false;
 let _filePlayButtonLoading = false;
 let _proPlaybackControlLoading = false;
+let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
 let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
 let _manualSyncPreviousFocus: HTMLElement | null = null;
@@ -97,7 +98,11 @@ function isFilePlayButtonLoading(): boolean {
 function syncPlayButtonLoadingClass(): void {
   const btn = document.getElementById('play-btn');
   if (!btn) return;
-  const loading = _ytPlayButtonLoading || _filePlayButtonLoading || _proPlaybackControlLoading;
+  const loading =
+    _ytPlayButtonLoading ||
+    _filePlayButtonLoading ||
+    _proPlaybackControlLoading ||
+    _proPlaybackTransitionLoading;
   btn.classList.toggle('yt-syncing', loading);
   btn.setAttribute('aria-busy', String(loading));
 }
@@ -840,6 +845,7 @@ export function initPlayerControls(): void {
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
   _proPlaybackControlLoading = false;
+  _proPlaybackTransitionLoading = false;
   _proPlaybackControlToken = null;
   _proPlaybackControlKind = null;
   initTabTitleMarquee(getTabTitleSnapshot);
@@ -1287,6 +1293,15 @@ export function initPlayerControls(): void {
   // YouTube auto-sync loading spinner on play button
   _busScope.on('youtube:sync-loading', (loading) => {
     _ytPlayButtonLoading = !!loading;
+    syncPlayButtonLoadingClass();
+  });
+
+  // Coordinator-free PRO playback has a server-owned PREPARE barrier rather
+  // than the legacy YouTube rendezvous. Reflect that shared wait on every
+  // participant, including file transitions and devices that did not initiate
+  // the selection themselves.
+  _busScope.on('pro-playback:transition-loading', (loading) => {
+    _proPlaybackTransitionLoading = !!loading;
     syncPlayButtonLoadingClass();
   });
 

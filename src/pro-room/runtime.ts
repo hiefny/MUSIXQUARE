@@ -229,6 +229,7 @@ interface ActiveServerPlaybackTransition {
   clockAbort: AbortController;
 }
 let activeServerPlaybackTransition: ActiveServerPlaybackTransition | null = null;
+let playbackTransitionUiId: string | null = null;
 const playbackCommitInFlight = new Map<number, Promise<void>>();
 let playbackCommitTail: Promise<void> = Promise.resolve();
 let playbackCommitGeneration = 0;
@@ -251,6 +252,24 @@ let lastAppliedPlaybackUiCheckpoint: {
 } | null = null;
 let youtubeManifestUpgradeTail: Promise<void> = Promise.resolve();
 const attemptedYouTubeManifestUpgrades = new Set<QueueItemId>();
+
+function beginPlaybackTransitionUi(transitionId: string): void {
+  const wasLoading = playbackTransitionUiId !== null;
+  playbackTransitionUiId = transitionId;
+  if (!wasLoading) bus.emit('pro-playback:transition-loading', true);
+}
+
+function settlePlaybackTransitionUi(transitionId: string): void {
+  if (playbackTransitionUiId !== transitionId) return;
+  playbackTransitionUiId = null;
+  bus.emit('pro-playback:transition-loading', false);
+}
+
+function resetPlaybackTransitionUi(): void {
+  if (playbackTransitionUiId === null) return;
+  playbackTransitionUiId = null;
+  bus.emit('pro-playback:transition-loading', false);
+}
 
 function trackLocalPlaybackUiControl(
   intent: Readonly<ProPlaybackUserIntent>,
@@ -1458,6 +1477,7 @@ function resetPlaylistRuntime(): void {
     cancelProPlaybackPreparation(activeServerPlaybackTransition.authority);
   }
   activeServerPlaybackTransition = null;
+  resetPlaybackTransitionUi();
   playbackCommitInFlight.clear();
   playbackCommitGeneration += 1;
   // A promise from the room being torn down must never serialize a canonical
@@ -2324,11 +2344,13 @@ function acceptPlaybackPrepare(
     clockAbort,
   };
   activeServerPlaybackTransition = transition;
+  beginPlaybackTransitionUi(event.transitionId);
   reportPlaybackPreparation(transition);
 }
 
 function acceptPlaybackCancel(transitionId: string): void {
   rememberCancelledPlaybackTransition(transitionId);
+  settlePlaybackTransitionUi(transitionId);
   settleLocalPlaybackUiControlByTransition(transitionId, 'superseded');
   const transition = activeServerPlaybackTransition;
   if (!transition || transition.event.transitionId !== transitionId) return;
@@ -2593,6 +2615,11 @@ function acceptPlaybackCommit(event: ProRoomPlaybackCommitEvent): void {
   const existing = playbackCommitInFlight.get(event.playback.revision);
   if (existing) return;
   const receivedAtMs = Date.now();
+  const pendingUiTransitionId =
+    activeServerPlaybackTransition &&
+    activeServerPlaybackTransition.event.target.revision <= event.playback.revision
+      ? activeServerPlaybackTransition.event.transitionId
+      : event.transitionId;
   highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, event.playback.revision);
   const generation = ++playbackCommitGeneration;
   const operation = playbackCommitTail
@@ -2601,6 +2628,10 @@ function acceptPlaybackCommit(event: ProRoomPlaybackCommitEvent): void {
       () => applyPlaybackCommit(event, receivedAtMs, generation),
     )
     .finally(() => {
+      if (event.transitionId) settlePlaybackTransitionUi(event.transitionId);
+      if (pendingUiTransitionId && pendingUiTransitionId !== event.transitionId) {
+        settlePlaybackTransitionUi(pendingUiTransitionId);
+      }
       if (playbackCommitInFlight.get(event.playback.revision) === operation) {
         playbackCommitInFlight.delete(event.playback.revision);
       }
@@ -2913,6 +2944,7 @@ function stopLifecycle(): void {
     cancelProPlaybackPreparation(activeServerPlaybackTransition.authority);
   }
   activeServerPlaybackTransition = null;
+  resetPlaybackTransitionUi();
   playbackCommitGeneration += 1;
   clearLocalPlaybackUiControls();
   resetProPlaybackAuthorityHooks();
@@ -3092,7 +3124,10 @@ function beginControlChannelRecovery(): Promise<void> {
     // snapshot catch up an already-committed revision.
     transition.clockAbort.abort();
     cancelProPlaybackPreparation(transition.authority);
-    if (activeServerPlaybackTransition === transition) activeServerPlaybackTransition = null;
+    if (activeServerPlaybackTransition === transition) {
+      activeServerPlaybackTransition = null;
+      settlePlaybackTransitionUi(transition.event.transitionId);
+    }
   }
   // The authenticated server channel is known dead even when the room
   // incarnation is unchanged. Force the next accepted heartbeat to rebuild it.

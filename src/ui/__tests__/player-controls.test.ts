@@ -556,6 +556,40 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
   });
 
+  it('shows the loading play button for every participant in a PRO rendezvous', () => {
+    renderPlaybackControls();
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    bus.emit('pro-playback:transition-loading', true);
+
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    bus.emit('pro-playback:transition-loading', false);
+
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('keeps the spinner after local selection intent yields to the shared PRO transition', () => {
+    renderPlaybackControls();
+    setState('network.pendingTrackChangeQueueItemId', PLAY_QUEUE_ITEM_ID);
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    bus.emit('pro-playback:transition-loading', true);
+    setState('network.pendingTrackChangeQueueItemId', null);
+
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    bus.emit('pro-playback:transition-loading', false);
+
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+  });
+
   it('keeps the play spinner bound to the exact pending PRO play token', () => {
     renderPlaybackControls();
     initPlayerControls();

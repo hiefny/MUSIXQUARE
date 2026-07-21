@@ -201,6 +201,61 @@ describe('guest connection type authority', () => {
       expect(getState('network.standardRoomCapabilities')).toBeNull();
       expect(mocks.showToast).not.toHaveBeenCalled();
     });
+
+    it('shows administrator toasts only for real legacy state transitions', async () => {
+      const { handleData } = await import('../protocol.ts');
+
+      // A non-administrator receives this during ordinary authority
+      // reconciliation. It must remain a no-op from the user's perspective.
+      await handleData({ type: MSG.OPERATOR_REVOKE }, gatedHostConn);
+      expect(getState('network.isOperator')).toBe(false);
+      expect(mocks.showToast).not.toHaveBeenCalled();
+
+      await handleData({ type: MSG.OPERATOR_GRANT }, gatedHostConn);
+      expect(getState('network.isOperator')).toBe(true);
+      expect(mocks.showToast).toHaveBeenCalledTimes(1);
+
+      // Duplicate projections still refresh the state but cannot announce a
+      // second promotion.
+      await handleData({ type: MSG.OPERATOR_GRANT }, gatedHostConn);
+      expect(getState('network.isOperator')).toBe(true);
+      expect(mocks.showToast).toHaveBeenCalledTimes(1);
+
+      await handleData({ type: MSG.OPERATOR_REVOKE }, gatedHostConn);
+      expect(getState('network.isOperator')).toBe(false);
+      expect(mocks.showToast).toHaveBeenCalledTimes(2);
+
+      await handleData({ type: MSG.OPERATOR_REVOKE }, gatedHostConn);
+      expect(getState('network.isOperator')).toBe(false);
+      expect(mocks.showToast).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails authority closed and restores it silently during identity reconciliation', async () => {
+      const { handleData } = await import('../protocol.ts');
+
+      setState('network.isOperator', true);
+      setState('network.standardRoomCapabilities', ['media.add', 'playback.control']);
+
+      await handleData({ type: MSG.OPERATOR_REVOKE, silent: true }, gatedHostConn);
+      expect(getState('network.isOperator')).toBe(false);
+      expect(getState('network.standardRoomCapabilities')).toBeNull();
+      expect(mocks.showToast).not.toHaveBeenCalled();
+
+      await handleData(
+        {
+          type: MSG.OPERATOR_GRANT,
+          capabilities: ['media.add', 'playback.control'],
+          silent: true,
+        },
+        gatedHostConn,
+      );
+      expect(getState('network.isOperator')).toBe(true);
+      expect(getState('network.standardRoomCapabilities')).toEqual([
+        'media.add',
+        'playback.control',
+      ]);
+      expect(mocks.showToast).not.toHaveBeenCalled();
+    });
   });
 
   it('keeps PRO members promoted when legacy operator frames arrive', async () => {

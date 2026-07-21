@@ -84,17 +84,18 @@ function lostStatefulStandardControl(previous: ConnectedPeer, projected: Connect
   );
 }
 
-function sendStandardAuthorityProjection(peer: ConnectedPeer): void {
+function sendStandardAuthorityProjection(peer: ConnectedPeer, silent = false): void {
   const conn = peer.conn as DataConnection | null;
   if (!conn?.open || !isStandardRoom()) return;
   if (peer.isOp) {
     safeSend(conn, {
       type: MSG.OPERATOR_GRANT,
       capabilities: [...(peer.roomCapabilities ?? [])],
+      ...(silent ? { silent: true } : {}),
     });
     return;
   }
-  safeSend(conn, { type: MSG.OPERATOR_REVOKE });
+  safeSend(conn, { type: MSG.OPERATOR_REVOKE, ...(silent ? { silent: true } : {}) });
 }
 
 function projectStandardPeerAuthority(peer: ConnectedPeer): ConnectedPeer {
@@ -131,7 +132,7 @@ function reprojectAllStandardPeerAuthority(): void {
       return peer;
     }
     changed = true;
-    sendStandardAuthorityProjection(projected);
+    sendStandardAuthorityProjection(projected, true);
     if ((peer.isOp && !projected.isOp) || lostStatefulStandardControl(peer, projected)) {
       resyncDemotedStandardPeer(projected);
     }
@@ -159,7 +160,7 @@ function resyncDemotedStandardPeer(peer: ConnectedPeer): void {
   });
 }
 
-function reprojectStandardAuthorityForKey(key: string): void {
+function reprojectStandardAuthorityForKey(key: string, silent = false): void {
   if (!isStandardRoom()) return;
   const peers = getState('network.connectedPeers');
   let changed = false;
@@ -171,7 +172,7 @@ function reprojectStandardAuthorityForKey(key: string): void {
       return peer;
     }
     changed = true;
-    sendStandardAuthorityProjection(projected);
+    sendStandardAuthorityProjection(projected, silent);
     if ((peer.isOp && !projected.isOp) || lostStatefulStandardControl(peer, projected)) {
       resyncDemotedStandardPeer(projected);
     }
@@ -267,7 +268,9 @@ function revokeStandardRoomAuthority(key: string): boolean {
 function updateStandardRoomAuthority(key: string, permissions: StandardRoomPermissionSet): boolean {
   if (!isStandardRoom() || getState('network.hostConn')) return false;
   if (!updateStandardRoomAdministratorPermissions(key, permissions)) return false;
-  reprojectStandardAuthorityForKey(key);
+  // The member is still an administrator; this frame only refreshes the
+  // capability projection and must not look like a fresh promotion.
+  reprojectStandardAuthorityForKey(key, true);
   broadcastDeviceList();
   return true;
 }
@@ -353,7 +356,11 @@ function updateStandardConnectionIdentity(
     ...getState('network.peerLabels'),
     [conn.peer]: projected.label,
   });
-  sendStandardAuthorityProjection(projected);
+  // Sign-in/out, lease refresh/expiry, and account projection repair may
+  // temporarily narrow authority, but they are not room-owner grant/revoke
+  // actions. Keep the fail-closed state transition while suppressing the
+  // misleading administrator-status toast on current clients.
+  sendStandardAuthorityProjection(projected, true);
   if ((current.isOp && !projected.isOp) || lostStatefulStandardControl(current, projected)) {
     resyncDemotedStandardPeer(projected);
   }
@@ -629,7 +636,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         (peer) => peer.id === peerId && peer.conn === conn,
       );
       if (connected?.isOp) {
-        sendStandardAuthorityProjection(connected);
+        // Reconnecting with an existing grant is a bootstrap projection, not
+        // a new administrator promotion.
+        sendStandardAuthorityProjection(connected, true);
       }
     }
 

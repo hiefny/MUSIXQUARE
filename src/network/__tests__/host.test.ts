@@ -511,6 +511,22 @@ describe('standard-room account authority', () => {
     vi.useRealTimers();
   });
 
+  it('marks an unchanged ordinary member identity refresh as a silent projection', () => {
+    const identity = verifiedIdentity();
+    const conn = makeVerifiedIncomingConn('ordinary-refresh-device', identity);
+    handleHostIncomingConnection(conn);
+    conn.send.mockClear();
+
+    conn.fire('identity', identity);
+
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      memberId: identity.memberId,
+      isAuthenticated: true,
+      isOp: false,
+    });
+    expect(conn.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE, silent: true });
+  });
+
   it('projects one persistent grant to every live device and restores it after reconnect', () => {
     const first = makeVerifiedIncomingConn('member-device-a');
     const second = makeVerifiedIncomingConn('member-device-b');
@@ -524,6 +540,14 @@ describe('standard-room account authority', () => {
     expect(getState('network.connectedPeers').map((peer) => peer.isOp)).toEqual([true, true]);
     expect(first.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.OPERATOR_GRANT }));
     expect(second.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.OPERATOR_GRANT }));
+    const firstGrant = first.send.mock.calls.find(
+      ([message]) => (message as { type?: string }).type === MSG.OPERATOR_GRANT,
+    )?.[0] as { silent?: boolean } | undefined;
+    const secondGrant = second.send.mock.calls.find(
+      ([message]) => (message as { type?: string }).type === MSG.OPERATOR_GRANT,
+    )?.[0] as { silent?: boolean } | undefined;
+    expect(firstGrant?.silent).toBeUndefined();
+    expect(secondGrant?.silent).toBeUndefined();
 
     first.fire('close');
     second.fire('close');
@@ -533,6 +557,7 @@ describe('standard-room account authority', () => {
 
     const reconnected = makeVerifiedIncomingConn('member-device-c');
     handleHostIncomingConnection(reconnected);
+    reconnected.fire('open');
     expect(getState('network.connectedPeers')).toEqual([
       expect.objectContaining({
         id: 'member-device-c',
@@ -540,6 +565,9 @@ describe('standard-room account authority', () => {
         isOp: true,
       }),
     ]);
+    expect(reconnected.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.OPERATOR_GRANT, silent: true }),
+    );
   });
 
   it('revokes one account grant from every live device at once', () => {
@@ -579,6 +607,7 @@ describe('standard-room account authority', () => {
     expect(sameAccountGuest.send).toHaveBeenCalledWith({
       type: MSG.OPERATOR_GRANT,
       capabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+      silent: true,
     });
     expect(STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES).not.toContain('system-audio.publish');
     expect(STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES).not.toContain('coordinator.eligible');
@@ -623,6 +652,7 @@ describe('standard-room account authority', () => {
     expect(sibling.send).toHaveBeenCalledWith({
       type: MSG.OPERATOR_GRANT,
       capabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
+      silent: true,
     });
 
     setState('network.myMemberAuthenticated', false);
@@ -631,7 +661,7 @@ describe('standard-room account authority', () => {
       isOp: false,
       roomCapabilities: [],
     });
-    expect(sibling.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE });
+    expect(sibling.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE, silent: true });
 
     setState('network.myMemberId', identity.memberId);
     setState('network.myMemberAuthenticated', true);
@@ -653,6 +683,7 @@ describe('standard-room account authority', () => {
     sibling.fire('open');
 
     expect(getState('network.connectedPeers')[0].isOp).toBe(true);
+    sibling.send.mockClear();
 
     sibling.fire('identity', null, 'expired');
     expect(getState('network.connectedPeers')[0]).toMatchObject({
@@ -660,6 +691,8 @@ describe('standard-room account authority', () => {
       isOp: false,
       roomCapabilities: [],
     });
+    expect(sibling.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE, silent: true });
+    sibling.send.mockClear();
 
     sibling.fire('identity', identity);
     expect(getState('network.connectedPeers')[0]).toMatchObject({
@@ -668,6 +701,10 @@ describe('standard-room account authority', () => {
       isOp: true,
       roomCapabilities: [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES],
     });
+    expect(sibling.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.OPERATOR_GRANT, silent: true }),
+    );
+    sibling.send.mockClear();
 
     sibling.fire('identity', null, 'deleted');
     expect(getState('network.connectedPeers')[0]).toMatchObject({
@@ -675,6 +712,7 @@ describe('standard-room account authority', () => {
       isOp: false,
       roomCapabilities: [],
     });
+    expect(sibling.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE, silent: true });
     expect(isCoordinator()).toBe(true);
   });
 
@@ -761,6 +799,7 @@ describe('standard-room account authority', () => {
       isOp: false,
     });
     expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+    expect(conn.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE, silent: true });
 
     conn.fire('identity', identity);
     expect(getState('network.connectedPeers')[0]).toMatchObject({
@@ -768,6 +807,9 @@ describe('standard-room account authority', () => {
       isAuthenticated: true,
       isOp: true,
     });
+    expect(conn.send).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: MSG.OPERATOR_GRANT, silent: true }),
+    );
   });
 
   it('retains an account grant across explicit logout after its lease expired', () => {
@@ -777,6 +819,7 @@ describe('standard-room account authority', () => {
     bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
 
     conn.fire('identity', null, 'expired');
+    conn.send.mockClear();
     conn.fire('identity', null, 'explicit');
 
     expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
@@ -784,6 +827,7 @@ describe('standard-room account authority', () => {
       isAuthenticated: false,
       isOp: false,
     });
+    expect(conn.send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE, silent: true });
   });
 
   it('revokes a remembered grant when the server confirms account deletion after lease expiry', () => {
@@ -872,6 +916,11 @@ describe('standard-room account authority', () => {
     });
 
     expect(getState('network.connectedPeers')[0].roomCapabilities).toEqual(['playback.control']);
+    expect(conn.send).toHaveBeenLastCalledWith({
+      type: MSG.OPERATOR_GRANT,
+      capabilities: ['playback.control'],
+      silent: true,
+    });
   });
 
   it('kicks all live devices for one verified member and revokes the grant', () => {

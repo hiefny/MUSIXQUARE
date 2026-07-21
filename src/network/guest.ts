@@ -562,18 +562,23 @@ function handleOperatorGrant(data: Record<string, unknown>, conn?: DataConnectio
     return;
   }
 
+  const wasOperator = getState('network.isOperator');
   const capabilities = normalizeStandardGrantCapabilities(data.capabilities);
+  const isOwnerProjection = capabilities?.includes('room.configure') === true;
   setState('network.standardRoomCapabilities', capabilities);
   setState('network.isOperator', true);
-  // A verified second device of the room owner is reconnecting with its
-  // existing person-level authority, not being promoted to ADMIN. Avoid a
-  // contradictory role toast; the account identity/crown already reflects it.
-  if (!capabilities?.includes('room.configure')) showToast(t('network.op_granted'));
+  // `silent` was added compatibly: older hosts omit it, so transition
+  // de-duplication remains the fallback during a rolling deployment. Current
+  // hosts mark bootstrap/identity/capability projections silent and reserve
+  // an unsilenced false -> true transition for a real room-owner grant.
+  if (!wasOperator && data.silent !== true && !isOwnerProjection) {
+    showToast(t('network.op_granted'));
+  }
   bus.emit('ui:play-btn-state', true);
   bus.emit('network:role-badge-update');
 }
 
-function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnection): void {
+function handleOperatorRevoke(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop frames not arriving via hostConn. Without this, a peer can revoke
   // a legitimate OP guest's privileges client-side
   // (UI flip + fake "OP revoked" toast). Host still has the authoritative
@@ -590,11 +595,17 @@ function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnect
     return;
   }
 
+  const wasOperator = getState('network.isOperator');
   const wasOwnerProjection =
     getState('network.standardRoomCapabilities')?.includes('room.configure') === true;
   setState('network.standardRoomCapabilities', null);
   setState('network.isOperator', false);
-  if (!wasOwnerProjection) showToast(t('network.op_revoked'));
+  // Always fail closed first. The toast belongs only to a real administrator
+  // transition, not an ordinary guest's repeated projection or a transient
+  // identity lease expiry that the refresh loop can restore.
+  if (wasOperator && data.silent !== true && !wasOwnerProjection) {
+    showToast(t('network.op_revoked'));
+  }
   bus.emit('ui:play-btn-state', false);
   bus.emit('network:role-badge-update');
 }

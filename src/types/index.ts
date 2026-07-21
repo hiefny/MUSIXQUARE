@@ -546,8 +546,8 @@ export interface ProtocolMap {
     i18nKey?: string;
     i18nParams?: Record<string, string | number>;
   };
-  'operator-grant': { capabilities?: RoomCapability[] };
-  'operator-revoke': NoPayload;
+  'operator-grant': { capabilities?: RoomCapability[]; silent?: boolean };
+  'operator-revoke': { silent?: boolean };
 
   // ── Guest Requests ───────────────────────────────────────────────
   'request-play': { time?: number; queueItemId: QueueItemId };

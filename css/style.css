@@ -795,6 +795,14 @@
     display: block;
   }
 
+  /* The guided demo is synchronized by the standard-room P2P coordinator.
+     PRO rooms already provide persistent media and a server-owned timeline, so
+     a device-local demo would only pull that participant out of sync. */
+  html[data-pro-room] #btn-demo-media,
+  html[data-pro-room] #btn-demo-media-mobile {
+    display: none !important;
+  }
+
   .logo-brand {
     height: 28px;
     width: auto;

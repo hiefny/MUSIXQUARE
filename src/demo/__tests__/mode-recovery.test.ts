@@ -152,6 +152,59 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     vi.useRealTimers();
   });
 
+  it('refuses to enter the standard-room demo inside a PRO room', async () => {
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '000001');
+    setState('setup.sessionStarted', true);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+
+    bus.emit('demo:enter');
+    await flush();
+
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('demo.loading')).toBe(false);
+    expect(FakeXHR.pending).toHaveLength(0);
+    expect(mocks.stopAllMedia).not.toHaveBeenCalled();
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('tears down an in-flight standard demo when the room becomes PRO', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+
+    bus.emit('demo:enter');
+    await flush();
+    expect(getState('demo.active')).toBe(true);
+    expect(getState('demo.loading')).toBe(true);
+    expect(FakeXHR.pending).toHaveLength(1);
+
+    mocks.stopAllMedia.mockClear();
+    mocks.broadcast.mockClear();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    await flush();
+
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('demo.loading')).toBe(false);
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
   it('restores transfer.meta with the file blob on demo exit (DEMO-4 pair invariant)', async () => {
     const preBlob = new Blob(['real-song-bytes']);
     const queueItemId = '11111111-1111-4111-8111-111111111111';

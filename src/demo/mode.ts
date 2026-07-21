@@ -32,6 +32,7 @@ import {
   type DemoTrack,
 } from './tracks.ts';
 import { hasAppUseRecord, hasSeenDemoPrompt, markAppUsed, markDemoPromptSeen } from './storage.ts';
+import { isProRoomCode } from '../pro-room/room-code.ts';
 import type { DataConnection } from '../types/index.ts';
 import type { PlaybackModeActivity } from '../player/ownership.ts';
 import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
@@ -123,8 +124,13 @@ const _demoPreloadInFlight = new Map<string, Promise<Blob>>();
 const _demoBlobRequests = new Set<XMLHttpRequest>();
 let _demoBlobCacheGeneration = 0;
 
+function isProRoomDemoBlocked(): boolean {
+  return getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'));
+}
+
 function shouldShowFirstRunDemoPrompt(): boolean {
   if (_suppressFirstRunPrompt || hasSeenDemoPrompt()) return false;
+  if (isProRoomDemoBlocked()) return false;
   if (/^\/\d{6}$/.test(window.location.pathname)) return false;
   if (getState('network.appRole') !== 'host') return false;
   if (!getState('setup.sessionStarted')) return false;
@@ -290,10 +296,15 @@ function normalizeDemoTrackIndex(index: unknown): number {
 }
 
 function isDemoHost(): boolean {
-  return !getState('network.hostConn') && getState('network.appRole') === 'host';
+  return (
+    !isProRoomDemoBlocked() &&
+    !getState('network.hostConn') &&
+    getState('network.appRole') === 'host'
+  );
 }
 
 function isTrustedDemoHostMessage(conn?: DataConnection): boolean {
+  if (isProRoomDemoBlocked()) return false;
   const hostConn = getState('network.hostConn');
   return !!hostConn && conn === hostConn;
 }
@@ -997,6 +1008,12 @@ function drainQueuedDemoEnter(): void {
 }
 
 async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
+  // The guided demo is a standard-room host/guest protocol. PRO rooms use a
+  // server-owned timeline and deliberately expose no coordinator, so entering
+  // this legacy local overlay would pause only this device while the room kept
+  // advancing. Keep the guard here as well as in CSS so synthetic events and
+  // stale markup cannot split a PRO participant from the canonical session.
+  if (isProRoomDemoBlocked()) return;
   if (getState('demo.loading')) return;
   if (getState('demo.active')) {
     const nextIndex = normalizeDemoTrackIndex(options.index ?? _demoTrackIndex);
@@ -1118,6 +1135,15 @@ function requestDemoExit(): void {
   }
   exitDemoMode();
   showToast(t('demo.try_later_toast'));
+}
+
+function enforceDemoRoomBoundary(): void {
+  if (!isProRoomDemoBlocked()) return;
+  if (!getState('demo.active') && !getState('demo.loading')) return;
+
+  // A same-page standard -> PRO transition must not carry a local demo or its
+  // captured standard-room media into the server-owned PRO session.
+  exitDemoMode({ broadcastExit: false, restoreSnapshot: false });
 }
 
 function advanceDemoStep(): void {
@@ -1451,6 +1477,8 @@ export function initDemoMode(): void {
   _busScope.on('state:network.appRole', (role) => {
     if (role === 'guest') _suppressFirstRunPrompt = true;
   });
+  _busScope.on('state:room.context', enforceDemoRoomBoundary);
+  _busScope.on('state:network.sessionCode', enforceDemoRoomBoundary);
   _busScope.on('state:setup.sessionStarted', (started) => {
     if (!started || getState('network.appRole') !== 'host') return;
     clearManagedTimer('demo-first-run-prompt');
@@ -1458,6 +1486,7 @@ export function initDemoMode(): void {
   });
 
   try {
+    enforceDemoRoomBoundary();
     const mql = window.matchMedia(MOBILE_QUERY);
     mql.addEventListener('change', () => {
       if (getState('demo.active')) setDemoDomActive(true);

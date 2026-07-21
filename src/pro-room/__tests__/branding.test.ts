@@ -115,8 +115,7 @@ describe('PRO room branding', () => {
     const proLeftGap =
       proXBounds.min + readTranslateX(proX) - (proMBounds.max + readTranslateX(proM));
     const proRightGap =
-      readPathInitialX(proQ) + readTranslateX(proQ) -
-      (proXBounds.max + readTranslateX(proX));
+      readPathInitialX(proQ) + readTranslateX(proQ) - (proXBounds.max + readTranslateX(proX));
 
     expect(proLeftGap).toBeCloseTo(standardLeftGap, 2);
     expect(proRightGap).toBeCloseTo(standardRightGap, 3);
@@ -146,6 +145,14 @@ describe('PRO room branding', () => {
     );
     expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*350px\)/);
     expect(compactSidebarStyles).not.toMatch(/@media\s*\(max-height:\s*400px\)/);
+  });
+
+  it('removes the standard-room guided demo affordance from PRO rooms', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+
+    expect(stylesheet).toMatch(
+      /html\[data-pro-room\]\s+#btn-demo-media,\s*html\[data-pro-room\]\s+#btn-demo-media-mobile\s*\{\s*display:\s*none\s*!important;/,
+    );
   });
 
   it('keeps the persistent-storage disclosure contextual to PRO rooms', async () => {

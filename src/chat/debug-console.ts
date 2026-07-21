@@ -22,6 +22,10 @@ import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue
 import { getCapturedLogs } from '../core/log-capture.ts';
 import { getPlaybackOwnership } from '../player/ownership.ts';
 import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
+import {
+  collectSyncFlightRecorderText,
+  markSyncFlightRecorderIncident,
+} from '../diagnostics/sync-flight-recorder.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 
 type NavigatorDebugInfo = Navigator & {
@@ -91,6 +95,10 @@ export function cmdDebug(args: string[]): void {
   }
   if (sub === 'console' || sub === 'log' || sub === 'logs') {
     cmdDebugConsole();
+    return;
+  }
+  if (sub === 'sync' || sub === 'clock' || sub === 'drift') {
+    cmdDebugSync();
     return;
   }
 
@@ -302,6 +310,9 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
   if (opts.scrollable) {
     pre.style.overflowY = 'auto';
     pre.style.maxHeight = '85vh';
+    pre.style.pointerEvents = 'auto';
+    pre.style.userSelect = 'text';
+    pre.style.touchAction = 'pan-y';
   }
   overlay.appendChild(pre);
 
@@ -420,6 +431,17 @@ function cmdDebugConsole(): void {
     ariaLabel: 'Debug console live overlay',
     hint: 'tap edge / ESC to close | live 1s | newest at bottom',
     collect: getCapturedLogs,
+    scrollable: true,
+  });
+}
+
+function cmdDebugSync(): void {
+  markSyncFlightRecorderIncident();
+  openTextDebugOverlay({
+    id: 'debug-sync-flight-overlay',
+    ariaLabel: 'Sync flight recorder',
+    hint: 'tap edge / ESC to close | RAM only | copied once',
+    collect: collectSyncFlightRecorderText,
     scrollable: true,
   });
 }

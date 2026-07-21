@@ -1422,6 +1422,36 @@ interface BaseEventMap {
   'sync:request-immediate-ping': [];
   'sync:force-resync': [];
   'sync:latency-update': [ms: number];
+  /** Local-only inputs for the bounded, RAM-only sync flight recorder. */
+  'sync:diagnostic-worker-tick': [id: string];
+  'sync:diagnostic-standard-pong': [
+    observation: {
+      trackKey: string | null;
+      trackMatches: boolean;
+      playing: boolean;
+      hostTimeMs: number;
+      positionSeconds: number;
+      rttMs: number;
+      offsetMs: number;
+    },
+  ];
+  'sync:diagnostic-standard-decision': [
+    observation: {
+      decision: 'observe' | 'bootstrap' | 'initial' | 'hard' | 'soft' | 'skipped';
+      expectedPositionSeconds?: number;
+      localPositionSeconds?: number;
+      reason?: string;
+    },
+  ];
+  'sync:diagnostic-pro-checkpoint': [
+    observation: {
+      trackKey: string | null;
+      state: 'idle' | 'playing' | 'paused';
+      positionSeconds: number;
+      updatedAtMs: number;
+      revision: number;
+    },
+  ];
 
   // ── Orchestrator ────────────────────────────────────────────────
   'orchestrator:peer-type-detected': [peerId: string, isInitial?: boolean];

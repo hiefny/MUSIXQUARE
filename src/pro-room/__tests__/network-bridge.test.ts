@@ -358,6 +358,13 @@ describe('coordinator-free PRO server channel', () => {
 
     expect(bridge.clockCalibrated).toBe(true);
     expect(bridge.serverNowMs).toBe(1_500);
+    expect(bridge.clockDiagnostics).toEqual({
+      connected: true,
+      calibrated: true,
+      bestOffsetMs: 500,
+      bestRttMs: 0,
+      readyCalibrationAgeMs: null,
+    });
     bridge.disconnect();
   });
 

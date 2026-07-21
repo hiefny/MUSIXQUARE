@@ -46,6 +46,14 @@ export interface ProRealtimeRelayEnvelope {
 type RealtimeListener = (frame: ProServerEventEnvelope | ProRealtimeRelayEnvelope) => void;
 type ConnectionListener = (connected: boolean) => void;
 
+interface ProRoomServerClockDiagnostics {
+  connected: boolean;
+  calibrated: boolean;
+  bestOffsetMs: number;
+  bestRttMs: number | null;
+  readyCalibrationAgeMs: number | null;
+}
+
 interface ClockCalibrationWaiter {
   generation: number;
   roundId: number;
@@ -196,6 +204,19 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     // socket generation. PREPARE readiness applies the stricter freshness
     // policy through waitForFreshClockCalibration().
     return this.#clockCalibrated;
+  }
+
+  get clockDiagnostics(): ProRoomServerClockDiagnostics {
+    return {
+      connected: this.connected,
+      calibrated: this.#clockCalibrated,
+      bestOffsetMs: this.#clockOffsetMs,
+      bestRttMs: Number.isFinite(this.#clockBestRttMs) ? this.#clockBestRttMs : null,
+      readyCalibrationAgeMs:
+        this.#clockReadyCalibratedAtMs > 0
+          ? Math.max(0, Date.now() - this.#clockReadyCalibratedAtMs)
+          : null,
+    };
   }
 
   /**
@@ -844,6 +865,10 @@ export function getProRoomServerNow(): number {
 
 export function isProRoomServerClockCalibrated(): boolean {
   return proRoomServerBridge.clockCalibrated;
+}
+
+export function getProRoomServerClockDiagnostics(): ProRoomServerClockDiagnostics {
+  return proRoomServerBridge.clockDiagnostics;
 }
 
 export function waitForFreshProRoomServerClockCalibration(options: {

@@ -27,6 +27,7 @@ import {
   isIntentionalNav,
 } from './core/page-lifecycle.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
+import { initSyncFlightRecorder } from './diagnostics/sync-flight-recorder.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 import {
   isSessionResetPending,
@@ -430,6 +431,7 @@ async function bootstrap(): Promise<void> {
   safeInit('StandardQueueMutationAuthority', initStandardQueueMutationAuthority);
   safeInit('PeerHandlers', initPeerHandlers);
   safeInit('Sync', initSync);
+  safeInit('SyncFlightRecorder', initSyncFlightRecorder);
   safeInit('Orchestrator', initOrchestrator);
   safeInit('SystemAudioCapture', registerSystemCaptureListeners);
   safeInit('SystemAudioHost', registerSystemAudioHostListeners);

@@ -147,7 +147,7 @@ function isSystemAudioPlaying(): boolean {
 
 let _offsetResetQueued = false;
 
-export function getTrackPosition(): number {
+function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   const ownership = getPlaybackOwnership();
   const pausedAt = getState('player.pausedAt') || 0;
 
@@ -183,7 +183,7 @@ export function getTrackPosition(): number {
     // not write state during a read.
     // _offsetResetQueued prevents duplicate microtasks when getTrackPosition()
     // is called multiple times in the same frame (seek bar, sync, broadcast).
-    if (Math.abs(manualOffset) > 30 && !_offsetResetQueued) {
+    if (repairOutOfRangeOffset && Math.abs(manualOffset) > 30 && !_offsetResetQueued) {
       _offsetResetQueued = true;
       log.warn(`[Sync] Offset divergence detected: local=${manualOffset.toFixed(3)}s — resetting`);
       queueMicrotask(() => {
@@ -207,6 +207,19 @@ export function getTrackPosition(): number {
   if (duration > 0 && pos > duration) pos = duration;
 
   return pos;
+}
+
+export function getTrackPosition(): number {
+  return readTrackPosition(true);
+}
+
+/**
+ * Read the current logical position without scheduling the transport's
+ * out-of-range offset repair. Diagnostics use this so observation cannot
+ * mutate or mask the state that caused a sync incident.
+ */
+export function peekTrackPosition(): number {
+  return readTrackPosition(false);
 }
 
 // ─── Play State UI ─────────────────────────────────────────────────

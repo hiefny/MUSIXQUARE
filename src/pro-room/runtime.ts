@@ -2585,6 +2585,16 @@ function playbackCommitTiming(
   };
 }
 
+function recordAppliedPlaybackCheckpoint(playback: ProRoomPlaybackCheckpoint): void {
+  bus.emit('sync:diagnostic-pro-checkpoint', {
+    trackKey: playback.queueItemId,
+    state: playback.state,
+    positionSeconds: playback.positionSeconds,
+    updatedAtMs: playback.updatedAtMs,
+    revision: playback.revision,
+  });
+}
+
 function clearServerPlaybackTransition(
   transition: NonNullable<typeof activeServerPlaybackTransition>,
 ): void {
@@ -2717,6 +2727,7 @@ async function applyPlaybackCommit(
         revision: playback.revision,
         positionSeconds: playback.positionSeconds,
       };
+      recordAppliedPlaybackCheckpoint(playback);
       settleLocalPlaybackUiControlsThrough(
         context.roomId,
         context.epoch,
@@ -2771,6 +2782,7 @@ async function applyPlaybackCommit(
     revision: playback.revision,
     positionSeconds: playback.positionSeconds,
   };
+  recordAppliedPlaybackCheckpoint(playback);
   settleLocalPlaybackUiControlsThrough(
     context.roomId,
     context.epoch,

@@ -25,6 +25,17 @@ interface ClockSample {
   timestamp: number;
 }
 
+interface SharedClockDiagnostics {
+  isHostClock: boolean;
+  calibrated: boolean;
+  sampleCount: number;
+  pendingPingCount: number;
+  pongsReceived: number;
+  bestOffsetMs: number;
+  bestRttMs: number | null;
+  newestSampleAgeMs: number | null;
+}
+
 let _isHostClock = false;
 let _samples: ClockSample[] = [];
 let _bestOffset = 0;
@@ -67,6 +78,24 @@ export function isClockCalibrated(): boolean {
 export function getClockBestRtt(): number {
   if (_samples.length === 0) return 0;
   return Math.min(..._samples.map((s) => s.rtt));
+}
+
+/**
+ * Read-only, privacy-neutral clock health used by the on-device sync flight
+ * recorder. Raw samples and ping identifiers deliberately stay private.
+ */
+export function getSharedClockDiagnostics(nowMs = Date.now()): SharedClockDiagnostics {
+  const newest = _samples.length > 0 ? _samples[_samples.length - 1] : null;
+  return {
+    isHostClock: _isHostClock,
+    calibrated: _isHostClock || _samples.length > 0,
+    sampleCount: _samples.length,
+    pendingPingCount: _pendingPings.size,
+    pongsReceived: _pongsReceived,
+    bestOffsetMs: _bestOffset,
+    bestRttMs: _samples.length > 0 ? Math.min(..._samples.map((sample) => sample.rtt)) : null,
+    newestSampleAgeMs: newest ? Math.max(0, nowMs - newest.timestamp) : null,
+  };
 }
 
 // ─── Setters ──────────────────────────────────────────────────────

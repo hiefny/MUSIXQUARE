@@ -91,7 +91,7 @@ describe('demo playback sync bootstrap', () => {
     vi.useRealTimers();
   });
 
-  it('requests an immediate host sync after applying a pending guest demo play', async () => {
+  it('compensates late demo play delivery by the full host scheduling window', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     const immediateSync = vi.fn();
     bus.on('sync:request-immediate-ping', immediateSync);
@@ -111,12 +111,40 @@ describe('demo playback sync bootstrap', () => {
       hostConn,
     );
 
-    expect(mocks.play).toHaveBeenCalledWith(43);
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+    expect(mocks.play.mock.calls[0][0]).toBeCloseTo(43.35, 3);
+    expect(mocks.play.mock.calls[0][1]).toBe(0);
     expect(immediateSync).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(250);
 
     expect(immediateSync).toHaveBeenCalledOnce();
+  });
+
+  it('compensates early demo play delivery without dropping one-way latency', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    mocks.getHostNow.mockReturnValue(8_800);
+
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    setState('demo.active', true);
+
+    await handleData(
+      {
+        type: MSG.DEMO_PLAY,
+        index: 0,
+        time: 42,
+        hostPlayAt: 9_000,
+      },
+      hostConn,
+    );
+
+    // The host command happened at 8,650ms. The guest starts at the 9,000ms
+    // rendezvous, so it must begin at 42.350s rather than 42.200s.
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+    expect(mocks.play.mock.calls[0][0]).toBeCloseTo(42.35, 3);
+    expect(mocks.play.mock.calls[0][1]).toBeCloseTo(0.2, 3);
   });
 
   it('ignores hostPlayAt while the shared clock is uncalibrated', async () => {

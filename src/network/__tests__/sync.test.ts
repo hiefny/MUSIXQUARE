@@ -17,6 +17,7 @@ import {
 } from '../sync.ts';
 import {
   getClockOffset,
+  getSharedClockDiagnostics,
   isClockCalibrated,
   processSyncPong,
   registerPing,
@@ -376,11 +377,26 @@ describe('background resume recovery', () => {
     expect(processSyncPong(1, 5020)).not.toBeNull();
     expect(isClockCalibrated()).toBe(true);
     expect(getClockOffset()).not.toBe(0);
+    expect(getSharedClockDiagnostics()).toMatchObject({
+      calibrated: true,
+      sampleCount: 1,
+      pendingPingCount: 0,
+      pongsReceived: 1,
+      bestRttMs: 20,
+    });
 
     bus.emit('sync:force-resync');
 
     expect(isClockCalibrated()).toBe(false);
     expect(getClockOffset()).toBe(0);
+    expect(getSharedClockDiagnostics()).toMatchObject({
+      calibrated: false,
+      sampleCount: 0,
+      pendingPingCount: 1,
+      pongsReceived: 0,
+      bestRttMs: null,
+      newestSampleAgeMs: null,
+    });
     expect(conn.send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.SYNC_PING,

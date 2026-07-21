@@ -425,6 +425,25 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   const result = processSyncPong(pingId, hostTime);
   if (!result) return;
 
+  const pongTrackKey = getState('demo.active')
+    ? typeof data.demoTrackIndex === 'number' && Number.isSafeInteger(data.demoTrackIndex)
+      ? `demo:${data.demoTrackIndex}`
+      : null
+    : typeof data.queueItemId === 'string'
+      ? data.queueItemId
+      : null;
+  const pongTrackMatches = isSyncPongTrackIdentityCurrent(data);
+  const pongPlayingFile = isSyncPongPlayingFile(data);
+  bus.emit('sync:diagnostic-standard-pong', {
+    trackKey: pongTrackKey,
+    trackMatches: pongTrackMatches,
+    playing: pongPlayingFile,
+    hostTimeMs: hostTime,
+    positionSeconds: position,
+    rttMs: result.rtt,
+    offsetMs: result.offset,
+  });
+
   // 2. Latency history update
   const ms = result.rtt;
   const latencyHistory = getState('sync.latencyHistory');
@@ -446,17 +465,29 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   //       cleared. Without bootstrap, the guest sits at 0:00 until the
   //       host pauses/seeks/re-plays — exactly the "first remote download
   //       won't auto-play" symptom.
-  if (!isSyncPongPlayingFile(data)) {
+  if (!pongPlayingFile) {
     resetSoftFileResyncState();
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'host-not-playing-file',
+    });
     return;
   }
   if (!Number.isFinite(position)) {
     resetSoftFileResyncState();
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'invalid-host-position',
+    });
     return;
   }
-  if (!isSyncPongTrackIdentityCurrent(data)) {
+  if (!pongTrackMatches) {
     resetSoftFileResyncState();
     log.debug('[Sync] Ignored pong for a different queue/demo item');
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'track-mismatch',
+    });
     return;
   }
 
@@ -468,6 +499,10 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   // handlers (playback.ts) and on sync reset (resetSyncClockRuntime).
   if (isLocalFilePaused()) {
     resetSoftFileResyncState();
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'local-pause',
+    });
     return;
   }
 
@@ -483,6 +518,11 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
       lifecycle === PLAYBACK_STATE.DECODING
     ) {
       log.debug(`[Sync] Bootstrap skipped while ${lifecycle}; waiting for the new buffer`);
+      bus.emit('sync:diagnostic-standard-decision', {
+        decision: 'skipped',
+        expectedPositionSeconds: estimatedHostPos,
+        reason: `pipeline-${lifecycle}`,
+      });
       return;
     }
 
@@ -497,18 +537,41 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
       play(syncPosition);
       _needsInitialSync = false;
       bus.emit('sync:arm-initial');
+      bus.emit('sync:diagnostic-standard-decision', {
+        decision: 'bootstrap',
+        expectedPositionSeconds: syncPosition,
+      });
+    } else {
+      bus.emit('sync:diagnostic-standard-decision', {
+        decision: 'skipped',
+        expectedPositionSeconds: estimatedHostPos,
+        reason: 'no-playable-position',
+      });
     }
     return;
   }
 
   const syncPosition = getPlayableFileSyncPosition(estimatedHostPos);
-  if (syncPosition === null) return;
+  if (syncPosition === null) {
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      expectedPositionSeconds: estimatedHostPos,
+      reason: 'no-playable-position',
+    });
+    return;
+  }
 
   // First pong after play start: unconditionally lock to host
   if (_needsInitialSync) {
     _needsInitialSync = false;
     resetSoftFileResyncState();
+    const localPosition = getTrackPosition();
     play(syncPosition);
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'initial',
+      expectedPositionSeconds: syncPosition,
+      localPositionSeconds: localPosition,
+    });
     return;
   }
   // Ongoing: hard-correct large divergence immediately; soft-correct stable
@@ -519,9 +582,19 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   if (drift > FILE_HARD_RESYNC_DRIFT_SEC) {
     resetSoftFileResyncState();
     play(syncPosition);
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'hard',
+      expectedPositionSeconds: syncPosition,
+      localPositionSeconds: localPosition,
+    });
     return;
   }
-  maybeSoftResyncFile(syncPosition, localPosition);
+  const softResynced = maybeSoftResyncFile(syncPosition, localPosition);
+  bus.emit('sync:diagnostic-standard-decision', {
+    decision: softResynced ? 'soft' : 'observe',
+    expectedPositionSeconds: syncPosition,
+    localPositionSeconds: localPosition,
+  });
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -826,6 +899,7 @@ export function initSync(): void {
 
   // Worker tick handler: Guest sends unified SYNC_PING to host
   bus.on('worker:timer-tick', (id) => {
+    bus.emit('sync:diagnostic-worker-tick', id);
     const hostConn = getState('network.hostConn');
     if (!hostConn || !hostConn.open) return;
 

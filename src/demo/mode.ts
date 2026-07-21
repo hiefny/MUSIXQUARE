@@ -935,12 +935,20 @@ function applyPendingDemoPlay(): void {
   const hostPlayAt = Number(pending.hostPlayAt) || 0;
   if (hostPlayAt > 0 && isClockCalibrated()) {
     const now = getHostNow();
-    const waitMs = Math.max(0, hostPlayAt - now);
-    if (waitMs > 0 && waitMs < 2000) {
-      void play(pending.time + waitMs / 1000, waitMs / 1000);
+    const waitMsRaw = hostPlayAt - now;
+    const waitMs = Math.max(0, waitMsRaw);
+    if (Math.abs(waitMsRaw) < 2000) {
+      // The demo host starts immediately, then publishes a rendezvous target
+      // DEMO_PLAY_SCHEDULE_AHEAD_MS in the future. Match the regular local-file
+      // path by advancing from the host's command time, so message delivery
+      // latency does not leave the guest permanently behind.
+      const hostCommandAt = hostPlayAt - DEMO_PLAY_SCHEDULE_AHEAD_MS;
+      const guestStartAtHostTime = now + waitMs;
+      const elapsedSinceHostCommand = Math.max(0, guestStartAtHostTime - hostCommandAt);
+      void play(pending.time + elapsedSinceHostCommand / 1000, waitMs / 1000);
     } else {
-      const elapsed = Math.max(0, now - hostPlayAt) / 1000;
-      void play(pending.time + elapsed);
+      log.warn(`[Demo] hostPlayAt out of range (${waitMsRaw}ms), playing immediately`);
+      void play(pending.time);
     }
   } else {
     if (hostPlayAt > 0) {

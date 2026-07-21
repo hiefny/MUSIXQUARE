@@ -632,8 +632,11 @@ test.describe('Operator Privilege Scenarios', () => {
       const isOpBefore = await readState(pair.guestPage, 'network.isOperator');
 
       if (isOpBefore === true) {
-        await uploadFixture(pair.hostPage, 'test01');
+        // Exercise the real administrator -> host uplink. Uploading from the
+        // host here would only cover the ordinary local playlist path.
+        await uploadFixture(pair.guestPage, 'test01');
         await waitForPlaylistCount(pair.hostPage, 1);
+        await waitForPlaylistCount(pair.guestPage, 1);
 
         const isOp = await readState(pair.guestPage, 'network.isOperator');
         expect(isOp).toBe(true);

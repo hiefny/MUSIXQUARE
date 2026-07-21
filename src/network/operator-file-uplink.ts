@@ -72,6 +72,7 @@ interface HostUpload {
   expectedChunkIndex: number;
   receivedBytes: number;
   lastReportedBytes: number;
+  finishReceived: boolean;
   timeoutKey: string | null;
 }
 
@@ -697,6 +698,7 @@ function handleUploadStart(
     expectedChunkIndex: 0,
     receivedBytes: 0,
     lastReportedBytes: 0,
+    finishReceived: false,
     timeoutKey: null,
   };
   hostUploads.set(conn.peer, upload);
@@ -762,43 +764,31 @@ function handleUploadChunk(
     );
     emitReceiveProgress(upload, 'uploading');
   }
+
+  // Rolling releases can pair a new host with an older administrator client
+  // whose FINISH still travels on the separate control channel. Remember an
+  // early FINISH and commit only after the ordered bulk stream catches up.
+  if (upload.finishReceived && isHostUploadComplete(upload)) {
+    finalizeHostUpload(upload);
+  }
 }
 
-function handleUploadFinish(
-  data: ProtocolMsg<typeof MSG.OPERATOR_FILE_UPLOAD_FINISH>,
-  conn: DataConnection,
-): void {
-  const upload = hostUploads.get(conn.peer);
-  if (
-    !upload ||
-    upload.conn !== conn ||
-    upload.requestId !== data.requestId ||
-    upload.sessionId !== data.sessionId
-  ) {
-    pruneSettledSessions();
-    const settled = settledHostSessions.get(hostSessionKey(conn.peer, data.sessionId));
-    if (
-      settled &&
-      settled.requestId === data.requestId &&
-      settled.roomCode === currentRoomCode() &&
-      isExactAuthorizedHostConnection(conn)
-    ) {
-      sendSettledHostStatus(conn, settled);
-    }
-    return;
-  }
+function isHostUploadComplete(upload: HostUpload): boolean {
+  return (
+    upload.expectedChunkIndex === upload.total &&
+    upload.receivedBytes === upload.size &&
+    upload.chunks.length === upload.total
+  );
+}
+
+function finalizeHostUpload(upload: HostUpload): void {
+  if (hostUploads.get(upload.peerId) !== upload) return;
+  const { conn } = upload;
   if (!isExactAuthorizedHostConnection(conn) || upload.roomCode !== currentRoomCode()) {
     clearHostUpload(upload, 'operator-revoked', true);
     return;
   }
-  if (
-    upload.expectedChunkIndex !== upload.total ||
-    upload.receivedBytes !== upload.size ||
-    upload.chunks.length !== upload.total
-  ) {
-    clearHostUpload(upload, 'protocol-error', true);
-    return;
-  }
+  if (!upload.finishReceived || !isHostUploadComplete(upload)) return;
 
   if (upload.timeoutKey !== null) clearManagedTimer(upload.timeoutKey);
   upload.timeoutKey = null;
@@ -860,6 +850,38 @@ function handleUploadFinish(
     log.warn('[OperatorFileUplink] Host assembly or playlist commit failed', error);
     clearHostUpload(upload, 'upload-failed', true);
   }
+}
+
+function handleUploadFinish(
+  data: ProtocolMsg<typeof MSG.OPERATOR_FILE_UPLOAD_FINISH>,
+  conn: DataConnection,
+): void {
+  const upload = hostUploads.get(conn.peer);
+  if (
+    !upload ||
+    upload.conn !== conn ||
+    upload.requestId !== data.requestId ||
+    upload.sessionId !== data.sessionId
+  ) {
+    pruneSettledSessions();
+    const settled = settledHostSessions.get(hostSessionKey(conn.peer, data.sessionId));
+    if (
+      settled &&
+      settled.requestId === data.requestId &&
+      settled.roomCode === currentRoomCode() &&
+      isExactAuthorizedHostConnection(conn)
+    ) {
+      sendSettledHostStatus(conn, settled);
+    }
+    return;
+  }
+  if (!isExactAuthorizedHostConnection(conn) || upload.roomCode !== currentRoomCode()) {
+    clearHostUpload(upload, 'operator-revoked', true);
+    return;
+  }
+  upload.finishReceived = true;
+  armHostTimeout(upload);
+  finalizeHostUpload(upload);
 }
 
 function handleUploadAbort(

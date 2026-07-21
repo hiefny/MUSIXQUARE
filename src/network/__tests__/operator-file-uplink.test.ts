@@ -149,6 +149,47 @@ describe('standard operator file uplink host receiver', () => {
     off();
   });
 
+  it('waits for trailing bulk chunks when FINISH arrives on control first', async () => {
+    const { conn, send } = makeConnection('admin-early-finish');
+    enterHost([{ conn }]);
+    const received = vi.fn((_file: File, acknowledge: (accepted: boolean) => void) => {
+      acknowledge(true);
+    });
+    const off = bus.on('standard-room:operator-file-received', received);
+
+    await handleData(startMessage(3), conn);
+    send.mockClear();
+    await handleData(
+      { type: MSG.OPERATOR_FILE_UPLOAD_FINISH, requestId: REQUEST_ID, sessionId: SESSION_ID },
+      conn,
+    );
+
+    expect(received).not.toHaveBeenCalled();
+    expect(sentStatuses(send)).toEqual([]);
+
+    await handleData(
+      {
+        type: MSG.OPERATOR_FILE_UPLOAD_CHUNK,
+        requestId: REQUEST_ID,
+        sessionId: SESSION_ID,
+        chunkIndex: 0,
+        chunk: new Uint8Array([1, 2, 3]),
+      },
+      conn,
+    );
+
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'complete', loaded: 3, total: 3 });
+
+    await handleData(
+      { type: MSG.OPERATOR_FILE_UPLOAD_FINISH, requestId: REQUEST_ID, sessionId: SESSION_ID },
+      conn,
+    );
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'complete', loaded: 3, total: 3 });
+    off();
+  });
+
   it('summarizes a negotiated multi-file batch once at its terminal frame', async () => {
     const { conn } = makeConnection('admin-batch');
     enterHost([{ conn }]);

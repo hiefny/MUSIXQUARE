@@ -1,4 +1,5 @@
 import { log } from '../../core/log.ts';
+import { MSG } from '../../core/constants.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../../core/timers.ts';
 import { TinyEmitter } from './emitter.ts';
 import type {
@@ -269,7 +270,15 @@ async function decodePayload(data: unknown): Promise<unknown> {
 
 function isBulkPayload(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
-  return !!toUint8Array((data as Record<string, unknown>).chunk);
+  const payload = data as Record<string, unknown>;
+  if (toUint8Array(payload.chunk)) return true;
+
+  // OPERATOR_FILE_UPLOAD_CHUNK is carried by the ordered bulk channel. Keep
+  // its terminal fence on that same channel as well: ordering is guaranteed
+  // within one RTCDataChannel, but not between the bulk and control channels.
+  // Without this exception FINISH can overtake the final chunk on a slower
+  // receiver and make an otherwise valid administrator upload look corrupt.
+  return payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH;
 }
 
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {

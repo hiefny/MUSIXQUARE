@@ -1304,7 +1304,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {
-  it('opens only after both channels are ready and keeps ordered control frames off bulk', async () => {
+  it('opens only after both channels are ready and keeps upload chunks with their finish fence', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
     const bulk = new FakeDataChannel('musixquare-data');
@@ -1354,19 +1354,27 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       name: 'track.mp3',
     });
     conn.send({
+      type: MSG.OPERATOR_FILE_UPLOAD_FINISH,
+      requestId: '10000000-0000-4000-8000-000000000001',
+      sessionId: '20000000-0000-4000-8000-000000000001',
+    });
+    conn.send({
       type: MSG.PLAY,
       time: 0,
       queueItemId: '00000000-0000-4000-8000-000000000001',
     });
 
     expect(control.sent).toHaveLength(2);
-    expect(bulk.sent).toHaveLength(1);
+    expect(bulk.sent).toHaveLength(2);
     expect(
       control.sent
         .map((frame) => JSON.parse(frame as string) as { type: string })
         .map(({ type }) => type),
     ).toEqual([MSG.PLAYLIST_UPDATE, MSG.PLAY]);
     expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
+    expect(JSON.parse(bulk.sent[1] as string)).toMatchObject({
+      type: MSG.OPERATOR_FILE_UPLOAD_FINISH,
+    });
   });
 
   it('never falls back to the bulk channel for control frames', async () => {

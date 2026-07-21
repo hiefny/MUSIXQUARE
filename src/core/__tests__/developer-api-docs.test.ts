@@ -141,7 +141,12 @@ describe('Developer API public documentation', () => {
     expect(html).toContain("type: 'set_effects'");
     expect(html).toContain('every supplied nested object must contain at least one field');
     expect(html).toContain('persisted across PRO room sleep/wake cycles and coordinator handoffs');
-    expect(html).toMatch(/requires an awake room with a compatible active\s+coordinator/);
+    expect(html).toMatch(/applied directly by the room server while the room is\s+active/);
+    expect(html).toContain('does not wait for a browser coordinator');
+    expect(spec).toContain(
+      'set_effects is applied directly by the room server while the room is active',
+    );
+    expect(html).not.toMatch(/effect command still requires an awake room/i);
 
     for (const example of [
       'mixPercent: 40',

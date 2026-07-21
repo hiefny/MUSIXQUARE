@@ -952,6 +952,42 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     expect(getQueueMode).toHaveBeenCalledTimes(2);
   });
 
+  it('applies virtual treble when a server invalidation advances the effects revision', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const getEffects = vi.mocked(ProRoomApiClient.prototype.getEffects);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getEffects).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    heartbeat.mockClear();
+    getEffects.mockClear();
+
+    const effects = createDefaultRoomEffectsState();
+    effects.virtualTreble.enabled = true;
+    getEffects.mockResolvedValueOnce({
+      schemaVersion: 2,
+      view: 'effects',
+      roomCode: ROOM_CODE,
+      revision: 1,
+      updatedAtMs: 2,
+      effects,
+    });
+    heartbeat.mockResolvedValueOnce({
+      ...snapshot(),
+      revision: 2,
+      effectsRevision: 1,
+      presence: { ...snapshot().presence, revision: 2 },
+    });
+
+    expect(getState('audio.exciter')).toBe(false);
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
+    );
+
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getEffects).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getState('audio.exciter')).toBe(true));
+  });
+
   it('retries one pending effects and queue-mode refresh after the first GET rejects', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const getEffects = vi.mocked(ProRoomApiClient.prototype.getEffects);

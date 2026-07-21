@@ -198,8 +198,8 @@ paths:
         inside the current YouTube playlist aggregate first, then advances to the next top-level queue item using
         the room's repeat and shuffle settings. play_item instead force-selects the exact top-level queueItemId.
         An applied play_item command means the coordinator accepted the item; devices may still be loading it.
-        Effect commands require an awake room with a compatible active coordinator even though the canonical effect
-        state remains readable while asleep.
+        set_effects is applied directly by the room server while the room is active and does not wait for a browser
+        coordinator. The canonical effect state remains readable across room sleep/wake cycles.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'

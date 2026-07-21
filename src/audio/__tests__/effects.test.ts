@@ -1,11 +1,12 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import {
   setPreamp,
   setStereoWidth,
@@ -21,6 +22,10 @@ import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 beforeEach(() => {
   resetState();
   bus.clear();
+});
+
+afterEach(() => {
+  clearAllManagedTimers();
 });
 
 function makeConnection(peer: string): DataConnection {
@@ -151,6 +156,26 @@ describe('room-wide effect snapshots', () => {
       }),
     ).toBe(false);
     expect(captureRoomEffectsState()).toEqual(before);
+  });
+});
+
+describe('standard-room virtual treble synchronization', () => {
+  beforeEach(() => {
+    initEffectsHandlers();
+  });
+
+  it('applies the host EXCITER frame and synchronizes the guest UI', async () => {
+    const host = makeConnection('host');
+    const syncExciter = vi.fn();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('audio.exciter', false);
+    bus.on('ui:sync-exciter', syncExciter);
+
+    await handleData({ type: MSG.EXCITER, value: 1 }, host);
+
+    expect(getState('audio.exciter')).toBe(true);
+    expect(syncExciter).toHaveBeenCalledWith(true);
   });
 });
 

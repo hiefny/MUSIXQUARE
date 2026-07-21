@@ -302,9 +302,9 @@ console.log(command.commandId, command.status);</code></pre>
         </dl>
         <p>
           Effect state is persisted across PRO room sleep/wake cycles and coordinator handoffs, and joining devices
-          receive the current state. A new effect command still requires an awake room with a compatible active
-          coordinator; read <code>/effects</code> after the command becomes <code>applied</code> to observe the
-          canonical result.
+          receive the current state. <code>set_effects</code> is applied directly by the room server while the room is
+          active, so it does not wait for a browser coordinator. Read <code>/effects</code> after the command becomes
+          <code>applied</code> to observe the canonical result.
         </p>
         <p>
           The in-room BOT reads this same canonical effect state and can turn virtual treble on or off only when the

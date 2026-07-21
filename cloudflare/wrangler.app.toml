@@ -78,7 +78,7 @@ service = "musixquare-pro-room"
 [vars]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"
-GEMINI_BOT_MODEL = "gemini-3.1-flash-lite"
+GEMINI_BOT_MODEL = "gemini-3.5-flash-lite"
 CLOUDFLARE_TURN_TTL = "172800"
 # Human verification is disabled. Capability minting instead uses a short-lived,
 # IP/scope-bound proof-of-work challenge plus per-IP rate limits.

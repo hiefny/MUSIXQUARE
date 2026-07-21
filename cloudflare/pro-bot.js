@@ -1,8 +1,8 @@
 const PRO_ROOM_CODE_RE = /^0\d{5}$/;
-const BOT_MODEL_EFFICIENT = 'gemini-3.1-flash-lite';
+const BOT_MODEL_EFFICIENT = 'gemini-3.5-flash-lite';
 const BOT_MODEL_FALLBACK = 'gemini-3.5-flash';
 const BOT_MODEL_DEFAULT = BOT_MODEL_EFFICIENT;
-const BOT_MODEL_ALLOWLIST = new Set(['gemini-3.5-flash', 'gemini-3.1-flash-lite']);
+const BOT_MODEL_ALLOWLIST = new Set(['gemini-3.5-flash', 'gemini-3.5-flash-lite']);
 const BOT_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const BOT_LEASE_TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;

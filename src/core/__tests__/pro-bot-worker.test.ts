@@ -469,9 +469,9 @@ describe('server-only PRO BOT app boundary', () => {
 describe('PRO BOT Gemini plan and YouTube normalization', () => {
   it('uses Flash-Lite by default while retaining an explicit Flash override', () => {
     const { modelName } = proBotInternalsForTests;
-    expect(modelName({})).toBe('gemini-3.1-flash-lite');
+    expect(modelName({})).toBe('gemini-3.5-flash-lite');
     expect(modelName({ GEMINI_BOT_MODEL: 'gemini-3.5-flash' })).toBe('gemini-3.5-flash');
-    expect(modelName({ GEMINI_BOT_MODEL: 'unsupported-model' })).toBe('gemini-3.1-flash-lite');
+    expect(modelName({ GEMINI_BOT_MODEL: 'unsupported-model' })).toBe('gemini-3.5-flash-lite');
   });
 
   it('parses an exact out-of-scope plan and replaces arbitrary model text server-side', () => {
@@ -1357,7 +1357,7 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       ),
     ).resolves.toEqual({ intent: 'playback', playbackCommand: 'pause', answer: 'Paused.' });
     expect(requestedModels).toEqual([
-      '/v1beta/models/gemini-3.1-flash-lite:generateContent',
+      '/v1beta/models/gemini-3.5-flash-lite:generateContent',
       '/v1beta/models/gemini-3.5-flash:generateContent',
     ]);
   });

@@ -478,6 +478,52 @@ describe('optional account UI', () => {
     );
   });
 
+  it('reopens a rename prompt with the attempted value when the nickname is taken', async () => {
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Old', profileComplete: true },
+    });
+    vi.mocked(showDialog)
+      .mockResolvedValueOnce({ action: 'ok', inputValue: 'Taken' })
+      .mockResolvedValueOnce({ action: 'secondary' });
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ error: 'NICKNAME_TAKEN' }, 409));
+
+    await requestAccountNicknameChange();
+
+    expect(showToast).toHaveBeenCalledWith('That nickname is already in use.');
+    expect(showDialog).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(showDialog).mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        inputField: expect.objectContaining({
+          defaultValue: 'Taken',
+          hint: 'That nickname is already in use.',
+          preserveWhitespace: true,
+        }),
+      }),
+    );
+  });
+
+  it('keeps first-login nickname setup retryable after a uniqueness collision', async () => {
+    vi.mocked(showDialog)
+      .mockResolvedValueOnce({ action: 'ok', inputValue: 'Taken' })
+      .mockResolvedValueOnce({ action: 'secondary' });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: '', profileComplete: false },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: 'NICKNAME_TAKEN' }, 409));
+
+    initAccount();
+
+    await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(2));
+    expect(showToast).toHaveBeenCalledWith('That nickname is already in use.');
+  });
+
   it('prompts once for an incomplete first-login profile without blocking the app', async () => {
     vi.mocked(showDialog).mockResolvedValue({ action: 'secondary' });
     vi.mocked(fetch).mockResolvedValue(

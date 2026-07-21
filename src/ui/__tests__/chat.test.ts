@@ -17,6 +17,9 @@ const botProtocolMocks = vi.hoisted(() => ({
   publishBotChatResult: vi.fn(() => true),
   rememberPinnedNotice: vi.fn(),
 }));
+const userTextFontMocks = vi.hoisted(() => ({
+  loadLocaleFont: vi.fn(async () => undefined),
+}));
 
 window.matchMedia =
   window.matchMedia ||
@@ -30,6 +33,10 @@ vi.mock('../../core/log.ts', () => ({
 
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
+}));
+
+vi.mock('../../i18n/locale-fonts.ts', () => ({
+  loadLocaleFont: userTextFontMocks.loadLocaleFont,
 }));
 
 vi.mock('../../network/peer.ts', () => ({
@@ -72,6 +79,13 @@ vi.mock('../player-controls.ts', () => ({
 vi.mock('../../youtube/oembed.ts', () => ({
   fetchOEmbedTitle: vi.fn(async () => 'Mock Title'),
 }));
+
+function expectFontClasses(element: Element | null | undefined, ...classes: string[]): void {
+  expect(element).not.toBeNull();
+  for (const className of classes) {
+    expect(element?.classList.contains(className)).toBe(true);
+  }
+}
 
 beforeEach(() => {
   resetState();
@@ -188,6 +202,45 @@ describe('Chat Module', () => {
         vi.useRealTimers();
       }
     });
+
+    it('marks every chat text boundary from the text itself, including continuation rows', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
+
+      try {
+        renderMessageShell();
+        const { addChatMessage, addSystemChatMessage, addWhisperMessage } =
+          await import('../chat-render.ts');
+
+        addChatMessage('Пользователь', 'かな', false);
+        addChatMessage('Пользователь', 'ข้อความ', false);
+        addSystemChatMessage('системное сообщение');
+        addWhisperMessage('Peer 3', '這麼好', false);
+
+        const regularGroup = document.querySelector<HTMLElement>('.chat-group:not(.system)');
+        expectFontClasses(
+          regularGroup?.querySelector('.chat-sender'),
+          'user-text-font',
+          'user-text-font-ru',
+        );
+
+        const regularTexts = regularGroup?.querySelectorAll<HTMLElement>('.chat-text');
+        expectFontClasses(regularTexts?.[0], 'user-text-font', 'user-text-font-ja');
+        expectFontClasses(regularTexts?.[1], 'user-text-font', 'user-text-font-th');
+        expectFontClasses(
+          document.querySelector('.chat-group.system .chat-text'),
+          'user-text-font',
+          'user-text-font-ru',
+        );
+        expectFontClasses(
+          document.querySelector('.chat-group.whisper .chat-text'),
+          'user-text-font',
+          'user-text-font-zh-hant',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('Unread badge', () => {
@@ -221,6 +274,22 @@ describe('Chat Module', () => {
       bus.emit('chat:clear-all');
       expect(badge.textContent).toBe('0');
       expect(badge.classList.contains('show')).toBe(false);
+    });
+
+    it('marks the compact preview from the sender and message scripts', async () => {
+      renderChatShell();
+      const { initChat } = await import('../chat.ts');
+      initChat();
+
+      bus.emit('chat:message-rendered', 'Пользователь', 'かな', false);
+
+      const preview = document.querySelector<HTMLElement>('.chat-preview-text');
+      expectFontClasses(preview, 'user-text-font', 'user-text-font-ru', 'user-text-font-ja');
+      expect(preview?.dataset.userTextFonts).toBe('ru ja');
+
+      bus.emit('chat:message-rendered', 'Peer', 'plain text', false);
+      expect(preview?.classList.contains('user-text-font')).toBe(false);
+      expect(preview?.dataset.userTextFonts).toBeUndefined();
     });
   });
 
@@ -274,6 +343,24 @@ describe('Chat Module', () => {
       banner?.dispatchEvent(new Event('animationend'));
       expect(banner?.classList.contains('notice-attention-hint')).toBe(false);
     });
+
+    it('marks both the pinned sender label and body independently', async () => {
+      renderNoticeShell();
+
+      const { addNoticeChatMessage } = await import('../chat-render.ts');
+      addNoticeChatMessage('ผู้ดูแล', 'かな');
+
+      expectFontClasses(
+        document.getElementById('chat-pinned-notice-label'),
+        'user-text-font',
+        'user-text-font-th',
+      );
+      expectFontClasses(
+        document.getElementById('chat-pinned-notice-text'),
+        'user-text-font',
+        'user-text-font-ja',
+      );
+    });
   });
 
   describe('production content parsing', () => {
@@ -311,6 +398,30 @@ describe('Chat Module', () => {
 
       expect(root.querySelector('.chat-youtube-btn,.chat-timestamp')).toBeNull();
       expect(root.textContent).toBe('https://example.com/video in 2025');
+    });
+
+    it('re-evaluates the asynchronously resolved YouTube title text', async () => {
+      vi.useFakeTimers();
+      try {
+        document.body.innerHTML = `
+          <div id="chat-drawer"></div>
+          <div id="chat-messages"><div class="chat-empty"></div></div>
+        `;
+        const { fetchOEmbedTitle } = await import('../../youtube/oembed.ts');
+        vi.mocked(fetchOEmbedTitle).mockResolvedValueOnce('かなの曲');
+        const { addChatMessage } = await import('../chat-render.ts');
+
+        addChatMessage('Peer 1', 'https://youtu.be/dQw4w9WgXcQ', false);
+        await vi.advanceTimersByTimeAsync(100);
+
+        expectFontClasses(
+          document.querySelector('.chat-yt-title'),
+          'user-text-font',
+          'user-text-font-ja',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

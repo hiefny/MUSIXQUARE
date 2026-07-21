@@ -15,6 +15,7 @@ import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/tim
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 import { switchTab } from './tabs.ts';
 import {
   updateOverlayOpenClass,
@@ -346,6 +347,7 @@ export function updateRoleBadge(): void {
   badge.classList.remove('connected', 'remote', 'pro-equal', 'account-authenticated');
   badge.classList.toggle('account-authenticated', nickname.length > 0);
   text.textContent = nickname || 'LOGIN';
+  applyUserTextFontFallback(text, text.textContent);
   badge.setAttribute(
     'aria-label',
     nickname ? `${t('account.account_title')}: ${nickname}` : t('account.login_title'),

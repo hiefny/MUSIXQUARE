@@ -9,6 +9,7 @@ import { setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
 import { syncOverlayState, normalizeEmptyContentEditable } from './dom.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ interface DialogOptions {
     separator?: string;
     hint?: string;
     validator?: (value: string) => string | null;
+    /** Keep significant whitespace for validators and the resolved value. */
+    preserveWhitespace?: boolean;
   };
 }
 
@@ -54,6 +57,7 @@ let _dialogInputValueGetter: (() => string) | null = null;
 let _dialogHint: HTMLDivElement | null = null;
 let _dialogValidator: ((value: string) => string | null) | null = null;
 let _dialogHintDefault = '';
+let _dialogPreserveWhitespace = false;
 const _dialogQueue: Array<{
   opts: DialogOptions | string;
   resolve: (result: DialogResult) => void;
@@ -101,14 +105,17 @@ export function closeDialog(action = 'close'): void {
     }
   }
 
-  const inputValue = _dialogInputValueGetter
-    ? _dialogInputValueGetter().trim()
+  const rawInputValue = _dialogInputValueGetter
+    ? _dialogInputValueGetter()
     : _dialogInput
-      ? (_dialogInput.textContent || '').trim()
+      ? _dialogInput.textContent || ''
       : undefined;
+  const inputValue =
+    rawInputValue === undefined || _dialogPreserveWhitespace ? rawInputValue : rawInputValue.trim();
   _dialogInput = null;
   _dialogInputFocusTarget = null;
   _dialogInputValueGetter = null;
+  _dialogPreserveWhitespace = false;
 
   if (typeof active?.resolve === 'function') {
     try {
@@ -156,10 +163,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   titleEl.textContent = title;
   msgEl.textContent = message;
+  applyUserTextFontFallback(titleEl, title);
+  applyUserTextFontFallback(msgEl, message);
 
   // Input field support
   const inputCfg = typeof opts === 'object' && opts ? opts.inputField : undefined;
   if (inputCfg) {
+    _dialogPreserveWhitespace = inputCfg.preserveWhitespace === true;
     const maxLen = inputCfg.maxLength || 0;
     const splitEvery = inputCfg.splitEvery || 0;
     if (maxLen > 0 && splitEvery > 0 && splitEvery < maxLen) {
@@ -249,13 +259,17 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       if (inputCfg.pattern) input.setAttribute('pattern', inputCfg.pattern);
       if (inputCfg.autocomplete) input.setAttribute('autocomplete', inputCfg.autocomplete);
       if (inputCfg.defaultValue) input.textContent = inputCfg.defaultValue;
+      applyUserTextFontFallback(input, inputCfg.defaultValue || '');
       input.addEventListener('paste', (e) => {
         e.preventDefault();
         const text = e.clipboardData?.getData('text/plain') || '';
         document.execCommand('insertText', false, maxLen ? text.slice(0, maxLen) : text);
       });
       // Stray-<br> placeholder restore — shared helper, see dom.ts.
-      input.addEventListener('input', (e) => normalizeEmptyContentEditable(input, e));
+      input.addEventListener('input', (e) => {
+        normalizeEmptyContentEditable(input, e);
+        applyUserTextFontFallback(input, input.textContent || '');
+      });
       if (maxLen) {
         input.addEventListener('beforeinput', (e) => {
           if (e.inputType === 'insertCompositionText') return; // Don't break IME
@@ -274,6 +288,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     const hint = document.createElement('div');
     hint.className = 'dialog-hint';
     hint.textContent = inputCfg.hint || '';
+    applyUserTextFontFallback(hint, hint.textContent);
     msgEl.appendChild(hint);
     _dialogHint = hint;
     _dialogHintDefault = inputCfg.hint || '';
@@ -285,6 +300,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     _dialogHint = null;
     _dialogValidator = null;
     _dialogHintDefault = '';
+    _dialogPreserveWhitespace = false;
   }
 
   okBtn.textContent = buttonText;
@@ -324,14 +340,16 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   const tryValidateAndClose = () => {
     if (_dialogValidator && _dialogInput) {
-      const val = _dialogInputValueGetter
-        ? _dialogInputValueGetter().trim()
-        : (_dialogInput.textContent || '').trim();
+      const rawValue = _dialogInputValueGetter
+        ? _dialogInputValueGetter()
+        : _dialogInput.textContent || '';
+      const val = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
       const error = _dialogValidator(val);
       if (error) {
         // Show inline error
         if (_dialogHint) {
           _dialogHint.textContent = error;
+          applyUserTextFontFallback(_dialogHint, error);
           _dialogHint.classList.add('error');
         }
         _dialogInput.classList.add('invalid');
@@ -355,6 +373,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const clearInputError = () => {
     if (_dialogHint && _dialogHint.classList.contains('error')) {
       _dialogHint.textContent = _dialogHintDefault;
+      applyUserTextFontFallback(_dialogHint, _dialogHintDefault);
       _dialogHint.classList.remove('error');
     }
     _dialogInput?.classList.remove('invalid');

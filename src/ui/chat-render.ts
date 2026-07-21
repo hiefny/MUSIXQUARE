@@ -12,6 +12,7 @@ import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 import { t } from '../i18n/index.ts';
 // Import the pure oEmbed fetcher leaf, NOT youtube/search.ts — the search
 // module pulls in the network/peer facade (broadcast) and would re-create
@@ -126,6 +127,7 @@ export function parseMessageContent(text: string): string {
 function renderParsedChatContent(target: HTMLElement, text: string): void {
   // Keep chat HTML insertion constrained to parseMessageContent's escaped output.
   target.innerHTML = parseMessageContent(text);
+  applyUserTextFontFallback(target, text);
 }
 
 async function updateYouTubeChatTitle(elementId: string, url: string): Promise<void> {
@@ -133,7 +135,10 @@ async function updateYouTubeChatTitle(elementId: string, url: string): Promise<v
     const title = await fetchOEmbedTitle(url);
     if (title) {
       const el = document.getElementById(elementId);
-      if (el) el.textContent = title;
+      if (el) {
+        el.textContent = title;
+        applyUserTextFontFallback(el, title);
+      }
     }
   } catch {
     /* ignore */
@@ -251,6 +256,7 @@ export function addChatMessage(
         orderSpan.textContent = ` #${joinOrder}`;
         senderNode.appendChild(orderSpan);
       }
+      applyUserTextFontFallback(senderNode, sender);
       group.appendChild(senderNode);
 
       const row = document.createElement('div');
@@ -347,6 +353,7 @@ export function addSystemChatMessage(text: string): void {
   } else {
     chatTextDiv.textContent = text;
   }
+  applyUserTextFontFallback(chatTextDiv, text);
   bubble.appendChild(chatTextDiv);
 
   const timeNode = document.createElement('div');
@@ -464,6 +471,7 @@ export function upsertBotChatMessage(
       // Keep model-authored content inert: BOT replies never create embedded
       // controls or timestamp actions from their text.
       chatText.textContent = text;
+      applyUserTextFontFallback(chatText, text);
       bubble.classList.remove('is-typing');
       bubble.classList.add('is-complete');
       bubble.setAttribute('aria-busy', 'false');
@@ -500,6 +508,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   senderNode.textContent = isSent
     ? t('chat.cmd_whisper_to', { name: peerLabel })
     : t('chat.cmd_whisper_from', { name: peerLabel });
+  applyUserTextFontFallback(senderNode, senderNode.textContent || peerLabel);
   group.appendChild(senderNode);
 
   const row = document.createElement('div');
@@ -579,8 +588,10 @@ function setPinnedNotice(sender: string, text: string, timestamp?: number): void
   // New automatic application events use gray CHAT_SYSTEM rows instead.
   const displayName = sender || t('chat.system_sender');
   label.textContent = `${t('chat.cmd_notice_prefix')} · ${displayName}`;
+  applyUserTextFontFallback(label, label.textContent || displayName);
   if (time) time.textContent = formatNoticeTime(timestamp);
   body.textContent = text;
+  applyUserTextFontFallback(body, text);
   banner.hidden = false;
   playPinnedNoticeAttentionHint(banner);
   // Hide the chat title once a notice is pinned — same rule as first message.

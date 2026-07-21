@@ -517,6 +517,74 @@ describe('connect i18n refresh', () => {
 });
 
 describe('member-level connection and administrator UI', () => {
+  it('applies script-aware fonts to mobile and desktop member/admin names', () => {
+    setState('network.appRole', 'host');
+    setState(
+      'network.standardRoomAdministrators',
+      new Map([
+        [
+          'member-thai',
+          {
+            memberId: 'member-thai',
+            memberDisplayNumber: 2,
+            isAuthenticated: true,
+            displayName: 'สวัสดี',
+            permissions: {
+              'media.add': true,
+              'playback.control': true,
+              'members.kick': false,
+              'chat.notice': false,
+            },
+          },
+        ],
+      ]),
+    );
+    initConnect();
+
+    bus.emit('network:device-list-update', [
+      {
+        id: 'host',
+        label: 'Host',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+      },
+      {
+        id: 'peer-ru',
+        label: 'Привет',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+      },
+      {
+        id: 'admin-thai',
+        label: 'สวัสดี',
+        joinOrder: 2,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'member-thai',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+      },
+    ]);
+
+    for (const listId of ['connect-device-list', 'desktop-device-list']) {
+      const russianName = Array.from(
+        document.querySelectorAll<HTMLElement>(`#${listId} .d-name-label`),
+      ).find((element) => element.textContent === 'Привет');
+      expect(russianName?.classList, listId).toContain('user-text-font-ru');
+    }
+    for (const listId of ['connect-administrator-list', 'desktop-administrator-list']) {
+      const thaiName = Array.from(
+        document.querySelectorAll<HTMLElement>(`#${listId} .d-name-label`),
+      ).find((element) => element.textContent === 'สวัสดี');
+      expect(thaiName?.classList, listId).toContain('user-text-font-th');
+    }
+  });
+
   it('keeps the current member blue without a display-row background', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     expect(stylesheet).toMatch(
@@ -853,6 +921,10 @@ describe('member-level connection and administrator UI', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const desktopStylesheet = await readFile('css/desktop.css', 'utf8');
     const deviceCountRules = stylesheet.match(/\.d-device-count\s*\{([^}]*)\}/)?.[1] ?? '';
+    const nameLabelRules = stylesheet.match(/\.device-row \.d-name-label\s*\{([^}]*)\}/)?.[1] ?? '';
+    const administratorRowRules = stylesheet.match(/\.administrator-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const administratorNameRules =
+      stylesheet.match(/\.administrator-row \.d-name\s*\{([^}]*)\}/)?.[1] ?? '';
     const dialogRules =
       stylesheet.match(/\.dialog\.administrator-permissions-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
     const shownDialogRules =
@@ -879,6 +951,12 @@ describe('member-level connection and administrator UI', () => {
     expect(deviceCountRules).toContain('background: transparent');
     expect(deviceCountRules).toContain('color: var(--primary)');
     expect(deviceCountRules).not.toContain('border-radius: 999px');
+    expect(nameLabelRules).toContain('display: block');
+    expect(nameLabelRules).toContain('flex: 1 1 auto');
+    expect(nameLabelRules).toContain('text-overflow: ellipsis');
+    expect(nameLabelRules).toContain('white-space: nowrap');
+    expect(administratorRowRules).toContain('min-width: 0');
+    expect(administratorNameRules).toContain('overflow: hidden');
     expect(dialogRules).toContain('transform: translateY(18px)');
     expect(dialogRules).not.toContain('scale(');
     expect(shownDialogRules).toContain('transform: translateY(0)');
@@ -1358,8 +1436,8 @@ describe('connect account nickname authority', () => {
 
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
     const validator = mockedShowDialog.mock.calls.at(-1)?.[0].inputField?.validator;
-    expect(validator?.('pEeR 99')).toBe(validator?.('HOST'));
-    expect(validator?.('Studio Tab')).toBeNull();
+    expect(validator?.('pEeR')).toBe(validator?.('HOST'));
+    expect(validator?.('Studio_Tab')).toBeNull();
   });
 
   it('does not treat a server-authority PRO owner as the reserved HOST identity', async () => {

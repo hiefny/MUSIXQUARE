@@ -2956,7 +2956,10 @@
   }
 
   .device-row .d-name-label {
+    display: block;
+    flex: 1 1 auto;
     min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3026,6 +3029,11 @@
 
   .administrator-row {
     cursor: default;
+    min-width: 0;
+  }
+
+  .administrator-row .d-name {
+    overflow: hidden;
   }
 
   .administrator-crown {
@@ -8711,6 +8719,45 @@
 }
 
 /* end @layer base */
+
+/* Script-aware fallback for user/external text. Kept outside @layer base so
+   these explicit rendering-boundary classes can override component stacks
+   without !important. Pretendard remains first for Latin/Korean UI text;
+   only confidently detected, lazily loaded script shards are inserted. */
+.user-text-font.user-text-font {
+  font-family:
+    'Pretendard',
+    var(--user-text-font-ru, '__MXQR_USER_TEXT_RU__'),
+    var(--user-text-font-th, '__MXQR_USER_TEXT_TH__'),
+    var(--user-text-font-ja, '__MXQR_USER_TEXT_JA__'),
+    var(--user-text-font-zh-hans, '__MXQR_USER_TEXT_ZH_HANS__'),
+    var(--user-text-font-zh-hant, '__MXQR_USER_TEXT_ZH_HANT__'),
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+.user-text-font-ru {
+  --user-text-font-ru: 'Noto Sans';
+}
+
+.user-text-font-th {
+  --user-text-font-th: 'Noto Sans Thai';
+}
+
+.user-text-font-ja {
+  --user-text-font-ja: 'Noto Sans JP';
+}
+
+.user-text-font-zh-hans {
+  --user-text-font-zh-hans: 'Noto Sans SC';
+}
+
+.user-text-font-zh-hant {
+  --user-text-font-zh-hant: 'Noto Sans TC';
+}
 
 /* ─── FOUC guard ──────────────────────────────────────────────
    fouc-cleanup.js adds .fouc-loaded after style.css parses and --bg resolves.

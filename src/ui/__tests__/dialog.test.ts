@@ -163,6 +163,25 @@ describe('Dialog System', () => {
 
       await expect(promise).resolves.toEqual({ action: 'ok', inputValue: '87654321' });
     });
+
+    it('preserves significant whitespace when an input policy asks for it', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const validator = vi.fn(() => null);
+      const promise = showDialog({
+        title: 'Nickname',
+        inputField: { validator, preserveWhitespace: true },
+      });
+      vi.advanceTimersByTime(10);
+
+      const input = document.querySelector<HTMLElement>('.dialog-input');
+      expect(input).not.toBeNull();
+      input!.textContent = ' Minsu ';
+      document.getElementById('btn-dialog-ok')?.click();
+      vi.advanceTimersByTime(10);
+
+      expect(validator).toHaveBeenCalledWith(' Minsu ');
+      await expect(promise).resolves.toEqual({ action: 'ok', inputValue: ' Minsu ' });
+    });
   });
 
   describe('closeDialog()', () => {

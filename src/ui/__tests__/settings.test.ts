@@ -292,7 +292,7 @@ describe('initSettings PRO device authority', () => {
     const deviceList = [
       {
         id: 'peer-1',
-        label: 'Peer 1',
+        label: 'Привет',
         status: 'connected',
         isHost: false,
         isOp: true,
@@ -302,6 +302,7 @@ describe('initSettings PRO device authority', () => {
     bus.emit('network:device-list-update', deviceList);
 
     expect(document.querySelector('.d-name')?.textContent).not.toContain('ADMIN');
+    expect(document.querySelector('.d-name')?.classList).toContain('user-text-font-ru');
     expect(document.querySelector('.btn-action')).toBeNull();
 
     setState('room.context', {

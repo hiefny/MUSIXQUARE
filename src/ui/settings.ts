@@ -36,6 +36,7 @@ import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -575,6 +576,7 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
     const name = document.createElement('span');
     name.className = 'd-name';
     name.textContent = String(p.label || t('common.peer'));
+    applyUserTextFontFallback(name, name.textContent);
 
     const shortId = document.createElement('span');
     shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';

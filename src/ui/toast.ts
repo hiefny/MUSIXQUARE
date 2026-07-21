@@ -7,6 +7,7 @@ import { t } from '../i18n/index.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
 import type { StandardOperatorFileUplinkProgress } from '../types/index.ts';
 import { suppressViewTransitions } from './dom.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 
 const TOAST_MAX_LINE_CHARS = 50;
 const TOAST_DYNAMIC_VALUE_CHARS = 28;
@@ -209,6 +210,7 @@ export function showToast(msg: unknown, options: { durationMs?: number } = {}): 
     }
 
     msgEl.innerText = displayText;
+    applyUserTextFontFallback(msgEl, displayText);
     msgEl.title = displayText === text ? '' : text;
     // If `.show` is already on (back-to-back toasts), briefly remove it and
     // force a reflow so the entrance animation replays — otherwise the new

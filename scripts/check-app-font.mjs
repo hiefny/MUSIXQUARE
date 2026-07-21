@@ -17,6 +17,13 @@ const publicFontPath = path.join(
   'PretendardVariable.woff2',
 );
 const failures = [];
+const lazyFontShards = [
+  { label: 'Japanese', family: 'Noto Sans JP', source: 'noto-jp.css' },
+  { label: 'Simplified Chinese', family: 'Noto Sans SC', source: 'noto-sc.css' },
+  { label: 'Traditional Chinese', family: 'Noto Sans TC', source: 'noto-tc.css' },
+  { label: 'Thai', family: 'Noto Sans Thai', source: 'noto-thai.css' },
+  { label: 'Cyrillic', family: 'Noto Sans', source: 'noto-cyrillic.css' },
+];
 
 function check(condition, message) {
   if (!condition) failures.push(message);
@@ -33,6 +40,33 @@ function hasFontPreload(html) {
       /\bcrossorigin(?:\s|=|>)/iu.test(tag)
     );
   });
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+function hasFontFace(css, family) {
+  return new RegExp(
+    `@font-face\\s*\\{[^}]*font-family\\s*:\\s*["']?${escapeRegExp(family)}["']?\\s*;`,
+    'iu',
+  ).test(css);
+}
+
+function collectInitialAssetUrls(html) {
+  const urls = [];
+  for (const match of html.matchAll(/<(?:link|script)\b[^>]*>/giu)) {
+    const url = /\b(?:href|src)=["']([^"']+)["']/iu.exec(match[0])?.[1];
+    if (url) urls.push(url);
+  }
+  return urls;
+}
+
+function localDistAssetPath(distDirectory, url) {
+  if (!url.startsWith('/') || url.startsWith('//')) return null;
+  const pathname = decodeURIComponent(url.split(/[?#]/u, 1)[0]).replace(/^\/+/, '');
+  if (!pathname || pathname.includes('..')) return null;
+  return path.join(distDirectory, ...pathname.split('/'));
 }
 
 async function collectFiles(directory) {
@@ -64,6 +98,19 @@ const [
   readFile(path.join(repoRoot, 'public', 'service-worker.js'), 'utf8'),
   readFile(path.join(repoRoot, 'package.json'), 'utf8'),
 ]);
+
+const lazyFontSourceCss = await Promise.all(
+  lazyFontShards.map(({ source }) => readFile(path.join(repoRoot, 'css', 'fonts', source), 'utf8')),
+);
+const lazyFontAssetStems = [
+  ...new Set(
+    lazyFontSourceCss.flatMap((css) =>
+      [...css.matchAll(/url\((?:["']?)([^)"']+\.woff2)(?:["']?)\)/giu)].map((match) =>
+        path.basename(match[1], '.woff2'),
+      ),
+    ),
+  ),
+];
 
 check(sourceFont.subarray(0, 4).toString('ascii') === 'wOF2', 'source font is not WOFF2');
 check(sourceFont.byteLength >= 1_500_000, 'source font looks like a subset, not the complete face');
@@ -138,6 +185,61 @@ if (distMode) {
     builtCss.some((css) => css.includes(fontUrl)),
     'built CSS does not reference the canonical full font asset',
   );
+
+  // Vite must keep the five locale faces behind their dynamic CSS imports.
+  // Inspect content rather than hashes: output filenames are intentionally
+  // unstable, while an @font-face family uniquely identifies each shard.
+  const lazyShardFiles = [];
+  lazyFontShards.forEach(({ label, family }) => {
+    const matchingFiles = builtCssFiles.filter((_, index) => hasFontFace(builtCss[index], family));
+    check(
+      matchingFiles.length === 1,
+      `${label} font should exist in exactly one built lazy CSS shard (found ${matchingFiles.length})`,
+    );
+    if (matchingFiles.length === 1) lazyShardFiles.push(matchingFiles[0]);
+  });
+  check(
+    new Set(lazyShardFiles).size === lazyFontShards.length,
+    'locale fonts must remain five independent lazy CSS shards',
+  );
+
+  const initialAssetUrls = collectInitialAssetUrls(distHtml);
+  const initialAssetFiles = initialAssetUrls
+    .filter((url) => /\.(?:css|m?js)(?:[?#]|$)/iu.test(url))
+    .map((url) => localDistAssetPath(distDirectory, url))
+    .filter(Boolean);
+  const initialAssetContents = await Promise.all(
+    initialAssetFiles.map((file) => readFile(file, 'utf8')),
+  );
+  const initialAssetSet = new Set(initialAssetFiles.map((file) => path.resolve(file)));
+
+  for (const shardFile of lazyShardFiles) {
+    check(
+      !initialAssetSet.has(path.resolve(shardFile)),
+      `${path.basename(shardFile)} is linked by the initial document instead of loading lazily`,
+    );
+  }
+  for (const { label, family } of lazyFontShards) {
+    check(
+      !initialAssetContents.some((content) => hasFontFace(content, family)),
+      `${label} @font-face was absorbed into an initial CSS/JS asset`,
+    );
+  }
+  check(
+    !initialAssetContents.some((content) =>
+      lazyFontAssetStems.some((stem) => content.includes(stem)),
+    ),
+    'a Noto font asset URL was absorbed into an initial CSS/JS asset',
+  );
+
+  const initialFontPreloads = [...distHtml.matchAll(/<link\b[^>]*>/giu)]
+    .map((match) => match[0])
+    .filter((tag) => /\brel=["']preload["']/iu.test(tag) && /\bas=["']font["']/iu.test(tag))
+    .map((tag) => /\bhref=["']([^"']+)["']/iu.exec(tag)?.[1] || '');
+  check(
+    initialFontPreloads.length === 1 && initialFontPreloads[0] === fontUrl,
+    'the initial document must preload only the canonical Pretendard face',
+  );
 }
 
 if (failures.length > 0) {
@@ -148,6 +250,6 @@ if (failures.length > 0) {
 } else {
   const sizeKib = (sourceFont.byteLength / 1024).toFixed(1);
   console.log(
-    `Pretendard full-font guard passed (${sizeKib} KiB${distMode ? ', built artifact checked' : ''}).`,
+    `Pretendard full-font guard passed (${sizeKib} KiB${distMode ? ', built artifact and lazy Noto shards checked' : ''}).`,
   );
 }

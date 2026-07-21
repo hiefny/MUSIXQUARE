@@ -10,7 +10,9 @@ import {
 } from '../account/state.ts';
 import { removeAccount, signOutAccount, startAccountSessionRefresh } from '../account/session.ts';
 import {
+  accountNicknameMutationErrorMessage,
   ACCOUNT_NICKNAME_MAX_CODE_POINTS,
+  isAccountNicknameTakenError,
   updateCurrentAccountNickname,
   validateAccountNickname,
 } from '../account/nickname.ts';
@@ -24,6 +26,7 @@ import { getRoomContext } from '../rooms/authority.ts';
 import { showDialog } from './dialog.ts';
 import { syncOverlayState } from './dom.ts';
 import { showToast } from './toast.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 
 const _busScope = createBusScope();
 const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
@@ -237,6 +240,11 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   if (!title || !message || !nickname || !content || !google || !googleLabel || !legal || !actions)
     return;
 
+  const syncRenderedTextFonts = () => {
+    applyUserTextFontFallback(title, title.textContent || '');
+    applyUserTextFontFallback(message, message.textContent || '');
+  };
+
   content.hidden = false;
   message.hidden = false;
   nickname.hidden = true;
@@ -260,17 +268,20 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
     }
     if (logout) logout.textContent = t('account.logout');
     if (remove) remove.textContent = t('account.delete_account');
+    syncRenderedTextFonts();
     return;
   }
 
   title.textContent = t('account.login_title');
   if (snapshot.status === 'loading') {
     message.textContent = t('common.wait');
+    syncRenderedTextFonts();
     return;
   }
 
   if (snapshot.status === 'unavailable' || snapshot.configured === false) {
     message.textContent = t('account.unavailable');
+    syncRenderedTextFonts();
     return;
   }
 
@@ -279,6 +290,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   google.href = buildGoogleLoginUrl();
   google.hidden = false;
   legal.hidden = false;
+  syncRenderedTextFonts();
 }
 
 function getFocusableElements(): HTMLElement[] {
@@ -332,30 +344,43 @@ export async function requestAccountNicknameChange(): Promise<void> {
 
   try {
     const account = getAccountSnapshot().account;
-    const result = await showDialog({
-      title: t('account.nickname_title'),
-      message: t('account.nickname_message'),
-      inputField: {
-        placeholder: t('account.nickname_placeholder'),
-        defaultValue: account?.profileComplete ? account.nickname : account?.nickname || '',
-        // HTML maxLength counts UTF-16 code units. Leave room for 12 astral
-        // code points (for example emoji); the validator enforces the exact
-        // server-side code-point contract.
-        maxLength: ACCOUNT_NICKNAME_MAX_CODE_POINTS * 2,
-        hint: t('account.nickname_hint'),
-        validator: validateAccountNickname,
-      },
-      buttonText: t('common.ok'),
-      secondaryText: account?.profileComplete ? t('common.cancel') : t('common.later'),
-      defaultFocus: 'primary',
-      dismissible: true,
-    });
-    if (result.action !== 'ok') return;
-    try {
-      const nickname = await updateCurrentAccountNickname(result.inputValue || '');
-      showToast(t('account.nickname_saved', { name: nickname }));
-    } catch {
-      showToast(t('account.action_failed'));
+    let defaultValue = account?.profileComplete ? account.nickname : account?.nickname || '';
+    let hint = t('account.nickname_hint');
+    while (true) {
+      const result = await showDialog({
+        title: t('account.nickname_title'),
+        message: t('account.nickname_message'),
+        inputField: {
+          placeholder: t('account.nickname_placeholder'),
+          defaultValue,
+          // HTML maxLength counts UTF-16 code units. Leave room for 12 astral
+          // code points (for example emoji); the validator enforces the exact
+          // server-side code-point contract.
+          maxLength: ACCOUNT_NICKNAME_MAX_CODE_POINTS * 2,
+          hint,
+          validator: validateAccountNickname,
+          preserveWhitespace: true,
+        },
+        buttonText: t('common.ok'),
+        secondaryText: account?.profileComplete ? t('common.cancel') : t('common.later'),
+        defaultFocus: 'primary',
+        dismissible: true,
+      });
+      if (result.action !== 'ok') return;
+      try {
+        const nickname = await updateCurrentAccountNickname(result.inputValue || '');
+        showToast(t('account.nickname_saved', { name: nickname }));
+        return;
+      } catch (error) {
+        const message = accountNicknameMutationErrorMessage(error);
+        showToast(message);
+        if (!isAccountNicknameTakenError(error)) return;
+        // A race-safe UNIQUE constraint can reject a name after the local
+        // validator passes. Keep the attempted spelling and immediately let
+        // both first-login and later rename flows try another name.
+        defaultValue = result.inputValue || '';
+        hint = message;
+      }
     }
   } finally {
     _profilePromptActive = false;

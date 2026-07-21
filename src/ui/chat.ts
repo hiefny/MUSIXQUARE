@@ -39,6 +39,7 @@ import {
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
 import { normalizeEmptyContentEditable } from './dom.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 
 // ─── Chat State ──────────────────────────────────────────────────
 
@@ -77,8 +78,9 @@ function updateChatPreview(sender: string, text: string): void {
   if (!previewBtn) return;
 
   const previewText = previewBtn.querySelector('.chat-preview-text');
-  if (previewText) {
+  if (previewText instanceof HTMLElement) {
     previewText.textContent = `${sender}: ${text}`;
+    applyUserTextFontFallback(previewText, previewText.textContent);
   }
 }
 

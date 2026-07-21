@@ -5,13 +5,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { upsertBotChatMessage } from '../chat-render.ts';
 
+const userTextFontMocks = vi.hoisted(() => ({
+  loadLocaleFont: vi.fn(async () => undefined),
+}));
+
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
+}));
+
+vi.mock('../../i18n/locale-fonts.ts', () => ({
+  loadLocaleFont: userTextFontMocks.loadLocaleFont,
 }));
 
 vi.mock('../../youtube/oembed.ts', () => ({
   fetchOEmbedTitle: vi.fn(async () => null),
 }));
+
+function expectFontClasses(element: Element | null | undefined, ...classes: string[]): void {
+  expect(element).not.toBeNull();
+  for (const className of classes) {
+    expect(element?.classList.contains(className)).toBe(true);
+  }
+}
 
 function renderShell(): HTMLElement {
   document.body.innerHTML = `
@@ -87,6 +102,18 @@ describe('BOT chat bubble renderer', () => {
     expect(text?.querySelector('img,script')).toBeNull();
     expect(text?.innerHTML).not.toContain('<img');
     expect(text?.innerHTML).not.toContain('<script');
+  });
+
+  it('marks a completed BOT response from its own script', () => {
+    renderShell();
+
+    upsertBotChatMessage('request-font', 'complete', 'かなの曲を追加しました');
+
+    expectFontClasses(
+      document.querySelector('.chat-bubble.bot .chat-text'),
+      'user-text-font',
+      'user-text-font-ja',
+    );
   });
 
   it('keeps separate request ids in separate independent groups', () => {

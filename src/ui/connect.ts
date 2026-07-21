@@ -17,6 +17,7 @@ import { navigateToAppHome } from '../core/navigation.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 import { requestAccountNicknameChange } from './account.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
 import type { DeviceInfo, StandardRoomPermissionSet } from '../types/index.ts';
 import type {
@@ -570,6 +571,7 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
       const nameLabel = document.createElement('span');
       nameLabel.className = 'd-name-label';
       nameLabel.textContent = administrator.displayName || t('common.peer');
+      applyUserTextFontFallback(nameLabel, nameLabel.textContent);
       name.appendChild(nameLabel);
       row.appendChild(name);
 
@@ -775,6 +777,7 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
   _permissionDialogPreviousContainerId =
     _permissionDialogPreviousFocus?.closest<HTMLElement>('.administrator-list')?.id || null;
   member.textContent = administrator.displayName;
+  applyUserTextFontFallback(member, administrator.displayName);
   syncPermissionDialogRows(_permissionDialogTarget);
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
@@ -917,6 +920,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       const nameLabel = document.createElement('span');
       nameLabel.className = 'd-name-label';
       nameLabel.textContent = member.label || t('common.peer');
+      applyUserTextFontFallback(nameLabel, nameLabel.textContent);
       name.appendChild(nameLabel);
       if (member.deviceCount > 1) {
         const deviceCount = document.createElement('span');
@@ -1124,9 +1128,7 @@ export function initConnect(): void {
 
   // Account nickname buttons (mobile + desktop)
   const nicknameChangeHandler = () => void requestAccountNicknameChange();
-  document
-    .getElementById('btn-change-nickname')
-    ?.addEventListener('click', nicknameChangeHandler);
+  document.getElementById('btn-change-nickname')?.addEventListener('click', nicknameChangeHandler);
   document
     .getElementById('desktop-btn-change-nickname')
     ?.addEventListener('click', nicknameChangeHandler);

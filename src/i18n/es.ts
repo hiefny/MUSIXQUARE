@@ -56,6 +56,8 @@ const es: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Apodo',
   'account.nickname_hint': 'Usa hasta 12 caracteres.',
   'account.nickname_required': 'Introduce un apodo.',
+  'account.nickname_whitespace': 'El apodo no puede contener espacios.',
+  'account.nickname_taken': 'Ese apodo ya está en uso.',
   'account.nickname_saved': 'Apodo cambiado a {{name}}.',
   'account.action_failed': 'No se pudo actualizar la cuenta. Inténtalo de nuevo.',
   'account.delete_confirm_title': '¿Eliminar tu cuenta?',

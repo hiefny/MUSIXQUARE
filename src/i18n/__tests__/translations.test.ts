@@ -378,6 +378,8 @@ describe('Translation key integrity', () => {
       'account.nickname_placeholder',
       'account.nickname_hint',
       'account.nickname_required',
+      'account.nickname_whitespace',
+      'account.nickname_taken',
       'account.nickname_saved',
       'account.action_failed',
       'account.delete_confirm_title',

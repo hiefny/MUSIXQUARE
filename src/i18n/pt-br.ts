@@ -56,6 +56,8 @@ const ptBr: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Apelido',
   'account.nickname_hint': 'Use até 12 caracteres.',
   'account.nickname_required': 'Digite um apelido.',
+  'account.nickname_whitespace': 'O apelido não pode conter espaços.',
+  'account.nickname_taken': 'Esse apelido já está em uso.',
   'account.nickname_saved': 'Apelido alterado para {{name}}.',
   'account.action_failed': 'Não foi possível atualizar a conta. Tente novamente mais tarde.',
   'account.delete_confirm_title': 'Excluir sua conta?',

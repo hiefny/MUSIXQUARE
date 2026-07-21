@@ -52,6 +52,8 @@ const th: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'ชื่อเล่น',
   'account.nickname_hint': 'ใช้ได้สูงสุด 12 อักขระ',
   'account.nickname_required': 'กรุณาใส่ชื่อเล่น',
+  'account.nickname_whitespace': 'ชื่อเล่นต้องไม่มีช่องว่าง',
+  'account.nickname_taken': 'ชื่อเล่นนี้ถูกใช้แล้ว',
   'account.nickname_saved': 'เปลี่ยนชื่อเล่นเป็น {{name}} แล้ว',
   'account.action_failed': 'อัปเดตบัญชีไม่ได้ โปรดลองอีกครั้งภายหลัง',
   'account.delete_confirm_title': 'ลบบัญชีของคุณ?',

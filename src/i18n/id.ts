@@ -56,6 +56,8 @@ const id: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Nama panggilan',
   'account.nickname_hint': 'Maksimal 12 karakter.',
   'account.nickname_required': 'Masukkan nama panggilan.',
+  'account.nickname_whitespace': 'Nama panggilan tidak boleh mengandung spasi.',
+  'account.nickname_taken': 'Nama panggilan tersebut sudah digunakan.',
   'account.nickname_saved': 'Nama panggilan diubah menjadi {{name}}.',
   'account.action_failed': 'Akun tidak dapat diperbarui. Coba lagi nanti.',
   'account.delete_confirm_title': 'Hapus akun Anda?',

@@ -86,6 +86,14 @@ render without a forced rename. A grandfathered nickname is checked against the
 12-code-point limit only when its owner actively submits a nickname update; an
 unchanged session read is never treated as a new write.
 
+New and changed nicknames cannot contain Unicode whitespace and are globally
+unique by a server-owned comparison key (`NFKC -> fixed-locale lowercase ->
+NFC`). The original NFC display form and casing are retained. A partial unique
+D1 index, rather than an availability check in the browser, serializes competing
+claims. Deleting an account releases its nickname. The product does not expose a
+public nickname directory or availability endpoint, and neither a nickname nor
+its comparison key is authority evidence.
+
 Nickname moderation is intentionally narrower than chat moderation. New and
 changed account nicknames reject only standalone whole-word matches generated
 from the English `EN.words` source, including that source's variations.
@@ -207,8 +215,8 @@ queue mode, member removal, and chat-room controls). It remains a guest
 transport: the room PIN, administrator grant editor, system-audio publisher,
 coordinator eligibility, host-only inbound trust, and teardown stay bound to
 the physical host browser. Logging out or losing the verified room identity on
-that second device removes the projection immediately; matching nicknames are
-never authority evidence. Under PRO member-authority projection `1`, an
+that second device removes the projection immediately; visually confusable
+nicknames are never authority evidence. Under PRO member-authority projection `1`, an
 ordinary PRO member receives no playback capability. The owner always retains
 `playback.control`; a delegated PRO administrator receives it only when the
 owner explicitly enables the playback toggle, and revoking that toggle removes
@@ -242,7 +250,8 @@ Display text is not an identity key. Chat frames carry a stable message ID and
 a room member pseudonym in addition to their device transport source.
 
 - Messages sent from several devices of one account group as one person.
-- Two accounts with the same nickname never merge.
+- Account and room-member IDs, never display text, determine grouping; legacy or
+  externally introduced duplicate labels cannot merge identities.
 - Join is emitted when a room member's first device enters; leave is emitted
   when the last device leaves.
 - Message deduplication remains message/device aware so simultaneous messages
@@ -341,8 +350,8 @@ rather than rolling below the compatibility floor.
 - Account-wide kick, stale-ticket rejection, and owner/admin target protection.
 - Per-capability allow/deny tests for UI, BOT, Developer API, upload, queue,
   playback, effects, kick, announcement, and system audio.
-- Chat grouping/deduplication for same account across devices and different
-  accounts with identical nicknames.
+- Chat grouping/deduplication for one account across devices, plus defensive
+  handling of duplicate display labels introduced by legacy or corrupted data.
 - New and cached-client compatibility during the additive deployment sequence.
 
 ## Rejected alternatives

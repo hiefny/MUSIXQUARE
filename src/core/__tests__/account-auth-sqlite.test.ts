@@ -6,6 +6,7 @@ import {
   handleAccountAuthRequest,
   resetAccountAuthCachesForTests,
 } from '../../../cloudflare/account-auth.js';
+import { normalizeSchemaSql } from '../../../scripts/account-stage2-preflight.mjs';
 
 const ORIGIN = 'https://musixquare.com';
 const SESSION_PEPPER = 'sqlite-session-pepper-for-tests-at-least-32-bytes';
@@ -14,6 +15,27 @@ const SCHEMA = readFileSync(
   new URL('../../../cloudflare/auth.schema.sql', import.meta.url),
   'utf8',
 );
+const NICKNAME_KEY_MIGRATION = readFileSync(
+  new URL('../../../cloudflare/auth.nickname-key.migration.sql', import.meta.url),
+  'utf8',
+);
+
+function schemaBeforeNicknameKeyMigration(): string {
+  const columnStart = SCHEMA.indexOf('  -- Appended by the global-nickname migration.');
+  const followingConstraint = SCHEMA.indexOf('  CHECK (length(account_id)', columnStart);
+  if (columnStart < 0 || followingConstraint < 0) {
+    throw new Error('Unable to derive the pre-nickname-key account schema fixture.');
+  }
+  const withoutColumn = `${SCHEMA.slice(0, columnStart)}${SCHEMA.slice(followingConstraint)}`;
+  const withoutIndex = withoutColumn.replace(
+    /\nCREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_accounts_nickname_key[\s\S]*?WHERE nickname_key IS NOT NULL;\n/u,
+    '\n',
+  );
+  if (withoutIndex.includes('nickname_key')) {
+    throw new Error('Pre-migration account schema fixture still contains nickname_key.');
+  }
+  return withoutIndex;
+}
 const sqlite = (() => {
   try {
     return createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
@@ -130,15 +152,21 @@ function request(
   });
 }
 
-async function seedAccount(db: SqliteD1, tokens: readonly string[]): Promise<void> {
+async function seedAccount(
+  db: SqliteD1,
+  tokens: readonly string[],
+  options: { accountId?: string; subjectHash?: string } = {},
+): Promise<void> {
   const now = Date.now() - 5_000;
+  const accountId = options.accountId ?? ACCOUNT_ID;
+  const subjectHash = options.subjectHash ?? 'S'.repeat(43);
   db.database
     .prepare(
       `INSERT INTO mxqr_accounts
          (account_id, google_subject_hash, nickname, profile_complete, status, created_at, updated_at)
        VALUES (?, ?, NULL, 0, 'active', ?, ?)`,
     )
-    .run(ACCOUNT_ID, 'S'.repeat(43), now, now);
+    .run(accountId, subjectHash, now, now);
   for (const token of tokens) {
     db.database
       .prepare(
@@ -146,7 +174,7 @@ async function seedAccount(db: SqliteD1, tokens: readonly string[]): Promise<voi
            (session_hash, account_id, created_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(await sessionHash(token), ACCOUNT_ID, now, now, now + 86_400_000);
+      .run(await sessionHash(token), accountId, now, now, now + 86_400_000);
   }
 }
 
@@ -155,6 +183,43 @@ afterEach(() => {
 });
 
 (sqlite ? describe : describe.skip)('account auth against the tracked SQLite/D1 schema', () => {
+  it('applies the tracked nickname migration to the previous schema and matches canonical SQL', () => {
+    if (!sqlite) throw new Error('node:sqlite is unavailable');
+    const migrated = new sqlite.DatabaseSync(':memory:');
+    const canonical = new sqlite.DatabaseSync(':memory:');
+    try {
+      migrated.exec(schemaBeforeNicknameKeyMigration());
+      migrated
+        .prepare(
+          `INSERT INTO mxqr_accounts
+             (account_id, google_subject_hash, nickname, profile_complete, status, created_at, updated_at)
+           VALUES (?, ?, 'MUSIXQUARE', 1, 'active', 1, 1)`,
+        )
+        .run(ACCOUNT_ID, 'S'.repeat(43));
+      migrated.exec(NICKNAME_KEY_MIGRATION);
+      canonical.exec(SCHEMA);
+
+      expect(
+        migrated.prepare('SELECT nickname_key FROM mxqr_accounts WHERE account_id = ?').get(ACCOUNT_ID),
+      ).toMatchObject({ nickname_key: 'musixquare' });
+
+      for (const objectName of ['mxqr_accounts', 'idx_mxqr_accounts_nickname_key']) {
+        const migratedSql = migrated
+          .prepare('SELECT sql FROM sqlite_master WHERE name = ?')
+          .get(objectName)?.sql;
+        const canonicalSql = canonical
+          .prepare('SELECT sql FROM sqlite_master WHERE name = ?')
+          .get(objectName)?.sql;
+        expect(normalizeSchemaSql(migratedSql), objectName).toBe(
+          normalizeSchemaSql(canonicalSql),
+        );
+      }
+    } finally {
+      migrated.close();
+      canonical.close();
+    }
+  });
+
   it('shares one nickname across device sessions and preserves single-device logout semantics', async () => {
     const db = new SqliteD1();
     const firstToken = 'a'.repeat(43);
@@ -178,7 +243,7 @@ afterEach(() => {
         request('/api/auth/profile', {
           method: 'PATCH',
           token: firstToken,
-          body: { nickname: '  Minsu  ' },
+          body: { nickname: 'Minsu' },
         }),
         env,
       );
@@ -256,6 +321,189 @@ afterEach(() => {
         .prepare('SELECT nickname, profile_complete FROM mxqr_accounts WHERE account_id = ?')
         .get(ACCOUNT_ID);
       expect(stored).toMatchObject({ nickname: legacyNickname, profile_complete: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('enforces global case, compatibility, and NFC uniqueness while allowing same-account casing changes', async () => {
+    const db = new SqliteD1();
+    const firstToken = 'h'.repeat(43);
+    const secondToken = 'i'.repeat(43);
+    const thirdToken = 'j'.repeat(43);
+    const secondAccountId = `acct_${'B'.repeat(22)}`;
+    const thirdAccountId = `acct_${'C'.repeat(22)}`;
+    try {
+      await seedAccount(db, [firstToken]);
+      await seedAccount(db, [secondToken], {
+        accountId: secondAccountId,
+        subjectHash: 'T'.repeat(43),
+      });
+      await seedAccount(db, [thirdToken], {
+        accountId: thirdAccountId,
+        subjectHash: 'U'.repeat(43),
+      });
+      const env = authEnv(db);
+
+      const firstClaim = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token: firstToken,
+          body: { nickname: 'MUSIXQUARE' },
+        }),
+        env,
+      );
+      expect(firstClaim.status).toBe(200);
+
+      for (const nickname of ['musixquare', 'ＭＵＳＩＸＱＵＡＲＥ']) {
+        const collision = await handleAccountAuthRequest(
+          request('/api/auth/profile', {
+            method: 'PATCH',
+            token: secondToken,
+            body: { nickname },
+          }),
+          env,
+        );
+        expect(collision.status, nickname).toBe(409);
+        await expect(collision.json()).resolves.toEqual({ error: 'NICKNAME_TAKEN' });
+      }
+
+      const sameAccountRename = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token: firstToken,
+          body: { nickname: 'musixquare' },
+        }),
+        env,
+      );
+      expect(sameAccountRename.status).toBe(200);
+      await expect(sameAccountRename.json()).resolves.toMatchObject({
+        account: { nickname: 'musixquare', profileComplete: true },
+      });
+
+      const composedClaim = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token: secondToken,
+          body: { nickname: 'Caf\u00e9' },
+        }),
+        env,
+      );
+      expect(composedClaim.status).toBe(200);
+
+      const decomposedCollision = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token: thirdToken,
+          body: { nickname: 'Cafe\u0301' },
+        }),
+        env,
+      );
+      expect(decomposedCollision.status).toBe(409);
+      await expect(decomposedCollision.json()).resolves.toEqual({ error: 'NICKNAME_TAKEN' });
+
+      expect(
+        db.database
+          .prepare('SELECT nickname, nickname_key FROM mxqr_accounts WHERE account_id = ?')
+          .get(ACCOUNT_ID),
+      ).toMatchObject({ nickname: 'musixquare', nickname_key: 'musixquare' });
+      expect(
+        db.database
+          .prepare('SELECT nickname, nickname_key FROM mxqr_accounts WHERE account_id = ?')
+          .get(secondAccountId),
+      ).toMatchObject({ nickname: 'Caf\u00e9', nickname_key: 'caf\u00e9' });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects whitespace at the HTTP boundary without mutating the stored nickname', async () => {
+    const db = new SqliteD1();
+    const token = 'k'.repeat(43);
+    try {
+      await seedAccount(db, [token]);
+      const env = authEnv(db);
+      for (const nickname of ['Min su', ' Minsu', 'Minsu\u00a0', 'Min\tsu', 'Min\nsu']) {
+        const response = await handleAccountAuthRequest(
+          request('/api/auth/profile', {
+            method: 'PATCH',
+            token,
+            body: { nickname },
+          }),
+          env,
+        );
+        expect(response.status, JSON.stringify(nickname)).toBe(400);
+        await expect(response.json()).resolves.toEqual({ error: 'NICKNAME_INVALID' });
+      }
+      expect(
+        db.database
+          .prepare(
+            'SELECT nickname, nickname_key, profile_complete FROM mxqr_accounts WHERE account_id = ?',
+          )
+          .get(ACCOUNT_ID),
+      ).toMatchObject({ nickname: null, nickname_key: null, profile_complete: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('releases a global nickname reservation after account deletion', async () => {
+    const db = new SqliteD1();
+    const firstToken = 'l'.repeat(43);
+    const secondToken = 'm'.repeat(43);
+    const secondAccountId = `acct_${'D'.repeat(22)}`;
+    try {
+      await seedAccount(db, [firstToken]);
+      await seedAccount(db, [secondToken], {
+        accountId: secondAccountId,
+        subjectHash: 'V'.repeat(43),
+      });
+      const env = authEnv(db);
+
+      const claim = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token: firstToken,
+          body: { nickname: 'Reusable' },
+        }),
+        env,
+      );
+      expect(claim.status).toBe(200);
+
+      const beforeDeletion = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token: secondToken,
+          body: { nickname: 'reusable' },
+        }),
+        env,
+      );
+      expect(beforeDeletion.status).toBe(409);
+
+      const deletion = await handleAccountAuthRequest(
+        request('/api/auth/account', {
+          method: 'DELETE',
+          token: firstToken,
+          body: { confirm: true },
+        }),
+        env,
+      );
+      expect(deletion.status).toBe(200);
+
+      const reclaimed = await handleAccountAuthRequest(
+        request('/api/auth/profile', {
+          method: 'PATCH',
+          token: secondToken,
+          body: { nickname: 'reusable' },
+        }),
+        env,
+      );
+      expect(reclaimed.status).toBe(200);
+      expect(
+        db.database
+          .prepare('SELECT nickname, nickname_key FROM mxqr_accounts WHERE account_id = ?')
+          .get(secondAccountId),
+      ).toMatchObject({ nickname: 'reusable', nickname_key: 'reusable' });
     } finally {
       db.close();
     }

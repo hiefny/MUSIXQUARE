@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
-import { normalizeAccountNickname, validateAccountNickname } from '../nickname.ts';
+import {
+  accountNicknameKeyForTests,
+  normalizeAccountNickname,
+  validateAccountNickname,
+} from '../nickname.ts';
 
 beforeEach(() => {
   resetState();
 });
 
 describe('account nickname validation', () => {
-  it('allows two different accounts to use the same display nickname', () => {
+  it('leaves global uniqueness to the race-safe account service', () => {
     setState('network.lastKnownDeviceList', [
       {
         id: 'other-device',
@@ -27,15 +31,25 @@ describe('account nickname validation', () => {
     expect(validateAccountNickname('🎵'.repeat(13))).not.toBeNull();
   });
 
-  it('strips C1 controls before reserved-name validation', () => {
-    expect(normalizeAccountNickname('H\u0085OST')).toBe('HOST');
+  it('keeps display NFC while rejecting hidden controls before submission', () => {
+    expect(normalizeAccountNickname('e\u0301')).toBe('\u00e9');
+    expect(normalizeAccountNickname('H\u0085OST')).toBe('H\u0085OST');
     expect(validateAccountNickname('H\u0085OST')).not.toBeNull();
   });
 
-  it('matches the server boundary for line separators and combining-only names', () => {
-    expect(normalizeAccountNickname('Min\u2028su')).toBe('Minsu');
-    expect(validateAccountNickname('Min\u2028su')).toBeNull();
+  it('rejects every Unicode whitespace form and combining-only names', () => {
+    for (const whitespace of [' ', '\t', '\n', '\u00a0', '\u1680', '\u2007', '\u2028', '\u202f']) {
+      expect(
+        validateAccountNickname(`Min${whitespace}su`),
+        JSON.stringify(whitespace),
+      ).not.toBeNull();
+    }
     expect(validateAccountNickname('\u0301\u0308')).not.toBeNull();
+  });
+
+  it('uses the service NFKC/case key for reserved-name validation', () => {
+    expect(accountNicknameKeyForTests('Ｍｉｎｓｕ')).toBe('minsu');
+    expect(validateAccountNickname('ＨＯＳＴ')).not.toBeNull();
   });
 
   it('allows Korean text while rejecting only standalone English profanity', () => {

@@ -56,6 +56,8 @@ const fr: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Pseudo',
   'account.nickname_hint': '12 caractères maximum.',
   'account.nickname_required': 'Saisissez un pseudo.',
+  'account.nickname_whitespace': 'Le pseudo ne peut pas contenir d’espaces.',
+  'account.nickname_taken': 'Ce pseudo est déjà utilisé.',
   'account.nickname_saved': 'Pseudo remplacé par {{name}}.',
   'account.action_failed': 'Impossible de mettre à jour le compte. Réessayez plus tard.',
   'account.delete_confirm_title': 'Supprimer votre compte ?',

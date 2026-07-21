@@ -53,6 +53,8 @@ const ko = {
   'account.nickname_placeholder': '닉네임',
   'account.nickname_hint': '12자 이내로 입력해 주세요.',
   'account.nickname_required': '닉네임을 입력해 주세요.',
+  'account.nickname_whitespace': '닉네임에는 공백을 사용할 수 없어요.',
+  'account.nickname_taken': '이미 사용 중인 닉네임이에요.',
   'account.nickname_saved': '{{name}} 님으로 변경했어요.',
   'account.action_failed': '계정 정보를 변경하지 못했어요. 잠시 후 다시 시도해 주세요.',
   'account.delete_confirm_title': '계정을 삭제할까요?',

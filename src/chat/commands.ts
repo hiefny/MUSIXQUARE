@@ -32,6 +32,7 @@ import { cmdDebug } from './debug-console.ts';
 import { extractBotPrompt } from './bot-syntax.ts';
 import { isAccountAuthenticated } from '../account/state.ts';
 import {
+  accountNicknameMutationErrorMessage,
   normalizeAccountNickname,
   updateCurrentAccountNickname,
   validateAccountNickname,
@@ -454,8 +455,8 @@ function cmdNick(_: string[], rawArgs: string): void {
     .then((nickname) => {
       addSystemChatMessage(t('chat.cmd_nick_changed', { name: nickname }));
     })
-    .catch(() => {
-      addSystemChatMessage(t('account.action_failed'));
+    .catch((error: unknown) => {
+      addSystemChatMessage(accountNicknameMutationErrorMessage(error));
     });
 }
 

@@ -55,6 +55,8 @@ const ja: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'ニックネーム',
   'account.nickname_hint': '12文字以内で入力してください。',
   'account.nickname_required': 'ニックネームを入力してください。',
+  'account.nickname_whitespace': 'ニックネームに空白は使用できません。',
+  'account.nickname_taken': 'このニックネームはすでに使用されています。',
   'account.nickname_saved': 'ニックネームを{{name}}に変更しました。',
   'account.action_failed': 'アカウントを更新できませんでした。しばらくしてから再試行してください。',
   'account.delete_confirm_title': 'アカウントを削除しますか？',

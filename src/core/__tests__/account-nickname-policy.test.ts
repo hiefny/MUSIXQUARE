@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  accountNicknameKey,
   normalizeAccountNickname,
   normalizeNewAccountNickname,
 } from '../../../cloudflare/account-nickname.js';
@@ -26,5 +27,37 @@ describe('account nickname length policy', () => {
     expect(normalizeNewAccountNickname('fuck')).toBeNull();
     expect(normalizeNewAccountNickname('Cassidy')).toBe('Cassidy');
     expect(normalizeNewAccountNickname('assignment')).toBe('assignment');
+  });
+
+  it('rejects every whitespace form and folds case and compatibility glyphs into one key', () => {
+    for (const nickname of [
+      'Min su',
+      ' Minsu',
+      'Minsu ',
+      'Minsu\u00a0',
+      'Min\u1680su',
+      'Min\u2000su',
+      'Min\u2028su',
+      'Min\u2029su',
+      'Min\u202fsu',
+      'Min\u205fsu',
+      'Min\u3000su',
+      'Min\tsu',
+      'Min\nsu',
+    ]) {
+      expect(normalizeNewAccountNickname(nickname), nickname).toBeNull();
+    }
+    expect(accountNicknameKey('MUSIXQUARE')).toBe('musixquare');
+    expect(accountNicknameKey('ＭＵＳＩＸＱＵＡＲＥ')).toBe('musixquare');
+    expect(accountNicknameKey('e\u0301')).toBe('\u00e9');
+  });
+
+  it('keeps legacy read normalization while bounding NFKC key expansion in storage', () => {
+    expect(normalizeAccountNickname(' 민수 ')).toBe('민수');
+    expect(normalizeNewAccountNickname(' 민수 ')).toBeNull();
+    // U+3316 expands to six code points under NFKC. Twelve display code
+    // points therefore exceed the old 64-character database key ceiling.
+    expect(Array.from(accountNicknameKey('㌖'.repeat(12)) || '')).toHaveLength(72);
+    expect(normalizeNewAccountNickname('㌖'.repeat(12))).toBe('㌖'.repeat(12));
   });
 });

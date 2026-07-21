@@ -2,7 +2,11 @@ import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
 } from './standard-room-account-assertion.js';
-import { normalizeAccountNickname, normalizeNewAccountNickname } from './account-nickname.js';
+import {
+  accountNicknameKey,
+  normalizeAccountNickname,
+  normalizeNewAccountNickname,
+} from './account-nickname.js';
 
 const AUTH_ROUTE_PREFIX = '/api/auth/';
 const AUTH_SESSION_COOKIE = '__Host-mxqr_account';
@@ -1070,16 +1074,35 @@ async function handleProfile(request, config) {
   }
   const nickname = normalizeNewAccountNickname(body.nickname);
   if (!nickname) return authJson({ error: 'NICKNAME_INVALID' }, 400);
+  const nicknameKey = accountNicknameKey(nickname);
+  if (!nicknameKey) return authJson({ error: 'NICKNAME_INVALID' }, 400);
   try {
     const resolved = await requireSession(request, config);
     if (resolved.error) return resolved.error;
-    const updated = await d1Run(
-      config.db,
-      `UPDATE ${ACCOUNT_TABLE}
-          SET nickname = ?1, profile_complete = 1, updated_at = ?2
-        WHERE account_id = ?3 AND status = 'active'`,
-      [nickname, Date.now(), resolved.session.accountId],
-    );
+    let updated;
+    try {
+      updated = await d1Run(
+        config.db,
+        `UPDATE ${ACCOUNT_TABLE}
+            SET nickname = ?1, nickname_key = ?2, profile_complete = 1, updated_at = ?3
+          WHERE account_id = ?4 AND status = 'active'`,
+        [nickname, nicknameKey, Date.now(), resolved.session.accountId],
+      );
+    } catch (error) {
+      // D1's UNIQUE index is the race-safe source of truth. Re-read only after
+      // a failed write so we can distinguish an ordinary nickname collision
+      // from schema, availability, and unrelated constraint failures without
+      // depending on the provider's error-message wording.
+      const existing = await d1First(
+        config.db,
+        `SELECT account_id FROM ${ACCOUNT_TABLE} WHERE nickname_key = ?1 LIMIT 1`,
+        [nicknameKey],
+      );
+      if (existing?.account_id && existing.account_id !== resolved.session.accountId) {
+        return authJson({ error: 'NICKNAME_TAKEN' }, 409);
+      }
+      throw error;
+    }
     if (d1ChangeCount(updated) !== 1) {
       return authJson({ error: 'AUTH_TEMPORARILY_UNAVAILABLE' }, 503);
     }

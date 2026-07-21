@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS mxqr_accounts (
     CHECK (status IN ('active', 'disabled')),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  -- Appended by the global-nickname migration. SQLite places ALTER-added
+  -- columns after the last column and before table-level constraints.
+  nickname_key TEXT
+    CHECK (nickname_key IS NULL OR length(nickname_key) BETWEEN 1 AND 512),
   CHECK (length(account_id) = 27 AND substr(account_id, 1, 5) = 'acct_'),
   CHECK (length(google_subject_hash) = 43),
   -- New writes are capped at 12 by account-auth.js. Keep 20 here so accounts
@@ -23,6 +27,10 @@ CREATE TABLE IF NOT EXISTS mxqr_accounts (
   ),
   CHECK (created_at > 0 AND updated_at >= created_at)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_accounts_nickname_key
+  ON mxqr_accounts(nickname_key)
+  WHERE nickname_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS mxqr_account_sessions (
   session_hash TEXT PRIMARY KEY NOT NULL,

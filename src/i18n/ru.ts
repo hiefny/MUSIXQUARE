@@ -52,6 +52,8 @@ const ru: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Псевдоним',
   'account.nickname_hint': 'Не более 12 символов.',
   'account.nickname_required': 'Введите псевдоним.',
+  'account.nickname_whitespace': 'Псевдоним не может содержать пробелы.',
+  'account.nickname_taken': 'Этот псевдоним уже занят.',
   'account.nickname_saved': 'Псевдоним изменён на {{name}}.',
   'account.action_failed': 'Не удалось обновить аккаунт. Повторите попытку позже.',
   'account.delete_confirm_title': 'Удалить аккаунт?',

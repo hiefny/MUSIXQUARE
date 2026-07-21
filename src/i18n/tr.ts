@@ -53,6 +53,8 @@ const tr: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Takma ad',
   'account.nickname_hint': 'En fazla 12 karakter kullan.',
   'account.nickname_required': 'Bir takma ad gir.',
+  'account.nickname_whitespace': 'Takma ad boşluk içeremez.',
+  'account.nickname_taken': 'Bu takma ad zaten kullanılıyor.',
   'account.nickname_saved': 'Takma ad {{name}} olarak değiştirildi.',
   'account.action_failed': 'Hesap güncellenemedi. Daha sonra tekrar dene.',
   'account.delete_confirm_title': 'Hesabın silinsin mi?',

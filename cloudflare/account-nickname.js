@@ -5,11 +5,12 @@ import profanityPatterns from '../src/chat/profanity-patterns.generated.json' wi
 // sessions and signed room assertions until their owner chooses a new name.
 const NICKNAME_WRITE_MAX_CODE_POINTS = 12;
 const NICKNAME_STORED_MAX_CODE_POINTS = 20;
-// Reject rather than silently strip at the HTTP boundary. The browser UI
-// strips these characters before submit, while scripted callers receive a
-// clear NICKNAME_INVALID response instead of storing a visually ambiguous ID.
+// Reject rather than silently strip at every boundary. Browser and scripted
+// callers both receive an explicit validation failure instead of storing a
+// visually ambiguous ID.
 const NICKNAME_FORBIDDEN_RE =
   /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/u;
+const NICKNAME_WHITESPACE_RE = /\p{White_Space}/u;
 const GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 const NUMBER_BADGE_NAME_RE = /^#\d+$/u;
 const MARKS_ONLY_RE = /^\p{M}+$/u;
@@ -41,27 +42,49 @@ function containsEnglishNicknameProfanity(value) {
 }
 
 /** Common character, reserved-name, and profanity policy for both limits. */
-function normalizeAccountNicknameWithLimit(value, maxCodePoints) {
+function normalizeAccountNicknameWithLimit(
+  value,
+  maxCodePoints,
+  { rejectWhitespace = false } = {},
+) {
   if (typeof value !== 'string') return null;
-  const normalized = value.normalize('NFC').trim();
+  // Stored values retain the historical read boundary: trim surrounding
+  // whitespace so old assertions remain valid. New writes pass
+  // rejectWhitespace and are checked before any trimming can hide the input.
+  const normalized = rejectWhitespace ? value.normalize('NFC') : value.normalize('NFC').trim();
+  const comparisonKey = accountNicknameKey(normalized);
   if (
     !normalized ||
+    !comparisonKey ||
     Array.from(normalized).length > maxCodePoints ||
+    (rejectWhitespace && NICKNAME_WHITESPACE_RE.test(normalized)) ||
+    (rejectWhitespace && NICKNAME_WHITESPACE_RE.test(comparisonKey)) ||
     NICKNAME_FORBIDDEN_RE.test(normalized) ||
     MARKS_ONLY_RE.test(normalized)
   ) {
     return null;
   }
-  const folded = normalized.toLocaleLowerCase('en-US');
   if (
-    RESERVED_NICKNAMES.has(folded) ||
-    GENERATED_PEER_NAME_RE.test(normalized) ||
-    NUMBER_BADGE_NAME_RE.test(normalized) ||
-    containsEnglishNicknameProfanity(normalized)
+    RESERVED_NICKNAMES.has(comparisonKey) ||
+    GENERATED_PEER_NAME_RE.test(comparisonKey) ||
+    NUMBER_BADGE_NAME_RE.test(comparisonKey) ||
+    containsEnglishNicknameProfanity(comparisonKey)
   ) {
     return null;
   }
   return normalized;
+}
+
+/**
+ * Canonical global-uniqueness key. The display spelling remains NFC, while
+ * compatibility forms and casing (for example full-width MUSIXQUARE) share a
+ * single database claim. Authorization must continue to use account/member
+ * IDs; this key is only a product-level name reservation.
+ */
+export function accountNicknameKey(value) {
+  if (typeof value !== 'string' || !value) return null;
+  const key = value.normalize('NFKC').toLocaleLowerCase('en-US').normalize('NFC');
+  return key && !NICKNAME_FORBIDDEN_RE.test(key) ? key : null;
 }
 
 /**
@@ -75,5 +98,7 @@ export function normalizeAccountNickname(value) {
 
 /** Authoritative boundary for every new or changed account nickname. */
 export function normalizeNewAccountNickname(value) {
-  return normalizeAccountNicknameWithLimit(value, NICKNAME_WRITE_MAX_CODE_POINTS);
+  return normalizeAccountNicknameWithLimit(value, NICKNAME_WRITE_MAX_CODE_POINTS, {
+    rejectWhitespace: true,
+  });
 }

@@ -56,6 +56,8 @@ const vi: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Biệt danh',
   'account.nickname_hint': 'Tối đa 12 ký tự.',
   'account.nickname_required': 'Hãy nhập biệt danh.',
+  'account.nickname_whitespace': 'Biệt danh không được chứa khoảng trắng.',
+  'account.nickname_taken': 'Biệt danh này đã được sử dụng.',
   'account.nickname_saved': 'Đã đổi biệt danh thành {{name}}.',
   'account.action_failed': 'Không thể cập nhật tài khoản. Vui lòng thử lại sau.',
   'account.delete_confirm_title': 'Xóa tài khoản của bạn?',

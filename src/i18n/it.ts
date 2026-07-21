@@ -53,6 +53,8 @@ const it: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Nickname',
   'account.nickname_hint': 'Usa fino a 12 caratteri.',
   'account.nickname_required': 'Inserisci un nickname.',
+  'account.nickname_whitespace': 'Il nickname non può contenere spazi.',
+  'account.nickname_taken': 'Questo nickname è già in uso.',
   'account.nickname_saved': 'Nickname cambiato in {{name}}.',
   'account.action_failed': 'Impossibile aggiornare l’account. Riprova più tardi.',
   'account.delete_confirm_title': 'Eliminare il tuo account?',

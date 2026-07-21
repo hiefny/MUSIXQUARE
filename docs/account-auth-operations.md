@@ -14,20 +14,23 @@ entry, playback, and anonymous chat do not depend on this service. The identity,
 grouping, and capability contract is defined in the
 [account authority ADR](design/account-identity-and-room-authority.md).
 
-## Production activation state
+## Production activation checkpoint
 
 Account activation was deliberately split from compatible code delivery. The
 checked-in production configuration now enables Stage 2 accounts:
 
 ```text
-service-worker cache: v204
+service-worker cache at account cutover: v204
 MUSIXQUARE_AUTH_DB: musixquare-auth
 PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION: 1
 PRO_ROOM_MEMBER_AUTHORITY_PROJECTION: 1
 ```
 
-The historical Stage-1 App, signaling, and PRO Worker checkpoint plus its `v203`
-client remain the minimum rollback floor. After account data has been written,
+These are historical cache epochs, not the current product version or current
+cache epoch. Read current release identity with
+`npm run version:status`. The historical Stage-1 App, signaling, and PRO Worker
+checkpoint plus its `v203` client remain the minimum rollback floor. After
+account data has been written,
 never roll below that matched account-aware checkpoint; use the Stage-2 rollback
 procedure in Section 5 instead.
 
@@ -50,13 +53,34 @@ HMAC-pseudonymized Google subjects, account nicknames, and digests of random
 session tokens. Google email, OAuth tokens, and raw browser session tokens are
 not stored.
 
-New nickname writes accept at most 12 Unicode code points. Keep the tracked
-schema's 20-character constraint and the read/assertion compatibility boundary
-unchanged: they grandfather pre-policy nicknames without making 13-to-20
-characters writable again. Do not bulk-rewrite those rows or prompt merely
-because of length. There is currently no account-moderation flag or admin
-nickname directory; adding either is a separate privacy and audit design, not a
-nickname-limit migration step.
+New nickname writes accept at most 12 Unicode code points and reject every
+Unicode whitespace character. A separate `nickname_key` is derived with NFKC,
+fixed-locale lowercase, and NFC normalization. Its partial unique index is the
+race-safe source of truth for global nickname ownership; the display nickname
+keeps the user's submitted casing. Nicknames are display identities only and
+must never replace `accountId` or a room member pseudonym as an authorization
+key.
+
+Keep the tracked schema's 20-character constraint and the read/assertion
+compatibility boundary unchanged: they grandfather pre-policy nicknames without
+making 13-to-20 characters writable again. Do not bulk-rewrite those rows or
+prompt merely because of length. There is currently no account-moderation flag
+or admin nickname directory; adding either is a separate privacy and audit
+design, not a nickname-limit migration step.
+
+Existing production databases require the reviewed, one-time additive migration
+before the new nickname contract is considered active:
+
+```text
+npm run account:nickname-key:migrate:remote
+```
+
+Before applying it, audit completed profiles for normalized collisions and
+export the account table to an access-controlled, ignored release artifact.
+Deploy the compatible App Worker first, apply the migration, verify every named
+profile has a key and no key is duplicated, then run the Stage-2 preflight. An
+App version predating `nickname_key` is no longer a safe rollback target after
+the migration because an old nickname update would not maintain the key.
 
 ## 2. Configure Google OpenID Connect
 

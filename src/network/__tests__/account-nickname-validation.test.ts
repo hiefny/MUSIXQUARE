@@ -196,10 +196,10 @@ describe('/nick account nickname validation', () => {
     setState('network.myId', 'me');
     setState('network.myDeviceLabel', 'Peer 1');
     setState('network.lastKnownDeviceList', [
-      makeDevice('host-id', 'DJ Booth'),
+      makeDevice('host-id', 'DJ_Booth'),
       makeDevice('me', 'Peer 1'),
     ]);
-    runNick('dj booth');
+    runNick('dj_booth');
 
     await vi.waitFor(() =>
       expect(addSystemChatMessageMock).toHaveBeenCalledWith('chat.cmd_nick_changed'),
@@ -260,7 +260,7 @@ describe('/nick account nickname validation', () => {
     setState('network.myId', 'member-1');
     setState('network.myDeviceLabel', 'Peer 1');
     setState('network.lastKnownDeviceList', [makeDevice('member-1', 'Peer 1')]);
-    runNick('pEeR 99');
+    runNick('pEeR');
 
     expect(addSystemChatMessageMock).toHaveBeenCalledWith('connect.rename_reserved');
   });

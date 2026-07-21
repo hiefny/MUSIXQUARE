@@ -12,6 +12,7 @@ import {
   parseSecretNames,
   runAccountStage2Preflight,
   validateAccountD1Binding,
+  validateAccountNicknameRows,
   validateAccountSchemaRows,
   validateDeploymentOrder,
   validateProductionCallback,
@@ -48,14 +49,7 @@ describe('account Stage 2 activation preflight', () => {
         kind: 'secret-list',
         configPath: 'cloudflare/wrangler.app.toml',
       }),
-    ).toEqual([
-      'secret',
-      'list',
-      '--config',
-      'cloudflare/wrangler.app.toml',
-      '--format',
-      'json',
-    ]);
+    ).toEqual(['secret', 'list', '--config', 'cloudflare/wrangler.app.toml', '--format', 'json']);
   });
 
   it('requires the exact production callback in both the operator acknowledgement and code', () => {
@@ -111,13 +105,23 @@ describe('account Stage 2 activation preflight', () => {
       EXPECTED_ACCOUNT_SCHEMA_OBJECTS,
     );
     expect(validateAccountSchemaRows(rows, accountSchema)).toEqual([]);
+    expect(
+      validateAccountSchemaRows(
+        rows.map((row, index) =>
+          index === 0 ? { ...row, sql: `${row.sql}\n-- documentation-only drift` } : row,
+        ),
+        accountSchema,
+      ),
+    ).toEqual([]);
 
     expect(validateAccountSchemaRows(rows.slice(1), accountSchema)).toContain(
       `Remote account schema is missing ${rows[0].name}.`,
     );
     expect(
       validateAccountSchemaRows(
-        rows.map((row, index) => (index === 0 ? { ...row, sql: `${row.sql} -- changed` } : row)),
+        rows.map((row, index) =>
+          index === 0 ? { ...row, sql: row.sql.replace(/\bNOT NULL\b/i, '') } : row,
+        ),
         accountSchema,
       ),
     ).toContain(
@@ -187,6 +191,27 @@ describe('account Stage 2 activation preflight', () => {
     );
   });
 
+  it('verifies persisted nickname keys without exposing account data in errors', () => {
+    expect(
+      validateAccountNicknameRows([
+        { account_id: 'acct_one', nickname: 'MUSIXQUARE', nickname_key: 'musixquare' },
+        { account_id: 'acct_two', nickname: '민수', nickname_key: '민수' },
+      ]),
+    ).toEqual([]);
+    expect(
+      validateAccountNicknameRows([
+        { account_id: 'private-one', nickname: 'ＭＸＱＲ', nickname_key: 'ｍｘｑｒ' },
+        { account_id: 'private-two', nickname: 'Name', nickname_key: null },
+        { account_id: 'private-three', nickname: 'Other', nickname_key: 'other' },
+        { account_id: 'private-four', nickname: 'OTHER', nickname_key: 'other' },
+      ]),
+    ).toEqual([
+      '1 account nickname row(s) have a missing key or display value.',
+      '1 account nickname row(s) do not match the canonical comparison key.',
+      '1 duplicate account nickname key claim(s) were returned.',
+    ]);
+  });
+
   it('accepts only the reviewed signaling -> PRO -> App deployment order', () => {
     expect(validateDeploymentOrder(ACCOUNT_STAGE2_DEPLOYMENT_ORDER)).toEqual([]);
     expect(validateDeploymentOrder('signaling,pro-room,app')).toEqual([]);
@@ -233,6 +258,16 @@ describe('account Stage 2 activation preflight', () => {
       if (request.kind === 'd1-schema') {
         return JSON.stringify([{ success: true, results: canonicalRemoteRows() }]);
       }
+      if (request.kind === 'd1-nicknames') {
+        return JSON.stringify([
+          {
+            success: true,
+            results: [
+              { account_id: 'acct_one', nickname: 'MUSIXQUARE', nickname_key: 'musixquare' },
+            ],
+          },
+        ]);
+      }
       if (request.service === 'app') {
         return secretList([
           'GOOGLE_OAUTH_CLIENT_ID',
@@ -270,6 +305,7 @@ describe('account Stage 2 activation preflight', () => {
     });
     expect(requests.map((request) => request.kind)).toEqual([
       'd1-schema',
+      'd1-nicknames',
       'secret-list',
       'secret-list',
       'secret-list',
@@ -278,6 +314,7 @@ describe('account Stage 2 activation preflight', () => {
     expect(String(requests[0].query)).not.toMatch(
       /\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i,
     );
+    expect(String(requests[1].query)).toMatch(/^SELECT\b/);
   });
 
   it('parses the deliberately verbose manual invocation without implicit defaults', () => {

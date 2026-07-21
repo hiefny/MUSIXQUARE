@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
 import {
   cleanupExpiredAccountSessions,
@@ -21,6 +21,7 @@ interface AccountRow {
   account_id: string;
   google_subject_hash: string;
   nickname: string | null;
+  nickname_key: string | null;
   profile_complete: number;
   status: 'active' | 'disabled';
   created_at: number;
@@ -89,6 +90,7 @@ class FakeAuthDb {
   readonly accountDeletions = new Map<string, number>();
   readonly boundValues: unknown[][] = [];
   fail = false;
+  nicknameWriteError: Error | null = null;
 
   prepare(sql: string): FakeStatement {
     return new FakeStatement(this, sql);
@@ -145,6 +147,11 @@ class FakeAuthDb {
     this.assertAvailable();
     this.boundValues.push([...values]);
     const normalized = normalizeSql(sql);
+    if (normalized.includes('from mxqr_accounts') && normalized.includes('nickname_key = ?1')) {
+      const nicknameKey = String(values[0]);
+      const account = [...this.accounts.values()].find((row) => row.nickname_key === nicknameKey);
+      return account ? { account_id: account.account_id } : null;
+    }
     if (normalized.includes('from mxqr_accounts') && normalized.includes('google_subject_hash')) {
       const accountId = this.accountBySubject.get(String(values[0]));
       const account = accountId ? this.accounts.get(accountId) : null;
@@ -216,6 +223,7 @@ class FakeAuthDb {
         account_id: proposedId,
         google_subject_hash: subjectHash,
         nickname: null,
+        nickname_key: null,
         profile_complete: 0,
         status: 'active',
         created_at: now,
@@ -388,10 +396,23 @@ class FakeAuthDb {
       return changed(count);
     }
     if (normalized.startsWith('update mxqr_accounts set nickname')) {
-      const [nickname, updatedAt, accountId] = values as [string, number, string];
+      if (this.nicknameWriteError) throw this.nicknameWriteError;
+      const [nickname, nicknameKey, updatedAt, accountId] = values as [
+        string,
+        string,
+        number,
+        string,
+      ];
       const account = this.accounts.get(accountId);
       if (!account || account.status !== 'active') return changed(0);
+      const collision = [...this.accounts.values()].some(
+        (candidate) => candidate.account_id !== accountId && candidate.nickname_key === nicknameKey,
+      );
+      if (collision) {
+        throw new Error('UNIQUE constraint failed: mxqr_accounts.nickname_key');
+      }
       account.nickname = nickname;
+      account.nickname_key = nicknameKey;
       account.profile_complete = 1;
       account.updated_at = updatedAt;
       return changed(1);
@@ -1275,7 +1296,7 @@ describe('account session mutations', () => {
       new Request('https://musixquare.com/api/auth/profile', {
         method: 'PATCH',
         headers: mutationHeaders(login.sessionCookie!),
-        body: JSON.stringify({ nickname: '  e\u0301  ' }),
+        body: JSON.stringify({ nickname: 'e\u0301' }),
       }),
       env,
     );
@@ -1292,6 +1313,8 @@ describe('account session mutations', () => {
       '#1',
       'name\u202E',
       'name\u0085',
+      'Min su',
+      '\u00a0Minsu',
       '\u0301',
       'fuck',
       'x'.repeat(13),
@@ -1307,6 +1330,69 @@ describe('account session mutations', () => {
       expect(response?.status, nickname).toBe(400);
       await expect(response?.json()).resolves.toEqual({ error: 'NICKNAME_INVALID' });
     }
+  });
+
+  it('reserves nickname compatibility keys globally and reports only real collisions', async () => {
+    const db = new FakeAuthDb();
+    const first = await completeLogin(authEnv(db));
+    const second = await completeLogin(authEnv(db), undefined, {
+      claimOverrides: { sub: 'second-google-account' },
+    });
+    vi.unstubAllGlobals();
+
+    const firstWrite = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/profile', {
+        method: 'PATCH',
+        headers: mutationHeaders(first.sessionCookie!),
+        body: JSON.stringify({ nickname: 'MUSIXQUARE' }),
+      }),
+      authEnv(db),
+    );
+    expect(firstWrite?.status).toBe(200);
+
+    for (const nickname of ['musixquare', 'ＭＵＳＩＸＱＵＡＲＥ']) {
+      const collision = await handleAccountAuthRequest(
+        new Request('https://musixquare.com/api/auth/profile', {
+          method: 'PATCH',
+          headers: mutationHeaders(second.sessionCookie!),
+          body: JSON.stringify({ nickname }),
+        }),
+        authEnv(db),
+      );
+      expect(collision?.status, nickname).toBe(409);
+      await expect(collision?.json()).resolves.toEqual({ error: 'NICKNAME_TAKEN' });
+    }
+
+    const casingChange = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/profile', {
+        method: 'PATCH',
+        headers: mutationHeaders(first.sessionCookie!),
+        body: JSON.stringify({ nickname: 'musixquare' }),
+      }),
+      authEnv(db),
+    );
+    expect(casingChange?.status).toBe(200);
+  });
+
+  it('does not misreport an unrelated nickname write failure as a collision', async () => {
+    const db = new FakeAuthDb();
+    const login = await completeLogin(authEnv(db));
+    vi.unstubAllGlobals();
+    db.nicknameWriteError = new Error('D1 disk I/O error');
+
+    const response = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/profile', {
+        method: 'PATCH',
+        headers: mutationHeaders(login.sessionCookie!),
+        body: JSON.stringify({ nickname: 'FreshName' }),
+      }),
+      authEnv(db),
+    );
+
+    expect(response?.status).toBe(503);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'AUTH_TEMPORARILY_UNAVAILABLE',
+    });
   });
 
   it('replaces a browser spoof with a verified short-lived PRO account assertion', async () => {
@@ -1808,6 +1894,14 @@ describe('account session mutations', () => {
 });
 
 describe('account endpoint abuse bounds', () => {
+  beforeEach(() => {
+    // These assertions exercise fixed-window buckets. Freeze the wall clock so
+    // a CPU-contended full-suite run cannot cross a minute boundary midway
+    // through the sequential venue burst and make the limit appear to reset.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T00:00:00.000Z'));
+  });
+
   it('allows a 100-device OAuth venue burst before bounding repeated starts', async () => {
     const cache = new Map<string, Response>();
     vi.stubGlobal('caches', {

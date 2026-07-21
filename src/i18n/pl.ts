@@ -52,6 +52,8 @@ const pl: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Pseudonim',
   'account.nickname_hint': 'Maksymalnie 12 znaków.',
   'account.nickname_required': 'Wpisz pseudonim.',
+  'account.nickname_whitespace': 'Pseudonim nie może zawierać spacji.',
+  'account.nickname_taken': 'Ten pseudonim jest już zajęty.',
   'account.nickname_saved': 'Pseudonim zmieniono na {{name}}.',
   'account.action_failed': 'Nie udało się zaktualizować konta. Spróbuj ponownie później.',
   'account.delete_confirm_title': 'Usunąć konto?',

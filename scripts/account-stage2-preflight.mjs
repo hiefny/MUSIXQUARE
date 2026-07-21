@@ -16,6 +16,7 @@ import {
   verifyStandardRoomAccountAssertion,
   verifyStandardRoomAccountDeletionAssertion,
 } from '../cloudflare/standard-room-account-assertion.js';
+import { accountNicknameKey } from '../cloudflare/account-nickname.js';
 
 export const PRODUCTION_ACCOUNT_CALLBACK = 'https://musixquare.com/api/auth/google/callback';
 export const ACCOUNT_STAGE2_DEPLOYMENT_ORDER = ['signaling', 'pro-room', 'app'];
@@ -32,6 +33,7 @@ export const EXPECTED_ACCOUNT_SCHEMA_OBJECTS = [
   'idx_mxqr_account_pro_rooms_account',
   'idx_mxqr_account_sessions_account',
   'idx_mxqr_account_sessions_expiry',
+  'idx_mxqr_accounts_nickname_key',
   'idx_mxqr_oauth_flows_expiry',
   'mxqr_account_deleted_sessions',
   'mxqr_account_deletions',
@@ -57,6 +59,8 @@ export const REQUIRED_ACCOUNT_SECRET_NAMES = Object.freeze({
 
 const ACCOUNT_SCHEMA_QUERY =
   "SELECT name, type, sql FROM sqlite_master WHERE type IN ('table', 'index') AND (name LIKE 'mxqr_%' OR name LIKE 'idx_mxqr_%') ORDER BY type, name";
+const ACCOUNT_NICKNAME_QUERY =
+  'SELECT account_id, nickname, nickname_key FROM mxqr_accounts WHERE nickname IS NOT NULL OR nickname_key IS NOT NULL ORDER BY account_id';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const D1_DATABASE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const FORBIDDEN_SHARED_DATABASE_NAMES = new Set([
@@ -167,6 +171,7 @@ export function validateProductionCallback(callback, accountAuthSource, appConfi
 
 export function normalizeSchemaSql(sql) {
   return String(sql || '')
+    .replace(/--[^\r\n]*/g, '')
     .trim()
     .replace(/;\s*$/, '')
     .replace(/\bIF\s+NOT\s+EXISTS\b/gi, '')
@@ -233,6 +238,38 @@ export function validateAccountSchemaRows(remoteRows, canonicalSchemaSql) {
       errors.push(`Remote account schema object ${name} differs from cloudflare/auth.schema.sql.`);
     }
   }
+  return errors;
+}
+
+/**
+ * Validate persisted comparison keys without exposing account identifiers or
+ * nicknames in diagnostics. This catches SQLite lower() limitations and any
+ * stale writer that updated a display nickname without maintaining its key.
+ */
+export function validateAccountNicknameRows(remoteRows) {
+  const errors = [];
+  const claimedKeys = new Set();
+  let missing = 0;
+  let mismatched = 0;
+  let duplicate = 0;
+  for (const row of Array.isArray(remoteRows) ? remoteRows : []) {
+    const nickname = typeof row?.nickname === 'string' ? row.nickname : null;
+    const storedKey = typeof row?.nickname_key === 'string' ? row.nickname_key : null;
+    const expectedKey = nickname ? accountNicknameKey(nickname) : null;
+    if (!nickname || !storedKey || !expectedKey) {
+      missing += 1;
+      continue;
+    }
+    if (storedKey !== expectedKey) mismatched += 1;
+    if (claimedKeys.has(storedKey)) duplicate += 1;
+    claimedKeys.add(storedKey);
+  }
+  if (missing > 0)
+    errors.push(`${missing} account nickname row(s) have a missing key or display value.`);
+  if (mismatched > 0)
+    errors.push(`${mismatched} account nickname row(s) do not match the canonical comparison key.`);
+  if (duplicate > 0)
+    errors.push(`${duplicate} duplicate account nickname key claim(s) were returned.`);
   return errors;
 }
 
@@ -370,7 +407,7 @@ function npmInvocation() {
 }
 
 export function buildWranglerReadOnlyCommand(request) {
-  if (request.kind === 'd1-schema') {
+  if (request.kind === 'd1-schema' || request.kind === 'd1-nicknames') {
     return [
       'd1',
       'execute',
@@ -379,7 +416,7 @@ export function buildWranglerReadOnlyCommand(request) {
       '--config',
       APP_CONFIG_PATH,
       '--command',
-      ACCOUNT_SCHEMA_QUERY,
+      request.kind === 'd1-schema' ? ACCOUNT_SCHEMA_QUERY : ACCOUNT_NICKNAME_QUERY,
       '--json',
     ];
   }
@@ -447,6 +484,13 @@ export async function runAccountStage2Preflight(
     query: ACCOUNT_SCHEMA_QUERY,
   });
   const remoteSchemaErrors = validateAccountSchemaRows(parseD1Rows(d1Output), schemaSql);
+  const nicknameOutput = runWrangler({
+    kind: 'd1-nicknames',
+    databaseName: d1.binding.databaseName,
+    query: ACCOUNT_NICKNAME_QUERY,
+  });
+  const nicknameRows = parseD1Rows(nicknameOutput);
+  const nicknameErrors = validateAccountNicknameRows(nicknameRows);
 
   const secretRequests = [
     ['app', APP_CONFIG_PATH],
@@ -463,7 +507,7 @@ export async function runAccountStage2Preflight(
     secretErrors.push(...validateRequiredSecretNames(service, names));
   }
 
-  const errors = [...remoteSchemaErrors, ...secretErrors];
+  const errors = [...remoteSchemaErrors, ...nicknameErrors, ...secretErrors];
   if (errors.length > 0) throw new Error(errors.join('\n'));
   return {
     ok: true,
@@ -471,6 +515,7 @@ export async function runAccountStage2Preflight(
     databaseBinding: 'MUSIXQUARE_AUTH_DB',
     databaseName: d1.binding.databaseName,
     schemaObjects: EXPECTED_ACCOUNT_SCHEMA_OBJECTS.length,
+    nicknameRows: nicknameRows.length,
     requiredSecretNamesPresent: secretCounts,
     assertionCodecs: assertions,
     deploymentOrder: [...ACCOUNT_STAGE2_DEPLOYMENT_ORDER],

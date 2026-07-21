@@ -1115,7 +1115,9 @@ describe('member-level connection and administrator UI', () => {
     expect(deviceCountRules).toContain('color: var(--primary)');
     expect(deviceCountRules).not.toContain('border-radius: 999px');
     expect(nameLabelRules).toContain('display: block');
-    expect(nameLabelRules).toContain('flex: 1 1 auto');
+    // Keep the grouped-device count next to the visible nickname while still
+    // allowing a long nickname to shrink into the existing ellipsis boundary.
+    expect(nameLabelRules).toContain('flex: 0 1 auto');
     expect(nameLabelRules).toContain('text-overflow: ellipsis');
     expect(nameLabelRules).toContain('white-space: nowrap');
     expect(administratorRowRules).toContain('min-width: 0');

@@ -187,7 +187,7 @@ const ja: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'シャッフルが有効です',
   'playlist.shuffle_off': 'シャッフルは無効です',
   'playlist.empty_hint': 'メディアを追加してください。',
-  'playlist.empty_hint_guest': 'ホストがメディアを追加すると表示されます。',
+  'playlist.empty_hint_guest': 'メディアを追加すると、ここに表示されます。',
   'playlist.loading_info': 'トラック情報を読み込み中...',
   'playlist.sub_load_failed': '動画情報を読み込めませんでした',
   'playlist.remove_title': 'プレイリストから削除',

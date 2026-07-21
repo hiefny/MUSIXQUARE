@@ -188,7 +188,7 @@ const de: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Zufallswiedergabe aktiviert',
   'playlist.shuffle_off': 'Zufallswiedergabe deaktiviert',
   'playlist.empty_hint': 'Bitte Medien hinzufügen.',
-  'playlist.empty_hint_guest': 'Sie erscheint, sobald der Host Medien hinzufügt.',
+  'playlist.empty_hint_guest': 'Hinzugefügte Medien werden hier angezeigt.',
   'playlist.loading_info': 'Titelinformationen werden geladen...',
   'playlist.sub_load_failed': 'Videoinformationen konnten nicht geladen werden',
   'playlist.remove_title': 'Aus der Playlist entfernen',

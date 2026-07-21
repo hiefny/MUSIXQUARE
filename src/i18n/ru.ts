@@ -117,7 +117,7 @@ const ru: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Перемешивание включено',
   'playlist.shuffle_off': 'Перемешивание отключено',
   'playlist.empty_hint': 'Добавьте треки в плейлист.',
-  'playlist.empty_hint_guest': 'Треки появятся, когда их добавит хост.',
+  'playlist.empty_hint_guest': 'Добавленные треки появятся здесь.',
   'playlist.loading_info': 'Загрузка информации о треке...',
   'playlist.sub_load_failed': 'Не удалось загрузить информацию о видео',
   'playlist.remove_title': 'Удалить из плейлиста',

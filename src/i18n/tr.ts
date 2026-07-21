@@ -118,7 +118,7 @@ const tr: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Karışık çalma aktif',
   'playlist.shuffle_off': 'Karışık çalma kapalı',
   'playlist.empty_hint': 'Lütfen çalma listesine medya ekleyin.',
-  'playlist.empty_hint_guest': 'Oda sahibi medya eklediğinde burada görünecektir.',
+  'playlist.empty_hint_guest': 'Eklenen medya burada görünecek.',
   'playlist.loading_info': 'Şarkı bilgileri yükleniyor...',
   'playlist.sub_load_failed': 'Video bilgileri alınamadı',
   'playlist.remove_title': 'Çalma Listesinden Kaldır',

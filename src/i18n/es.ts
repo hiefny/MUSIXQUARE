@@ -188,7 +188,7 @@ const es: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Aleatorio activado',
   'playlist.shuffle_off': 'Aleatorio desactivado',
   'playlist.empty_hint': 'Añade medios.',
-  'playlist.empty_hint_guest': 'Se mostrará cuando el host añada medios.',
+  'playlist.empty_hint_guest': 'Los medios añadidos aparecerán aquí.',
   'playlist.loading_info': 'Cargando información de la pista...',
   'playlist.sub_load_failed': 'No se pudo cargar la información del video',
   'playlist.remove_title': 'Eliminar de la lista',

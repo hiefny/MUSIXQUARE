@@ -118,7 +118,7 @@ const it: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Riproduzione casuale attiva',
   'playlist.shuffle_off': 'Riproduzione casuale disattivata',
   'playlist.empty_hint': 'Aggiungi dei brani alla playlist.',
-  'playlist.empty_hint_guest': 'I brani compariranno quando il gestore li aggiungerà.',
+  'playlist.empty_hint_guest': 'I contenuti aggiunti appariranno qui.',
   'playlist.loading_info': 'Caricamento informazioni del brano...',
   'playlist.sub_load_failed': 'Impossibile recuperare le informazioni del video',
   'playlist.remove_title': 'Rimuovi dalla playlist',

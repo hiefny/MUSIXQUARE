@@ -188,7 +188,7 @@ const id: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Acak aktif',
   'playlist.shuffle_off': 'Acak nonaktif',
   'playlist.empty_hint': 'Tambahkan media.',
-  'playlist.empty_hint_guest': 'Menunggu host menambahkan media.',
+  'playlist.empty_hint_guest': 'Media yang ditambahkan akan muncul di sini.',
   'playlist.loading_info': 'Memuat info track...',
   'playlist.sub_load_failed': 'Tidak dapat memuat info video',
   'playlist.remove_title': 'Hapus dari playlist',

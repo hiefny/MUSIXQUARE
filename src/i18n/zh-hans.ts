@@ -187,7 +187,7 @@ const zhHans: Record<I18nKey, string> = {
   'playlist.shuffle_on': '已开启随机播放',
   'playlist.shuffle_off': '已关闭随机播放',
   'playlist.empty_hint': '请添加媒体。',
-  'playlist.empty_hint_guest': '主持人添加媒体后会显示在这里。',
+  'playlist.empty_hint_guest': '添加媒体后会显示在这里。',
   'playlist.loading_info': '正在加载曲目信息...',
   'playlist.sub_load_failed': '无法加载视频信息',
   'playlist.remove_title': '从播放列表移除',

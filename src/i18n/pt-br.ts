@@ -188,7 +188,7 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Aleatório ativado',
   'playlist.shuffle_off': 'Aleatório desativado',
   'playlist.empty_hint': 'Adicione mídia.',
-  'playlist.empty_hint_guest': 'Aguardando o host adicionar mídia.',
+  'playlist.empty_hint_guest': 'As mídias adicionadas aparecerão aqui.',
   'playlist.loading_info': 'Carregando informações da faixa...',
   'playlist.sub_load_failed': 'Não foi possível carregar as informações do vídeo',
   'playlist.remove_title': 'Remover da playlist',

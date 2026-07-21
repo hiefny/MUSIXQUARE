@@ -117,7 +117,7 @@ const th: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'เปิดสุ่มเล่นเพลงแล้ว',
   'playlist.shuffle_off': 'ปิดสุ่มเล่นเพลงแล้ว',
   'playlist.empty_hint': 'โปรดเพิ่มเพลงลงในเพลย์ลิสต์',
-  'playlist.empty_hint_guest': 'เพลงจะแสดงเมื่อโฮสต์เพิ่มเพลงลงคิว',
+  'playlist.empty_hint_guest': 'สื่อที่เพิ่มจะแสดงที่นี่',
   'playlist.loading_info': 'กำลังโหลดข้อมูลเพลง...',
   'playlist.sub_load_failed': 'โหลดข้อมูลวิดีโอไม่ได้',
   'playlist.remove_title': 'ลบออกจากเพลย์ลิสต์',

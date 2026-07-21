@@ -117,7 +117,7 @@ const pl: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Odtwarzanie losowe włączone',
   'playlist.shuffle_off': 'Odtwarzanie losowe wyłączone',
   'playlist.empty_hint': 'Dodaj utwory do playlisty.',
-  'playlist.empty_hint_guest': 'Utwory pojawią się, gdy host je doda.',
+  'playlist.empty_hint_guest': 'Dodane utwory pojawią się tutaj.',
   'playlist.loading_info': 'Ładowanie informacji o utworze...',
   'playlist.sub_load_failed': 'Nie udało się załadować informacji o wideo',
   'playlist.remove_title': 'Usuń z playlisty',

@@ -120,7 +120,7 @@ const en: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Shuffle enabled',
   'playlist.shuffle_off': 'Shuffle disabled',
   'playlist.empty_hint': 'Please add media.',
-  'playlist.empty_hint_guest': 'It will appear once the host adds tracks.',
+  'playlist.empty_hint_guest': 'Added media will appear here.',
   'playlist.loading_info': 'Loading track info...',
   'playlist.sub_load_failed': "Couldn't load video info",
   'playlist.remove_title': 'Remove from playlist',

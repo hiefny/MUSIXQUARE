@@ -187,7 +187,7 @@ const zhHant: Record<I18nKey, string> = {
   'playlist.shuffle_on': '已啟用隨機播放',
   'playlist.shuffle_off': '已關閉隨機播放',
   'playlist.empty_hint': '請新增媒體。',
-  'playlist.empty_hint_guest': '正在等待主持人新增媒體。',
+  'playlist.empty_hint_guest': '新增媒體後會顯示在這裡。',
   'playlist.loading_info': '正在載入曲目資訊...',
   'playlist.sub_load_failed': '無法載入影片資訊',
   'playlist.remove_title': '從播放清單移除',

@@ -14,6 +14,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 
 import { getAudioContext, ensureRunning } from './context.ts';
+import { bindAudioContextInterruptionRecovery } from './context-recovery.ts';
 import {
   rampParam,
   safeDisconnect,
@@ -158,8 +159,7 @@ let _graph: AudioGraph = createEmptyGraph();
 let _proPlaybackPauseGateToken: number | null = null;
 
 let _initAudioPromise: Promise<void> | null = null;
-let _ctxStateChangeCtx: AudioContext | null = null;
-let _ctxStateChangeHandler: (() => void) | null = null;
+let _disposeContextRecovery: (() => void) | null = null;
 
 // ─── Public Getters ────────────────────────────────────────────────
 
@@ -501,25 +501,12 @@ async function _doInitAudio(): Promise<void> {
     log.debug('[Audio] iOS unlock attempt failed:', e);
   }
 
-  // Auto-resume AudioContext on interruption
-  // Always remove old handler first to prevent duplicates on re-init
+  // Auto-resume AudioContext on interruption and locally rejoin the room
+  // timeline after an active-playback route change (for example AirPods).
+  // Always remove the old observer first to prevent duplicates on re-init.
   try {
-    if (_ctxStateChangeHandler) {
-      // Remove from both the old context and current, in case they differ
-      if (_ctxStateChangeCtx)
-        _ctxStateChangeCtx.removeEventListener('statechange', _ctxStateChangeHandler);
-      if (_ctxStateChangeCtx !== ctx)
-        ctx.removeEventListener('statechange', _ctxStateChangeHandler);
-    }
-    const handler = () => {
-      if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
-        log.info(`[Audio] AudioContext ${ctx.state} — auto-resuming`);
-        ctx.resume().catch((e) => log.debug('[Audio] Auto-resume failed', e));
-      }
-    };
-    ctx.addEventListener('statechange', handler);
-    _ctxStateChangeCtx = ctx;
-    _ctxStateChangeHandler = handler;
+    _disposeContextRecovery?.();
+    _disposeContextRecovery = bindAudioContextInterruptionRecovery(ctx);
   } catch (e) {
     log.debug('[Audio] statechange listener setup failed', e);
   }

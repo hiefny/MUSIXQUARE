@@ -58,15 +58,38 @@ globalThis.MediaMetadata = class MediaMetadata {
 
 import { updateMediaSessionMetadata, initMediaSession } from '../media-session.ts';
 import { setLocalFilePaused } from '../_state.ts';
-import { togglePlay, stopPlayback, skipTime, play, pause } from '../transport.ts';
+import { setLocalYouTubePaused } from '../../youtube/_state.ts';
+import { togglePlay, stopPlayback, skipTime, pause } from '../transport.ts';
+import { bindAudioContextInterruptionRecovery } from '../../audio/context-recovery.ts';
 
 const CURRENT_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+const SECOND_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
+
+class FakeInterruptedAudioContext {
+  state = 'running';
+  readonly resume = vi.fn(async () => undefined);
+  private readonly listeners = new Set<() => void>();
+
+  addEventListener(type: string, listener: () => void): void {
+    if (type === 'statechange') this.listeners.add(listener);
+  }
+
+  removeEventListener(type: string, listener: () => void): void {
+    if (type === 'statechange') this.listeners.delete(listener);
+  }
+
+  dispatchState(state: string): void {
+    this.state = state;
+    for (const listener of [...this.listeners]) listener();
+  }
+}
 
 beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
   setLocalFilePaused(false);
+  setLocalYouTubePaused(false);
   navigator.mediaSession.metadata = null;
   navigator.mediaSession.playbackState = 'none';
 });
@@ -132,10 +155,10 @@ describe('initMediaSession', () => {
     expect(togglePlay).toHaveBeenCalled();
   });
 
-  it('play handler delegates to YouTube mode even though YouTube has its own pause state', () => {
+  it('play handler does not turn a duplicate YouTube PLAY action into a pause', () => {
     setPlaybackYouTubePlaying();
     _handlers['play']();
-    expect(togglePlay).toHaveBeenCalled();
+    expect(togglePlay).not.toHaveBeenCalled();
   });
 
   it('play handler emits playlist:play-track when idle with valid track', () => {
@@ -149,10 +172,11 @@ describe('initMediaSession', () => {
 
   // Non-OP guests must still be able to pause/resume their OWN local pause —
   // lock screen and hardware media buttons should always work (see
-  // media-session.ts isPlaybackBlocked comment). Resume is only valid when
-  // the pause originated locally (isLocalFilePaused); a ROOM-level pause
-  // (host PAUSE) must not be resumable by a lone guest.
-  it('play handler resumes a LOCALLY-paused file for non-operator guests', () => {
+  // media-session.ts isPlaybackBlocked comment). Resume queries the room's
+  // authoritative timeline and never manufactures a room-wide PLAY.
+  it('play handler rejoins a LOCALLY-paused file at the authoritative position', () => {
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
     setPlaybackFilePaused();
@@ -160,11 +184,13 @@ describe('initMediaSession', () => {
     setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     setState('player.pausedAt', 12);
     _handlers['play']();
-    expect(play).toHaveBeenCalledWith(12);
+    expect(rejoin).toHaveBeenCalledWith({ reason: 'media-session-play', mode: 'file' });
     expect(togglePlay).not.toHaveBeenCalled();
   });
 
-  it('play handler does NOT let a non-operator guest resume a ROOM-paused file (SA-09)', () => {
+  it('queries file authority when a non-operator lost its local pause bit', () => {
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
     setPlaybackFilePaused();
@@ -172,8 +198,128 @@ describe('initMediaSession', () => {
     setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     setState('player.pausedAt', 12);
     _handlers['play']();
-    expect(play).not.toHaveBeenCalled();
+    expect(rejoin).toHaveBeenCalledWith({ reason: 'media-session-play', mode: 'file' });
     expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('play handler rejoins a locally-paused YouTube guest without toggling room playback', () => {
+    const localState = vi.fn();
+    bus.on('youtube:set-local-paused', localState);
+    setState('network.hostConn', { fake: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackYouTubePlaying();
+    setLocalYouTubePaused(true);
+
+    _handlers['play']();
+
+    expect(localState).toHaveBeenCalledWith(false, 'media-session-play');
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('ignores a duplicate YouTube play action while a non-operator is already live', () => {
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    setState('network.hostConn', { fake: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackYouTubePlaying();
+
+    _handlers['play']();
+
+    expect(rejoin).not.toHaveBeenCalled();
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('queries standard YouTube authority from semantic PAUSED even when the local bit was lost', () => {
+    const localState = vi.fn();
+    bus.on('youtube:set-local-paused', localState);
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'paused');
+
+    _handlers['play']();
+
+    expect(localState).toHaveBeenCalledWith(false, 'media-session-play');
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('queries PRO authority from semantic PAUSED for a member without playback control', () => {
+    const localState = vi.fn();
+    bus.on('youtube:set-local-paused', localState);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'paused');
+
+    _handlers['play']();
+
+    expect(localState).toHaveBeenCalledWith(false, 'media-session-play');
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('emits exactly one rejoin after a trusted gesture resumes an interrupted context', async () => {
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    setState('setup.sessionStarted', true);
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+    const context = new FakeInterruptedAudioContext();
+    context.resume
+      .mockRejectedValueOnce(new Error('autoplay blocked'))
+      .mockImplementationOnce(async () => {
+        context.state = 'running';
+      });
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    context.dispatchState('suspended');
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+    _handlers['play']();
+
+    await vi.waitFor(() => expect(rejoin).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(rejoin).toHaveBeenCalledWith({ reason: 'audio-context-recovered', mode: 'file' });
+    dispose();
+  });
+
+  it('resumes a shared interrupted context and queries the current mode after identity changes', async () => {
+    const rejoin = vi.fn();
+    const localYouTubeState = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    bus.on('youtube:set-local-paused', localYouTubeState);
+    setState('setup.sessionStarted', true);
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+    const context = new FakeInterruptedAudioContext();
+    context.resume
+      .mockRejectedValueOnce(new Error('autoplay blocked'))
+      .mockImplementationOnce(async () => {
+        context.state = 'running';
+      });
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    context.dispatchState('suspended');
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+    setPlaybackYouTubePlaying();
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    _handlers['play']();
+
+    await vi.waitFor(() =>
+      expect(localYouTubeState).toHaveBeenCalledWith(false, 'media-session-play'),
+    );
+    expect(rejoin).not.toHaveBeenCalled();
+    expect(context.resume).toHaveBeenCalledTimes(2);
+    dispose();
   });
 
   it('pause handler calls togglePlay when playing', () => {
@@ -199,19 +345,33 @@ describe('initMediaSession', () => {
 
   it('YouTube handler toggles only the local player for non-operator guests', () => {
     const fn = vi.fn();
-    bus.on('youtube:local-toggle-play', fn);
+    bus.on('youtube:set-local-paused', fn);
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
     setPlaybackYouTubePlaying();
     _handlers['pause']();
-    expect(fn).toHaveBeenCalled();
+    expect(fn).toHaveBeenCalledWith(true);
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('keeps a non-operator YouTube PAUSE intent while rendezvous preparation is semantically paused', () => {
+    const localState = vi.fn();
+    bus.on('youtube:set-local-paused', localState);
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'paused');
+
+    _handlers['pause']();
+
+    expect(localState).toHaveBeenCalledWith(true);
     expect(togglePlay).not.toHaveBeenCalled();
   });
 
   it('keeps coordinator-free PRO member media keys local and blocks room controls', () => {
     const localYouTubeToggle = vi.fn();
     const nextTrack = vi.fn();
-    bus.on('youtube:local-toggle-play', localYouTubeToggle);
+    bus.on('youtube:set-local-paused', localYouTubeToggle);
     bus.on('playlist:next-track', nextTrack);
     setState('room.context', {
       kind: 'pro',
@@ -230,6 +390,7 @@ describe('initMediaSession', () => {
     _handlers['stop']();
 
     expect(localYouTubeToggle).toHaveBeenCalledOnce();
+    expect(localYouTubeToggle).toHaveBeenCalledWith(true);
     expect(togglePlay).not.toHaveBeenCalled();
     expect(nextTrack).not.toHaveBeenCalled();
     expect(skipTime).not.toHaveBeenCalled();
@@ -255,6 +416,24 @@ describe('initMediaSession', () => {
 
     expect(togglePlay).toHaveBeenCalledOnce();
     expect(nextTrack).toHaveBeenCalledOnce();
+  });
+
+  it('keeps explicit PRO controller PLAY as a room-wide action', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'paused');
+
+    _handlers['play']();
+
+    expect(togglePlay).toHaveBeenCalledOnce();
   });
 
   it('pause handler does nothing when already paused', () => {

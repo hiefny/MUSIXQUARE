@@ -71,6 +71,7 @@ import { initPlayback } from './player/playback.ts';
 import { initPlaylist } from './player/playlist.ts';
 import { initDecodeHandlers } from './player/decode.ts';
 import { initMediaSession } from './player/media-session.ts';
+import { initLocalOutputRejoin } from './player/local-output-rejoin.ts';
 
 // ── YouTube ──
 import { initYouTube } from './youtube/player.ts';
@@ -420,6 +421,7 @@ async function bootstrap(): Promise<void> {
   safeInit('Playlist', initPlaylist);
   safeInit('DecodeHandlers', initDecodeHandlers);
   safeInit('MediaSession', initMediaSession);
+  safeInit('LocalOutputRejoin', initLocalOutputRejoin);
 
   // 4. Audio engine (deferred init — Web Audio API context on user interaction)
   // Engine, effects, channel register bus listeners at import time

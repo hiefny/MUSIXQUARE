@@ -328,7 +328,11 @@ import {
   handleRequestYouTubeSubSeek,
   handleRequestYouTubePlaylistInfo,
 } from './handlers.ts';
-import { broadcastYouTubeSync, guestRendezvousSync, resetYouTubeSyncState } from './sync.ts';
+import {
+  broadcastYouTubeSync,
+  cancelGuestRendezvous,
+  resetYouTubeSyncState,
+} from './sync.ts';
 import {
   clearProCoordinatorYouTubeNudgeAnchor,
   isProCoordinatorYouTubeEndpoint,
@@ -630,6 +634,7 @@ export function scheduleYtAutoSync(
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
 export function cancelYtAutoSync(): void {
+  clearPendingAutoSync();
   invalidateYouTubeZeroStartPendingIntegration();
   clearManagedTimer('yt-auto-sync');
   clearManagedTimer('yt-zero-start-external-fallback');
@@ -2505,32 +2510,26 @@ export function initYouTube(): void {
     }
   });
 
-  bus.on('youtube:local-toggle-play', () => {
-    if (routeProYouTubeToggleIntent()) return;
-    if (isYtLoadInProgress()) {
-      log.debug('[YouTube] Load already in progress, ignoring local toggle');
-      return;
-    }
-
+  bus.on('youtube:set-local-paused', (paused, reason) => {
+    // Desired endpoint-local state: PAUSE must never behave like a toggle and
+    // accidentally start a paused iframe.
     const player = getYouTubePlayer();
-    if (!player) return;
     try {
-      if (player.getPlayerState() === YT.PlayerState.PLAYING) {
+      if (paused) {
+        cancelYtAutoSync();
+        cancelGuestRendezvous();
         setLocalYouTubePaused(true);
-        player.pauseVideo();
-      } else {
-        setLocalYouTubePaused(false);
-        const result = guestRendezvousSync({ silent: true, suppressProgressToast: true });
-        if (result.status === 'started' || result.status === 'completed') return;
-        // Authorize this play past the onYouTubePlayerStateChange pause-back
-        // guard. Without it, a PLAYING transition while autoplay intent is
-        // still false gets immediately paused back and the local resume
-        // silently fails — every other deliberate play site sets this first.
-        setYtAutoplayIntent(true);
-        player.playVideo();
+        if (player && player.getPlayerState() !== YT.PlayerState.PAUSED) player.pauseVideo();
+        return;
       }
+      // Resume never calls playVideo early. The common local rejoin seam
+      // queries the standard host or PRO server for the current position.
+      bus.emit('playback:local-output-rejoin', {
+        reason: reason ?? 'media-session-play',
+        mode: 'youtube',
+      });
     } catch (e) {
-      log.error('[YouTube] Local toggle play error:', e);
+      log.error('[YouTube] Local media-state error:', e);
     }
   });
 

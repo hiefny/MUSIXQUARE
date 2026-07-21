@@ -3321,9 +3321,11 @@ async function reconcileActiveProRoomPlayback(
  * No playback command or room revision is created. UI callers can await the
  * boolean to decide whether the local endpoint was actually realigned.
  */
-export function requestActiveProRoomPlaybackReconciliation(): Promise<boolean> {
+export function requestActiveProRoomPlaybackReconciliation(
+  options: Readonly<{ showLoading?: boolean }> = {},
+): Promise<boolean> {
   return reconcileActiveProRoomPlayback({
-    showLoading: true,
+    showLoading: options.showLoading ?? true,
     youtubeOnly: false,
     rendezvous: true,
   });

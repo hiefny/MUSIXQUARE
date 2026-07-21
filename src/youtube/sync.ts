@@ -741,6 +741,7 @@ type GuestRendezvousStatus = 'started' | 'completed' | 'busy' | 'not-ready' | 'n
 
 interface GuestRendezvousResult {
   status: GuestRendezvousStatus;
+  retryAfterMs?: number;
 }
 
 export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRendezvousResult {
@@ -771,9 +772,14 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
 
   // Debounce: cooldown prevents rapid-fire calls that crash YouTube iframe
   const now = Date.now();
-  if (_rt.rendezvousInProgress || now - _rt.lastRendezvousAt < RENDEZVOUS_COOLDOWN_MS) {
-    log.debug('[Rendezvous] Debounced — in progress or cooldown');
-    return { status: 'busy' };
+  if (_rt.rendezvousInProgress) {
+    log.debug('[Rendezvous] Debounced — in progress');
+    return { status: 'busy', retryAfterMs: 250 };
+  }
+  const cooldownRemaining = RENDEZVOUS_COOLDOWN_MS - (now - _rt.lastRendezvousAt);
+  if (cooldownRemaining > 0) {
+    log.debug('[Rendezvous] Debounced — cooldown');
+    return { status: 'busy', retryAfterMs: cooldownRemaining + 10 };
   }
 
   // Need a fresh-enough host snapshot
@@ -1050,7 +1056,7 @@ function finishRendezvous(): void {
  * Cancel any in-progress rendezvous sync. Called when the host takes a
  * disruptive action (pause/seek/video-change) during the guest's wait.
  */
-function cancelGuestRendezvous(): void {
+export function cancelGuestRendezvous(): void {
   if (!_rt.rendezvousInProgress) return;
   log.debug('[Rendezvous] Cancelled');
   clearManagedTimer('yt-rendezvous-calibrate');

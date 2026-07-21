@@ -9,17 +9,23 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
-import { togglePlay, stopPlayback, skipTime, play, pause } from './transport.ts';
-import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
+import { togglePlay, stopPlayback, skipTime, pause } from './transport.ts';
+import { setLocalFilePaused } from './_state.ts';
 import {
   isPlaybackActivityValue,
   isPlaybackIdle,
   isPlaybackModeYouTube,
   isPlaybackPlayingFile,
+  isPlaybackPlayingYouTube,
 } from './ownership.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
 import type { PlaylistItem } from '../types/index.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { isLocalYouTubePaused } from '../youtube/_state.ts';
+import {
+  hasPendingAudioContextInterruption,
+  resumePendingAudioContextInterruptionFromGesture,
+} from '../audio/context-recovery.ts';
 
 function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSessionPlaybackState {
   if (activity === 'playing') return 'playing';
@@ -93,12 +99,46 @@ export function initMediaSession(): void {
   };
   const isNonOperatorGuest = isPlaybackBlocked;
 
-  navigator.mediaSession.setActionHandler('play', () => {
-    if (isPlaybackModeYouTube()) {
-      if (isNonOperatorGuest()) {
-        bus.emit('youtube:local-toggle-play');
+  const requestLocalPlay = (mode: 'file' | 'youtube'): void => {
+    const emitRejoin = (): void => {
+      if (mode === 'youtube') {
+        bus.emit('youtube:set-local-paused', false, 'media-session-play');
         return;
       }
+      bus.emit('playback:local-output-rejoin', {
+        reason: 'media-session-play',
+        mode,
+      });
+    };
+
+    if (!hasPendingAudioContextInterruption()) {
+      emitRejoin();
+      return;
+    }
+    void resumePendingAudioContextInterruptionFromGesture().then((result) => {
+      // A successful context recovery emits its own identity-fenced rejoin.
+      // If playback changed while the output was suspended, that old identity
+      // is deliberately dropped and this trusted PLAY queries the *current*
+      // room authority exactly once instead.
+      if (result.running && !result.rejoinEmitted) emitRejoin();
+    });
+  };
+
+  navigator.mediaSession.setActionHandler('play', () => {
+    if (isPlaybackModeYouTube()) {
+      if (hasPendingAudioContextInterruption() && isPlaybackPlayingYouTube()) {
+        requestLocalPlay('youtube');
+        return;
+      }
+      if (isNonOperatorGuest()) {
+        // A play action is not a toggle. Rejoin from the authoritative room
+        // timeline instead of resuming the iframe at its stale local time.
+        // Ignore duplicate wrapper-generated PLAY events while already live.
+        if (!isLocalYouTubePaused() && isPlaybackPlayingYouTube()) return;
+        requestLocalPlay('youtube');
+        return;
+      }
+      if (isPlaybackPlayingYouTube()) return;
       togglePlay();
       return;
     }
@@ -115,20 +155,16 @@ export function initMediaSession(): void {
     // even while playbackState='playing', and a togglePlay here would pause
     // the music after the user pressed play. Mirrors the 'pause' handler
     // below which guards the symmetric case.
-    if (isPlaybackPlayingFile()) return;
+    if (isPlaybackPlayingFile()) {
+      if (hasPendingAudioContextInterruption()) requestLocalPlay('file');
+      return;
+    }
     if (currentQueueItemId) {
       if (isNonOperatorGuest()) {
-        // Local resume is only valid when the pause was LOCAL (this guest
-        // paused via lock screen / BT button while the host kept playing —
-        // SYNC_PONG re-locks position after resume). If the flag is clear,
-        // the pause is ROOM-level (host PAUSE cleared it in playback.ts):
-        // a lone guest resuming would play solo in a multi-device room. The
-        // room resumes via the host's next PLAY broadcast.
-        if (!isLocalFilePaused()) return;
-        // Clear the flag so the next SYNC_PONG re-locks this guest to the
-        // host position (network/sync.ts).
-        setLocalFilePaused(false);
-        void play(getState('player.pausedAt') || 0);
+        // Query the authoritative timeline even if a browser/OS suspension
+        // lost the local-pause flag. A room-level pause remains paused because
+        // this local-only path never manufactures a room PLAY command.
+        requestLocalPlay('file');
         return;
       }
       togglePlay();
@@ -138,9 +174,11 @@ export function initMediaSession(): void {
   navigator.mediaSession.setActionHandler('pause', () => {
     if (isPlaybackModeYouTube()) {
       if (isNonOperatorGuest()) {
-        bus.emit('youtube:local-toggle-play');
+        if (isLocalYouTubePaused()) return;
+        bus.emit('youtube:set-local-paused', true);
         return;
       }
+      if (!isPlaybackPlayingYouTube()) return;
       togglePlay();
       return;
     }

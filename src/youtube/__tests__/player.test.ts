@@ -100,6 +100,7 @@ vi.mock('../oembed.ts', () => ({
 
 vi.mock('../sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
+  cancelGuestRendezvous: vi.fn(),
   guestRendezvousSync: vi.fn(() => ({ status: 'not-ready' })),
   resetAdDetection: vi.fn(),
   initYouTubeSync: vi.fn(),
@@ -250,8 +251,8 @@ describe('YouTube Player', () => {
     });
   });
 
-  describe('local media-session toggle', () => {
-    it('marks local pause and clears it through rendezvous resume', async () => {
+  describe('local media-session desired state', () => {
+    it('pauses idempotently and resumes only through the common rejoin seam', async () => {
       const yt = {
         PlayerState: {
           PLAYING: 1,
@@ -267,29 +268,55 @@ describe('YouTube Player', () => {
         playVideo: vi.fn(),
       };
       const stateMod = await import('../_state.ts');
-      const syncMod = await import('../sync.ts');
       const { initYouTube } = await import('../player.ts');
-      const guestRendezvousSync = vi.mocked(syncMod.guestRendezvousSync);
-      guestRendezvousSync.mockReturnValue({ status: 'started' });
+      const rejoin = vi.fn();
+      bus.on('playback:local-output-rejoin', rejoin);
 
       stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
       stateMod.setLocalYouTubePaused(false);
       initYouTube();
 
-      bus.emit('youtube:local-toggle-play');
+      bus.emit('youtube:set-local-paused', true);
 
       expect(stateMod.isLocalYouTubePaused()).toBe(true);
       expect(player.pauseVideo).toHaveBeenCalledTimes(1);
 
-      player.getPlayerState.mockReturnValue(2);
-      bus.emit('youtube:local-toggle-play');
+      bus.emit('youtube:set-local-paused', false, 'media-session-play');
 
-      expect(stateMod.isLocalYouTubePaused()).toBe(false);
-      expect(guestRendezvousSync).toHaveBeenCalledWith({
-        silent: true,
-        suppressProgressToast: true,
+      expect(rejoin).toHaveBeenCalledWith({
+        reason: 'media-session-play',
+        mode: 'youtube',
       });
       expect(player.playVideo).not.toHaveBeenCalled();
+    });
+
+    it('records PAUSE and cancels rendezvous even while the iframe is loading', async () => {
+      const yt = { PlayerState: { PLAYING: 1, PAUSED: 2 } };
+      (window as unknown as { YT: unknown }).YT = yt;
+      (globalThis as unknown as { YT: unknown }).YT = yt;
+      const player = {
+        getPlayerState: vi.fn(() => 1),
+        pauseVideo: vi.fn(),
+      };
+      const stateMod = await import('../_state.ts');
+      const syncMod = await import('../sync.ts');
+      const {
+        getPendingAutoSyncOnReadyForTests,
+        initYouTube,
+        setPendingAutoSyncOnReady,
+      } = await import('../player.ts');
+      stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      stateMod.setYtLoadInProgress(true);
+      initYouTube();
+      setPendingAutoSyncOnReady(true, { isTrackTransition: true });
+
+      bus.emit('youtube:set-local-paused', true);
+
+      expect(stateMod.isLocalYouTubePaused()).toBe(true);
+      expect(getPendingAutoSyncOnReadyForTests()).toBe(false);
+      expect(vi.mocked(syncMod.cancelGuestRendezvous)).toHaveBeenCalledOnce();
+      expect(player.pauseVideo).toHaveBeenCalledOnce();
+      stateMod.setYtLoadInProgress(false);
     });
   });
 

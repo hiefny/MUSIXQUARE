@@ -1176,6 +1176,16 @@ interface BaseEventMap {
   ];
   'playback:replay-current': [delayMs?: number];
   'playback:refresh-current-position': [];
+  /**
+   * Rejoin only this browser's output to the authoritative room timeline.
+   * This must never manufacture a room-wide play/seek command.
+   */
+  'playback:local-output-rejoin': [
+    request: Readonly<{
+      reason: 'media-session-play' | 'audio-context-recovered';
+      mode: 'file' | 'youtube';
+    }>,
+  ];
   'player:check-ended': [];
   'player:buffer-changed': [];
   /** Local-only feedback while a PRO playback command awaits canonical media application. */
@@ -1255,7 +1265,8 @@ interface BaseEventMap {
     },
   ];
   'youtube:toggle-play': [];
-  'youtube:local-toggle-play': [];
+  /** Desired participant-local state from OS/headphone media controls. */
+  'youtube:set-local-paused': [paused: boolean, reason?: 'media-session-play'];
   // isTrackTransition=true: caller is a block-to-block YT-to-YT track switch
   // (existing player ran loadVideoById on a different video). Handler pauses
   // the host and uses TRACK_TRANSITION_RENDEZVOUS_MS so guests get a 4s

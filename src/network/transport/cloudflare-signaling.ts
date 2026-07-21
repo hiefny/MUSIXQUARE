@@ -631,19 +631,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return true;
   }
 
-  private async sendHostAuth(socket: WebSocket): Promise<void> {
-    if (!this.hostRoomId || !this.id || socket.readyState !== WebSocket.OPEN) return;
-    const assertions = await this.getStandardRoomAssertions(this.hostRoomId, this.id, 'host');
-    if (socket !== this.hostSocket || socket.readyState !== WebSocket.OPEN) return;
-    if (assertions === undefined) this.scheduleStandardRoomIdentityRefresh(10_000);
-    if (assertions) {
-      this.rememberStandardRoomDeletionProof(this.hostRoomId, 'host', assertions.deletionAssertion);
+  private sendHostAuth(socket: WebSocket): void {
+    if (
+      !this.hostRoomId ||
+      !this.id ||
+      socket !== this.hostSocket ||
+      socket.readyState !== WebSocket.OPEN
+    ) {
+      return;
     }
     socket.send(
       JSON.stringify({
         type: 'host-auth',
         secret: this.hostSecret,
-        ...(assertions?.accountAssertion ? { accountAssertion: assertions.accountAssertion } : {}),
       }),
     );
   }
@@ -979,7 +979,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.hostSocket = socket;
     socket.addEventListener('open', () => {
       if (this.proSignalingAccess) return;
-      void this.sendHostAuth(socket).catch((error) => this.emit('error', error));
+      try {
+        this.sendHostAuth(socket);
+      } catch (error) {
+        this.emit('error', error);
+      }
     });
     socket.addEventListener('message', (event) => {
       this.handleHostMessage(event.data).catch((error) => this.emit('error', error));
@@ -1165,6 +1169,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
       if (this.hostRoomId && this.hostSocket) {
         this.sendPendingStandardRoomDeletion(this.hostRoomId, 'host', this.hostSocket);
+        // Room admission and code display must never wait on the account API.
+        // Attach (or clear/delete) account identity only after the Worker has
+        // authenticated the RAM-only host secret and admitted this socket.
+        void this.refreshStandardRoomIdentity().catch((error) => this.emit('error', error));
       }
       this.open = true;
       this.disconnected = false;

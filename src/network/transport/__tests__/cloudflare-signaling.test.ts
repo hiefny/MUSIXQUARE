@@ -418,6 +418,95 @@ afterEach(() => {
 });
 
 describe('standard-room account identity refresh', () => {
+  it('authenticates a host immediately and attaches account identity after peer-open', async () => {
+    installFakeWebSocket();
+    let resolveAssertions:
+      | ((value: { accountAssertion: string; deletionAssertion: null }) => void)
+      | undefined;
+    const assertionProvider = vi.fn(
+      () =>
+        new Promise<{ accountAssertion: string; deletionAssertion: null }>((resolve) => {
+          resolveAssertions = resolve;
+        }),
+    );
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+
+    socket.dispatch('open');
+
+    expect(sentOfType(socket, 'host-auth')).toEqual([
+      {
+        type: 'host-auth',
+        secret: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+      },
+    ]);
+    expect(assertionProvider).not.toHaveBeenCalled();
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(assertionProvider).toHaveBeenCalledWith({
+      roomCode: '123456',
+      peerId: '123456',
+      role: 'host',
+    });
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+
+    resolveAssertions?.({ accountAssertion: 'signed-assertion', deletionAssertion: null });
+    await flushAsync();
+
+    expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({
+      type: 'account-identity-refresh',
+      accountAssertion: 'signed-assertion',
+    });
+    peer.destroy();
+  });
+
+  it('drops a late host account assertion after the peer is destroyed', async () => {
+    installFakeWebSocket();
+    let resolveAssertions:
+      | ((value: { accountAssertion: string; deletionAssertion: null }) => void)
+      | undefined;
+    const assertionProvider = vi.fn(
+      () =>
+        new Promise<{ accountAssertion: string; deletionAssertion: null }>((resolve) => {
+          resolveAssertions = resolve;
+        }),
+    );
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    peer.destroy();
+    resolveAssertions?.({ accountAssertion: 'stale-signed-assertion', deletionAssertion: null });
+    await flushAsync();
+
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+  });
+
   it('never sends account deletion without a deletion-audience proof', async () => {
     installFakeWebSocket();
     const peer = new CloudflareSignalingPeer('123456', {
@@ -553,7 +642,7 @@ describe('standard-room account identity refresh', () => {
     peer.destroy();
   });
 
-  it('retries after a transient assertion failure during the initial host handshake', async () => {
+  it('retries after a transient assertion failure following host admission', async () => {
     vi.useFakeTimers();
     installFakeWebSocket();
     const assertionProvider = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({
@@ -572,6 +661,12 @@ describe('standard-room account identity refresh', () => {
     socket.dispatch('open');
     await vi.advanceTimersByTimeAsync(0);
     expect(sentOfType(socket, 'host-auth')[0]).not.toHaveProperty('accountAssertion');
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({

@@ -83,7 +83,7 @@ test.describe('Host-Guest Connection', () => {
     await setupHostAndStart(pair.hostPage);
 
     await pair.guestPage.goto('/');
-    await pair.guestPage.waitForLoadState('networkidle');
+    await pair.guestPage.waitForLoadState('domcontentloaded');
     await pair.guestPage.waitForSelector('#btn-setup-guest', { state: 'visible', timeout: 15_000 });
     await pair.guestPage.click('#btn-setup-guest');
     await pair.guestPage.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });

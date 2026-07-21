@@ -176,4 +176,88 @@ describe('capability proof-of-work client', () => {
     rejectTurnstile();
     await Promise.resolve();
   });
+
+  it('refuses silent warmup when Turnstile could become interactive', async () => {
+    const existingTurnstileContainer = document.querySelector('#mxqr-turnstile-container');
+    const existingTurnstileScripts = document.querySelectorAll(
+      'script[src*="challenges.cloudflare.com"]',
+    ).length;
+    const tokenRequest = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/security-config')) {
+          return Response.json({
+            capabilityRequired: true,
+            turnstileSiteKey: 'interactive-site-key',
+            turnstileRequired: false,
+            proofOfWorkRequired: false,
+            proofOfWorkDifficulty: 0,
+            proofOfWorkTtl: 0,
+            ttl: 600,
+          });
+        }
+        tokenRequest();
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { warmCapabilitySilently } = await import('../capability.ts');
+    await expect(warmCapabilitySilently('/api/get-turn-config', ['turn'])).resolves.toBe(false);
+
+    expect(tokenRequest).not.toHaveBeenCalled();
+    expect(document.querySelector('#mxqr-turnstile-container')).toBe(existingTurnstileContainer);
+    expect(document.querySelectorAll('script[src*="challenges.cloudflare.com"]')).toHaveLength(
+      existingTurnstileScripts,
+    );
+  });
+
+  it('shares a silent mint with an explicit caller while isolating caller abort', async () => {
+    let resolveToken!: (response: Response) => void;
+    const tokenResponse = new Promise<Response>((resolve) => {
+      resolveToken = resolve;
+    });
+    let tokenRequests = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/security-config')) {
+          return Response.json({
+            capabilityRequired: true,
+            turnstileSiteKey: '',
+            turnstileRequired: false,
+            proofOfWorkRequired: false,
+            proofOfWorkDifficulty: 0,
+            proofOfWorkTtl: 0,
+            ttl: 600,
+          });
+        }
+        if (url.endsWith('/api/capability-token')) {
+          tokenRequests += 1;
+          return tokenResponse;
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { getCapabilityHeaders, warmCapabilitySilently } = await import('../capability.ts');
+    const warmup = warmCapabilitySilently('/api/get-turn-config', ['turn']);
+    await vi.waitFor(() => expect(tokenRequests).toBe(1));
+
+    const controller = new AbortController();
+    const explicit = getCapabilityHeaders('/api/get-turn-config', ['turn'], controller.signal);
+    controller.abort();
+    await expect(explicit).rejects.toMatchObject({ name: 'AbortError' });
+
+    resolveToken(
+      Response.json({ token: 'warm-bundle', expiresAt: Date.now() / 1000 + 600 }),
+    );
+    await expect(warmup).resolves.toBe(true);
+    expect(tokenRequests).toBe(1);
+    await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({
+      'X-MXQR-Capability': 'warm-bundle',
+    });
+  });
 });

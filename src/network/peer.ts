@@ -7,7 +7,6 @@
  */
 
 import { log } from '../core/log.ts';
-import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
@@ -32,6 +31,7 @@ import {
 } from './system-audio-delivery.ts';
 import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -158,53 +158,6 @@ export function forceStereoSdp(sdp: string): string {
 }
 
 // ─── TURN Config Helpers ────────────────────────────────────────────
-
-interface TurnConfigResponse {
-  provider?: unknown;
-  iceServers?: unknown;
-}
-
-function normalizeIceServerUrls(value: unknown): string[] {
-  const urls = Array.isArray(value) ? value : [value];
-  return urls.filter((url): url is string => {
-    return typeof url === 'string' && /^(stun|turn|turns):/i.test(url);
-  });
-}
-
-function normalizeRemoteIceServers(value: unknown): RTCIceServer[] {
-  if (!Array.isArray(value)) return [];
-
-  const result: RTCIceServer[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') continue;
-
-    const server = item as Record<string, unknown>;
-    const urls = normalizeIceServerUrls(server.urls);
-    if (urls.length === 0) continue;
-
-    const iceServer: RTCIceServer = {
-      urls: urls.length === 1 ? urls[0] : urls,
-    };
-    if (typeof server.username === 'string' && server.username) {
-      iceServer.username = server.username;
-    }
-    if (typeof server.credential === 'string' && server.credential) {
-      iceServer.credential = server.credential;
-    }
-
-    result.push(iceServer);
-  }
-
-  return result;
-}
-
-function hasTurnServer(server: RTCIceServer): boolean {
-  return normalizeIceServerUrls(server.urls).some((url) => /^turns?:/i.test(url));
-}
-
-function getProviderLabel(payload: TurnConfigResponse): string {
-  return typeof payload.provider === 'string' && payload.provider ? payload.provider : 'remote';
-}
 
 interface NetworkInitOwner {
   epoch: number;
@@ -352,44 +305,15 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       { urls: 'stun:stun.cloudflare.com:3478' },
     ];
 
-    // Direct URLs only (avoid cross-host redirects, which break CORS in some WebViews)
-    const turnEndpoints = [
-      '/api/get-turn-config', // same-origin (works for musixquare.com)
-      'https://musixquare.com/api/get-turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
-    ];
-
-    for (const url of turnEndpoints) {
-      try {
-        assertNetworkInitStillActive(owner);
-        const resp = await fetchWithCapability(url, 'turn', {
-          signal: owner.controller.signal,
-        });
-        assertNetworkInitStillActive(owner);
-        if (!resp.ok) {
-          log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
-          continue;
-        }
-        const payload = (await resp.json()) as TurnConfigResponse;
-        assertNetworkInitStillActive(owner);
-        const remoteIceServers = normalizeRemoteIceServers(payload.iceServers);
-        if (remoteIceServers.some(hasTurnServer)) {
-          iceServers.push(...remoteIceServers);
-          log.info(`[Network] TURN ICE servers loaded (${getProviderLabel(payload)}) via ${url}`);
-          break;
-        }
-
-        log.warn(`[Network] TURN fetch returned no usable ICE servers: ${url}`);
-      } catch (e) {
-        if (isCapabilityChallengeCancelled(e)) throw e;
-        if (!isNetworkInitStillActive(owner)) {
-          throw createNetworkInitCancelledError(e);
-        }
-        log.warn(
-          `[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
-    }
-    if (!iceServers.some(hasTurnServer)) {
+    assertNetworkInitStillActive(owner);
+    const turnCredentials = await getStandardRoomTurnCredentials(owner.controller.signal);
+    assertNetworkInitStillActive(owner);
+    if (turnCredentials) {
+      iceServers.push(...turnCredentials.iceServers);
+      log.info(
+        `[Network] TURN ICE servers loaded (${turnCredentials.provider}) via ${turnCredentials.source}`,
+      );
+    } else {
       log.warn(
         '[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)',
       );

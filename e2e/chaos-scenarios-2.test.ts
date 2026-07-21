@@ -293,7 +293,7 @@ test.describe('Host Page Refresh', () => {
       await startPlayback(setup.hostPage);
 
       await setup.hostPage.reload();
-      await setup.hostPage.waitForLoadState('networkidle');
+      await setup.hostPage.waitForLoadState('domcontentloaded');
       await setup.hostPage.waitForFunction(
         () => document.getElementById('setup-overlay') !== null,
         { timeout: 10_000 },
@@ -335,7 +335,7 @@ test.describe('Host Page Refresh', () => {
       await waitForPlaylistCount(hostPage, 1);
 
       await hostPage.reload();
-      await hostPage.waitForLoadState('networkidle');
+      await hostPage.waitForLoadState('domcontentloaded');
       await hostPage.waitForFunction(() => document.getElementById('setup-overlay') !== null, {
         timeout: 10_000,
       });
@@ -973,7 +973,7 @@ test.describe('Guest Reload During Transfer', () => {
       await uploadFixture(setup.hostPage, 'test01');
 
       await setup.guestPages[0].reload();
-      await setup.guestPages[0].waitForLoadState('networkidle');
+      await setup.guestPages[0].waitForLoadState('domcontentloaded');
 
       // Reloading the guest tears down its PeerJS connection.
       await waitForPeerCountAtMost(setup.hostPage, 0);
@@ -1179,7 +1179,7 @@ test.describe('Sequential Sessions', () => {
 
         if (session < 2) {
           await hostPage.reload();
-          await hostPage.waitForLoadState('networkidle');
+          await hostPage.waitForLoadState('domcontentloaded');
           await hostPage.waitForFunction(() => document.getElementById('setup-overlay') !== null, {
             timeout: 10_000,
           });

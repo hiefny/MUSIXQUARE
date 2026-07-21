@@ -12,7 +12,9 @@ const GUEST_JOIN_TIMEOUT_MS = 20_000;
 /** Navigate to the app and wait for the setup choices. */
 async function navigateAndWaitForSetup(page: Page): Promise<void> {
   await page.goto('/');
-  await page.waitForLoadState('networkidle');
+  // The landing page intentionally performs best-effort background network
+  // warmup. Readiness must follow the setup UI, not global network silence.
+  await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('#btn-setup-host', { state: 'visible', timeout: 15_000 });
 }
 

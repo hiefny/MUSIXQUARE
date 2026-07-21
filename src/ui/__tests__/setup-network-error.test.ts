@@ -27,6 +27,10 @@ vi.mock('../../network/peer.ts', () => ({
   cancelPendingSessionSetup: vi.fn(),
 }));
 
+vi.mock('../../network/standard-room-prerequisites.ts', () => ({
+  scheduleStandardRoomPrerequisiteWarmup: vi.fn(),
+}));
+
 vi.mock('../../player/ownership.ts', () => ({
   isPlaybackModeYouTube: vi.fn(() => false),
 }));

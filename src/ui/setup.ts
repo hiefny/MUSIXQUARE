@@ -65,6 +65,7 @@ import {
   setPendingAutoJoinCode,
 } from './setup-shared.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
+import { scheduleStandardRoomPrerequisiteWarmup } from '../network/standard-room-prerequisites.ts';
 
 // ─── Host / Guest Choice ─────────────────────────────────────────
 
@@ -224,6 +225,7 @@ function initSetupOverlay(): void {
   _applyEntranceClasses();
 
   showAndStart();
+  scheduleStandardRoomPrerequisiteWarmup();
 
   // Bind slider events (use addEventListener with signal for proper cleanup)
   const btnNext = setupEl('ob-next');

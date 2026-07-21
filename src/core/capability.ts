@@ -50,6 +50,7 @@ const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
 const TURNSTILE_OVERLAY_FADE_MS = 180;
+const SILENT_CAPABILITY_WARM_TIMEOUT_MS = 8_000;
 const TURNSTILE_SCRIPT_SRC =
   'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
@@ -171,7 +172,11 @@ function normalizeSecurityConfig(value: unknown): SecurityConfig {
   };
 }
 
-async function getSecurityConfig(apiBase: string, signal?: AbortSignal): Promise<SecurityConfig> {
+async function getSecurityConfig(
+  apiBase: string,
+  signal?: AbortSignal,
+  failOpen = true,
+): Promise<SecurityConfig> {
   throwIfAborted(signal);
   const cached = configCache.get(apiBase);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
@@ -188,8 +193,9 @@ async function getSecurityConfig(apiBase: string, signal?: AbortSignal): Promise
       value,
     });
     return value;
-  } catch {
+  } catch (error) {
     if (signal?.aborted) throw createAbortError(signal);
+    if (!failOpen) throw error;
     return {
       capabilityRequired: false,
       turnstileSiteKey: '',
@@ -615,19 +621,25 @@ export async function getCapabilityHeaders(
     // argument-validation gate (empty -> no-op).
     void normalizedScopes;
     let request: Promise<string>;
-    if (signal) {
+    const sharedRequest = tokenRequestCache.get(cacheKey);
+    if (sharedRequest) {
+      request = settleWithAbort(sharedRequest, signal);
+    } else if (signal) {
       // An abortable caller owns its mint request. Sharing it would let one
       // upload cancel another caller's challenge/token fetch.
       request = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config, signal);
     } else {
-      let sharedRequest = tokenRequestCache.get(cacheKey);
-      if (!sharedRequest) {
-        sharedRequest = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config).finally(() => {
-          if (tokenRequestCache.get(cacheKey) === sharedRequest) tokenRequestCache.delete(cacheKey);
-        });
-        tokenRequestCache.set(cacheKey, sharedRequest);
-      }
-      request = sharedRequest;
+      const newSharedRequest = requestCapabilityToken(
+        apiBase,
+        BUNDLE_SCOPES,
+        config,
+      ).finally(() => {
+        if (tokenRequestCache.get(cacheKey) === newSharedRequest) {
+          tokenRequestCache.delete(cacheKey);
+        }
+      });
+      tokenRequestCache.set(cacheKey, newSharedRequest);
+      request = newSharedRequest;
     }
     const token = await request;
     throwIfAborted(signal);
@@ -636,6 +648,59 @@ export async function getCapabilityHeaders(
     if (signal?.aborted) throw createAbortError(signal);
     if (isCapabilityChallengeCancelled(error)) throw error;
     return {};
+  }
+}
+
+/**
+ * Populate the ordinary capability cache only when the complete flow is
+ * guaranteed to stay non-interactive. This deliberately refuses to load or
+ * execute Turnstile; an explicit user action remains responsible for that
+ * path if policy enables it later.
+ */
+export async function warmCapabilitySilently(
+  input: RequestInfo | URL,
+  scopes: CapabilityScope[],
+): Promise<boolean> {
+  const normalizedScopes = normalizeScopes(scopes);
+  if (normalizedScopes.length === 0) return true;
+
+  const apiBase = apiBaseFor(input);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(new Error('SILENT_CAPABILITY_WARM_TIMEOUT')),
+    SILENT_CAPABILITY_WARM_TIMEOUT_MS,
+  );
+  try {
+    const config = await getSecurityConfig(apiBase, controller.signal, false);
+    if (!config.capabilityRequired) return true;
+    if (config.turnstileRequired || config.turnstileSiteKey) return false;
+
+    const cacheKey = tokenCacheKey(apiBase, BUNDLE_SCOPES);
+    const cached = tokenCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now() / 1000 + TOKEN_REFRESH_SKEW_SECONDS) return true;
+
+    let request = tokenRequestCache.get(cacheKey);
+    if (!request) {
+      const newRequest = requestCapabilityToken(
+        apiBase,
+        BUNDLE_SCOPES,
+        config,
+        controller.signal,
+      ).finally(() => {
+        if (tokenRequestCache.get(cacheKey) === newRequest) tokenRequestCache.delete(cacheKey);
+      });
+      tokenRequestCache.set(cacheKey, newRequest);
+      request = newRequest;
+    } else {
+      request = settleWithAbort(request, controller.signal);
+    }
+    await request;
+    return true;
+  } catch (error) {
+    if (isCapabilityChallengeCancelled(error)) throw error;
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 

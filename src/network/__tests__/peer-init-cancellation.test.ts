@@ -36,6 +36,7 @@ vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
 vi.mock('../../ui/toast.ts', () => ({ showToast: mocks.showToast }));
 
 import { getPeer, setPeer } from '../peer-state.ts';
+import { __standardRoomPrerequisitesForTests } from '../standard-room-prerequisites.ts';
 import {
   claimGuestDirectSystemAudioRoute,
   getGuestSystemAudioShareRoute,
@@ -110,6 +111,7 @@ async function waitForTransportCalls(count: number): Promise<void> {
 }
 
 beforeEach(() => {
+  __standardRoomPrerequisitesForTests.reset();
   clearAllManagedTimers();
   resetState();
   setPeer(null);
@@ -142,6 +144,17 @@ describe('network initialization ownership', () => {
     const peer = makePeer('STANDARD-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
     await createHostSessionWithShortCode(1);
+
+    expect(mocks.createTransportPeer).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          iceServers: expect.arrayContaining([
+            expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
+          ]),
+        }),
+      }),
+    );
 
     peer.fire('disconnected');
     await vi.advanceTimersByTimeAsync(5_000);

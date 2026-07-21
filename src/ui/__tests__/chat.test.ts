@@ -291,6 +291,29 @@ describe('Chat Module', () => {
       expect(preview?.classList.contains('user-text-font')).toBe(false);
       expect(preview?.dataset.userTextFonts).toBeUndefined();
     });
+
+    it('updates the script-aware font while composing in the chat input', async () => {
+      renderChatShell();
+      const input = document.getElementById('chat-input') as HTMLDivElement;
+      input.contentEditable = 'true';
+      const { initChat } = await import('../chat.ts');
+      initChat();
+
+      input.textContent = '练习 練習';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+
+      expectFontClasses(
+        input,
+        'user-text-font',
+        'user-text-font-zh-hans',
+        'user-text-font-zh-hant',
+      );
+
+      input.textContent = 'MUSIXQUARE';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      expect(input.classList.contains('user-text-font')).toBe(false);
+      expect(input.dataset.userTextFonts).toBeUndefined();
+    });
   });
 
   describe('Notice banner', () => {

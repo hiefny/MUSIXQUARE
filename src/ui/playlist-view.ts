@@ -31,6 +31,7 @@ import {
 } from './playlist-follow.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
+import { applyUserTextFontFallback } from './user-text-font.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
@@ -209,6 +210,7 @@ function appendSubPlaylist(
       const subName = document.createElement('span');
       subName.className = 'sub-name';
       subName.textContent = title;
+      applyUserTextFontFallback(subName, title);
       subItem.replaceChildren(subIdx, subName);
       subUl.appendChild(subItem);
     });
@@ -318,6 +320,8 @@ export function updatePlaylistUI(): void {
       ${expandButton}
       ${removeButton}
     `;
+    const renderedName = row.querySelector<HTMLElement>('.track-name-text');
+    if (renderedName) applyUserTextFontFallback(renderedName, displayName);
     entry.appendChild(row);
     appendSubPlaylist(entry, item, isCurrent, currentYouTubeSubIndex);
     list.appendChild(entry);

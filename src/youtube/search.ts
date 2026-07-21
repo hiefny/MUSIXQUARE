@@ -26,6 +26,7 @@ import {
   OEMBED_PREVIEW_DEBOUNCE_MS,
 } from './constants.ts';
 import { fetchWithTimeout, normalizeExternalTitle } from './oembed.ts';
+import { applyUserTextFontFallback } from '../ui/user-text-font.ts';
 
 const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
 const YOUTUBE_PLAYLIST_ENTRY_ENDPOINT = '/api/youtube-playlist-entry';
@@ -465,10 +466,12 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
     const title = document.createElement('span');
     title.className = 'yt-search-title';
     title.textContent = result.title || t('common.youtube_video');
+    applyUserTextFontFallback(title, title.textContent);
 
     const channel = document.createElement('span');
     channel.className = 'yt-search-channel';
     channel.textContent = result.channelTitle || 'YouTube';
+    applyUserTextFontFallback(channel, channel.textContent);
 
     meta.append(title, channel);
     btn.append(thumb, meta);
@@ -658,8 +661,14 @@ export function fetchYouTubePreview(url: string): void {
             thumb.style.display = 'none';
           }
         }
-        if (title) title.innerText = normalizeExternalTitle(data?.title);
-        if (chan) chan.innerText = normalizeExternalTitle(data?.author_name);
+        if (title) {
+          title.innerText = normalizeExternalTitle(data?.title);
+          applyUserTextFontFallback(title, title.innerText);
+        }
+        if (chan) {
+          chan.innerText = normalizeExternalTitle(data?.author_name);
+          applyUserTextFontFallback(chan, chan.innerText);
+        }
 
         freshPreview.style.removeProperty('display');
         freshPreview.hidden = false;

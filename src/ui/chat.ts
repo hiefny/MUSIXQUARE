@@ -665,6 +665,7 @@ export function initChat(): void {
     /** Write text to contenteditable div and place cursor at end */
     function setInputValue(text: string): void {
       chatInput!.textContent = text;
+      applyUserTextFontFallback(chatInput!, text);
       // Place cursor at end
       if (text) {
         const sel = window.getSelection();
@@ -793,6 +794,7 @@ export function initChat(): void {
       // Stray-<br> placeholder restore — shared helper, see dom.ts.
       normalizeEmptyContentEditable(chatInput, e);
       const val = getInputValue();
+      applyUserTextFontFallback(chatInput, val);
       updateGhost();
       if (!val.startsWith('/') || val.includes(' ')) {
         hideSuggest();

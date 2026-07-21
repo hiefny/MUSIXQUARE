@@ -412,6 +412,40 @@ describe('YouTube search result rendering sink', () => {
     clearYouTubeInputState();
     document.body.innerHTML = '';
   });
+
+  it('marks multilingual search-result metadata with its detected script fonts', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-preview"></div>
+      <div id="youtube-preview-status"></div>
+      <div id="youtube-search-results" role="group"></div>
+      <button id="youtube-play-btn"></button>
+    `;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          results: [
+            {
+              videoId: 'DDDDDDDDDDD',
+              title: '练习中文',
+              channelTitle: 'Музыка',
+              thumbnailUrl: '',
+              url: 'https://www.youtube.com/watch?v=DDDDDDDDDDD',
+            },
+          ],
+        }),
+      ),
+    );
+
+    await searchYouTubeFromInput('font probe 20260722');
+
+    expect(document.querySelector('.yt-search-title')?.classList).toContain(
+      'user-text-font-zh-hans',
+    );
+    expect(document.querySelector('.yt-search-channel')?.classList).toContain(
+      'user-text-font-ru',
+    );
+  });
 });
 
 describe('YouTube title entity decoding', () => {

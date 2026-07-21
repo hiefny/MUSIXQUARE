@@ -175,6 +175,22 @@ describe('playlist queue identity rendering and actions', () => {
     expect(youtubeEntry?.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(2);
   });
 
+  it('marks multilingual parent and sub-track titles with detected script fonts', () => {
+    const items = sampleItems();
+    items[1]!.title = '這麼好的歌';
+    setState('playlist.items', items);
+    setState('youtube.subItemsMap', {
+      PL_TEST: { ids: ['video-a'], titles: ['かなの曲'] },
+    });
+
+    updatePlaylistUI();
+
+    expect(
+      document.querySelector(`[data-queue-item-id="${YT_B}"] .track-name-text`)?.classList,
+    ).toContain('user-text-font-zh-hant');
+    expect(document.querySelector('.sub-name')?.classList).toContain('user-text-font-ja');
+  });
+
   it('prefers resolved YouTube titles without replacing file-name labels', () => {
     setState('playlist.items', [
       {

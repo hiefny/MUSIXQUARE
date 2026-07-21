@@ -1053,7 +1053,9 @@ export function initPlayerControls(): void {
     ytInput.addEventListener('input', (e) => {
       // Stray-<br> placeholder restore — shared helper, see dom.ts.
       normalizeEmptyContentEditable(ytInput, e);
-      bus.emit('youtube:preview', ytInput.textContent || '');
+      const inputText = ytInput.textContent || '';
+      applyUserTextFontFallback(ytInput, inputText);
+      bus.emit('youtube:preview', inputText);
     });
     ytInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {

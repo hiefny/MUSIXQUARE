@@ -495,6 +495,18 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
   });
 
+  it('updates script-aware fonts while typing a YouTube search query', () => {
+    document.body.innerHTML = `<div id="youtube-url-input" contenteditable="true"></div>`;
+    const input = document.getElementById('youtube-url-input') as HTMLDivElement;
+
+    initPlayerControls();
+    input.textContent = 'เพลงไทย';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+
+    expect(input.classList).toContain('user-text-font');
+    expect(input.classList).toContain('user-text-font-th');
+  });
+
   it('shows the current owner and never starts a second PRO picker', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>

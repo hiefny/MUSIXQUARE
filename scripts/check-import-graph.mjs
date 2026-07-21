@@ -83,6 +83,10 @@ const SCC_BASELINE = [
 const UI_OPEN_MODULES = new Map([
   ['src/ui/toast.ts', 'app-wide notification primitive (18+ importers by design)'],
   ['src/ui/dialog.ts', 'app-wide modal primitive'],
+  [
+    'src/ui/user-text-font.ts',
+    'app-wide script-aware font boundary for user and external text renderers',
+  ],
 ]);
 
 // Specific (importer -> ui module) exceptions, each with a reason.

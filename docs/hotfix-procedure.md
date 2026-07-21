@@ -206,6 +206,12 @@ MUSIXQUARE is a PWA with a service worker, so "deployed" and "every open client 
 
 Current behavior:
 
+Product SemVer and the service-worker cache epoch are intentionally independent.
+See [release versioning](release-versioning.md). A hotfix normally advances the
+product patch version when it changes shipped behavior; it advances
+`CACHE_VERSION` only when the PWA cache boundary also needs to move. The Git SHA
+and Cloudflare Worker version IDs identify the exact deployed build.
+
 | Client state                                | Expected behavior                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | New visitor or fresh navigation             | Navigation is network-first, so the user should receive the latest deployed app shell immediately unless offline.                                                                                                                                                                                                                                                                                                                                 |

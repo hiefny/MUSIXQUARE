@@ -7,6 +7,10 @@ or a substitute for the current source and tests.
 
 ## Current References
 
+- [Release versioning](release-versioning.md) defines the independent product
+  SemVer, PWA cache epoch, API/schema versions, document dates, and immutable
+  deployment identifiers.
+
 - [Optional account identity and room authority](design/account-identity-and-room-authority.md)
   and [account authentication provisioning](account-auth-operations.md) define
   the additive account model, OAuth/D1 security boundary, and production setup.

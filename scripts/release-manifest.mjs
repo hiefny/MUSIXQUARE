@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
+import { readReleaseIdentity } from './release-identity.mjs';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const DEFAULT_WRANGLER_VERSION = '4.111.0';
 const mode = process.argv[2];
 const distDirectory = resolve(process.argv[3] || 'dist');
@@ -71,6 +72,7 @@ function createManifest() {
 
   const manifest = {
     schemaVersion: SCHEMA_VERSION,
+    release: readReleaseIdentity(),
     commit: currentCommit(),
     runId: process.env.GITHUB_RUN_ID || null,
     runAttempt: process.env.GITHUB_RUN_ATTEMPT || null,
@@ -101,6 +103,17 @@ function verifyManifest() {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   if (manifest.schemaVersion !== SCHEMA_VERSION || !Array.isArray(manifest.files)) {
     throw new Error('Unsupported or malformed release manifest.');
+  }
+  const currentRelease = readReleaseIdentity();
+  if (manifest.release?.productVersion !== currentRelease.productVersion) {
+    throw new Error(
+      `Release manifest product version ${manifest.release?.productVersion} does not match ${currentRelease.productVersion}.`,
+    );
+  }
+  if (manifest.release?.serviceWorkerCacheEpoch !== currentRelease.serviceWorkerCacheEpoch) {
+    throw new Error(
+      `Release manifest service-worker cache epoch ${manifest.release?.serviceWorkerCacheEpoch} does not match ${currentRelease.serviceWorkerCacheEpoch}.`,
+    );
   }
   if (process.env.GITHUB_SHA && manifest.commit !== process.env.GITHUB_SHA) {
     throw new Error(

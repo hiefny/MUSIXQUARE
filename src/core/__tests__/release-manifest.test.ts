@@ -10,6 +10,10 @@ const temporaryDirectories: string[] = [];
 
 type Manifest = {
   schemaVersion: number;
+  release: {
+    productVersion: string;
+    serviceWorkerCacheEpoch: number;
+  };
   commit: string;
   validationProfile: string | null;
 };
@@ -58,8 +62,13 @@ describe('release manifest validation profile', () => {
     expect(createResult.status, createResult.stderr).toBe(0);
 
     const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
+    const product = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };
     expect(payload).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      release: {
+        productVersion: product.version,
+        serviceWorkerCacheEpoch: expect.any(Number),
+      },
       commit: COMMIT,
       validationProfile: 'core-smoke',
     });
@@ -89,5 +98,18 @@ describe('release manifest validation profile', () => {
     const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
     expect(payload.validationProfile).toBeNull();
     expect(runManifest('verify', dist, manifest).status).toBe(0);
+  });
+
+  it('rejects an artifact manifest with a different product release identity', () => {
+    const { dist, manifest } = createFixture();
+    expect(runManifest('create', dist, manifest).status).toBe(0);
+    const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
+    payload.release.productVersion = '999.0.0';
+    writeFileSync(manifest, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+
+    const verifyResult = runManifest('verify', dist, manifest);
+
+    expect(verifyResult.status).not.toBe(0);
+    expect(verifyResult.stderr).toContain('Release manifest product version 999.0.0');
   });
 });

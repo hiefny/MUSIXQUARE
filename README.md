@@ -10,6 +10,57 @@ MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchron
 
 ---
 
+## OpenAI Build Week 2026
+
+MUSIXQUARE existed before OpenAI Build Week. This submission is based on the
+meaningful extensions I developed with Codex and GPT-5.6 during the official
+submission period, rather than on the pre-existing product alone.
+
+### Build Week Baseline and Evidence
+
+- **Pre-event baseline:** [`0483a000`](https://github.com/hiefny/MUSIXQUARE/commit/0483a000d8d745cab9e7091a83199a7ebdc32375)
+- **Build Week changes:** [`0483a000...main`](https://github.com/hiefny/MUSIXQUARE/compare/0483a000d8d745cab9e7091a83199a7ebdc32375...main)
+- **Development period:** July 14–21, 2026 KST
+- **Primary Codex `/feedback` session:** `019f495f-b46e-7ad1-966b-9dfe679c5321`
+
+### What I Built During Build Week
+
+The largest extension was a persistent PRO room architecture. Before Build
+Week, rooms were temporary and coordinated by a host browser. During the event,
+I added stable room identities, private media storage, durable playlists,
+repeat and shuffle persistence, participant presence, server-owned playback
+authority, and recovery from sleeping or disconnected clients.
+
+I also added room-scoped Developer APIs for queue management, playback, and
+audio effects; optional account identity with account-bound permissions;
+collaborative playlist controls; remote-media preloading; global drag-and-drop
+media loading; media delivery designed for rooms of up to 100 connected
+devices; safer reconnect identities; atomic session resets; more reliable
+YouTube transitions and rendezvous timing; locale-aware pluralization; and
+clearer real-time interface feedback.
+
+Behind the product, I built release manifests, deployment-state verification,
+live signaling and reconnection smoke tests, Cloudflare configuration
+safeguards, rollback procedures, and extensive unit and end-to-end regression
+coverage.
+
+### How I Collaborated With Codex and GPT-5.6
+
+I used Codex powered by GPT-5.6 as an engineering partner throughout the full
+development cycle: analyzing the real-time architecture, designing system
+boundaries, implementing features, tracing asynchronous failures, building
+regression tests, auditing security assumptions, and validating production
+deployments.
+
+Codex accelerated implementation, review, testing, and the investigation of
+complex edge cases across the browser, Web Audio, WebRTC, Cloudflare Workers,
+Durable Objects, D1, R2, and the production release pipeline. I reviewed the
+proposed changes, chose the product scope, defined the authority and privacy
+boundaries, rejected or revised unsuitable approaches, and made the final
+product, engineering, and design decisions.
+
+---
+
 ## Open Source
 
 MUSIXQUARE is open-source software licensed under the **GNU Affero General Public License v3.0 or later** (`AGPL-3.0-or-later`).

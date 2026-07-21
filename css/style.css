@@ -849,8 +849,9 @@
   .header-loading-text {
     position: absolute;
     top: 0;
-    left: 0;
-    width: 100%;
+    left: calc(24px + var(--safe-left));
+    right: calc(24px + var(--safe-right));
+    width: auto;
     height: 100%;
     display: flex;
     align-items: center;
@@ -881,6 +882,16 @@
   header.loading .header-loading-text {
     transform: translateY(0);
     opacity: 1;
+  }
+
+  /* Phones have enough header height for two short status lines. Wrapping here
+     preserves the operation/file context instead of truncating it early. */
+  @media (max-width: 719px) {
+    .header-loading-text {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 18px;
+    }
   }
 
   /* Header actions participate in the header's flex layout. */
@@ -7901,7 +7912,14 @@
     }
 
     .header-loading-text {
-      padding-left: 13px !important; /* 29 - header 16px padding */
+      top: calc(10px + var(--safe-top)) !important;
+      left: 29px !important;
+      right: calc(16px + var(--safe-right)) !important;
+      width: auto !important;
+      height: 54px !important;
+      line-height: 18px;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     /* ── Tab navigation: centered between logo and role badge ── */

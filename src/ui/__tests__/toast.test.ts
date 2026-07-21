@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFile } from 'node:fs/promises';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
@@ -426,6 +427,44 @@ describe('showLoader', () => {
     showLoader(false, undefined, 'loader-b');
     expect(document.getElementById('header-loading-text')!.innerText).toBe('Upload A 50%');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('50%');
+  });
+});
+
+describe('header loader layout contract', () => {
+  it('uses the whole header while preserving the compact sidebar rail', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    expect(parsed.getElementById('header-loading-text')?.parentElement?.id).toBe('main-header');
+
+    const compactStart = stylesheet.indexOf(
+      '@media (min-width: 720px) and (max-width: 1279px) {',
+    );
+    const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
+    expect(compactStart).toBeGreaterThanOrEqual(0);
+    expect(compactEnd).toBeGreaterThan(compactStart);
+
+    const baseLoaderRules =
+      stylesheet
+        .slice(0, compactStart)
+        .match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+    const compactStyles = stylesheet.slice(compactStart, compactEnd);
+    const compactLoaderRules =
+      compactStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(baseLoaderRules).toMatch(/left:\s*calc\(24px \+ var\(--safe-left\)\);/);
+    expect(baseLoaderRules).toMatch(/right:\s*calc\(24px \+ var\(--safe-right\)\);/);
+    expect(baseLoaderRules).toMatch(/width:\s*auto;/);
+    expect(compactLoaderRules).toMatch(/top:\s*calc\(10px \+ var\(--safe-top\)\)\s*!important;/);
+    expect(compactLoaderRules).toMatch(/left:\s*29px\s*!important;/);
+    expect(compactLoaderRules).toMatch(
+      /right:\s*calc\(16px \+ var\(--safe-right\)\)\s*!important;/,
+    );
+    expect(compactLoaderRules).toMatch(/width:\s*auto\s*!important;/);
+    expect(compactLoaderRules).toMatch(/height:\s*54px\s*!important;/);
+    expect(compactLoaderRules).toMatch(/line-height:\s*18px;/);
+    expect(compactLoaderRules).toMatch(/white-space:\s*normal;/);
+    expect(compactLoaderRules).toMatch(/overflow-wrap:\s*anywhere;/);
   });
 });
 

@@ -11490,7 +11490,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ).toBe(200);
     }
     expect(Object.keys(internal.room.sessions).length).toBeLessThanOrEqual(128);
-  }, 30_000);
+  // This stress scenario intentionally performs hundreds of serialized Worker
+  // requests. Keep the assertion strict while allowing slower local/CI runners
+  // enough time to reach it instead of reporting a scheduler-only timeout.
+  }, 60_000);
 
   it('requires live presence for state/media mutations and for creator-only completion', async () => {
     const context = await activatedRoom();

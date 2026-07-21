@@ -848,11 +848,15 @@
   /* Loading Text (Hidden by default, moves up from below) */
   .header-loading-text {
     position: absolute;
-    top: 0;
+    /* The header includes the iOS status-bar safe area, but its logo is
+       centered only inside the 60px content row below that inset. Keep the
+       loader on the same vertical axis while allowing it to use the full
+       horizontal header rail. */
+    top: var(--safe-top);
     left: calc(24px + var(--safe-left));
     right: calc(24px + var(--safe-right));
     width: auto;
-    height: 100%;
+    height: calc(100% - var(--safe-top));
     display: flex;
     align-items: center;
 

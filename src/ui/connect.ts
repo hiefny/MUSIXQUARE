@@ -875,6 +875,11 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   );
   const administrators = _administratorsForMembers(members);
   const administratorIds = new Set(administrators.map((administrator) => administrator.memberId));
+  const ownerIds = new Set(
+    administrators
+      .filter((administrator) => administrator.isOwner)
+      .map((administrator) => administrator.memberId),
+  );
   renderAdministratorLists(members);
 
   const containers = [
@@ -928,8 +933,10 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
 
       const authorityKey = memberAuthorityKey(member);
       const isAdministrator = administratorIds.has(authorityKey) || member.isAdministrator;
+      const isRoomOwner = ownerIds.has(authorityKey);
+      const canManageAdministrators = _canManageAdministrators();
       const canGrant =
-        _canManageAdministrators() &&
+        canManageAdministrators &&
         !member.isCurrent &&
         !member.isHost &&
         !isAdministrator &&
@@ -938,7 +945,8 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
         hasRoomCapability('members.manage') &&
         !member.isCurrent &&
         !member.isHost &&
-        !isAdministrator &&
+        !isRoomOwner &&
+        (!isAdministrator || canManageAdministrators) &&
         member.status === 'connected';
 
       if (canGrant || canKick) {
@@ -982,7 +990,14 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
               buttonText: t('connect.kick_yes'),
               secondaryText: t('common.cancel'),
             });
-            if (result.action !== 'ok' || !hasRoomCapability('members.manage')) return;
+            if (
+              result.action !== 'ok' ||
+              !hasRoomCapability('members.manage') ||
+              isRoomOwner ||
+              (isAdministrator && !_canManageAdministrators())
+            ) {
+              return;
+            }
             try {
               await kickRoomMember(member);
             } catch (error) {

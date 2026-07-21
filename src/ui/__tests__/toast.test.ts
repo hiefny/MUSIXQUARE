@@ -431,6 +431,28 @@ describe('showLoader', () => {
 });
 
 describe('header loader layout contract', () => {
+  it('keeps the portrait loading text on the logo rail below the iOS safe area', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const compactStart = stylesheet.indexOf(
+      '@media (min-width: 720px) and (max-width: 1279px) {',
+    );
+    expect(compactStart).toBeGreaterThanOrEqual(0);
+
+    const baseStyles = stylesheet.slice(0, compactStart);
+    const headerRules = baseStyles.match(/\n\s*header\s*\{([^}]*)\}/)?.[1] ?? '';
+    const baseLoaderRules =
+      baseStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    // The fixed header includes the iOS status-bar inset in its total height,
+    // while its logo is centered only inside the content area below that inset.
+    // The loader must use that same vertical rail instead of centering across
+    // the status bar (which would move it up by half the safe-area height).
+    expect(headerRules).toMatch(/height:\s*var\(--header-height\);/);
+    expect(headerRules).toMatch(/padding:\s*var\(--safe-top\)/);
+    expect(baseLoaderRules).toMatch(/top:\s*var\(--safe-top\);/);
+    expect(baseLoaderRules).toMatch(/height:\s*calc\(100% - var\(--safe-top\)\);/);
+  });
+
   it('uses the whole header while preserving the compact sidebar rail', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const markup = await readFile('index.html', 'utf8');

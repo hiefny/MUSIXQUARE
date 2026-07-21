@@ -46,6 +46,12 @@ const mockedGetActiveProRoomAdministrators = vi.mocked(getActiveProRoomAdministr
 const mockedKickActiveProRoomMember = vi.mocked(kickActiveProRoomMember);
 const mockedRevokeActiveProRoomAdministrator = vi.mocked(revokeActiveProRoomAdministrator);
 const mockedUpdateActiveProRoomAdministrator = vi.mocked(updateActiveProRoomAdministrator);
+const FULL_ADMIN_PERMISSIONS_FOR_TEST = {
+  'media.add': true,
+  'playback.control': true,
+  'members.kick': true,
+  'chat.notice': true,
+} as const;
 
 beforeEach(() => {
   __resetAccountStateForTests();
@@ -261,6 +267,224 @@ describe('connect i18n refresh', () => {
     await vi.waitFor(() =>
       expect(mockedKickActiveProRoomMember).toHaveBeenCalledWith('target-member'),
     );
+  });
+
+  it('lets the PRO owner atomically kick an online administrator', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage', 'room.configure'],
+    });
+    mockedShowDialog.mockResolvedValue({ action: 'ok' });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 1,
+      },
+    ]);
+    bus.emit('network:device-list-update', [
+      {
+        id: 'owner-device',
+        label: 'Owner',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+      },
+      {
+        id: 'admin-device',
+        label: 'Admin',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+    ]);
+
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-device-list [data-member-id="admin-member"] .btn-kick-device',
+      )
+      ?.click();
+
+    await vi.waitFor(() =>
+      expect(mockedKickActiveProRoomMember).toHaveBeenCalledWith('admin-member'),
+    );
+  });
+
+  it('keeps another administrator protected from a delegated PRO administrator', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'controller-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 0,
+      },
+      {
+        memberId: 'controller-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Me',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'other-admin',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        displayName: 'Other admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['playback.control'],
+        onlineDeviceCount: 1,
+      },
+    ]);
+    bus.emit('network:device-list-update', [
+      {
+        id: 'controller-device',
+        label: 'Me',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'controller-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+      {
+        id: 'other-admin-device',
+        label: 'Other admin',
+        joinOrder: 2,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'other-admin',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+      },
+      {
+        id: 'ordinary-device',
+        label: 'Ordinary member',
+        joinOrder: 3,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+        memberId: 'ordinary-member',
+        memberDisplayNumber: 3,
+        isAuthenticated: true,
+      },
+    ]);
+
+    expect(
+      document.querySelector(
+        '#connect-device-list [data-member-id="other-admin"] .btn-kick-device',
+      ),
+    ).toBeNull();
+    expect(
+      document.querySelector(
+        '#connect-device-list [data-member-id="ordinary-member"] .btn-kick-device',
+      ),
+    ).not.toBeNull();
+  });
+
+  it('lets the ordinary-room host atomically kick an online administrator', async () => {
+    setState('network.appRole', 'host');
+    setState('network.myId', 'host-device');
+    setState(
+      'network.standardRoomAdministrators',
+      new Map([
+        [
+          'admin-member',
+          {
+            memberId: 'admin-member',
+            memberDisplayNumber: 1,
+            isAuthenticated: true,
+            displayName: 'Admin',
+            permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+          },
+        ],
+      ]),
+    );
+    mockedShowDialog.mockResolvedValue({ action: 'ok' });
+    const kick = vi.fn();
+    bus.on('network:request-kick-standard-room-member', kick);
+    initConnect();
+    bus.emit('network:device-list-update', [
+      {
+        id: 'host-device',
+        label: 'Host',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+      },
+      {
+        id: 'admin-device',
+        label: 'Admin',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+    ]);
+
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-device-list [data-member-id="admin-member"] .btn-kick-device',
+      )
+      ?.click();
+
+    await vi.waitFor(() => expect(kick).toHaveBeenCalledWith({ memberId: 'admin-member' }));
   });
 
   it('never exposes PRO member management to an ordinary-room guest', () => {

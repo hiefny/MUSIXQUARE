@@ -9,6 +9,26 @@ import {
   syncProRoomBrandingForTests as syncProRoomBranding,
 } from '../branding.ts';
 
+function readTranslateX(element: Element | null): number {
+  const transform = element?.getAttribute('transform') ?? '';
+  const match = transform.match(/translate\(\s*(-?\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function readPolygonXBounds(element: Element | null): { min: number; max: number } {
+  const values = (element?.getAttribute('points') ?? '')
+    .trim()
+    .split(/\s+/)
+    .map((pair) => Number(pair.split(',')[0]));
+  return { min: Math.min(...values), max: Math.max(...values) };
+}
+
+function readPathInitialX(element: Element | null): number {
+  const match = (element?.getAttribute('d') ?? '').match(/^M(-?\d+(?:\.\d+)?),/);
+  if (!match) throw new Error('Expected an absolute initial SVG path coordinate.');
+  return Number(match[1]);
+}
+
 beforeEach(() => {
   document.body.innerHTML = `
     <svg id="header-standard-wordmark"></svg>
@@ -30,7 +50,7 @@ describe('PRO room branding', () => {
 
     expect(standardWordmark?.tagName).toBe('svg');
     expect(proWordmark?.tagName).toBe('svg');
-    expect(proWordmark?.getAttribute('viewBox')).toBe('43 12 174 24');
+    expect(proWordmark?.getAttribute('viewBox')).toBe('43 12 170 24');
     expect(proWordmark?.querySelectorAll('[data-glyph]')).toHaveLength(7);
     expect(proWordmark?.querySelector('text')).toBeNull();
     expect(parsed.getElementById('header-pro-badge')).toBeNull();
@@ -71,6 +91,45 @@ describe('PRO room branding', () => {
     expect(originalR).toContain('-4.5310104-7.8424689');
   });
 
+  it('carries the production X optical kerning into MXQR without opening the suffix', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const standard = parsed.getElementById('header-standard-wordmark');
+    const pro = parsed.getElementById('header-pro-wordmark');
+    const standardChildren = standard ? Array.from(standard.children) : [];
+
+    const standardI = standardChildren[3];
+    const standardX = standardChildren[4];
+    const standardQ = standardChildren[5];
+    const standardXBounds = readPolygonXBounds(standardX);
+    const standardIEnd =
+      Number(standardI?.getAttribute('x')) + Number(standardI?.getAttribute('width'));
+    const standardLeftGap = standardXBounds.min - standardIEnd;
+    const standardRightGap = readPathInitialX(standardQ) - standardXBounds.max;
+
+    const proM = pro?.querySelector('[data-glyph="M"]') ?? null;
+    const proX = pro?.querySelector('[data-glyph="X"]') ?? null;
+    const proQ = pro?.querySelector('[data-glyph="Q"]') ?? null;
+    const proMBounds = readPolygonXBounds(proM);
+    const proXBounds = readPolygonXBounds(proX);
+    const proLeftGap =
+      proXBounds.min + readTranslateX(proX) - (proMBounds.max + readTranslateX(proM));
+    const proRightGap =
+      readPathInitialX(proQ) + readTranslateX(proQ) -
+      (proXBounds.max + readTranslateX(proX));
+
+    expect(proLeftGap).toBeCloseTo(standardLeftGap, 2);
+    expect(proRightGap).toBeCloseTo(standardRightGap, 3);
+    expect(proLeftGap).toBeLessThan(3);
+    expect(proRightGap).toBeLessThan(3);
+
+    const qTranslate = readTranslateX(proQ);
+    const suffixTranslationOffsets = Array.from(
+      pro?.querySelectorAll('[data-glyph="R"], [data-glyph="P"], [data-glyph="O"]') ?? [],
+    ).map((glyph) => readTranslateX(glyph) - qTranslate);
+    expect(suffixTranslationOffsets).toEqual([-45, -13.5, 9, 100]);
+  });
+
   it('keeps the PRO wordmark on one line before the truly short super-compact breakpoint', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
@@ -81,6 +140,9 @@ describe('PRO room branding', () => {
 
     expect(compactSidebarStyles).toMatch(
       /#app-logo\s*{\s*flex-direction:\s*row;\s*align-items:\s*center;/,
+    );
+    expect(compactSidebarStyles).toMatch(
+      /html\[data-pro-room\]\s+#app-logo\s*\{\s*align-self:\s*flex-start;\s*margin-left:\s*13px;/,
     );
     expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*350px\)/);
     expect(compactSidebarStyles).not.toMatch(/@media\s*\(max-height:\s*400px\)/);

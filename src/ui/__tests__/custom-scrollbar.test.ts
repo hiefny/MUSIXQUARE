@@ -8,6 +8,7 @@
  * key would coalesce into only the last registered closure, leaving the other
  * scrollbars without a post-rotation settled re-layout.
  */
+import { readFile } from 'node:fs/promises';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 
@@ -252,5 +253,30 @@ describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
     fireMqlChange(COMPACT_QUERY);
     vi.advanceTimersByTime(350);
     expect(a.track().style.height).toBe('280px');
+  });
+});
+
+describe('compact-landscape scrollbar ownership contract', () => {
+  it('applies the sidebar inset only to viewport-owned tracks', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
+    const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
+    expect(compactStart).toBeGreaterThanOrEqual(0);
+    expect(compactEnd).toBeGreaterThan(compactStart);
+    const compactStyles = stylesheet.slice(compactStart, compactEnd);
+
+    expect(compactStyles).toMatch(
+      /body\s*>\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*!important;/s,
+    );
+    expect(compactStyles).not.toMatch(
+      /(?:^|})\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*!important;/s,
+    );
+  });
+
+  it('does not style the setup scrollbar as an onboarding content section', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    expect(stylesheet).toMatch(
+      /\.onboarding-card\s*>\s*div:not\(\.ob-actions,\s*\.cscroll-track\)\s*\{/,
+    );
   });
 });

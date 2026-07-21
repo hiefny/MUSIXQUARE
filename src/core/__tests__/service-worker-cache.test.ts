@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v215';
+const ACTIVE_CACHE_VERSION = 'v216';
 const RETIRED_CACHE_VERSION = 'v194';
 
 type FetchListener = (event: {

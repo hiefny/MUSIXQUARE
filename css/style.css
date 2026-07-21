@@ -4694,7 +4694,7 @@
   }
 
   /* Setup sections use natural flow; their owning area controls overflow. */
-  .onboarding-card > div:not(.ob-actions) {
+  .onboarding-card > div:not(.ob-actions, .cscroll-track) {
     flex: none;
     padding: 0 28px;
     display: flex;
@@ -7869,6 +7869,14 @@
       align-items: center;
     }
 
+    /* The shorter MXQR PRO wordmark would drift 14.67px inward when centered
+       in the same 168px rail as MUSIXQUARE. Preserve the standard wordmark's
+       29px optical left edge so the logo and sidebar navigation share one axis. */
+    html[data-pro-room] #app-logo {
+      align-self: flex-start;
+      margin-left: 13px;
+    }
+
     /* Hide header behind setup overlay */
     body:has(#setup-overlay.active) header,
     body.overlay-open:has(#setup-overlay.active) header {
@@ -8075,7 +8083,10 @@
     }
 
     /* ── Scrollbar ── */
-    .cscroll-track {
+    /* Only viewport-owned tracks need the sidebar inset. Nested tracks are
+       already positioned against their own content pane; offsetting those a
+       second time moves them left by exactly the 200px sidebar width. */
+    body > .cscroll-track {
       left: auto !important;
       right: calc(200px + var(--safe-right)) !important;
     }

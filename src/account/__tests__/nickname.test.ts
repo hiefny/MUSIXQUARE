@@ -37,4 +37,15 @@ describe('account nickname validation', () => {
     expect(validateAccountNickname('Min\u2028su')).toBeNull();
     expect(validateAccountNickname('\u0301\u0308')).not.toBeNull();
   });
+
+  it('allows Korean text while rejecting only standalone English profanity', () => {
+    expect(validateAccountNickname('청년개발자')).toBeNull();
+    expect(validateAccountNickname('시발')).toBeNull();
+    expect(validateAccountNickname('ssibal')).toBeNull();
+    expect(validateAccountNickname('saekki')).toBeNull();
+    expect(validateAccountNickname('nyeon')).toBeNull();
+    expect(validateAccountNickname('fuck')).not.toBeNull();
+    expect(validateAccountNickname('Cassidy')).toBeNull();
+    expect(validateAccountNickname('assignment')).toBeNull();
+  });
 });

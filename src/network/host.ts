@@ -745,7 +745,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     clearManagedTimer('ice-fallback-' + peerId);
 
     // Read current label BEFORE cleanup deletes it from peerLabels.
-    // Captures rename (e.g. "Alice") instead of stale slot name ("GUEST 1").
+    // Captures the latest account identity (e.g. "Alice") instead of a stale slot label.
     const currentLabel = getState('network.peerLabels')?.[peerId] || deviceName;
 
     const closeConns = new Map(getState('network.activeHostConnByPeerId'));

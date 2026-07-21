@@ -442,13 +442,6 @@ function boundedString(value, maxLength, allowEmpty = false) {
   return result;
 }
 
-function isGenericPeerDisplayName(value) {
-  const normalized = boundedString(value, MAX_DISPLAY_NAME_LENGTH);
-  return (
-    normalized !== null && normalized.toLowerCase() === DEFAULT_PEER_DISPLAY_NAME.toLowerCase()
-  );
-}
-
 function generatedPeerOrdinal(value) {
   if (typeof value !== 'string') return null;
   const match = /^Peer ([1-9]\d*)$/i.exec(value.trim());
@@ -2858,6 +2851,7 @@ export class MusixquareProRoom {
     this.systemAudioMigrationPending = false;
     this.effectsMigrationPending = false;
     this.queueModeMigrationPending = false;
+    this.accountIdentityMigrationPending = false;
     this.developerCommandMigrationPending = false;
     this.playbackAuthorityMigrationPending = false;
     this.persistedPlaylistSignatures = new Map();
@@ -3015,6 +3009,10 @@ export class MusixquareProRoom {
 
   normalizeLoadedAccountIdentity() {
     if (!this.room) return;
+    const canFenceAnonymousIdentityMigration =
+      this.room.revision < Number.MAX_SAFE_INTEGER &&
+      this.room.presence.revision < Number.MAX_SAFE_INTEGER;
+    let anonymousIdentityChanged = false;
     this.normalizeLoadedAccountDeletionTombstones();
     if (
       !this.room.accountMembers ||
@@ -3137,6 +3135,7 @@ export class MusixquareProRoom {
       if (typeof session.accountId !== 'string') {
         delete session.accountId;
         delete session.accountLeaseExpiresAtMs;
+        if (session.role !== 'owner' && !canFenceAnonymousIdentityMigration) continue;
         const fallbackDisplayNumber =
           session.role === 'owner'
             ? 0
@@ -3175,11 +3174,32 @@ export class MusixquareProRoom {
     // physical device's admission slot. Rebuild missing/duplicate legacy
     // reservations deterministically so an account with three devices keeps
     // member #1 while the next member starts at #4 after an isolate restart.
-    this.normalizeLoadedPhysicalSlotAssignments();
+    anonymousIdentityChanged =
+      this.normalizeLoadedPhysicalSlotAssignments(canFenceAnonymousIdentityMigration) ||
+      anonymousIdentityChanged;
     for (const participant of Object.values(this.room.presence?.participants || {})) {
       const session = this.room.sessions?.[participant.sessionHash];
       if (!session?.accountId) {
+        if (session?.role !== 'owner' && !canFenceAnonymousIdentityMigration) {
+          continue;
+        }
+        if (
+          session?.role !== 'owner' &&
+          session &&
+          (participant.accountId !== undefined ||
+            participant.memberId !== session.memberId ||
+            participant.displayName !== session.displayName ||
+            participant.role !== session.role ||
+            participant.memberDisplayNumber !== session.memberDisplayNumber)
+        ) {
+          anonymousIdentityChanged = true;
+        }
         delete participant.accountId;
+        if (session) {
+          participant.memberId = session.memberId;
+          participant.displayName = session.displayName;
+          participant.role = session.role;
+        }
         if (Number.isSafeInteger(session?.memberDisplayNumber)) {
           participant.memberDisplayNumber = session.memberDisplayNumber;
         } else {
@@ -3192,6 +3212,11 @@ export class MusixquareProRoom {
       participant.displayName = session.displayName;
       participant.memberDisplayNumber = session.memberDisplayNumber;
       participant.role = session.role;
+    }
+    if (anonymousIdentityChanged) {
+      this.room.presence.revision += 1;
+      this.room.revision += 1;
+      this.accountIdentityMigrationPending = true;
     }
   }
 
@@ -3345,6 +3370,7 @@ export class MusixquareProRoom {
       systemAudioMigrationPending: this.systemAudioMigrationPending,
       effectsMigrationPending: this.effectsMigrationPending,
       queueModeMigrationPending: this.queueModeMigrationPending,
+      accountIdentityMigrationPending: this.accountIdentityMigrationPending,
       developerCommandMigrationPending: this.developerCommandMigrationPending,
       playbackAuthorityMigrationPending: this.playbackAuthorityMigrationPending,
       alarmMaintenanceDirty: this.alarmMaintenanceDirty,
@@ -3380,6 +3406,7 @@ export class MusixquareProRoom {
     this.systemAudioMigrationPending = checkpoint.systemAudioMigrationPending;
     this.effectsMigrationPending = checkpoint.effectsMigrationPending;
     this.queueModeMigrationPending = checkpoint.queueModeMigrationPending;
+    this.accountIdentityMigrationPending = checkpoint.accountIdentityMigrationPending;
     this.developerCommandMigrationPending = checkpoint.developerCommandMigrationPending;
     this.playbackAuthorityMigrationPending = checkpoint.playbackAuthorityMigrationPending;
     this.alarmMaintenanceDirty = checkpoint.alarmMaintenanceDirty;
@@ -5786,7 +5813,8 @@ export class MusixquareProRoom {
     return reservations;
   }
 
-  normalizeLoadedPhysicalSlotAssignments() {
+  normalizeLoadedPhysicalSlotAssignments(canMigrateAnonymousIdentity = true) {
+    let anonymousIdentityChanged = false;
     const liveSessionHashes = new Set(
       Object.values(this.room.presence.participants || {}).map(
         (participant) => participant.sessionHash,
@@ -5858,13 +5886,27 @@ export class MusixquareProRoom {
     for (const [, session] of sessions) {
       const ordinal = assigned.get(session);
       if (!Number.isSafeInteger(ordinal)) continue;
-      session.peerOrdinal = ordinal;
       highestOrdinal = Math.max(highestOrdinal, ordinal);
-      if (!session.accountId && !Number.isSafeInteger(session.memberDisplayNumber)) {
+      if (!session.accountId) {
+        if (!canMigrateAnonymousIdentity) continue;
+        if (session.peerOrdinal !== ordinal) anonymousIdentityChanged = true;
+        session.peerOrdinal = ordinal;
+        if (session.memberDisplayNumber !== ordinal) anonymousIdentityChanged = true;
         session.memberDisplayNumber = ordinal;
-      }
-      if (!session.accountId && isGeneratedPeerNamespaceDisplayName(session.displayName)) {
-        session.displayName = `${DEFAULT_PEER_DISPLAY_NAME} ${session.memberDisplayNumber}`;
+        const canonicalDisplayName = `${DEFAULT_PEER_DISPLAY_NAME} ${ordinal}`;
+        if (session.displayName !== canonicalDisplayName) anonymousIdentityChanged = true;
+        session.displayName = canonicalDisplayName;
+        const administrator = this.room.anonymousAdministrators?.[session.memberId];
+        if (administrator) {
+          if (administrator.displayNumber !== ordinal) anonymousIdentityChanged = true;
+          administrator.displayNumber = ordinal;
+          if (administrator.displayName !== canonicalDisplayName) {
+            anonymousIdentityChanged = true;
+          }
+          administrator.displayName = canonicalDisplayName;
+        }
+      } else {
+        session.peerOrdinal = ordinal;
       }
     }
     if (highestOrdinal > 0) {
@@ -5873,6 +5915,7 @@ export class MusixquareProRoom {
         Math.max(this.room.nextMemberDisplayNumber || 1, highestOrdinal + 1),
       );
     }
+    return anonymousIdentityChanged;
   }
 
   nextAccountMemberDisplayNumber() {
@@ -5980,10 +6023,13 @@ export class MusixquareProRoom {
       }
     } else {
       const administrator = this.room.anonymousAdministrators?.[session.memberId];
-      if (administrator) administrator.displayNumber = groupDisplayNumber;
+      if (administrator) {
+        administrator.displayNumber = groupDisplayNumber;
+        administrator.displayName = `${DEFAULT_PEER_DISPLAY_NAME} ${peerOrdinal}`;
+      }
     }
 
-    if (!session.accountId && isGeneratedPeerNamespaceDisplayName(session.displayName)) {
+    if (!session.accountId) {
       session.displayName = `${DEFAULT_PEER_DISPLAY_NAME} ${peerOrdinal}`;
     }
     this.room.nextMemberDisplayNumber = Math.min(
@@ -6409,17 +6455,16 @@ export class MusixquareProRoom {
       if (!evictable) return null;
       this.removeSessionRecord(evictable[0]);
     }
-    const usesGeneratedPeerName =
-      !accountMember && isGeneratedPeerNamespaceDisplayName(displayName);
-    // `Peer N` is a server-owned namespace. Treat a client-supplied number as
-    // a request for a generated identity, never as a preferred slot.
+    // Anonymous non-owner identities are always allocated by the server.
+    // Account nicknames and the persisted owner identity remain authoritative
+    // for their respective sessions.
     const peerOrdinal =
       role === 'owner'
         ? null
         : this.nextPhysicalDeviceOrdinal(accountMember?.displayNumber ?? null);
     if (role !== 'owner' && peerOrdinal === null) return null;
     const resolvedDisplayName =
-      peerOrdinal !== null && usesGeneratedPeerName
+      !accountMember && role !== 'owner' && peerOrdinal !== null
         ? `${DEFAULT_PEER_DISPLAY_NAME} ${peerOrdinal}`
         : displayName;
     const memberDisplayNumber =
@@ -6503,10 +6548,6 @@ export class MusixquareProRoom {
     return assigned;
   }
 
-  nextGeneratedPeerOrdinal() {
-    return this.nextPhysicalDeviceOrdinal();
-  }
-
   nextPhysicalDeviceOrdinal(preferred = null) {
     const used = new Set(this.peerOrdinalAssignments().values());
     if (
@@ -6524,9 +6565,9 @@ export class MusixquareProRoom {
     return null;
   }
 
-  ensureSessionPeerIdentity(session, forceGeneratedIdentity = false) {
+  ensureSessionPeerIdentity(session) {
     const participant = this.room.presence.participants[session.participantId];
-    if (!participant && !forceGeneratedIdentity) {
+    if (!participant) {
       return { ordinal: null, stateChanged: false, publicChanged: false };
     }
     if (session.role === 'owner') {
@@ -6563,15 +6604,26 @@ export class MusixquareProRoom {
     session.memberDisplayNumber = groupDisplayNumber;
     if (session.accountId) {
       const member = this.room.accountMembers?.[session.accountId];
-      if (member && member.memberId === session.memberId) member.displayNumber = groupDisplayNumber;
+      if (member && member.memberId === session.memberId) {
+        if (member.displayNumber !== groupDisplayNumber) stateChanged = true;
+        member.displayNumber = groupDisplayNumber;
+      }
     } else {
       const administrator = this.room.anonymousAdministrators?.[session.memberId];
-      if (administrator) administrator.displayNumber = groupDisplayNumber;
+      if (administrator) {
+        if (administrator.displayNumber !== groupDisplayNumber) stateChanged = true;
+        administrator.displayNumber = groupDisplayNumber;
+      }
     }
     const canonicalDisplayName = `${DEFAULT_PEER_DISPLAY_NAME} ${ordinal}`;
-    if (!session.accountId && isGeneratedPeerNamespaceDisplayName(session.displayName)) {
+    if (!session.accountId) {
       if (session.displayName !== canonicalDisplayName) stateChanged = true;
       session.displayName = canonicalDisplayName;
+      const administrator = this.room.anonymousAdministrators?.[session.memberId];
+      if (administrator && administrator.displayName !== canonicalDisplayName) {
+        administrator.displayName = canonicalDisplayName;
+        stateChanged = true;
+      }
     }
 
     const publicChanged =
@@ -8613,14 +8665,9 @@ export class MusixquareProRoom {
     if (rateError) return rateError;
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
-    if (!hasExactKeys(parsed.value, ['claimToken'], ['displayName'])) {
+    if (!hasExactKeys(parsed.value, ['claimToken'])) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    const displayName =
-      parsed.value.displayName === undefined
-        ? 'Owner'
-        : boundedString(parsed.value.displayName, MAX_DISPLAY_NAME_LENGTH);
-    if (!displayName) return errorResponse('INVALID_REQUEST', 400);
     const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
     if (
       activationSecret.length < 32 ||
@@ -8679,7 +8726,7 @@ export class MusixquareProRoom {
     }
     const created = await this.createSessionRecord(
       'owner',
-      accountMember.displayName || displayName,
+      accountMember.displayName,
       nowMs,
       this.room.ownerMemberId,
       accountMember,
@@ -8706,9 +8753,9 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     const body = parsed.value;
-    if (!hasExactKeys(body, ['pin', 'displayName'])) return errorResponse('INVALID_REQUEST', 400);
-    const displayName = boundedString(body.displayName, MAX_DISPLAY_NAME_LENGTH);
-    if (!displayName || !PIN_RE.test(body.pin)) return errorResponse('INVALID_REQUEST', 400);
+    if (!hasExactKeys(body, ['pin']) || !PIN_RE.test(body.pin)) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
     const pepper = String(this.env.PRO_ROOM_PIN_PEPPER || '');
     if (pepper.length < 32 || String(this.env.PRO_ROOM_SESSION_SECRET || '').length < 32) {
       return errorResponse('SERVICE_NOT_CONFIGURED', 503);
@@ -8739,7 +8786,8 @@ export class MusixquareProRoom {
     }
     const created = await this.createSessionRecord(
       accountMember?.role || role,
-      accountMember?.displayName || displayName,
+      accountMember?.displayName ||
+        (role === 'owner' ? this.room.ownerDisplayName || 'Owner' : DEFAULT_PEER_DISPLAY_NAME),
       nowMs,
       accountMember?.memberId || (role === 'owner' ? this.room.ownerMemberId : null),
       accountMember,
@@ -9052,23 +9100,18 @@ export class MusixquareProRoom {
     const known = parsed.empty ? null : parsed.value;
     if (
       known !== null &&
-      (!hasExactKeys(
-        known,
-        [
-          'revision',
-          'playlistRevision',
-          'presenceRevision',
-          'playbackRevision',
-          'coordinatorEpoch',
-        ],
-        ['displayName'],
-      ) ||
+      (!hasExactKeys(known, [
+        'revision',
+        'playlistRevision',
+        'presenceRevision',
+        'playbackRevision',
+        'coordinatorEpoch',
+      ]) ||
         !isSafeNonNegativeInteger(known.revision) ||
         !isSafeNonNegativeInteger(known.playlistRevision) ||
         !isSafeNonNegativeInteger(known.presenceRevision) ||
         !isSafeNonNegativeInteger(known.playbackRevision) ||
-        !isSafeNonNegativeInteger(known.coordinatorEpoch) ||
-        (known.displayName !== undefined && !validDeveloperActorName(known.displayName)))
+        !isSafeNonNegativeInteger(known.coordinatorEpoch))
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
@@ -9076,68 +9119,40 @@ export class MusixquareProRoom {
     const hadPeerOrdinal = Object.prototype.hasOwnProperty.call(auth.session, 'peerOrdinal');
     const previousPeerOrdinal = auth.session.peerOrdinal;
     const previousSessionDisplayName = auth.session.displayName;
+    const previousSessionMemberDisplayNumber = auth.session.memberDisplayNumber;
     const previousParticipantDisplayName = auth.participant.displayName;
-    // A heartbeat can be in flight while an account attach/detach mutates this
-    // exact presence. Its displayName belongs to the identity at the captured
-    // presence revision, so never let a late pre-logout heartbeat rename the
-    // freshly detached `Peer N` session back to the old account nickname.
-    // Current-revision anonymous renames remain supported.
-    const displayNameRevisionIsCurrent =
-      known !== null && known.presenceRevision === this.room.presence.revision;
-    let legacyPeerIdentity = this.ensureSessionPeerIdentity(auth.session);
-    // `Peer` is the pre-auth bootstrap placeholder. Once the server has
-    // resolved a session identity (or the user has a custom name), a delayed
-    // heartbeat from that bootstrap state must never rename it backwards.
-    const requestedDisplayName =
-      auth.session.accountId || known?.displayName === undefined || !displayNameRevisionIsCurrent
-        ? null
-        : boundedString(known.displayName, MAX_DISPLAY_NAME_LENGTH);
-    const requestedBarePeerName = isGenericPeerDisplayName(requestedDisplayName);
-    const requestedGeneratedPeerName = isGeneratedPeerNamespaceDisplayName(requestedDisplayName);
-    const staleGeneratedPeerRollback =
-      (requestedBarePeerName || requestedGeneratedPeerName) &&
-      !isGeneratedPeerNamespaceDisplayName(auth.session.displayName);
+    const previousParticipantMemberDisplayNumber = auth.participant.memberDisplayNumber;
+    const accountMember = auth.session.accountId
+      ? this.room.accountMembers?.[auth.session.accountId]
+      : null;
+    const previousAccountDisplayNumber = accountMember?.displayNumber;
+    const anonymousAdministrator = !auth.session.accountId
+      ? this.room.anonymousAdministrators?.[auth.session.memberId]
+      : null;
+    const previousAdministratorDisplayName = anonymousAdministrator?.displayName;
+    const previousAdministratorDisplayNumber = anonymousAdministrator?.displayNumber;
+    const canonicalPeerIdentity = this.ensureSessionPeerIdentity(auth.session);
+    const displayIdentityChanged =
+      canonicalPeerIdentity.stateChanged || canonicalPeerIdentity.publicChanged;
     if (
-      requestedGeneratedPeerName &&
-      !staleGeneratedPeerRollback &&
-      legacyPeerIdentity.ordinal === null
-    ) {
-      legacyPeerIdentity = this.ensureSessionPeerIdentity(auth.session, true);
-    }
-    const nextDisplayName = auth.session.accountId
-      ? auth.session.displayName
-      : known?.displayName === undefined
-        ? auth.session.displayName
-        : staleGeneratedPeerRollback
-          ? auth.session.displayName
-          : requestedGeneratedPeerName && legacyPeerIdentity.ordinal !== null
-            ? `${DEFAULT_PEER_DISPLAY_NAME} ${legacyPeerIdentity.ordinal}`
-            : requestedDisplayName;
-    const displayNameChanged =
-      legacyPeerIdentity.publicChanged ||
-      (nextDisplayName !== null &&
-        (auth.session.displayName !== nextDisplayName ||
-          auth.participant.displayName !== nextDisplayName));
-    if (
-      displayNameChanged &&
+      displayIdentityChanged &&
       (this.room.revision >= Number.MAX_SAFE_INTEGER ||
         this.room.presence.revision >= Number.MAX_SAFE_INTEGER)
     ) {
       if (hadPeerOrdinal) auth.session.peerOrdinal = previousPeerOrdinal;
       else delete auth.session.peerOrdinal;
       auth.session.displayName = previousSessionDisplayName;
+      auth.session.memberDisplayNumber = previousSessionMemberDisplayNumber;
       auth.participant.displayName = previousParticipantDisplayName;
+      auth.participant.memberDisplayNumber = previousParticipantMemberDisplayNumber;
+      if (accountMember) accountMember.displayNumber = previousAccountDisplayNumber;
+      if (anonymousAdministrator) {
+        anonymousAdministrator.displayName = previousAdministratorDisplayName;
+        anonymousAdministrator.displayNumber = previousAdministratorDisplayNumber;
+      }
       return errorResponse('REVISION_EXHAUSTED', 409);
     }
-    if (displayNameChanged) {
-      auth.session.displayName = nextDisplayName;
-      auth.participant.displayName = nextDisplayName;
-      if (auth.session.role === 'owner') this.room.ownerDisplayName = nextDisplayName;
-      const anonymousAdministrator = this.room.anonymousAdministrators?.[auth.session.memberId];
-      if (anonymousAdministrator) {
-        anonymousAdministrator.displayName = nextDisplayName;
-        anonymousAdministrator.updatedAtMs = nowMs;
-      }
+    if (displayIdentityChanged) {
       this.room.presence.revision += 1;
       this.room.revision += 1;
     }
@@ -9154,8 +9169,8 @@ export class MusixquareProRoom {
     this.heartbeatDurabilityDirty = true;
     const developerCommandsChanged = await this.processDeveloperCommands(nowMs);
     const refreshLegacyShadow =
-      displayNameChanged ||
-      legacyPeerIdentity.stateChanged ||
+      displayIdentityChanged ||
+      canonicalPeerIdentity.stateChanged ||
       developerCommandsChanged ||
       nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS;
     if (
@@ -9169,7 +9184,7 @@ export class MusixquareProRoom {
         retainEarlierAlarm: true,
       });
     }
-    if (displayNameChanged) this.scheduleServerEvent(this.presenceEvent());
+    if (displayIdentityChanged) this.scheduleServerEvent(this.presenceEvent());
     if (
       known !== null &&
       known.revision === this.room.revision &&
@@ -10214,6 +10229,7 @@ export class MusixquareProRoom {
       this.systemAudioMigrationPending ||
       this.effectsMigrationPending ||
       this.queueModeMigrationPending ||
+      this.accountIdentityMigrationPending ||
       this.developerCommandMigrationPending ||
       this.playbackAuthorityMigrationPending ||
       this.reconcileSystemAudio(nowMs);
@@ -10389,6 +10405,7 @@ export class MusixquareProRoom {
       this.systemAudioMigrationPending = false;
       this.effectsMigrationPending = false;
       this.queueModeMigrationPending = false;
+      this.accountIdentityMigrationPending = false;
       this.developerCommandMigrationPending = false;
       this.playbackAuthorityMigrationPending = false;
     }

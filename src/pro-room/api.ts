@@ -254,13 +254,11 @@ export interface ActivateProRoomInput {
 export interface CreateProRoomSessionInput {
   code: string;
   pin: string;
-  displayName: string;
 }
 
 export interface RecoverProRoomOwnerInput {
   code: string;
   claimToken: string;
-  displayName: string;
 }
 
 export interface CloseProRoomSessionFencedInput {
@@ -1206,11 +1204,9 @@ export class ProRoomApiClient {
     if (!parseProRoomOwnerRecoveryClaimToken(input.claimToken)) {
       throw new ProRoomApiError('INVALID_RECOVERY_CLAIM_TOKEN');
     }
-    const displayName = parseBoundedString(input.displayName, MAX_DISPLAY_NAME_LENGTH);
-    if (displayName === null) throw new ProRoomApiError('INVALID_DISPLAY_NAME');
     return this.#request(`${path}/owner-recovery`, {
       method: 'POST',
-      body: { claimToken: input.claimToken, displayName },
+      body: { claimToken: input.claimToken },
       signal,
       parser: (value) => parseSnapshotEnvelope(value, input.code),
     }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));
@@ -1218,11 +1214,9 @@ export class ProRoomApiClient {
 
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const path = roomPath(input.code);
-    const displayName = parseBoundedString(input.displayName, MAX_DISPLAY_NAME_LENGTH);
-    if (displayName === null) throw new ProRoomApiError('INVALID_DISPLAY_NAME');
     return this.#request(`${path}/sessions`, {
       method: 'POST',
-      body: { pin: validatePin(input.pin), displayName },
+      body: { pin: validatePin(input.pin) },
       signal,
       parser: (value) => parseSessionEnvelope(value, input.code),
     }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));
@@ -1475,54 +1469,25 @@ export class ProRoomApiClient {
     code: string,
     signal?: AbortSignal,
     knownSnapshot?: ProRoomSnapshot,
-    displayName?: string,
   ): Promise<ProRoomSnapshot> {
     const path = roomPath(code);
-    const normalizedDisplayName =
-      displayName === undefined
-        ? undefined
-        : parseBoundedString(displayName, MAX_DISPLAY_NAME_LENGTH);
-    if (displayName !== undefined && normalizedDisplayName === null) {
-      throw new ProRoomApiError('INVALID_DISPLAY_NAME');
-    }
-    const requestHeartbeat = (includeDisplayName: boolean) =>
-      this.#request(`${path}/presence/heartbeat`, {
-        method: 'POST',
-        ...(knownSnapshot === undefined
-          ? {}
-          : {
-              body: {
-                revision: knownSnapshot.revision,
-                playlistRevision: knownSnapshot.playlistRevision,
-                presenceRevision: knownSnapshot.presence.revision,
-                playbackRevision: knownSnapshot.playback.revision,
-                coordinatorEpoch: knownSnapshot.presence.coordinatorEpoch,
-                ...(includeDisplayName && normalizedDisplayName !== undefined
-                  ? { displayName: normalizedDisplayName }
-                  : {}),
-              },
-            }),
-        signal,
-        activeRoomCode: code,
-        parser: (value) => parseHeartbeatEnvelope(value, code, knownSnapshot ?? null),
-      });
-    try {
-      return await requestHeartbeat(true);
-    } catch (error) {
-      // During a rollback, an older Worker rejects the rolling optional field.
-      // Preserve presence with the old exact body; only the richer actor label
-      // is deferred until the server supports it again.
-      if (
-        normalizedDisplayName === undefined ||
-        signal?.aborted ||
-        !(error instanceof ProRoomApiError) ||
-        error.status !== 400 ||
-        error.code !== 'INVALID_REQUEST'
-      ) {
-        throw error;
-      }
-      return requestHeartbeat(false);
-    }
+    return this.#request(`${path}/presence/heartbeat`, {
+      method: 'POST',
+      ...(knownSnapshot === undefined
+        ? {}
+        : {
+            body: {
+              revision: knownSnapshot.revision,
+              playlistRevision: knownSnapshot.playlistRevision,
+              presenceRevision: knownSnapshot.presence.revision,
+              playbackRevision: knownSnapshot.playback.revision,
+              coordinatorEpoch: knownSnapshot.presence.coordinatorEpoch,
+            },
+          }),
+      signal,
+      activeRoomCode: code,
+      parser: (value) => parseHeartbeatEnvelope(value, code, knownSnapshot ?? null),
+    });
   }
 
   getEffects(code: string, signal?: AbortSignal): Promise<ProRoomEffectsSnapshot> {

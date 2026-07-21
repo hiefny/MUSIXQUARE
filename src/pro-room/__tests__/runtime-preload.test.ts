@@ -162,7 +162,7 @@ describe.sequential('PRO room runtime preload adoption', () => {
       });
     restoreSpies.push(download);
 
-    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
   });
 
   afterAll(async () => {

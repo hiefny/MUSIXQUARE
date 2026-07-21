@@ -30,22 +30,3 @@ export function filterProfanity(text: string): string {
 
   return result;
 }
-
-/**
- * Apply the same whole-word and substring rules as filterProfanity without
- * rewriting the input.
- */
-export function containsProfanity(text: string): boolean {
-  const lower = text.toLowerCase();
-
-  if (_compiledRegex.english) {
-    _compiledRegex.english.lastIndex = 0;
-    if (_compiledRegex.english.test(lower)) return true;
-  }
-  if (_compiledRegex.korean) {
-    _compiledRegex.korean.lastIndex = 0;
-    if (_compiledRegex.korean.test(lower)) return true;
-  }
-
-  return false;
-}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { KO } from 'content-shield/languages/ko';
 import { EN } from 'content-shield/languages/en';
-import { filterProfanity, containsProfanity } from '../profanity.ts';
+import { filterProfanity } from '../profanity.ts';
 
 function sourceProjection(): { words: string[]; korean: RegExp | null; english: RegExp | null } {
   const words = new Set<string>();
@@ -63,7 +63,6 @@ describe('profanity', () => {
         : `before ${word} after`;
       const expected = sourceFilter(sample, projection);
       expect(filterProfanity(sample)).toBe(expected);
-      expect(containsProfanity(sample)).toBe(expected !== sample);
     }
   });
 
@@ -96,34 +95,34 @@ describe('profanity', () => {
     });
   });
 
-  describe('containsProfanity', () => {
-    it('is false for empty and clean text', () => {
-      expect(containsProfanity('')).toBe(false);
-      expect(containsProfanity('a perfectly normal sentence')).toBe(false);
+  describe('filter identity as the match signal', () => {
+    it('keeps empty and clean text identical', () => {
+      expect(filterProfanity('')).toBe('');
+      expect(filterProfanity('a perfectly normal sentence')).toBe(
+        'a perfectly normal sentence',
+      );
     });
 
     it('does not flag legitimate words that embed a token (Cassidy regression)', () => {
       // English matching is word-boundary'd specifically so names like
       // "Cassidy" / "classic" don't trip the "ass" family.
-      expect(containsProfanity('Cassidy')).toBe(false);
-      expect(containsProfanity('a classic assignment')).toBe(false);
+      expect(filterProfanity('Cassidy')).toBe('Cassidy');
+      expect(filterProfanity('a classic assignment')).toBe('a classic assignment');
     });
 
     it('detects a standalone English token', () => {
-      expect(containsProfanity('what the fuck')).toBe(true);
+      expect(filterProfanity('what the fuck')).not.toBe('what the fuck');
     });
   });
 
-  describe('filter/contains consistency', () => {
-    it('text flagged by containsProfanity is changed by filterProfanity', () => {
+  describe('filter match consistency', () => {
+    it('matched text is changed by filterProfanity', () => {
       const dirty = 'fuck this';
-      expect(containsProfanity(dirty)).toBe(true);
       expect(filterProfanity(dirty)).not.toBe(dirty);
     });
 
     it('text not flagged is left identical by the filter', () => {
       const clean = 'see you at the concert';
-      expect(containsProfanity(clean)).toBe(false);
       expect(filterProfanity(clean)).toBe(clean);
     });
   });

@@ -306,7 +306,6 @@ describe('PRO room cookie session API', () => {
       client.recoverOwner({
         code: ROOM_CODE,
         claimToken: CLAIM_TOKEN,
-        displayName: ' Recovered Owner ',
       }),
     ).resolves.toEqual(activeSnapshot());
 
@@ -317,7 +316,6 @@ describe('PRO room cookie session API', () => {
     expect(init.credentials).toBe('include');
     expect(JSON.parse(String(init.body))).toEqual({
       claimToken: CLAIM_TOKEN,
-      displayName: 'Recovered Owner',
     });
     expect(url.toString()).not.toContain(CLAIM_TOKEN);
   });
@@ -331,13 +329,13 @@ describe('PRO room cookie session API', () => {
     );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
-    expect(() =>
-      client.recoverOwner({ code: ROOM_CODE, claimToken: 'short', displayName: 'Owner' }),
-    ).toThrow(expect.objectContaining({ code: 'INVALID_RECOVERY_CLAIM_TOKEN' }));
+    expect(() => client.recoverOwner({ code: ROOM_CODE, claimToken: 'short' })).toThrow(
+      expect.objectContaining({ code: 'INVALID_RECOVERY_CLAIM_TOKEN' }),
+    );
     expect(fetchMock).not.toHaveBeenCalled();
 
     await expect(
-      client.recoverOwner({ code: ROOM_CODE, claimToken: CLAIM_TOKEN, displayName: 'Owner' }),
+      client.recoverOwner({ code: ROOM_CODE, claimToken: CLAIM_TOKEN }),
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
@@ -350,13 +348,13 @@ describe('PRO room cookie session API', () => {
     );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
-    await expect(
-      client.createSession({ code: ROOM_CODE, pin: '12345678', displayName: ' Friend ' }),
-    ).resolves.toEqual(activeSnapshot());
+    await expect(client.createSession({ code: ROOM_CODE, pin: '12345678' })).resolves.toEqual(
+      activeSnapshot(),
+    );
 
     const { url, init } = requestParts(fetchMock);
     expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/sessions`);
-    expect(JSON.parse(String(init.body))).toEqual({ pin: '12345678', displayName: 'Friend' });
+    expect(JSON.parse(String(init.body))).toEqual({ pin: '12345678' });
     expect(String(init.body)).not.toContain('token');
   });
 
@@ -541,39 +539,14 @@ describe('PRO room cookie session API', () => {
       }),
     );
 
-    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot, 'Peer 1')).resolves.toBe(
-      snapshot,
-    );
+    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).resolves.toBe(snapshot);
     expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).toEqual({
       revision: snapshot.revision,
       playlistRevision: snapshot.playlistRevision,
       presenceRevision: snapshot.presence.revision,
       playbackRevision: snapshot.playback.revision,
       coordinatorEpoch: snapshot.presence.coordinatorEpoch,
-      displayName: 'Peer 1',
     });
-  });
-
-  it('retries a name-aware heartbeat with the legacy exact body during a Worker rollback', async () => {
-    const snapshot = activeSnapshot();
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock, snapshot);
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
-      .mockResolvedValueOnce(jsonResponse({ snapshot }));
-
-    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot, 'Peer 1')).resolves.toEqual(
-      snapshot,
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toHaveProperty(
-      'displayName',
-      'Peer 1',
-    );
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).not.toHaveProperty(
-      'displayName',
-    );
   });
 
   it('rejects a compact heartbeat reply that does not match the caller snapshot', async () => {
@@ -1090,7 +1063,7 @@ describe('PRO room cookie session API', () => {
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     const error = await client
-      .createSession({ code: ROOM_CODE, pin: '12345678', displayName: 'Friend' })
+      .createSession({ code: ROOM_CODE, pin: '12345678' })
       .catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(ProRoomApiError);
     expect(error).toMatchObject({ code: 'PIN_INVALID', status: 401, retryAfterSeconds: 12 });
@@ -1112,7 +1085,7 @@ describe('PRO room cookie session API', () => {
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     const error = await client
-      .createSession({ code: ROOM_CODE, pin: '12345678', displayName: 'Friend' })
+      .createSession({ code: ROOM_CODE, pin: '12345678' })
       .catch((reason: unknown) => reason);
 
     expect(error).toMatchObject({
@@ -1134,7 +1107,7 @@ describe('PRO room cookie session API', () => {
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     const error = await client
-      .createSession({ code: ROOM_CODE, pin: '12345678', displayName: 'Friend' })
+      .createSession({ code: ROOM_CODE, pin: '12345678' })
       .catch((reason: unknown) => reason);
 
     expect(error).toMatchObject({

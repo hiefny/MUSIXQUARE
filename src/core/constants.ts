@@ -168,7 +168,6 @@ export const MSG = {
   REQUEST_YOUTUBE_PLAY: 'request-youtube-play',
   REQUEST_YOUTUBE_TOGGLE: 'request-youtube-toggle',
   REQUEST_YOUTUBE_PLAYLIST_INFO: 'request-youtube-playlist-info',
-  REQUEST_RENAME: 'request-rename',
   REQUEST_YOUTUBE_SUB_SEEK: 'request-youtube-sub-seek',
   REVERB: 'reverb',
   REVERB_DECAY: 'reverb-decay',
@@ -231,7 +230,7 @@ export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;
 export const REVERB_DEFAULT_DECAY = 5.0;
 export const REVERB_DEFAULT_PREDELAY = 0.1;
 
-// ─── Rename Validation ──────────────────────────────────────────────
+// ─── Account Nickname Validation ───────────────────────────────────────
 // Names the host may reclaim (own identity across locales).
 const HOST_SELF_NAMES = ['host', '방장', '호스트'] as const;
 
@@ -250,20 +249,16 @@ export const RESERVED_NAMES = [
   '운영자',
 ] as const;
 
-// PRO room default identities are allocated by the server. Reserving the
-// whole visible namespace prevents a rename from appearing successful before
-// the next authoritative heartbeat restores its canonical Peer N label.
+// PRO room default identities are allocated by the server. Reserve the whole
+// visible namespace so account nicknames cannot impersonate a Peer N label.
 export const PRO_GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 
-// Control / zero-width / bidi-override characters stripped from device labels
-// BEFORE the reserved/duplicate checks ("HOST"+zero-width-space must not slip
+// Control / zero-width / bidi-override characters stripped from account
+// nicknames before reserved-name checks ("HOST"+zero-width-space must not slip
 // past as a visually identical impersonation; U+202E must not reorder the
-// rendered name). Single source of truth: the host's handleRequestRename
-// (network/sync.ts) strips with this exact pattern, and the client-side
-// validators (ui/connect.ts, chat/commands.ts) must apply the SAME strip so a
-// name that sanitizes into a reserved/duplicate/empty string fails locally
-// with feedback instead of being silently rejected by the host.
-export const DEVICE_LABEL_SANITIZE_RE =
+// rendered name). Account nickname validation owns this normalization so
+// visually identical reserved names are rejected consistently.
+export const ACCOUNT_NICKNAME_SANITIZE_RE =
   // eslint-disable-next-line no-control-regex
   /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
 

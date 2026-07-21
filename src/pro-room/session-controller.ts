@@ -25,7 +25,6 @@ interface ProRoomSessionApi {
     code: string,
     signal?: AbortSignal,
     knownSnapshot?: ProRoomSnapshot,
-    displayName?: string,
   ): Promise<ProRoomSnapshot>;
   leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess>;
@@ -174,15 +173,12 @@ export class ProRoomSessionController {
     return this.#accept(incoming, false, signal, operationEpoch);
   }
 
-  async heartbeat(signal?: AbortSignal, displayName?: string): Promise<ProRoomSnapshot> {
+  async heartbeat(signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
     let incoming: ProRoomSnapshot;
     try {
-      incoming =
-        displayName === undefined
-          ? await this.api.heartbeat(roomCode, signal, this.#snapshot ?? undefined)
-          : await this.api.heartbeat(roomCode, signal, this.#snapshot ?? undefined, displayName);
+      incoming = await this.api.heartbeat(roomCode, signal, this.#snapshot ?? undefined);
     } catch (error) {
       this.#assertOperationCurrent(operationEpoch);
       throw error;

@@ -16,4 +16,15 @@ describe('account nickname length policy', () => {
     expect(normalizeAccountNickname('x'.repeat(20))).toBe('x'.repeat(20));
     expect(normalizeAccountNickname('x'.repeat(21))).toBeNull();
   });
+
+  it('allows Korean text while rejecting only standalone English profanity', () => {
+    expect(normalizeNewAccountNickname('청년개발자')).toBe('청년개발자');
+    expect(normalizeNewAccountNickname('시발')).toBe('시발');
+    expect(normalizeNewAccountNickname('ssibal')).toBe('ssibal');
+    expect(normalizeNewAccountNickname('saekki')).toBe('saekki');
+    expect(normalizeNewAccountNickname('nyeon')).toBe('nyeon');
+    expect(normalizeNewAccountNickname('fuck')).toBeNull();
+    expect(normalizeNewAccountNickname('Cassidy')).toBe('Cassidy');
+    expect(normalizeNewAccountNickname('assignment')).toBe('assignment');
+  });
 });

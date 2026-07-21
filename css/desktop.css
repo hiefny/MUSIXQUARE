@@ -662,7 +662,7 @@
       padding: 44px 20px 16px;
     }
 
-    .rename-device-btn,
+    .accent-action-btn,
     .leave-session-btn {
       margin-left: 20px;
       margin-right: 20px;
@@ -678,7 +678,7 @@
       gap: 8px;
     }
 
-    body.mode-demo .demo-finish-content .demo-large-actions .rename-device-btn,
+    body.mode-demo .demo-finish-content .demo-large-actions .accent-action-btn,
     body.mode-demo .demo-finish-content .demo-large-actions .leave-session-btn {
       flex: none;
       width: 100%;

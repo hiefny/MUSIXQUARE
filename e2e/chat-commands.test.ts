@@ -312,55 +312,16 @@ test.describe('Chat Commands', () => {
 
   // ── /nick ──────────────────────────────────────────────────────
 
-  test('/nick changes device name', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
-    await openChatDrawer(pair.hostPage);
-
-    await sendChat(pair.hostPage, '/nick MyDevice');
-    await waitForChatMessage(pair.hostPage, 'MyDevice');
-
-    const hostText = await getChatText(pair.hostPage);
-    expect(hostText).toContain('MyDevice');
-  });
-
-  test('/nick rejects reserved names for guest', async () => {
+  test('/nick opens account sign-in without renaming an anonymous peer', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await openChatDrawer(pair.guestPage);
+    const peerName = await readState(pair.guestPage, 'network.myDeviceLabel');
 
-    await sendChat(pair.guestPage, '/nick operator');
-    // Wait for error message (Korean or English)
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.innerText || '';
-      return text.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(text);
-    }, { timeout: 10_000 });
+    await sendChat(pair.guestPage, '/nick MyDevice');
 
-    const guestText = await getChatText(pair.guestPage);
-    // Accept either the Korean or English localized reserved-name message.
-    const hasReservedError =
-      guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(guestText);
-    expect(hasReservedError).toBe(true);
-  });
-
-  test('/nick rejects #번호 format', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
-    await openChatDrawer(pair.guestPage);
-
-    await sendChat(pair.guestPage, '/nick #2');
-    // Wait for error message (Korean or English)
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.innerText || '';
-      return text.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(text);
-    }, { timeout: 10_000 });
-
-    const guestText = await getChatText(pair.guestPage);
-    // Accept either the Korean or English localized reserved-name message.
-    const hasReservedError =
-      guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(guestText);
-    expect(hasReservedError).toBe(true);
+    await expect(pair.guestPage.locator('#account-dialog-overlay')).toHaveClass(/show/);
+    expect(await readState(pair.guestPage, 'network.myDeviceLabel')).toBe(peerName);
+    expect(peerName).not.toBe('MyDevice');
   });
 
   // ── /w (whisper) ───────────────────────────────────────────────

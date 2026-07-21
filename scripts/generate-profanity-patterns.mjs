@@ -13,6 +13,7 @@ const checkOnly = process.argv.slice(2).includes('--check');
 
 function buildPatterns() {
   const words = new Set();
+  const accountEnglishWords = new Set();
 
   for (const entry of KO.profanity) {
     if (entry.severity < 2) continue;
@@ -20,8 +21,14 @@ function buildPatterns() {
   }
   for (const entry of EN.words) {
     if (entry.severity < 2) continue;
-    words.add(entry.word.toLowerCase());
-    for (const variation of entry.variations) words.add(variation.toLowerCase());
+    const word = entry.word.toLowerCase();
+    words.add(word);
+    accountEnglishWords.add(word);
+    for (const variation of entry.variations) {
+      const normalized = variation.toLowerCase();
+      words.add(normalized);
+      accountEnglishWords.add(normalized);
+    }
   }
 
   const korean = [];
@@ -37,9 +44,16 @@ function buildPatterns() {
   // insertion order for equal-length alternatives.
   korean.sort((a, b) => b.length - a.length);
   english.sort((a, b) => b.length - a.length);
+  const accountEnglish = [...accountEnglishWords]
+    .filter(Boolean)
+    .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .sort((a, b) => b.length - a.length);
   return {
     korean: korean.join('|'),
     english: `\\b(?:${english.join('|')})\\b`,
+    // Account nicknames intentionally use only the EN source. The broader
+    // chat `english` bucket also contains romanized KO entries.
+    accountEnglish: `\\b(?:${accountEnglish.join('|')})\\b`,
   };
 }
 

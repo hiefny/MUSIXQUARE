@@ -3173,8 +3173,8 @@
     }
   }
 
-  /* Leave Session */
-  .rename-device-btn {
+  /* Accent action */
+  .accent-action-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3198,17 +3198,17 @@
   }
 
   @media (hover: hover) {
-    .rename-device-btn:hover {
+    .accent-action-btn:hover {
       background: rgba(0, 122, 255, 0.12);
     }
   }
 
-  .rename-device-btn:active {
+  .accent-action-btn:active {
     background: rgba(0, 122, 255, 0.18);
     transform: scale(0.97);
   }
 
-  .rename-device-btn svg {
+  .accent-action-btn svg {
     width: 20px;
     height: 20px;
     fill: #007aff;
@@ -7023,7 +7023,7 @@
     min-width: 0;
   }
 
-  .demo-large-actions .rename-device-btn,
+  .demo-large-actions .accent-action-btn,
   .demo-large-actions .leave-session-btn {
     margin: 0;
     min-width: 0;
@@ -7339,7 +7339,7 @@
       gap: clamp(8px, 1.2vw, 14px);
     }
 
-    .demo-large-actions .rename-device-btn,
+    .demo-large-actions .accent-action-btn,
     .demo-large-actions .leave-session-btn {
       height: clamp(58px, 7.5vh, 72px);
       min-height: clamp(58px, 7.5vh, 72px);
@@ -7354,7 +7354,7 @@
       gap: 8px;
     }
 
-    body.mode-demo .demo-finish-content .demo-large-actions .rename-device-btn,
+    body.mode-demo .demo-finish-content .demo-large-actions .accent-action-btn,
     body.mode-demo .demo-finish-content .demo-large-actions .leave-session-btn {
       flex: none;
       width: 100%;
@@ -7453,7 +7453,7 @@
       display: none;
     }
 
-    .demo-large-actions .rename-device-btn,
+    .demo-large-actions .accent-action-btn,
     .demo-large-actions .leave-session-btn {
       min-height: 54px;
       height: 54px;

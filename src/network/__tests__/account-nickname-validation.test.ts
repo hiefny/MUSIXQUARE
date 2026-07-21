@@ -1,10 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * Regression tests for account-nickname validation parity.
+ * Regression tests for account nickname validation parity.
  *
- * Browser-authored rename frames are no longer produced; `/nick` updates the
- * authenticated account profile. The remaining client validation keeps the
+ * `/nick` updates the authenticated account profile. Client validation keeps
  * reserved namespaces aligned with room identity projection.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -163,14 +162,14 @@ afterEach(() => {
 
 // ─── /nick client validation parity ────────────────────────────────────────
 
-describe('/nick guest-side validation mirrors the host (F-2404)', () => {
+describe('/nick account nickname validation', () => {
   function runNick(arg: string): void {
     const cmd = parseCommand(`/nick ${arg}`);
     expect(cmd).not.toBeNull();
     executeCommand(cmd!);
   }
 
-  it('opens optional login instead of renaming an anonymous device', () => {
+  it('opens optional login for an anonymous user', () => {
     setAccountAnonymous(true);
     const accountOpenSpy = vi.fn();
     const stopAccountOpen = bus.on('account:open', accountOpenSpy);
@@ -207,11 +206,11 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     );
   });
 
-  it('strips zero-width characters before validating, like the host does', () => {
+  it('strips zero-width characters before validating', () => {
     setupGuestRoom([]);
 
     // 'HO' + U+200B + 'ST' — trim() alone leaves the zero-width space, so the
-    // The client validator must reject this before the host silently does.
+    // The account validator must reject this visually identical reserved name.
     const spoofed = `HO${String.fromCharCode(0x200b)}ST`;
     runNick(spoofed);
 

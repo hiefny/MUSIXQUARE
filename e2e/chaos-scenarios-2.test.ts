@@ -1694,8 +1694,8 @@ test.describe('Playlist Reorder + Disconnect', () => {
   });
 });
 
-test.describe('Device Name Collision', () => {
-  test('two guests with same default name do not conflict', async ({ browser }) => {
+test.describe('Generated Peer Identity Collision', () => {
+  test('two generated guest slots do not conflict', async ({ browser }) => {
     test.setTimeout(90_000);
 
     const setup = await createChaosSetup(browser, 2);

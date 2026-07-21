@@ -76,8 +76,8 @@ return only to allowlisted local routes.
   paths and are allowlisted against open redirects.
 
 The first successful login requires a MUSIXQUARE nickname. The nickname is
-stored on the account and projected into every room. A signed-in client cannot
-override it through a heartbeat or legacy device-rename frame.
+stored on the account and projected into every room through signed account
+assertions.
 
 New and changed account nicknames are limited to 12 Unicode code points. The
 database and assertion readers retain a 20-code-point compatibility ceiling so
@@ -85,6 +85,15 @@ nicknames saved before this policy change continue to sign in, join rooms, and
 render without a forced rename. A grandfathered nickname is checked against the
 12-code-point limit only when its owner actively submits a nickname update; an
 unchanged session read is never treated as a new write.
+
+Nickname moderation is intentionally narrower than chat moderation. New and
+changed account nicknames reject only standalone whole-word matches generated
+from the English `EN.words` source, including that source's variations.
+Korean-source terms and their romanized variants are not evaluated for account
+nicknames, and substrings inside otherwise valid words remain allowed. Chat
+messages continue to use the separate, broader Korean-substring and English-word
+policy. Client and server must consume the same generated `accountEnglish`
+pattern; account writes must not reuse the broader chat pattern.
 
 Length alone is not a moderation violation. The service therefore does not
 force a warning modal on grandfathered accounts and does not expose an account

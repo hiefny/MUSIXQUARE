@@ -148,7 +148,6 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
           {
             code,
             claimToken: ownerRecoveryClaimToken,
-            displayName: getState('network.myDeviceLabel') || 'Owner',
           },
           signal,
         ),
@@ -213,7 +212,6 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
           {
             code,
             pin,
-            displayName: getState('network.myDeviceLabel') || 'Peer',
           },
           signal,
         ),

@@ -2148,8 +2148,8 @@
         }
     }
 
-    /* Leave Session */
-    .rename-device-btn {
+    /* Accent action */
+    .accent-action-btn {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -2170,16 +2170,16 @@
         transition: background 0.2s, transform 0.2s;
     }
 
-    .rename-device-btn:hover {
+    .accent-action-btn:hover {
         background: rgba(0, 122, 255, 0.12);
     }
 
-    .rename-device-btn:active {
+    .accent-action-btn:active {
         background: rgba(0, 122, 255, 0.18);
         transform: scale(0.97);
     }
 
-    .rename-device-btn svg {
+    .accent-action-btn svg {
         width: 20px;
         height: 20px;
         fill: #007aff;

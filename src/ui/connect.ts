@@ -1122,10 +1122,14 @@ export function initConnect(): void {
   document.getElementById('btn-leave-session')?.addEventListener('click', leaveHandler);
   document.getElementById('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
 
-  // Rename Device buttons (mobile + desktop)
-  const renameHandler = () => void requestAccountNicknameChange();
-  document.getElementById('btn-rename-device')?.addEventListener('click', renameHandler);
-  document.getElementById('desktop-btn-rename-device')?.addEventListener('click', renameHandler);
+  // Account nickname buttons (mobile + desktop)
+  const nicknameChangeHandler = () => void requestAccountNicknameChange();
+  document
+    .getElementById('btn-change-nickname')
+    ?.addEventListener('click', nicknameChangeHandler);
+  document
+    .getElementById('desktop-btn-change-nickname')
+    ?.addEventListener('click', nicknameChangeHandler);
 
   // Initial render
   refreshAllQR();

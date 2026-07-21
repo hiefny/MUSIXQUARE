@@ -90,8 +90,8 @@ beforeEach(() => {
     </section>
     <div id="connect-device-list"></div>
     <div id="desktop-device-list"></div>
-    <button id="btn-rename-device"></button>
-    <button id="desktop-btn-rename-device"></button>
+    <button id="btn-change-nickname"></button>
+    <button id="desktop-btn-change-nickname"></button>
     <div id="administrator-permissions-overlay" aria-hidden="true">
       <div id="administrator-permissions-dialog" aria-busy="false">
         <span id="administrator-permissions-member"></span>
@@ -1326,8 +1326,8 @@ describe('connect permission toasts', () => {
   });
 });
 
-describe('connect rename authority', () => {
-  it('keeps the server-owned Peer N namespace unavailable in the PRO rename dialog', async () => {
+describe('connect account nickname authority', () => {
+  it('keeps the server-owned Peer N namespace unavailable in the PRO nickname dialog', async () => {
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
     setState('network.myId', 'member-1');
@@ -1354,7 +1354,7 @@ describe('connect rename authority', () => {
     mockedShowDialog.mockResolvedValue({ action: 'cancel' });
     initConnect();
 
-    document.getElementById('btn-rename-device')?.click();
+    document.getElementById('btn-change-nickname')?.click();
 
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
     const validator = mockedShowDialog.mock.calls.at(-1)?.[0].inputField?.validator;
@@ -1389,7 +1389,7 @@ describe('connect rename authority', () => {
     mockedShowDialog.mockResolvedValue({ action: 'cancel' });
     initConnect();
 
-    document.getElementById('btn-rename-device')?.click();
+    document.getElementById('btn-change-nickname')?.click();
 
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
     const options = mockedShowDialog.mock.calls.at(-1)?.[0];

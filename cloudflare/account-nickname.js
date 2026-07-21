@@ -30,13 +30,14 @@ const RESERVED_NICKNAMES = new Set([
   '운영자',
 ]);
 
-const PROFANITY_RE = {
-  korean: profanityPatterns.korean ? new RegExp(profanityPatterns.korean, 'iu') : null,
-  english: profanityPatterns.english ? new RegExp(profanityPatterns.english, 'iu') : null,
-};
+// Account nicknames only reject standalone English profanity. Chat moderation
+// intentionally keeps its broader Korean-substring and English-word policy.
+const ENGLISH_NICKNAME_PROFANITY_RE = profanityPatterns.accountEnglish
+  ? new RegExp(profanityPatterns.accountEnglish, 'iu')
+  : null;
 
-function containsProfanity(value) {
-  return Boolean(PROFANITY_RE.korean?.test(value) || PROFANITY_RE.english?.test(value));
+function containsEnglishNicknameProfanity(value) {
+  return Boolean(ENGLISH_NICKNAME_PROFANITY_RE?.test(value));
 }
 
 /** Common character, reserved-name, and profanity policy for both limits. */
@@ -56,7 +57,7 @@ function normalizeAccountNicknameWithLimit(value, maxCodePoints) {
     RESERVED_NICKNAMES.has(folded) ||
     GENERATED_PEER_NAME_RE.test(normalized) ||
     NUMBER_BADGE_NAME_RE.test(normalized) ||
-    containsProfanity(normalized)
+    containsEnglishNicknameProfanity(normalized)
   ) {
     return null;
   }

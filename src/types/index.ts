@@ -760,9 +760,6 @@ export interface ProtocolMap {
       | { kind: 'rate_limited'; retryAfterSeconds: number };
   };
 
-  // ── Rename ──────────────────────────────────────────────────────
-  'request-rename': { newLabel: string };
-
   // ── Chat Commands ─────────────────────────────────────────────
   'chat-mute': { targetId: string; targetLabel: string };
   'chat-unmute': { targetId: string; targetLabel: string };

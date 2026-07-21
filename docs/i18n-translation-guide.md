@@ -132,7 +132,6 @@ the first machine pass).
 | `nav.home`, `nav.go_home` | Home | **home screen** | "house / residence" |
 | `common.woofer`, `role.subwoofer` | Woofer / Subwoofer | audio term — use the standard **loanword/transliteration** | literal "barker" |
 | `settings.host_ctrl` / `settings.self_ctrl` | GLOBAL / LOCAL | fixed compact badges: the effect is controlled **globally** vs on **this device** | translating or expanding the badges; "self-control" (restraint) |
-| `connect.rename_message` "Choose a display name" | Choose | **enter / decide on** a name (it's a text field) | a "select-from-a-list" verb — esp. zh `选择`/`選擇`; you type the name, not pick it |
 
 ---
 

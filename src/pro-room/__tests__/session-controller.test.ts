@@ -135,7 +135,6 @@ describe('PRO room session controller', () => {
     const result = await controller.join({
       code: ROOM_CODE,
       pin: '12345678',
-      displayName: 'Owner',
     });
 
     expect(result).toEqual(snapshot());
@@ -198,7 +197,7 @@ describe('PRO room session controller', () => {
 
   it('accepts a linked account snapshot and rebuilds the display-name-bound control channel', async () => {
     const { api, transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.reconfigure.mockClear();
     const linked = snapshot({
       revision: 2,
@@ -233,7 +232,7 @@ describe('PRO room session controller', () => {
 
   it('publishes an attached account commit before a recoverable channel rebuild failure', async () => {
     const { api, transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     const linked = snapshot({
       revision: 2,
       memberIdentityVersion: 1,
@@ -273,7 +272,7 @@ describe('PRO room session controller', () => {
 
   it('rebuilds the control channel when account attachment changes only the member id', async () => {
     const { api, transport, controller } = fixtures();
-    const initial = await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    const initial = await controller.join({ code: ROOM_CODE, pin: '12345678' });
     const linked = snapshot({
       revision: 2,
       memberIdentityVersion: 1,
@@ -327,7 +326,7 @@ describe('PRO room session controller', () => {
       },
     });
     api.createSession.mockResolvedValueOnce(linked);
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Ignored' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.reconfigure.mockClear();
     const detached = snapshot({
       revision: 2,
@@ -385,7 +384,7 @@ describe('PRO room session controller', () => {
 
   it('fails locally instead of rotating the cookie incarnation while already active', async () => {
     const { api, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     api.enterPresence.mockClear();
 
     await expect(controller.resume(ROOM_CODE)).rejects.toThrow('PRO_ROOM_SESSION_ALREADY_ACTIVE');
@@ -406,7 +405,6 @@ describe('PRO room session controller', () => {
     const joining = controller.join({
       code: ROOM_CODE,
       pin: '12345678',
-      displayName: 'Owner',
     });
     await vi.waitFor(() => expect(api.createSession).toHaveBeenCalledOnce());
 
@@ -421,12 +419,12 @@ describe('PRO room session controller', () => {
     const { api, transport, controller } = fixtures();
     const claimToken = `v1.${'r'.repeat(32)}.${'C'.repeat(43)}`;
 
-    await expect(
-      controller.recoverOwner({ code: ROOM_CODE, claimToken, displayName: 'Recovered Owner' }),
-    ).resolves.toEqual(snapshot());
+    await expect(controller.recoverOwner({ code: ROOM_CODE, claimToken })).resolves.toEqual(
+      snapshot(),
+    );
 
     expect(api.recoverOwner).toHaveBeenCalledWith(
-      { code: ROOM_CODE, claimToken, displayName: 'Recovered Owner' },
+      { code: ROOM_CODE, claimToken },
       expect.any(AbortSignal),
     );
     expect(api.createSignalingTicket).toHaveBeenCalledOnce();
@@ -448,9 +446,9 @@ describe('PRO room session controller', () => {
     const { api, transport, controller } = fixtures();
     api.createSignalingTicket.mockResolvedValue(signaling('member', 2));
 
-    await expect(
-      controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' }),
-    ).rejects.toThrow('PRO_ROOM_SIGNALING_TICKET_MISMATCH');
+    await expect(controller.join({ code: ROOM_CODE, pin: '12345678' })).rejects.toThrow(
+      'PRO_ROOM_SIGNALING_TICKET_MISMATCH',
+    );
     expect(transport.connect).not.toHaveBeenCalled();
     expect(controller.snapshot).toBeNull();
   });
@@ -459,9 +457,9 @@ describe('PRO room session controller', () => {
     const { api, transport, controller } = fixtures();
     api.createSignalingTicket.mockResolvedValue(signaling('coordinator'));
 
-    await expect(
-      controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' }),
-    ).rejects.toThrow('PRO_ROOM_SIGNALING_TICKET_MISMATCH');
+    await expect(controller.join({ code: ROOM_CODE, pin: '12345678' })).rejects.toThrow(
+      'PRO_ROOM_SIGNALING_TICKET_MISMATCH',
+    );
     expect(transport.connect).not.toHaveBeenCalled();
     expect(controller.snapshot).toBeNull();
   });
@@ -490,14 +488,14 @@ describe('PRO room session controller', () => {
     const access = signaling('member', 1, pendingPlaybackTransition);
     api.createSignalingTicket.mockResolvedValue(access);
 
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     expect(transport.connect).toHaveBeenCalledWith(snapshot(), access, expect.any(AbortSignal));
   });
 
   it('reconfigures only when a heartbeat changes the room-incarnation fence', async () => {
     const { api, transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     const changed = snapshot({
       revision: 2,
@@ -526,66 +524,66 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledWith(changed, signaling('member', 2), undefined);
   });
 
-  it('re-authenticates the current socket immediately when heartbeat accepts a renamed viewer', async () => {
+  it('re-authenticates the current socket when heartbeat projects a changed account identity', async () => {
     const { api, transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.reconfigure.mockClear();
     api.createSignalingTicket.mockClear();
 
-    const renamed = snapshot({
+    const projected = snapshot({
       revision: 2,
       presence: {
         ...snapshot().presence,
         revision: 2,
         participants: snapshot().presence.participants.map((participant) => ({
           ...participant,
-          displayName: 'Renamed Owner',
+          displayName: 'Account Owner',
         })),
       },
       viewer: {
         ...snapshot().viewer!,
-        displayName: 'Renamed Owner',
+        displayName: 'Account Owner',
       },
     });
     const replacementAccess = { ...signaling(), ticketSequence: 2 };
-    api.heartbeat.mockResolvedValue(renamed);
+    api.heartbeat.mockResolvedValue(projected);
     api.createSignalingTicket.mockResolvedValue(replacementAccess);
 
-    await expect(controller.heartbeat(undefined, 'Renamed Owner')).resolves.toEqual(renamed);
+    await expect(controller.heartbeat()).resolves.toEqual(projected);
 
-    expect(api.heartbeat).toHaveBeenCalledWith(ROOM_CODE, undefined, snapshot(), 'Renamed Owner');
+    expect(api.heartbeat).toHaveBeenCalledWith(ROOM_CODE, undefined, snapshot());
     expect(api.createSignalingTicket).toHaveBeenCalledOnce();
-    expect(transport.reconfigure).toHaveBeenCalledWith(renamed, replacementAccess, undefined);
+    expect(transport.reconfigure).toHaveBeenCalledWith(projected, replacementAccess, undefined);
     expect(transport.disconnect).not.toHaveBeenCalled();
 
-    await controller.heartbeat(undefined, 'Renamed Owner');
+    await controller.heartbeat();
     expect(api.createSignalingTicket).toHaveBeenCalledOnce();
     expect(transport.reconfigure).toHaveBeenCalledOnce();
   });
 
-  it('retries a renamed-viewer socket replacement after a transient failure', async () => {
+  it('retries an account-identity socket replacement after a transient failure', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.reconfigure.mockClear();
     api.createSignalingTicket.mockClear();
     observer.cleared.mockClear();
 
-    const renamed = snapshot({
+    const projected = snapshot({
       revision: 2,
       presence: {
         ...snapshot().presence,
         revision: 2,
         participants: snapshot().presence.participants.map((participant) => ({
           ...participant,
-          displayName: 'Renamed Owner',
+          displayName: 'Account Owner',
         })),
       },
       viewer: {
         ...snapshot().viewer!,
-        displayName: 'Renamed Owner',
+        displayName: 'Account Owner',
       },
     });
-    api.heartbeat.mockResolvedValue(renamed);
+    api.heartbeat.mockResolvedValue(projected);
     api.createSignalingTicket
       .mockResolvedValueOnce({ ...signaling(), ticketSequence: 2 })
       .mockResolvedValueOnce({ ...signaling(), ticketSequence: 3 });
@@ -593,20 +591,18 @@ describe('PRO room session controller', () => {
       .mockRejectedValueOnce(new Error('SOCKET_OPEN_FAILED'))
       .mockResolvedValueOnce(undefined);
 
-    await expect(controller.heartbeat(undefined, 'Renamed Owner')).rejects.toThrow(
-      'SOCKET_OPEN_FAILED',
-    );
-    expect(controller.snapshot).toEqual(renamed);
+    await expect(controller.heartbeat()).rejects.toThrow('SOCKET_OPEN_FAILED');
+    expect(controller.snapshot).toEqual(projected);
     expect(observer.cleared).not.toHaveBeenCalled();
 
-    await expect(controller.heartbeat(undefined, 'Renamed Owner')).resolves.toEqual(renamed);
+    await expect(controller.heartbeat()).resolves.toEqual(projected);
     expect(api.createSignalingTicket).toHaveBeenCalledTimes(2);
     expect(transport.reconfigure).toHaveBeenCalledTimes(2);
   });
 
   it('rebuilds a lost server channel on the same room incarnation without clearing the session', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.reconfigure.mockClear();
     observer.cleared.mockClear();
 
@@ -624,7 +620,7 @@ describe('PRO room session controller', () => {
 
   it('keeps the authenticated room and retries a transient server-channel reconfigure', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     const changed = snapshot({
       revision: 2,
@@ -671,7 +667,7 @@ describe('PRO room session controller', () => {
 
   it('rejects a replacement tab incarnation before publishing or adopting its snapshot', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     const replacement = snapshot({
       revision: 2,
       viewer: {
@@ -691,7 +687,7 @@ describe('PRO room session controller', () => {
 
   it('rotates a control-channel ticket in place while the room incarnation is unchanged', async () => {
     const { api, transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.refreshCredentials.mockClear();
 
     await controller.refreshSignaling();
@@ -702,7 +698,7 @@ describe('PRO room session controller', () => {
 
   it('rebuilds the control channel when an in-place credential refresh is unavailable', async () => {
     const { transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.refreshCredentials.mockResolvedValue(false);
 
     await controller.refreshSignaling();
@@ -712,7 +708,7 @@ describe('PRO room session controller', () => {
 
   it('does not accept a control-channel rebuild that finishes after leave', async () => {
     const { transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.refreshCredentials.mockResolvedValue(false);
     let finishReconfigure!: () => void;
     transport.reconfigure.mockImplementation(
@@ -733,7 +729,7 @@ describe('PRO room session controller', () => {
 
   it('always clears local authority even when revoking the server session fails', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     api.closeSessionFenced.mockRejectedValue(new Error('offline'));
 
     await expect(controller.leave()).resolves.toBeUndefined();
@@ -753,7 +749,7 @@ describe('PRO room session controller', () => {
 
   it('invalidates locally before a slow old-room leave and never disconnects a replacement room', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.disconnect.mockClear();
     observer.cleared.mockClear();
 
@@ -775,9 +771,9 @@ describe('PRO room session controller', () => {
 
     const replacement = snapshot({ roomCode: '000000', revision: 1 });
     api.createSession.mockResolvedValueOnce(replacement);
-    await expect(
-      controller.join({ code: '000000', pin: '00000000', displayName: 'Friend' }),
-    ).resolves.toEqual(replacement);
+    await expect(controller.join({ code: '000000', pin: '00000000' })).resolves.toEqual(
+      replacement,
+    );
 
     finishOldClose();
     await expect(leaving).resolves.toBeUndefined();
@@ -795,7 +791,7 @@ describe('PRO room session controller', () => {
 
   it('does not revoke a newly-created same-room session when old atomic cleanup finishes late', async () => {
     const { api, transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.disconnect.mockClear();
 
     let finishCapturedClose!: () => void;
@@ -805,9 +801,9 @@ describe('PRO room session controller', () => {
     const leaving = controller.leave(undefined, capturedClose);
 
     expect(controller.snapshot).toBeNull();
-    await expect(
-      controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Rejoined' }),
-    ).resolves.toEqual(snapshot());
+    await expect(controller.join({ code: ROOM_CODE, pin: '12345678' })).resolves.toEqual(
+      snapshot(),
+    );
 
     finishCapturedClose();
     await expect(leaving).resolves.toBeUndefined();
@@ -828,7 +824,7 @@ describe('PRO room session controller', () => {
 
   it('revokes the server session after an atomic explicit leave when no replacement exists', async () => {
     const { api, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     await controller.leave(undefined, Promise.resolve());
 
@@ -848,14 +844,14 @@ describe('PRO room session controller', () => {
 
   it('skips stale-cookie fallback after failed cleanup when the same room has re-opened', async () => {
     const { api, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     let failCapturedClose!: (reason: unknown) => void;
     const capturedClose = new Promise<void>((_resolve, reject) => {
       failCapturedClose = reject;
     });
     const leaving = controller.leave(undefined, capturedClose);
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Rejoined' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     failCapturedClose(new Error('offline'));
     await expect(leaving).resolves.toBeUndefined();
@@ -871,7 +867,7 @@ describe('PRO room session controller', () => {
 
   it('finishes failed captured cleanup against the old cookie path after another room opens', async () => {
     const { api, transport, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.disconnect.mockClear();
 
     let failCapturedClose!: (reason: unknown) => void;
@@ -881,7 +877,7 @@ describe('PRO room session controller', () => {
     const leaving = controller.leave(undefined, capturedClose);
     const replacement = snapshot({ roomCode: '000000', revision: 1 });
     api.createSession.mockResolvedValueOnce(replacement);
-    await controller.join({ code: '000000', pin: '00000000', displayName: 'Friend' });
+    await controller.join({ code: '000000', pin: '00000000' });
 
     failCapturedClose(new Error('offline'));
     await expect(leaving).resolves.toBeUndefined();
@@ -898,7 +894,7 @@ describe('PRO room session controller', () => {
 
   it('terminates a server-rejected session locally without retrying authenticated APIs', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     await controller.terminate();
 
@@ -911,7 +907,7 @@ describe('PRO room session controller', () => {
 
   it('closes locally after pagehide without leaving twice or revoking the resumable session', async () => {
     const { api, transport, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     await controller.closeForUnload();
 
@@ -942,7 +938,6 @@ describe('PRO room session controller', () => {
     const joining = controller.join({
       code: ROOM_CODE,
       pin: '12345678',
-      displayName: 'Owner',
     });
     await vi.waitFor(() => expect(api.createSession).toHaveBeenCalledOnce());
 
@@ -959,7 +954,7 @@ describe('PRO room session controller', () => {
 
   it('does not resurrect a room when a heartbeat resolves after leave', async () => {
     const { api, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
     api.heartbeat.mockImplementation(
@@ -981,7 +976,7 @@ describe('PRO room session controller', () => {
 
   it('turns an old rejected heartbeat into superseded after another room opens', async () => {
     const { api, observer, controller } = fixtures();
-    await controller.join({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
 
     let rejectHeartbeat!: (reason: unknown) => void;
     api.heartbeat.mockImplementationOnce(
@@ -996,7 +991,7 @@ describe('PRO room session controller', () => {
     await controller.leave(undefined, Promise.resolve());
     const replacement = snapshot({ roomCode: '000000', revision: 1 });
     api.createSession.mockResolvedValueOnce(replacement);
-    await controller.join({ code: '000000', pin: '00000000', displayName: 'Friend' });
+    await controller.join({ code: '000000', pin: '00000000' });
     rejectHeartbeat(new Error('SESSION_REQUIRED'));
 
     await expect(heartbeat).rejects.toThrow('PRO_ROOM_SESSION_SUPERSEDED');

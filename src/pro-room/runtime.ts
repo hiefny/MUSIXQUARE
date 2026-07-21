@@ -1353,9 +1353,8 @@ function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
       participants.map((participant) => [participant.participantId, participant.displayName]),
     ),
     // Apply the server-owned identity in the same synchronous projection as
-    // the member directory. Account detach commits before signaling channel
-    // reconfiguration; leaving the old local nickname in this short window
-    // lets a forced heartbeat write it back as an anonymous custom name.
+    // the member directory. Account attach/detach is the only path that
+    // changes a live participant's display identity.
     'network.myDeviceLabel':
       snapshot.viewer?.displayName ||
       ownParticipant?.displayName ||
@@ -3582,11 +3581,7 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
   try {
     await heartbeatSingleFlight.run(
       async () => {
-        const localDisplayName = getState('network.myDeviceLabel').trim();
-        const snapshot = await controller.heartbeat(
-          undefined,
-          localDisplayName || controller.snapshot?.viewer?.displayName,
-        );
+        const snapshot = await controller.heartbeat();
         await acceptPlaylistSnapshot(snapshot);
         // Keep the heartbeat single-flight critical section limited to the
         // authoritative playlist/presence projection. Effects, queue mode,
@@ -4146,10 +4141,6 @@ for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as
   bus.on(event, () => scheduleQueueModeCheckpoint());
 }
 bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint());
-
-bus.on('state:network.myDeviceLabel', () => {
-  if (active) void runHeartbeat(true);
-});
 
 subscribeAccount((snapshot) => {
   accountIdentityGeneration += 1;

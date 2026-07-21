@@ -105,7 +105,6 @@ describe('PRO room setup flow', () => {
       {
         code: ROOM_CODE,
         pin: '12345678',
-        displayName: 'Peer 1',
       },
       expect.any(AbortSignal),
     );
@@ -231,7 +230,6 @@ describe('PRO room setup flow', () => {
       {
         code: ROOM_CODE,
         claimToken: CLAIM,
-        displayName: 'Peer 1',
       },
       expect.any(AbortSignal),
     );

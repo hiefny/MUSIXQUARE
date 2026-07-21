@@ -9,13 +9,11 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import {
-  DEVICE_LABEL_SANITIZE_RE,
   MSG,
   MANUAL_SYNC_OFFSET_LIMIT_SEC,
   MAX_MSG_LENGTH,
   MAX_SENDER_LABEL_LENGTH,
   PLAYBACK_STATE,
-  RESERVED_NAMES,
   type PlaybackActivityValue,
   type PlaybackModeValue,
 } from '../core/constants.ts';
@@ -29,7 +27,6 @@ import {
   setLocalManualSyncOffset,
 } from '../player/transport.ts';
 import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
-import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import {
   getHostNow,
@@ -529,7 +526,7 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 
 // ─── Register Handlers ──────────────────────────────────────────────
 
-// ─── Rename Handler (host-only) ─────────────────────────────────────
+// ─── Member Removal Handler (host-only) ─────────────────────────────────────
 // Registered here instead of host.ts to avoid circular dependency
 // (host.ts → protocol.ts → peer.ts → host.ts).
 
@@ -594,49 +591,6 @@ function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnec
   // connection close). This is a current-session removal; the room PIN still
   // permits the participant to authenticate and join again.
   bus.emit('network:kick-device', targetPeerId);
-}
-
-function handleRequestRename(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only host processes this
-
-  const peerId = conn?.peer;
-  if (!peerId) return;
-  const peers = getState('network.connectedPeers');
-  const requestingPeer = peers.find((peer) => peer.id === peerId && peer.conn === conn);
-  // Verified names are server-owned and update only through a fresh signed
-  // account assertion. The legacy rename message remains anonymous-only.
-  if (requestingPeer?.isAuthenticated) return;
-
-  // Strip control / zero-width / bidi-override characters BEFORE the
-  // reserved/duplicate checks: a "HOST"+zero-width-space must not slip past the
-  // lowercase comparison as a visually identical impersonation, and U+202E
-  // must not reorder the rendered name. (Render sinks are textContent, so
-  // this is anti-spoofing, not XSS.)
-  const newLabel = String(data.newLabel || '')
-    .replace(DEVICE_LABEL_SANITIZE_RE, '')
-    .trim()
-    .slice(0, 20);
-  if (!newLabel) return;
-
-  // Reserved name / profanity check
-  if (RESERVED_NAMES.some((r) => newLabel.toLowerCase() === r.toLowerCase())) return;
-  if (containsProfanity(newLabel)) return;
-
-  // Duplicate name check (including host's own label)
-  const hostLabel = getState('network.myDeviceLabel') || '';
-  if (hostLabel && newLabel.toLowerCase() === hostLabel.toLowerCase()) return;
-  if (peers.some((p) => p.id !== peerId && p.label.toLowerCase() === newLabel.toLowerCase()))
-    return;
-
-  setState('network.peerLabels', { ...getState('network.peerLabels'), [peerId]: newLabel });
-  setState(
-    'network.connectedPeers',
-    peers.map((p) => (p.id === peerId ? { ...p, label: newLabel } : p)),
-  );
-
-  broadcastDeviceList();
-  log.info(`[Sync] Peer ${peerId} renamed to "${newLabel}"`);
 }
 
 // ─── Chat Command Request (OP guest → Host) ─────────────────────
@@ -764,7 +718,6 @@ export function initSync(): void {
     [MSG.SYNC_PING]: handleSyncPing,
     [MSG.SYNC_PONG]: handleSyncPong,
     [MSG.REQUEST_KICK_DEVICE]: handleRequestKickDevice,
-    [MSG.REQUEST_RENAME]: handleRequestRename,
     [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });
 

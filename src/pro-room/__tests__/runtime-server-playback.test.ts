@@ -274,7 +274,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       cancel: cancelMedia,
     });
 
-    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Equal member' });
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
   });
 
   afterEach(async () => {
@@ -1343,7 +1343,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
 
     requestProRoomLeave();
     await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
-    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Equal member' });
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
 
     acceptProRoomRealtimeFrameForTests(
       serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
@@ -1609,7 +1609,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(resumed);
     vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(resumed);
     setDocumentVisibility('hidden', false);
-    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Equal member' });
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalled());
     commitMedia.mockClear();

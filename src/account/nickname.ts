@@ -1,6 +1,6 @@
-import { containsProfanity } from '../chat/profanity.ts';
+import profanityPatterns from '../chat/profanity-patterns.generated.json';
 import {
-  DEVICE_LABEL_SANITIZE_RE,
+  ACCOUNT_NICKNAME_SANITIZE_RE,
   PRO_GENERATED_PEER_NAME_RE,
   RESERVED_NAMES,
 } from '../core/constants.ts';
@@ -10,8 +10,18 @@ import { isAccountAuthenticated } from './state.ts';
 
 export const ACCOUNT_NICKNAME_MAX_CODE_POINTS = 12;
 
+// Account nicknames only reject standalone English profanity. Chat moderation
+// intentionally keeps its broader Korean-substring and English-word policy.
+const ENGLISH_NICKNAME_PROFANITY_RE = profanityPatterns.accountEnglish
+  ? new RegExp(profanityPatterns.accountEnglish, 'iu')
+  : null;
+
+function containsEnglishNicknameProfanity(value: string): boolean {
+  return Boolean(ENGLISH_NICKNAME_PROFANITY_RE?.test(value));
+}
+
 export function normalizeAccountNickname(value: string): string {
-  return value.replace(DEVICE_LABEL_SANITIZE_RE, '').trim().normalize('NFC');
+  return value.replace(ACCOUNT_NICKNAME_SANITIZE_RE, '').trim().normalize('NFC');
 }
 
 export function validateAccountNickname(value: string): string | null {
@@ -28,7 +38,7 @@ export function validateAccountNickname(value: string): string | null {
   ) {
     return t('connect.rename_reserved');
   }
-  if (containsProfanity(nickname)) return t('connect.rename_profanity');
+  if (containsEnglishNicknameProfanity(nickname)) return t('connect.rename_profanity');
   return null;
 }
 
@@ -39,7 +49,6 @@ export async function updateCurrentAccountNickname(value: string): Promise<strin
   const nickname = normalizeAccountNickname(value);
   // Both standard and PRO rooms project account identity from a signed server
   // assertion. saveAccountNickname updates the account snapshot; its
-  // subscriber refreshes the live assertion without ever sending the
-  // browser-authored legacy rename frame.
+  // subscriber refreshes the live assertion.
   return (await saveAccountNickname(nickname)).nickname;
 }

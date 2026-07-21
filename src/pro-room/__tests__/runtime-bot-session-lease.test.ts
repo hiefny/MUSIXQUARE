@@ -135,7 +135,7 @@ describe.sequential('PRO BOT runtime session lease', () => {
       vi.spyOn(ServerProRoomNetworkBridge.prototype, 'disconnect').mockImplementation(() => {}),
     );
 
-    await joinProRoom({ code: ROOM_CODE, pin: '12345678', displayName: 'Owner' });
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
 
     const request = requestActiveProRoomBotCommand(
       ROOM_CODE,

@@ -348,6 +348,53 @@ describe('SYNC_PING playback snapshot', () => {
   });
 });
 
+describe('host heartbeat cleanup ordering', () => {
+  it('fences a stale connection before close can synchronously report an error', () => {
+    vi.useFakeTimers();
+    const disconnected = vi.fn();
+    bus.on('network:peer-disconnected', disconnected);
+    const conn = {
+      peer: 'guest-stale',
+      open: true,
+      send: vi.fn(),
+      close: vi.fn(() => {
+        expect(getState('network.activeHostConnByPeerId').has('guest-stale')).toBe(false);
+        expect(getState('network.connectedPeers')).toHaveLength(0);
+      }),
+    } as unknown as DataConnection;
+    const peer = {
+      id: 'guest-stale',
+      slot: 1,
+      label: 'Peer 1',
+      conn,
+      isOp: false,
+      preloadedQueueItemIds: new Set<string>(),
+      status: 'connected',
+      isDataTarget: true,
+      joinOrder: 1,
+      connectionType: 'local',
+      lastHeartbeat: Date.now() - 9000,
+    } as ConnectedPeer;
+    const slots = [...getState('network.peerSlots')];
+    slots[1] = peer.id;
+    setState('network.peerSlots', slots);
+    setState('network.peerSlotByPeerId', new Map([[peer.id, 1]]));
+    setState('network.peerLabels', { [peer.id]: peer.label });
+    setState('network.connectedPeers', [peer]);
+    setState('network.activeHostConnByPeerId', new Map([[peer.id, conn]]));
+    setState('setup.sessionStarted', true);
+
+    initSync();
+    bus.emit('state:setup.sessionStarted', true);
+    vi.advanceTimersByTime(5000);
+
+    expect(conn.close).toHaveBeenCalledTimes(1);
+    expect(disconnected).toHaveBeenCalledTimes(1);
+    expect(disconnected).toHaveBeenCalledWith(peer.id);
+    expect(getState('network.peerLabels')[peer.id]).toBeUndefined();
+  });
+});
+
 describe('audio activation bootstrap', () => {
   it('arms and cancels initial sync from playback mode/activity transitions', () => {
     vi.useFakeTimers();

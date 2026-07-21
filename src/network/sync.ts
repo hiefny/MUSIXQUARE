@@ -947,6 +947,7 @@ function startHeartbeatMonitor(): void {
       const now = Date.now();
       const connectedPeers = getState('network.connectedPeers');
       const stalePeerIds: string[] = [];
+      const staleConnections: DataConnection[] = [];
 
       for (const p of connectedPeers) {
         if (p.status !== 'connected') continue;
@@ -960,14 +961,7 @@ function startHeartbeatMonitor(): void {
             `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
           );
           stalePeerIds.push(p.id);
-
-          // Try to close the stale connection
-          try {
-            const conn = p.conn as DataConnection;
-            if (conn) conn.close();
-          } catch {
-            /* noop */
-          }
+          if (conn) staleConnections.push(conn);
         }
       }
 
@@ -996,6 +990,17 @@ function startHeartbeatMonitor(): void {
             delete cleanedLabels[id];
           }
           setState('network.peerLabels', cleanedLabels);
+        }
+
+        // Fence stale connections out of host state before physically closing
+        // them. Some Chromium builds emit a synchronous RTCDataChannel error
+        // from close(); host.ts must see that connection as stale and ignore it.
+        for (const conn of staleConnections) {
+          try {
+            conn.close();
+          } catch {
+            /* noop */
+          }
         }
 
         for (const id of stalePeerIds) {

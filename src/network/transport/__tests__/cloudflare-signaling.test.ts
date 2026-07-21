@@ -60,6 +60,7 @@ class FakeDataChannel {
   readyState: RTCDataChannelState = 'open';
   binaryType: BinaryType = 'blob';
   sent: unknown[] = [];
+  emitErrorOnClose = false;
   private listeners = new Map<string, Set<FakeChannelListener>>();
 
   constructor(readonly label: string) {}
@@ -76,6 +77,9 @@ class FakeDataChannel {
 
   close(): void {
     if (this.readyState === 'closed') return;
+    if (this.emitErrorOnClose) {
+      this.dispatch('error', new DOMException('User-Initiated Abort, reason=Close called'));
+    }
     this.readyState = 'closed';
     this.dispatch('close');
   }
@@ -1304,6 +1308,32 @@ describe('Cloudflare client/Worker signaling contract', () => {
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {
+  it('suppresses synchronous channel errors caused by an intentional close', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    bulk.emitErrorOnClose = true;
+    control.emitErrorOnClose = true;
+    const onError = vi.fn();
+    const onClose = vi.fn();
+    conn.on('error', onError);
+    conn.on('close', onClose);
+
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    bulk.dispatch('error', new Error('live channel failure'));
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    conn.close();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(conn.open).toBe(false);
+  });
+
   it('opens only after both channels are ready and keeps upload chunks with their finish fence', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
@@ -1391,6 +1421,107 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     ).toThrow('DATA_CHANNEL_NOT_OPEN');
 
     expect(bulk.sent).toHaveLength(0);
+  });
+
+  it('keeps the previous host connection until its replacement reaches the lifecycle owner', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    const onConnection = vi.fn();
+    peer.on('connection', onConnection);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    const offer = {
+      type: 'signal-offer',
+      from: 'guest-reconnect',
+      sdp: { type: 'offer', sdp: 'guest-offer' },
+    };
+    socket.dispatch('message', JSON.stringify(offer));
+    await flushAsync();
+    const firstPc = FakeRTCPeerConnection.instances[0];
+    const firstBulk = new FakeDataChannel('musixquare-data');
+    const firstControl = new FakeDataChannel('musixquare-control');
+    firstPc.dispatch('datachannel', { channel: firstBulk });
+    firstPc.dispatch('datachannel', { channel: firstControl });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const firstConnection = onConnection.mock.calls[0]?.[0] as CloudflareDataConnection;
+    expect(firstConnection.open).toBe(true);
+
+    socket.dispatch('message', JSON.stringify(offer));
+    await flushAsync();
+    const replacementPc = FakeRTCPeerConnection.instances[1];
+    const replacementControl = new FakeDataChannel('musixquare-control');
+    const replacementBulk = new FakeDataChannel('musixquare-data');
+
+    expect(firstBulk.readyState).toBe('open');
+    replacementPc.dispatch('datachannel', { channel: replacementControl });
+    expect(firstBulk.readyState).toBe('open');
+
+    replacementPc.dispatch('datachannel', { channel: replacementBulk });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const replacementConnection = onConnection.mock.calls[1]?.[0] as CloudflareDataConnection;
+    expect(onConnection).toHaveBeenCalledTimes(2);
+    expect(firstBulk.readyState).toBe('closed');
+    expect(firstConnection.open).toBe(false);
+    expect(replacementConnection.open).toBe(true);
+    expect(privateMaps(peer).connections.get('guest-reconnect')).toBe(replacementConnection);
+
+    peer.destroy();
+  });
+
+  it('restores a live host connection when its replacement negotiation fails', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    const onConnection = vi.fn();
+    const onError = vi.fn();
+    peer.on('connection', onConnection);
+    peer.on('error', onError);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    const offer = {
+      type: 'signal-offer',
+      from: 'guest-reconnect',
+      sdp: { type: 'offer', sdp: 'guest-offer' },
+    };
+    socket.dispatch('message', JSON.stringify(offer));
+    await flushAsync();
+    const firstPc = FakeRTCPeerConnection.instances[0];
+    firstPc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-data') });
+    firstPc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-control') });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const firstConnection = onConnection.mock.calls[0]?.[0] as CloudflareDataConnection;
+    expect(firstConnection.open).toBe(true);
+
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'createAnswer').mockRejectedValueOnce(
+      new Error('answer failed'),
+    );
+    socket.dispatch('message', JSON.stringify(offer));
+    await flushAsync();
+
+    const failedPc = FakeRTCPeerConnection.instances[1];
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onConnection).toHaveBeenCalledTimes(1);
+    expect(firstConnection.open).toBe(true);
+    expect(failedPc.connectionState).toBe('closed');
+    expect(privateMaps(peer).connections.get('guest-reconnect')).toBe(firstConnection);
+
+    peer.destroy();
   });
 
   it('keeps a live guest data channel when only the signaling socket errors', () => {

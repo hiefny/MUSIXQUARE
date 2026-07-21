@@ -160,12 +160,16 @@ describe('duplicate guest connection handoff', () => {
     expect(first.close).toHaveBeenCalled();
     expect(second.close).toHaveBeenCalled();
 
-    // PeerJS delivers the replaced connections' close events late — they must
-    // not tear down the record now bound to the live connection.
+    // Browsers can deliver the replaced connections' close/error events late —
+    // they must not tear down the record now bound to the live connection or
+    // surface a false connection-failed toast.
     first.fire('close');
+    first.fire('error', new Error('late close error'));
     second.fire('close');
+    second.fire('error', new Error('late close error'));
 
     expect(disconnected).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
     expect(replaced).toHaveBeenNthCalledWith(1, 'guest-re');
     expect(replaced).toHaveBeenNthCalledWith(2, 'guest-re');
     const records = getState('network.connectedPeers').filter((p) => p.id === 'guest-re');

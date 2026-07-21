@@ -287,6 +287,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
   private closed = false;
+  private intentionalClosing = false;
   private pcListenersAttached = false;
 
   constructor(
@@ -323,7 +324,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     channel.addEventListener('close', () => {
       this.markClosed();
     });
-    channel.addEventListener('error', (event) => this.emit('error', event));
+    channel.addEventListener('error', (event) => {
+      // Chromium can synchronously report `OperationError: ... Close called`
+      // while an application-requested RTCDataChannel.close() is in progress.
+      // That is a lifecycle notification, not a failed live connection.
+      if (this.closed || this.intentionalClosing) return;
+      this.emit('error', event);
+    });
 
     if (!this.pcListenersAttached) {
       this.pcListenersAttached = true;
@@ -358,7 +365,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   close(): void {
-    if (this.closed) return;
+    if (this.closed || this.intentionalClosing) return;
+    this.intentionalClosing = true;
     try {
       this.dataChannel?.close();
     } catch {
@@ -1373,7 +1381,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const socket = this.hostSocket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
-    this.connections.get(peerId)?.close();
+    // Keep the established connection alive until the replacement has a data
+    // channel and has synchronously reached the host lifecycle owner. Closing
+    // it here lets Chromium's synchronous close/error event tear down the peer
+    // before the replacement is registered.
+    const previousConnection = this.connections.get(peerId);
     const conn = new CloudflareDataConnection(peerId, metadata, roomIdentity);
     const pc = this.createPeerConnection(peerId);
     conn.peerConnection = pc;
@@ -1389,15 +1401,34 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     pc.addEventListener('datachannel', (event) => {
       const shouldEmitConnection = conn.attach(pc, event.channel);
-      if (shouldEmitConnection) this.emit('connection', conn);
+      if (shouldEmitConnection) {
+        this.emit('connection', conn);
+        previousConnection?.close();
+      }
     });
 
-    await pc.setRemoteDescription(sdp);
-    await this.flushRemoteCandidates(peerId);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
-    this.send(socket, { type: 'signal-answer', to: peerId, sdp: pc.localDescription.toJSON() });
+    try {
+      await pc.setRemoteDescription(sdp);
+      await this.flushRemoteCandidates(peerId);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
+      this.send(socket, { type: 'signal-answer', to: peerId, sdp: pc.localDescription.toJSON() });
+    } catch (error) {
+      // A failed replacement must not orphan a still-live established
+      // connection in the transport registry. Restore it only while this
+      // negotiation still owns the peer entry; a newer offer wins.
+      if (this.connections.get(peerId) === conn) {
+        if (previousConnection && this.isDataConnectionAlive(previousConnection)) {
+          this.connections.set(peerId, previousConnection);
+        } else {
+          this.connections.delete(peerId);
+        }
+        this.pendingCandidates.delete(peerId);
+      }
+      conn.close();
+      throw error;
+    }
   }
 
   private async startGuestOffer(

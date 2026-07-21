@@ -15,7 +15,7 @@ const MAX_FUTURE_SKEW_MS = 60_000;
 const ATTEMPT_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
 const PRO_ROOM_CODE_RE = /^0\d{5}$/;
 const SENSITIVE_RETURN_PARAMETER_RE =
-  /^(?:pin|pro[-_]?pin|password|token|claim(?:token)?|pro-claim|pro-recovery)$/i;
+  /^(?:pin|pro[-_]?pin|password|passcode|token|access[-_]?token|refresh[-_]?token|id[-_]?token|claim(?:token)?|pro-claim|pro-recovery|session(?:[-_]?(?:id|secret|token))?|secret|credential|authorization|auth[-_]?code|oauth[-_]?code|code|state|nonce|api[-_]?key|jwt)$/i;
 
 interface AccountLoginReturnIntent {
   attemptId: string | null;
@@ -271,10 +271,16 @@ export function rememberAccountLoginReturn(
 /** Restore a PRO route before setup.ts reads the initial URL. */
 export function restoreAccountLoginReturnPath(): boolean {
   const sessionIntent = readSessionIntent();
+  // Validate the durable slot on every startup, including ordinary browser
+  // tabs that deliberately must not consume it. Otherwise an abandoned
+  // popup-blocked/same-tab attempt could leave an expired route record in
+  // localStorage indefinitely simply because the next launch was not an
+  // installed PWA.
+  const durableIntent = readDurableIntent();
   const intent = sessionIntent?.roomCode
     ? sessionIntent
     : isStandaloneAppContext()
-      ? readDurableIntent()
+      ? durableIntent
       : null;
   if (!intent?.roomCode || !/^\/?$/.test(window.location.pathname)) return false;
 

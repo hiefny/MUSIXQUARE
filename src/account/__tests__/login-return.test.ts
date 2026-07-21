@@ -75,7 +75,7 @@ describe('account login return continuity', () => {
 
   it('scrubs PRO claims and credential-shaped query values before OAuth storage', () => {
     const raw =
-      '/000001?panel=connect&pin=12345678&token=session-secret#view=setup&pro-recovery=claim-secret';
+      '/000001?panel=connect&pin=12345678&access_token=account-secret&state=oauth-secret#view=setup&credential=claim-secret';
     expect(sanitizeAccountLoginReturnPath(raw)).toBe('/000001?panel=connect');
 
     rememberAccountLoginReturn(raw, '000001', { allowSilentTakeover: true });
@@ -83,13 +83,15 @@ describe('account login return continuity', () => {
     const sessionRaw = sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY);
     const durableRaw = localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY);
     expect(sessionRaw).not.toContain('12345678');
-    expect(sessionRaw).not.toContain('session-secret');
+    expect(sessionRaw).not.toContain('account-secret');
+    expect(sessionRaw).not.toContain('oauth-secret');
     expect(sessionRaw).not.toContain('claim-secret');
     expect(JSON.parse(sessionRaw || '{}')).toMatchObject({
       returnTo: '/000001?panel=connect',
     });
     expect(durableRaw).not.toContain('12345678');
-    expect(durableRaw).not.toContain('session-secret');
+    expect(durableRaw).not.toContain('account-secret');
+    expect(durableRaw).not.toContain('oauth-secret');
     expect(durableRaw).not.toContain('claim-secret');
   });
 
@@ -119,6 +121,24 @@ describe('account login return continuity', () => {
     expect(window.location.pathname).toBe('/');
     expect(consumeAccountLoginReturnForRoom('000001')).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it('cleans an expired durable hint even when the next launch is an ordinary browser tab', () => {
+    const { DURABLE_STORAGE_KEY, MAX_AGE_MS } = __accountLoginReturnForTests;
+    localStorage.setItem(
+      DURABLE_STORAGE_KEY,
+      JSON.stringify({
+        attemptId: 'attempt-expired-browser-123',
+        allowSilentTakeover: false,
+        returnTo: '/000001',
+        roomCode: '000001',
+        createdAt: Date.now() - MAX_AGE_MS - 1,
+      }),
+    );
+
+    expect(restoreAccountLoginReturnPath()).toBe(false);
+    expect(window.location.pathname).toBe('/');
+    expect(localStorage.getItem(DURABLE_STORAGE_KEY)).toBeNull();
   });
 
   it('rejects and cleans expired, damaged, or credential-bearing durable state', () => {

@@ -9058,23 +9058,13 @@ html:not(.ios-standalone) body {
   background: var(--surface-2);
   border-radius: 0;
   margin-top: 10px;
-  padding: 14px 14px 14px 16px;
+  padding: 14px;
   gap: 8px;
   overflow: hidden;
 }
 
 .yt-preview-card[hidden] {
   display: none;
-}
-
-.yt-preview-card::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--primary);
 }
 
 .yt-preview-card .setup-card-mt-8 {
@@ -9165,7 +9155,7 @@ html:not(.ios-standalone) body {
   border-radius: 0;
   background: transparent;
   color: var(--text-main);
-  padding: 10px 12px 10px 14px;
+  padding: 10px 12px;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -9173,18 +9163,6 @@ html:not(.ios-standalone) body {
     border-color 0.16s ease,
     background 0.16s ease,
     transform 0.16s ease;
-}
-
-.yt-search-result::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  border-radius: 0;
-  background: transparent;
-  transition: background-color 0.16s ease;
 }
 
 .yt-search-result + .yt-search-result {
@@ -9205,10 +9183,6 @@ html:not(.ios-standalone) body {
 
 .yt-search-result.selected {
   background: var(--surface-2);
-}
-
-.yt-search-result.selected::before {
-  background: var(--primary);
 }
 
 .yt-search-result.selected .yt-search-title {

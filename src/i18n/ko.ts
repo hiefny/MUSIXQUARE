@@ -39,7 +39,7 @@ const ko = {
   'account.login_cancelled': '로그인이 취소됐어요.',
   'account.login_failed': '로그인하지 못했어요. 다시 시도해 주세요.',
   'account.login_message':
-    'Google로 로그인하면 방이 바뀌어도 닉네임을 유지할 수 있어요. 로그인 없이도 계속 이용할 수 있어요.',
+    'Google로 로그인하면 다른 방에서도 닉네임을 유지할 수 있어요. 로그인 없이도 계속 이용할 수 있어요.',
   'account.google_continue': 'Google로 계속하기',
   'account.terms': '이용약관',
   'account.privacy': '개인정보 처리방침',

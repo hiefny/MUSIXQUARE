@@ -348,7 +348,7 @@ describe('Translation key integrity', () => {
       'Sign in with Google to keep your nickname across rooms. You can continue without signing in.',
     );
     expect(ko['account.login_message']).toBe(
-      'Google로 로그인하면 방이 바뀌어도 닉네임을 유지할 수 있어요. 로그인 없이도 계속 이용할 수 있어요.',
+      'Google로 로그인하면 다른 방에서도 닉네임을 유지할 수 있어요. 로그인 없이도 계속 이용할 수 있어요.',
     );
     expect(en['account.delete_confirm_message']).toBe(
       "Your nickname, sign-in sessions, and account-linked room permissions will be deleted. Content shared in a room follows that room's retention policy.",
